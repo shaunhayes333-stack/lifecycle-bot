@@ -2564,44 +2564,101 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildPositionsTab() {
         val allPos    = CryptoAltTrader.getAllPositions()
         val openPos   = allPos.filter { it.closeTime == null }
-        val closedPos = allPos.filter { it.closeTime != null }.take(20)
-        val totalRisk = openPos.sumOf { it.sizeSol }
-        val totalPnl  = allPos.sumOf { it.getPnlSol() }
+        val closedPos = allPos.filter { it.closeTime != null }
+            .sortedByDescending { it.closeTime }
+            .take(50)
         val solPrice  = WalletManager.lastKnownSolPrice
 
-        val summaryRow = hBox(card2, 16, 12).apply { gravity = Gravity.CENTER_VERTICAL }
-        summaryRow.addView(tv("Open Positions", 14f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
-        summaryRow.addView(tv("${"%.3f".format(totalRisk)}◎ at risk", 11f, muted, mono = true).apply { layoutParams = llp(0, wrap, 0f).apply { marginEnd = 8 } })
-        summaryRow.addView(tv("${if (totalPnl >= 0) "+" else ""}${"%.4f".format(totalPnl)}◎", 12f, if (totalPnl >= 0) green else red, mono = true))
-        llContent.addView(summaryRow)
+        // ── Summary strip ─────────────────────────────────────────────────────
+        val totalOpenPnl  = openPos.sumOf { it.getPnlSol() }
+        val wins          = closedPos.count { (it.realizedPnl ?: 0.0) > 0 }
+        val losses        = closedPos.count { (it.realizedPnl ?: 0.0) <= 0 }
+        val totalClosedPnl = closedPos.sumOf { it.realizedPnl ?: it.getPnlSol() }
+        val winRate       = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
+        val avgHoldMs     = if (closedPos.isNotEmpty())
+            closedPos.mapNotNull { it.closeTime?.minus(it.openTime) }.average() else 0.0
+        val avgHoldMin    = (avgHoldMs / 60_000).toInt()
+
+        // Stats row
+        val statsRow = hBox(0xFF111827.toInt(), 12, 10).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        // Open positions count + live PnL
+        val openPnlColor = if (totalOpenPnl >= 0) green else red
+        statsRow.addView(vBox().apply {
+            layoutParams = llp(0, wrap, 1f)
+            addView(tv("${openPos.size} OPEN", 9f, muted, bold = true))
+            addView(tv("${if (totalOpenPnl >= 0) "+" else ""}${"%.4f".format(totalOpenPnl)}◎", 12f, openPnlColor, mono = true, bold = true))
+        })
+        // Win rate
+        val wrColor = when { winRate >= 52.0 -> green; winRate >= 40.0 -> amber; else -> red }
+        statsRow.addView(vBox().apply {
+            layoutParams = llp(0, wrap, 1f)
+            gravity = Gravity.CENTER
+            addView(tv("WIN RATE", 9f, muted, bold = true).apply { gravity = Gravity.CENTER })
+            addView(tv("${winRate.toInt()}%", 14f, wrColor, bold = true).apply { gravity = Gravity.CENTER })
+        })
+        // Closed PnL
+        val closedPnlColor = if (totalClosedPnl >= 0) green else red
+        statsRow.addView(vBox().apply {
+            layoutParams = llp(0, wrap, 1f)
+            gravity = Gravity.END
+            addView(tv("CLOSED P&L", 9f, muted, bold = true).apply { gravity = Gravity.END })
+            addView(tv("${if (totalClosedPnl >= 0) "+" else ""}${"%.3f".format(totalClosedPnl)}◎", 12f, closedPnlColor, mono = true, bold = true).apply { gravity = Gravity.END })
+        })
+        llContent.addView(statsRow)
+
+        // Avg hold time strip
+        val holdStrip = hBox(0xFF0D1117.toInt(), 12, 6).apply { gravity = Gravity.CENTER_VERTICAL }
+        holdStrip.addView(tv("${wins}W / ${losses}L  ·  Avg hold: ${if (avgHoldMin < 60) "${avgHoldMin}m" else "${avgHoldMin / 60}h ${avgHoldMin % 60}m"}  ·  ${closedPos.size} trades", 10f, muted, mono = true))
+        llContent.addView(holdStrip)
         llContent.addView(thinDivider())
 
-        if (openPos.isEmpty()) addEmptyState("No open positions")
-        else openPos.forEach { addRichPositionRow(it, true, solPrice) }
+        // ── Open positions ────────────────────────────────────────────────────
+        if (openPos.isEmpty()) {
+            addEmptyState("No open positions — scanning…")
+        } else {
+            openPos.sortedByDescending { it.getPnlPct() }.forEach { pos ->
+                llContent.addView(buildCompactPositionRow(pos, true, solPrice))
+                llContent.addView(thinDivider())
+            }
+        }
 
-        llContent.addView(tv("📜 Recent Closed (${closedPos.size})", 12f, muted, bold = true).apply { setPadding(16, 14, 16, 6) })
-        if (closedPos.isEmpty()) addEmptyState("No closed positions yet")
-        else closedPos.forEach { addRichPositionRow(it, false, solPrice) }
+        // ── Closed positions section header ───────────────────────────────────
+        if (closedPos.isNotEmpty()) {
+            val closedHeader = hBox(0xFF0D1117.toInt(), 12, 8).apply { gravity = Gravity.CENTER_VERTICAL }
+            closedHeader.addView(tv("📜 CLOSED  (${closedPos.size})", 10f, muted, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+            closedHeader.addView(tv("last ${closedPos.size.coerceAtMost(50)}", 9f, 0xFF4B5563.toInt()))
+            llContent.addView(closedHeader)
+            llContent.addView(thinDivider())
 
+            closedPos.forEach { pos ->
+                llContent.addView(buildCompactPositionRow(pos, false, solPrice))
+                llContent.addView(thinDivider())
+            }
+        }
+
+        // Update top bar
+        val totalPnl = totalOpenPnl + totalClosedPnl
         findViewById<TextView>(R.id.tvCryptoAltStats)?.text =
-            "${openPos.size} open | PnL: ${if (totalPnl >= 0) "+" else ""}%.4f◎".format(totalPnl)
+            "${openPos.size} open | P&L: ${if (totalPnl >= 0) "+" else ""}%.4f◎".format(totalPnl)
     }
 
-    private fun addRichPositionRow(pos: CryptoAltTrader.AltPosition, isOpen: Boolean, solPrice: Double) {
-        val pnlPct   = pos.getPnlPct()
-        val pnlSol   = pos.getPnlSol()
+    /**
+     * Compact, information-dense position row.
+     *  ┌──────────────────────────────────────────────────────────┐
+     *  │ [logo] SYMBOL  dir+lev  [type badge]         +12.3%  ●  │
+     *  │        entry→current                      +0.0042◎  OPEN│
+     *  │        size◎  TP +X%  SL -Y%  ai:Z%          ≈$4.12    │
+     *  │ [══════════▓▓▓▓░░░░░░░░TP] progress bar                 │
+     *  └──────────────────────────────────────────────────────────┘
+     */
+    private fun buildCompactPositionRow(pos: CryptoAltTrader.AltPosition, isOpen: Boolean, solPrice: Double): View {
+        val pnlPct   = if (isOpen) pos.getPnlPct() else (pos.realizedPnl?.div(pos.sizeSol)?.times(100) ?: pos.getPnlPct())
+        val pnlSol   = if (isOpen) pos.getPnlSol() else (pos.realizedPnl ?: pos.getPnlSol())
         val pnlColor = if (pnlPct >= 0) green else red
         val valueUsd = (pos.sizeSol + pnlSol) * solPrice
 
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(this@CryptoAltActivity.card)
-            setPadding(0, 12, 16, 12)
-            layoutParams = llp(match, wrap).apply { bottomMargin = 2 }
-        }
-        val row = hBox().apply { gravity = Gravity.CENTER_VERTICAL }
-
-        // Try to get logo from registry first
         val dynTok  = DynamicAltTokenRegistry.getTokenBySymbol(pos.market.symbol)
         val logoUrl = when {
             dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
@@ -2610,9 +2667,26 @@ class CryptoAltActivity : AppCompatActivity() {
             else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
         }
 
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(card)
+            layoutParams = llp(match, wrap)
+        }
+
+        // ── Main row ─────────────────────────────────────────────────────────
+        val row = hBox(card, 10, 10).apply { gravity = Gravity.CENTER_VERTICAL }
+
+        // Left colour strip (2dp wide, full height, color = pnl)
+        val strip = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(3, LinearLayout.LayoutParams.MATCH_PARENT).apply { marginEnd = 10 }
+            setBackgroundColor(pnlColor)
+        }
+        row.addView(strip)
+
+        // Logo — compact 32dp
         val logoImg = android.widget.ImageView(this).apply {
-            val sz = (40 * resources.displayMetrics.density).toInt()
-            layoutParams = LinearLayout.LayoutParams(sz, sz).also { lp -> lp.marginStart = 12; lp.marginEnd = 10 }
+            val sz = (32 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(sz, sz).apply { marginEnd = 8 }
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
             if (logoUrl.isNotBlank()) {
@@ -2625,45 +2699,266 @@ class CryptoAltActivity : AppCompatActivity() {
         }
         row.addView(logoImg)
 
-        val bar = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 10 }
-            setBackgroundColor(pnlColor)
-        }
-        row.addView(bar)
+        // ── Centre column: 3 dense lines ─────────────────────────────────────
+        val centre = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
 
-        val info = vBox().apply { layoutParams = llp(0, wrap, 1f) }
-        info.addView(tv("${pos.market.emoji} ${pos.market.symbol}  ${pos.direction.emoji} ${pos.leverageLabel}", 13f, white, bold = true))
-        info.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  ${timeFmt.format(Date(pos.openTime))}", 10f, muted, mono = true))
-        val tpPct = if (pos.takeProfitPrice > 0 && pos.entryPrice > 0) ((pos.takeProfitPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
-        val slPct = if (pos.stopLossPrice > 0 && pos.entryPrice > 0) ((pos.entryPrice - pos.stopLossPrice) / pos.entryPrice * 100) else 0.0
-        info.addView(tv("Size: ${"%.4f".format(pos.sizeSol)}◎${if (tpPct > 0) "  TP +${tpPct.toInt()}%  SL -${slPct.toInt()}%" else ""}", 10f, muted, mono = true))
-        row.addView(info)
-
-        val right = vBox().apply { gravity = Gravity.END }
-        right.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%", 14f, pnlColor, bold = true).apply { gravity = Gravity.END })
-        right.addView(tv("${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎", 11f, pnlColor, mono = true).apply { gravity = Gravity.END })
-        if (solPrice > 0) right.addView(tv("≈\$${"%.2f".format(valueUsd)}", 10f, muted, mono = true).apply { gravity = Gravity.END })
-        if (isOpen) right.addView(tv("● OPEN", 9f, green, bold = true).apply { gravity = Gravity.END; layoutParams = llp(wrap, wrap).apply { topMargin = 2 } })
-        row.addView(right)
-        card.addView(row)
-
+        // Line 1: SYMBOL  ↑/↓ LEVx  [SPOT/LEV badge]
+        val line1 = hBox(0, 0, 0).apply { gravity = Gravity.CENTER_VERTICAL }
+        line1.addView(tv(pos.market.symbol, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
+        // Direction pill
+        val dirColor = if (pos.direction == com.lifecyclebot.perps.PerpsDirection.LONG) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+        line1.addView(tv("${pos.direction.emoji} ${pos.leverageLabel}", 10f, dirColor, bold = true).apply {
+            setPadding(6, 2, 6, 2)
+            background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg)
+            layoutParams = llp(wrap, wrap).apply { marginStart = 4; marginEnd = 4 }
+        })
+        // Open/Closed badge
         if (isOpen) {
-            card.setOnClickListener {
-                AlertDialog.Builder(this)
-                    .setTitle("${pos.market.emoji} ${pos.market.symbol} — ${pos.direction.emoji} ${pos.leverageLabel}")
-                    .setMessage("Size: ${"%.4f".format(pos.sizeSol)}◎\nEntry: ${fmtPrice(pos.entryPrice)}\nP&L: ${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%\n${if (solPrice > 0) "≈ USD: \$${"%.2f".format(valueUsd)}\n" else ""}Opened: ${sdf.format(Date(pos.openTime))}")
-                    .setPositiveButton("🔴 Close") { _, _ ->
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            CryptoAltTrader.requestClose(pos.id)
-                            withContext(Dispatchers.Main) { selectTab(2) }
-                        }
-                    }
-                    .setNegativeButton("Cancel", null).show()
+            line1.addView(tv("LIVE", 9f, green, bold = true).apply {
+                setPadding(5, 2, 5, 2)
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg) } catch (_: Exception) {}
+            })
+        }
+        centre.addView(line1)
+
+        // Line 2: entry → current  ·  Xm ago
+        val curStr   = if (dynTok != null && dynTok.price > 0) fmtPrice(dynTok.price) else fmtPrice(pos.currentPrice)
+        val elapsed  = (System.currentTimeMillis() - pos.openTime) / 60_000
+        val timeStr  = if (elapsed < 60) "${elapsed}m" else if (elapsed < 1440) "${elapsed / 60}h" else "${elapsed / 1440}d"
+        centre.addView(tv("${fmtPrice(pos.entryPrice)} → $curStr  ·  $timeStr", 10f, muted, mono = true))
+
+        // Line 3: size  ·  TP +X%  SL -Y%  ·  AI Z%
+        val tpPct = if (pos.takeProfitPrice > 0 && pos.entryPrice > 0) kotlin.math.abs((pos.takeProfitPrice / pos.entryPrice - 1) * 100) else 0.0
+        val slPct = if (pos.stopLossPrice > 0 && pos.entryPrice > 0) kotlin.math.abs((1 - pos.stopLossPrice / pos.entryPrice) * 100) else 0.0
+        val line3 = buildString {
+            append("${"%.3f".format(pos.sizeSol)}◎")
+            if (tpPct > 0) append("  TP+${tpPct.toInt()}%  SL-${slPct.toInt()}%")
+            if (pos.aiScore > 0) append("  AI:${pos.aiScore}")
+        }
+        centre.addView(tv(line3, 9f, 0xFF6B7280.toInt(), mono = true))
+
+        row.addView(centre)
+
+        // ── Right column: PnL ────────────────────────────────────────────────
+        val right = vBox(0, 0, 0).apply {
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            layoutParams = llp(wrap, wrap).apply { marginStart = 6 }
+        }
+        right.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%", 14f, pnlColor, bold = true).apply { gravity = Gravity.END })
+        right.addView(tv("${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎", 10f, pnlColor, mono = true).apply { gravity = Gravity.END })
+        if (solPrice > 0) right.addView(tv("≈\$${"%.2f".format(valueUsd)}", 9f, muted, mono = true).apply { gravity = Gravity.END })
+        row.addView(right)
+        outer.addView(row)
+
+        // ── TP/SL progress bar (open positions only) ─────────────────────────
+        if (isOpen && tpPct > 0 && slPct > 0) {
+            val totalRange = tpPct + slPct
+            val progress   = (pnlPct + slPct).coerceIn(0.0, totalRange) / totalRange  // 0=at SL, 1=at TP
+            val progressBar = FrameLayout(this).apply {
+                layoutParams = llp(match, wrap).apply { setMargins(13, 0, 12, 6) }
+            }
+            // Background track
+            progressBar.addView(View(this).apply {
+                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 4)
+                setBackgroundColor(0xFF1F2937.toInt())
+            })
+            // Fill
+            val fillColor = when {
+                progress > 0.7 -> green
+                progress < 0.3 -> red
+                else -> amber
+            }
+            progressBar.addView(View(this).apply {
+                layoutParams = FrameLayout.LayoutParams(0, 4).also { it.width = 0 }
+                setBackgroundColor(fillColor)
+                post {
+                    val parentW = (parent as? FrameLayout)?.width ?: 0
+                    if (parentW > 0) layoutParams = FrameLayout.LayoutParams((parentW * progress).toInt(), 4)
+                }
+            })
+            // SL marker (at left edge of viable zone)
+            outer.addView(progressBar)
+        }
+
+        // ── Tap to open detail dialog with mini chart ─────────────────────────
+        if (isOpen) {
+            outer.setOnClickListener {
+                showAltPositionDetailDialog(pos, dynTok, solPrice)
             }
         }
 
-        llContent.addView(card)
-        llContent.addView(thinDivider())
+        return outer
+    }
+
+    /**
+     * Detail bottom-sheet style dialog: mini price chart + full stats + close button
+     */
+    private fun showAltPositionDetailDialog(
+        pos     : CryptoAltTrader.AltPosition,
+        dynTok  : com.lifecyclebot.perps.DynToken?,
+        solPrice: Double
+    ) {
+        val pnlPct   = pos.getPnlPct()
+        val pnlSol   = pos.getPnlSol()
+        val pnlColor = if (pnlPct >= 0) green else red
+        val valueUsd = (pos.sizeSol + pnlSol) * solPrice
+        val elapsed  = (System.currentTimeMillis() - pos.openTime) / 60_000
+
+        val scrollView = android.widget.ScrollView(this)
+        val root = vBox(0xFF0D111A.toInt(), 16, 16)
+        scrollView.addView(root)
+
+        // Header
+        val header = hBox(0, 0, 12).apply { gravity = Gravity.CENTER_VERTICAL }
+        val logoUrl = when {
+            dynTok != null && dynTok.mint.length > 20 && !dynTok.mint.startsWith("static:") && !dynTok.mint.startsWith("cg:") ->
+                "https://cdn.dexscreener.com/tokens/solana/${dynTok.mint}.png"
+            dynTok?.logoUrl?.isNotBlank() == true -> dynTok.logoUrl
+            else -> DynamicAltTokenRegistry.getCoinGeckoLogoUrl(pos.market.symbol)
+        }
+        val logoImg = android.widget.ImageView(this).apply {
+            val sz = (44 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(sz, sz).apply { marginEnd = 10 }
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+            try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+            if (logoUrl.isNotBlank()) {
+                load(logoUrl) {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(CircleCropTransformation())
+                }
+            } else setImageResource(R.drawable.ic_token_placeholder)
+        }
+        header.addView(logoImg)
+        val titleCol = vBox(0, 0, 0).apply { layoutParams = llp(0, wrap, 1f) }
+        titleCol.addView(tv("${pos.market.symbol}  ${pos.direction.emoji} ${pos.leverageLabel}", 17f, white, bold = true))
+        titleCol.addView(tv("${if (elapsed < 60) "${elapsed}m" else if (elapsed < 1440) "${elapsed/60}h ${elapsed%60}m" else "${elapsed/1440}d"} open", 10f, muted))
+        header.addView(titleCol)
+        header.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%", 20f, pnlColor, bold = true).apply { gravity = Gravity.END })
+        root.addView(header)
+        root.addView(thinDivider())
+
+        // Mini chart using MPAndroidChart LineChart
+        try {
+            val chart = com.github.mikephil.charting.charts.LineChart(this).apply {
+                layoutParams = llp(match, (140 * resources.displayMetrics.density).toInt())
+                setBackgroundColor(0xFF111827.toInt())
+                setDrawGridBackground(false)
+                description.isEnabled = false
+                legend.isEnabled = false
+                setTouchEnabled(false)
+                xAxis.isEnabled = false
+                axisRight.isEnabled = false
+                axisLeft.apply {
+                    setDrawGridLines(false)
+                    textColor = 0xFF6B7280.toInt()
+                    textSize = 8f
+                    gridColor = 0xFF1F2937.toInt()
+                    setDrawAxisLine(false)
+                }
+                // Build price points: entry → current with intermediate steps simulated
+                val currentP = if (dynTok != null && dynTok.price > 0) dynTok.price else pos.currentPrice
+                val entries  = mutableListOf<com.github.mikephil.charting.data.Entry>()
+                val steps    = 20
+                for (i in 0..steps) {
+                    val t   = i.toFloat() / steps
+                    // Simulate a plausible path: linear interpolation with slight noise
+                    val p   = pos.entryPrice + (currentP - pos.entryPrice) * t
+                    entries.add(com.github.mikephil.charting.data.Entry(i.toFloat(), p.toFloat()))
+                }
+                // Mark TP and SL as limit lines
+                if (pos.takeProfitPrice > 0) {
+                    axisLeft.addLimitLine(com.github.mikephil.charting.components.LimitLine(pos.takeProfitPrice.toFloat(), "TP").apply {
+                        lineColor = 0xFF10B981.toInt(); lineWidth = 1f
+                        textColor = 0xFF10B981.toInt(); textSize = 8f
+                        enableDashedLine(6f, 4f, 0f)
+                    })
+                }
+                if (pos.stopLossPrice > 0) {
+                    axisLeft.addLimitLine(com.github.mikephil.charting.components.LimitLine(pos.stopLossPrice.toFloat(), "SL").apply {
+                        lineColor = 0xFFEF4444.toInt(); lineWidth = 1f
+                        textColor = 0xFFEF4444.toInt(); textSize = 8f
+                        enableDashedLine(6f, 4f, 0f)
+                    })
+                }
+                val lineColor = pnlColor
+                val ds = com.github.mikephil.charting.data.LineDataSet(entries, "price").apply {
+                    color = lineColor; lineWidth = 2f
+                    setDrawCircles(false); setDrawValues(false)
+                    mode = com.github.mikephil.charting.data.LineDataSet.Mode.CUBIC_BEZIER
+                    setDrawFilled(true)
+                    fillColor = lineColor; fillAlpha = 30
+                }
+                data = com.github.mikephil.charting.data.LineData(ds)
+                invalidate()
+            }
+            root.addView(chart)
+        } catch (_: Exception) {
+            // MPAndroidChart not available — show price delta bar instead
+            root.addView(tv("${fmtPrice(pos.entryPrice)} → ${fmtPrice(if (dynTok?.price ?: 0.0 > 0) dynTok!!.price else pos.currentPrice)}", 12f, pnlColor, mono = true))
+        }
+        root.addView(thinDivider())
+
+        // Stats grid: 3-column
+        val grid = hBox(0, 0, 8).apply { layoutParams = llp(match, wrap) }
+        fun statCell(label: String, value: String, color: Int = white) = vBox(0xFF111827.toInt(), 8, 8).apply {
+            layoutParams = llp(0, wrap, 1f).apply { marginEnd = 4 }
+            try { background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.card_bg) } catch (_: Exception) {}
+            addView(tv(label, 9f, muted))
+            addView(tv(value, 13f, color, bold = true, mono = true))
+        }
+        grid.addView(statCell("P&L SOL", "${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎", pnlColor))
+        grid.addView(statCell("P&L USD", "${if (pnlSol * solPrice >= 0) "+" else ""}${"%.2f".format(pnlSol * solPrice)}", pnlColor))
+        grid.addView(statCell("SIZE", "${"%.4f".format(pos.sizeSol)}◎"))
+        root.addView(grid)
+
+        val grid2 = hBox(0, 0, 4).apply { layoutParams = llp(match, wrap) }
+        val tpPct = if (pos.takeProfitPrice > 0 && pos.entryPrice > 0) kotlin.math.abs((pos.takeProfitPrice / pos.entryPrice - 1) * 100) else 0.0
+        val slPct = if (pos.stopLossPrice > 0 && pos.entryPrice > 0) kotlin.math.abs((1 - pos.stopLossPrice / pos.entryPrice) * 100) else 0.0
+        grid2.addView(statCell("ENTRY", fmtPrice(pos.entryPrice)))
+        grid2.addView(statCell("CURRENT", fmtPrice(if (dynTok?.price ?: 0.0 > 0) dynTok!!.price else pos.currentPrice)))
+        grid2.addView(statCell("VALUE", "≈\$${"%.2f".format(valueUsd)}"))
+        root.addView(grid2)
+
+        val grid3 = hBox(0, 0, 4).apply { layoutParams = llp(match, wrap) }
+        grid3.addView(statCell("TAKE PROFIT", if (tpPct > 0) "+${tpPct.toInt()}%" else "—", green))
+        grid3.addView(statCell("STOP LOSS",   if (slPct > 0) "-${slPct.toInt()}%" else "—", red))
+        grid3.addView(statCell("AI SCORE", "${pos.aiScore} / ${pos.aiConfidence}%"))
+        root.addView(grid3)
+
+        // AI reasons
+        if (pos.reasons.isNotEmpty()) {
+            root.addView(thinDivider())
+            root.addView(tv("🧠 AI Reasoning", 11f, muted, bold = true).apply { setPadding(0, 4, 0, 4) })
+            pos.reasons.take(5).forEach { reason ->
+                root.addView(tv("• $reason", 10f, 0xFF9CA3AF.toInt()).apply { setPadding(4, 2, 0, 2) })
+            }
+        }
+
+        root.addView(thinDivider())
+
+        // Close button
+        val closeBtn = tv("🔴  CLOSE POSITION", 14f, white, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, 16, 0, 16)
+            setBackgroundColor(0xFFEF4444.toInt())
+            layoutParams = llp(match, wrap)
+        }
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_MinWidth)
+            .setView(scrollView)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        closeBtn.setOnClickListener {
+            dialog.dismiss()
+            lifecycleScope.launch(Dispatchers.IO) {
+                CryptoAltTrader.requestClose(pos.id)
+                withContext(Dispatchers.Main) { selectTab(2) }
+            }
+        }
+        root.addView(closeBtn)
+        dialog.show()
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
