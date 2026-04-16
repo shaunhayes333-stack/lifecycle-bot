@@ -1527,4 +1527,35 @@ class TursoClient(
         }
     }
 
+
+    /**
+     * V5.9.9: Wipe corrupted historical trade/stats data.
+     * Deletes ALL rows from trade history and derived stats tables.
+     * Keeps: positions, state, schema, blacklist, patterns, lessons, lead-lag pairs.
+     * Call once from Settings or a debug screen, then remove the call.
+     */
+    suspend fun nukeBadData(): Boolean {
+        val tablesToWipe = listOf(
+            "perps_trades",
+            "perps_layer_performance",
+            "perps_market_stats",
+            "perps_patterns",
+            "perps_insights",
+            "markets_trades",
+            "markets_daily_stats",
+            "markets_asset_performance"
+        )
+        var allOk = true
+        for (table in tablesToWipe) {
+            val result = execute("DELETE FROM $table")
+            if (!result.success) {
+                ErrorLogger.warn(TAG, "nukeBadData: failed on $table — ${result.error}")
+                allOk = false
+            } else {
+                ErrorLogger.info(TAG, "nukeBadData: wiped $table (${result.rowsAffected} rows deleted)")
+            }
+        }
+        return allOk
+    }
+
 }
