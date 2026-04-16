@@ -595,6 +595,15 @@ object CloudLearningSync {
                         val raw = 1.0 + ((winComponent + pfComponent) * sampleConfidence)
                         patternMultipliers[patternName] = clamp(raw, 0.70, 1.35)
                     }
+                // V5.9.8: Push collective pattern win rates into BehaviorAI for local gating
+                patternMultipliers.forEach { (name, mult) ->
+                    // mult < 0.8 means collective win rate < 40% — suppress locally too
+                    if (mult < 0.8) {
+                        try { com.lifecyclebot.v3.scoring.BehaviorAI.suppressPattern(name) } catch (_: Exception) {}
+                    } else if (mult > 1.1) {
+                        try { com.lifecyclebot.v3.scoring.BehaviorAI.boostPattern(name) } catch (_: Exception) {}
+                    }
+                }
                 }
 
                 communityWeights = CommunityWeights(

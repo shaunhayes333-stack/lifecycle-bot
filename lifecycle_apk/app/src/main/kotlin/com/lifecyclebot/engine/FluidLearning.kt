@@ -30,6 +30,12 @@ object FluidLearning {
     @Volatile private var simulatedPeakSol: Double = 11.7647
     @Volatile private var totalPaperPnlSol: Double = 0.0
     @Volatile private var paperTradeCount: Int = 0
+    private val tagOutcomes   = mutableMapOf<String, MutableList<Boolean>>()
+    private val exitTagWinRates = mutableMapOf<String, Double>()
+    /** V5.9.8: Win rate for a given exit+regime tag — used by BehaviorAI */
+    fun getExitTagWinRate(exitReason: String, regime: String): Double =
+        exitTagWinRates["$exitReason@$regime"] ?: 50.0
+
     @Volatile private var paperWinCount: Int = 0
     @Volatile private var paperLossCount: Int = 0
 
@@ -209,7 +215,7 @@ object FluidLearning {
     /**
      * Record a paper SELL - updates simulated balance and learning stats
      */
-    fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double) {
+    fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double, exitReason: String = "UNKNOWN", regime: String = "NEUT") {
         val pnlPct = if (originalSol > 0.0) (pnlSol / originalSol) * 100.0 else 0.0
 
         val isWin = isWinPct(pnlPct)
@@ -221,6 +227,13 @@ object FluidLearning {
         try { com.lifecyclebot.engine.BotService.status.paperWalletSol = simulatedBalanceSol } catch (_: Exception) {}
         totalPaperPnlSol += pnlSol
         paperTradeCount++
+        // V5.9.8: track outcome by exit reason × regime
+        val _tag = "$exitReason@$regime"
+        tagOutcomes.getOrPut(_tag) { mutableListOf() }.also {
+            it.add(pnlSol > 0)
+            if (it.size > 50) it.removeAt(0)
+            exitTagWinRates[_tag] = it.count { w -> w }.toDouble() / it.size * 100.0
+        }
 
         when {
             isWin -> {

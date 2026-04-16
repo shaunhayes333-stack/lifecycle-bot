@@ -786,6 +786,8 @@ object MoonshotTraderAI {
         try {
             if (pos.isPaperMode) {
                 FluidLearningAI.recordPaperTrade(isWin)
+                try { com.lifecyclebot.v3.scoring.SmartSizer.recordTrade(isWin, isPaperMode = true) } catch (_: Exception) {}
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, exitReason.name, "MOONSHOT") } catch (_: Exception) {}
             } else {
                 FluidLearningAI.recordLiveTrade(isWin)
             }

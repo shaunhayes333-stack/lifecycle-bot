@@ -116,9 +116,9 @@ object FluidLearningAI {
     //   - Old: Matured to 1.0 (100%) at 1000 trades → stopped trading
     //   - New: Caps at 0.8 (80%) so thresholds never fully close
     //   - This ensures CONTINUOUS trading even with 10,000+ trades
-    private const val BOOTSTRAP_PHASE_END = 1000   // Phase 1: 0-1000 trades
-    private const val MATURE_PHASE_END = 3000      // Phase 2: 1000-3000 trades
-    private const val EXPERT_PHASE_END = 5000      // V5.9: Phase 3: 3000-5000 trades
+    private const val BOOTSTRAP_PHASE_END = 200   // V5.9.8: was 1000
+    private const val MATURE_PHASE_END = 500      // V5.9.8: was 3000
+    private const val EXPERT_PHASE_END = 2000     // V5.9.8: was 5000
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.7.7: Bootstrap score gate constants
