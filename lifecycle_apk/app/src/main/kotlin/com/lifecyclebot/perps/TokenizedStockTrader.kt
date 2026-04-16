@@ -318,6 +318,14 @@ object TokenizedStockTrader {
             return
         }
         tstInited = true
+        // V5.9.8: Sync paper/live mode from main config (source of truth)
+        try {
+            val ctx = com.lifecyclebot.engine.BotService.instance?.applicationContext
+            if (ctx != null) {
+                val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                isPaperMode.set(cfg.paperMode)
+            }
+        } catch (_: Exception) {}
         // V5.7.7: Load persisted state from Turso
         scope.launch {
             loadPersistedState()

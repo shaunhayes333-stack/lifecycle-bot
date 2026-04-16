@@ -290,6 +290,7 @@ class BotService : Service() {
         // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
         try {
             com.lifecyclebot.perps.TokenizedStockTrader.init()
+            com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.TokenizedStockTrader.start()
             ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
         } catch (e: Exception) {
@@ -299,6 +300,7 @@ class BotService : Service() {
         // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
         try {
             com.lifecyclebot.perps.CommoditiesTrader.initialize()
+            com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.CommoditiesTrader.start()
             ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
         } catch (e: Exception) {
@@ -308,6 +310,7 @@ class BotService : Service() {
         // V5.7.6: Start MetalsTrader - Precious & Industrial metals
         try {
             com.lifecyclebot.perps.MetalsTrader.initialize()
+            com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.MetalsTrader.start()
             ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
         } catch (e: Exception) {
@@ -317,6 +320,7 @@ class BotService : Service() {
         // V5.7.6: Start ForexTrader - Currency pairs
         try {
             com.lifecyclebot.perps.ForexTrader.initialize()
+            com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.ForexTrader.start()
             ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
         } catch (e: Exception) {
@@ -342,6 +346,7 @@ class BotService : Service() {
         // V2.0: Start CryptoAltTrader — ALWAYS runs when bot is active (same as meme trader)
         try {
             com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+            com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.CryptoAltTrader.start()
             ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
         } catch (e: Exception) {

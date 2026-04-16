@@ -185,6 +185,11 @@ object CryptoAltTrader {
         ctx   = context.applicationContext
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadFromSharedPrefs()
+        // V5.9.8: Sync paper/live mode from main config (source of truth)
+        try {
+            val cfg = com.lifecyclebot.data.ConfigStore.load(context.applicationContext)
+            isPaperMode.set(cfg.paperMode)
+        } catch (_: Exception) {}
         scope.launch { loadPersistedState() }
         try { BehaviorAI.init(context.applicationContext) }        catch (e: Exception) { ErrorLogger.debug(TAG, "BehaviorAI: ${e.message}") }
         try { StrategyTrustAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "StrategyTrustAI: ${e.message}") }

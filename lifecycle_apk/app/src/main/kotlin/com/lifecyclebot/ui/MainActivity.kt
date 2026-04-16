@@ -1343,14 +1343,13 @@ for legal compliance.
             com.lifecyclebot.engine.BotService.status.paperWalletSol
         else
             ws.solBalance
-        val balUsd = balSol * solPx
 
         if (balSol > 0.001) {
-            tvBalanceLarge.text = currency.format(balUsd)
+            tvBalanceLarge.text = currency.format(balSol)  // currency.format() converts SOL→display currency internally
             tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER ◎ ${"%.4f".format(balSol)}"
                                   else "◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
-            tvBalanceLarge.text = currency.format(ws.solBalance * solPx)
+            tvBalanceLarge.text = currency.format(ws.solBalance)
             tvBalanceUsd.text   = "◎ ${"%.4f".format(ws.solBalance)}"
         } else {
             tvBalanceLarge.text = "—"
