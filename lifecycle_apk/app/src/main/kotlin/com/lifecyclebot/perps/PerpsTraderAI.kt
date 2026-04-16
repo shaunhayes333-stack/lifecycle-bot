@@ -1292,7 +1292,7 @@ object PerpsTraderAI {
     }
     
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
-    fun getBalance(): Double = if (isPaperMode) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveBalanceBps.get() / 10000.0
     
     // Shared wallet: sync live SOL balance from WalletManager (called by BotService)
     fun setLiveBalance(sol: Double) {
