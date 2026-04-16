@@ -1338,7 +1338,7 @@ for legal compliance.
 
         // ── hero balance — BotService.status is the single source of truth ──
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+        val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
         val balSol = if (config.paperMode)
             com.lifecyclebot.engine.BotService.status.paperWalletSol
         else
