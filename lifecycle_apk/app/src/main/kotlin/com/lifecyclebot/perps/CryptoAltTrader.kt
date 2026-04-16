@@ -1454,7 +1454,7 @@ object CryptoAltTrader {
     // V5.9.5: In paper mode, read from shared FluidLearning pool (same as main AATE)
     fun getBalance()          : Double = getEffectiveBalance()
     fun getEffectiveBalance() : Double = if (isPaperMode.get())
-        com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        com.lifecyclebot.engine.BotService.status.paperWalletSol
         else liveWalletBalance
 
     fun setBalance(bal: Double) {
