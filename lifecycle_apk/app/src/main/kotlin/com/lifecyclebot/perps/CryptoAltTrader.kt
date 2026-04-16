@@ -1136,13 +1136,12 @@ object CryptoAltTrader {
 
         // V5.7.7: Count trades at close so win rate is accurate (wins+losses / total)
         totalTrades.incrementAndGet()
-        val pnlPct = if (pos.sizeSol > 0.0) (pnlSol / pos.sizeSol) * 100.0 else 0.0
         if (pnlSol >= 0) {
             winningTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pnlPct) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pos.getPnlPct()) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
         } else {
             losingTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pnlPct) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pos.getPnlPct()) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
         }
 
         if (isPaperMode.get()) {
