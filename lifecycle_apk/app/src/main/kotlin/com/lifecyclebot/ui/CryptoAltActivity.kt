@@ -353,7 +353,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun updateBottomBar() {
         val running = CryptoAltTrader.isRunning()
-        val live    = CryptoAltTrader.isLiveMode()
+        val live    = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
         val open    = CryptoAltTrader.getAllPositions().count { it.closeTime == null }
         val phase   = getPhaseLabel()
 
