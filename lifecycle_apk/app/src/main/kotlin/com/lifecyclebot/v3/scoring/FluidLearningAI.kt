@@ -581,15 +581,8 @@ object FluidLearningAI {
      * Real money, real consequences - this is the gold standard for learning.
      */
     fun recordLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        val magnitude = when {
-            pnlPct >= 100.0 -> 4.0
-            pnlPct >= 50.0  -> 3.0
-            pnlPct >= 20.0  -> 2.0
-            pnlPct <= -20.0 -> 2.0
-            else            -> 1.0
-        }
         synchronized(tradeAccumulatorLock) {
-            liveTradeAccumulator += LIVE_LEARNING_WEIGHT * magnitude
+            liveTradeAccumulator += LIVE_LEARNING_WEIGHT
             while (liveTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
@@ -604,15 +597,10 @@ object FluidLearningAI {
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
     fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        val magnitude = when {
-            pnlPct >= 100.0 -> 4.0   // moonshot = max learning
-            pnlPct >= 50.0  -> 3.0
-            pnlPct >= 20.0  -> 2.0
-            pnlPct <= -20.0 -> 2.0
-            else            -> 1.0
-        }
+        // V5.9.9: Accumulator gates LEARNING PROGRESS, not win/loss counting.
+        // Win rate must count every trade as exactly 1 — no magnitude skew.
         synchronized(tradeAccumulatorLock) {
-            paperTradeAccumulator += PAPER_LEARNING_WEIGHT * magnitude
+            paperTradeAccumulator += PAPER_LEARNING_WEIGHT
             while (paperTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
@@ -664,16 +652,8 @@ object FluidLearningAI {
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
     fun recordMarketsPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        // V5.9.8: Weight by magnitude — a +50% win should teach more than a +1% win
-        val magnitude = when {
-            pnlPct >= 50.0  -> 3.0   // massive win = 3x learning
-            pnlPct >= 20.0  -> 2.0   // big win = 2x learning
-            pnlPct >= 10.0  -> 1.5   // solid win = 1.5x
-            pnlPct <= -20.0 -> 2.0   // big loss = 2x learning (important signal)
-            else            -> 1.0
-        }
         synchronized(marketsAccumulatorLock) {
-            marketsPaperAccumulator += PAPER_LEARNING_WEIGHT * magnitude
+            marketsPaperAccumulator += PAPER_LEARNING_WEIGHT
             while (marketsPaperAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
@@ -687,15 +667,8 @@ object FluidLearningAI {
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
     fun recordMarketsLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        val magnitude = when {
-            pnlPct >= 50.0  -> 3.0
-            pnlPct >= 20.0  -> 2.0
-            pnlPct >= 10.0  -> 1.5
-            pnlPct <= -20.0 -> 2.0
-            else            -> 1.0
-        }
         synchronized(marketsAccumulatorLock) {
-            marketsLiveAccumulator += LIVE_LEARNING_WEIGHT * magnitude
+            marketsLiveAccumulator += LIVE_LEARNING_WEIGHT
             while (marketsLiveAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
