@@ -1138,10 +1138,10 @@ object CryptoAltTrader {
         totalTrades.incrementAndGet()
         if (pnlSol >= 0) {
             winningTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pnlPct) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
         } else {
             losingTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
+            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pnlPct) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
         }
 
         if (isPaperMode.get()) {

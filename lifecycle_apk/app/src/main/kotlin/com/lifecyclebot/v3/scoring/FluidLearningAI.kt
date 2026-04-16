@@ -580,22 +580,22 @@ object FluidLearningAI {
      * 200 live trades = 100% maturity contribution from live.
      * Real money, real consequences - this is the gold standard for learning.
      */
-    fun recordLiveTrade(isWin: Boolean) {
+    fun recordLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        val magnitude = when {
+            pnlPct >= 100.0 -> 4.0
+            pnlPct >= 50.0  -> 3.0
+            pnlPct >= 20.0  -> 2.0
+            pnlPct <= -20.0 -> 2.0
+            else            -> 1.0
+        }
         synchronized(tradeAccumulatorLock) {
-            liveTradeAccumulator += LIVE_LEARNING_WEIGHT
-            
-            // When accumulator reaches 1.0, count as one full trade
+            liveTradeAccumulator += LIVE_LEARNING_WEIGHT * magnitude
             while (liveTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
                 liveTradeAccumulator -= 1.0
             }
-            
-            cachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "🧠 LIVE trade recorded (${LIVE_LEARNING_WEIGHT}x weight) | " +
-            "Progress: ${(getLearningProgress()*100).toInt()}%")
     }
     
     /**
@@ -603,22 +603,22 @@ object FluidLearningAI {
      * 1000 paper trades = 100% maturity contribution from paper.
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
-    fun recordPaperTrade(isWin: Boolean) {
+    fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        val magnitude = when {
+            pnlPct >= 100.0 -> 4.0   // moonshot = max learning
+            pnlPct >= 50.0  -> 3.0
+            pnlPct >= 20.0  -> 2.0
+            pnlPct <= -20.0 -> 2.0
+            else            -> 1.0
+        }
         synchronized(tradeAccumulatorLock) {
-            paperTradeAccumulator += PAPER_LEARNING_WEIGHT
-            
-            // When accumulator reaches 1.0, count as one full trade
+            paperTradeAccumulator += PAPER_LEARNING_WEIGHT * magnitude
             while (paperTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
                 paperTradeAccumulator -= 1.0
             }
-            
-            cachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "🧠 PAPER trade recorded (${PAPER_LEARNING_WEIGHT}x weight) | " +
-            "Progress: ${(getLearningProgress()*100).toInt()}%")
     }
     
     /**
@@ -663,42 +663,45 @@ object FluidLearningAI {
      * Record a MARKETS paper trade (TokenizedStocks, Commodities, Metals, Forex).
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
-    fun recordMarketsPaperTrade(isWin: Boolean) {
+    fun recordMarketsPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        // V5.9.8: Weight by magnitude — a +50% win should teach more than a +1% win
+        val magnitude = when {
+            pnlPct >= 50.0  -> 3.0   // massive win = 3x learning
+            pnlPct >= 20.0  -> 2.0   // big win = 2x learning
+            pnlPct >= 10.0  -> 1.5   // solid win = 1.5x
+            pnlPct <= -20.0 -> 2.0   // big loss = 2x learning (important signal)
+            else            -> 1.0
+        }
         synchronized(marketsAccumulatorLock) {
-            marketsPaperAccumulator += PAPER_LEARNING_WEIGHT
-            
+            marketsPaperAccumulator += PAPER_LEARNING_WEIGHT * magnitude
             while (marketsPaperAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
                 marketsPaperAccumulator -= 1.0
             }
-            
-            marketsCachedProgress = 0.0  // Force recalculation
         }
-        
-        saveMarketsPrefs()  // V5.8.0: persist count
-        ErrorLogger.debug(TAG, "📊 MARKETS PAPER trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
     /**
      * Record a MARKETS live trade.
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
-    fun recordMarketsLiveTrade(isWin: Boolean) {
+    fun recordMarketsLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        val magnitude = when {
+            pnlPct >= 50.0  -> 3.0
+            pnlPct >= 20.0  -> 2.0
+            pnlPct >= 10.0  -> 1.5
+            pnlPct <= -20.0 -> 2.0
+            else            -> 1.0
+        }
         synchronized(marketsAccumulatorLock) {
-            marketsLiveAccumulator += LIVE_LEARNING_WEIGHT
-            
+            marketsLiveAccumulator += LIVE_LEARNING_WEIGHT * magnitude
             while (marketsLiveAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
                 marketsLiveAccumulator -= 1.0
             }
-            
-            marketsCachedProgress = 0.0  // Force recalculation
         }
-        
-        saveMarketsPrefs()  // V5.8.0: persist count
-        ErrorLogger.debug(TAG, "📊 MARKETS LIVE trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
     /**
