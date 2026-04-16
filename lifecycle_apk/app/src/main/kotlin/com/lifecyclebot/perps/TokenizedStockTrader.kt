@@ -221,7 +221,7 @@ object TokenizedStockTrader {
     private val scanCount = AtomicLong(0)
     // V5.9.7: paperBalance now delegates to shared FluidLearning pool
     private var paperBalance: Double
-        get() = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
         set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
     private var totalPnlSol = 0.0
     
@@ -1280,7 +1280,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {

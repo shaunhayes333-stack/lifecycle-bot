@@ -49,7 +49,7 @@ object CommoditiesTrader {
     
     // V5.9.7: paperBalance now delegates to shared FluidLearning pool
     private var paperBalance: Double
-        get() = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
         set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
     private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
     private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
@@ -712,7 +712,7 @@ object CommoditiesTrader {
     fun getSpotPositions(): List<CommodityPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<CommodityPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
-    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getWinningTrades(): Int = winningTrades.get()
@@ -798,7 +798,7 @@ object CommoditiesTrader {
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.FluidLearning.getSimulatedBalance() else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
 
     /**
      * Add SOL to an existing open position (scale-in / pyramid).
