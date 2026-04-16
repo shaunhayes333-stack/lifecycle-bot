@@ -191,7 +191,7 @@ class WalletManager private constructor(private val ctx: Context) {
                 
                 // Also fetch SOL price for USD conversion
                 val solPrice = fetchSolPrice()
-                if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
+                if (solPrice in 50.0..1000.0) WalletManager.lastKnownSolPrice = solPrice
                 
                 _state.value = _state.value.copy(
                     connectionState = WalletConnectionState.CONNECTED,
@@ -303,7 +303,7 @@ class WalletManager private constructor(private val ctx: Context) {
                 price
             }
             
-            if (solPrice > 0) WalletManager.lastKnownSolPrice = solPrice
+            if (solPrice in 50.0..1000.0) WalletManager.lastKnownSolPrice = solPrice
             _state.value = _state.value.copy(
                 solBalance    = solBal,
                 balanceUsd    = solBal * solPrice,
