@@ -951,7 +951,7 @@ object PerpsTraderAI {
                 PerpsAutoReplayLearner.recordTrade(trade, entryMarketData, exitMarketData)
                 // V5.9.8: Sync to FluidLearning shared pool
                 try {
-                    val pnlSolVal = position.pnlSol
+                    val pnlSolVal = pnlSol
                     if (position.isPaper) com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSolVal)
                 } catch (_: Exception) {}
                 ErrorLogger.debug(TAG, "🎬 Trade recorded for learning: ${trade.market.symbol} ${trade.direction.symbol}")
