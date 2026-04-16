@@ -597,8 +597,8 @@ object MetalsTrader {
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin)
-            else FluidLearningAI.recordMarketsLiveTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
         if (isPaperMode.get()) try {

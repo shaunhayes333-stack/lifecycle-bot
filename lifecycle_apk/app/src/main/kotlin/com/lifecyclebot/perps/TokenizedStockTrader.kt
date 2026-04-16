@@ -1061,8 +1061,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // Record to FluidLearningAI
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin)
-            else FluidLearningAI.recordMarketsLiveTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, netPnlPct)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin, netPnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
         if (isPaperMode.get()) try {

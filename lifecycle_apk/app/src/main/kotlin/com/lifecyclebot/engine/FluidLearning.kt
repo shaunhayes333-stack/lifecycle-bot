@@ -218,9 +218,9 @@ object FluidLearning {
     fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double, exitReason: String = "UNKNOWN", regime: String = "NEUT") {
         val pnlPct = if (originalSol > 0.0) (pnlSol / originalSol) * 100.0 else 0.0
 
-        val isWin = isWinPct(pnlPct)
-        val isLoss = isLossPct(pnlPct)
-        val isScratch = !isWin && !isLoss
+        val isWin = pnlSol > 0   // V5.9.8: any positive return = win, no threshold
+        val isLoss = pnlSol < 0   // V5.9.8: any negative return = loss
+        val isScratch = pnlSol == 0.0   // V5.9.8: only exact zero is scratch
 
         simulatedBalanceSol += pnlSol
         // V5.9.8: Keep BotService.status in sync — single source of truth for UI
