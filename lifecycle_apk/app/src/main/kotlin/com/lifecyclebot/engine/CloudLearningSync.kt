@@ -153,8 +153,8 @@ object CloudLearningSync {
         if (!isConfigured()) return@withContext false
 
         try {
-            val requests = JSONArray().apply {
-                // Note: PRAGMA journal_mode = WAL removed — Turso uses WAL2 internally
+            // Phase 1: Create tables (IF NOT EXISTS won't modify existing tables)
+            val createRequests = JSONArray().apply {
                 put(
                     exec(
                         """
@@ -197,21 +197,39 @@ object CloudLearningSync {
                         """.trimIndent()
                     )
                 )
+                put(closeReq())
+            }
+
+            val createResp = pipeline(createRequests)
+            if (createResp == null) {
+                ErrorLogger.error("CloudSync", "Schema init failed: null response")
+                return@withContext false
+            }
+            // Log but don't fail on create errors (tables may already exist)
+            if (pipelineHasErrors(createResp)) {
+                ErrorLogger.warn("CloudSync", "Schema create had warnings (tables may pre-exist)")
+            }
+
+            // Phase 2: Migrations — add missing columns to older tables
+            // ALTER TABLE ADD COLUMN is safe: errors if column exists (expected, ignore)
+            val migrateRequests = JSONArray().apply {
+                put(exec("ALTER TABLE collective_instances ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_feature_weights ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(closeReq())
+            }
+            pipeline(migrateRequests) // Ignore errors — columns may already exist
+
+            // Phase 3: Create indexes (now columns guaranteed to exist)
+            val indexRequests = JSONArray().apply {
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_instances_updated_at ON collective_instances(updated_at)"))
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_features_updated_at ON collective_feature_weights(updated_at)"))
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_patterns_updated_at ON collective_patterns(updated_at)"))
                 put(closeReq())
             }
-
-            val response = pipeline(requests)
-            if (response == null) {
-                ErrorLogger.error("CloudSync", "Schema init failed: null response")
-                return@withContext false
-            }
-
-            if (pipelineHasErrors(response)) {
-                ErrorLogger.error("CloudSync", "Schema init failed: pipeline returned errors")
-                return@withContext false
+            val indexResp = pipeline(indexRequests)
+            if (indexResp != null && pipelineHasErrors(indexResp)) {
+                ErrorLogger.warn("CloudSync", "Index creation had warnings (non-fatal)")
             }
 
             schemaReady = true
