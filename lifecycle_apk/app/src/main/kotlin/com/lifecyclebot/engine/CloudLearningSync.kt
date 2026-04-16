@@ -216,6 +216,10 @@ object CloudLearningSync {
                 put(exec("ALTER TABLE collective_instances ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
                 put(exec("ALTER TABLE collective_feature_weights ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
                 put(exec("ALTER TABLE collective_patterns ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN pattern_name TEXT NOT NULL DEFAULT ''"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN win_rate REAL NOT NULL DEFAULT 0.0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN profit_factor REAL NOT NULL DEFAULT 0.0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN sample_count INTEGER NOT NULL DEFAULT 0"))
                 put(closeReq())
             }
             pipeline(migrateRequests) // Ignore errors — columns may already exist
