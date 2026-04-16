@@ -29,7 +29,7 @@ object MetalsTrader {
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
-    private const val TP_PERCENT = 5.0
+    // V5.9.8: TP now dynamic via FluidLearningAI (static 5% removed)
     private const val SL_PERCENT = 3.0
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (5x)
@@ -92,7 +92,7 @@ object MetalsTrader {
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
-        fun shouldTakeProfit(): Boolean = getPnlPercent() >= TP_PERCENT
+        fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
         fun shouldStopLoss(): Boolean = getPnlPercent() <= -SL_PERCENT
     }
     

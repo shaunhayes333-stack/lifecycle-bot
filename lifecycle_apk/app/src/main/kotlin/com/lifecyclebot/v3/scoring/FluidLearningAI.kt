@@ -937,8 +937,8 @@ object FluidLearningAI {
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
-    private const val MARKETS_TP_BOOTSTRAP = 4.0    // was 2% — must exceed SL for positive EV
-    private const val MARKETS_TP_MATURE = 8.0       // realistic target, scales with learning
+    private const val MARKETS_TP_BOOTSTRAP = 4.0    // V5.9.8: start conservative
+    private const val MARKETS_TP_MATURE = 25.0   // V5.9.8: was 8% — was capping legitimate big moves
     
     // Stop Loss targets - WIDER at bootstrap for learning
     private const val MARKETS_SL_BOOTSTRAP = -3.0   // was -12% — catastrophic, burned balance fast
@@ -962,6 +962,15 @@ object FluidLearningAI {
     
     /** Get fluid take profit target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsTakeProfitPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+
+    /** V5.9.8: Spot trades — moderate ceiling, markets move slower than meme coins */
+    fun getMarketsSpotTpPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+
+    /** V5.9.8: Leverage trades — higher TP ceiling to justify the leverage risk */
+    fun getMarketsLevTpPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP * 1.5, MARKETS_TP_MATURE * 1.5)
+
+    /** V5.9.8: Never cap TP — if a signal has a higher target, honour it */
+    fun getMarketsUncappedTpPct(signalTp: Double): Double = maxOf(signalTp, getMarketsSpotTpPct())
     
     /** Get fluid stop loss target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsStopLossPct(): Double = lerpMarkets(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)

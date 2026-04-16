@@ -29,9 +29,9 @@ object CommoditiesTrader {
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
-    private const val TP_PERCENT_SPOT = 4.0       // Tighter TP for spot
+    // V5.9.8: TP now dynamic via FluidLearningAI.getMarketsSpotTpPct() / getMarketsLevTpPct()
     private const val SL_PERCENT_SPOT = 3.0       // Tighter SL for spot
-    private const val TP_PERCENT_LEVERAGE = 8.0   // Wider for leverage
+    // (static TP_PERCENT constants removed V5.9.8)
     private const val SL_PERCENT_LEVERAGE = 5.0
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (5x)
@@ -103,7 +103,9 @@ object CommoditiesTrader {
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
         fun shouldTakeProfit(): Boolean {
-            val tp = if (isSpot) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+            val tp = if (isSpot)
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+            else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
             return getPnlPercent() >= tp
         }
         
@@ -466,7 +468,10 @@ object CommoditiesTrader {
             }
         }
         
-        val tpPct = if (signal.tradeType == TradeType.SPOT) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+        // V5.9.8: Dynamic TP — 4→25% as learning matures, never caps legitimate runs
+        val tpPct = if (signal.tradeType == TradeType.SPOT)
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+        else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         val slPct = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
         
         val tp = if (signal.direction == PerpsDirection.LONG) {

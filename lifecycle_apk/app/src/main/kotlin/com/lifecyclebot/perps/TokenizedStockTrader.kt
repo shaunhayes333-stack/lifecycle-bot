@@ -900,7 +900,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val tpPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
             if (isSpot) riskInsights.suggestedTakeProfitPct * 0.6 else riskInsights.suggestedTakeProfitPct
         } else {
-            if (isSpot) 5.0 else 8.0  // Defaults: SPOT 5%, LEV 8%
+            // V5.9.8: Use FluidLearningAI dynamic TP — scales 4→25% with learning, never caps big moves
+            if (isSpot) com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+            else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         }
         val slPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
             if (isSpot) riskInsights.suggestedStopLossPct * 0.6 else riskInsights.suggestedStopLossPct

@@ -30,7 +30,7 @@ object ForexTrader {
     private const val MAX_POSITIONS = 25
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds (forex is fast)
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
-    private const val TP_PERCENT = 3.0           // Tighter TP for forex
+    // V5.9.8: TP now dynamic via FluidLearningAI (static 3% removed)
     private const val SL_PERCENT = 2.0           // Tighter SL for forex
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (10x)
@@ -93,7 +93,7 @@ object ForexTrader {
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
-        fun shouldTakeProfit(): Boolean = getPnlPercent() >= TP_PERCENT
+        fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
         fun shouldStopLoss(): Boolean = getPnlPercent() <= -SL_PERCENT
     }
     

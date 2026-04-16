@@ -64,9 +64,9 @@ object CryptoAltTrader {
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
     private const val DEFAULT_SIZE_PCT      = 3.0           // 3% of balance per trade (20 pos max = 60% total exposure)
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
-    private const val DEFAULT_TP_SPOT       = 6.0           // SPOT take-profit %
+    // V5.9.8: DEFAULT_TP_SPOT removed — now dynamic via FluidLearningAI
     private const val DEFAULT_SL_SPOT       = 3.5           // SPOT stop-loss %
-    private const val DEFAULT_TP_LEV        = 10.0          // LEVERAGE take-profit %
+    // V5.9.8: DEFAULT_TP_LEV removed — now dynamic via FluidLearningAI
     private const val DEFAULT_SL_LEV        = 5.0           // LEVERAGE stop-loss %
 
     // Alts that the SOL perps engine already handles — excluded here
@@ -944,7 +944,9 @@ object CryptoAltTrader {
         }
         }
 
-        val tpPct  = if (isSpot) DEFAULT_TP_SPOT else DEFAULT_TP_LEV
+        val tpPct = if (isSpot)
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+        else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         val slPct  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
         val lev    = if (isSpot) 1.0 else signal.leverage
 
@@ -1110,7 +1112,9 @@ object CryptoAltTrader {
                     spotPositions.remove(id)
                 }
 
-                val tpPct = if (updated.isSpot) DEFAULT_TP_SPOT else DEFAULT_TP_LEV
+                val tpPct = if (updated.isSpot)
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+                else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
                 val slPct = if (updated.isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
 
                 when {
