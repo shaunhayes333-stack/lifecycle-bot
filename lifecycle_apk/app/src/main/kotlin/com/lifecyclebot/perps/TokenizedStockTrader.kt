@@ -1417,10 +1417,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
     
     /** Get balance based on current mode */
-    // V5.9.5: Read from shared FluidLearning pool — same wallet as main AATE
+    // V5.9.8: Read from shared BotService pool — same wallet as main AATE and CryptoAlt
     fun getEffectiveBalance(): Double {
         return if (isPaperMode.get())
-            com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            com.lifecyclebot.engine.BotService.status.paperWalletSol
         else liveWalletBalance
     }
     

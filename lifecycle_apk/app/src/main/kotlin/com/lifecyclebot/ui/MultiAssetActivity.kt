@@ -736,31 +736,14 @@ class MultiAssetActivity : AppCompatActivity() {
         }
     }
     
-    // V5.7.6b: Get total balance across all Markets traders
+    // V5.9.8: All traders share one wallet — total IS the shared balance
     private fun getTotalMarketsBalance(): Double {
-        return try {
-            TokenizedStockTrader.getBalance() +
-            CommoditiesTrader.getBalance() +
-            MetalsTrader.getBalance() +
-            ForexTrader.getBalance() +
-            PerpsTraderAI.getBalance() +
-            CryptoAltTrader.getBalance()
-        } catch (_: Exception) { 0.0 }
+        return com.lifecyclebot.engine.BotService.status.paperWalletSol
     }
     
-    // V5.7.6b: Refresh all trader balances
+    // V5.9.8: No-op — all traders read from shared BotService.status.paperWalletSol
     private fun refreshAllBalances(totalSol: Double) {
-        // Split meme master balance equally across all 6 Markets sub-traders
-        val perTraderSol = totalSol / 6.0  // Equal split across 6 Markets sub-traders
-        
-        TokenizedStockTrader.setBalance(perTraderSol)
-        CommoditiesTrader.setBalance(perTraderSol)
-        MetalsTrader.setBalance(perTraderSol)
-        ForexTrader.setBalance(perTraderSol)
-        PerpsTraderAI.setBalance(perTraderSol)
-        CryptoAltTrader.setBalance(perTraderSol)
-        
-        ErrorLogger.info(TAG, "💰 Markets balances synced: ${"%.4f".format(totalSol)} SOL ÷ 6 = ${"%.4f".format(perTraderSol)} SOL each")
+        ErrorLogger.info(TAG, "💰 All traders share wallet: ${"%.4f".format(totalSol)} SOL")
     }
     
     // V5.7.6b: Show balance dialog with refresh option

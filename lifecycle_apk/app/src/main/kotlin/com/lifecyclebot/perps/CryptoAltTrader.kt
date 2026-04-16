@@ -1048,10 +1048,12 @@ object CryptoAltTrader {
             val wallet = WalletManager.getWallet()
                 ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return false }
 
-            val balance = liveWalletBalance
+            // V5.9.8: Always read fresh balance from wallet (not stale cache)
+            val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            if (balance > 0) updateLiveBalance(balance)
             val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
             if (sizeSol < 0.01) {
-                ErrorLogger.warn(TAG, "Live balance too low: ${sizeSol} SOL")
+                ErrorLogger.warn(TAG, "Live balance too low: ${"%.4f".format(balance)} SOL")
                 return false
             }
 
