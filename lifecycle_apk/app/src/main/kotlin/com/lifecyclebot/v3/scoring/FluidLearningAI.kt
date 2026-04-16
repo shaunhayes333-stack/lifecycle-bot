@@ -532,7 +532,8 @@ object FluidLearningAI {
      * Call this when any layer opens a position.
      */
     fun recordTradeStart() {
-        sessionTrades.incrementAndGet()
+        // V5.9.9: Do NOT increment sessionTrades here — only closed trades count
+        // Trade opens are counted by TradeHistoryStore via recordTradeStart intent
         lastProgressUpdate.set(0)  // Force progress recalculation
         ErrorLogger.debug(TAG, "📊 Trade started | total=${getTotalTradeCount()} | progress=${(getLearningProgress()*100).toInt()}%")
     }
@@ -544,7 +545,7 @@ object FluidLearningAI {
     fun recordMarketsTradeStart() {
         // V5.9.8: Count every position open as a full learning trade
         // The readiness bar must move visibly as the trader is actively trading
-        marketsSessionTrades.incrementAndGet()
+        // V5.9.9: Do NOT increment marketsSessionTrades here — only closed trades count
         marketsCachedProgress = 0.0  // Force recalculation
         marketsLastProgressUpdate.set(0)
         saveMarketsPrefs()
