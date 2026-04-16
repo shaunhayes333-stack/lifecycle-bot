@@ -1328,6 +1328,9 @@ class MultiAssetActivity : AppCompatActivity() {
                             "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Normal lifecycle — user navigated away; don't log as error
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "updateTotalBalance failed: ${e.message}")
                 withContext(Dispatchers.Main) {

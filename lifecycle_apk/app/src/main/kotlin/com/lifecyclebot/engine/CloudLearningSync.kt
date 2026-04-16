@@ -154,7 +154,7 @@ object CloudLearningSync {
 
         try {
             val requests = JSONArray().apply {
-                put(exec("PRAGMA journal_mode = WAL"))
+                // Note: PRAGMA journal_mode = WAL removed — Turso uses WAL2 internally
                 put(
                     exec(
                         """
@@ -771,19 +771,34 @@ object CloudLearningSync {
     }
 
     private fun pipelineHasErrors(response: JSONObject): Boolean {
-        if (response.has("error")) return true
+        if (response.has("error")) {
+            ErrorLogger.error("CloudSync", "Pipeline top-level error: ${response.optString("error")}")
+            return true
+        }
 
         val results = response.optJSONArray("results") ?: return false
         for (i in 0 until results.length()) {
             val item = results.optJSONObject(i) ?: continue
 
-            if (item.has("error")) return true
+            // Skip close responses — they don't have error fields
+            if (item.optString("type") == "close") continue
+
+            if (item.has("error")) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i error: ${item.optJSONObject("error")?.optString("message") ?: item.optString("error")}")
+                return true
+            }
 
             val responseObj = item.optJSONObject("response")
-            if (responseObj?.has("error") == true) return true
+            if (responseObj?.has("error") == true) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i response error: ${responseObj.optString("error")}")
+                return true
+            }
 
             val resultObj = responseObj?.optJSONObject("result")
-            if (resultObj?.has("error") == true) return true
+            if (resultObj?.has("error") == true) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i result error: ${resultObj.optString("error")}")
+                return true
+            }
         }
 
         return false
