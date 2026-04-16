@@ -217,6 +217,8 @@ object FluidLearning {
         val isScratch = !isWin && !isLoss
 
         simulatedBalanceSol += pnlSol
+        // V5.9.8: Keep BotService.status in sync — single source of truth for UI
+        try { com.lifecyclebot.engine.BotService.status.paperWalletSol = simulatedBalanceSol } catch (_: Exception) {}
         totalPaperPnlSol += pnlSol
         paperTradeCount++
 

@@ -343,6 +343,11 @@ object ManipulatedTraderAI {
         val pnlSol = pos.entrySol * (pnlPct / 100.0)
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
+        // V5.9.8: Sync paper P&L to shared wallet
+        if (pos.isPaper) {
+            com.lifecyclebot.engine.BotService.status.paperWalletSol =
+                (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
+        }
 
         if (pnlPct >= 0) _dailyWins.incrementAndGet() else _dailyLosses.incrementAndGet()
 

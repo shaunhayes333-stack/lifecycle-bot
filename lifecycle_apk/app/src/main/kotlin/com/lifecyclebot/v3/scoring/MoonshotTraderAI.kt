@@ -772,6 +772,11 @@ object MoonshotTraderAI {
         // Update balance
         val balanceRef = if (pos.isPaperMode) paperBalanceBps else liveBalanceBps
         balanceRef.addAndGet((pnlSol * 10000).toLong())
+            // V5.9.8: Sync paper P&L to shared wallet
+            if (pos.isPaperMode) {
+                com.lifecyclebot.engine.BotService.status.paperWalletSol =
+                    (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
+            }
         
         // Update local learning progress
         updateLearning(pnlPct, isWin)
