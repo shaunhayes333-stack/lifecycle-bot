@@ -1358,7 +1358,7 @@ for legal compliance.
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         if (solPrice >= 10) {
             tvSolPrice.text = "$${solPrice.toInt()}"
         } else {
@@ -2059,7 +2059,7 @@ for legal compliance.
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         positions.forEach { ts ->
             val pos     = ts.position
@@ -2204,7 +2204,7 @@ for legal compliance.
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>) {
         llTreasuryPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         positions.forEach { pos ->
             // V5.8: Use BotService.status.tokens for consistent live price across ALL windows
@@ -4298,7 +4298,7 @@ This cannot be undone!
         llIdleList.removeAllViews()
         
         val active = state.config.activeToken
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         // ═══════════════════════════════════════════════════════════════════════
         // V5.2: THREE-COLUMN LAYOUT - Probation | Watchlist | Idle
@@ -5434,7 +5434,7 @@ risking real capital.
             val treasuryAI = com.lifecyclebot.v3.scoring.CashGenerationAI
             val stats = treasuryAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             // Get both paper and live balances for comparison
             val paperBalance = treasuryAI.getTreasuryBalance(true)
@@ -5626,7 +5626,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             val blueChipAI = com.lifecyclebot.v3.scoring.BlueChipTraderAI
             val blueChipStats = blueChipAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
@@ -5733,7 +5733,7 @@ Entry Criteria:
             val shitCoinAI = com.lifecyclebot.v3.scoring.ShitCoinTraderAI
             val stats = shitCoinAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
@@ -5802,7 +5802,7 @@ Use with caution - moon or zero!
         try {
             val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
@@ -5897,7 +5897,7 @@ HoldTime, Whale, Regime + 15 more
         try {
             val moonshotAI = com.lifecyclebot.v3.scoring.MoonshotTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             val pnlSign = if (moonshotAI.getDailyPnlSol() >= 0) "+" else ""
@@ -5977,7 +5977,7 @@ get PROMOTED here to ride for
         try {
             val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             // Check if user has acknowledged risk
             if (!perpsAI.hasAcknowledgedRisk()) {
