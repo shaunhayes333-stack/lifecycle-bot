@@ -4237,7 +4237,7 @@ if (deferredCount > 0) {
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
-                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 3.5 else treasurySignal.takeProfitPct
+                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 4.0 else treasurySignal.takeProfitPct
                             val effectiveSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
                             
                             // ═══════════════════════════════════════════════════════════════════

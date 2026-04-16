@@ -504,7 +504,7 @@ object MoonshotTraderAI {
         }
         
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
-        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP)
+        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
         val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
         
         return MoonshotScore(

@@ -1024,15 +1024,17 @@ object FluidLearningAI {
      * Bootstrap: TIGHT take profits (secure wins while learning)
      * Mature: WIDE take profits (let winners run with confidence)
      */
-    fun getFluidTakeProfit(modeDefaultTp: Double): Double {
-        val progress = getLearningProgress()
-        
-        // V5.2.11: Raised bootstrap TP from 8% to 15%
-        // 8% was selling winners too early before they could run
-        val bootstrapTp = minOf(modeDefaultTp, 15.0)  // Max +15% TP during bootstrap
-        val matureTp = modeDefaultTp                   // Use mode's intended TP when mature
-        
-        return lerp(bootstrapTp, matureTp)
+    fun getFluidTakeProfit(modeDefaultTp: Double, tradingMode: String = ""): Double {
+        // V5.9.8: Moonshot/Treasury/BlueChip modes must never be TP-capped
+        // Capping at 15% during bootstrap was killing 50-200% winners
+        val isHighUpsideMode = tradingMode.contains("MOONSHOT", ignoreCase = true)
+            || tradingMode.contains("TREASURY", ignoreCase = true)
+            || tradingMode.contains("BLUE", ignoreCase = true)
+        if (isHighUpsideMode) return modeDefaultTp
+
+        // Standard modes: lerp from 15% bootstrap cap → full TP at maturity
+        val bootstrapTp = minOf(modeDefaultTp, 15.0)
+        return lerp(bootstrapTp, modeDefaultTp)
     }
     
     /**
