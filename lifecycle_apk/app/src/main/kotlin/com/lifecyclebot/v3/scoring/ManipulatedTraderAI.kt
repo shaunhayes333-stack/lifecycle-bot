@@ -344,7 +344,7 @@ object ManipulatedTraderAI {
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
         val _isWin = pnlPct >= 0
-        try { com.lifecyclebot.v3.scoring.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (_: Exception) {}
         if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (_: Exception) {}
         // V5.9.8: Sync paper P&L to shared wallet
         if (pos.isPaper) {
