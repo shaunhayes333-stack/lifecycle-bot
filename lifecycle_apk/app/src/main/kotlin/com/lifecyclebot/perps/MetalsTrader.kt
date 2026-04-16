@@ -460,9 +460,9 @@ object MetalsTrader {
         }
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 + TP_PERCENT / 100)
+            signal.price * (1 + com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
         } else {
-            signal.price * (1 - TP_PERCENT / 100)
+            signal.price * (1 - com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
         }
         
         val sl = if (signal.direction == PerpsDirection.LONG) {
