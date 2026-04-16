@@ -745,6 +745,12 @@ class BotService : Service() {
 
             val cfg = ConfigStore.load(applicationContext)
             addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
+
+            // ── Paper wallet init — set to configured starting balance if not yet set ──
+            if (cfg.paperMode && status.paperWalletSol <= 0.0) {
+                status.paperWalletSol = cfg.paperSimulatedBalance
+                addLog("💰 Paper wallet initialised: ${cfg.paperSimulatedBalance} SOL")
+            }
             
             // Determine best RPC URL - prefer Helius if key available
             val rpcUrl = if (cfg.heliusApiKey.isNotBlank()) {
