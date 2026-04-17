@@ -223,8 +223,15 @@ object FluidLearning {
         val isScratch = pnlSol == 0.0   // V5.9.8: only exact zero is scratch
 
         simulatedBalanceSol += pnlSol
-        // V5.9.8: Keep BotService.status in sync — single source of truth for UI
-        try { com.lifecyclebot.engine.BotService.status.paperWalletSol = simulatedBalanceSol } catch (_: Exception) {}
+        // V5.9.18 CRITICAL FIX: DO NOT overwrite BotService.status.paperWalletSol here.
+        // `simulatedBalanceSol` is FluidLearning's internal PnL tracker — it only grows
+        // by pnl, it never debits the buy cost. So when multiple positions are open
+        // concurrently, simulatedBalanceSol > true free cash by (sum of open exposure).
+        // Previously this line overwrote the Executor's accurate free-cash tracker on
+        // every sell, double-counting open-position exposure and causing paper wallet
+        // to explode from $1000 → $73M over a few dozen trades. The Executor's
+        // `onPaperBalanceChange` callback is the single source of truth for
+        // status.paperWalletSol now.
         totalPaperPnlSol += pnlSol
         paperTradeCount++
         // V5.9.8: track outcome by exit reason × regime

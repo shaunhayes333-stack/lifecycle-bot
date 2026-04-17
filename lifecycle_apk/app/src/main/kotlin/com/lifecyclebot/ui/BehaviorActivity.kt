@@ -141,6 +141,31 @@ class BehaviorActivity : AppCompatActivity() {
             resetAllLearning()
         }
 
+        // V5.9.18: Reset paper wallet only (preserves learning + AI state)
+        try {
+            findViewById<Button>(R.id.btnResetPaperWallet)?.setOnClickListener {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Reset Paper Wallet")
+                    .setMessage("Reset paper wallet back to $1000 USD (~11.76 SOL)?\n\nThis only resets the cash balance. Learning, trust scores, and trade history are preserved.")
+                    .setPositiveButton("Reset") { _, _ ->
+                        try {
+                            val freshSol = 11.7647
+                            com.lifecyclebot.engine.BotService.status.paperWalletSol = freshSol
+                            com.lifecyclebot.engine.FluidLearning.forceSetBalance(freshSol)
+                            try {
+                                getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
+                                    .edit().putFloat("paper_wallet_sol", freshSol.toFloat()).apply()
+                            } catch (_: Exception) {}
+                            android.widget.Toast.makeText(this, "Paper wallet reset to \$1000 (~11.76 SOL)", android.widget.Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            ErrorLogger.warn("BehaviorUI", "Paper wallet reset failed: ${e.message}")
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        } catch (_: Exception) {}
+
         // V5.9.10: Sentient Mind UI
         tvSentientMood        = try { findViewById(R.id.tvSentientMood) } catch (_: Exception) { null }
         tvSentientDiagnostics = try { findViewById(R.id.tvSentientDiagnostics) } catch (_: Exception) { null }

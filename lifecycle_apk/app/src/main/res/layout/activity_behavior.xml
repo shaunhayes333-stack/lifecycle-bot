@@ -657,6 +657,18 @@
                     android:layout_marginStart="0dp"/>
             </LinearLayout>
 
+            <!-- V5.9.18: Paper wallet recovery — resets paper cash only, preserves learning -->
+            <Button
+                android:id="@+id/btnResetPaperWallet"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/bottom_bar_button_height"
+                android:text="RESET PAPER WALLET ($1000)"
+                android:textColor="#14F195"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:backgroundTint="#00140A"
+                android:layout_marginTop="8dp"/>
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>
