@@ -1,6 +1,9 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.collective.PerpsTradeRecord
+import com.lifecyclebot.collective.PerpsPositionRecord
+import com.lifecyclebot.collective.CollectiveLearning
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -65,13 +68,19 @@ object PerpsTraderAI {
     private const val DAILY_MAX_TRADES_PAPER = 999999     // V5.7.4: UNLIMITED trades in paper mode for learning
     
     // Readiness thresholds
-    private const val MIN_PAPER_TRADES_FOR_LIVE = 50
-    private const val MIN_WIN_RATE_FOR_LIVE = 45.0
+    private const val MIN_PAPER_TRADES_FOR_LIVE = 5000
+    private const val MIN_WIN_RATE_FOR_LIVE = 55.0
     private const val MIN_READINESS_SCORE_FOR_LIVE = 75
     
     // Learning thresholds
     private const val LEARNING_BOOTSTRAP_TRADES = 20
     private const val LEARNING_MATURE_TRADES = 100
+
+    // Phase progression thresholds (mirrors meme trader)
+    private const val PHASE_BOOTSTRAP_MAX  =  500
+    private const val PHASE_LEARNING_MAX   = 1500
+    private const val PHASE_VALIDATING_MAX = 3000
+    private const val PHASE_MATURING_MAX   = 5000
     
     // Leverage intelligence
     private const val BASE_LEVERAGE_PAPER = 5.0
@@ -134,6 +143,60 @@ object PerpsTraderAI {
     // PERSISTENCE - SharedPreferences
     // ═══════════════════════════════════════════════════════════════════════════
     
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: HIVEMIND PERPS MARKET WIN-RATE CACHE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private val hivePerpsWinRates = ConcurrentHashMap<String, Pair<Double, Double>>()
+    private var hivePerpsLoadedAt = 0L
+    private const val HIVE_PERPS_TTL_MS = 30 * 60 * 1000L
+
+    private fun refreshHivePerpsRatesAsync() {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
+                val rates = client.getPerpsMarketWinRates(minTrades = 10)
+                if (rates.isNotEmpty()) {
+                    hivePerpsWinRates.clear()
+                    hivePerpsWinRates.putAll(rates)
+                    hivePerpsLoadedAt = System.currentTimeMillis()
+                    ErrorLogger.info(TAG, "🧠 Hive perps cache refreshed: ${rates.size} market/dir pairs")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🧠 Hive perps refresh error: ${e.message}")
+            }
+        }
+    }
+
+    private fun hivePerpsAdjust(market: PerpsMarket, direction: PerpsDirection): Pair<Int, Int> {
+        if (System.currentTimeMillis() - hivePerpsLoadedAt > HIVE_PERPS_TTL_MS) {
+            refreshHivePerpsRatesAsync()
+        }
+        val key = "${market.symbol}_${direction.name}"
+        val stats = hivePerpsWinRates[key] ?: return Pair(0, 0)
+        val (winRate, avgPnl) = stats
+        if (winRate < 30.0) {
+            ErrorLogger.info(TAG, "🧠 Hive: ${market.symbol} ${direction.symbol} wr=${winRate.toInt()}% — crushing score")
+            return Pair(-25, -20)
+        }
+        val scoreAdj = when {
+            winRate >= 65.0 && avgPnl >= 3.0 -> +20
+            winRate >= 55.0                   -> +10
+            winRate < 40.0                    -> -15
+            winRate < 45.0                    -> -8
+            else                              -> 0
+        }
+        val confAdj = when {
+            winRate >= 65.0 -> +10
+            winRate >= 55.0 -> +5
+            winRate < 40.0  -> -10
+            winRate < 45.0  -> -5
+            else            -> 0
+        }
+        return Pair(scoreAdj, confAdj)
+    }
+
     private var prefs: android.content.SharedPreferences? = null
     private var lastSaveTime = 0L
     private const val SAVE_THROTTLE_MS = 10_000L
@@ -163,7 +226,10 @@ object PerpsTraderAI {
         }
         
         save()
-        
+
+        // V5.8.0: Kick off Hivemind perps cache load
+        refreshHivePerpsRatesAsync()
+
         ErrorLogger.info(TAG, "📊 PerpsTraderAI ONLINE - Ready for leverage trading (enabled=${isEnabled.get()}, paper=$isPaperMode, riskAck=${hasAcknowledgedRisk.get()})")
     }
     
@@ -477,7 +543,17 @@ object PerpsTraderAI {
             confidence += 5
             reasons.add("🎯 High discipline score: $discipline")
         }
-        
+
+        // V5.8.0: Hivemind historical win-rate adjustment
+        val (hiveScoreAdj, hiveConfAdj) = hivePerpsAdjust(market, direction)
+        if (hiveScoreAdj != 0 || hiveConfAdj != 0) {
+            score += hiveScoreAdj
+            confidence += hiveConfAdj
+            val hiveWrStr = hivePerpsWinRates["${market.symbol}_${direction.name}"]
+                ?.first?.let { "${"%.0f".format(it)}%" } ?: "?"
+            reasons.add("🧠 Hive: hist WR=$hiveWrStr → score${if(hiveScoreAdj>=0)"+$hiveScoreAdj" else "$hiveScoreAdj"}")
+        }
+
         val aiReasoning = buildString {
             append("${direction.emoji} ${direction.symbol} ${market.symbol} @ ${riskTier.emoji} ${riskTier.displayName}\n")
             append("Leverage: ${recommendedLeverage.fmt(1)}x | Size: ${recommendedSizePct.fmt(1)}%\n")
@@ -709,6 +785,39 @@ object PerpsTraderAI {
             ErrorLogger.debug(TAG, "Notification error: ${e.message}")
         }
         
+        // V5.8.0: Persist open position to Turso for cross-session learning
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
+                val solPrice = try { PerpsMarketDataFetcher.getSolPrice() } catch (_: Exception) { 150.0 }
+                client.savePerpsPosition(PerpsPositionRecord(
+                    id = position.id,
+                    instanceId = instanceId,
+                    market = market.symbol,
+                    direction = direction.name,
+                    entryPrice = entryPrice,
+                    currentPrice = entryPrice,
+                    sizeSol = sizeSol,
+                    sizeUsd = sizeSol * solPrice,
+                    leverage = leverage,
+                    marginUsd = sizeSol * solPrice / leverage,
+                    liquidationPrice = position.liquidationPrice,
+                    entryTime = position.entryTime,
+                    riskTier = signal.recommendedRiskTier.name,
+                    takeProfitPrice = tpPrice,
+                    stopLossPrice = slPrice,
+                    aiScore = signal.score,
+                    aiConfidence = signal.confidence,
+                    paperMode = isPaper,
+                    status = "OPEN",
+                    lastUpdate = System.currentTimeMillis()
+                ))
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Position Turso persist error: ${e.message}")
+            }
+        }
+
         save()
         return position
     }
@@ -840,6 +949,11 @@ object PerpsTraderAI {
                 val entryMarketData = PerpsMarketDataFetcher.getMarketData(position.market)
                 val exitMarketData = entryMarketData.copy(price = exitPrice)  // Use exit price
                 PerpsAutoReplayLearner.recordTrade(trade, entryMarketData, exitMarketData)
+                // V5.9.8: Sync to FluidLearning shared pool
+                try {
+                    val pnlSolVal = pnlSol
+                    if (position.isPaper) com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSolVal)
+                } catch (_: Exception) {}
                 ErrorLogger.debug(TAG, "🎬 Trade recorded for learning: ${trade.market.symbol} ${trade.direction.symbol}")
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "🎬 Trade recording failed: ${e.message}")
@@ -867,7 +981,7 @@ object PerpsTraderAI {
         // V5.7.5: Remove trailing stop tracking
         try {
             PerpsTrailingStop.removePosition(position.id)
-        } catch (e: Exception) {}
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "⚠️ Caught: ${e.message}") }
         
         // V5.7.5: Send notification
         try {
@@ -885,8 +999,59 @@ object PerpsTraderAI {
         // V5.7.5: Record correlation data
         try {
             PerpsCorrelationMatrix.recordReturn(position.market, pnlPct)
-        } catch (e: Exception) {}
-        
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "⚠️ Caught: ${e.message}") }
+
+        // V5.8.0: Persist closed trade to Turso — this is how the bot REMEMBERS and LEARNS
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                val client = CollectiveLearning.getClient() ?: return@launch
+                val instanceId = CollectiveLearning.getInstanceId() ?: ""
+                val holdMins = (trade.closeTime - trade.openTime) / 60_000.0
+
+                val tradeRecord = PerpsTradeRecord(
+                    tradeHash = "PERPS_${position.id}_${trade.closeTime}",
+                    instanceId = instanceId,
+                    market = position.market.symbol,
+                    direction = position.direction.name,
+                    entryPrice = position.entryPrice,
+                    exitPrice = exitPrice,
+                    sizeSol = position.sizeSol,
+                    leverage = position.leverage,
+                    pnlUsd = pnlUsd,
+                    pnlPct = pnlPct,
+                    openTime = position.entryTime,
+                    closeTime = trade.closeTime,
+                    closeReason = exitReason.displayName,
+                    riskTier = position.riskTier.name,
+                    aiScore = position.entryScore,
+                    aiConfidence = position.entryConfidence,
+                    paperMode = position.isPaper,
+                    isWin = isWin,
+                    holdMins = holdMins
+                )
+
+                val saved = client.savePerpsTradeRecord(tradeRecord)
+                if (saved) {
+                    ErrorLogger.debug(TAG, "📊 Perps trade persisted to Turso: ${position.market.symbol} ${position.direction.symbol} ${if (isWin) "WIN" else "LOSS"}")
+                    // Update per-market win-rate stats
+                    client.updatePerpsMarketStats(
+                        market = position.market.symbol,
+                        direction = position.direction.name,
+                        isWin = isWin,
+                        pnlPct = pnlPct,
+                        holdMins = holdMins,
+                        leverage = position.leverage
+                    )
+                    // Delete the open position record
+                    client.deletePerpsPosition(position.id)
+                } else {
+                    ErrorLogger.warn(TAG, "📊 Failed to persist perps trade for ${position.market.symbol}")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "📊 Turso persist error: ${e.message}")
+            }
+        }
+
         save()
         return trade
     }
@@ -1066,9 +1231,9 @@ object PerpsTraderAI {
             else -> 0
         }
         
-        // Determine phase
+        // Determine phase (mirrors meme trader progression)
         val phase = when {
-            readiness >= 75 && trades >= MIN_PAPER_TRADES_FOR_LIVE && winRate >= MIN_WIN_RATE_FOR_LIVE -> ReadinessPhase.READY
+            trades >= MIN_PAPER_TRADES_FOR_LIVE && winRate >= MIN_WIN_RATE_FOR_LIVE && readiness >= MIN_READINESS_SCORE_FOR_LIVE -> ReadinessPhase.READY
             consecutiveLoss >= 5 || maxDrawdown > 40.0 -> ReadinessPhase.CAUTION
             trades >= 20 -> ReadinessPhase.PRACTICING
             else -> ReadinessPhase.LEARNING
@@ -1132,8 +1297,22 @@ object PerpsTraderAI {
     }
     
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
-    fun getBalance(): Double = paperBalanceBps.get() / 10000.0
+    fun getBalance(): Double = if (isPaperMode) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveBalanceBps.get() / 10000.0
     
+    // Shared wallet: sync live SOL balance from WalletManager (called by BotService)
+    fun setLiveBalance(sol: Double) {
+        liveBalanceBps.set((sol * 10000).toLong())
+    }
+
+    // Shared wallet: sync paper balance from BotService (consistent across all traders)
+    fun setPaperBalance(sol: Double) {
+        if (isPaperMode && sol > 0.0) paperBalanceBps.set((sol * 10000).toLong())
+    }
+
+    // Effective balance depending on mode
+    fun getEffectiveBalance(): Double =
+        if (isPaperMode) paperBalanceBps.get() / 10000.0 else liveBalanceBps.get() / 10000.0
+
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balanceSol: Double) {
         paperBalanceBps.set((balanceSol * 10000).toLong())
@@ -1185,4 +1364,39 @@ object PerpsTraderAI {
         livePositions.clear()
         ErrorLogger.info(TAG, "📊 PERPS: Cleared all positions")
     }
+
+    /**
+     * Scale into an existing position (add to winner).
+     * Blends additional SOL into the position's average entry.
+     */
+    fun scaleInPosition(market: PerpsMarket, direction: PerpsDirection, additionalSol: Double): Boolean {
+        val pos = activePositions.values.firstOrNull { it.market == market && it.direction == direction }
+            ?: return false
+
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+
+        val newSize = pos.sizeSol + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / newSize
+
+        val tpDist = pos.takeProfitPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.05)
+        val slDist = pos.stopLossPrice?.let { kotlin.math.abs(it - pos.entryPrice) } ?: (pos.entryPrice * 0.02)
+        val newTp = if (direction == PerpsDirection.LONG) blendedEntry + tpDist else blendedEntry - tpDist
+        val newSl = if (direction == PerpsDirection.LONG) blendedEntry - slDist else blendedEntry + slDist
+
+        val updated = pos.copy(
+            sizeSol = newSize,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice,
+            takeProfitPrice = newTp,
+            stopLossPrice = newSl
+        )
+        activePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "SCALE IN: ${market.symbol} ${direction.symbol} +$additionalSol SOL | " +
+            "newEntry=$blendedEntry | newSize=$newSize SOL")
+        return true
+    }
+
 }

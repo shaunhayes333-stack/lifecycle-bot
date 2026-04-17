@@ -72,6 +72,7 @@
         <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.InsiderWalletsActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.WatchlistActivity" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>
 
         <provider
             android:name="androidx.core.content.FileProvider"

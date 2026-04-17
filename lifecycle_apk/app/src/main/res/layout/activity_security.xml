@@ -5,31 +5,29 @@
     android:orientation="vertical"
     android:gravity="center"
     android:background="#000000"
-    android:padding="24dp">
+    android:padding="24dp"
+    android:fitsSystemWindows="true">
 
-    <!-- Logo Container with Glow -->
+    <!-- Logo + glow container -->
     <FrameLayout
-        android:layout_width="200dp"
-        android:layout_height="200dp"
-        android:layout_marginBottom="24dp">
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        android:layout_marginBottom="20dp">
 
-        <!-- Glow Effect -->
         <View
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@drawable/splash_glow"
-            android:alpha="0.4"/>
+            android:alpha="0.35"/>
 
-        <!-- Logo -->
         <ImageView
             android:id="@+id/ivSecurityLogo"
-            android:layout_width="160dp"
-            android:layout_height="160dp"
+            android:layout_width="140dp"
+            android:layout_height="140dp"
             android:layout_gravity="center"
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
             android:contentDescription="AATE Logo"/>
-
     </FrameLayout>
 
     <!-- Title -->
@@ -39,10 +37,11 @@
         android:layout_height="wrap_content"
         android:text="Unlock AATE"
         android:textColor="#FFFFFF"
-        android:textSize="28sp"
+        android:textSize="26sp"
         android:textStyle="bold"
         android:fontFamily="monospace"
-        android:layout_marginBottom="8dp"/>
+        android:letterSpacing="0.04"
+        android:layout_marginBottom="6dp"/>
 
     <!-- Subtitle -->
     <TextView
@@ -51,23 +50,32 @@
         android:layout_height="wrap_content"
         android:text="Enter your PIN to access your wallet"
         android:textColor="#64D2D2"
-        android:textSize="14sp"
+        android:textSize="12sp"
         android:textAlignment="center"
         android:fontFamily="monospace"
-        android:layout_marginBottom="24dp"/>
+        android:layout_marginBottom="20dp"/>
 
-    <!-- Error Message -->
+    <!-- Divider accent -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="1dp"
+        android:background="#14F195"
+        android:alpha="0.5"
+        android:layout_marginBottom="20dp"/>
+
+    <!-- Error message -->
     <TextView
         android:id="@+id/tvSecurityError"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text=""
         android:textColor="#EF4444"
-        android:textSize="14sp"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
         android:visibility="gone"
-        android:layout_marginBottom="16dp"/>
+        android:layout_marginBottom="12dp"/>
 
-    <!-- PIN Entry Container -->
+    <!-- PIN entry container -->
     <LinearLayout
         android:id="@+id/layoutSecurityPin"
         android:layout_width="match_parent"
@@ -76,108 +84,103 @@
         android:gravity="center"
         android:visibility="visible">
 
-        <!-- PIN Input -->
+        <!-- PIN input -->
         <EditText
             android:id="@+id/etSecurityPin"
-            android:layout_width="200dp"
-            android:layout_height="56dp"
+            android:layout_width="220dp"
+            android:layout_height="@dimen/input_height"
             android:background="@drawable/edit_text_bg"
             android:hint="Enter PIN"
             android:textColorHint="#4B5563"
-            android:textColor="#64D2D2"
-            android:textSize="24sp"
+            android:textColor="#14F195"
+            android:textSize="22sp"
             android:textStyle="bold"
             android:textAlignment="center"
-            android:letterSpacing="0.3"
+            android:letterSpacing="0.4"
             android:inputType="numberPassword"
             android:maxLength="6"
             android:gravity="center"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:fontFamily="monospace"
-            android:layout_marginBottom="24dp"/>
+            android:layout_marginBottom="16dp"/>
 
-        <!-- Submit Button -->
+        <!-- Unlock button -->
         <Button
             android:id="@+id/btnSecuritySubmit"
-            android:layout_width="200dp"
-            android:layout_height="52dp"
+            android:layout_width="220dp"
+            android:layout_height="50dp"
             android:text="Unlock"
             android:textColor="#000000"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:textAllCaps="false"
             android:background="@drawable/button_primary_bg"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="12dp"/>
 
     </LinearLayout>
 
-    <!-- Biometric Button -->
+    <!-- Biometric button -->
     <Button
         android:id="@+id/btnSecurityBiometric"
-        android:layout_width="200dp"
-        android:layout_height="52dp"
+        android:layout_width="220dp"
+        android:layout_height="44dp"
         android:text="Use Fingerprint"
         android:textColor="#64D2D2"
-        android:textSize="14sp"
+        android:textSize="12sp"
         android:textAllCaps="false"
         android:background="@android:color/transparent"
         android:visibility="gone"
         android:drawableStart="@android:drawable/ic_menu_compass"
         android:drawablePadding="8dp"/>
 
-    <!-- Security Disclaimer -->
+    <!-- Security disclaimer -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center"
-        android:layout_marginTop="32dp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <View
-            android:layout_width="60dp"
-            android:layout_height="1dp"
-            android:background="#1F2937"
-            android:layout_marginBottom="16dp"/>
+        android:layout_marginTop="28dp"
+        android:background="@drawable/section_card_bg"
+        android:padding="14dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⚠️ IMPORTANT"
+            android:text="⚠ IMPORTANT"
             android:textColor="#F59E0B"
-            android:textSize="12sp"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
-            android:layout_marginBottom="8dp"/>
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Store your PIN in a safe place. AATE cannot recover lost PINs or access locked funds. You are solely responsible for securing your wallet credentials."
-            android:textColor="#6B7280"
-            android:textSize="10sp"
+            android:textColor="#4B5563"
+            android:textSize="9sp"
             android:textAlignment="center"
             android:fontFamily="monospace"
-            android:lineSpacingMultiplier="1.3"/>
+            android:lineSpacingMultiplier="1.4"/>
 
     </LinearLayout>
 
-    <!-- Version at Bottom -->
+    <!-- Version badge -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center"
-        android:layout_marginTop="24dp">
+        android:layout_marginTop="20dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AATE v4.20"
+            android:text="AATE v5.0"
             android:textColor="#64D2D2"
-            android:textSize="14sp"
+            android:textSize="12sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
             android:letterSpacing="0.1"/>
@@ -186,8 +189,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Autonomous AI Trading Engine"
-            android:textColor="#374151"
-            android:textSize="9sp"
+            android:textColor="#1F2937"
+            android:textSize="8sp"
             android:fontFamily="monospace"/>
 
     </LinearLayout>

@@ -52,6 +52,7 @@ class HeliusWebSocket(
     // Wallet addresses we're tracking (dev wallets, large holders)
     private val watchedWallets = mutableSetOf<String>()
     private var reconnectDelay = 2_000L
+    private val networkRetry = NetworkRetry("HeliusWS", maxRetries = 5, baseDelayMs = 2_000L, maxDelayMs = 30_000L, failureThreshold = 3, openDurationMs = 120_000L)
 
     val isConnected get() = ws != null && running
 
@@ -62,6 +63,10 @@ class HeliusWebSocket(
         }
         if (running) return
         running = true
+        if (networkRetry.isOpen) {
+            onLog("Helius: circuit open — backing off after repeated failures")
+            return
+        }
         doConnect()
     }
 
@@ -108,6 +113,8 @@ class HeliusWebSocket(
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 onLog("Helius WebSocket connected")
+            networkRetry.recordSuccess()
+            reconnectDelay = 2_000L
                 reconnectDelay = 2_000L
 
                 // Re-subscribe to all tokens
@@ -129,6 +136,7 @@ class HeliusWebSocket(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 onLog("Helius WS error: ${t.message?.take(60)} — reconnecting in ${reconnectDelay/1000}s")
+                networkRetry.recordFailure()
                 scheduleReconnect()
             }
 

@@ -59,6 +59,7 @@ object OnDeviceMLEngine {
     // Statistics for normalization
     private var featureMeans = FloatArray(NUM_FEATURES) { 0f }
     private var featureStds = FloatArray(NUM_FEATURES) { 1f }
+    private var isNormalized = false
     
     /**
      * Feature vector extracted from a trade for training/inference.
@@ -366,7 +367,15 @@ object OnDeviceMLEngine {
             dayOfWeek = dayOfWeek,
             rsi = (rsi / 100f).toFloat(),
             emaAlignment = emaScore,
-            supportDistance = 0f,  // TODO: calculate from candles
+            supportDistance = run {
+                // V5.9: estimate support distance from recent candle lows
+                val recentLows = candles.takeLast(20).map { it.priceUsd }
+                if (recentLows.size >= 2) {
+                    val support = recentLows.min()
+                    val currentPrice = recentLows.last()
+                    if (currentPrice > 0) ((currentPrice - support) / currentPrice).toFloat().coerceIn(0f, 1f) else 0f
+                } else 0f
+            },
             resistanceDistance = 0f,
             patternScore = 0f,
             exhaustionSignal = 0f,
@@ -559,7 +568,19 @@ object OnDeviceMLEngine {
     )
     
     private fun loadNormalizationStats(context: Context) {
-        // TODO: Load from SharedPreferences or file
+        // V5.9: restore normalization stats from SharedPreferences
+        val prefs = context.getSharedPreferences("ml_norm_stats", android.content.Context.MODE_PRIVATE)
+        featureMeans = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("mean_$i", 0f) }
+        featureStds  = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("std_$i", 1f).coerceAtLeast(1e-6f) }
+        isNormalized = prefs.getBoolean("is_normalized", false)
+    }
+
+    private fun saveNormalizationStats(context: Context) {
+        val prefs = context.getSharedPreferences("ml_norm_stats", android.content.Context.MODE_PRIVATE).edit()
+        featureMeans.forEachIndexed { i, v -> prefs.putFloat("mean_$i", v) }
+        featureStds.forEachIndexed  { i, v -> prefs.putFloat("std_$i",  v) }
+        prefs.putBoolean("is_normalized", isNormalized)
+        prefs.apply()
     }
     
     /**
@@ -580,13 +601,20 @@ object OnDeviceMLEngine {
      * Wrapper for TensorFlow Lite model.
      */
     private class TFLiteModel(modelFile: File) {
-        // Note: Actual TFLite Interpreter would be initialized here
-        // For now this is a placeholder that falls back to heuristics
-        
+        // V5.9: TFLite model files are not yet bundled — using calibrated heuristic fallback.
+        // When .tflite assets are added to src/main/assets/, replace predict() with
+        // org.tensorflow.lite.Interpreter(modelFile).run(input, output).
+
         fun predict(features: FloatArray): FloatArray {
-            // TODO: Load actual .tflite model and run inference
-            // For V5.6 foundation, we use heuristic predictions
-            return floatArrayOf(0.5f)
+            // Heuristic: weighted sum of key features as a proxy for model output
+            if (features.isEmpty()) return floatArrayOf(0.5f)
+            val momentum   = features.getOrElse(0) { 0f }
+            val volume     = features.getOrElse(3) { 0f }
+            val rug        = features.getOrElse(10) { 0f }
+            val rsi        = features.getOrElse(17) { 0.5f }
+            val raw = (momentum * 0.3f + volume * 0.2f + (1f - rug) * 0.3f + rsi * 0.2f)
+                .coerceIn(0f, 1f)
+            return floatArrayOf(raw)
         }
     }
 }

@@ -29,8 +29,8 @@ object ForexTrader {
     
     private const val MAX_POSITIONS = 25
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds (forex is fast)
-    private const val POSITION_SIZE_SOL = 2.0
-    private const val TP_PERCENT = 3.0           // Tighter TP for forex
+    private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
+    // V5.9.8: TP now dynamic via FluidLearningAI (static 3% removed)
     private const val SL_PERCENT = 2.0           // Tighter SL for forex
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (10x)
@@ -46,7 +46,21 @@ object ForexTrader {
     private val isPaperMode = AtomicBoolean(true)
     private val scanCount = AtomicInteger(0)
     
-    @Volatile private var paperBalance = 50.0  // 50 SOL for forex
+    // V5.9.7: paperBalance now delegates to shared FluidLearning pool
+    private var paperBalance: Double
+        get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
+        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
+    private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
+    private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
+    private val losingTrades  = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var totalPnlSol = 0.0
+    @Volatile private var appCtx: android.content.Context? = null
+    private val PREFS_NAME = "forex_trader_v1"
+    private val KEY_BALANCE = "paper_balance"
+    private val KEY_TRADES  = "total_trades"
+    private val KEY_WINS    = "winning_trades"
+    private val KEY_LOSSES  = "losing_trades"
+    private val KEY_PNL     = "total_pnl_sol"
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -79,7 +93,7 @@ object ForexTrader {
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
-        fun shouldTakeProfit(): Boolean = getPnlPercent() >= TP_PERCENT
+        fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
         fun shouldStopLoss(): Boolean = getPnlPercent() <= -SL_PERCENT
     }
     
@@ -103,12 +117,25 @@ object ForexTrader {
     }
     
     fun start() {
-        if (isRunning.get()) return
+        if (isRunning.get()) {
+            // Detect silent loop death — check if jobs are actually alive
+            val engineAlive  = engineJob?.isActive == true
+            val monitorAlive = monitorJob?.isActive == true
+            if (engineAlive && monitorAlive) {
+                ErrorLogger.debug(TAG, "Already running and jobs alive — skip restart")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs dead — force-restarting...")
+            engineJob?.cancel()
+            monitorJob?.cancel()
+            isRunning.set(false)
+        }
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.error(TAG, "💱💱💱 ForexTrader ENGINE STARTED 💱💱💱")
-
+            ErrorLogger.info(TAG, "💱💱💱 ForexTrader ENGINE STARTED 💱💱💱")
+            
             // Initial scan
             try {
                 runScanCycle()
@@ -133,12 +160,31 @@ object ForexTrader {
             }
         }
 
-        // Start position monitor — tracked so stop() can cancel it
+        // Start position monitor
         monitorJob = scope.launch {
             while (isRunning.get()) {
-                delay(3000)  // Monitor forex more frequently
-                monitorPositions()
+                try {
+                    delay(3000)  // Monitor forex more frequently
+                    monitorPositions()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
+                }
             }
+        }
+    }
+
+    // V5.9.5: Call this from Activity/Service to provide context for persistence
+    @Volatile private var ctxInited = false
+    fun initContext(ctx: android.content.Context) {
+        appCtx = ctx.applicationContext
+        if (!ctxInited) {
+            ctxInited = true
+            loadState()
+            ErrorLogger.info(TAG, "💱 initContext: state loaded for first time")
+        } else {
+            ErrorLogger.debug(TAG, "💱 initContext: already inited — skipping loadState to preserve running state")
         }
     }
 
@@ -147,6 +193,15 @@ object ForexTrader {
         engineJob?.cancel()
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "💱 ForexTrader STOPPED")
+    }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val all = spotPositions.values.toList() + leveragePositions.values.toList()
+        all.forEach { pos ->
+            try { val map = if (pos.leverage == 1.0) spotPositions else leveragePositions; closePosition(pos, map, "STOP — all positions closed") } catch (_: Exception) {}
+        }
+        ErrorLogger.info(TAG, "💱 All forex positions closed on STOP (${all.size} positions)")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -168,12 +223,12 @@ object ForexTrader {
 
         
         val totalPositions = spotPositions.size + leveragePositions.size
-        ErrorLogger.error(TAG, "💱 ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "💱 FOREX SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.info(TAG, "💱 ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "💱 FOREX SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all forex markets
         val forexMarkets = PerpsMarket.values().filter { it.isForex }
-        ErrorLogger.error(TAG, "💱 Found ${forexMarkets.size} forex pairs: ${forexMarkets.map { it.symbol }}")
+        ErrorLogger.info(TAG, "💱 Found ${forexMarkets.size} forex pairs: ${forexMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<ForexSignal>()
         val leverageSignals = mutableListOf<ForexSignal>()
@@ -212,15 +267,15 @@ object ForexTrader {
         // Execute top SPOT signals
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(5)
         if (topSpotSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "💱 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "💱 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals
         val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(3)
         if (topLeverageSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "💱 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "💱 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
-        ErrorLogger.error(TAG, "💱 ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "💱 ═══════════════════════════════════════════════")
         
         for (signal in topSpotSignals) {
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
@@ -397,7 +452,8 @@ object ForexTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
-        if (balance < POSITION_SIZE_SOL) {
+        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0).coerceAtLeast(0.01)
+        if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "💱 Insufficient balance for ${signal.market.symbol}")
             return
         }
@@ -412,9 +468,9 @@ object ForexTrader {
         }
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 + TP_PERCENT / 100)
+            signal.price * (1 + com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
         } else {
-            signal.price * (1 - TP_PERCENT / 100)
+            signal.price * (1 - com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
         }
         
         val sl = if (signal.direction == PerpsDirection.LONG) {
@@ -429,7 +485,7 @@ object ForexTrader {
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            size = POSITION_SIZE_SOL,
+            size = positionSizeSol,
             leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
@@ -440,10 +496,10 @@ object ForexTrader {
         
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
-            paperBalance -= POSITION_SIZE_SOL
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("ForexTrader", positionSizeSol.coerceAtLeast(0.0))
         }
         
-        ErrorLogger.error(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${positionSizeSol}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -459,14 +515,15 @@ object ForexTrader {
         val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
             market = signal.market,
             direction = signal.direction,
-            sizeSol = POSITION_SIZE_SOL,
+            sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01),
             leverage = signal.leverage,
             priceUsd = signal.price,
             traderType = "Forex",
         )
         
-        if (success && txSignature != null) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+        // V5.9.2: success is authoritative — txSignature null = bridge trade (no swap needed)
+        if (success) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
             
             // Update live wallet balance
             try {
@@ -531,18 +588,31 @@ object ForexTrader {
                 updateLiveBalance(newBal)
             } catch (_: Exception) {}
         } else {
-            paperBalance += position.size + pnl
+            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
+            totalPnlSol  += pnl
+            totalTrades.incrementAndGet()
+            if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
+            saveState()
         }
         positionMap.remove(position.id)
 
         val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"
-        ErrorLogger.error(TAG, "💱 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
+        ErrorLogger.info(TAG, "💱 CLOSED: $typeLabel $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ | $reason")
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordMarketsPaperTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
+        } catch (_: Exception) {}
+        // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
+        if (isPaperMode.get()) try {
+            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                mint = position.market.symbol,
+                originalSol = position.size,
+                pnlSol = pnl
+            )
         } catch (_: Exception) {}
         
         // Record pattern for AI memory
@@ -627,15 +697,65 @@ object ForexTrader {
     fun getSpotPositions(): List<ForexPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<ForexPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
-    fun getBalance(): Double = paperBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getTotalTrades(): Int = totalTrades.get()
+    fun getTotalPnlSol(): Double = totalPnlSol
+    fun getWinningTrades(): Int = winningTrades.get()
+    fun getWinRate(): Double {
+        val t = winningTrades.get() + losingTrades.get()
+        return if (t > 0) winningTrades.get().toDouble() / t * 100.0 else 0.0
+    }
+
+    // V5.9.5: Local persistence — survives app restarts without needing Turso
+    private fun prefs() = appCtx?.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+
+    fun saveState() {
+        val p = prefs() ?: return
+        p.edit()
+            .putFloat(KEY_BALANCE, paperBalance.toFloat())
+            .putInt(KEY_TRADES,    totalTrades.get())
+            .putInt(KEY_WINS,      winningTrades.get())
+            .putInt(KEY_LOSSES,    losingTrades.get())
+            .putFloat(KEY_PNL,     totalPnlSol.toFloat())
+            .apply()
+    }
+
+    fun loadState() {
+        val p = prefs() ?: return
+        val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()
+        if (savedBal > 0.0) paperBalance = savedBal
+        totalTrades.set(  p.getInt(KEY_TRADES,  0))
+        winningTrades.set(p.getInt(KEY_WINS,    0))
+        losingTrades.set( p.getInt(KEY_LOSSES,  0))
+        totalPnlSol = p.getFloat(KEY_PNL, 0f).toDouble()
+        ErrorLogger.info(TAG, "[ForexTrader] Loaded: bal=${"%.2f".format(paperBalance)} trades=${totalTrades.get()} wr=${"%.0f".format(getWinRate())}%")
+    }
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        paperBalance = balance
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
         ErrorLogger.info(TAG, "💱 ForexTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
+    fun setEnabled(enabled: Boolean) {
+        isEnabled.set(enabled)
+        ErrorLogger.info(TAG, "💱 Forex Trader enabled: $enabled")
+    }
+    fun isEnabled(): Boolean = isEnabled.get()
+
     fun isRunning(): Boolean = isRunning.get()
+
+    /** V5.9.3: Receive paper balance broadcast from BotService */
+
+    /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
+    fun setPreferLeverage(lev: Boolean) {}
+    fun isPreferLeverage(): Boolean = false
+
+    /** Returns true only if running AND engine/monitor coroutines are actually alive. */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        return (engineJob?.isActive == true) && (monitorJob?.isActive == true)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.6b: LIVE TRADING MODE
@@ -663,5 +783,35 @@ object ForexTrader {
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+
+    /**
+     * Add SOL to an existing open position (scale-in / pyramid).
+     * Returns true if a position was found and the add-on was recorded.
+     */
+    fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
+        val allPos = spotPositions.values.toList() + leveragePositions.values.toList()
+        val pos = allPos.firstOrNull { p: ForexPosition -> p.market == market } ?: return false
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { price -> price > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+        if (currentPrice <= 0) return false
+
+        val totalCost = pos.size + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / totalCost
+
+        val updated = pos.copy(
+            size = totalCost,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice
+        )
+        if (pos.leverage == 1.0) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
+        return true
+    }
+
 }
+
+
+

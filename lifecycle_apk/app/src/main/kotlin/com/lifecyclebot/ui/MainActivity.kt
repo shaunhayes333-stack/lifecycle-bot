@@ -218,6 +218,28 @@ class MainActivity : AppCompatActivity() {
     private var tvPerpsTslaPrice: TextView? = null
     private var tvPerpsNvdaPrice: TextView? = null
     
+    // V1.0: Crypto Alts UI
+    private var tvCryptoAltsStats: TextView? = null
+    private var cardCryptoAlts: android.view.View? = null
+    private var tvCryptoAltsModeBadge: TextView? = null
+    private var tvCryptoAltsBalance: TextView? = null
+    private var tvCryptoAltsPnl: TextView? = null
+    private var tvCryptoAltsWinRate: TextView? = null
+    private var tvCryptoAltsTrades: TextView? = null
+    private var tvCryptoAltsPhase: TextView? = null
+    private var viewCryptoAltsBar: android.view.View? = null
+    private var tvCryptoAltsReadiness: TextView? = null
+    private var tvCryptoAltsProgress: TextView? = null
+    private var tvAltsBtcPrice: TextView? = null
+    private var tvAltsBtcChange: TextView? = null
+    private var tvAltsEthPrice: TextView? = null
+    private var tvAltsEthChange: TextView? = null
+    private var tvAltsBnbPrice: TextView? = null
+    private var tvAltsBnbChange: TextView? = null
+    private var tvAltsXrpPrice: TextView? = null
+    private var tvAltsXrpChange: TextView? = null
+    private var llCryptoAltsPositions: LinearLayout? = null
+
     // V5.7.3: Tokenized Stocks UI
     private var cardTokenizedStocks: android.view.View? = null
     private var tvStocksModeBadge: TextView? = null
@@ -1198,6 +1220,29 @@ for legal compliance.
             }
             axisRight.isEnabled = false
         }
+        // V5.8.0: Setup CandleStick chart styling
+        candleChart.apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setDrawGridBackground(false)
+            description.isEnabled = false
+            legend.isEnabled      = false
+            setTouchEnabled(true)
+            setPinchZoom(true)
+            setScaleEnabled(true)
+            xAxis.apply {
+                isEnabled  = false
+                position   = XAxis.XAxisPosition.BOTTOM
+            }
+            axisLeft.apply {
+                setDrawGridLines(true)
+                gridColor    = 0xFF1F2937.toInt()
+                textColor    = muted
+                textSize     = 9f
+                axisLineColor = Color.TRANSPARENT
+                setDrawAxisLine(false)
+            }
+            axisRight.isEnabled = false
+        }
     }
 
     private fun appendChart(price: Double) {
@@ -1216,6 +1261,53 @@ for legal compliance.
         }
         priceChart.data = LineData(ds)
         priceChart.invalidate()
+    }
+
+    // V5.8.0: Update candle chart from token history with timeframe selection
+    private fun updateCandleChart(ts: TokenState?) {
+        if (ts == null) {
+            candleChart.clear()
+            return
+        }
+        
+        // Pick the right history bucket based on chartTimeRange
+        val sourceHistory: List<com.lifecyclebot.data.Candle> = try {
+            when (chartTimeRange) {
+                "5m"  -> synchronized(ts.history5m) { ts.history5m.toList() }
+                "15m" -> synchronized(ts.history15m) { ts.history15m.toList() }
+                "1h"  -> synchronized(ts.history15m) { ts.history15m.toList() } // aggregate into hour candles
+                else  -> synchronized(ts.history) { ts.history.toList() }       // 1m default
+            }
+        } catch (_: Exception) { emptyList() }
+        
+        if (sourceHistory.isEmpty()) {
+            candleChart.clear()
+            return
+        }
+        
+        val entries = ArrayList<com.github.mikephil.charting.data.CandleEntry>()
+        sourceHistory.forEachIndexed { idx, candle ->
+            val close = candle.priceUsd.toFloat()
+            val open  = if (candle.openUsd > 0) candle.openUsd.toFloat() else close
+            val high  = if (candle.highUsd > 0) candle.highUsd.toFloat() else maxOf(open, close) * 1.001f
+            val low   = if (candle.lowUsd  > 0) candle.lowUsd.toFloat()  else minOf(open, close) * 0.999f
+            entries.add(com.github.mikephil.charting.data.CandleEntry(idx.toFloat(), high, low, open, close))
+        }
+        
+        val ds = com.github.mikephil.charting.data.CandleDataSet(entries, "").apply {
+            setDrawIcons(false)
+            shadowColor = 0xFF6B7280.toInt()
+            shadowWidth = 0.7f
+            decreasingColor = 0xFFEF4444.toInt()
+            decreasingPaintStyle = android.graphics.Paint.Style.FILL
+            increasingColor = 0xFF10B981.toInt()
+            increasingPaintStyle = android.graphics.Paint.Style.FILL
+            neutralColor = 0xFF6B7280.toInt()
+            setDrawValues(false)
+        }
+        
+        candleChart.data = com.github.mikephil.charting.data.CandleData(ds)
+        candleChart.invalidate()
     }
 
     // ── update UI ─────────────────────────────────────────────────────
@@ -1244,45 +1336,42 @@ for legal compliance.
             }
         }
 
-        // ── hero balance ──────────────────────────────────────────────
-        // V4.0 FIX: Show PAPER balance when in paper mode, REAL wallet balance when live
+        // ── hero balance — BotService.status is the single source of truth ──
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        val displayBalance: Double
-        val balanceLabel: String
-        
-        if (config.paperMode) {
-            // PAPER MODE: Show simulated paper balance
-            displayBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
-            balanceLabel = "PAPER"
-        } else {
-            // LIVE MODE: Show real wallet balance
-            displayBalance = ws.solBalance
-            balanceLabel = ""
-        }
-        
-        if (displayBalance > 0) {
-            tvBalanceLarge.text = currency.format(displayBalance)
-            // Secondary: show mode indicator or SOL amount
-            tvBalanceUsd.text = if (config.paperMode) {
-                "📝 $balanceLabel ◎ %.4f".format(displayBalance)
-            } else if (currency.selectedCurrency != "SOL") {
-                "◎ %.4f".format(displayBalance)
-            } else ""
+        val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
+        val balSol = if (config.paperMode)
+            com.lifecyclebot.engine.BotService.status.paperWalletSol
+        else
+            ws.solBalance
+
+        if (balSol > 0.001) {
+            tvBalanceLarge.text = currency.format(balSol)  // currency.format() converts SOL→display currency internally
+            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER ◎ ${"%.4f".format(balSol)}"
+                                  else "◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
-            // Fallback to wallet if paper balance is 0
             tvBalanceLarge.text = currency.format(ws.solBalance)
-            tvBalanceUsd.text = if (config.paperMode) "📝 PAPER" else ""
+            tvBalanceUsd.text   = "◎ ${"%.4f".format(ws.solBalance)}"
         } else {
             tvBalanceLarge.text = "—"
             tvBalanceUsd.text   = ""
         }
-        
+
         // ── Live SOL Price ──────────────────────────────────────────────
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-        if (solPrice > 0) {
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        if (solPrice >= 10) {
             tvSolPrice.text = "$${solPrice.toInt()}"
         } else {
             tvSolPrice.text = "$—"
+            kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val freshPrice = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).fetchSolPrice()
+                    if (freshPrice >= 10) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            tvSolPrice.text = "$${"%.0f".format(freshPrice)}"
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
         val pnl    = ws.totalPnlSol
@@ -1359,11 +1448,13 @@ for legal compliance.
         tvTokenName.text  = ts?.symbol?.ifBlank { "No token selected" } ?: "No token selected"
         
         // Load token logo from DexScreener
-        if (ts != null && ts.logoUrl.isNotEmpty()) {
-            ivTokenLogo.load(ts.logoUrl) {
+        if (ts != null) {
+            val heroLogoUrl = ts.logoUrl.ifBlank { "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png" }
+            ivTokenLogo.load(heroLogoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
                 error(R.drawable.ic_token_placeholder)
+                allowHardware(false)
                 transformations(CircleCropTransformation())
             }
         } else {
@@ -1463,6 +1554,7 @@ for legal compliance.
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point
             appendChart(ts.lastPrice)
+            updateCandleChart(ts)  // V5.8.0: keep candle chart in sync
             
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
@@ -1966,7 +2058,7 @@ for legal compliance.
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         positions.forEach { ts ->
             val pos     = ts.position
@@ -1984,7 +2076,22 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
+                load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left
             val bar = View(this).apply {
@@ -2096,7 +2203,7 @@ for legal compliance.
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>) {
         llTreasuryPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         positions.forEach { pos ->
             // V5.8: Use BotService.status.tokens for consistent live price across ALL windows
@@ -2112,7 +2219,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left (gold for treasury)
             val bar = View(this).apply {
@@ -2202,7 +2323,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Colour bar on left (blue for Blue Chip)
             val bar = View(this).apply {
@@ -2289,7 +2424,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
 
             // Amber colour bar for Quality
             val bar = View(this).apply {
@@ -2364,8 +2513,10 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         
         positions.forEach { pos ->
+            if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val currentPrice = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                    ?.takeIf { it > 0 }
                     ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
                     ?: pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
@@ -2376,7 +2527,27 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // Token logo
+            val logoImgSc = android.widget.ImageView(this).apply {
+                val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                layoutParams = lp
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val cachedLogoUrl = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.logoUrl } catch (_: Exception) { null }
+                val logoUrl = if (!cachedLogoUrl.isNullOrBlank()) cachedLogoUrl
+                              else "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgSc)
 
             // Colour bar on left (orange for ShitCoin)
             val barColor = when (pos.launchPlatform) {
@@ -2467,8 +2638,11 @@ for legal compliance.
         llExpressPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         rides.forEach { ride ->
+            if (ride.entryPrice <= 0 || ride.entrySol <= 0 || ride.mint.isBlank()) return@forEach
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref ?: ride.entryPrice
+                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref
+                    ?.takeIf { it > 0 }
+                    ?: ride.entryPrice
             } catch (_: Exception) { ride.entryPrice }
             val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
@@ -2478,7 +2652,28 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+
+            // Token logo
+            val logoImgEx = android.widget.ImageView(this).apply {
+                val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                layoutParams = lp
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val cachedLogoUrlEx = try { com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.logoUrl } catch (_: Exception) { null }
+                val logoUrl = if (!cachedLogoUrlEx.isNullOrBlank()) cachedLogoUrlEx
+                              else "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
+                load(logoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder)
+                    allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgEx)
+
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
                 setBackgroundColor(0xFFFF4500.toInt()) // Deep orange for express
@@ -2561,7 +2756,21 @@ for legal compliance.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+            // V5.8.0: Token logo
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImg)
+
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
                 setBackgroundColor(0xFFB91C1C.toInt()) // Dark red for manipulated
@@ -2656,6 +2865,19 @@ for legal compliance.
                 }
             }
             
+            // V5.8.0: Token logo
+            val logoImgMs = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
+                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
+                }
+            }
+            row.addView(logoImgMs)
+
             // Symbol
             val tvSymbol = TextView(this).apply {
                 text = pos.symbol
@@ -2979,6 +3201,14 @@ for legal compliance.
                     b?.setTextColor(if (r == range) 0xFFFFFFFF.toInt() else 0xFF6B7280.toInt())
                     b?.setBackgroundColor(if (r == range) 0xFF3B82F6.toInt() else 0xFF2A2A2A.toInt())
                 }
+                // V5.8.0: Refresh candle chart for new timeframe
+                val activeTs = try {
+                    val mint = selectedChartMint
+                    if (!mint.isNullOrBlank()) com.lifecyclebot.engine.BotService.status.tokens[mint]
+                    else com.lifecyclebot.engine.BotService.status.tokens.values.firstOrNull { it.position.isOpen }
+                        ?: com.lifecyclebot.engine.BotService.status.tokens.values.firstOrNull()
+                } catch (_: Exception) { null }
+                updateCandleChart(activeTs)
             }
         }
         
@@ -3343,6 +3573,7 @@ for legal compliance.
             // V5.7.6: ALWAYS update Tokenized Stocks card - it has its own engine
             // TokenizedStockTrader is independent of PerpsTraderAI
             updateTokenizedStocksCard()
+        updateCryptoAltsCard()
         } catch (_: Exception) { tvPerpsStats?.text = "—" }
         
         // AI Brain - show active/total layers
@@ -4066,7 +4297,7 @@ This cannot be undone!
         llIdleList.removeAllViews()
         
         val active = state.config.activeToken
-        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         // ═══════════════════════════════════════════════════════════════════════
         // V5.2: THREE-COLUMN LAYOUT - Probation | Watchlist | Idle
@@ -4180,7 +4411,7 @@ This cannot be undone!
             }
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${entry.mint}.png"
+            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${entry.mint}.png"
             load(logoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
@@ -4327,7 +4558,7 @@ This cannot be undone!
             }
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${ts.mint}.png"
+            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png"
             load(logoUrl) {
                 crossfade(true)
                 placeholder(R.drawable.ic_token_placeholder)
@@ -4832,6 +5063,18 @@ This cannot be undone!
             startActivity(Intent(this, MultiAssetActivity::class.java))
             performHaptic()
         }
+
+        // V1.0: Crypto Alts tile (in meme modes row) → opens CryptoAltActivity
+        findViewById<View>(R.id.btnQuickCryptoAlts)?.setOnClickListener {
+            startActivity(Intent(this, com.lifecyclebot.ui.CryptoAltActivity::class.java))
+            performHaptic()
+        }
+
+        // V1.0: "Open Full Crypto Alts Screen" button inside card → same
+        cardCryptoAlts?.findViewById<android.view.View>(R.id.btnOpenCryptoAltsMarkets)?.setOnClickListener {
+            startActivity(Intent(this, com.lifecyclebot.ui.CryptoAltActivity::class.java))
+            performHaptic()
+        }
     }
 
     /** Setup clear settings button with confirmation */
@@ -5190,7 +5433,7 @@ risking real capital.
             val treasuryAI = com.lifecyclebot.v3.scoring.CashGenerationAI
             val stats = treasuryAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             // Get both paper and live balances for comparison
             val paperBalance = treasuryAI.getTreasuryBalance(true)
@@ -5382,7 +5625,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             val blueChipAI = com.lifecyclebot.v3.scoring.BlueChipTraderAI
             val blueChipStats = blueChipAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
@@ -5489,7 +5732,7 @@ Entry Criteria:
             val shitCoinAI = com.lifecyclebot.v3.scoring.ShitCoinTraderAI
             val stats = shitCoinAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
@@ -5558,7 +5801,7 @@ Use with caution - moon or zero!
         try {
             val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             
@@ -5653,7 +5896,7 @@ HoldTime, Whale, Regime + 15 more
         try {
             val moonshotAI = com.lifecyclebot.v3.scoring.MoonshotTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
             val pnlSign = if (moonshotAI.getDailyPnlSol() >= 0) "+" else ""
@@ -5733,7 +5976,7 @@ get PROMOTED here to ride for
         try {
             val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
             
             // Check if user has acknowledged risk
             if (!perpsAI.hasAcknowledgedRisk()) {
@@ -6598,6 +6841,150 @@ Trading outside hours may have wider spreads.
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V1.0: CRYPTO ALTS CARD — mirrors updateTokenizedStocksCard pattern
+    // ═══════════════════════════════════════════════════════════════════════
+    private fun updateCryptoAltsCard() {
+        try {
+            val altTrader = com.lifecyclebot.perps.CryptoAltTrader
+            if (!altTrader.isRunning()) {
+                cardCryptoAlts?.visibility = android.view.View.GONE
+                return
+            }
+            cardCryptoAlts?.visibility = android.view.View.VISIBLE
+
+            // Mode badge
+            val isLive = altTrader.isLiveMode()
+            tvCryptoAltsModeBadge?.text = if (isLive) "LIVE" else "PAPER"
+            tvCryptoAltsModeBadge?.setBackgroundResource(
+                if (isLive) R.drawable.pill_bg_red else R.drawable.pill_bg_yellow)
+            tvCryptoAltsModeBadge?.setTextColor(
+                if (isLive) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+
+            // Balance
+            val bal = altTrader.getBalance()
+            tvCryptoAltsBalance?.text = "${"%.3f".format(bal)}◎"
+
+            // PnL
+            val pnl = altTrader.getTotalPnlSol()
+            tvCryptoAltsPnl?.text = "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎"
+            tvCryptoAltsPnl?.setTextColor(if (pnl >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+
+            // Win rate
+            val wr = altTrader.getWinRate()
+            tvCryptoAltsWinRate?.text = "${wr.toInt()}%"
+            tvCryptoAltsWinRate?.setTextColor(when {
+                wr >= 55 -> 0xFF22C55E.toInt()
+                wr >= 45 -> 0xFFF59E0B.toInt()
+                else     -> 0xFFEF4444.toInt()
+            })
+
+            // Trades
+            val totalTrades = altTrader.getTotalTrades()
+            tvCryptoAltsTrades?.text = "$totalTrades"
+
+            // Tile stats (positions/trades shown on the meme mode tile)
+            val openCount = altTrader.getAllPositions().size
+            tvCryptoAltsStats?.text = "$openCount/$totalTrades"
+
+            // Readiness phase
+            val trades = altTrader.getTotalTrades()
+            val (phase, phasePct, phaseColor, phaseText) = when {
+                trades < 500  -> Quadruple("📚 BOOTSTRAP",  trades / 500.0,  0xFFF59E0B.toInt(), "Learning alt market patterns — paper mode only")
+                trades < 1500 -> Quadruple("🧠 LEARNING",   (trades - 500) / 1000.0,  0xFFF59E0B.toInt(), "Building alt pattern memory")
+                trades < 3000 -> Quadruple("🔬 VALIDATING", (trades - 1500) / 1500.0, 0xFF3B82F6.toInt(), "Validating signal reliability")
+                trades < 5000 -> Quadruple("⚡ MATURING",   (trades - 3000) / 2000.0, 0xFF8B5CF6.toInt(), "Refining alt execution strategy")
+                wr >= 55      -> Quadruple("✅ READY",       1.0, 0xFF22C55E.toInt(), "Alt trader is ready for live trading")
+                else          -> Quadruple("⚡ MATURING",   0.9, 0xFF8B5CF6.toInt(), "Improving win rate before live mode")
+            }
+            tvCryptoAltsPhase?.text = phase
+            tvCryptoAltsPhase?.setTextColor(phaseColor)
+            tvCryptoAltsProgress?.text = "${(phasePct * 100).toInt()}%"
+            tvCryptoAltsReadiness?.text = phaseText
+
+            // Progress bar width
+            viewCryptoAltsBar?.let { bar ->
+                val parent = bar.parent as? android.widget.FrameLayout ?: return@let
+                bar.post {
+                    val params = bar.layoutParams
+                    params.width = (parent.width * phasePct.coerceIn(0.0, 1.0)).toInt().coerceAtLeast(8)
+                    bar.layoutParams = params
+                }
+            }
+
+            // Price tickers — async, non-blocking
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val priceTargets = listOf(
+                    com.lifecyclebot.perps.PerpsMarket.BTC  to (tvAltsBtcPrice  to tvAltsBtcChange),
+                    com.lifecyclebot.perps.PerpsMarket.ETH  to (tvAltsEthPrice  to tvAltsEthChange),
+                    com.lifecyclebot.perps.PerpsMarket.BNB  to (tvAltsBnbPrice  to tvAltsBnbChange),
+                    com.lifecyclebot.perps.PerpsMarket.XRP  to (tvAltsXrpPrice  to tvAltsXrpChange),
+                )
+                for ((market, views) in priceTargets) {
+                    val (priceView, changeView) = views
+                    try {
+                        val cached = com.lifecyclebot.perps.PerpsMarketDataFetcher.getCachedPrice(market)
+                        if (cached != null && cached.price > 0) {
+                            val price  = cached.price
+                            val change = cached.priceChange24hPct
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                priceView?.text = if (price > 1000) "$${"%.0f".format(price)}"
+                                                  else "$${"%.4f".format(price)}"
+                                changeView?.text = "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%"
+                                changeView?.setTextColor(if (change >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // Open positions (top 3) — programmatic rows, no separate layout needed
+            llCryptoAltsPositions?.removeAllViews()
+            val openPositions = altTrader.getAllPositions().take(3)
+            for (pos in openPositions) {
+                try {
+                    val pnlPct = pos.getPnlPct()
+                    val pnlColor = if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
+                    val row = android.widget.LinearLayout(this).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        setPadding(0, 4, 0, 4)
+                    }
+                    val tvSymbol = TextView(this).apply {
+                        text = "${pos.market.emoji} ${pos.market.symbol}"
+                        textSize = 11f
+                        setTextColor(0xFFFFFFFF.toInt())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvDir = TextView(this).apply {
+                        text = "${pos.direction.emoji} ${pos.leverageLabel}"
+                        textSize = 10f
+                        setTextColor(0xFF9CA3AF.toInt())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    val tvPnl = TextView(this).apply {
+                        text = "${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%"
+                        textSize = 11f
+                        setTextColor(pnlColor)
+                        gravity = android.view.Gravity.END
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    row.addView(tvSymbol)
+                    row.addView(tvDir)
+                    row.addView(tvPnl)
+                    llCryptoAltsPositions?.addView(row)
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Tiny helper for destructuring 4-tuples
+    private data class Quadruple<A,B,C,D>(val a:A, val b:B, val c:C, val d:D)
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component1() = a
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component2() = b
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component3() = c
+    private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component4() = d
+
     
     /**
      * V5.7.5: Update the stocks positions list UI for TokenizedStockTrader

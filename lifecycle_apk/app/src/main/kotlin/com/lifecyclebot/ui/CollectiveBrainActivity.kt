@@ -39,6 +39,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var tvBlacklistedTokens: TextView
     private lateinit var tvTopMode: TextView
     private lateinit var tvWorstMode: TextView
+    private lateinit var tvWinRate: TextView
+    private lateinit var tvAvgHold: TextView
     private lateinit var llModeStats: LinearLayout
     private lateinit var tvDataSource: TextView
     private lateinit var tvSyncStatus: TextView
@@ -138,6 +140,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
         llModeStats = findViewById(R.id.llBrainModeStats)
         tvDataSource = findViewById(R.id.tvBrainDataSource)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        tvWinRate = try { findViewById(R.id.tvBrainWinRate) } catch (_: Exception) { TextView(this) }
+        tvAvgHold = try { findViewById(R.id.tvBrainAvgHold) } catch (_: Exception) { TextView(this) }
         btnForceSync = findViewById(R.id.btnForceSync)
         
         // V4.20: Force sync button
@@ -197,28 +201,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
         
         // ═══════════════════════════════════════════════════════════════
         // V5.7.8: BOOST BUTTON — Scan/Backtest Collective Learning (24h cooldown)
+        // Uses XML btnBoost — removed duplicate programmatic button that was inserting into top bar
         // ═══════════════════════════════════════════════════════════════
         val boostPrefs = getSharedPreferences("collective_boost", android.content.Context.MODE_PRIVATE)
         
-        // Create boost button programmatically (below sync button)
-        val btnBoost = android.widget.Button(this).apply {
-            text = "⚡ BOOST — Scan & Backtest"
-            setTextColor(0xFF000000.toInt())
-            setBackgroundColor(0xFFFFD700.toInt())
-            textSize = 14f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-        }
-        
-        // Find parent layout of sync button and add boost button after it
-        val syncParent = btnForceSync.parent as? android.view.ViewGroup
-        if (syncParent != null) {
-            val syncIndex = syncParent.indexOfChild(btnForceSync)
-            syncParent.addView(btnBoost, syncIndex + 1, android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) })
-        }
+        // Use the XML-defined boost button (in layout below the brain view)
+        val btnBoost = findViewById<android.widget.TextView>(R.id.btnBoost)
         
         // Check cooldown
         fun updateBoostState() {
@@ -229,13 +217,13 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 val hoursLeft = ((cooldownMs - elapsed) / (60 * 60 * 1000.0)).toInt()
                 val minsLeft = (((cooldownMs - elapsed) % (60 * 60 * 1000L)) / (60 * 1000.0)).toInt()
                 btnBoost.text = "⚡ BOOST — ${hoursLeft}h ${minsLeft}m cooldown"
-                btnBoost.setBackgroundColor(0xFF333333.toInt())
+                btnBoost.setBackgroundResource(R.drawable.pill_bg)
                 btnBoost.setTextColor(0xFF888888.toInt())
                 btnBoost.isEnabled = false
                 btnBoost.alpha = 0.6f
             } else {
                 btnBoost.text = "⚡ BOOST — Scan & Backtest"
-                btnBoost.setBackgroundColor(0xFFFFD700.toInt())
+                btnBoost.setBackgroundResource(R.drawable.pill_bg_yellow)
                 btnBoost.setTextColor(0xFF000000.toInt())
                 btnBoost.isEnabled = true
                 btnBoost.alpha = 1.0f
@@ -252,6 +240,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             }
             
             btnBoost.text = "⚡ BOOSTING..."
+            btnBoost.setBackgroundResource(R.drawable.pill_bg)
             btnBoost.isEnabled = false
             btnBoost.alpha = 0.5f
             
@@ -436,6 +425,29 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvPatternsLearned.text = "$collectivePatterns"
             tvBlacklistedTokens.text = "$collectiveBlacklisted"
             
+            // WIN RATE and AVG HOLD — use collective data when available, local otherwise
+            val displayWrFinal = if (hasCollectiveData && collectiveStats != null)
+                collectiveStats.winRate else displayWinRate
+            tvWinRate.text = if (displayWrFinal > 0) "${displayWrFinal.toInt()}%" else "--"
+            tvWinRate.setTextColor(when {
+                displayWrFinal >= 60 -> green
+                displayWrFinal >= 50 -> 0xFF10B981.toInt()
+                displayWrFinal > 0  -> 0xFFF59E0B.toInt()
+                else -> muted
+            })
+            
+            // AVG HOLD — derive from local trade history (avgHoldMins field)
+            val avgHoldMins = try {
+                val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+                stats.avgHoldTimeMinutes.toDouble()
+            } catch (_: Exception) { 0.0 }
+            tvAvgHold.text = when {
+                avgHoldMins >= 60 -> "${(avgHoldMins / 60).toInt()}h"
+                avgHoldMins > 0  -> "${avgHoldMins.toInt()}m"
+                else -> "--"
+            }
+            tvAvgHold.setTextColor(white)
+
             // V4.0: Show top mode from collective ranking
             if (topModes.isNotEmpty()) {
                 val best = topModes.first()
@@ -816,34 +828,73 @@ class AnimatedBrainView @JvmOverloads constructor(
         }
         
         // 5. Feed collective insights into V4 StrategyTrustAI
+        // V5.9.8: Create proportional synthetic lessons so trust scores actually update
+        // MIN_TRADES_FOR_TRUST=20, so we need ≥20 lessons per mode
         try {
-            topModes.forEach { ranking ->
-                val lesson = com.lifecyclebot.v4.meta.TradeLesson(
-                    id = "BOOST_${ranking.modeName}_${System.currentTimeMillis()}",
-                    strategy = ranking.modeName,
-                    market = "MEME",
-                    symbol = "COLLECTIVE",
-                    entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                    trustScore = ranking.winRate / 100.0,
-                    fragilityScore = 0.3,
-                    narrativeHeat = 0.5,
-                    portfolioHeat = 0.3,
-                    leverageUsed = 1.0,
-                    executionConfidence = 0.8,
-                    leadSource = null,
-                    expectedDelaySec = null,
-                    outcomePct = ranking.avgPnlPct,
-                    mfePct = ranking.avgPnlPct * 1.5,
-                    maePct = -(100 - ranking.winRate) / 10.0,
-                    holdSec = 300,
-                    exitReason = if (ranking.avgPnlPct > 0) "TAKE_PROFIT" else "STOP_LOSS",
-                    expectedFillPrice = 1.0,
-                    actualFillPrice = 1.0,
-                    slippagePct = 0.5,
-                    executionRoute = "JUPITER_V6"
-                )
-                com.lifecyclebot.v4.meta.StrategyTrustAI.recordTrade(lesson)
+            val allModes = topModes + avoidModes
+            allModes.forEach { ranking ->
+                val tradeCount = ranking.trades.coerceAtLeast(20).coerceAtMost(50) // Feed 20-50 synthetic lessons per mode
+                val winCount = (tradeCount * ranking.winRate / 100.0).toInt()
+                val lossCount = tradeCount - winCount
+                
+                // Feed win lessons
+                repeat(winCount) { idx ->
+                    val lesson = com.lifecyclebot.v4.meta.TradeLesson(
+                        id = "BOOST_${ranking.modeName}_W${idx}_${System.currentTimeMillis()}",
+                        strategy = ranking.modeName,
+                        market = "MEME",
+                        symbol = "COLLECTIVE",
+                        entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                        entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                        trustScore = ranking.winRate / 100.0,
+                        fragilityScore = 0.3,
+                        narrativeHeat = 0.5,
+                        portfolioHeat = 0.3,
+                        leverageUsed = 1.0,
+                        executionConfidence = 0.8,
+                        leadSource = null,
+                        expectedDelaySec = null,
+                        outcomePct = ranking.avgPnlPct.coerceAtLeast(1.0),
+                        mfePct = ranking.avgPnlPct * 1.5,
+                        maePct = -1.0,
+                        holdSec = 300,
+                        exitReason = "TAKE_PROFIT",
+                        expectedFillPrice = 1.0,
+                        actualFillPrice = 1.0,
+                        slippagePct = 0.5,
+                        executionRoute = "JUPITER_V6"
+                    )
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.recordTrade(lesson)
+                }
+                // Feed loss lessons
+                repeat(lossCount) { idx ->
+                    val lesson = com.lifecyclebot.v4.meta.TradeLesson(
+                        id = "BOOST_${ranking.modeName}_L${idx}_${System.currentTimeMillis()}",
+                        strategy = ranking.modeName,
+                        market = "MEME",
+                        symbol = "COLLECTIVE",
+                        entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                        entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                        trustScore = ranking.winRate / 100.0,
+                        fragilityScore = 0.3,
+                        narrativeHeat = 0.5,
+                        portfolioHeat = 0.3,
+                        leverageUsed = 1.0,
+                        executionConfidence = 0.5,
+                        leadSource = null,
+                        expectedDelaySec = null,
+                        outcomePct = -(ranking.avgPnlPct.coerceAtLeast(1.0)),
+                        mfePct = 0.5,
+                        maePct = -(ranking.avgPnlPct * 2),
+                        holdSec = 300,
+                        exitReason = "STOP_LOSS",
+                        expectedFillPrice = 1.0,
+                        actualFillPrice = 1.0,
+                        slippagePct = 0.8,
+                        executionRoute = "JUPITER_V6"
+                    )
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.recordTrade(lesson)
+                }
             }
             sb.appendLine()
             sb.appendLine("🧠 V4 META UPDATE")

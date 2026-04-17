@@ -3,87 +3,130 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0A0A0F"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
 
-    <!-- Header -->
+    <!-- ── TOP BAR ── -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="60dp"
+        android:layout_height="@dimen/topbar_height"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:background="#111118">
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:background="#0A0A0F">
 
         <TextView
             android:id="@+id/btnBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="←"
-            android:textColor="#9945FF"
+            android:textColor="#FFFFFF"
             android:textSize="22sp"
-            android:paddingEnd="16dp"
+            android:paddingEnd="12dp"
             android:clickable="true"
             android:focusable="true"/>
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Display Currency"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tvRateStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Updating…"
-            android:textColor="#6B7280"
-            android:textSize="11sp"
-            android:fontFamily="monospace"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Display Currency"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/tvRateStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Updating…"
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"/>
+
+        </LinearLayout>
+
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
-
-    <!-- SOL price row -->
+    <!-- ── SOL PRICE BANNER ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
-        android:background="#111118">
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="@dimen/inner_gap"
+        android:paddingBottom="10dp"
+        android:background="@drawable/section_card_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="4dp">
 
-        <TextView
+        <View
+            android:layout_width="3dp"
+            android:layout_height="28dp"
+            android:background="#14F195"
+            android:layout_marginEnd="10dp"/>
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="SOL / USD"
-            android:textColor="#6B7280"
-            android:textSize="12sp"
-            android:fontFamily="monospace"/>
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SOL / USD"
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"/>
+
+            <TextView
+                android:id="@+id/tvSolUsdRate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="$—"
+                android:textColor="#FFFFFF"
+                android:textSize="@dimen/token_name_size"
+                android:fontFamily="monospace"
+                android:textStyle="bold"/>
+
+        </LinearLayout>
 
         <TextView
-            android:id="@+id/tvSolUsdRate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="$—"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
+            android:text="LIVE"
+            android:textColor="#14F195"
+            android:textSize="8sp"
             android:fontFamily="monospace"
-            android:textStyle="bold"/>
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:background="@drawable/pill_bg"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"/>
+
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#111827"
+        android:layout_marginTop="4dp"/>
 
-    <!-- Currency list -->
+    <!-- ── CURRENCY LIST ── -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent">
@@ -93,7 +136,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingBottom="24dp"/>
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingEnd="@dimen/screen_padding"
+            android:paddingTop="@dimen/inner_gap"
+            android:paddingBottom="@dimen/content_bottom_padding"/>
 
     </androidx.core.widget.NestedScrollView>
 

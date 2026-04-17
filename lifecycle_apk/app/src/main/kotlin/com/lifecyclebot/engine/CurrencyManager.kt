@@ -103,12 +103,22 @@ class CurrencyManager(private val ctx: Context) {
         // Use WalletManager price as fallback if CurrencyManager hasn't fetched yet
         val effectiveSolUsd = if (solUsd > 0) solUsd else WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 140.0
         
+        // Hardcoded approximate fallback rates (used ONLY when live rates not yet loaded)
+        val fallbackRates = mapOf(
+            "AUD" to 1.54, "GBP" to 0.79, "EUR" to 0.92, "JPY" to 150.0,
+            "CAD" to 1.36, "CHF" to 0.90, "CNY" to 7.24, "HKD" to 7.83,
+            "SGD" to 1.34, "NZD" to 1.64, "SEK" to 10.4, "NOK" to 10.5,
+            "DKK" to 6.87, "INR" to 83.0, "BRL" to 4.97, "MXN" to 17.2,
+            "ZAR" to 18.6, "KRW" to 1325.0, "TRY" to 32.0
+        )
         return when (selectedCurrency) {
             "SOL" -> sol
             "BTC" -> if (btcUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / btcUsd else 0.0
             "ETH" -> if (ethUsd > 0 && effectiveSolUsd > 0) sol * effectiveSolUsd / ethUsd else 0.0
             else  -> {
-                val fiatPerUsd = rates[selectedCurrency] ?: 1.0
+                val fiatPerUsd = rates[selectedCurrency]
+                    ?: fallbackRates[selectedCurrency]
+                    ?: 1.0
                 sol * effectiveSolUsd * fiatPerUsd
             }
         }
@@ -162,7 +172,18 @@ class CurrencyManager(private val ctx: Context) {
 
     fun refreshIfStale() {
         if (System.currentTimeMillis() - lastFetch < RATE_TTL_MS) return
-        refresh()
+        // Non-blocking: kick off background refresh, don't stall the calling thread
+        refreshAsync()
+    }
+
+    fun refreshAsync() {
+        Thread {
+            try {
+                fetchCryptoRates()
+                fetchFiatRates()
+                lastFetch = System.currentTimeMillis()
+            } catch (_: Exception) {}
+        }.also { it.isDaemon = true }.start()
     }
 
     fun refresh() {

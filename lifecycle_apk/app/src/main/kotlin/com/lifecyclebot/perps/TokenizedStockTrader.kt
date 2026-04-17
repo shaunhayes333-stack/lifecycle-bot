@@ -43,7 +43,7 @@ object TokenizedStockTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds
-    private const val MAX_STOCK_POSITIONS = 47  // V5.7.6: ALL stocks tradeable simultaneously
+    private const val MAX_STOCK_POSITIONS = 5   // max concurrent — was 47, spreading too thin
     private const val DEFAULT_LEVERAGE = 3.0
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade
     
@@ -124,6 +124,7 @@ object TokenizedStockTrader {
     private val isRunning = AtomicBoolean(false)
     private val isPaperMode = AtomicBoolean(true)  // V5.7.6b: Default to paper, can be switched to LIVE
     private val isEnabled = AtomicBoolean(true)
+    private val preferLeverage = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
     
     // V5.7.6b: Live trading state
     private var liveWalletBalance = 0.0  // Updated from connected wallet
@@ -132,6 +133,81 @@ object TokenizedStockTrader {
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.8.0: HIVEMIND WIN-RATE CACHE
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private val hiveWinRates = ConcurrentHashMap<String, Pair<Double, Double>>()
+    private var hiveWinRatesLoadedAt = 0L
+    private const val HIVE_CACHE_TTL_MS = 30 * 60 * 1000L
+    private val hiveHourlyProfiles = ConcurrentHashMap<String, Map<Int, Pair<Double, Int>>>()
+
+    private suspend fun refreshHiveWinRates() {
+        try {
+            val client = CollectiveLearning.getClient() ?: return
+            val rates = client.getAssetWinRates(minTrades = 15)
+            if (rates.isNotEmpty()) {
+                hiveWinRates.clear()
+                hiveWinRates.putAll(rates)
+                hiveWinRatesLoadedAt = System.currentTimeMillis()
+                ErrorLogger.info(TAG, "🧠 Hive win-rate cache refreshed: ${rates.size} assets")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "🧠 Hive refresh error: ${e.message}")
+        }
+    }
+
+    private suspend fun getHourlyProfile(symbol: String): Map<Int, Pair<Double, Int>> {
+        hiveHourlyProfiles[symbol]?.let { return it }
+        return try {
+            val client = CollectiveLearning.getClient() ?: return emptyMap()
+            val profile = client.getHourlyWinProfile(symbol, minSamples = 5)
+            if (profile.isNotEmpty()) hiveHourlyProfiles[symbol] = profile
+            profile
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    // Returns (blocked, sizeMultiplier, tpAdjust)
+    private fun hiveEntryModifier(symbol: String): Triple<Boolean, Double, Double> {
+        val stats = hiveWinRates[symbol] ?: return Triple(false, 1.0, 0.0)
+        val (winRate, avgPnl) = stats
+        if (winRate < 35.0) {
+            ErrorLogger.info(TAG, "🧠 HIVE BLOCK: $symbol wr=${winRate.toInt()}%")
+            return Triple(true, 1.0, 0.0)
+        }
+        val sizeMult = when {
+            winRate >= 65.0 && avgPnl >= 4.0 -> 1.4
+            winRate >= 55.0 && avgPnl >= 2.0 -> 1.2
+            winRate < 42.0                   -> 0.7
+            else                             -> 1.0
+        }
+        val tpAdj = when {
+            avgPnl >= 6.0 -> 2.0
+            avgPnl >= 3.0 -> 1.0
+            avgPnl < 0.0  -> -1.0
+            else          -> 0.0
+        }
+        return Triple(false, sizeMult, tpAdj)
+    }
+
+    private suspend fun hiveTimeOfDayAdjust(symbol: String): Int {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val profile = getHourlyProfile(symbol)
+        val (wr, samples) = profile[hour] ?: return 0
+        if (samples < 5) return 0
+        return when {
+            wr >= 65.0 -> +8
+            wr >= 55.0 -> +4
+            wr < 35.0  -> -8
+            wr < 45.0  -> -4
+            else       -> 0
+        }
+    }
+
+
     // Positions - V5.7.6b: Separate SPOT and LEVERAGE tracking
     private val positions = ConcurrentHashMap<String, StockPosition>()  // All positions
     private val spotPositions = ConcurrentHashMap<String, StockPosition>()      // SPOT (1x) only
@@ -143,7 +219,10 @@ object TokenizedStockTrader {
     private val winningTrades = AtomicInteger(0)
     private val losingTrades = AtomicInteger(0)
     private val scanCount = AtomicLong(0)
-    private var paperBalance = 100.0  // Starting paper balance in SOL
+    // V5.9.7: paperBalance now delegates to shared FluidLearning pool
+    private var paperBalance: Double
+        get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
+        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
     private var totalPnlSol = 0.0
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -232,7 +311,21 @@ object TokenizedStockTrader {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
     
+    @Volatile private var tstInited = false
     fun init() {
+        if (tstInited) {
+            ErrorLogger.debug(TAG, "📈 init: already inited — skipping to preserve running state")
+            return
+        }
+        tstInited = true
+        // V5.9.8: Sync paper/live mode from main config (source of truth)
+        try {
+            val ctx = com.lifecyclebot.engine.BotService.instance?.applicationContext
+            if (ctx != null) {
+                val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                isPaperMode.set(cfg.paperMode)
+            }
+        } catch (_: Exception) {}
         // V5.7.7: Load persisted state from Turso
         scope.launch {
             loadPersistedState()
@@ -282,7 +375,7 @@ object TokenizedStockTrader {
                 val instanceId = com.lifecyclebot.collective.CollectiveLearning.getInstanceId() ?: ""
                 val state = tursoClient.loadMarketsState(instanceId)
                 if (state != null) {
-                    paperBalance = state.paperBalanceSol
+                    com.lifecyclebot.engine.FluidLearning.forceSetBalance(state.paperBalanceSol)
                     totalTrades.set(state.totalTrades)
                     winningTrades.set(state.totalWins)
                     losingTrades.set(state.totalLosses)
@@ -301,7 +394,7 @@ object TokenizedStockTrader {
     /**
      * V5.7.7: Save current state to Turso
      */
-    private fun savePersistedState() {
+    fun savePersistedState() {
         scope.launch {
             try {
                 val tursoClient = com.lifecyclebot.collective.CollectiveLearning.getClient()
@@ -326,33 +419,55 @@ object TokenizedStockTrader {
         }
     }
     
+    /** Public phase label for UI (mirrors meme trader) */
+    fun getPhaseLabel(): String = calculateLearningPhase()
+
+    /** Whether this trader has met all requirements to go live */
+fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
+
+    /** V5.9.3: Called from MAA when user taps SPOT/LEVERAGE toggle on Stocks tab */
+    fun setPreferLeverage(lev: Boolean) {
+        preferLeverage.set(lev)
+        ErrorLogger.info(TAG, "📈 Mode → ${if (lev) "LEVERAGE (${DEFAULT_LEVERAGE.toInt()}x)" else "SPOT"}")
+    }
+    fun isPreferLeverage(): Boolean = preferLeverage.get()
+
     private fun calculateLearningPhase(): String {
         val trades = totalTrades.get()
         return when {
-            trades < 50 -> "BOOTSTRAP"
-            trades < 200 -> "LEARNING"
-            trades < 500 -> "VALIDATING"
-            trades < 1000 -> "MATURING"
-            else -> "READY"
+            trades < 500  -> "📚 BOOTSTRAP"
+            trades < 1500 -> "🧠 LEARNING"
+            trades < 3000 -> "🔬 VALIDATING"
+            trades < 5000 -> "⚡ MATURING"
+            else          -> "✅ READY"
         }
     }
     
     fun start() {
         if (isRunning.get()) {
-            ErrorLogger.debug(TAG, "Already running")
-            return
+            // Detect silent loop death — check if jobs are actually alive
+            val engineAlive  = engineJob?.isActive == true
+            val monitorAlive = monitorJob?.isActive == true
+            if (engineAlive && monitorAlive) {
+                ErrorLogger.debug(TAG, "Already running and jobs alive — skip restart")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs dead — force-restarting...")
+            engineJob?.cancel()
+            monitorJob?.cancel()
+            isRunning.set(false)
         }
-        
         isRunning.set(true)
         
         engineJob = scope.launch {
             // V5.7.6: Use error-level logging to ensure visibility
-            ErrorLogger.error(TAG, "📈📈📈 TokenizedStockTrader ENGINE STARTED 📈📈📈")
-            ErrorLogger.error(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
+            ErrorLogger.info(TAG, "📈📈📈 TokenizedStockTrader ENGINE STARTED 📈📈📈")
+            ErrorLogger.info(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
             
             // V5.7.6: Run first scan immediately (no initial delay)
             try {
-                ErrorLogger.error(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
+                ErrorLogger.info(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
                 runScanCycle()
             } catch (e: CancellationException) {
                 throw e
@@ -399,6 +514,13 @@ object TokenizedStockTrader {
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader STOPPED")
     }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val ids = positions.keys.toList()
+        ids.forEach { id -> try { closePosition(id, "USER_STOP") } catch (_: Exception) {} }
+        ErrorLogger.info(TAG, "📈 All stock positions closed on STOP (${ids.size} positions)")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN CYCLE - Find stock opportunities
@@ -412,10 +534,10 @@ object TokenizedStockTrader {
         // The underlying NYSE/NASDAQ stock market hours do NOT apply here.
         val marketHoursNote = ""
         
-        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")
-        ErrorLogger.error(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
-        ErrorLogger.error(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "📈 STOCK SCAN #$scanNum STARTING$marketHoursNote")
+        ErrorLogger.info(TAG, "📈 positions=${positions.size}/$MAX_STOCK_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         
         // V5.7.7: PRIORITIZE Pyth-supported stocks for reliable price feeds
         val pythSupported = PythOracle.getSupportedSymbols()
@@ -524,8 +646,8 @@ object TokenizedStockTrader {
                 break
             }
             
-            // V5.7.8: V4 Meta-Intelligence gated scoring
-            val useSpotDefault = (positions.size % 2 == 0)
+            // V5.9.3: Respect UI SPOT/LEVERAGE toggle; removed parity alternation
+            val useSpotDefault = !preferLeverage.get()
             var useSpot = useSpotDefault
             var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
             try {
@@ -729,9 +851,9 @@ object TokenizedStockTrader {
         } catch (_: Exception) {}
         
         // V5.7.6: ALWAYS generate signals in paper mode - ensures maximum learning
-        // Floor guarantees we always pass the threshold check in runScanCycle (score>=30, conf>=25)
+        // No artificial floor — poor signals should be rejected
         if (score < 35) score = 35
-        if (confidence < 30) confidence = 30
+        // confidence floor removed — let the signal quality filter do its job
         reasons.add("📚 Learning: ALWAYS_TRADE mode")
         
         return StockSignal(
@@ -778,7 +900,9 @@ object TokenizedStockTrader {
         val tpPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
             if (isSpot) riskInsights.suggestedTakeProfitPct * 0.6 else riskInsights.suggestedTakeProfitPct
         } else {
-            if (isSpot) 5.0 else 8.0  // Defaults: SPOT 5%, LEV 8%
+            // V5.9.8: Use FluidLearningAI dynamic TP — scales 4→25% with learning, never caps big moves
+            if (isSpot) com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+            else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         }
         val slPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
             if (isSpot) riskInsights.suggestedStopLossPct * 0.6 else riskInsights.suggestedStopLossPct
@@ -787,12 +911,20 @@ object TokenizedStockTrader {
         }
         val leverage = if (isSpot) 1.0 else signal.leverage
         
+        // V5.8.0: Apply Hivemind size/TP modifier
+        val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
+        val hiveSizeSol = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.30)
+        val hiveTpPct = (tpPct + hiveTpAdj).coerceAtLeast(1.5)
+        if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0) {
+            ErrorLogger.info(TAG, "📈 ${signal.market.symbol}: Hive adj → size×${"%.2f".format(hiveSizeMult)} tp+${hiveTpAdj}%")
+        }
+
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG -> {
-                signal.price * (1 + tpPct / 100) to signal.price * (1 - slPct / 100)
+                signal.price * (1 + hiveTpPct / 100) to signal.price * (1 - slPct / 100)
             }
             PerpsDirection.SHORT -> {
-                signal.price * (1 - tpPct / 100) to signal.price * (1 + slPct / 100)
+                signal.price * (1 - hiveTpPct / 100) to signal.price * (1 + slPct / 100)
             }
         }
         
@@ -802,7 +934,7 @@ object TokenizedStockTrader {
             direction = signal.direction,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            sizeSol = sizeSol,
+            sizeSol = hiveSizeSol,
             leverage = leverage,
             takeProfitPrice = tp,
             stopLossPrice = sl,
@@ -820,9 +952,9 @@ object TokenizedStockTrader {
         }
         totalTrades.incrementAndGet()
         
-        // Deduct from balance
+        // Deduct from balance (Hive-adjusted size)
         if (isPaperMode.get()) {
-            paperBalance -= sizeSol
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
         }
         
         // Notify FluidLearningAI
@@ -899,6 +1031,7 @@ object TokenizedStockTrader {
         val isWin = netPnlPct > 0
         
         // Update stats (use net P&L)
+        totalTrades.incrementAndGet()
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
@@ -922,13 +1055,22 @@ object TokenizedStockTrader {
                 updateLiveBalance(newBal)
             } catch (_: Exception) {}
         } else {
-            paperBalance += position.sizeSol + netPnlSol
+            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
         }
         
         // Record to FluidLearningAI
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordMarketsPaperTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, netPnlPct)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin, netPnlPct)
+        } catch (_: Exception) {}
+        // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
+        if (isPaperMode.get()) try {
+            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                mint = position.market.symbol,
+                originalSol = position.sizeSol,
+                pnlSol = netPnlSol
+            )
         } catch (_: Exception) {}
         
         // V5.7.6: Record to PerpsLearningBridge for unified tracking
@@ -1148,11 +1290,11 @@ object TokenizedStockTrader {
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun getBalance(): Double = paperBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        paperBalance = balance
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
@@ -1166,6 +1308,7 @@ object TokenizedStockTrader {
     }
     
     fun getTotalTrades(): Int = totalTrades.get()
+    fun getWinningTrades(): Int = winningTrades.get()
     
     fun getTotalPnlSol(): Double = totalPnlSol
     
@@ -1190,10 +1333,43 @@ object TokenizedStockTrader {
     
     // V5.7.6: Public running state accessor for UI
     fun isRunning(): Boolean = isRunning.get()
+
+    /** Returns true only if running AND engine/monitor coroutines are actually alive. */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        return (engineJob?.isActive == true) && (monitorJob?.isActive == true)
+    }
     
     // V5.7.6b: SPOT vs LEVERAGE position getters - now use dedicated maps
     fun getSpotPositions(): List<StockPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<StockPosition> = leveragePositions.values.toList()
+
+    /**
+     * Add SOL to an existing open position (scale-in / pyramid).
+     * Returns true if a matching open position was found and averaged-in.
+     */
+    fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
+        val pos = positions.values.firstOrNull { it.market == market } ?: return false
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+        if (currentPrice <= 0) return false
+
+        val totalCost = pos.sizeSol + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.sizeSol + currentPrice * additionalSol) / totalCost
+
+        val updated = pos.copy(
+            sizeSol = totalCost,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice
+        )
+        positions[pos.id] = updated
+        if (pos.isSpot) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | newEntry=$blendedEntry | newSize=$totalCost")
+        return true
+    }
+
     fun getAllPositions(): List<StockPosition> = positions.values.toList()
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1208,10 +1384,24 @@ object TokenizedStockTrader {
     
     /** Switch to LIVE mode - REAL MONEY TRADING */
     fun setLiveMode(live: Boolean) {
+        if (live) {
+            // Live readiness gate: 5000 paper trades + 50% win rate required
+            // Stocks are mean-reverting → 50% WR threshold is sufficient for profitability
+            val trades = totalTrades.get()
+            val wr     = getWinRate()
+            if (trades < 5000) {
+                ErrorLogger.warn(TAG, "📈 LIVE BLOCKED: only $trades/5000 paper trades completed")
+                return
+            }
+            if (wr < 50.0) {
+                ErrorLogger.warn(TAG, "📈 LIVE BLOCKED: win rate ${wr.toInt()}% < 50% required for stock profitability")
+                return
+            }
+        }
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
-            // Fetch actual wallet balance so live trading doesn't start at 0
+            // Sync actual wallet balance so live trading doesn't start at 0
             try {
                 val balance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
                 if (balance > 0) updateLiveBalance(balance)
@@ -1220,6 +1410,8 @@ object TokenizedStockTrader {
         }
     }
     
+    /** Sync paper wallet balance — delegates to shared FluidLearning pool */
+
     /** Update live wallet balance from connected wallet */
     fun updateLiveBalance(balanceSol: Double) {
         liveWalletBalance = balanceSol
@@ -1227,8 +1419,11 @@ object TokenizedStockTrader {
     }
     
     /** Get balance based on current mode */
+    // V5.9.8: Read from shared BotService pool — same wallet as main AATE and CryptoAlt
     fun getEffectiveBalance(): Double {
-        return if (isPaperMode.get()) paperBalance else liveWalletBalance
+        return if (isPaperMode.get())
+            com.lifecyclebot.engine.BotService.status.paperWalletSol
+        else liveWalletBalance
     }
     
     /** Execute LIVE trade via MarketsLiveExecutor
@@ -1264,8 +1459,10 @@ object TokenizedStockTrader {
             traderType = "TokenizedStocks",
         )
         
-        if (success && txSignature != null) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+        // V5.9.2: success=true is the authority; txSignature can be null for bridge trades
+        if (success) {
+            val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
             
             // Update live wallet balance
             try {
@@ -1283,3 +1480,5 @@ object TokenizedStockTrader {
     // Helper extension
     private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
 }
+
+

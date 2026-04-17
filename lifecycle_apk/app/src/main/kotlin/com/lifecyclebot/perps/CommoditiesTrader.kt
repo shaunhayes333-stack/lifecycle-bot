@@ -28,10 +28,10 @@ object CommoditiesTrader {
     
     private const val MAX_POSITIONS = 20
     private const val SCAN_INTERVAL_MS = 20_000L  // 20 seconds
-    private const val POSITION_SIZE_SOL = 3.0
-    private const val TP_PERCENT_SPOT = 4.0       // Tighter TP for spot
+    private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
+    // V5.9.8: TP now dynamic via FluidLearningAI.getMarketsSpotTpPct() / getMarketsLevTpPct()
     private const val SL_PERCENT_SPOT = 3.0       // Tighter SL for spot
-    private const val TP_PERCENT_LEVERAGE = 8.0   // Wider for leverage
+    // (static TP_PERCENT constants removed V5.9.8)
     private const val SL_PERCENT_LEVERAGE = 5.0
     private const val SPOT_TRADING_FEE_PERCENT = 0.005     // 0.5% for spot (1x)
     private const val LEVERAGE_TRADING_FEE_PERCENT = 0.01  // 1.0% for leverage (5x)
@@ -47,7 +47,21 @@ object CommoditiesTrader {
     private val isPaperMode = AtomicBoolean(true)
     private val scanCount = AtomicInteger(0)
     
-    @Volatile private var paperBalance = 50.0  // 50 SOL for commodities
+    // V5.9.7: paperBalance now delegates to shared FluidLearning pool
+    private var paperBalance: Double
+        get() = com.lifecyclebot.engine.BotService.status.paperWalletSol
+        set(value) { com.lifecyclebot.engine.FluidLearning.forceSetBalance(value) }
+    private val totalTrades   = java.util.concurrent.atomic.AtomicInteger(0)
+    private val winningTrades = java.util.concurrent.atomic.AtomicInteger(0)
+    private val losingTrades  = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var totalPnlSol = 0.0
+    @Volatile private var appCtx: android.content.Context? = null
+    private val PREFS_NAME = "commodities_trader_v1"
+    private val KEY_BALANCE = "paper_balance"
+    private val KEY_TRADES  = "total_trades"
+    private val KEY_WINS    = "winning_trades"
+    private val KEY_LOSSES  = "losing_trades"
+    private val KEY_PNL     = "total_pnl_sol"
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -89,7 +103,9 @@ object CommoditiesTrader {
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
         fun shouldTakeProfit(): Boolean {
-            val tp = if (isSpot) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+            val tp = if (isSpot)
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+            else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
             return getPnlPercent() >= tp
         }
         
@@ -119,12 +135,25 @@ object CommoditiesTrader {
     }
     
     fun start() {
-        if (isRunning.get()) return
+        if (isRunning.get()) {
+            // Detect silent loop death — check if jobs are actually alive
+            val engineAlive  = engineJob?.isActive == true
+            val monitorAlive = monitorJob?.isActive == true
+            if (engineAlive && monitorAlive) {
+                ErrorLogger.debug(TAG, "Already running and jobs alive — skip restart")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs dead — force-restarting...")
+            engineJob?.cancel()
+            monitorJob?.cancel()
+            isRunning.set(false)
+        }
         isRunning.set(true)
         
         engineJob = scope.launch {
-            ErrorLogger.error(TAG, "🛢️🛢️🛢️ CommoditiesTrader ENGINE STARTED 🛢️🛢️🛢️")
-
+            ErrorLogger.info(TAG, "🛢️🛢️🛢️ CommoditiesTrader ENGINE STARTED 🛢️🛢️🛢️")
+            
             // Initial scan
             try {
                 runScanCycle()
@@ -149,12 +178,31 @@ object CommoditiesTrader {
             }
         }
 
-        // Start position monitor — tracked so stop() can cancel it
+        // Start position monitor
         monitorJob = scope.launch {
             while (isRunning.get()) {
-                delay(5000)
-                monitorPositions()
+                try {
+                    delay(5000)
+                    monitorPositions()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
+                }
             }
+        }
+    }
+
+    // V5.9.5: Call this from Activity/Service to provide context for persistence
+    @Volatile private var ctxInited = false
+    fun initContext(ctx: android.content.Context) {
+        appCtx = ctx.applicationContext
+        if (!ctxInited) {
+            ctxInited = true
+            loadState()
+            ErrorLogger.info(TAG, "🛢️ initContext: state loaded for first time")
+        } else {
+            ErrorLogger.debug(TAG, "🛢️ initContext: already inited — skipping loadState to preserve running state")
         }
     }
 
@@ -163,6 +211,15 @@ object CommoditiesTrader {
         engineJob?.cancel()
         monitorJob?.cancel()
         ErrorLogger.info(TAG, "🛢️ CommoditiesTrader STOPPED")
+    }
+
+    /** Close all open positions immediately (called on STOP). */
+    fun closeAllPositions() {
+        val all = spotPositions.values.toList() + leveragePositions.values.toList()
+        all.forEach { pos ->
+            try { val map = if (pos.tradeType == TradeType.SPOT) spotPositions else leveragePositions; closePosition(pos, map, "STOP — all positions closed") } catch (_: Exception) {}
+        }
+        ErrorLogger.info(TAG, "🛢️ All commodity positions closed on STOP (${all.size} positions)")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -184,12 +241,12 @@ object CommoditiesTrader {
 
         
         val totalPositions = spotPositions.size + leveragePositions.size
-        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
-        ErrorLogger.error(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
+        ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
         // Get all commodity markets
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
-        ErrorLogger.error(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
+        ErrorLogger.info(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<CommoditySignal>()
         val leverageSignals = mutableListOf<CommoditySignal>()
@@ -215,7 +272,7 @@ object CommoditiesTrader {
                         spotSignals.add(spotSignal)
                     }
                 }
-
+                
                 // Generate LEVERAGE signal if no leverage position
                 if (!hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
@@ -235,16 +292,16 @@ object CommoditiesTrader {
         // Execute top SPOT signals (lower risk, more positions)
         val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
         if (topSpotSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals (higher risk, fewer positions)
         val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
         if (topLeverageSignals.isNotEmpty()) {
-            ErrorLogger.error(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
+            ErrorLogger.info(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
-        ErrorLogger.error(TAG, "🛢️ ═══════════════════════════════════════════════")
+        ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
         
         // Execute signals
         for (signal in topSpotSignals) {
@@ -396,7 +453,8 @@ object CommoditiesTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
-        if (balance < POSITION_SIZE_SOL) {
+        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0).coerceAtLeast(0.01)
+        if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "🛢️ Insufficient balance for ${signal.market.symbol}")
             return
         }
@@ -410,7 +468,10 @@ object CommoditiesTrader {
             }
         }
         
-        val tpPct = if (signal.tradeType == TradeType.SPOT) TP_PERCENT_SPOT else TP_PERCENT_LEVERAGE
+        // V5.9.8: Dynamic TP — 4→25% as learning matures, never caps legitimate runs
+        val tpPct = if (signal.tradeType == TradeType.SPOT)
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+        else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         val slPct = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
@@ -432,7 +493,7 @@ object CommoditiesTrader {
             tradeType = signal.tradeType,
             entryPrice = signal.price,
             currentPrice = signal.price,
-            size = POSITION_SIZE_SOL,
+            size = positionSizeSol,
             takeProfit = tp,
             stopLoss = sl,
             reasons = signal.reasons
@@ -447,11 +508,11 @@ object CommoditiesTrader {
         
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
-            paperBalance -= POSITION_SIZE_SOL
+            com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positionSizeSol.coerceAtLeast(0.0))
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
-        ErrorLogger.error(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${POSITION_SIZE_SOL}◎ | score=${signal.score}")
+        ErrorLogger.info(TAG, "🛢️ OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | $leverageStr | size=${positionSizeSol}◎ | score=${signal.score}")
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -461,7 +522,7 @@ object CommoditiesTrader {
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     private suspend fun executeLiveTrade(signal: CommoditySignal): Boolean {
-        val sizeSol = POSITION_SIZE_SOL
+        val sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01)
         
         ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${signal.tradeType.name}")
@@ -475,8 +536,9 @@ object CommoditiesTrader {
             traderType = "Commodities",
         )
         
-        if (success && txSignature != null) {
-            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature.take(16)}...")
+        // V5.9.2: success is authoritative — txSignature null = bridge trade (no swap needed)
+        if (success) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
             
             // Update live wallet balance
             try {
@@ -543,18 +605,31 @@ object CommoditiesTrader {
                 updateLiveBalance(newBal)
             } catch (_: Exception) {}
         } else {
-            paperBalance += position.size + pnl
+            // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
+            totalPnlSol  += pnl
+            totalTrades.incrementAndGet()
+            if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
+            saveState()
         }
         positionMap.remove(position.id)
 
         val emoji = if (isWin) "✅" else "❌"
         val typeEmoji = position.tradeType.emoji
-        ErrorLogger.error(TAG, "🛢️ CLOSED: $typeEmoji $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ (${position.tradeType.name}) | $reason")
+        ErrorLogger.info(TAG, "🛢️ CLOSED: $typeEmoji $emoji ${position.market.symbol} | PnL: ${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)}◎ (${position.tradeType.name}) | $reason")
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
         try {
-            FluidLearningAI.recordMarketsPaperTrade(isWin)
+            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
+        } catch (_: Exception) {}
+        // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
+        if (isPaperMode.get()) try {
+            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                mint = position.market.symbol,
+                originalSol = position.size,
+                pnlSol = pnl
+            )
         } catch (_: Exception) {}
         
         // Record pattern for AI memory
@@ -642,15 +717,65 @@ object CommoditiesTrader {
     fun getSpotPositions(): List<CommodityPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<CommodityPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<CommodityPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
-    fun getBalance(): Double = paperBalance
+    fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+    fun getTotalTrades(): Int = totalTrades.get()
+    fun getTotalPnlSol(): Double = totalPnlSol
+    fun getWinningTrades(): Int = winningTrades.get()
+    fun getWinRate(): Double {
+        val t = winningTrades.get() + losingTrades.get()
+        return if (t > 0) winningTrades.get().toDouble() / t * 100.0 else 0.0
+    }
+
+    // V5.9.5: Local persistence — survives app restarts without needing Turso
+    private fun prefs() = appCtx?.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+
+    fun saveState() {
+        val p = prefs() ?: return
+        p.edit()
+            .putFloat(KEY_BALANCE, paperBalance.toFloat())
+            .putInt(KEY_TRADES,    totalTrades.get())
+            .putInt(KEY_WINS,      winningTrades.get())
+            .putInt(KEY_LOSSES,    losingTrades.get())
+            .putFloat(KEY_PNL,     totalPnlSol.toFloat())
+            .apply()
+    }
+
+    fun loadState() {
+        val p = prefs() ?: return
+        val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()
+        if (savedBal > 0.0) paperBalance = savedBal
+        totalTrades.set(  p.getInt(KEY_TRADES,  0))
+        winningTrades.set(p.getInt(KEY_WINS,    0))
+        losingTrades.set( p.getInt(KEY_LOSSES,  0))
+        totalPnlSol = p.getFloat(KEY_PNL, 0f).toDouble()
+        ErrorLogger.info(TAG, "[CommoditiesTrader] Loaded: bal=${"%.2f".format(paperBalance)} trades=${totalTrades.get()} wr=${"%.0f".format(getWinRate())}%")
+    }
     
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balance: Double) {
-        paperBalance = balance
+        com.lifecyclebot.engine.FluidLearning.forceSetBalance(balance)
         ErrorLogger.info(TAG, "🛢️ CommoditiesTrader balance set to ${"%.2f".format(balance)} SOL")
     }
     
+    fun setEnabled(enabled: Boolean) {
+        isEnabled.set(enabled)
+        ErrorLogger.info(TAG, "🛢️ Commodities Trader enabled: $enabled")
+    }
+    fun isEnabled(): Boolean = isEnabled.get()
+
     fun isRunning(): Boolean = isRunning.get()
+
+    /** V5.9.3: Receive paper balance broadcast from BotService */
+
+    /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
+    fun setPreferLeverage(lev: Boolean) {}
+    fun isPreferLeverage(): Boolean = false
+
+    /** Returns true only if running AND engine/monitor coroutines are actually alive. */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        return (engineJob?.isActive == true) && (monitorJob?.isActive == true)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.6b: LIVE TRADING MODE
@@ -678,5 +803,35 @@ object CommoditiesTrader {
         liveWalletBalance = balanceSol
     }
     
-    fun getEffectiveBalance(): Double = if (isPaperMode.get()) paperBalance else liveWalletBalance
+    fun getEffectiveBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
+
+    /**
+     * Add SOL to an existing open position (scale-in / pyramid).
+     * Returns true if a position was found and the add-on was recorded.
+     */
+    fun addToPosition(market: PerpsMarket, additionalSol: Double): Boolean {
+        val allPos = spotPositions.values.toList() + leveragePositions.values.toList()
+        val pos = allPos.firstOrNull { p: CommodityPosition -> p.market == market } ?: return false
+        val currentPrice = try {
+            PerpsMarketDataFetcher.getCachedPrice(market)?.price?.takeIf { price -> price > 0 } ?: pos.currentPrice
+        } catch (_: Exception) { pos.currentPrice }
+        if (currentPrice <= 0) return false
+
+        val totalCost = pos.size + additionalSol
+        val blendedEntry = (pos.entryPrice * pos.size + currentPrice * additionalSol) / totalCost
+
+        val updated = pos.copy(
+            size = totalCost,
+            entryPrice = blendedEntry,
+            currentPrice = currentPrice
+        )
+        if (pos.isSpot) spotPositions[pos.id] = updated else leveragePositions[pos.id] = updated
+
+        ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
+        return true
+    }
+
 }
+
+
+

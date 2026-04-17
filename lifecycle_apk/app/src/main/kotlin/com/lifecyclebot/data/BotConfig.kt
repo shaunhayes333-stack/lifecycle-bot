@@ -234,6 +234,13 @@ data class BotConfig(
     val tradingMode: Int = 2,  // Default: BOTH - run all traders
     val memeTraderEnabled: Boolean = true,      // Meme coin trader (original bot)
     val marketsTraderEnabled: Boolean = true,   // All market traders (Stocks, Commodities, Metals, Forex, Perps)
+    val cryptoAltsEnabled: Boolean = true,      // Crypto Alt trader (BNB/ETH/SOL/Polygon alts) — runs 24/7
+    // V5.7.7: Individual Markets sub-trader toggles (only take effect when marketsTraderEnabled = true)
+    val stocksEnabled: Boolean = true,          // Tokenized Stocks trader
+    val commoditiesEnabled: Boolean = true,     // Commodities trader (Oil, Gas, Agriculture)
+    val metalsEnabled: Boolean = true,          // Metals trader (Gold, Silver, Industrial)
+    val forexEnabled: Boolean = true,           // Forex trader (Major, Cross, EM pairs)
+    val perpsEnabled: Boolean = true,           // SOL Perps trader
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -372,6 +379,13 @@ object ConfigStore {
             putInt("trading_mode",                     cfg.tradingMode)
             putBoolean("meme_trader_enabled",          cfg.memeTraderEnabled)
             putBoolean("markets_trader_enabled",       cfg.marketsTraderEnabled)
+            putBoolean("crypto_alts_enabled",          cfg.cryptoAltsEnabled)
+            // V5.7.7: Individual Markets sub-trader toggles
+            putBoolean("stocks_enabled",               cfg.stocksEnabled)
+            putBoolean("commodities_enabled",          cfg.commoditiesEnabled)
+            putBoolean("metals_enabled",               cfg.metalsEnabled)
+            putBoolean("forex_enabled",                cfg.forexEnabled)
+            putBoolean("perps_enabled",                cfg.perpsEnabled)
             apply()
         }
     }
@@ -510,6 +524,13 @@ object ConfigStore {
             tradingMode                 = p.getInt("trading_mode", 2),  // Default: BOTH
             memeTraderEnabled           = p.getBoolean("meme_trader_enabled", true),
             marketsTraderEnabled        = p.getBoolean("markets_trader_enabled", true),
+            cryptoAltsEnabled           = p.getBoolean("crypto_alts_enabled", true),
+            // V5.7.7: Individual Markets sub-trader toggles
+            stocksEnabled               = p.getBoolean("stocks_enabled", true),
+            commoditiesEnabled          = p.getBoolean("commodities_enabled", true),
+            metalsEnabled               = p.getBoolean("metals_enabled", true),
+            forexEnabled                = p.getBoolean("forex_enabled", true),
+            perpsEnabled                = p.getBoolean("perps_enabled", true),
         )
     }
 
@@ -546,3 +567,4 @@ object ConfigStore {
 }
 // Build 1775478652
 // V5.6.11 - Paper→Live learning transfer
+

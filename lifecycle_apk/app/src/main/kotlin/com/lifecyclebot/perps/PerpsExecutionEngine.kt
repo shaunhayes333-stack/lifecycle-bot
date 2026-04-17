@@ -76,8 +76,21 @@ object PerpsExecutionEngine {
      */
     fun start(context: android.content.Context) {
         if (isRunning.get()) {
-            ErrorLogger.warn(TAG, "Already running")
-            return
+            // Check if jobs are actually alive — they may have died silently
+            val scanAlive     = scanJob?.isActive == true
+            val monitorAlive  = positionMonitorJob?.isActive == true
+            val scopeAlive    = engineScope?.isActive == true
+            if (scanAlive && monitorAlive && scopeAlive) {
+                ErrorLogger.warn(TAG, "Already running and loops are alive — no restart needed")
+                return
+            }
+            // Jobs died silently — force cleanup and restart
+            ErrorLogger.warn(TAG, "⚠️ isRunning=true but jobs are dead! Force-restarting loops…")
+            scanJob?.cancel()
+            positionMonitorJob?.cancel()
+            engineScope?.cancel()
+            engineScope = null
+            isRunning.set(false)
         }
         
         // Initialize all perps components
@@ -131,6 +144,17 @@ object PerpsExecutionEngine {
     
     fun isRunning(): Boolean = isRunning.get()
     fun isPaused(): Boolean = isPaused.get()
+
+    /**
+     * Returns true only if the engine is running AND the scan/monitor coroutine jobs are alive.
+     * Use this instead of isRunning() to detect silent loop deaths.
+     */
+    fun isHealthy(): Boolean {
+        if (!isRunning.get()) return false
+        val scanAlive    = scanJob?.isActive == true
+        val monitorAlive = positionMonitorJob?.isActive == true
+        return scanAlive && monitorAlive
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SCAN LOOP - Detect opportunities
@@ -159,7 +183,7 @@ object PerpsExecutionEngine {
                     
                     // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
                     // In live mode, require priority >= 5 for safety
-                    val priorityThreshold = if (isPaper) 3 else 5
+                    val priorityThreshold = if (isPaper) 1 else 5  // V5.9.5: paper trades on ANY signal
                     val highPrioritySignals = scanResults.filter { it.priority >= priorityThreshold && it.signal != null }
                     
                     if (highPrioritySignals.isNotEmpty()) {
@@ -550,4 +574,20 @@ object PerpsExecutionEngine {
         val scannerSignals: Int,
         val learningEvents: Int,
     )
+
+    /**
+     * Add to an existing perps position (scale-in).
+     * Opens a new position in the same direction if one already exists.
+     */
+    fun addToPosition(market: PerpsMarket, direction: PerpsDirection, additionalSol: Double): Boolean {
+        val existing = PerpsTraderAI.getActivePositions().firstOrNull { it.market == market && it.direction == direction }
+        return if (existing != null) {
+            // Delegate to PerpsTraderAI to handle the scale-in
+            PerpsTraderAI.scaleInPosition(market, direction, additionalSol)
+        } else {
+            ErrorLogger.warn("PerpsExecutionEngine", "addToPosition: no existing ${market.symbol} ${direction.symbol} position")
+            false
+        }
+    }
+
 }

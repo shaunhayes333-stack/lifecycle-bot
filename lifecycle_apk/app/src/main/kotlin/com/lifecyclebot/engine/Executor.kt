@@ -273,21 +273,17 @@ class Executor(
         
         // V5.7.8: Cross-validate against entry price to catch decimal errors
         // If price differs from entry by > 10,000x, it's almost certainly bad data
-        if (dexPrice != null && ts.position.isOpen && ts.position.entryPrice > 0) {
+        if (dexPrice != null && ts.position.entryPrice > 0) {
             val ratio = dexPrice / ts.position.entryPrice
             if (ratio > 10_000 || ratio < 0.0001) {
-                // Price is off by > 4 orders of magnitude — likely decimal error
-                // Try candle price as cross-reference
                 val candlePrice = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 && it.isFinite() }
                 if (candlePrice != null) {
                     val candleRatio = candlePrice / ts.position.entryPrice
                     if (candleRatio < 10_000 && candleRatio > 0.0001) {
-                        // Candle price is sane — use it instead of bad dexPrice
                         ErrorLogger.warn("Executor", "PRICE FIX: ${ts.symbol} dexPrice=$dexPrice vs entry=${ts.position.entryPrice} (${ratio.toLong()}x) — using candle=$candlePrice instead")
                         return candlePrice
                     }
                 }
-                // Both sources bad — fall back to entry price (at least PnL shows 0% not 100M%)
                 ErrorLogger.warn("Executor", "PRICE GUARD: ${ts.symbol} ALL prices ${ratio.toLong()}x vs entry=${ts.position.entryPrice} — using entry as fallback")
                 return ts.position.entryPrice
             }

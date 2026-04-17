@@ -66,11 +66,18 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchSounds: SwitchCompat
     private lateinit var switchDarkMode: SwitchCompat
     private lateinit var etWatchlist: EditText
-    
+
     // V5.7.6: Trading Mode
     private lateinit var spTradingMode: Spinner
     private lateinit var switchMemeTrader: SwitchCompat
     private lateinit var switchMarketsTrader: SwitchCompat
+    private lateinit var switchCryptoAltsTrader: SwitchCompat
+    // V5.7.7: Individual Markets sub-trader switches
+    private lateinit var switchPerpsEnabled: SwitchCompat
+    private lateinit var switchStocksEnabled: SwitchCompat
+    private lateinit var switchCommoditiesEnabled: SwitchCompat
+    private lateinit var switchMetalsEnabled: SwitchCompat
+    private lateinit var switchForexEnabled: SwitchCompat
     
     fun setConfig(config: BotConfig) {
         currentConfig = config
@@ -139,6 +146,13 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         spTradingMode = view.findViewById(R.id.spTradingMode)
         switchMemeTrader = view.findViewById(R.id.switchMemeTrader)
         switchMarketsTrader = view.findViewById(R.id.switchMarketsTrader)
+        switchCryptoAltsTrader = view.findViewById(R.id.switchCryptoAltsTrader)
+        // V5.7.7: Individual Markets sub-trader switches
+        switchPerpsEnabled = view.findViewById(R.id.switchPerpsEnabled)
+        switchStocksEnabled = view.findViewById(R.id.switchStocksEnabled)
+        switchCommoditiesEnabled = view.findViewById(R.id.switchCommoditiesEnabled)
+        switchMetalsEnabled = view.findViewById(R.id.switchMetalsEnabled)
+        switchForexEnabled = view.findViewById(R.id.switchForexEnabled)
     }
     
     private fun setupSpinners() {
@@ -180,7 +194,36 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         
         // Also sync switches back to spinner
         switchMemeTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
-        switchMarketsTrader.setOnCheckedChangeListener { _, _ -> syncTradingModeSpinner() }
+        switchMarketsTrader.setOnCheckedChangeListener { _, isChecked ->
+            syncTradingModeSpinner()
+            // Show/hide sub-trader panel based on Markets master switch
+            val subPanel = view?.findViewById<android.view.View>(R.id.layoutMarketsSubTraders)
+            subPanel?.visibility = if (isChecked) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        switchCryptoAltsTrader.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (!com.lifecyclebot.perps.CryptoAltTrader.isRunning()) {
+                    com.lifecyclebot.perps.CryptoAltTrader.init(requireContext())
+                    com.lifecyclebot.perps.CryptoAltTrader.start()
+                }
+            } else { com.lifecyclebot.perps.CryptoAltTrader.stop() }
+        }
+        // V5.7.7: Sub-trader toggles — apply immediately to live traders
+        switchPerpsEnabled.setOnCheckedChangeListener { _, isChecked ->
+            com.lifecyclebot.perps.PerpsTraderAI.setEnabled(isChecked)
+        }
+        switchStocksEnabled.setOnCheckedChangeListener { _, isChecked ->
+            com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(isChecked)
+        }
+        switchCommoditiesEnabled.setOnCheckedChangeListener { _, isChecked ->
+            com.lifecyclebot.perps.CommoditiesTrader.setEnabled(isChecked)
+        }
+        switchMetalsEnabled.setOnCheckedChangeListener { _, isChecked ->
+            com.lifecyclebot.perps.MetalsTrader.setEnabled(isChecked)
+        }
+        switchForexEnabled.setOnCheckedChangeListener { _, isChecked ->
+            com.lifecyclebot.perps.ForexTrader.setEnabled(isChecked)
+        }
     }
     
     private fun syncTradingModeSpinner() {
@@ -280,6 +323,16 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         spTradingMode.setSelection(cfg.tradingMode.coerceIn(0, 2))
         switchMemeTrader.isChecked = cfg.memeTraderEnabled
         switchMarketsTrader.isChecked = cfg.marketsTraderEnabled
+        switchCryptoAltsTrader.isChecked = cfg.cryptoAltsEnabled
+        // V5.7.7: Sub-trader switches
+        switchPerpsEnabled.isChecked = cfg.perpsEnabled
+        switchStocksEnabled.isChecked = cfg.stocksEnabled
+        switchCommoditiesEnabled.isChecked = cfg.commoditiesEnabled
+        switchMetalsEnabled.isChecked = cfg.metalsEnabled
+        switchForexEnabled.isChecked = cfg.forexEnabled
+        // Show/hide sub-trader panel
+        view?.findViewById<android.view.View>(R.id.layoutMarketsSubTraders)
+            ?.visibility = if (cfg.marketsTraderEnabled) android.view.View.VISIBLE else android.view.View.GONE
         
         etStopLoss.setText(cfg.stopLossPct.toString())
         etExitScore.setText(cfg.exitScoreThreshold.toString())
@@ -328,6 +381,13 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             tradingMode = spTradingMode.selectedItemPosition,
             memeTraderEnabled = switchMemeTrader.isChecked,
             marketsTraderEnabled = switchMarketsTrader.isChecked,
+            cryptoAltsEnabled = switchCryptoAltsTrader.isChecked,
+            // V5.7.7: Individual Markets sub-trader toggles
+            perpsEnabled = switchPerpsEnabled.isChecked,
+            stocksEnabled = switchStocksEnabled.isChecked,
+            commoditiesEnabled = switchCommoditiesEnabled.isChecked,
+            metalsEnabled = switchMetalsEnabled.isChecked,
+            forexEnabled = switchForexEnabled.isChecked,
             stopLossPct = etStopLoss.text.toString().toDoubleOrNull() ?: cfg.stopLossPct,
             exitScoreThreshold = etExitScore.text.toString().toDoubleOrNull() ?: cfg.exitScoreThreshold,
             smallBuySol = etSmallBuy.text.toString().toDoubleOrNull() ?: cfg.smallBuySol,
@@ -363,3 +423,4 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         dismiss()
     }
 }
+

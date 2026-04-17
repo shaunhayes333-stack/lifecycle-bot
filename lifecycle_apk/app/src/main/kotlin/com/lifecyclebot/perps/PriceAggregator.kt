@@ -57,6 +57,29 @@ object PriceAggregator {
     
     // Unified price cache
     private val priceCache = ConcurrentHashMap<String, CachedPrice>()
+    // V5.9.5: Track previous prices to calculate real 24h change for on-chain sources
+    private val prevPriceCache = ConcurrentHashMap<String, Double>()
+    private val prevPriceTime  = ConcurrentHashMap<String, Long>()
+
+    /** Calculate real % change from price delta vs previous cached price (max 24h old) */
+    private fun calcChange(symbol: String, currentPrice: Double): Double {
+        val prev = prevPriceCache[symbol] ?: run {
+            prevPriceCache[symbol] = currentPrice
+            prevPriceTime[symbol]  = System.currentTimeMillis()
+            return 0.0
+        }
+        val ageMs = System.currentTimeMillis() - (prevPriceTime[symbol] ?: 0L)
+        // Only use delta if we have a reference price from > 1 min ago
+        return if (ageMs > 60_000L && prev > 0.0) {
+            val pct = (currentPrice - prev) / prev * 100.0
+            // Update reference periodically (every ~1h) so change doesn't accumulate forever
+            if (ageMs > 3_600_000L) {
+                prevPriceCache[symbol] = currentPrice
+                prevPriceTime[symbol]  = System.currentTimeMillis()
+            }
+            pct
+        } else 0.0
+    }
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache
     
     // Source success tracking
@@ -163,7 +186,20 @@ object PriceAggregator {
                 "TRX", "TON", "BCH", "XLM", "XMR", "ETC", "ZEC", "XTZ", "EOS",
                 "CAKE", "GMX", "DYDX", "ENA", "PENDLE",
                 "WLD", "JTO", "W", "STRK", "TAO",
-                "FLOKI", "NOT", "POPCAT", "TRUMP") -> AssetType.CRYPTO
+                "FLOKI", "NOT", "POPCAT", "TRUMP",
+                // V5.9: expanded to match full PerpsMarket enum
+                "FIL", "WIN", "ONT", "ONE", "KMNO", "CVXF", "TURBO", "XDC", "FTM",
+                "FXS", "WAVES", "GALA", "BABYDOGE", "STETH", "THETA", "EGLD", "ZIL",
+                "IOTA", "DASH", "ZEN", "DCR", "QTUM", "SC", "BTT", "JST", "KAS",
+                "COTI", "CELR", "ROSE", "CELO", "FLOW", "KAVA", "FLR", "ICX", "ZRX",
+                "ANKR", "SKL", "GNO", "METIS", "MANTLE", "MANTA", "ZK", "COMP",
+                "SUSHI", "BAL", "OSMO", "LQTY", "SPELL", "PERP", "DODO", "ALPHA",
+                "FIDA", "ALT", "IO", "VIRTUAL", "HYPE", "MOVE", "TNSR", "PIXEL",
+                "RON", "MAGIC", "ENJ", "CHZ", "AUDIO", "WBTC", "PAXG", "MSOL",
+                "WOJAK", "MOG", "NEIRO", "BRETT", "DEGEN", "JASMY", "HBAR", "ICP",
+                "VET", "RENDER", "GRT", "AAVE", "MKR", "SNX", "CRV", "RUNE", "STX",
+                "IMX", "SAND", "MANA", "AXS", "ENS", "LDO", "RPL", "PYTH", "RAY",
+                "ORCA", "DRIFT", "NEAR", "ALGO") -> AssetType.CRYPTO
             
             // Forex detection
             symbol.length == 6 && symbol.matches(Regex("[A-Z]{6}")) -> AssetType.FOREX
@@ -195,10 +231,9 @@ object PriceAggregator {
                 DataSource.SWITCHBOARD
             )
             AssetType.STOCK, AssetType.ETF -> listOf(
-                DataSource.JUPITER,      // V5.7.7: Jupiter has xStocks (TSLAx, AAPLx, NVDAx) - 24/7 on-chain!
-                DataSource.BIRDEYE,      // V5.7.7: Birdeye for Solana token prices
-                DataSource.DEXSCREENER,  // V5.7.7: DexScreener for DEX prices
-                DataSource.PYTH,
+                // V5.9.5: Yahoo first — it returns REAL 24h % change. On-chain sources
+                // (Jupiter, Birdeye, DexScreener, Pyth) all hardcode change24h=0.0 which
+                // kills signal generation (analyzeStock needs non-zero change for momentum).
                 DataSource.YAHOO_V7,
                 DataSource.YAHOO_V8,
                 DataSource.STOOQ,
@@ -211,7 +246,12 @@ object PriceAggregator {
                 DataSource.IEX,
                 DataSource.POLYGON,
                 DataSource.TIINGO,
-                DataSource.MARKETSTACK
+                DataSource.MARKETSTACK,
+                // On-chain fallback for price only (change will be calculated from cache delta)
+                DataSource.PYTH,
+                DataSource.JUPITER,
+                DataSource.BIRDEYE,
+                DataSource.DEXSCREENER
             )
             AssetType.FOREX -> listOf(
                 DataSource.PYTH,
@@ -287,7 +327,7 @@ object PriceAggregator {
         return try {
             val data = PythOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, 0.0, "PYTH", data.confidence)
+                PriceResult(data.price, calcChange(symbol, data.price), "PYTH", data.confidence)
             } else null
         } catch (e: Exception) { null }
     }
@@ -296,7 +336,7 @@ object PriceAggregator {
         return try {
             val data = SwitchboardOracle.getPrice(symbol)
             if (data != null && data.price > 0) {
-                PriceResult(data.price, 0.0, "SWITCHBOARD")
+                PriceResult(data.price, calcChange(symbol, data.price), "SWITCHBOARD")
             } else null
         } catch (e: Exception) { null }
     }
@@ -309,7 +349,7 @@ object PriceAggregator {
         return try {
             val price = JupiterPriceOracle.getPrice(symbol)
             if (price != null && price > 0) {
-                PriceResult(price, 0.0, "JUPITER")
+                PriceResult(price, calcChange(symbol, price), "JUPITER")
             } else null
         } catch (e: Exception) { null }
     }
@@ -500,7 +540,7 @@ object PriceAggregator {
             val price = BirdeyeOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
                 ErrorLogger.debug(TAG, "🐦 Birdeye: $symbol = \$${"%.4f".format(price)}")
-                PriceResult(price, 0.0, "BIRDEYE")
+                PriceResult(price, calcChange(symbol, price), "BIRDEYE")
             } else null
         } catch (e: Exception) { null }
     }
@@ -512,7 +552,7 @@ object PriceAggregator {
             val price = DexScreenerOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
                 ErrorLogger.debug(TAG, "📊 DexScreener: $symbol = \$${"%.4f".format(price)}")
-                PriceResult(price, 0.0, "DEXSCREENER")
+                PriceResult(price, calcChange(symbol, price), "DEXSCREENER")
             } else null
         } catch (e: Exception) { null }
     }
@@ -1000,7 +1040,42 @@ object PriceAggregator {
             "FLOKI" to "floki",
             "NOT" to "notcoin",
             "POPCAT" to "popcat",
-            "TRUMP" to "official-trump"
+            "TRUMP" to "official-trump",
+            // V5.8 missing tokens — were showing MC:— L:— because getCoinGeckoId returned null
+            "FIL" to "filecoin", "WIN" to "wink", "ONT" to "ontology",
+            "ONE" to "harmony", "KMNO" to "kamino", "CVXF" to "convex-finance",
+            "TURBO" to "turbo", "XDC" to "xdce-crowd-sale", "FTM" to "fantom",
+            "FXS" to "frax-share", "WAVES" to "waves", "GALA" to "gala",
+            "BABYDOGE" to "baby-doge-coin", "STETH" to "staked-ether",
+            "THETA" to "theta-token", "EGLD" to "elrond-erd-2", "ZIL" to "zilliqa",
+            "IOTA" to "iota", "DASH" to "dash", "ZEN" to "zencash",
+            "DCR" to "decred", "QTUM" to "qtum", "SC" to "siacoin",
+            "BTT" to "bittorrent", "JST" to "just", "KAS" to "kaspa",
+            "COTI" to "coti", "CELR" to "celer-network", "ROSE" to "oasis-network",
+            "CELO" to "celo", "FLOW" to "flow", "KAVA" to "kava",
+            "FLR" to "flare-networks", "ICX" to "icon", "ZRX" to "0x",
+            "ANKR" to "ankr", "SKL" to "skale", "GNO" to "gnosis",
+            "METIS" to "metis-token", "MANTLE" to "mantle", "MANTA" to "manta-network",
+            "ZK" to "zksync", "COMP" to "compound-governance-token",
+            "SUSHI" to "sushi", "BAL" to "balancer", "OSMO" to "osmosis",
+            "LQTY" to "liquity", "SPELL" to "spell-token", "PERP" to "perpetual-protocol",
+            "DODO" to "dodo", "ALPHA" to "alpha-finance", "FIDA" to "bonfida",
+            "ALT" to "altlayer", "IO" to "io-net", "VIRTUAL" to "virtual-protocol",
+            "HYPE" to "hyperliquid", "MOVE" to "movement", "TNSR" to "tensor",
+            "PIXEL" to "pixels", "RON" to "ronin", "MAGIC" to "magic",
+            "ENJ" to "enjincoin", "CHZ" to "chiliz", "AUDIO" to "audius",
+            "WBTC" to "wrapped-bitcoin", "PAXG" to "pax-gold", "MSOL" to "msol",
+            "WOJAK" to "wojak", "MOG" to "mog-coin", "NEIRO" to "neiro-on-eth",
+            "BRETT" to "based-brett", "DEGEN" to "degen-base", "JASMY" to "jasmycoin",
+            "HBAR" to "hedera-hashgraph", "ICP" to "internet-computer",
+            "VET" to "vechain", "RENDER" to "render-token", "GRT" to "the-graph",
+            "AAVE" to "aave", "MKR" to "maker", "SNX" to "havven",
+            "CRV" to "curve-dao-token", "RUNE" to "thorchain", "STX" to "blockstack",
+            "IMX" to "immutable-x", "SAND" to "the-sandbox", "MANA" to "decentraland",
+            "AXS" to "axie-infinity", "ENS" to "ethereum-name-service",
+            "LDO" to "lido-dao", "RPL" to "rocket-pool", "PYTH" to "pyth-network",
+            "RAY" to "raydium", "ORCA" to "orca", "DRIFT" to "drift-protocol",
+            "NEAR" to "near", "ALGO" to "algorand"
         )[symbol]
     }
     

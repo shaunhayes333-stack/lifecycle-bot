@@ -108,13 +108,17 @@ class BotService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        
+
+        // Must call startForeground() within 5 seconds of startForegroundService() or Android
+        // throws ForegroundServiceDidNotStartInTimeException. Do it here before any slow init.
+        createChannels()
+        startForeground(NOTIF_ID, buildRunningNotif())
+
         try {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             ErrorLogger.info("BotService", "onCreate starting")
-            
-            createChannels()
+
 
             // CRITICAL: Claim foreground slot immediately in onCreate() — before any heavy init.
             // If onCreate() takes >5 s the OS fires ForegroundServiceDidNotStartInTimeException
@@ -155,6 +159,25 @@ class BotService : Service() {
                 if (ts != null && c.copyTradingEnabled) {
                     autoMode.triggerCopy(mint, wallet)
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
+                    // V5.9: also fire copy-perps trade on SOL via MarketsLiveExecutor
+                    if (!c.paperMode && c.heliusApiKey.isNotBlank()) {
+                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
+                                val result = com.lifecyclebot.perps.MarketsLiveExecutor.executeLiveTrade(
+                                    market      = com.lifecyclebot.perps.PerpsMarket.SOL,
+                                    direction   = com.lifecyclebot.perps.PerpsDirection.LONG,
+                                    sizeSol     = copySizeSol,
+                                    leverage    = 2.0,
+                                    priceUsd    = ts.lastPrice,
+                                    traderType  = "CopyTrade"
+                                )
+                                addLog("📋 COPY PERPS: ${if (result.first) "✅ LONG SOL ${copySizeSol}◎" else "❌ failed"}", mint)
+                            } catch (e: Exception) {
+                                ErrorLogger.warn("BotService", "Copy perps error: ${e.message}")
+                            }
+                        }
+                    }
                 }
             },
             onLog = { msg -> addLog(msg) }
@@ -261,73 +284,89 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
         }
         
-        // V5.7.3: Start PerpsExecutionEngine for FULLY AUTOMATIC perps trading
-        // V5.7.6: Respects tradingMode setting (only starts if Markets mode enabled)
-        val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
-        
-        if (marketsEnabled) {
-            try {
-                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE (enabled=${com.lifecyclebot.perps.PerpsTraderAI.isEnabled()}, paper=${com.lifecyclebot.perps.PerpsTraderAI.isPaperMode})")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
-            }
-            
-            // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
-            try {
-                com.lifecyclebot.perps.TokenizedStockTrader.init()
-                com.lifecyclebot.perps.TokenizedStockTrader.start()
-                ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
-            try {
-                com.lifecyclebot.perps.CommoditiesTrader.initialize()
-                com.lifecyclebot.perps.CommoditiesTrader.start()
-                ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.6: Start MetalsTrader - Precious & Industrial metals
-            try {
-                com.lifecyclebot.perps.MetalsTrader.initialize()
-                com.lifecyclebot.perps.MetalsTrader.start()
-                ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.6: Start ForexTrader - Currency pairs
-            try {
-                com.lifecyclebot.perps.ForexTrader.initialize()
-                com.lifecyclebot.perps.ForexTrader.start()
-                ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
-            }
-            
-            // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
-            try {
-                com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
-                ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
-            }
-            
-            // V5.7.4: Start Learning Insights Panel for continuous analysis
-            try {
-                com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
-                ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
-            }
-        } else {
-            ErrorLogger.info("BotService", "📊 Markets Trader DISABLED by user settings")
+        // V5.7.3: Start ALL market traders — ALWAYS run when bot is active
+        // V5.7.7: Apply individual sub-trader enabled flags from config before starting
+        val marketsStartCfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsStartCfg.perpsEnabled)
+        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsStartCfg.stocksEnabled)
+        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsStartCfg.commoditiesEnabled)
+        com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsStartCfg.metalsEnabled)
+        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsStartCfg.forexEnabled)
+        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
+
+        try {
+            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+            ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
         }
-        
+
+        // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.init()
+            com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
+            com.lifecyclebot.perps.TokenizedStockTrader.start()
+            ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
+        try {
+            com.lifecyclebot.perps.CommoditiesTrader.initialize()
+            com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
+            com.lifecyclebot.perps.CommoditiesTrader.start()
+            ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start MetalsTrader - Precious & Industrial metals
+        try {
+            com.lifecyclebot.perps.MetalsTrader.initialize()
+            com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
+            com.lifecyclebot.perps.MetalsTrader.start()
+            ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.6: Start ForexTrader - Currency pairs
+        try {
+            com.lifecyclebot.perps.ForexTrader.initialize()
+            com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
+            com.lifecyclebot.perps.ForexTrader.start()
+            ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
+        }
+
+        // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
+        try {
+            com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+            ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
+        }
+
+        // V5.7.4: Start Learning Insights Panel for continuous analysis
+        try {
+            com.lifecyclebot.perps.PerpsLearningInsightsPanel.start()
+            ErrorLogger.info("BotService", "🧠 PerpsLearningInsightsPanel STARTED - Continuous Analysis Mode ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
+        }
+
+        // V2.0: Start CryptoAltTrader — ALWAYS runs when bot is active (same as meme trader)
+        try {
+            com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
+            com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
+            com.lifecyclebot.perps.CryptoAltTrader.start()
+            ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
+        }
+
         // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
         try {
             // Only start if user has explicitly enabled it
@@ -347,7 +386,7 @@ class BotService : Service() {
         
         // V5.7.4: Start Insider Tracker AI (Trump/Pelosi/Whale wallet monitoring)
         try {
-            com.lifecyclebot.v3.scoring.InsiderTrackerAI.start { signal ->
+            com.lifecyclebot.v3.scoring.InsiderTrackerAI.start(heliusApiKey = cfg.heliusApiKey) { signal ->
                 // Real-time alert callback for alpha signals
                 if (signal.wallet.riskLevel == com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.ALPHA) {
                     ErrorLogger.info("BotService", "🔍 INSIDER ALERT: ${signal.wallet.label} | ${signal.signalType.name} | ${signal.tokenSymbol ?: "?"}")
@@ -375,15 +414,6 @@ class BotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // CRITICAL: Call startForeground IMMEDIATELY to avoid ForegroundServiceDidNotStartInTimeException
-        // Android gives us only 5 seconds after startForegroundService() is called
-        try {
-            startForeground(NOTIF_ID, buildRunningNotif())
-            ErrorLogger.info("BotService", "Foreground started in onStartCommand")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "startForeground failed in onStartCommand: ${e.message}", e)
-        }
-        
         when (intent?.action) {
             ACTION_START -> {
                 if (!status.running) {
@@ -725,6 +755,12 @@ class BotService : Service() {
 
             val cfg = ConfigStore.load(applicationContext)
             addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
+
+            // ── Paper wallet init — set to configured starting balance if not yet set ──
+            if (cfg.paperMode && status.paperWalletSol <= 0.0) {
+                status.paperWalletSol = cfg.paperSimulatedBalance
+                addLog("💰 Paper wallet initialised: ${cfg.paperSimulatedBalance} SOL")
+            }
             
             // Determine best RPC URL - prefer Helius if key available
             val rpcUrl = if (cfg.heliusApiKey.isNotBlank()) {
@@ -830,6 +866,7 @@ class BotService : Service() {
         addLog("✓ Creating data orchestrator...")
         try {
             orchestrator = DataOrchestrator(
+                copyTradeEngine    = copyTradeEngine,
                 cfg                = { ConfigStore.load(applicationContext) },
                 status             = status,
                 onLog              = ::addLog,
@@ -892,6 +929,8 @@ class BotService : Service() {
         UnifiedModeOrchestrator.isPaperMode = preScanCfg.paperMode
         // V5.2.8: Set EfficiencyLayer paper mode for reduced cooldowns
         EfficiencyLayer.isPaperMode = preScanCfg.paperMode
+        // FIX: Propagate mode to FinalExecutionPermit so live trades are not blocked
+        FinalExecutionPermit.isPaperMode = preScanCfg.paperMode
         addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
         // Start full Solana market scanner
@@ -1096,6 +1135,7 @@ class BotService : Service() {
         
         // Initialize BannedTokens for permanent token bans
         BannedTokens.init(applicationContext)
+        BannedTokens.setPaperMode(preScanCfg.paperMode)
         addLog("🚫 ${BannedTokens.getStats()}")
         
         // Initialize PatternAutoTuner for dynamic pattern weight adjustment
@@ -1499,8 +1539,10 @@ class BotService : Service() {
             .edit().putBoolean("was_running_before_shutdown", true).apply()
         // Acquire partial wake lock — keeps CPU alive during transaction confirmation
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading")
-            .also { it.acquire(12 * 60 * 60 * 1000L) }  // max 12h, released on stopBot
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading").also {
+            it.setReferenceCounted(false)  // idempotent — safe to call acquire() multiple times
+            it.acquire()  // indefinite, released explicitly in stopBot()
+        }
         
         // Schedule a repeating keep-alive alarm every 60 seconds
         // This ensures the service restarts if Android kills it
@@ -1941,6 +1983,29 @@ class BotService : Service() {
         tradingModesInitialized = false
         allTradingLayersReady = false
         
+        // V5.9.5: Close all Markets positions then stop all traders when main bot stops
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
+            com.lifecyclebot.perps.CommoditiesTrader.closeAllPositions()
+            com.lifecyclebot.perps.MetalsTrader.closeAllPositions()
+            com.lifecyclebot.perps.ForexTrader.closeAllPositions()
+            com.lifecyclebot.perps.CryptoAltTrader.closeAllPositions()
+            kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Error closing markets positions: ${e.message}", e)
+        }
+        try {
+            com.lifecyclebot.perps.TokenizedStockTrader.stop()
+            com.lifecyclebot.perps.CommoditiesTrader.stop()
+            com.lifecyclebot.perps.MetalsTrader.stop()
+            com.lifecyclebot.perps.ForexTrader.stop()
+            com.lifecyclebot.perps.CryptoAltTrader.stop()
+            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+            ErrorLogger.info("BotService", "All Markets traders stopped + positions closed alongside main bot")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
+        }
+        
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
         // Show Toast on UI thread for immediate feedback
@@ -2166,7 +2231,47 @@ class BotService : Service() {
             // V5.7.6: Skip meme trading logic if meme trader is disabled
             val memeEnabled = cfg.memeTraderEnabled || cfg.tradingMode == 0 || cfg.tradingMode == 2
             if (!memeEnabled) {
-                // Meme trader disabled - just sleep and continue (let Markets traders handle things)
+                // Meme trader disabled — still run markets watchdog before sleeping
+                try {
+                    val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
+                    if (marketsEnabled && loopCount % 10 == 0) {
+                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                        if (!healthy) {
+                            ErrorLogger.warn("BotService", "⚠️ [meme-off] PerpsExecutionEngine unhealthy — restarting…")
+                            addLog("⚡ Markets engine watchdog (meme-off): restarting…")
+                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                            delay(500)
+                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                        }
+                    }
+                    // CryptoAltTrader watchdog (meme-off) — only if enabled
+                    if (loopCount % 10 == 0 && cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CryptoAltTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                    // TokenizedStockTrader watchdog (meme-off) — only if stocks enabled
+                    if (marketsEnabled && cfg.stocksEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] TokenizedStockTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.TokenizedStockTrader.start()
+                    }
+                    // CommoditiesTrader watchdog (meme-off) — only if commodities enabled
+                    if (marketsEnabled && cfg.commoditiesEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] CommoditiesTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.CommoditiesTrader.start()
+                    }
+                    // MetalsTrader watchdog (meme-off) — only if metals enabled
+                    if (marketsEnabled && cfg.metalsEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] MetalsTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.MetalsTrader.start()
+                    }
+                    // ForexTrader watchdog (meme-off) — only if forex enabled
+                    if (marketsEnabled && cfg.forexEnabled && loopCount % 10 == 0 && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ [meme-off] ForexTrader unhealthy — restarting…")
+                        com.lifecyclebot.perps.ForexTrader.start()
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Markets watchdog (meme-off) error: ${e.message}", e)
+                }
                 delay(cfg.pollSeconds * 1000L)
                 continue
             }
@@ -2353,6 +2458,54 @@ class BotService : Service() {
                 }
             }
             
+            // ═══════════════════════════════════════════════════════════════════
+            // MARKETS ENGINE WATCHDOG — every 10 loops
+            // Detects when PerpsExecutionEngine loop died silently and restarts it
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 10 == 0) {
+                try {
+                    // PerpsExecutionEngine watchdog — ALWAYS runs
+                    val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                    if (!healthy) {
+                        ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
+                        addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
+                        com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                        delay(500)
+                        com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                        addLog("⚡ Markets engine restarted by watchdog")
+                    }
+                    // CryptoAltTrader watchdog — only if enabled
+                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
+                        addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
+                        com.lifecyclebot.perps.CryptoAltTrader.start()
+                    }
+                    // TokenizedStockTrader watchdog — only if stocks enabled
+                    if (cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
+                        addLog("📈 Stock trader watchdog: unhealthy, restarting…")
+                        com.lifecyclebot.perps.TokenizedStockTrader.start()
+                    }
+                    // CommoditiesTrader watchdog — only if commodities enabled
+                    if (cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.CommoditiesTrader.start()
+                    }
+                    // MetalsTrader watchdog — only if metals enabled
+                    if (cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.MetalsTrader.start()
+                    }
+                    // ForexTrader watchdog — only if forex enabled
+                    if (cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                        ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
+                        com.lifecyclebot.perps.ForexTrader.start()
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
+                }
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // PENDING SELL QUEUE PROCESSING - every 5 loops (~25 seconds) in live mode
             // Retries sells that failed due to wallet disconnect or other issues
@@ -2797,31 +2950,16 @@ class BotService : Service() {
                     walletManager.refreshBalance()
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
-                    
-                    // Initialize paper wallet with $1000 worth of SOL for realistic testing
-                    val cfg = ConfigStore.load(applicationContext)
-                    if (cfg.paperMode) {
-                        val solPxPaper = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-                        val targetSol = 1000.0 / solPxPaper  // Always $1000 worth
 
-                        if (!status.paperWalletInitialized) {
-                            status.paperWalletSol = targetSol
-                            status.paperWalletInitialized = true
-                            status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                            ErrorLogger.info("PaperWallet", "Initialized with ${"%.2f".format(targetSol)} SOL (~\$1000 @ \$${"%.0f".format(solPxPaper)}/SOL)")
-                            addLog("📝 Paper wallet: ${"%.2f".format(targetSol)} SOL (~\$1,000)")
-                        } else {
-                            // Auto-refresh every 12 hours so paper mode never runs dry
-                            val hoursSinceRefresh = (System.currentTimeMillis() - status.paperWalletLastRefreshMs) / 3_600_000.0
-                            if (hoursSinceRefresh >= 12.0) {
-                                val oldSol = status.paperWalletSol
-                                status.paperWalletSol = targetSol
-                                status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                                ErrorLogger.info("PaperWallet", "12h refresh: reset to ${"%.2f".format(targetSol)} SOL (~\$1000). Was ${"%.2f".format(oldSol)} SOL")
-                                addLog("🔄 Paper wallet refreshed: ${"%.2f".format(targetSol)} SOL (~\$1,000) — 12h top-up")
-                            }
-                        }
+                    // ── Shared wallet: broadcast live SOL balance to all traders ──────────
+                    if (freshSol > 0.0) {
+                        try { com.lifecyclebot.perps.CryptoAltTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.TokenizedStockTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.PerpsTraderAI.setLiveBalance(freshSol) } catch (_: Exception) {}
                     }
+                    
+
+                    // ── Shared paper wallet: broadcast paper balance to all traders ──────
 
                     // Treasury milestone check — live mode uses real wallet; paper uses paper balance
                     // V5.5 FIX: Paper mode now also triggers milestones so scaling tiers work in testing
@@ -2945,7 +3083,7 @@ class BotService : Service() {
                                         name = merged.symbol,
                                         candleTimeframeMinutes = 1,
                                         source = merged.allScanners.joinToString(","),
-                                        logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${merged.mint}.png",
+                                        logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
                                     )
                                 }
                                 // ALWAYS seed liquidity from scanner - even for existing TokenState
@@ -2986,7 +3124,7 @@ class BotService : Service() {
                                             name = result.symbol,
                                             candleTimeframeMinutes = 1,
                                             source = "PROBATION",
-                                            logoUrl = "https://dd.dexscreener.com/ds-data/tokens/solana/${result.mint}.png",
+                                            logoUrl = "https://cdn.dexscreener.com/tokens/solana/${result.mint}.png",
                                         )
                                     }
                                     if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
@@ -3149,7 +3287,25 @@ if (deferredCount > 0) {
                 }
             }
             
-            // Periodically persist session state - use synchronized copy
+            // HOT MODE SWITCH: Detect paperMode changes and propagate to all subsystems
+            // This fixes the ghost-town bug where switching PAPER→LIVE left all
+            // singletons still believing they were in paper mode.
+            val loopCfg = ConfigStore.load(applicationContext)
+            val loopIsPaper = loopCfg.paperMode
+            if (GlobalTradeRegistry.isPaperMode != loopIsPaper) {
+                ErrorLogger.info("BotService", "🔄 HOT MODE SWITCH DETECTED: paper=${GlobalTradeRegistry.isPaperMode} → $loopIsPaper")
+                GlobalTradeRegistry.isPaperMode = loopIsPaper
+                UnifiedModeOrchestrator.isPaperMode = loopIsPaper
+                EfficiencyLayer.isPaperMode = loopIsPaper
+                FinalExecutionPermit.isPaperMode = loopIsPaper
+                // Re-initialize V3 engine with new mode (hot-swap, preserves learning)
+                if (loopCfg.v3EngineEnabled) {
+                    com.lifecyclebot.v3.V3EngineManager.updateMode(loopCfg)
+                }
+                addLog("🔄 Mode switched to ${if (loopIsPaper) "📝 PAPER" else "🔴 LIVE"} — all AI layers updated")
+            }
+
+        // Periodically persist session state - use synchronized copy
             val tradeCount = synchronized(status.tokens) {
                 status.tokens.values.toList().sumOf { it.trades.size }
             }
@@ -3376,7 +3532,7 @@ if (deferredCount > 0) {
                     pairAddress = pair.pairAddress,
                     pairUrl    = pair.url,
                     source     = "WATCHLIST",  // Tokens loaded from config
-                    logoUrl    = "https://dd.dexscreener.com/ds-data/tokens/solana/$mint.png",
+                    logoUrl    = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
                 )
             }
             val ts = status.tokens[mint] ?: return
@@ -4087,7 +4243,7 @@ if (deferredCount > 0) {
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
-                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 3.5 else treasurySignal.takeProfitPct
+                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 4.0 else treasurySignal.takeProfitPct
                             val effectiveSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
                             
                             // ═══════════════════════════════════════════════════════════════════
@@ -6068,7 +6224,7 @@ if (deferredCount > 0) {
                     } else {
                         com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) { ErrorLogger.warn("BotService", "⚠️ Caught: ${e.message}") }
             }
         } catch (transEx: Exception) {
             ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
@@ -6968,6 +7124,7 @@ if (deferredCount > 0) {
         // Fluid Learning AI
         try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(this)  // V5.8.0: restore Markets trade count
             initCount++
         } catch (e: Exception) {
             failCount++
@@ -7429,3 +7586,8 @@ if (deferredCount > 0) {
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
 // Build trigger 1774627618
 // Build trigger 1774842659
+
+
+
+
+

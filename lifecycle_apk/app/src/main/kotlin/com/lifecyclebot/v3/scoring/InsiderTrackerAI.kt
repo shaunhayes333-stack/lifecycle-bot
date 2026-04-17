@@ -1,12 +1,16 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -59,6 +63,18 @@ import java.util.concurrent.atomic.AtomicLong
 object InsiderTrackerAI {
     
     private const val TAG = "🔍InsiderTracker"
+
+    // V5.9: real Helius API client
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    // Set from BotService.start() via InsiderTrackerAI.start(heliusApiKey=...)
+    @Volatile private var heliusApiKey: String = ""
+
+    private const val HELIUS_TXN_URL = "https://api.helius.xyz/v0/addresses/%s/transactions"
+    private const val HELIUS_LIMIT    = 40
     
     // ═══════════════════════════════════════════════════════════════════════════
     // TRACKED WALLET DATABASE
@@ -365,7 +381,8 @@ object InsiderTrackerAI {
     // LIFECYCLE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun start(onSignal: ((InsiderSignal) -> Unit)? = null) {
+    fun start(heliusApiKey: String = "", onSignal: ((InsiderSignal) -> Unit)? = null) {
+        InsiderTrackerAI.heliusApiKey = heliusApiKey
         if (isRunning.get()) {
             ErrorLogger.warn(TAG, "Already running")
             return
@@ -493,42 +510,91 @@ object InsiderTrackerAI {
     }
     
     /**
-     * Fetch recent activity for a wallet using Solana RPC / Helius
+     * Fetch recent wallet activity via Helius enhanced transaction API.
+     * Falls back to empty activity (no signals) if key missing or API fails.
+     * V5.9: real implementation replacing random stub.
      */
-    private suspend fun fetchWalletActivity(wallet: TrackedWallet): WalletActivity {
-        // TODO: Replace with actual Solana RPC / Helius API calls
-        // For now, simulate activity detection
-        
-        return try {
-            // Simulated activity - in production, call:
-            // - getSignaturesForAddress
-            // - getParsedTransaction for each
-            // - Calculate volume, token movements, etc.
-            
-            val randomActivity = (Math.random() * 100).toInt()
-            val isAnomalous = randomActivity > 80
-            
+    private suspend fun fetchWalletActivity(wallet: TrackedWallet): WalletActivity = withContext(Dispatchers.IO) {
+        val key = heliusApiKey.ifBlank { return@withContext emptyActivity(wallet) }
+
+        return@withContext try {
+            val url = "${HELIUS_TXN_URL.format(wallet.address)}?api-key=$key&limit=$HELIUS_LIMIT"
+            val req = Request.Builder().url(url).header("Accept", "application/json").build()
+
+            val body = httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    ErrorLogger.warn(TAG, "Helius ${resp.code} for ${wallet.label}")
+                    return@withContext emptyActivity(wallet)
+                }
+                resp.body?.string().orEmpty()
+            }
+
+            if (body.isBlank() || body == "[]") return@withContext emptyActivity(wallet)
+
+            val txArray = JSONArray(body)
+            var totalVolUsd = 0.0
+            var lastTs      = 0L
+            val tokenSet    = mutableSetOf<String>()
+            val now         = System.currentTimeMillis()
+            val cutoff24h   = now - 86_400_000L
+            var tx24h       = 0
+
+            for (i in 0 until txArray.length()) {
+                val tx = txArray.optJSONObject(i) ?: continue
+                val tsSec = tx.optLong("timestamp", 0L)
+                val tsMs  = tsSec * 1000L
+                if (tsMs > lastTs) lastTs = tsMs
+                if (tsMs > cutoff24h) tx24h++
+
+                // Sum native SOL transfers (lamports → SOL, approx $150)
+                val nativeTransfers = tx.optJSONArray("nativeTransfers") ?: JSONArray()
+                for (j in 0 until nativeTransfers.length()) {
+                    val nt = nativeTransfers.optJSONObject(j) ?: continue
+                    val lamports = nt.optLong("amount", 0L)
+                    totalVolUsd += (lamports / 1_000_000_000.0) * 150.0
+                }
+
+                // Collect token symbols from tokenTransfers
+                val tokenTransfers = tx.optJSONArray("tokenTransfers") ?: JSONArray()
+                for (j in 0 until tokenTransfers.length()) {
+                    val tt = tokenTransfers.optJSONObject(j) ?: continue
+                    val sym = tt.optString("symbol", "")
+                    if (sym.isNotBlank() && sym != "SOL" && sym != "USDC") tokenSet.add(sym)
+                    // Also count USDC volume
+                    if (sym == "USDC") {
+                        totalVolUsd += tt.optDouble("tokenAmount", 0.0)
+                    }
+                }
+            }
+
+            // Anomaly: >20 txns in 24h OR volume > $50k
+            val isAnomalous  = tx24h > 20 || totalVolUsd > 50_000.0
+            val anomalyScore = minOf(100.0, (tx24h * 2.5) + (totalVolUsd / 2000.0))
+
             WalletActivity(
-                wallet = wallet,
-                recentTxCount = randomActivity,
-                last24hVolume = randomActivity * 1000.0,
-                lastActivity = System.currentTimeMillis() - (randomActivity * 60000L),
-                topTokens = listOf("SOL", "USDC"),
-                isAnomalous = isAnomalous,
-                anomalyScore = if (isAnomalous) randomActivity.toDouble() else 0.0
+                wallet        = wallet,
+                recentTxCount = tx24h,
+                last24hVolume = totalVolUsd,
+                lastActivity  = lastTs,
+                topTokens     = tokenSet.take(5).toList(),
+                isAnomalous   = isAnomalous,
+                anomalyScore  = anomalyScore
             )
         } catch (e: Exception) {
-            WalletActivity(
-                wallet = wallet,
-                recentTxCount = 0,
-                last24hVolume = 0.0,
-                lastActivity = 0,
-                topTokens = emptyList(),
-                isAnomalous = false,
-                anomalyScore = 0.0
-            )
+            ErrorLogger.warn(TAG, "fetchWalletActivity error for ${wallet.label}: ${e.message}")
+            emptyActivity(wallet)
         }
     }
+
+    private fun emptyActivity(wallet: TrackedWallet) = WalletActivity(
+        wallet        = wallet,
+        recentTxCount = 0,
+        last24hVolume = 0.0,
+        lastActivity  = 0L,
+        topTokens     = emptyList(),
+        isAnomalous   = false,
+        anomalyScore  = 0.0
+    )
     
     /**
      * Analyze wallet activity and generate signals

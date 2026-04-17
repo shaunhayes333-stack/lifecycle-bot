@@ -3,46 +3,99 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#000000"
+    android:background="#0A0A0F"
     android:fitsSystemWindows="true">
 
-    <!-- Header - V4.0: Added top padding for camera notch -->
+    <!-- ── TOP BAR ── -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="@dimen/topbar_height"
         android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="32dp"
-        android:paddingBottom="12dp"
         android:gravity="center_vertical"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
         android:background="#0A0A0F">
 
-        <ImageButton
-            android:id="@+id/btnBrainBack"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_arrow_back"
-            android:contentDescription="Back"
-            android:tint="#9945FF"/>
-
         <TextView
+            android:id="@+id/btnBrainBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🧠 Collective Intelligence"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:fontFamily="monospace"/>
+            android:orientation="vertical">
 
-        <View
-            android:layout_width="40dp"
-            android:layout_height="40dp"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="HIVE MIND"
+                android:textColor="#9945FF"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"/>
+
+            <TextView
+                android:id="@+id/tvSyncStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Checking…"
+                android:textColor="#4B5563"
+                android:textSize="9sp"
+                android:fontFamily="monospace"/>
+
+        </LinearLayout>
+
+        <!-- Data source badge -->
+        <TextView
+            android:id="@+id/tvBrainDataSource"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:gravity="center"
+            android:text="LOCAL"
+            android:textColor="#9945FF"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:background="@drawable/pill_bg"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginEnd="6dp"/>
+
+        <!-- Sync now -->
+        <TextView
+            android:id="@+id/btnForceSync"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:gravity="center"
+            android:text="↻ Sync"
+            android:textColor="#000000"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:background="@drawable/pill_bg_green"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
     </LinearLayout>
 
+    <!-- Purple accent divider — this is the hive's pulse line -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#2D1B69"/>
+
+    <!-- ── SCROLLABLE CONTENT ── -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -52,75 +105,42 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingEnd="@dimen/screen_padding"
+            android:paddingTop="@dimen/card_margin"
+            android:paddingBottom="@dimen/content_bottom_padding">
 
-            <!-- Animated Brain View - V4.0: Larger to fill circle on phones -->
+            <!-- ── BRAIN ANIMATION ── -->
             <com.lifecyclebot.ui.AnimatedBrainView
                 android:id="@+id/brainView"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="0.45"
-                android:minHeight="280dp"
-                android:layout_gravity="center"/>
-
-            <!-- Data Source Indicator -->
-            <TextView
-                android:id="@+id/tvBrainDataSource"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="200dp"
                 android:layout_gravity="center"
-                android:layout_marginTop="8dp"
-                android:text="📱 LOCAL DEVICE"
-                android:textColor="#9945FF"
+                android:layout_marginBottom="@dimen/card_margin"/>
+
+            <!-- ── BOOST BUTTON ── -->
+            <TextView
+                android:id="@+id/btnBoost"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:gravity="center"
+                android:text="⚡ BOOST — Scan &amp; Backtest"
+                android:textColor="#000000"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:background="@drawable/chip_purple_bg"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"/>
-            
-            <!-- V4.20: Sync Status + Force Sync Button -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:layout_marginTop="8dp">
-                
-                <TextView
-                    android:id="@+id/tvSyncStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⏳ Checking..."
-                    android:textColor="#6B7280"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"/>
-                
-                <TextView
-                    android:id="@+id/btnForceSync"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔄 SYNC NOW"
-                    android:textColor="#9945FF"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:background="@drawable/btn_outline"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:layout_marginStart="12dp"
-                    android:clickable="true"
-                    android:focusable="true"/>
-            </LinearLayout>
+                android:fontFamily="monospace"
+                android:letterSpacing="0.05"
+                android:background="@drawable/pill_bg_yellow"
+                android:layout_marginBottom="@dimen/card_margin"
+                android:clickable="true"
+                android:focusable="true"/>
 
-            <!-- Stats Grid -->
+            <!-- ── NODE STATS ROW — The network's heartbeat ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="16dp">
+                android:layout_marginBottom="@dimen/inner_gap">
 
                 <!-- Total Trades -->
                 <LinearLayout
@@ -129,15 +149,9 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
-                    android:padding="16dp"
-                    android:layout_marginEnd="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📊"
-                        android:textSize="24sp"/>
+                    android:background="@drawable/section_card_bg"
+                    android:padding="@dimen/card_padding"
+                    android:layout_marginEnd="3dp">
 
                     <TextView
                         android:id="@+id/tvBrainTotalTrades"
@@ -145,34 +159,32 @@
                         android:layout_height="wrap_content"
                         android:text="0"
                         android:textColor="#FFFFFF"
-                        android:textSize="20sp"
+                        android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Total Trades"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:text="TRADES"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.10"/>
+
                 </LinearLayout>
 
-                <!-- Active Instances -->
+                <!-- Active Nodes -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
-                    android:padding="16dp"
-                    android:layout_marginStart="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📡"
-                        android:textSize="24sp"/>
+                    android:background="@drawable/section_card_bg"
+                    android:padding="@dimen/card_padding"
+                    android:layout_marginStart="3dp"
+                    android:layout_marginEnd="3dp">
 
                     <TextView
                         android:id="@+id/tvBrainActiveInstances"
@@ -180,112 +192,20 @@
                         android:layout_height="wrap_content"
                         android:text="—"
                         android:textColor="#9945FF"
-                        android:textSize="20sp"
+                        android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Active Users"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
+                        android:text="NODES"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.10"/>
+
                 </LinearLayout>
-            </LinearLayout>
-
-            <!-- P&L Row -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="12dp">
-
-                <!-- Total Profit (Local) -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
-                    android:padding="16dp"
-                    android:layout_marginEnd="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📈"
-                        android:textSize="24sp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainTotalProfit"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#10B981"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="24h Profit"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
-                </LinearLayout>
-
-                <!-- Total Loss (Local) -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
-                    android:padding="16dp"
-                    android:layout_marginStart="8dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📉"
-                        android:textSize="24sp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainTotalLoss"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="#EF4444"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="24h Loss"
-                        android:textColor="#6B7280"
-                        android:textSize="10sp"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <!-- Intelligence Section -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="🧬 Learned Intelligence"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="12dp">
 
                 <!-- Patterns Learned -->
                 <LinearLayout
@@ -294,39 +214,169 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
-                    android:padding="12dp"
-                    android:layout_marginEnd="6dp">
+                    android:background="@drawable/section_card_bg"
+                    android:padding="@dimen/card_padding"
+                    android:layout_marginStart="3dp">
 
                     <TextView
                         android:id="@+id/tvBrainPatternsLearned"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#9945FF"
-                        android:textSize="18sp"
+                        android:textColor="#14F195"
+                        android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Patterns"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
+                        android:text="PATTERNS"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.10"/>
+
                 </LinearLayout>
 
-                <!-- Blacklisted -->
+            </LinearLayout>
+
+            <!-- ── COLLECTIVE PERFORMANCE ROW ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="@dimen/card_margin">
+
+                <!-- 24h Profit -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="12dp"
-                    android:layout_marginStart="6dp"
-                    android:layout_marginEnd="6dp">
+                    android:layout_marginEnd="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="24h PROFIT"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvBrainTotalProfit"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="#14F195"
+                        android:textSize="@dimen/token_name_size"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+
+                </LinearLayout>
+
+                <!-- Win Rate -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="12dp"
+                    android:layout_marginStart="3dp"
+                    android:layout_marginEnd="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="WIN RATE"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvBrainWinRate"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="#9945FF"
+                        android:textSize="@dimen/token_name_size"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+
+                </LinearLayout>
+
+                <!-- Avg Hold -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="12dp"
+                    android:layout_marginStart="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="AVG HOLD"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvBrainAvgHold"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/token_name_size"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ── HIVE INTELLIGENCE ROW — blacklist + total loss ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="@dimen/card_margin">
+
+                <!-- Blacklisted tokens -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="12dp"
+                    android:layout_marginEnd="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BLACKLISTED"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
 
                     <TextView
                         android:id="@+id/tvBrainBlacklistedTokens"
@@ -334,93 +384,105 @@
                         android:layout_height="wrap_content"
                         android:text="0"
                         android:textColor="#EF4444"
-                        android:textSize="18sp"
+                        android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Blacklisted"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
                 </LinearLayout>
 
-                <!-- Top Mode -->
+                <!-- Total network loss prevented -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/section_card_bg"
                     android:padding="12dp"
-                    android:layout_marginStart="6dp">
+                    android:layout_marginStart="3dp"
+                    android:layout_marginEnd="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="NETWORK SOURCE"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvBrainTotalLoss"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Local"
+                        android:textColor="#6B7280"
+                        android:textSize="@dimen/token_name_size"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+
+                </LinearLayout>
+
+                <!-- Top mode -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:background="@drawable/section_card_bg"
+                    android:padding="12dp"
+                    android:layout_marginStart="3dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="TOP MODE"
+                        android:textColor="#4B5563"
+                        android:textSize="8sp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="4dp"/>
 
                     <TextView
                         android:id="@+id/tvBrainTopMode"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="—"
-                        android:textColor="#10B981"
-                        android:textSize="12sp"
+                        android:textColor="#14F195"
+                        android:textSize="10sp"
                         android:textStyle="bold"
-                        android:fontFamily="monospace"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
+                        android:fontFamily="monospace"/>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Top Mode"
-                        android:textColor="#6B7280"
-                        android:textSize="9sp"/>
                 </LinearLayout>
+
             </LinearLayout>
 
-            <!-- Mode Performance Section -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="🏆 Top Performing Patterns"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"/>
-
-            <LinearLayout
-                android:id="@+id/llBrainModeStats"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="@drawable/stat_card_bg"
-                android:padding="12dp"
-                android:layout_marginTop="8dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Loading patterns..."
-                    android:textColor="#6B7280"
-                    android:textSize="12sp"/>
-            </LinearLayout>
-
-            <!-- Worst Mode indicator -->
+            <!-- ── WORST MODE + SECTION HEADER ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/stat_card_bg"
-                android:padding="12dp"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:layout_marginBottom="@dimen/inner_gap">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#EF4444"
+                    android:layout_marginEnd="8dp"/>
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="⚠️ Worst Pattern: "
-                    android:textColor="#6B7280"
-                    android:textSize="12sp"/>
+                    android:layout_weight="1"
+                    android:text="AVOID"
+                    android:textColor="#EF4444"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"/>
 
                 <TextView
                     android:id="@+id/tvBrainWorstMode"
@@ -428,22 +490,116 @@
                     android:layout_height="wrap_content"
                     android:text="—"
                     android:textColor="#EF4444"
-                    android:textSize="12sp"
+                    android:textSize="11sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"/>
+
             </LinearLayout>
 
-            <!-- Footer info -->
-            <TextView
+            <!-- ── MODE STATS CONTAINER (dynamic, filled by Kotlin) ── -->
+            <LinearLayout
+                android:id="@+id/llBrainModeStats"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="The collective brain learns from all AATE instances.\nPatterns, modes, and token data are shared anonymously to improve trading decisions across the network."
-                android:textColor="#374151"
-                android:textSize="10sp"
-                android:gravity="center"
-                android:lineSpacingMultiplier="1.3"/>
+                android:orientation="vertical"
+                android:background="@drawable/section_card_bg"
+                android:padding="@dimen/card_padding"
+                android:layout_marginBottom="@dimen/card_margin"/>
+
+            <!-- ── TOP PATTERNS SECTION ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="@dimen/inner_gap">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#9945FF"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="TOP PATTERNS"
+                    android:textColor="#9945FF"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/llBrainPatterns"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="@dimen/card_margin">
+
+                <TextView
+                    android:id="@+id/tvNoBrainData"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Learning from live trades…"
+                    android:textColor="#4B5563"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:padding="20dp"/>
+
+            </LinearLayout>
+
+            <!-- ── RECENT SIGNALS SECTION ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="@dimen/inner_gap">
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="14dp"
+                    android:background="#14F195"
+                    android:layout_marginEnd="8dp"/>
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="NETWORK SIGNALS"
+                    android:textColor="#14F195"
+                    android:textSize="@dimen/section_title_size"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.12"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/llBrainSignals"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Awaiting signals from the hive…"
+                    android:textColor="#4B5563"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:padding="20dp"/>
+
+            </LinearLayout>
 
         </LinearLayout>
+
     </ScrollView>
+
 </LinearLayout>

@@ -1,5 +1,6 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.perps.PriceAggregator
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
 import java.util.concurrent.atomic.AtomicInteger
@@ -57,6 +58,31 @@ object FluidLearningAI {
             "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
             "currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }
+
+    /**
+     * V5.8.0: Call from BotService.onCreate() AFTER init().
+     * Loads persisted Markets trade/win counts so the progress bar
+     * survives app restarts and doesn't permanently show "Initializing".
+     */
+    fun initMarketsPrefs(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(MARKETS_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        marketsPrefs = prefs
+        val savedTrades = prefs.getInt(KEY_MARKETS_TRADES, 0)
+        val savedWins   = prefs.getInt(KEY_MARKETS_WINS,   0)
+        if (savedTrades > 0) {
+            marketsSessionTrades.set(savedTrades)
+            marketsSessionWins.set(savedWins)
+            ErrorLogger.info(TAG, "📊 Markets counters restored: $savedTrades trades, $savedWins wins")
+        }
+    }
+
+    /** Save Markets counters to SharedPreferences. */
+    fun saveMarketsPrefs() {
+        marketsPrefs?.edit()
+            ?.putInt(KEY_MARKETS_TRADES, marketsSessionTrades.get())
+            ?.putInt(KEY_MARKETS_WINS,   marketsSessionWins.get())
+            ?.apply()
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LEARNING PROGRESS TRACKING
@@ -74,6 +100,12 @@ object FluidLearningAI {
     private val marketsSessionWins = AtomicInteger(0)
     private val marketsLastProgressUpdate = AtomicLong(0)
     private var marketsCachedProgress = 0.0
+
+    // V5.8.0: Persistent storage for Markets trade/win counts (survives app restart)
+    @Volatile private var marketsPrefs: android.content.SharedPreferences? = null
+    private const val MARKETS_PREFS_NAME = "fluid_learning_markets"
+    private const val KEY_MARKETS_TRADES = "markets_trades"
+    private const val KEY_MARKETS_WINS   = "markets_wins"
     
     // V5.6: EXTENDED Learning curve - Never fully closes
     //   Phase 1 Bootstrap (0-1000 trades):   progress 0.0→0.5 (permissive thresholds, learning mode)
@@ -84,9 +116,9 @@ object FluidLearningAI {
     //   - Old: Matured to 1.0 (100%) at 1000 trades → stopped trading
     //   - New: Caps at 0.8 (80%) so thresholds never fully close
     //   - This ensures CONTINUOUS trading even with 10,000+ trades
-    private const val BOOTSTRAP_PHASE_END = 1000   // Phase 1: 0-1000 trades
-    private const val MATURE_PHASE_END = 3000      // Phase 2: 1000-3000 trades
-    private const val EXPERT_PHASE_END = 5000      // V5.9: Phase 3: 3000-5000 trades
+    private const val BOOTSTRAP_PHASE_END = 200   // V5.9.8: was 1000
+    private const val MATURE_PHASE_END = 500      // V5.9.8: was 3000
+    private const val EXPERT_PHASE_END = 2000     // V5.9.8: was 5000
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.7.7: Bootstrap score gate constants
@@ -500,7 +532,8 @@ object FluidLearningAI {
      * Call this when any layer opens a position.
      */
     fun recordTradeStart() {
-        sessionTrades.incrementAndGet()
+        // V5.9.9: Do NOT increment sessionTrades here — only closed trades count
+        // Trade opens are counted by TradeHistoryStore via recordTradeStart intent
         lastProgressUpdate.set(0)  // Force progress recalculation
         ErrorLogger.debug(TAG, "📊 Trade started | total=${getTotalTradeCount()} | progress=${(getLearningProgress()*100).toInt()}%")
     }
@@ -510,8 +543,12 @@ object FluidLearningAI {
      * Call this when Markets traders open a position.
      */
     fun recordMarketsTradeStart() {
-        marketsSessionTrades.incrementAndGet()
-        marketsLastProgressUpdate.set(0)  // Force progress recalculation
+        // V5.9.8: Count every position open as a full learning trade
+        // The readiness bar must move visibly as the trader is actively trading
+        // V5.9.9: Do NOT increment marketsSessionTrades here — only closed trades count
+        marketsCachedProgress = 0.0  // Force recalculation
+        marketsLastProgressUpdate.set(0)
+        saveMarketsPrefs()
         ErrorLogger.debug(TAG, "📊 Markets trade started | total=${getMarketsTradeCount()} | progress=${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
@@ -544,22 +581,15 @@ object FluidLearningAI {
      * 200 live trades = 100% maturity contribution from live.
      * Real money, real consequences - this is the gold standard for learning.
      */
-    fun recordLiveTrade(isWin: Boolean) {
+    fun recordLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
         synchronized(tradeAccumulatorLock) {
             liveTradeAccumulator += LIVE_LEARNING_WEIGHT
-            
-            // When accumulator reaches 1.0, count as one full trade
             while (liveTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
                 liveTradeAccumulator -= 1.0
             }
-            
-            cachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "🧠 LIVE trade recorded (${LIVE_LEARNING_WEIGHT}x weight) | " +
-            "Progress: ${(getLearningProgress()*100).toInt()}%")
     }
     
     /**
@@ -567,22 +597,17 @@ object FluidLearningAI {
      * 1000 paper trades = 100% maturity contribution from paper.
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
-    fun recordPaperTrade(isWin: Boolean) {
+    fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        // V5.9.9: Accumulator gates LEARNING PROGRESS, not win/loss counting.
+        // Win rate must count every trade as exactly 1 — no magnitude skew.
         synchronized(tradeAccumulatorLock) {
             paperTradeAccumulator += PAPER_LEARNING_WEIGHT
-            
-            // When accumulator reaches 1.0, count as one full trade
             while (paperTradeAccumulator >= 1.0) {
                 sessionTrades.incrementAndGet()
                 if (isWin) sessionWins.incrementAndGet()
                 paperTradeAccumulator -= 1.0
             }
-            
-            cachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "🧠 PAPER trade recorded (${PAPER_LEARNING_WEIGHT}x weight) | " +
-            "Progress: ${(getLearningProgress()*100).toInt()}%")
     }
     
     /**
@@ -627,40 +652,30 @@ object FluidLearningAI {
      * Record a MARKETS paper trade (TokenizedStocks, Commodities, Metals, Forex).
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
-    fun recordMarketsPaperTrade(isWin: Boolean) {
+    fun recordMarketsPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
         synchronized(marketsAccumulatorLock) {
             marketsPaperAccumulator += PAPER_LEARNING_WEIGHT
-            
             while (marketsPaperAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
                 marketsPaperAccumulator -= 1.0
             }
-            
-            marketsCachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "📊 MARKETS PAPER trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
     /**
      * Record a MARKETS live trade.
      * Uses Markets-specific counters - does NOT affect Meme mode thresholds.
      */
-    fun recordMarketsLiveTrade(isWin: Boolean) {
+    fun recordMarketsLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
         synchronized(marketsAccumulatorLock) {
             marketsLiveAccumulator += LIVE_LEARNING_WEIGHT
-            
             while (marketsLiveAccumulator >= 1.0) {
                 marketsSessionTrades.incrementAndGet()
                 if (isWin) marketsSessionWins.incrementAndGet()
                 marketsLiveAccumulator -= 1.0
             }
-            
-            marketsCachedProgress = 0.0  // Force recalculation
         }
-        
-        ErrorLogger.debug(TAG, "📊 MARKETS LIVE trade | Progress: ${(getMarketsLearningProgress()*100).toInt()}%")
     }
     
     /**
@@ -887,24 +902,24 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // SPOT trading thresholds - BROADENED like meme trader
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 15    // V5.7.6b: Was 25, now matches meme's aggression
-    private const val MARKETS_SPOT_SCORE_MATURE = 35       // V5.7.6b: Was 40, still selective when mature
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 10     // V5.7.6b: Was 20, very loose at start
-    private const val MARKETS_SPOT_CONF_MATURE = 30        // V5.7.6b: Was 35
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 40    // min viable signal quality at bootstrap
+    private const val MARKETS_SPOT_SCORE_MATURE = 60       // selective when mature
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 45     // was 10 — far too loose, bled balance
+    private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 20     // V5.7.6b: Was 30, now more aggressive
-    private const val MARKETS_LEV_SCORE_MATURE = 40        // V5.7.6b: Was 50
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 15      // V5.7.6b: Was 25, loose at start
-    private const val MARKETS_LEV_CONF_MATURE = 35         // V5.7.6b: Was 40
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 50     // leverage needs higher quality signals
+    private const val MARKETS_LEV_SCORE_MATURE = 70
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 55      // was 15 — dangerously low for leveraged trades
+    private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
-    private const val MARKETS_TP_BOOTSTRAP = 2.0    // V5.7.6b: Was 3%, now 2% quick scalps
-    private const val MARKETS_TP_MATURE = 12.0      // V5.7.6b: Was 8%, now 12% let winners run
+    private const val MARKETS_TP_BOOTSTRAP = 4.0    // V5.9.8: start conservative
+    private const val MARKETS_TP_MATURE = 25.0   // V5.9.8: was 8% — was capping legitimate big moves
     
     // Stop Loss targets - WIDER at bootstrap for learning
-    private const val MARKETS_SL_BOOTSTRAP = -12.0  // V5.7.6b: Was -8%, now -12% room to breathe
-    private const val MARKETS_SL_MATURE = -5.0      // V5.7.6b: Was -4%, slightly looser
+    private const val MARKETS_SL_BOOTSTRAP = -3.0   // was -12% — catastrophic, burned balance fast
+    private const val MARKETS_SL_MATURE = -4.0      // tight stops = more losses cut early
     
     // Position size as % of balance - MORE AGGRESSIVE
     private const val MARKETS_SIZE_BOOTSTRAP = 2.0  // V5.7.6b: Was 3%, start smaller for safety
@@ -924,6 +939,15 @@ object FluidLearningAI {
     
     /** Get fluid take profit target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsTakeProfitPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+
+    /** V5.9.8: Spot trades — moderate ceiling, markets move slower than meme coins */
+    fun getMarketsSpotTpPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+
+    /** V5.9.8: Leverage trades — higher TP ceiling to justify the leverage risk */
+    fun getMarketsLevTpPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP * 1.5, MARKETS_TP_MATURE * 1.5)
+
+    /** V5.9.8: Never cap TP — if a signal has a higher target, honour it */
+    fun getMarketsUncappedTpPct(signalTp: Double): Double = maxOf(signalTp, getMarketsSpotTpPct())
     
     /** Get fluid stop loss target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsStopLossPct(): Double = lerpMarkets(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)
@@ -986,15 +1010,17 @@ object FluidLearningAI {
      * Bootstrap: TIGHT take profits (secure wins while learning)
      * Mature: WIDE take profits (let winners run with confidence)
      */
-    fun getFluidTakeProfit(modeDefaultTp: Double): Double {
-        val progress = getLearningProgress()
-        
-        // V5.2.11: Raised bootstrap TP from 8% to 15%
-        // 8% was selling winners too early before they could run
-        val bootstrapTp = minOf(modeDefaultTp, 15.0)  // Max +15% TP during bootstrap
-        val matureTp = modeDefaultTp                   // Use mode's intended TP when mature
-        
-        return lerp(bootstrapTp, matureTp)
+    fun getFluidTakeProfit(modeDefaultTp: Double, tradingMode: String = ""): Double {
+        // V5.9.8: Moonshot/Treasury/BlueChip modes must never be TP-capped
+        // Capping at 15% during bootstrap was killing 50-200% winners
+        val isHighUpsideMode = tradingMode.contains("MOONSHOT", ignoreCase = true)
+            || tradingMode.contains("TREASURY", ignoreCase = true)
+            || tradingMode.contains("BLUE", ignoreCase = true)
+        if (isHighUpsideMode) return modeDefaultTp
+
+        // Standard modes: lerp from 15% bootstrap cap → full TP at maturity
+        val bootstrapTp = minOf(modeDefaultTp, 15.0)
+        return lerp(bootstrapTp, modeDefaultTp)
     }
     
     /**
@@ -1427,7 +1453,7 @@ object FluidLearningAI {
         var minPct = ROUND_TRIP_FEE_PCT * 100  // 0.6%
         
         // Add estimated price impact based on liquidity
-        val solPrice = 150.0  // Approximate - could be passed in
+        val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 150.0 } catch (_: Exception) { 150.0 } // V5.9: live price
         val positionUsd = positionSizeSol * solPrice
         
         val priceImpactPct = when {

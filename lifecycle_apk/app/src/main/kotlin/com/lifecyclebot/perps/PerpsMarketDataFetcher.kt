@@ -1,6 +1,7 @@
 package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.perps.DynamicAltTokenRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit
 object PerpsMarketDataFetcher {
     
     private const val TAG = "📊PerpsData"
+    private val networkRetry = com.lifecyclebot.network.NetworkRetry("PerpsData", maxRetries = 2, baseDelayMs = 1_000L, failureThreshold = 10, openDurationMs = 30_000L)
     
     // Cache for market data
     private val marketDataCache = ConcurrentHashMap<PerpsMarket, PerpsMarketData>()
@@ -425,20 +427,36 @@ object PerpsMarketDataFetcher {
         // Check cache
         val cached = marketDataCache[market]
         val lastFetch = lastFetchTime[market] ?: 0
-        
         if (cached != null && System.currentTimeMillis() - lastFetch < CACHE_TTL_MS) {
             return cached
         }
-        
-        // Fetch fresh data using Pyth Oracle
-        val freshData = fetchFromPythOracle(market)
 
-        // Only cache valid (non-zero) prices to avoid poisoning the cache
+        // V5.9: Try Pyth first, then CoinGecko/PriceAggregator fallback
+        var freshData = fetchFromPythOracle(market)
+
+        // If Pyth returned zero (totally down), try PriceAggregator as fallback
+        if (freshData.price <= 0 && market.isCrypto) {
+            try {
+                val pa = PriceAggregator.getPrice(market.symbol)
+                if (pa != null && pa.price > 0) {
+                    ErrorLogger.info(TAG, "📡 Pyth down for ${market.symbol} — using PriceAggregator fallback: \$${pa.price}")
+                    networkRetry.recordFailure()
+                    freshData = freshData.copy(
+                        price = pa.price,
+                        indexPrice = pa.price,
+                        markPrice = pa.price,
+                        priceChange24hPct = pa.change24h,
+                    )
+                }
+            } catch (_: Exception) {}
+        } else if (freshData.price > 0) {
+            networkRetry.recordSuccess()
+        }
+
         if (freshData.price > 0) {
             marketDataCache[market] = freshData
             lastFetchTime[market] = System.currentTimeMillis()
         }
-
         return freshData
     }
     
@@ -457,7 +475,17 @@ object PerpsMarketDataFetcher {
         val markets = PerpsMarket.values().toList()
         markets.forEach { market ->
             try {
-                getMarketData(market)
+                val data = getMarketData(market)
+                // V5.8: feed price back into DynamicAltTokenRegistry so alt tiles show real MC/L
+                if (data.price > 0) {
+                    DynamicAltTokenRegistry.updateStaticPrice(
+                        symbol    = market.symbol,
+                        price     = data.price,
+                        change24h = data.priceChange24hPct,
+                        mcap      = 0.0,
+                        vol24h    = data.volume24h,
+                    )
+                }
             } catch (_: Exception) {}
         }
     }
@@ -481,15 +509,12 @@ object PerpsMarketDataFetcher {
                     }
                     
                     // Real 24h change from PriceAggregator (CoinGecko/Binance — cached 3s)
-                    // so scanners see actual market movement instead of near-zero EMA delta.
-                    // Falls back to EMA-derived change if aggregator unavailable.
-                    val real24hChange: Double = if (market.isCrypto) {
-                        try { PriceAggregator.getPrice(market.symbol)?.change24h
-                            ?: calculateChange(pythPrice.price, pythPrice.emaPrice) }
-                        catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
-                    } else {
-                        calculateChange(pythPrice.price, pythPrice.emaPrice)
-                    }
+                    // V5.9.3: Use PriceAggregator for ALL markets — stocks had calculateChange
+                    // returning ~0 (Pyth price ≈ EMA price at rest) which killed signal generation.
+                    val real24hChange: Double = try {
+                        kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
+                            ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
+                    } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                     return PerpsMarketData(
                         market = market,
                         price = pythPrice.price,
@@ -516,7 +541,7 @@ object PerpsMarketDataFetcher {
                         if (pythPrice.price > 0) {
                             ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
                             val staleChange: Double = try {
-                                PriceAggregator.getPrice(market.symbol)?.change24h
+                                kotlinx.coroutines.runBlocking { PriceAggregator.getPrice(market.symbol)?.change24h }
                                     ?: calculateChange(pythPrice.price, pythPrice.emaPrice)
                             } catch (_: Exception) { calculateChange(pythPrice.price, pythPrice.emaPrice) }
                             return PerpsMarketData(

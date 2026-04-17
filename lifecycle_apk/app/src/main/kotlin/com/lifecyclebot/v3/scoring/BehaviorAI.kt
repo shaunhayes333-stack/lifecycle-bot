@@ -254,6 +254,16 @@ object BehaviorAI {
         // V5.6.28e: Auto-save after behavior state change
         save()
     }
+
+    // V5.9.8: Collective Hive Mind pattern gating
+    private val suppressedPatterns = mutableSetOf<String>()
+    private val boostedPatterns    = mutableSetOf<String>()
+
+    fun suppressPattern(name: String) { suppressedPatterns.add(name); boostedPatterns.remove(name) }
+    fun boostPattern(name: String)    { boostedPatterns.add(name); suppressedPatterns.remove(name) }
+    fun isPatternSuppressed(name: String): Boolean = suppressedPatterns.contains(name)
+    fun isPatternBoosted(name: String): Boolean    = boostedPatterns.contains(name)
+
     
     // ═══════════════════════════════════════════════════════════════════════════
     // TILT PROTECTION

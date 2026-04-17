@@ -187,6 +187,55 @@ object V3EngineManager {
     fun getMode(): V3BotMode = context?.mode ?: V3BotMode.PAPER
 
     /**
+     * HOT MODE SWITCH: Update V3 mode without full re-init.
+     * Called when user toggles PAPER ↔ LIVE without restarting the bot.
+     * Preserves all learned state, cooldowns, and exposure tracking.
+     * Only changes the execution behaviour (paper sim vs real tx).
+     */
+    fun updateMode(newBotConfig: BotConfig) {
+        synchronized(stateLock) {
+            if (!initialized) {
+                // Not running yet — just do a full init
+                initialize(newBotConfig)
+                return
+            }
+
+            val newMode = when {
+                newBotConfig.paperMode -> V3BotMode.PAPER
+                newBotConfig.v3ShadowMode -> V3BotMode.LEARNING
+                else -> V3BotMode.LIVE
+            }
+
+            val currentMode = context?.mode ?: V3BotMode.PAPER
+            if (currentMode == newMode) {
+                ErrorLogger.debug(TAG, "updateMode: already in $newMode — no change")
+                return
+            }
+
+            ErrorLogger.info(TAG, "═══ V3 HOT MODE SWITCH: $currentMode → $newMode ═══")
+
+            // Update context mode in-place (preserves marketRegime, history, etc.)
+            context = context?.copy(mode = newMode)
+
+            // Update botConfig reference for threshold decisions
+            botConfig = newBotConfig
+
+            // Resize exposure guard slot limit for new mode
+            exposureGuard = ExposureGuard(
+                maxOpenPositions = if (newBotConfig.paperMode) 25 else newBotConfig.maxConcurrentPositions.coerceAtMost(10),
+                maxExposurePct = (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
+            )
+
+            val modeTag = when (newMode) {
+                V3BotMode.PAPER -> "📝 PAPER"
+                V3BotMode.LEARNING -> "🔬 SHADOW/LEARNING"
+                V3BotMode.LIVE -> "🔥 LIVE"
+            }
+            ErrorLogger.info(TAG, "V3 mode updated to $modeTag — learning state preserved")
+        }
+    }
+
+    /**
      * Process a token through the V3 pipeline.
      *
      * V3 SELECTIVITY: Added isAIDegraded parameter for AI health tracking

@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.BotConfig
+import com.lifecyclebot.perps.PriceAggregator
 
 /**
  * FluidLearning - Makes Paper & Shadow Mode fully functional learning environments
@@ -25,10 +26,16 @@ object FluidLearning {
     // SIMULATED BALANCE TRACKING
     // ═══════════════════════════════════════════════════════════════════════════
 
-    @Volatile private var simulatedBalanceSol: Double = 5.0
-    @Volatile private var simulatedPeakSol: Double = 5.0
+    @Volatile private var simulatedBalanceSol: Double = 11.7647  // V5.9.7: $1000 USD wallet
+    @Volatile private var simulatedPeakSol: Double = 11.7647
     @Volatile private var totalPaperPnlSol: Double = 0.0
     @Volatile private var paperTradeCount: Int = 0
+    private val tagOutcomes   = mutableMapOf<String, MutableList<Boolean>>()
+    private val exitTagWinRates = mutableMapOf<String, Double>()
+    /** V5.9.8: Win rate for a given exit+regime tag — used by BehaviorAI */
+    fun getExitTagWinRate(exitReason: String, regime: String): Double =
+        exitTagWinRates["$exitReason@$regime"] ?: 50.0
+
     @Volatile private var paperWinCount: Int = 0
     @Volatile private var paperLossCount: Int = 0
 
@@ -57,7 +64,7 @@ object FluidLearning {
      */
     fun recordPriceImpact(mint: String, solAmount: Double, liquidityUsd: Double, isBuy: Boolean) {
         val safeLiquidity = liquidityUsd.coerceAtLeast(1.0)
-        val solPrice = 140.0
+        val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 140.0 } catch (_: Exception) { 140.0 } // V5.9: live price
         val tradeUsd = solAmount * solPrice
 
         val impactPct = when {
@@ -107,7 +114,7 @@ object FluidLearning {
     /**
      * Initialize with context for persistence
      */
-    fun init(ctx: Context, startingBalance: Double = 5.0) {
+    fun init(ctx: Context, startingBalance: Double = 11.7647) {
         prefs = ctx.getSharedPreferences("fluid_learning", Context.MODE_PRIVATE)
         loadState()
 
@@ -129,6 +136,15 @@ object FluidLearning {
      */
     fun getSimulatedBalance(): Double = simulatedBalanceSol
 
+
+    /** Directly set the simulated balance — used when syncing from external traders */
+    fun forceSetBalance(sol: Double) {
+        if (sol > 0.0) {
+            simulatedBalanceSol = sol
+            if (sol > simulatedPeakSol) simulatedPeakSol = sol
+            saveState()
+        }
+    }
     /**
      * Backward compatibility alias
      */
@@ -199,16 +215,25 @@ object FluidLearning {
     /**
      * Record a paper SELL - updates simulated balance and learning stats
      */
-    fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double) {
+    fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double, exitReason: String = "UNKNOWN", regime: String = "NEUT") {
         val pnlPct = if (originalSol > 0.0) (pnlSol / originalSol) * 100.0 else 0.0
 
-        val isWin = isWinPct(pnlPct)
-        val isLoss = isLossPct(pnlPct)
-        val isScratch = !isWin && !isLoss
+        val isWin = pnlSol > 0   // V5.9.8: any positive return = win, no threshold
+        val isLoss = pnlSol < 0   // V5.9.8: any negative return = loss
+        val isScratch = pnlSol == 0.0   // V5.9.8: only exact zero is scratch
 
         simulatedBalanceSol += pnlSol
+        // V5.9.8: Keep BotService.status in sync — single source of truth for UI
+        try { com.lifecyclebot.engine.BotService.status.paperWalletSol = simulatedBalanceSol } catch (_: Exception) {}
         totalPaperPnlSol += pnlSol
         paperTradeCount++
+        // V5.9.8: track outcome by exit reason × regime
+        val _tag = "$exitReason@$regime"
+        tagOutcomes.getOrPut(_tag) { mutableListOf() }.also {
+            it.add(pnlSol > 0)
+            if (it.size > 50) it.removeAt(0)
+            exitTagWinRates[_tag] = it.count { w -> w }.toDouble() / it.size * 100.0
+        }
 
         when {
             isWin -> {
@@ -316,8 +341,8 @@ object FluidLearning {
 
     private fun loadState() {
         prefs?.let { p ->
-            simulatedBalanceSol = p.getFloat("simulated_balance", 5.0f).toDouble()
-            simulatedPeakSol = p.getFloat("simulated_peak", 5.0f).toDouble()
+            simulatedBalanceSol = p.getFloat("simulated_balance", 11.7647f).toDouble()
+            simulatedPeakSol = p.getFloat("simulated_peak", 11.7647f).toDouble()
             totalPaperPnlSol = p.getFloat("total_pnl", 0.0f).toDouble()
             paperTradeCount = p.getInt("trade_count", 0)
             paperWinCount = p.getInt("win_count", 0)
@@ -328,7 +353,7 @@ object FluidLearning {
     /**
      * Reset simulated balance to starting amount
      */
-    fun reset(startingBalance: Double = 5.0) {
+    fun reset(startingBalance: Double = 11.7647) {
         simulatedBalanceSol = startingBalance
         simulatedPeakSol = startingBalance
         totalPaperPnlSol = 0.0

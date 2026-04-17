@@ -153,8 +153,8 @@ object CloudLearningSync {
         if (!isConfigured()) return@withContext false
 
         try {
-            val requests = JSONArray().apply {
-                put(exec("PRAGMA journal_mode = WAL"))
+            // Phase 1: Create tables (IF NOT EXISTS won't modify existing tables)
+            val createRequests = JSONArray().apply {
                 put(
                     exec(
                         """
@@ -197,21 +197,43 @@ object CloudLearningSync {
                         """.trimIndent()
                     )
                 )
+                put(closeReq())
+            }
+
+            val createResp = pipeline(createRequests)
+            if (createResp == null) {
+                ErrorLogger.error("CloudSync", "Schema init failed: null response")
+                return@withContext false
+            }
+            // Log but don't fail on create errors (tables may already exist)
+            if (pipelineHasErrors(createResp)) {
+                ErrorLogger.warn("CloudSync", "Schema create had warnings (tables may pre-exist)")
+            }
+
+            // Phase 2: Migrations — add missing columns to older tables
+            // ALTER TABLE ADD COLUMN is safe: errors if column exists (expected, ignore)
+            val migrateRequests = JSONArray().apply {
+                put(exec("ALTER TABLE collective_instances ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_feature_weights ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN pattern_name TEXT NOT NULL DEFAULT ''"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN win_rate REAL NOT NULL DEFAULT 0.0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN profit_factor REAL NOT NULL DEFAULT 0.0"))
+                put(exec("ALTER TABLE collective_patterns ADD COLUMN sample_count INTEGER NOT NULL DEFAULT 0"))
+                put(closeReq())
+            }
+            pipeline(migrateRequests) // Ignore errors — columns may already exist
+
+            // Phase 3: Create indexes (now columns guaranteed to exist)
+            val indexRequests = JSONArray().apply {
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_instances_updated_at ON collective_instances(updated_at)"))
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_features_updated_at ON collective_feature_weights(updated_at)"))
                 put(exec("CREATE INDEX IF NOT EXISTS idx_collective_patterns_updated_at ON collective_patterns(updated_at)"))
                 put(closeReq())
             }
-
-            val response = pipeline(requests)
-            if (response == null) {
-                ErrorLogger.error("CloudSync", "Schema init failed: null response")
-                return@withContext false
-            }
-
-            if (pipelineHasErrors(response)) {
-                ErrorLogger.error("CloudSync", "Schema init failed: pipeline returned errors")
-                return@withContext false
+            val indexResp = pipeline(indexRequests)
+            if (indexResp != null && pipelineHasErrors(indexResp)) {
+                ErrorLogger.warn("CloudSync", "Index creation had warnings (non-fatal)")
             }
 
             schemaReady = true
@@ -573,6 +595,15 @@ object CloudLearningSync {
                         val raw = 1.0 + ((winComponent + pfComponent) * sampleConfidence)
                         patternMultipliers[patternName] = clamp(raw, 0.70, 1.35)
                     }
+                // V5.9.8: Push collective pattern win rates into BehaviorAI for local gating
+                patternMultipliers.forEach { (name, mult) ->
+                    // mult < 0.8 means collective win rate < 40% — suppress locally too
+                    if (mult < 0.8) {
+                        try { com.lifecyclebot.v3.scoring.BehaviorAI.suppressPattern(name) } catch (_: Exception) {}
+                    } else if (mult > 1.1) {
+                        try { com.lifecyclebot.v3.scoring.BehaviorAI.boostPattern(name) } catch (_: Exception) {}
+                    }
+                }
                 }
 
                 communityWeights = CommunityWeights(
@@ -771,19 +802,34 @@ object CloudLearningSync {
     }
 
     private fun pipelineHasErrors(response: JSONObject): Boolean {
-        if (response.has("error")) return true
+        if (response.has("error")) {
+            ErrorLogger.error("CloudSync", "Pipeline top-level error: ${response.optString("error")}")
+            return true
+        }
 
         val results = response.optJSONArray("results") ?: return false
         for (i in 0 until results.length()) {
             val item = results.optJSONObject(i) ?: continue
 
-            if (item.has("error")) return true
+            // Skip close responses — they don't have error fields
+            if (item.optString("type") == "close") continue
+
+            if (item.has("error")) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i error: ${item.optJSONObject("error")?.optString("message") ?: item.optString("error")}")
+                return true
+            }
 
             val responseObj = item.optJSONObject("response")
-            if (responseObj?.has("error") == true) return true
+            if (responseObj?.has("error") == true) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i response error: ${responseObj.optString("error")}")
+                return true
+            }
 
             val resultObj = responseObj?.optJSONObject("result")
-            if (resultObj?.has("error") == true) return true
+            if (resultObj?.has("error") == true) {
+                ErrorLogger.error("CloudSync", "Pipeline item #$i result error: ${resultObj.optString("error")}")
+                return true
+            }
         }
 
         return false

@@ -82,8 +82,9 @@ class ErrorLogActivity : AppCompatActivity() {
             confirmClear()
         }
         
-        // Refresh button
-        findViewById<ImageButton>(R.id.refreshButton).setOnClickListener {
+        // FIX: refreshButton is a TextView in the XML layout, not an ImageButton.
+        // Using View (base class) avoids a ClassCastException crash on launch.
+        findViewById<View>(R.id.refreshButton).setOnClickListener {
             loadLogs()
             Toast.makeText(this, "Logs refreshed", Toast.LENGTH_SHORT).show()
         }

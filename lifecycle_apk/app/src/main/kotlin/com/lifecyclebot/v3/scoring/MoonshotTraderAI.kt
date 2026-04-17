@@ -504,7 +504,7 @@ object MoonshotTraderAI {
         }
         
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
-        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP)
+        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
         val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
         
         return MoonshotScore(
@@ -772,6 +772,11 @@ object MoonshotTraderAI {
         // Update balance
         val balanceRef = if (pos.isPaperMode) paperBalanceBps else liveBalanceBps
         balanceRef.addAndGet((pnlSol * 10000).toLong())
+            // V5.9.8: Sync paper P&L to shared wallet
+            if (pos.isPaperMode) {
+                com.lifecyclebot.engine.BotService.status.paperWalletSol =
+                    (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
+            }
         
         // Update local learning progress
         updateLearning(pnlPct, isWin)
@@ -781,6 +786,8 @@ object MoonshotTraderAI {
         try {
             if (pos.isPaperMode) {
                 FluidLearningAI.recordPaperTrade(isWin)
+                try { com.lifecyclebot.engine.SmartSizer.recordTrade(isWin, isPaperMode = true) } catch (_: Exception) {}
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, exitReason.name, "MOONSHOT") } catch (_: Exception) {}
             } else {
                 FluidLearningAI.recordLiveTrade(isWin)
             }

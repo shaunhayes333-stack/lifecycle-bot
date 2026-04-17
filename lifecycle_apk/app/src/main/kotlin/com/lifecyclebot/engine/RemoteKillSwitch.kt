@@ -113,7 +113,7 @@ object RemoteKillSwitch {
 
                     // Version check
                     if (config.minVersion.isNotBlank()) {
-                        val currentVersion = "6.9.0"  // TODO: get from BuildConfig
+                        val currentVersion = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Exception) { "6.9.0" }  // V5.9: from BuildConfig
                         if (isVersionLower(currentVersion, config.minVersion)) {
                             onVersionWarning("Update required: v${config.minVersion}+ (you have v$currentVersion)")
                         }

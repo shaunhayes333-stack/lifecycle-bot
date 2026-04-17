@@ -2,106 +2,189 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#0A0A0F"
     android:orientation="vertical"
-    android:background="#0D0D0D"
-    android:padding="16dp">
+    android:fitsSystemWindows="true">
 
-    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="Backtest" android:textColor="#FFFFFF"
-        android:textSize="20sp" android:textStyle="bold"
-        android:layout_marginBottom="16dp"/>
+    <!-- ── TOP BAR ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp"
+        android:background="#0A0A0F">
 
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="TOKEN MINT" android:textColor="#6B7280"
-        android:textSize="10sp" android:fontFamily="monospace"
-        android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
-    <EditText android:id="@+id/etBtMint"
-        android:layout_width="match_parent" android:layout_height="44dp"
-        android:background="@drawable/input_bg"
-        android:textColor="#FFFFFF" android:textColorHint="#374151"
-        android:textSize="12sp" android:fontFamily="monospace"
-        android:hint="Paste mint address…"
-        android:paddingStart="12dp" android:paddingEnd="12dp"
-        android:inputType="text" android:maxLines="1"
-        android:layout_marginBottom="12dp"/>
+        <TextView
+            android:id="@+id/btnBtBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
 
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:layout_marginBottom="12dp">
-
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="TIMEFRAME" android:textColor="#6B7280"
-                android:textSize="10sp" android:fontFamily="monospace"
-                android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
-            <Spinner android:id="@+id/spinnerBtTf"
-                android:layout_width="match_parent" android:layout_height="44dp"
-                android:background="@drawable/input_bg"
-                android:paddingStart="12dp"/>
-        </LinearLayout>
-
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="CANDLES" android:textColor="#6B7280"
-                android:textSize="10sp" android:fontFamily="monospace"
-                android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
-            <EditText android:id="@+id/etBtCandles"
-                android:layout_width="match_parent" android:layout_height="44dp"
-                android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF" android:textColorHint="#374151"
-                android:textSize="13sp" android:fontFamily="monospace"
-                android:hint="200" android:inputType="number"
-                android:paddingStart="12dp" android:paddingEnd="12dp"/>
-        </LinearLayout>
-
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="SIZE (SOL)" android:textColor="#6B7280"
-                android:textSize="10sp" android:fontFamily="monospace"
-                android:letterSpacing="0.08" android:layout_marginBottom="4dp"/>
-            <EditText android:id="@+id/etBtPositionSol"
-                android:layout_width="match_parent" android:layout_height="44dp"
-                android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF" android:textColorHint="#374151"
-                android:textSize="13sp" android:fontFamily="monospace"
-                android:hint="0.10" android:inputType="numberDecimal"
-                android:paddingStart="12dp" android:paddingEnd="12dp"/>
-        </LinearLayout>
-    </LinearLayout>
-
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:layout_marginBottom="12dp">
-        <Button android:id="@+id/btnBtRun"
-            android:layout_width="0dp" android:layout_height="44dp"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="▶  Run Backtest"
-            android:textColor="#FFFFFF" android:textStyle="bold"
-            android:backgroundTint="#9945FF"
-            android:layout_marginEnd="8dp"/>
-        <TextView android:id="@+id/btnBtClear"
-            android:layout_width="wrap_content" android:layout_height="44dp"
-            android:text="Clear"
-            android:textColor="#6B7280" android:textSize="13sp"
-            android:gravity="center"
-            android:paddingStart="12dp" android:paddingEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Backtest"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.04"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Simulate strategy on historical data"
+                android:textColor="#6B7280"
+                android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
     </LinearLayout>
 
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- ── INPUTS CARD ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/section_card_bg"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="TOKEN MINT"
+            android:textColor="#6B7280"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.10"
+            android:layout_marginBottom="6dp"/>
+
+        <EditText android:id="@+id/etBtMint"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/input_height"
+            android:background="@drawable/input_bg"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#4A5E70"
+            android:textSize="@dimen/input_text_size"
+            android:fontFamily="monospace"
+            android:hint="Paste mint address…"
+            android:paddingStart="@dimen/input_padding_h"
+            android:paddingEnd="@dimen/input_padding_h"
+            android:inputType="text"
+            android:maxLines="1"
+            android:layout_marginBottom="12dp"/>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="12dp">
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="TIMEFRAME" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
+                <Spinner android:id="@+id/spinnerBtTf"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:paddingStart="@dimen/input_padding_h"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="CANDLES" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
+                <EditText android:id="@+id/etBtCandles"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="200" android:inputType="number"
+                    android:paddingStart="@dimen/input_padding_h" android:paddingEnd="@dimen/input_padding_h"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SIZE (SOL)" android:textColor="#6B7280"
+                    android:textSize="10sp" android:fontFamily="monospace"
+                    android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
+                <EditText android:id="@+id/etBtPositionSol"
+                    android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                    android:background="@drawable/input_bg"
+                    android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
+                    android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
+                    android:hint="0.10" android:inputType="numberDecimal"
+                    android:paddingStart="@dimen/input_padding_h" android:paddingEnd="@dimen/input_padding_h"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Run + Clear -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button android:id="@+id/btnBtRun"
+                android:layout_width="0dp" android:layout_height="@dimen/input_height"
+                android:layout_weight="1"
+                android:text="▶  Run Backtest"
+                android:textColor="#000000" android:textStyle="bold"
+                android:backgroundTint="#14F195"
+                android:fontFamily="monospace"
+                android:layout_marginEnd="8dp"/>
+            <TextView android:id="@+id/btnBtClear"
+                android:layout_width="wrap_content" android:layout_height="@dimen/input_height"
+                android:text="Clear"
+                android:textColor="#6B7280" android:textSize="13sp"
+                android:gravity="center"
+                android:paddingStart="12dp" android:paddingEnd="4dp"
+                android:clickable="true" android:focusable="true"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Progress bar -->
     <ProgressBar android:id="@+id/btProgress"
         android:layout_width="match_parent" android:layout_height="3dp"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"
         android:indeterminate="true"
         android:progressTint="#9945FF"
         android:visibility="gone"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
         android:layout_marginBottom="8dp"/>
 
+    <!-- Summary card -->
     <LinearLayout android:id="@+id/cardBtSummary"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/section_card_bg"
-        android:padding="12dp"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
         android:layout_marginBottom="8dp"
         android:visibility="gone">
         <TextView android:id="@+id/tvBtSummary"
@@ -110,13 +193,17 @@
             android:fontFamily="monospace" android:lineSpacingExtra="3dp"/>
     </LinearLayout>
 
+    <!-- Log scroll -->
     <ScrollView android:id="@+id/scrollBtLog"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
         <TextView android:id="@+id/tvBtLog"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textColor="#9CA3AF" android:textSize="11sp"
+            android:textColor="#6B7280" android:textSize="11sp"
             android:fontFamily="monospace" android:lineSpacingExtra="3dp"
             android:text="Enter a mint address and hit Run"/>
     </ScrollView>

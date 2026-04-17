@@ -23,6 +23,7 @@ import kotlinx.coroutines.*
  * haven't had a WebSocket event in the last 15 seconds.
  */
 class DataOrchestrator(
+    private val copyTradeEngine: com.lifecyclebot.engine.CopyTradeEngine? = null,
     private val cfg: () -> BotConfig,
     private val status: BotStatus,
     private val onLog: (String, String) -> Unit,
@@ -305,6 +306,10 @@ class DataOrchestrator(
             onSwap            = { mint, isBuy, solAmt, tokenAmt, wallet, sig ->
                 lastWsEventMs[mint] = System.currentTimeMillis()
                 WhaleDetector.recordTrade(mint, wallet, solAmt, isBuy)
+                // V5.9: route to CopyTradeEngine for copy-buy detection
+                if (isBuy && wallet.isNotBlank()) {
+                    copyTradeEngine?.onSwapDetected(mint, wallet, solAmt, isBuy = true)
+                }
                 val ts = synchronized(status.tokens) {
                     status.tokens.values.find { it.mint == mint }
                 } ?: return@HeliusWebSocket

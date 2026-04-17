@@ -269,6 +269,8 @@ object TradeLessonRecorder {
                 addToLane(strategyLane, lesson.strategy, lesson)
                 addToLane(regimeLane, lesson.entryRegime.name, lesson)
                 addToLane(executionLane, lesson.executionRoute, lesson)
+                // V5.9.8: Also feed into StrategyTrustAI so trust scores update from historical data
+                try { StrategyTrustAI.recordTrade(lesson) } catch (_: Exception) {}
             }
             ErrorLogger.info(TAG, "Loaded ${lessons.size} trade lessons from Turso")
 

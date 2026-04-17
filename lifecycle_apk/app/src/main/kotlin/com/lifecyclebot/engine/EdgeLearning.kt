@@ -128,8 +128,8 @@ object EdgeLearning {
     ) {
         val snapshot = entrySnapshots.remove(mint) ?: return
         
-        val isWin = pnlPercent >= 5.0      // Significant win
-        val isLoss = pnlPercent <= -5.0    // Significant loss
+        val isWin = pnlPercent >= 1.0      // V5.9.8: was 5% — 1% is a real win
+        val isLoss = pnlPercent <= -1.0    // V5.9.8: was -5% — -1% is a real loss
         val isScratch = !isWin && !isLoss  // Insignificant outcome
         
         // Skip scratch trades for learning (no clear signal)
@@ -241,8 +241,8 @@ object EdgeLearning {
     ) {
         val pnlPercent = if (entryPrice > 0) ((exitPrice - entryPrice) / entryPrice) * 100 else 0.0
         
-        val isWin = pnlPercent >= 5.0
-        val isLoss = pnlPercent <= -5.0
+        val isWin = pnlPercent >= 1.0
+        val isLoss = pnlPercent <= -1.0
         
         if (isWin || isLoss) {
             // Create a snapshot for the shadow trade

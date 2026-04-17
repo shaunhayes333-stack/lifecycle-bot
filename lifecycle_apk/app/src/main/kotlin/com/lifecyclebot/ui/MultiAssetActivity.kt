@@ -10,6 +10,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.tabs.TabLayout
 import com.lifecyclebot.R
+import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.perps.*
@@ -34,7 +35,7 @@ class MultiAssetActivity : AppCompatActivity() {
         private const val TAG = "MultiAssetActivity"
         // V5.7.6b: Balance refresh threshold (15000 USD worth of SOL)
         private const val MIN_BALANCE_USD = 15000.0
-        private const val SOL_PRICE_USD = 150.0  // Approximate, will be fetched live
+        private var SOL_PRICE_USD = 150.0  // V5.9: updated dynamically via refreshSolPrice()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -46,7 +47,8 @@ class MultiAssetActivity : AppCompatActivity() {
         STOCKS("📈", "TOKENIZED STOCKS", "Stocks"),
         COMMODITIES("🛢️", "COMMODITIES", "Commod"),
         METALS("🥇", "METALS", "Metals"),
-        FOREX("💱", "FOREX", "Forex")
+        FOREX("💱", "FOREX", "Forex"),
+        CRYPTO("🪙", "CRYPTO ALTS", "Crypto")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -95,6 +97,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var dotCommodities: View
     private lateinit var dotMetals: View
     private lateinit var dotForex: View
+    private var dotCrypto: View? = null  // optional — card shown in Markets only
     private lateinit var dotPerps: View
     
     // New UI elements
@@ -136,6 +139,12 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var tvMarketsSolPrice: TextView
     private var marketsRunning = false
     private var isLiveMode = false  // V5.7.6b: Track LIVE vs PAPER mode
+    /** True if the user explicitly pressed STOP on the markets toggle.
+     *  When set, the auto-follow logic will NOT restart markets even if the main bot is running. */
+    private var userManuallyStopped = false
+    private val marketsPrefs by lazy {
+        getSharedPreferences("markets_state", android.content.Context.MODE_PRIVATE)
+    }
     
     private lateinit var tvLayerCorrel: TextView
     private lateinit var tvMarketsLearningEvents: TextView
@@ -198,22 +207,131 @@ class MultiAssetActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_multi_asset)
-        
-        initViews()
-        setupTabs()
-        setupClickListeners()
 
-        // Sync the Activity's isLiveMode flag with the actual trader state persisted from
-        // the last session. Without this, a user who closed the app in LIVE mode would see
-        // the mode button say "PAPER" while the balance still showed LIVE values.
-        isLiveMode = TokenizedStockTrader.isLiveMode()
-        updateModeButton()
-
-        startUpdateLoop()
-
+        try { initViews() } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "initViews CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets initViews: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        try { setupTabs() } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "setupTabs CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets setupTabs: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        try { setupClickListeners() } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "setupClickListeners CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets setupClicks: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            isLiveMode = TokenizedStockTrader.isLiveMode()
+            updateModeButton()
+        } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "isLiveMode CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets liveMode: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
+        }
+        // Restore manually-stopped preference so auto-start respects user's last choice
+        try { userManuallyStopped = marketsPrefs.getBoolean("user_manually_stopped", false) } catch (_: Exception) {}
+        // V5.9.5: Init FluidLearning so balance is available immediately
+        try { com.lifecyclebot.engine.FluidLearning.init(applicationContext) } catch (_: Exception) {}
+        // V5.9.5: Init FluidLearningAI and restore Markets trade counters from SharedPrefs
+        //         Must be called here so counters survive restarts even when BotService isn't running
+        try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.init()
+            com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(applicationContext)
+        } catch (_: Exception) {}
+        // V5.9.5: Init traders — each guards against double-init internally.
+        // Safe to call every onCreate; they skip loadState if already running.
+        try { TokenizedStockTrader.init() } catch (_: Exception) {}
+        try { CryptoAltTrader.init(applicationContext) } catch (_: Exception) {}
+        try { CommoditiesTrader.initContext(applicationContext) } catch (_: Exception) {}
+        try { MetalsTrader.initContext(applicationContext) } catch (_: Exception) {}
+        try { ForexTrader.initContext(applicationContext) } catch (_: Exception) {}
+        try { startUpdateLoop() } catch (e: Exception) {
+            ErrorLogger.crash(TAG, "startUpdateLoop CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.widget.Toast.makeText(this, "Markets updateLoop: ${e.javaClass.simpleName}: ${e.message?.take(60)}", android.widget.Toast.LENGTH_LONG).show()
+        }
         ErrorLogger.info(TAG, "📊 MultiAssetActivity CREATED")
+
+        // V5.9.5: Auto-start on create — same logic as onResume (idempotent start calls)
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
+                val shouldStart = (mainBotRunning || wasRunning) && !userManuallyStopped
+                if (shouldStart) {
+                    val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
+                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
+                    if (cfg.metalsEnabled)       MetalsTrader.start()
+                    if (cfg.forexEnabled)        ForexTrader.start()
+                    if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
+                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
+                    ErrorLogger.info(TAG, "V5.9.5 Markets auto-started on create: mainBot=$mainBotRunning wasRunning=$wasRunning")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Markets auto-start on create failed: ${e.message}")
+            }
+        }
     }
     
+    override fun onResume() {
+        super.onResume()
+        // Restart update loop if it died
+        if (updateJob?.isActive != true) {
+            try { startUpdateLoop() } catch (_: Exception) {}
+        }
+        // V5.9.5: Always attempt to start traders on resume.
+        // start() on each trader is idempotent — if already running it returns immediately.
+        // This means: come back from MainActivity? Traders start. Every time. No conditions missed.
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+                val wasRunning = marketsPrefs.getBoolean("markets_was_running", false)
+                val userStopped = marketsPrefs.getBoolean("user_manually_stopped", false)
+
+                // V5.9.5: Do NOT override userManuallyStopped — user's explicit STOP is always respected.
+                // If user pressed STOP on markets, keep them stopped even if main bot is running.
+
+                val shouldRun = (mainBotRunning || wasRunning) &&
+                                !marketsPrefs.getBoolean("user_manually_stopped", false)
+
+                if (shouldRun) {
+                    val cfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    // start() is safe to call even if already running — it checks internally
+                    if (cfg.stocksEnabled)       TokenizedStockTrader.start()
+                    if (cfg.commoditiesEnabled)  CommoditiesTrader.start()
+                    if (cfg.metalsEnabled)       MetalsTrader.start()
+                    if (cfg.forexEnabled)        ForexTrader.start()
+                    if (cfg.cryptoAltsEnabled)   CryptoAltTrader.start()
+                    if (cfg.perpsEnabled)        PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
+                    ErrorLogger.info(TAG, "V5.9.5 Markets start-on-resume: mainBot=$mainBotRunning wasRunning=$wasRunning")
+                }
+                withContext(Dispatchers.Main) { updateToggleButton() }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "onResume auto-start failed: ${e.message}")
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // V5.9.5 FIX: Save all trader state when Activity goes to background / user navigates away.
+        // Without this, balance, positions and trade history reset every time you return to menu.
+        try { TokenizedStockTrader.savePersistedState() } catch (_: Exception) {}
+        try { CryptoAltTrader.savePersistedState() } catch (_: Exception) {}
+        try { MetalsTrader.saveState() } catch (_: Exception) {}
+        try { CommoditiesTrader.saveState() } catch (_: Exception) {}
+        try { ForexTrader.saveState() } catch (_: Exception) {}
+        try { PerpsTraderAI.save(force = true) } catch (_: Exception) {}
+        try { com.lifecyclebot.v3.scoring.FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
+        ErrorLogger.info(TAG, "📊 MAA onStop — all trader state saved")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         updateJob?.cancel()
@@ -345,25 +463,64 @@ class MultiAssetActivity : AppCompatActivity() {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 currentTab = AssetTab.values()[tab.position]
                 updateCategoryHeader()
-                refreshData()
+                // Kick off background price fetch for this tab's markets so
+                // Top Movers and Available Assets show real data (not stale crypto)
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val tabMarkets = when (currentTab) {
+                            AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(20)
+                            AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
+                            AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
+                            AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                            AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
+                            AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(20)
+                        }
+                        tabMarkets.forEach { market ->
+                            try { PerpsMarketDataFetcher.getMarketData(market) } catch (_: Exception) {}
+                        }
+                    } catch (_: Exception) {}
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { refreshData() }
+                }
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
         
-        // Select Stocks tab by default
-        tabLayout.getTabAt(AssetTab.STOCKS.ordinal)?.select()
+        // Select Stocks tab by default, or tab from intent extra
+        val startTabName = try { intent?.getStringExtra("startTab") } catch (_: Exception) { null }
+        val startTab = if (startTabName != null) {
+            AssetTab.values().find { it.name == startTabName } ?: AssetTab.STOCKS
+        } else AssetTab.STOCKS
+        tabLayout.getTabAt(startTab.ordinal)?.select()
     }
     
     private fun setupClickListeners() {
         btnSpotMode.setOnClickListener {
             showSpotOnly = true
+            // V5.9.3: Tell the active trader to prefer SPOT
+            when (currentTab) {
+                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(false)
+                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(false)
+                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(false)
+                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(false)
+                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(false)
+                else -> {}
+            }
             updateModeToggle()
             refreshData()
         }
         
         btnLeverageMode.setOnClickListener {
             showSpotOnly = false
+            // V5.9.3: Tell the active trader to prefer LEVERAGE
+            when (currentTab) {
+                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(true)
+                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(true)
+                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(true)
+                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(true)
+                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(true)
+                else -> {}
+            }
             updateModeToggle()
             refreshData()
         }
@@ -449,7 +606,9 @@ class MultiAssetActivity : AppCompatActivity() {
         CommoditiesTrader.setLiveMode(live)
         MetalsTrader.setLiveMode(live)
         ForexTrader.setLiveMode(live)
-        // PerpsExecutionEngine uses its own mode from PerpsTraderAI
+        CryptoAltTrader.setLiveMode(live)
+        // FIX: Also update PerpsTraderAI so the SOL Perps tab actually trades live
+        PerpsTraderAI.setTradingMode(isPaper = !live)
         
         ErrorLogger.info(TAG, "📊 All Markets traders set to ${if (live) "🔴 LIVE" else "📄 PAPER"} mode")
     }
@@ -473,31 +632,49 @@ class MultiAssetActivity : AppCompatActivity() {
         
         lifecycleScope.launch(Dispatchers.IO) {
             if (marketsRunning) {
+                // User manually started — clear the manual-stop flag so auto-follow can work again
+                userManuallyStopped = false
+                marketsPrefs.edit().putBoolean("user_manually_stopped", false).apply()
                 // Check and refresh balance before starting
                 checkAndRefreshBalance()
                 
-                // Start all Markets traders
-                TokenizedStockTrader.start()
-                CommoditiesTrader.start()
-                MetalsTrader.start()
-                ForexTrader.start()
-                PerpsExecutionEngine.start(this@MultiAssetActivity)
+                // Start all Markets traders (V5.7.7: respect individual sub-trader flags)
+                val startCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                if (startCfg.stocksEnabled)      TokenizedStockTrader.start()
+                if (startCfg.commoditiesEnabled) CommoditiesTrader.start()
+                if (startCfg.metalsEnabled)      MetalsTrader.start()
+                if (startCfg.forexEnabled)       ForexTrader.start()
+                if (startCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
+                if (startCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
                 
+                marketsPrefs.edit().putBoolean("markets_was_running", true).apply()
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(this@MultiAssetActivity, 
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
                         "✅ Markets Trading STARTED", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } else {
+                // User manually stopped — persist so auto-follow won't restart them even after reopen
+                userManuallyStopped = true
+                marketsPrefs.edit().putBoolean("user_manually_stopped", true).apply()
+                // V5.9.5: Close ALL open positions before stopping engines
+                try { TokenizedStockTrader.closeAllPositions() } catch (_: Exception) {}
+                try { CommoditiesTrader.closeAllPositions() } catch (_: Exception) {}
+                try { MetalsTrader.closeAllPositions() } catch (_: Exception) {}
+                try { ForexTrader.closeAllPositions() } catch (_: Exception) {}
+                try { CryptoAltTrader.closeAllPositions() } catch (_: Exception) {}
+                try { PerpsExecutionEngine.closeAllPositions() } catch (_: Exception) {}
                 // Stop all Markets traders
                 TokenizedStockTrader.stop()
                 CommoditiesTrader.stop()
                 MetalsTrader.stop()
                 ForexTrader.stop()
+                CryptoAltTrader.stop()
                 PerpsExecutionEngine.stop()
                 
+                marketsPrefs.edit().putBoolean("markets_was_running", false).apply()
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(this@MultiAssetActivity, 
-                        "⏹️ Markets Trading STOPPED", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "⏹️ Markets Trading STOPPED — all positions closed", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
             
@@ -509,71 +686,73 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     // V5.7.6b: Update the toggle button state
+    // V5.8.1: Markets follow the main bot — auto-start when main bot is running (unless user manually stopped)
     private fun updateToggleButton() {
-        val anyRunning = TokenizedStockTrader.isRunning() || 
-                        CommoditiesTrader.isRunning() || 
-                        MetalsTrader.isRunning() || 
+        val anyRunning = TokenizedStockTrader.isRunning() ||
+                        CommoditiesTrader.isRunning() ||
+                        MetalsTrader.isRunning() ||
                         ForexTrader.isRunning() ||
+                        CryptoAltTrader.isRunning() ||
                         PerpsExecutionEngine.isRunning()
         
         marketsRunning = anyRunning
         
-        btnMarketsToggle.text = if (anyRunning) "STOP" else "START"
+        // V5.9.5: Auto-follow — start() is idempotent, safe to call every toggle update
+        val mainBotRunning = try { BotService.status.running } catch (_: Exception) { false }
+        if ((mainBotRunning || marketsPrefs.getBoolean("markets_was_running", false)) && !userManuallyStopped) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val followCfg = com.lifecyclebot.data.ConfigStore.load(this@MultiAssetActivity)
+                    if (followCfg.stocksEnabled)      TokenizedStockTrader.start()
+                    if (followCfg.commoditiesEnabled) CommoditiesTrader.start()
+                    if (followCfg.metalsEnabled)      MetalsTrader.start()
+                    if (followCfg.forexEnabled)       ForexTrader.start()
+                    if (followCfg.cryptoAltsEnabled)  CryptoAltTrader.start()
+                    if (followCfg.perpsEnabled)       PerpsExecutionEngine.start(this@MultiAssetActivity)
+                    try { checkAndRefreshBalance() } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    ErrorLogger.error(TAG, "Markets auto-start failed: ${e.message}", e)
+                }
+            }
+            marketsRunning = true
+        }
+        
+        btnMarketsToggle.text = if (marketsRunning) "STOP" else "START"
         btnMarketsToggle.setBackgroundResource(
-            if (anyRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
+            if (marketsRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
         )
         btnMarketsToggle.setTextColor(
-            if (anyRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            if (marketsRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         )
     }
     
     // V5.7.6b: Check balance and refresh if below threshold
     private suspend fun checkAndRefreshBalance() {
-        val totalBalanceSol = getTotalMarketsBalance()
-        val solPrice = try {
-            PerpsMarketDataFetcher.getSolPrice()
-        } catch (_: Exception) { SOL_PRICE_USD }
-        
-        val totalBalanceUsd = totalBalanceSol * solPrice
-        
-        // If balance is 0, negative, or below $15,000 USD - refresh to $15,000 USD
-        if (totalBalanceUsd <= 0 || totalBalanceUsd < MIN_BALANCE_USD) {
-            val requiredSol = MIN_BALANCE_USD / solPrice
-            refreshAllBalances(requiredSol)
-            
-            withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(this@MultiAssetActivity, 
-                    "💰 Balance refreshed to $${MIN_BALANCE_USD.toInt()} (${"%.2f".format(requiredSol)} SOL)", 
-                    android.widget.Toast.LENGTH_SHORT).show()
-            }
-            
-            ErrorLogger.info(TAG, "💰 Balance auto-refreshed: ${totalBalanceUsd.fmt(2)} USD -> $MIN_BALANCE_USD USD (${"%.2f".format(requiredSol)} SOL)")
+        // Sync Markets sub-traders from FluidLearning (meme bot master balance)
+        val masterSol = try {
+            com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+        } catch (_: Exception) { 0.0 }
+
+        if (masterSol <= 0.0) return // Nothing to sync yet
+
+        val totalMarkets = getTotalMarketsBalance()
+
+        // Only re-distribute if sub-traders are empty or significantly out of sync (>10% drift)
+        val drift = if (masterSol > 0) kotlin.math.abs(totalMarkets - masterSol) / masterSol else 1.0
+        if (totalMarkets <= 0.0 || drift > 0.1) {
+            refreshAllBalances(masterSol)
+            ErrorLogger.info(TAG, "💰 Markets synced from meme balance: ${"%.4f".format(masterSol)} SOL → ${"%.4f".format(masterSol / 6.0)} SOL each")
         }
     }
     
-    // V5.7.6b: Get total balance across all Markets traders
+    // V5.9.8: All traders share one wallet — total IS the shared balance
     private fun getTotalMarketsBalance(): Double {
-        return try {
-            TokenizedStockTrader.getBalance() +
-            CommoditiesTrader.getBalance() +
-            MetalsTrader.getBalance() +
-            ForexTrader.getBalance() +
-            PerpsTraderAI.getBalance()
-        } catch (_: Exception) { 0.0 }
+        return com.lifecyclebot.engine.BotService.status.paperWalletSol
     }
     
-    // V5.7.6b: Refresh all trader balances
+    // V5.9.8: No-op — all traders read from shared BotService.status.paperWalletSol
     private fun refreshAllBalances(totalSol: Double) {
-        // Distribute balance across traders (weighted by asset count)
-        val perTraderSol = totalSol / 5.0  // Equal split for now
-        
-        TokenizedStockTrader.setBalance(perTraderSol)
-        CommoditiesTrader.setBalance(perTraderSol)
-        MetalsTrader.setBalance(perTraderSol)
-        ForexTrader.setBalance(perTraderSol)
-        PerpsTraderAI.setBalance(perTraderSol)
-        
-        ErrorLogger.info(TAG, "💰 All Markets balances set to ${"%.2f".format(perTraderSol)} SOL each")
+        ErrorLogger.info(TAG, "💰 All traders share wallet: ${"%.4f".format(totalSol)} SOL")
     }
     
     // V5.7.6b: Show balance dialog with refresh option
@@ -620,6 +799,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 |• Metals: ${"%.2f".format(MetalsTrader.getBalance())} SOL
                 |• Forex: ${"%.2f".format(ForexTrader.getBalance())} SOL
                 |• Perps: ${"%.2f".format(PerpsTraderAI.getBalance())} SOL
+                |• CryptoAlts: ${"%.2f".format(CryptoAltTrader.getBalance())} SOL
                 |$liveStatus
                 |${if (totalPaperUsd < MIN_BALANCE_USD) "⚠️ Paper below minimum ($${MIN_BALANCE_USD.toInt()})" else ""}
             """.trimMargin()
@@ -641,9 +821,11 @@ class MultiAssetActivity : AppCompatActivity() {
                 }
                 .setNeutralButton(if (liveWalletSol > 0) "Use LIVE" else "Connect Wallet") { _, _ ->
                     if (liveWalletSol > 0) {
-                        // TODO: Switch to LIVE mode
-                        android.widget.Toast.makeText(this@MultiAssetActivity, 
-                            "⚠️ LIVE trading coming soon! Currently paper only.", android.widget.Toast.LENGTH_LONG).show()
+                        // V5.9: Switch to LIVE mode via PerpsTraderAI
+                        PerpsTraderAI.setTradingMode(isPaper = false)
+                        android.widget.Toast.makeText(this@MultiAssetActivity,
+                            "🔴 LIVE mode enabled — real funds at risk!", android.widget.Toast.LENGTH_LONG).show()
+                        refreshData()
                     } else {
                         // Open settings to connect wallet
                         android.widget.Toast.makeText(this@MultiAssetActivity, 
@@ -660,9 +842,18 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun startUpdateLoop() {
+        var balanceSyncCounter = 0
         updateJob = scope.launch {
             while (isActive) {
                 try {
+                    // V5.9.3: Sync Markets balance from meme bot every 10 loops (~30s)
+                    balanceSyncCounter++
+                    if (balanceSyncCounter >= 10) {
+                        balanceSyncCounter = 0
+                        withContext(Dispatchers.IO) {
+                            try { checkAndRefreshBalance() } catch (_: Exception) {}
+                        }
+                    }
                     // Refresh LIVE prices before updating UI so cache is populated
                     withContext(Dispatchers.IO) {
                         try {
@@ -671,7 +862,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
                                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
                                 AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
-                                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(10)
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
+                                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(10)
                             }
                             markets.forEach { market ->
                                 try {
@@ -718,44 +910,53 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateQuickStats() {
         try {
-            // V5.7.7: Get stats from Markets traders, not PerpsTraderAI
-            val stockTrades = TokenizedStockTrader.getTotalTrades()
-            val stockWinRate = TokenizedStockTrader.getWinRate()
-            val stockPnlSol = TokenizedStockTrader.getTotalPnlSol()
-            
-            // 24h Trades - from Markets traders
-            tvStats24hTrades.text = stockTrades.toString()
-            
-            // Win Rate from Markets
-            val winRate = stockWinRate.toInt()
-            tvStatsWinRate.text = if (winRate > 0) "$winRate%" else "—%"
-            tvStatsWinRate.setTextColor(
-                when {
-                    winRate >= 55 -> 0xFF10B981.toInt()  // Green
-                    winRate >= 45 -> 0xFFF59E0B.toInt()  // Yellow
-                    winRate > 0 -> 0xFFEF4444.toInt()    // Red
-                    else -> 0xFF6B7280.toInt()           // Gray
-                }
-            )
-            
-            // Total P&L in USD (all markets combined)
+            // V5.9.5: Aggregate across ALL Markets traders — combined totals
+            val allTrades = TokenizedStockTrader.getTotalTrades() +
+                CommoditiesTrader.getTotalTrades() +
+                MetalsTrader.getTotalTrades() +
+                ForexTrader.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades() +
+                CryptoAltTrader.getTotalTrades()
+
+            val allWins = TokenizedStockTrader.getWinningTrades() +
+                CommoditiesTrader.getWinningTrades() +
+                MetalsTrader.getWinningTrades() +
+                ForexTrader.getWinningTrades() +
+                PerpsTraderAI.getLifetimeWins() +
+                CryptoAltTrader.getWinCount()
+
+            val allPnlSol = TokenizedStockTrader.getTotalPnlSol() +
+                CommoditiesTrader.getTotalPnlSol() +
+                MetalsTrader.getTotalPnlSol() +
+                ForexTrader.getTotalPnlSol() +
+                PerpsTraderAI.getLifetimePnlSol() +
+                CryptoAltTrader.getTotalPnlSol()
+
+            tvStats24hTrades.text = allTrades.toString()
+
+            val combinedWr = if (allTrades > 0) allWins * 100 / allTrades else 0
+            tvStatsWinRate.text = if (combinedWr > 0) "$combinedWr%" else "—%"
+            tvStatsWinRate.setTextColor(when {
+                combinedWr >= 55 -> 0xFF10B981.toInt()
+                combinedWr >= 45 -> 0xFFF59E0B.toInt()
+                combinedWr >  0  -> 0xFFEF4444.toInt()
+                else             -> 0xFF6B7280.toInt()
+            })
+
             val solPrice = try {
                 PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
             } catch (_: Exception) { SOL_PRICE_USD }
-            val totalPnlUsd = stockPnlSol * solPrice
+            val totalPnlUsd = allPnlSol * solPrice
             tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
             tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
-            
-            // AI Score - based on Markets learning progress
+
             val readiness = calculateMarketsReadiness()
             tvStatsAiScore.text = "${readiness.readinessScore}"
-            tvStatsAiScore.setTextColor(
-                when {
-                    readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
-                    readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
-                    else -> 0xFFEF4444.toInt()
-                }
-            )
+            tvStatsAiScore.setTextColor(when {
+                readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
+                readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
+                else -> 0xFFEF4444.toInt()
+            })
         } catch (_: Exception) {
             tvStats24hTrades.text = "0"
             tvStatsWinRate.text = "—%"
@@ -773,80 +974,67 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun updateMarketsReadiness() {
+        // V5.9.6: Each section individually guarded — no more silent INIT fallback
+        val readiness = try {
+            calculateMarketsReadiness()
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "calculateMarketsReadiness failed: ${e.javaClass.simpleName}: ${e.message}")
+            return  // leave UI as-is rather than showing wrong INIT state
+        }
+
+        try { tvMarketsReadinessBadge.text = readiness.phase.shortName } catch (_: Exception) {}
         try {
-            val readiness = calculateMarketsReadiness()
-            
-            // Update badge
-            tvMarketsReadinessBadge.text = readiness.phase.name
             tvMarketsReadinessBadge.setBackgroundResource(
                 when (readiness.phase) {
                     MarketsPhase.BOOTSTRAP -> R.drawable.pill_bg_yellow
-                    MarketsPhase.LEARNING -> R.drawable.pill_bg
+                    MarketsPhase.LEARNING  -> R.drawable.pill_bg
                     MarketsPhase.VALIDATING -> R.drawable.pill_bg
-                    MarketsPhase.MATURING -> R.drawable.pill_bg
-                    MarketsPhase.READY -> R.drawable.pill_bg_green
-                    MarketsPhase.LIVE -> R.drawable.pill_bg_green
+                    MarketsPhase.MATURING  -> R.drawable.pill_bg
+                    MarketsPhase.READY     -> R.drawable.pill_bg_green
+                    MarketsPhase.LIVE      -> R.drawable.pill_bg_green
                 }
             )
-            tvMarketsReadinessBadge.setTextColor(
-                when (readiness.phase) {
-                    MarketsPhase.BOOTSTRAP -> 0xFF000000.toInt()
-                    MarketsPhase.LEARNING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.VALIDATING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.MATURING -> 0xFFFFFFFF.toInt()
-                    MarketsPhase.READY -> 0xFF000000.toInt()
-                    MarketsPhase.LIVE -> 0xFF000000.toInt()
-                }
-            )
-            
-            // Update stats
+        } catch (_: Exception) {}
+
+        try {
             tvMarketsWinRate.text = if (readiness.winRate > 0) "${"%.1f".format(readiness.winRate)}%" else "--"
-            tvMarketsWinRate.setTextColor(
-                when {
-                    readiness.winRate >= 55 -> 0xFF00FF88.toInt()
-                    readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
-                    readiness.winRate > 0 -> 0xFFFF4444.toInt()
-                    else -> 0xFF6B7280.toInt()
-                }
-            )
-            
-            tvMarketsTrades.text = "${readiness.paperTrades}/${readiness.requiredTrades}"
+            tvMarketsWinRate.setTextColor(when {
+                readiness.winRate >= 55 -> 0xFF00FF88.toInt()
+                readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
+                readiness.winRate > 0   -> 0xFFFF4444.toInt()
+                else                    -> 0xFF6B7280.toInt()
+            })
+        } catch (_: Exception) {}
+
+        try { tvMarketsTrades.text = "${readiness.paperTrades}/${readiness.requiredTrades}" } catch (_: Exception) {}
+        try {
             tvMarketsPhase.text = readiness.phase.shortName
-            tvMarketsPhase.setTextColor(
-                when (readiness.phase) {
-                    MarketsPhase.BOOTSTRAP -> 0xFFF59E0B.toInt()
-                    MarketsPhase.LEARNING -> 0xFF3B82F6.toInt()
-                    MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
-                    MarketsPhase.MATURING -> 0xFF06B6D4.toInt()  // Cyan for maturing
-                    MarketsPhase.READY -> 0xFF10B981.toInt()
-                    MarketsPhase.LIVE -> 0xFF00FF88.toInt()
-                }
-            )
-            
-            // Update progress bar
-            tvMarketsProgressPct.text = "${readiness.progressPct}%"
-            val params = viewMarketsProgressBar.layoutParams as android.widget.FrameLayout.LayoutParams
-            params.width = 0
-            viewMarketsProgressBar.layoutParams = params
+            tvMarketsPhase.setTextColor(when (readiness.phase) {
+                MarketsPhase.BOOTSTRAP  -> 0xFFF59E0B.toInt()
+                MarketsPhase.LEARNING   -> 0xFF3B82F6.toInt()
+                MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
+                MarketsPhase.MATURING   -> 0xFF06B6D4.toInt()
+                MarketsPhase.READY      -> 0xFF10B981.toInt()
+                MarketsPhase.LIVE       -> 0xFF00FF88.toInt()
+            })
+        } catch (_: Exception) {}
+
+        try { tvMarketsProgressPct.text = "${readiness.progressPct}%" } catch (_: Exception) {}
+
+        // Progress bar width — safe parent cast
+        try {
             viewMarketsProgressBar.post {
-                val parentWidth = (viewMarketsProgressBar.parent as View).width
-                val newWidth = (parentWidth * readiness.progressPct / 100).toInt()
-                val newParams = viewMarketsProgressBar.layoutParams
-                newParams.width = newWidth
-                viewMarketsProgressBar.layoutParams = newParams
+                try {
+                    val parent = viewMarketsProgressBar.parent as? View ?: return@post
+                    val newWidth = (parent.width * readiness.progressPct / 100).toInt()
+                    val p = viewMarketsProgressBar.layoutParams ?: return@post
+                    p.width = newWidth
+                    viewMarketsProgressBar.layoutParams = p
+                } catch (_: Exception) {}
             }
-            
-            // Update recommendation
-            tvMarketsRecommendation.text = readiness.recommendation
-            
-        } catch (_: Exception) {
-            tvMarketsReadinessBadge.text = "INIT"
-            tvMarketsWinRate.text = "--"
-            tvMarketsTrades.text = "0/5000"
-            tvMarketsPhase.text = "BOOT"
-            tvMarketsProgressPct.text = "0%"
-            tvMarketsRecommendation.text = "Initializing Markets trading system..."
-        }
+        } catch (_: Exception) {}
+
+        try { tvMarketsRecommendation.text = readiness.recommendation } catch (_: Exception) {}
     }
     
     enum class MarketsPhase(val shortName: String) {
@@ -871,17 +1059,27 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun calculateMarketsReadiness(): MarketsReadiness {
         // V5.7.6b: Use Markets-specific counters (separate from Meme mode)
-        val paperTrades = FluidLearningAI.getMarketsTradeCount()
-        val marketsProgress = FluidLearningAI.getMarketsLearningProgress()
-        
-        // Also get win rate from PerpsTraderAI for display (it tracks Markets trades too)
-        val wins = PerpsTraderAI.getLifetimeWins()
-        val losses = PerpsTraderAI.getLifetimeLosses()
-        val winRate = if (paperTrades > 0) {
-            // Use Markets-specific win rate calculation
-            (marketsProgress * 50 + 25).coerceIn(0.0, 100.0)  // Rough approximation
-        } else 0.0
-        
+        // V5.9.6: Count actual completed trades from all traders — not the weighted FluidLearningAI
+        // accumulator (which needs 10 paper trades to count 1, so always shows near-zero)
+        val paperTrades = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades()
+        } catch (_: Exception) { 0 }
+
+        // Real win rate from actual trader win counts
+        val allWins = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                PerpsTraderAI.getLifetimeWins()
+        } catch (_: Exception) { 0 }
+        val winRate = if (paperTrades > 0) allWins.toDouble() * 100.0 / paperTrades else 0.0
         // V5.7.6b: Requirements - Match meme trader's 5000 trade maturity
         val requiredTrades = 5000
         val requiredWinRate = 55.0
@@ -1085,16 +1283,9 @@ class MultiAssetActivity : AppCompatActivity() {
                     wallet?.getSolBalance() ?: -1.0
                 } catch (_: Exception) { -1.0 }
 
-                // Sum paper balances across all Markets traders.
-                // Fallback to a non-zero default so the display is never blank.
-                val paperBalanceSol = try {
-                    val stock = TokenizedStockTrader.getBalance()
-                    val commod = CommoditiesTrader.getBalance()
-                    val metals = MetalsTrader.getBalance()
-                    val forex = ForexTrader.getBalance()
-                    val perps = PerpsExecutionEngine.getPaperBalance()
-                    (stock + commod + metals + forex + perps).coerceAtLeast(0.0)
-                } catch (_: Exception) { 250.0 }
+                // CryptoAltTrader is the single wallet — all screens read from it
+        val paperBalanceSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
+
 
                 // Get SOL price — Pyth first, cached fallback
                 val solPriceUsd = try {
@@ -1111,6 +1302,10 @@ class MultiAssetActivity : AppCompatActivity() {
                         val usdValue = liveWalletSol * solPriceUsd
                         tvBalanceModeLabel.text = "LIVE BALANCE"
                         tvTotalBalance.text = "\$${"%,.0f".format(usdValue)}"
+                        (tvTotalBalance.layoutParams as? android.view.ViewGroup.LayoutParams)?.let {
+                            it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            tvTotalBalance.layoutParams = it
+                        }
                         tvTotalBalance.setTextColor(0xFF00FF88.toInt())
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
@@ -1118,11 +1313,18 @@ class MultiAssetActivity : AppCompatActivity() {
                         val usdValue = paperBalanceSol * solPriceUsd
                         tvBalanceModeLabel.text = "PAPER BALANCE"
                         tvTotalBalance.text = "\$${"%,.0f".format(usdValue)}"
+                        (tvTotalBalance.layoutParams as? android.view.ViewGroup.LayoutParams)?.let {
+                            it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            tvTotalBalance.layoutParams = it
+                        }
                         tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                         balanceContainer.contentDescription =
                             "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Normal lifecycle — user navigated away; don't log as error
+                throw e
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "updateTotalBalance failed: ${e.message}")
                 withContext(Dispatchers.Main) {
@@ -1135,11 +1337,19 @@ class MultiAssetActivity : AppCompatActivity() {
     }
     
     private fun updateSummaryCards() {
-        val positions = getCurrentPositionCount()
+        // V5.9.5: Total open across ALL traders
+        val positions = try {
+            PerpsExecutionEngine.getActivePositions().size +
+                TokenizedStockTrader.getAllPositions().size +
+                CommoditiesTrader.getSpotPositions().size + CommoditiesTrader.getLeveragePositions().size +
+                MetalsTrader.getSpotPositions().size + MetalsTrader.getLeveragePositions().size +
+                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size +
+                CryptoAltTrader.getAllPositions().count { it.closeTime == null }
+        } catch (_: Exception) { 0 }
         tvActivePositions.text = positions.toString()
         
         // Calculate today's P&L in USD
-        val pnlSol = getCurrentPnl()
+        val pnlSol = getAllTradersTotalPnlSol()
         val solPrice = try {
             PerpsMarketDataFetcher.getCachedPrice(PerpsMarket.SOL)?.price ?: SOL_PRICE_USD
         } catch (_: Exception) { SOL_PRICE_USD }
@@ -1148,10 +1358,20 @@ class MultiAssetActivity : AppCompatActivity() {
         tvTodayPnl.text = "${if (pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pnlUsd)}"
         tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
-        // Win rate - use PerpsTraderAI stats (Markets-specific, not Meme stats)
+        // Win rate — aggregate across ALL Markets traders
         try {
-            val wr = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWinRatePct()
-            tvWinRate.text = if (wr > 0) "${wr}%" else "--"
+            val allWins = com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount()
+            val allTrades = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades()
+            val wr = if (allTrades > 0) allWins * 100 / allTrades else 0
+            tvWinRate.text = if (wr > 0) "$wr%" else "--"
         } catch (_: Exception) {
             tvWinRate.text = "--"
         }
@@ -1167,6 +1387,15 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets"
             AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
             AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
+                AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts".also {
+                    showSpotOnly = !CryptoAltTrader.isPreferLeverage()
+                    updateModeToggle()
+                }
+                AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks".also {
+                    // V5.9.3: Sync toggle for STOCKS tab
+                    showSpotOnly = !TokenizedStockTrader.isPreferLeverage()
+                    updateModeToggle()
+                }
         }
         tvCategoryCount.text = count
     }
@@ -1190,12 +1419,16 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.COMMODITIES -> "5x"
                 AssetTab.METALS -> "5x"
                 AssetTab.FOREX -> "10x"
+                AssetTab.CRYPTO -> "5x"
             }
             btnLeverageMode.text = "⚡ LEVERAGE ($leverage)"
         }
     }
     
     private fun updatePositions() {
+        // Detach tvNoPositions from any existing parent before removeAllViews
+        // to avoid "child already has a parent" crash on refresh
+        (tvNoPositions.parent as? android.view.ViewGroup)?.removeView(tvNoPositions)
         positionsContainer.removeAllViews()
         
         val positions = getCurrentPositions()
@@ -1212,6 +1445,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         positions.take(10).forEach { pos ->
             val view = createPositionCard(pos)
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
             positionsContainer.addView(view)
         }
     }
@@ -1511,7 +1745,30 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Close ${pos.symbol} position?\n\nCurrent P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL (${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%)")
         builder.setPositiveButton("Close Position") { _, _ ->
             android.widget.Toast.makeText(this, "Closing ${pos.symbol}...", android.widget.Toast.LENGTH_SHORT).show()
-            // TODO: Implement actual position close
+            // V5.9: Close via PerpsTraderAI
+            scope.launch {
+                try {
+                    val currentPrice = PerpsMarketDataFetcher.getMarketData(
+                        PerpsMarket.values().find { it.symbol == pos.symbol } ?: return@launch
+                    ).price
+                    val result = PerpsTraderAI.closePosition(
+                        positionId = pos.id,
+                        exitPrice  = currentPrice,
+                        exitReason = PerpsExitSignal.AI_EXIT
+                    )
+                    withContext(Dispatchers.Main) {
+                        val msg = if (result != null)
+                            "✅ ${pos.symbol} closed | PnL: ${if ((result.sizeSol * result.pnlPct) >= 0) "+" else ""}${"%.4f".format(result.sizeSol * result.pnlPct / 100.0)} SOL"
+                        else "⚠️ Could not close ${pos.symbol} — position not found"
+                        android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
+                        refreshData()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(this@MultiAssetActivity, "❌ Close failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
         builder.setNegativeButton("Cancel", null)
         builder.show()
@@ -1529,7 +1786,24 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Are you sure you want to close ALL $count positions?\n\nThis action cannot be undone.")
         builder.setPositiveButton("Close All") { _, _ ->
             android.widget.Toast.makeText(this, "Closing all positions...", android.widget.Toast.LENGTH_SHORT).show()
-            // TODO: Implement close all
+            // V5.9: Close all via PerpsTraderAI
+            scope.launch {
+                var closed = 0; var failed = 0
+                PerpsTraderAI.getActivePositions().forEach { perpsPos ->
+                    try {
+                        val mkt = PerpsMarket.values().find { it.symbol == perpsPos.market.symbol }
+                        val price = if (mkt != null) PerpsMarketDataFetcher.getMarketData(mkt).price else perpsPos.entryPrice
+                        val r = PerpsTraderAI.closePosition(perpsPos.id, price, PerpsExitSignal.AI_EXIT)
+                        if (r != null) closed++ else failed++
+                    } catch (_: Exception) { failed++ }
+                }
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "✅ Closed $closed position(s)${if (failed > 0) " | ❌ $failed failed" else ""}",
+                        android.widget.Toast.LENGTH_LONG).show()
+                    refreshData()
+                }
+            }
         }
         builder.setNegativeButton("Cancel", null)
         builder.show()
@@ -1553,12 +1827,102 @@ class MultiAssetActivity : AppCompatActivity() {
             showClosePositionDialog(pos)
         }
         builder.setNeutralButton("Add to Position") { _, _ ->
-            android.widget.Toast.makeText(this, "Add to position coming soon", android.widget.Toast.LENGTH_SHORT).show()
+            showAddToPositionDialog(pos)
         }
         builder.setNegativeButton("Close", null)
         builder.show()
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ADD TO POSITION
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun showAddToPositionDialog(pos: PositionInfo) {
+        val currentPnlPct = pos.pnlPct
+        val pnlSign = if (currentPnlPct >= 0) "+" else ""
+        val pnlFormatted = "%.1f".format(currentPnlPct)
+        val topUpSizes = arrayOf("0.05 SOL", "0.10 SOL", "0.25 SOL", "0.50 SOL", "1.00 SOL")
+        val topUpAmounts = doubleArrayOf(0.05, 0.10, 0.25, 0.50, 1.00)
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("➕ Add to ${pos.symbol} Position")
+            .setMessage(
+                "Current P&L: $pnlSign$pnlFormatted%\n" +
+                "Entry: ${pos.entryPrice}  |  Now: ${pos.currentPrice}\n\n" +
+                "⚠️ Only add to winning positions. Adding to a loser increases risk.\n\n" +
+                "How much SOL to add?"
+            )
+            .setSingleChoiceItems(topUpSizes, 0) { _, _ -> }
+            .setPositiveButton("Add to Position") { dialog: android.content.DialogInterface, _: Int ->
+                val lv = (dialog as android.app.AlertDialog).listView
+                val checkedIdx = lv.checkedItemPosition.takeIf { it >= 0 } ?: 0
+                val addSol = topUpAmounts[checkedIdx]
+                executeAddToPosition(pos, addSol)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun executeAddToPosition(pos: PositionInfo, addSol: Double) {
+        val market = try {
+            PerpsMarket.values().firstOrNull { it.symbol == pos.symbol }
+        } catch (_: Exception) { null }
+
+        if (market == null) {
+            android.widget.Toast.makeText(this,
+                "Cannot add to position: unknown market ${pos.symbol}",
+                android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // FIX: PerpsDirection uses 📈 (LONG) and 📉 (SHORT) emojis.
+        // Previously only legacy meme-trader emojis were mapped, causing direction to
+        // always fall back to LONG for perps/stocks positions.
+        val direction = when (pos.directionEmoji) {
+            "📈", "🟢", "▲", "↑" -> PerpsDirection.LONG
+            "📉", "🔴", "▼", "↓" -> PerpsDirection.SHORT
+            else -> PerpsDirection.LONG
+        }
+
+        scope.launch(Dispatchers.IO) {
+            val result = try {
+                when {
+                    market.isStock -> TokenizedStockTrader.addToPosition(market, addSol)
+                    market.isCommodity -> CommoditiesTrader.addToPosition(market, addSol)
+                    market.isMetal -> MetalsTrader.addToPosition(market, addSol)
+                    market.isForex -> ForexTrader.addToPosition(market, addSol)
+                    market.isCrypto -> {
+                        // FIX: Crypto positions can be managed by EITHER PerpsExecutionEngine
+                        // (direct perps) OR TokenizedStockTrader (which also scans crypto 24/7).
+                        // Try PerpsExecutionEngine first; if no position found there, fall back
+                        // to TokenizedStockTrader so TST-managed crypto can also be topped up.
+                        val perpsResult = try {
+                            PerpsExecutionEngine.addToPosition(market, direction, addSol)
+                        } catch (_: Exception) { false }
+                        if (perpsResult) true
+                        else TokenizedStockTrader.addToPosition(market, addSol)
+                    }
+                    else -> false
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error(TAG, "Add to position error: ${e.message}", e)
+                false
+            }
+
+            withContext(Dispatchers.Main) {
+                if (result) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "✅ Added ${"%.2f".format(addSol)} SOL to ${pos.symbol}",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(this@MultiAssetActivity,
+                        "❌ Could not add to ${pos.symbol} — no open position found",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // TOP MOVERS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1589,8 +1953,9 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(15)
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(10)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(10)
-                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(10)
-                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
+                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(10)
+                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
             
             // V5.7.6b: Get LIVE prices from cache (non-blocking)
@@ -1665,6 +2030,7 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun updateRecentSignals() {
+        (tvNoSignals.parent as? android.view.ViewGroup)?.removeView(tvNoSignals)
         signalsContainer.removeAllViews()
         val signals = getAiSignals()
         if (signals.isEmpty()) {
@@ -1721,6 +2087,7 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun updateAvailableAssets() {
         llTradingList.removeAllViews()
         llWatchlistList.removeAllViews()
+        (tvNoAssets.parent as? android.view.ViewGroup)?.removeView(tvNoAssets)
         assetsContainer.removeAllViews()
 
         val markets = when (currentTab) {
@@ -1728,7 +2095,8 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
             AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }
             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
-            AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }
+            AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }
         }
 
         // Determine which markets are actively open in the current tab
@@ -1819,6 +2187,7 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun updateAiSignals() {
+        (tvNoAiSignals.parent as? android.view.ViewGroup)?.removeView(tvNoAiSignals)
         aiSignalsContainer.removeAllViews()
 
         // Get AI signals
@@ -1832,7 +2201,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
                 dow == java.util.Calendar.SATURDAY || dow == java.util.Calendar.SUNDAY
             }
-            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX, AssetTab.CRYPTO)
             tvAiSignalStatus.text = if (isWeekend && isTraditionalMarket) "Closed (weekend)" else "Scanning..."
             aiSignalDot.setBackgroundResource(R.drawable.dot_green)
             return
@@ -1867,7 +2236,7 @@ class MultiAssetActivity : AppCompatActivity() {
             }
             // Tokenized stocks are Solana crypto tokens — 24/7 trading, no weekend restriction.
             // Only traditional markets (commodities, metals, forex) have weekend closures.
-            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX)
+            val isTraditionalMarket = currentTab in setOf(AssetTab.COMMODITIES, AssetTab.METALS, AssetTab.FOREX, AssetTab.CRYPTO)
             if (isWeekend && isTraditionalMarket) return emptyList()
 
             val signals = mutableListOf<AiSignal>()
@@ -1875,8 +2244,9 @@ class MultiAssetActivity : AppCompatActivity() {
                 AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }.take(10)
                 AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }.take(8)
                 AssetTab.METALS -> PerpsMarket.values().filter { it.isMetal }.take(8)
-                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }.take(8)
-                AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }.take(5)
+                AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
+                AssetTab.CRYPTO -> PerpsMarket.values().filter { it.isCrypto && !it.isSolPerp }.take(8)
+                AssetTab.PERPS -> PerpsMarket.values().filter { it.isSolPerp }.take(5)
             }
 
             markets.forEach { market ->
@@ -2079,6 +2449,9 @@ class MultiAssetActivity : AppCompatActivity() {
             dotPerps.setBackgroundResource(
                 if (PerpsExecutionEngine.isRunning()) R.drawable.dot_green else R.drawable.dot_red
             )
+            dotCrypto?.setBackgroundResource(
+                if (CryptoAltTrader.isRunning()) R.drawable.dot_green else R.drawable.dot_red
+            )
         } catch (_: Exception) {}
     }
     
@@ -2101,16 +2474,18 @@ class MultiAssetActivity : AppCompatActivity() {
         val sizeSol: Double = 0.0,
         val sizeUsd: Double = 0.0,
         val openTime: Long = 0L,
-        val leverage: Double = 1.0
+        val leverage: Double = 1.0,
+        val id: String = "",
+        val markPrice: Double = 0.0
     )
     
     private fun getCurrentPositionCount(): Int {
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().size + TokenizedStockTrader.getAllPositions().count { it.market.isSolPerp }
                 AssetTab.STOCKS -> {
-                    if (showSpotOnly) TokenizedStockTrader.getSpotPositions().size
-                    else TokenizedStockTrader.getLeveragePositions().size
+                    if (showSpotOnly) TokenizedStockTrader.getSpotPositions().count { it.market.isStock }
+                    else TokenizedStockTrader.getLeveragePositions().count { it.market.isStock }
                 }
                 AssetTab.COMMODITIES -> {
                     if (showSpotOnly) CommoditiesTrader.getSpotPositions().size
@@ -2124,35 +2499,58 @@ class MultiAssetActivity : AppCompatActivity() {
                     if (showSpotOnly) ForexTrader.getSpotPositions().size
                     else ForexTrader.getLeveragePositions().size
                 }
+                AssetTab.CRYPTO -> {
+                    if (showSpotOnly) CryptoAltTrader.getSpotPositions().size
+                    else CryptoAltTrader.getLeveragePositions().size
+                }
             }
         } catch (_: Exception) { 0 }
     }
     
     private fun getCurrentPnl(): Double {
+        // V5.9.5: Total unrealised PnL across ALL open positions on current tab
         return try {
             when (currentTab) {
-                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() }
+                AssetTab.PERPS -> PerpsExecutionEngine.getActivePositions().sumOf { it.getPnlSol() } +
+                    TokenizedStockTrader.getAllPositions().sumOf { it.getPnlSol() }
                 AssetTab.STOCKS -> {
-                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
-                                   else TokenizedStockTrader.getLeveragePositions()
+                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions().filter { it.market.isStock }
+                    else TokenizedStockTrader.getLeveragePositions().filter { it.market.isStock }
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.COMMODITIES -> {
                     val positions = if (showSpotOnly) CommoditiesTrader.getSpotPositions()
-                                   else CommoditiesTrader.getLeveragePositions()
+                    else CommoditiesTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.METALS -> {
                     val positions = if (showSpotOnly) MetalsTrader.getSpotPositions()
-                                   else MetalsTrader.getLeveragePositions()
+                    else MetalsTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
                 AssetTab.FOREX -> {
                     val positions = if (showSpotOnly) ForexTrader.getSpotPositions()
-                                   else ForexTrader.getLeveragePositions()
+                    else ForexTrader.getLeveragePositions()
+                    positions.sumOf { it.getPnlSol() }
+                }
+                AssetTab.CRYPTO -> {
+                    val positions = if (showSpotOnly) CryptoAltTrader.getSpotPositions()
+                    else CryptoAltTrader.getLeveragePositions()
                     positions.sumOf { it.getPnlSol() }
                 }
             }
+        } catch (_: Exception) { 0.0 }
+    }
+
+    /** Total realised PnL across ALL traders — used for the P&L summary tile. */
+    private fun getAllTradersTotalPnlSol(): Double {
+        return try {
+            TokenizedStockTrader.getTotalPnlSol() +
+                CommoditiesTrader.getTotalPnlSol() +
+                MetalsTrader.getTotalPnlSol() +
+                ForexTrader.getTotalPnlSol() +
+                PerpsTraderAI.getLifetimePnlSol() +
+                CryptoAltTrader.getTotalPnlSol()
         } catch (_: Exception) { 0.0 }
     }
     
@@ -2165,15 +2563,18 @@ class MultiAssetActivity : AppCompatActivity() {
         return try {
             when (currentTab) {
                 AssetTab.PERPS -> {
-                    PerpsExecutionEngine.getActivePositions().map { pos ->
+                    // FIX: Deduplicate by symbol+direction to prevent double-showing when
+                    // both PerpsExecutionEngine AND TokenizedStockTrader hold the same crypto.
+                    val seenKeys = mutableSetOf<String>()
+                    val perpsPositions = PerpsExecutionEngine.getActivePositions().map { pos ->
+                        seenKeys.add("${pos.market.symbol}:${pos.direction.symbol}")
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
-                        // V5.7.8: Sync position price with live price before PnL calc
                         if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
                         val pnlSol = pos.getPnlSol()
                         PositionInfo(
                             symbol = pos.market.symbol,
                             directionEmoji = pos.direction.emoji,
-                            typeLabel = "${pos.leverage.toInt()}x",
+                            typeLabel = "${pos.leverage.toInt()}x PERP",
                             entryPrice = "$${pos.entryPrice.fmt(2)}",
                             currentPrice = "$${livePrice.fmt(2)}",
                             pnl = pnlSol,
@@ -2187,10 +2588,39 @@ class MultiAssetActivity : AppCompatActivity() {
                             leverage = pos.leverage
                         )
                     }
+                    // Also include TST-managed SOL Perps positions (TST scans crypto 24/7).
+                    // Filter to isSolPerp only — actual perp-supported tokens, not all crypto.
+                    // Skip any already shown by PerpsExecutionEngine to avoid duplicates.
+                    val cryptoFromTrader = TokenizedStockTrader.getAllPositions()
+                        .filter { it.market.isSolPerp && !seenKeys.contains("${it.market.symbol}:${it.direction.symbol}") }
+                        .map { pos ->
+                            val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                            if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
+                            val pnlSol = pos.getPnlSol()
+                            PositionInfo(
+                                symbol = pos.market.symbol,
+                                directionEmoji = pos.direction.emoji,
+                                typeLabel = if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x",
+                                entryPrice = "$${pos.entryPrice.fmt(2)}",
+                                currentPrice = "$${livePrice.fmt(2)}",
+                                pnl = pnlSol,
+                                pnlUsd = pnlSol * solPrice,
+                                pnlPct = pos.getPnlPercent(),
+                                takeProfitPrice = "$${pos.takeProfit.fmt(2)}",
+                                stopLossPrice = "$${pos.stopLoss.fmt(2)}",
+                                sizeSol = pos.size,
+                                sizeUsd = pos.size * solPrice,
+                                openTime = pos.openTime,
+                                leverage = if (pos.isSpot) 1.0 else pos.leverage
+                            )
+                        }
+                    perpsPositions + cryptoFromTrader
                 }
                 AssetTab.STOCKS -> {
-                    val positions = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
-                                   else TokenizedStockTrader.getLeveragePositions()
+                    val allStockPos = if (showSpotOnly) TokenizedStockTrader.getSpotPositions()
+                                     else TokenizedStockTrader.getLeveragePositions()
+                    // Filter: STOCKS tab only shows actual tokenized stocks, not crypto
+                    val positions = allStockPos.filter { it.market.isStock }
                     positions.map { pos ->
                         val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
                         // V5.7.8: Sync position price with live price before PnL calc
@@ -2292,6 +2722,32 @@ class MultiAssetActivity : AppCompatActivity() {
                         )
                     }
                 }
+                // ─── CRYPTO ALTS ──────────────────────────────────────────────
+                AssetTab.CRYPTO -> {
+                    val positions = if (showSpotOnly) CryptoAltTrader.getSpotPositions()
+                                   else CryptoAltTrader.getLeveragePositions()
+                    positions.map { pos ->
+                        val livePrice = PerpsMarketDataFetcher.getCachedPrice(pos.market)?.price?.takeIf { it > 0 } ?: pos.currentPrice
+                        if (livePrice > 0 && livePrice != pos.currentPrice) pos.currentPrice = livePrice
+                        val pnlSol = pos.getPnlSol()
+                        PositionInfo(
+                            symbol         = pos.market.symbol,
+                            directionEmoji = pos.direction.emoji,
+                            typeLabel      = pos.leverageLabel,
+                            entryPrice     = pos.entryPrice.fmt(4),
+                            currentPrice   = livePrice.fmt(4),
+                            pnl            = pnlSol,
+                            pnlUsd         = pnlSol * solPrice,
+                            pnlPct         = pos.getPnlPct(),
+                            takeProfitPrice= pos.takeProfitPrice.fmt(4),
+                            stopLossPrice  = pos.stopLossPrice.fmt(4),
+                            sizeSol        = pos.sizeSol,
+                            sizeUsd        = pos.sizeSol * solPrice,
+                            openTime       = pos.openTime,
+                            leverage       = pos.leverage
+                        )
+                    }
+                }
             }
         } catch (_: Exception) { emptyList() }
     }
@@ -2308,12 +2764,28 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setTitle("📒 Markets Trade Journal")
         
         val stats = try {
-            val wins = PerpsTraderAI.getLifetimeWins()
-            val losses = PerpsTraderAI.getLifetimeLosses()
-            val trades = PerpsTraderAI.getLifetimeTrades()
-            val pnl = PerpsTraderAI.getDailyPnlSol()
-            val winRate = PerpsTraderAI.getLifetimeWinRatePct()
-            
+        val totalWins = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                PerpsTraderAI.getLifetimeWins()
+        } catch (_: Exception) { 0 }
+        val totalTrades = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades()
+        } catch (_: Exception) { 0 }
+        val wins = totalWins
+        val losses = (totalTrades - totalWins).coerceAtLeast(0)
+        val trades = totalTrades
+        val pnl = getAllTradersTotalPnlSol()
+        val winRate = if (trades > 0) "%.1f".format(totalWins.toDouble() * 100.0 / trades) else "0.0"
+        
             """
             |📊 MARKETS TRADING SUMMARY
             |═══════════════════════════
@@ -2366,10 +2838,61 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun exportTaxReport(period: String) {
         android.widget.Toast.makeText(this, "Generating $period tax report...", android.widget.Toast.LENGTH_SHORT).show()
-        // TODO: Implement actual tax report generation from PerpsTraderAI trade history
-        lifecycleScope.launch {
-            delay(1500)
-            android.widget.Toast.makeText(this@MultiAssetActivity, "Tax report exported to Downloads", android.widget.Toast.LENGTH_LONG).show()
+        // V5.9: Generate real CSV from PerpsTraderAI trade history
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val trades = PerpsTraderAI.getRecentTrades()
+                if (trades.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(this@MultiAssetActivity, "No trades found for $period report", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                val sb = StringBuilder("Date,Symbol,Direction,Entry,Exit,Size SOL,PnL SOL,PnL %,Type\n")
+                val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                trades
+                    .filter { period == "all" || run {
+                        val cal = java.util.Calendar.getInstance()
+                        when (period) {
+                            "ytd"   -> { cal.set(java.util.Calendar.DAY_OF_YEAR, 1); it.closeTime >= cal.timeInMillis }
+                            "q"     -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); cal.add(java.util.Calendar.MONTH, -(cal.get(java.util.Calendar.MONTH) % 3)); it.closeTime >= cal.timeInMillis }
+                            "month" -> { cal.set(java.util.Calendar.DAY_OF_MONTH, 1); it.closeTime >= cal.timeInMillis }
+                            else    -> true
+                        }
+                    }}
+                    .forEach { t ->
+                        sb.append("${fmt.format(java.util.Date(t.closeTime))},${t.market.symbol},${t.direction.name},${t.entryPrice},${t.exitPrice},${t.sizeSol},${"%.6f".format(t.sizeSol * t.pnlPct / 100.0)},${t.pnlPct},${if (t.isPaper) "PAPER" else "LIVE"}\n")
+                    }
+                // V5.9: Use MediaStore on Android 10+ (avoids WRITE_EXTERNAL_STORAGE permission)
+                val fileName = "aate_tax_${period}_${System.currentTimeMillis()}.csv"
+                val savedName = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    uri?.let { u ->
+                        contentResolver.openOutputStream(u)?.use { it.write(sb.toString().toByteArray()) }
+                        values.clear(); values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                        contentResolver.update(u, values, null, null)
+                    }
+                    fileName
+                } else {
+                    @Suppress("DEPRECATION")
+                    val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val file = java.io.File(dir, fileName)
+                    file.writeText(sb.toString())
+                    file.name
+                }
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, "✅ Tax report saved: $savedName (${trades.size} trades)", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(this@MultiAssetActivity, "❌ Export failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
     
@@ -2378,15 +2901,30 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setTitle("📊 Performance Statistics")
         
         val stats = try {
-            val readiness = PerpsTraderAI.getLiveReadiness()
-            val dailyTrades = PerpsTraderAI.getDailyTrades()
-            val dailyWins = PerpsTraderAI.getDailyWins()
-            val dailyLosses = PerpsTraderAI.getDailyLosses()
-            val lifetimeTrades = PerpsTraderAI.getLifetimeTrades()
-            val lifetimeWinRate = PerpsTraderAI.getLifetimeWinRatePct()
-            val dailyPnl = PerpsTraderAI.getDailyPnlSol()
-            val dailyPnlPct = PerpsTraderAI.getDailyPnlPct()
-            
+        val lifetimeTrades = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
+                PerpsTraderAI.getLifetimeTrades()
+        } catch (_: Exception) { 0 }
+        val lifetimeWins = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
+                com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
+                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
+                PerpsTraderAI.getLifetimeWins()
+        } catch (_: Exception) { 0 }
+        val lifetimeWinRate = if (lifetimeTrades > 0) "%.1f".format(lifetimeWins * 100.0 / lifetimeTrades) else "0.0"
+        val dailyPnl = getAllTradersTotalPnlSol()
+        val dailyTrades = try { PerpsTraderAI.getDailyTrades() } catch (_: Exception) { 0 }
+        val dailyWins   = try { PerpsTraderAI.getDailyWins() }   catch (_: Exception) { 0 }
+        val dailyLosses = try { PerpsTraderAI.getDailyLosses() } catch (_: Exception) { 0 }
+        val dailyPnlPct = try { PerpsTraderAI.getDailyPnlPct() } catch (_: Exception) { 0.0 }
+        val readiness   = calculateMarketsReadiness()
+        
             """
             |🏆 PERFORMANCE METRICS
             |═══════════════════════════
@@ -2403,7 +2941,7 @@ class MultiAssetActivity : AppCompatActivity() {
             |Score: ${readiness.readinessScore}/100
             |Phase: ${readiness.phase.name}
             |Paper Trades: ${readiness.paperTrades}
-            |Paper Win Rate: ${"%.1f".format(readiness.paperWinRate)}%
+            |Paper Win Rate: ${"%.1f".format(readiness.winRate)}%
             |
             |${readiness.recommendation}
             """.trimMargin()
@@ -2432,3 +2970,8 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.show()
     }
 }
+
+
+
+
+
