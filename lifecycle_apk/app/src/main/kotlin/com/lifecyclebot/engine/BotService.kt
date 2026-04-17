@@ -1125,6 +1125,7 @@ class BotService : Service() {
         
         // Initialize BannedTokens for permanent token bans
         BannedTokens.init(applicationContext)
+        BannedTokens.setPaperMode(preScanCfg.paperMode)
         addLog("🚫 ${BannedTokens.getStats()}")
         
         // Initialize PatternAutoTuner for dynamic pattern weight adjustment
