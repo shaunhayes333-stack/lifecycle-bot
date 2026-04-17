@@ -1153,19 +1153,25 @@ object CryptoAltTrader {
             // Keep local paperBalance in sync for persistence/Turso
             paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
         } else {
-            // Live mode: execute on-chain close + collect 0.5% sell fee via MarketsLiveExecutor
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    MarketsLiveExecutor.closeLivePosition(
+            // Live mode: execute on-chain close — MUST wait for result before removing position
+            var closeSuccess = false
+            try {
+                closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    val (ok, _) = MarketsLiveExecutor.closeLivePosition(
                         market     = pos.market,
                         direction  = pos.direction,
                         sizeSol    = pos.sizeSol,
                         leverage   = pos.leverage,
                         traderType = "CryptoAlt"
                     )
-                } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "🪙 Live close failed for ${pos.market.symbol}: ${e.message}")
+                    ok
                 }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "🪙 Live close failed for ${pos.market.symbol}: ${e.message}")
+            }
+            if (!closeSuccess) {
+                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${pos.market.symbol} — position kept open for retry")
+                return // DON'T remove position if on-chain close failed
             }
             try {
                 val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance

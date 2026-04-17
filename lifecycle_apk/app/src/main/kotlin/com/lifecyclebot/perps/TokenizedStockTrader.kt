@@ -1037,20 +1037,26 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
-        // V5.7.7 FIX: Return capital + P&L — execute live on-chain close in live mode
+        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
         if (!isPaperMode.get()) {
-            GlobalScope.launch(Dispatchers.IO) {
-                try {
-                    MarketsLiveExecutor.closeLivePosition(
+            var closeSuccess = false
+            try {
+                closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    val (ok, _) = MarketsLiveExecutor.closeLivePosition(
                         market = position.market,
                         direction = position.direction,
                         sizeSol = position.sizeSol,
                         leverage = position.leverage,
                         traderType = "TokenizedStocks",
                     )
-                } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
+                    ok
                 }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "Live close failed for ${position.market.symbol}: ${e.message}")
+            }
+            if (!closeSuccess) {
+                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${position.market.symbol} — position kept open")
+                return
             }
             try {
                 val newBal = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
