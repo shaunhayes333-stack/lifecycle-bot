@@ -4427,8 +4427,9 @@ class Executor(
                 narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
                 leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
                 leadSource = null, expectedDelaySec = null,
-                expectedFillPrice = ts.position.entryPrice, slippagePct = 0.0,
-                executionRoute = "JUPITER_V6"
+                expectedFillPrice = ts.position.entryPrice,
+                executionRoute = "JUPITER_V6",
+                captureTime = ts.position.entryTime
             )
             com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                 context = lessonCtx, outcomePct = pnlP,
@@ -5340,8 +5341,9 @@ class Executor(
                 narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
                 leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
                 leadSource = null, expectedDelaySec = null,
-                expectedFillPrice = ts.position.entryPrice, slippagePct = 0.0,
-                executionRoute = "JUPITER_V6"
+                expectedFillPrice = ts.position.entryPrice,
+                executionRoute = "JUPITER_V6",
+                captureTime = ts.position.entryTime
             )
             com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                 context = lessonCtx, outcomePct = pnlP,
