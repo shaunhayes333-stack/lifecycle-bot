@@ -3413,44 +3413,11 @@ class Executor(
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
 
-            // V5.9.8: POST-BUY ON-CHAIN VERIFICATION — prevent phantom positions
-            // Wait briefly then check if tokens actually arrived in wallet
-            Thread.sleep(2000)
-            var verifiedQty = 0.0
-            var verifiedPrice = getActualPrice(ts)
-            try {
-                val postBuyBalances = wallet.getTokenAccountsWithDecimals()
-                val tokenData = postBuyBalances[ts.mint]
-                if (tokenData != null && tokenData.first > 0.0) {
-                    verifiedQty = tokenData.first
-                    ErrorLogger.info("Executor", "✅ POST-BUY VERIFIED: ${ts.symbol} | ${"%.4f".format(verifiedQty)} tokens in wallet")
-                } else {
-                    // Retry once after additional delay
-                    Thread.sleep(3000)
-                    val retryBalances = wallet.getTokenAccountsWithDecimals()
-                    val retryData = retryBalances[ts.mint]
-                    if (retryData != null && retryData.first > 0.0) {
-                        verifiedQty = retryData.first
-                        ErrorLogger.info("Executor", "✅ POST-BUY VERIFIED (retry): ${ts.symbol} | ${"%.4f".format(verifiedQty)} tokens")
-                    } else {
-                        ErrorLogger.warn("Executor", "🚨 POST-BUY FAILED: ${ts.symbol} — tokens NOT in wallet after tx $sig. Phantom buy prevented.")
-                        onLog("🚨 BUY VERIFICATION FAILED: ${ts.symbol} — no tokens received. Trade discarded.", ts.mint)
-                        PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "POST_BUY_VERIFY_FAILED")
-                        return
-                    }
-                }
-            } catch (verifyEx: Exception) {
-                ErrorLogger.warn("Executor", "⚠️ Post-buy verify error: ${verifyEx.message} — falling back to quote qty")
-                // Fall back to calculated qty if balance check fails (RPC issues)
-            }
-
-            val price = if (verifiedPrice <= 0.0) getActualPrice(ts) else verifiedPrice
+            val price = getActualPrice(ts)
             if (price <= 0.0) {
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
-            // Use verified on-chain qty if available, otherwise fall back to quote calculation
-            val qty = if (verifiedQty > 0.0) verifiedQty
-                      else rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+            val qty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
@@ -3603,6 +3570,55 @@ class Executor(
                         onLog("🤖 GEMINI: ${reasoning.humanSummary.take(100)}", tradeId.mint)
                     }
                 } catch (_: Exception) {}
+            }
+
+            // V5.9.9: FAST MODE — async background verification (zero buy latency)
+            // Position is already recorded. This runs in background and auto-closes
+            // phantom positions if tokens never arrive on-chain.
+            val verifyMint = ts.mint
+            val verifySymbol = ts.symbol
+            val verifyWallet = wallet
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    Thread.sleep(3000) // Wait for tx finalization
+                    val postBuyBalances = verifyWallet.getTokenAccountsWithDecimals()
+                    val tokenData = postBuyBalances[verifyMint]
+                    if (tokenData != null && tokenData.first > 0.0) {
+                        // Update position with verified on-chain qty if significantly different
+                        val verifiedQty = tokenData.first
+                        if (ts.position.isOpen && ts.position.qtyToken > 0) {
+                            val diff = kotlin.math.abs(verifiedQty - ts.position.qtyToken) / ts.position.qtyToken.coerceAtLeast(0.0001)
+                            if (diff > 0.05) { // >5% difference
+                                ts.position = ts.position.copy(qtyToken = verifiedQty)
+                                ErrorLogger.info("Executor", "🔄 POST-BUY: Updated ${verifySymbol} qty to verified ${"%.4f".format(verifiedQty)}")
+                            }
+                        }
+                        ErrorLogger.info("Executor", "✅ POST-BUY OK: ${verifySymbol} | ${"%.4f".format(verifiedQty)} tokens confirmed")
+                    } else {
+                        // Retry once
+                        Thread.sleep(5000)
+                        val retryBal = verifyWallet.getTokenAccountsWithDecimals()
+                        val retryData = retryBal[verifyMint]
+                        if (retryData != null && retryData.first > 0.0) {
+                            ErrorLogger.info("Executor", "✅ POST-BUY OK (retry): ${verifySymbol} | ${"%.4f".format(retryData.first)} tokens")
+                            if (ts.position.isOpen) {
+                                ts.position = ts.position.copy(qtyToken = retryData.first)
+                            }
+                        } else if (ts.position.isOpen) {
+                            // PHANTOM DETECTED — force close it
+                            ErrorLogger.warn("Executor", "🚨 PHANTOM DETECTED: ${verifySymbol} — 0 tokens after 8s. Force closing.")
+                            onLog("🚨 PHANTOM: ${verifySymbol} — tx landed but no tokens. Auto-closing.", verifyMint)
+                            ts.position = ts.position.copy(qtyToken = 0.0)
+                            ts.position = Position.EMPTY
+                            try { PositionPersistence.removePosition(verifyMint) } catch (_: Exception) {}
+                            try { EmergentGuardrails.releasePosition(verifyMint) } catch (_: Exception) {}
+                            onNotify("🚨 Phantom Cleared", "${verifySymbol}: Buy tx returned sig but no tokens arrived. Position removed.",
+                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                        }
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Post-buy verify error (non-fatal): ${e.message}")
+                }
             }
 
         } catch (e: Exception) {
