@@ -131,11 +131,21 @@ object MarketsLiveExecutor {
         }
         
         // Step 2: Determine execution strategy based on market type
+        // V5.9.15: NON-CRYPTO LIVE GUARD — stocks/forex/metals/commodities have no
+        // real on-chain synthetic token for these markets yet. Previous behaviour
+        // was to swap SOL → USDC and call it "collateral positioning", which
+        // silently drained SOL to USDC for no useful exposure. Refuse live
+        // execution for these until a real synthetic route is wired.
+        val isNonCryptoSynthetic = market.isStock || market.isCommodity || market.isMetal || market.isForex
+        if (isNonCryptoSynthetic) {
+            ErrorLogger.warn(TAG,
+                "⛔ LIVE blocked for ${market.symbol} (${if (market.isStock) "STOCK" else if (market.isCommodity) "COMMODITY" else if (market.isMetal) "METAL" else "FOREX"}): " +
+                "no on-chain synthetic route — use paper mode for this asset class.")
+            failedExecutions.incrementAndGet()
+            return@withContext Pair(false, null)
+        }
+
         val txSignature = when {
-            market.isStock -> executeStockTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
-            market.isCommodity -> executeCommodityTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
-            market.isMetal -> executeMetalTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
-            market.isForex -> executeForexTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
             market.isCrypto -> executeCryptoTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
             else -> {
                 ErrorLogger.warn(TAG, "Unknown market type for ${market.symbol}")
@@ -143,17 +153,14 @@ object MarketsLiveExecutor {
             }
         }
         
-        // V5.9.2: For non-crypto markets (stocks/forex/metals/commodities), a null txSignature
-        // means the UniversalBridgeEngine positioned collateral without a DEX swap — still a success.
-        // Only crypto markets require an explicit on-chain swap signature.
-        val isBridgeTrade = market.isStock || market.isCommodity || market.isMetal || market.isForex
-        if (txSignature != null || isBridgeTrade) {
+        // V5.9.15: Non-crypto synthetic trades are blocked above; only crypto
+        // markets reach here and require a real on-chain swap signature.
+        if (txSignature != null) {
             collectTradingFee(wallet, feeAmountSol, market.symbol, "OPEN")
             successfulExecutions.incrementAndGet()
             lastExecutionTime.set(System.currentTimeMillis())
-            val sigLog = txSignature?.take(24) ?: "bridge-collateral (no swap)"
-            ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: $sigLog")
-            return@withContext Pair(true, txSignature ?: "BRIDGE_OK_${market.symbol}")
+            ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: ${txSignature.take(24)}")
+            return@withContext Pair(true, txSignature)
         } else {
             failedExecutions.incrementAndGet()
             ErrorLogger.warn(TAG, "LIVE TRADE FAILED for ${market.symbol}")

@@ -106,8 +106,13 @@ data class Position(
     val profitLockedSol: Double = 0.0,          // How much profit we locked
     val isHouseMoney: Boolean = false,          // True after capital recovered - remainder is "free"
     val lockedProfitFloor: Double = 0.0,        // Minimum value we've secured (won't trail below this)
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.15: PHANTOM GUARD — true while we're still verifying tokens arrived on-chain
+    // UI + persistence + exit loops skip positions in this state.
+    // ═══════════════════════════════════════════════════════════════════
+    val pendingVerify: Boolean = false,
 ) {
-    val isOpen get() = qtyToken > 0.0
+    val isOpen get() = qtyToken > 0.0 && !pendingVerify
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
     val avgEntryCost get() = if (qtyToken > 0) costSol else 0.0
     val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95

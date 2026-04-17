@@ -3465,6 +3465,7 @@ class Executor(
                 isPaperPosition = false,
                 tradingMode  = currentMode.name,
                 tradingModeEmoji = currentMode.emoji,
+                pendingVerify = true,  // V5.9.15: phantom guard — hidden from UI until tokens verified on-chain
             )
             val trade = Trade(
                 side = "BUY", 
@@ -3479,15 +3480,10 @@ class Executor(
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)
-            
-            EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
-            
-            try {
-                PositionPersistence.savePosition(ts)
-                ErrorLogger.info("Executor", "💾 LIVE position persisted: ${ts.symbol}")
-            } catch (e: Exception) {
-                ErrorLogger.error("Executor", "💾 CRITICAL: Failed to persist LIVE position: ${e.message}", e)
-            }
+
+            // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
+            // post-buy verification confirms tokens actually arrived on-chain.
+            // Previously these ran immediately, leaking phantoms into UI + persistence.
             
             sounds?.playBuySound()
             
@@ -3581,48 +3577,58 @@ class Executor(
                 } catch (_: Exception) {}
             }
 
-            // V5.9.9: FAST MODE — async background verification (zero buy latency)
-            // Position is already recorded. This runs in background and auto-closes
-            // phantom positions if tokens never arrive on-chain.
+            // V5.9.15: PHANTOM GUARD — verify tokens on-chain BEFORE lifting the
+            // pendingVerify flag. UI, persistence, and exit loops skip pending positions.
             val verifyMint = ts.mint
             val verifySymbol = ts.symbol
             val verifyWallet = wallet
+            val verifyCurrentLayer = currentLayer
+            val verifyTradeMint = tradeId.mint
+            val verifyTradeSymbol = tradeId.symbol
             GlobalScope.launch(Dispatchers.IO) {
                 try {
                     Thread.sleep(3000) // Wait for tx finalization
                     val postBuyBalances = verifyWallet.getTokenAccountsWithDecimals()
                     val tokenData = postBuyBalances[verifyMint]
-                    if (tokenData != null && tokenData.first > 0.0) {
-                        // Update position with verified on-chain qty if significantly different
-                        val verifiedQty = tokenData.first
-                        if (ts.position.isOpen && ts.position.qtyToken > 0) {
-                            val diff = kotlin.math.abs(verifiedQty - ts.position.qtyToken) / ts.position.qtyToken.coerceAtLeast(0.0001)
-                            if (diff > 0.05) { // >5% difference
-                                ts.position = ts.position.copy(qtyToken = verifiedQty)
-                                ErrorLogger.info("Executor", "🔄 POST-BUY: Updated ${verifySymbol} qty to verified ${"%.4f".format(verifiedQty)}")
-                            }
-                        }
-                        ErrorLogger.info("Executor", "✅ POST-BUY OK: ${verifySymbol} | ${"%.4f".format(verifiedQty)} tokens confirmed")
-                    } else {
-                        // Retry once
+                    var verifiedQty = tokenData?.first ?: 0.0
+                    if (verifiedQty <= 0.0) {
+                        // Retry once with extra time
                         Thread.sleep(5000)
                         val retryBal = verifyWallet.getTokenAccountsWithDecimals()
-                        val retryData = retryBal[verifyMint]
-                        if (retryData != null && retryData.first > 0.0) {
-                            ErrorLogger.info("Executor", "✅ POST-BUY OK (retry): ${verifySymbol} | ${"%.4f".format(retryData.first)} tokens")
-                            if (ts.position.isOpen) {
-                                ts.position = ts.position.copy(qtyToken = retryData.first)
+                        verifiedQty = retryBal[verifyMint]?.first ?: 0.0
+                    }
+                    if (verifiedQty > 0.0) {
+                        // ✅ Tokens confirmed — promote position to real (visible to UI)
+                        if (ts.position.pendingVerify) {
+                            val promoted = ts.position.copy(
+                                qtyToken = verifiedQty,
+                                pendingVerify = false,
+                            )
+                            ts.position = promoted
+                            ErrorLogger.info("Executor",
+                                "✅ POST-BUY OK: ${verifySymbol} | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live")
+                            EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
+                            try {
+                                PositionPersistence.savePosition(ts)
+                            } catch (e: Exception) {
+                                ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
                             }
-                        } else if (ts.position.isOpen) {
-                            // PHANTOM DETECTED — force close via proper API
-                            ErrorLogger.warn("Executor", "🚨 PHANTOM DETECTED: ${verifySymbol} — 0 tokens after 8s. Force closing.")
-                            onLog("🚨 PHANTOM: ${verifySymbol} — tx landed but no tokens. Auto-closing.", verifyMint)
-                            ts.position = ts.position.copy(qtyToken = 0.0)
-                            val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
-                            phantomId.closed(getActualPrice(ts), -100.0, -(ts.position.costSol), "PHANTOM_BUY_NO_TOKENS")
-                            onNotify("🚨 Phantom Cleared", "${verifySymbol}: Buy tx returned sig but no tokens arrived. Position removed.",
-                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                         }
+                    } else if (ts.position.pendingVerify) {
+                        // 🚨 PHANTOM — no tokens arrived. Wipe the position entirely.
+                        ErrorLogger.warn("Executor",
+                            "🚨 PHANTOM DETECTED: ${verifySymbol} — 0 tokens after 8s. Discarding pending position.")
+                        onLog("🚨 PHANTOM: ${verifySymbol} — tx landed but no tokens. Position discarded.", verifyMint)
+                        ts.position = Position()  // full wipe, never persisted, never registered
+                        try {
+                            // savePosition removes closed positions from prefs
+                            PositionPersistence.savePosition(ts)
+                        } catch (_: Exception) {}
+                        val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
+                        phantomId.closed(getActualPrice(ts), -100.0, -sol, "PHANTOM_BUY_NO_TOKENS")
+                        onNotify("🚨 Phantom Cleared",
+                            "${verifySymbol}: tx returned sig but no tokens arrived. Position discarded.",
+                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     }
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "Post-buy verify error (non-fatal): ${e.message}")
