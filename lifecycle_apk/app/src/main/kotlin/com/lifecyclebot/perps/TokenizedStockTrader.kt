@@ -874,16 +874,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
-        // V5.7.6b: Check if LIVE mode - execute on-chain
+        // V5.7.6b: LIVE mode — execute real on-chain trade. No paper fallback.
         if (!isPaperMode.get()) {
             val success = executeLiveTrade(signal, isSpot)
-            if (!success) {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade not executed (awaiting full implementation)")
-                return
+            if (success) {
+                ErrorLogger.info(TAG, "📈 LIVE trade success: ${signal.market.symbol}")
+            } else {
+                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
             }
+            return  // Live mode: done. No paper position.
         }
         
-        // PAPER MODE execution (or post-live tracking)
+        // PAPER MODE execution — only when in paper mode
         val balance = getEffectiveBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
         

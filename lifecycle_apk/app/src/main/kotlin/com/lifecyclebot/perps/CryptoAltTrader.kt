@@ -902,16 +902,18 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
-        // LIVE mode — try on-chain execution
+        // LIVE mode — execute real on-chain trade. No paper fallback.
         if (!isPaperMode.get()) {
             val success = executeLiveTrade(signal, isSpot)
-            if (!success) {
-                ErrorLogger.warn(TAG, "🔴 LIVE alt trade not executed — falling back to paper tracking")
-                // Fall through to paper tracking so position is still recorded/monitored
+            if (success) {
+                ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol}")
+            } else {
+                ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol}")
             }
+            return  // Live mode: done. No paper position.
         }
 
-        // Paper execution (or paper tracking alongside live)
+        // Paper execution — only when in paper mode
         val balance = getEffectiveBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
 

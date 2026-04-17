@@ -461,10 +461,12 @@ object ForexTrader {
         // V5.7.6b: Check if LIVE mode - execute on-chain
         if (!isPaperMode.get()) {
             val success = executeLiveTrade(signal, typeLabel)
-            if (!success) {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade not executed for ${signal.market.symbol}")
-                return
+            if (success) {
+                ErrorLogger.info(TAG, "💱 LIVE trade success: ${signal.market.symbol}")
+            } else {
+                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
             }
+            return  // Live mode: done. No paper position.
         }
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
