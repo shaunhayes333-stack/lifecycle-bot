@@ -83,7 +83,9 @@ object ForexTrader {
         var closeTime: Long? = null,
         var closePrice: Double? = null,
         var realizedPnl: Double? = null,
-        val reasons: List<String> = emptyList()
+        val reasons: List<String> = emptyList(),
+        val aiConfidence: Int = 50,
+        var peakPnlPct: Double = 0.0
     ) {
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
@@ -552,11 +554,27 @@ object ForexTrader {
             val data = PerpsMarketDataFetcher.getMarketData(position.market)
             if (data.price > 0) {
                 position.currentPrice = data.price
-                
-                if (position.shouldTakeProfit()) {
-                    closePosition(position, positionMap, "TP HIT")
-                } else if (position.shouldStopLoss()) {
-                    closePosition(position, positionMap, "SL HIT")
+
+                val holdSec = (System.currentTimeMillis() - position.openTime) / 1000
+                val pnlPct = position.getPnlPercent()
+                val peakPnl = position.peakPnlPct.coerceAtLeast(pnlPct)
+                position.peakPnlPct = peakPnl
+                val priceVel = if (holdSec > 30) pnlPct / (holdSec / 60.0) else 0.0
+
+                val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
+                    currentPnlPct = pnlPct, peakPnlPct = peakPnl,
+                    entryConfidence = position.aiConfidence.toDouble(),
+                    tradingMode = "ForexAI", holdTimeSec = holdSec,
+                    priceVelocity = priceVel, symbol = position.market.symbol
+                )
+                when (assessment.suggestedAction) {
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
+                        closePosition(position, positionMap, "AI_EXIT: ${assessment.primarySignal}")
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
+                        closePosition(position, positionMap, "AI_PARTIAL: ${assessment.primarySignal}")
+                    else -> {
+                        if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
+                    }
                 }
             }
         } catch (_: Exception) {}

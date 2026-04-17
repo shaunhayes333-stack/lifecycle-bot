@@ -2598,6 +2598,9 @@ class BotService : Service() {
             // Self-healing check and pattern pruning
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 60 == 0) {
+                // V5.9.9: Sentient personality periodic reflection
+                try { SentientPersonality.periodicReflection() } catch (_: Exception) {}
+
                 scope.launch {
                     try {
                         // Self-healing check (clears data if poisoned)

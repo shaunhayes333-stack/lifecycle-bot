@@ -242,7 +242,8 @@ object TokenizedStockTrader {
         var stopLossPrice: Double? = null,
         val aiScore: Int = 50,
         val aiConfidence: Int = 50,
-        val reasons: List<String> = emptyList()
+        val reasons: List<String> = emptyList(),
+        var peakPnlPct: Double = 0.0    // V5.9.9: Track peak PnL for symbolic reasoning
     ) {
         // V5.7.6: isSpot property for UI compatibility
         val isSpot: Boolean get() = leverage == 1.0
@@ -988,20 +989,31 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 val data = PerpsMarketDataFetcher.getMarketData(position.market)
                 position.currentPrice = data.price
                 
-                // Check exit conditions
-                when {
-                    position.shouldTakeProfit() -> {
-                        closePosition(id, "TAKE_PROFIT")
-                    }
-                    position.shouldStopLoss() -> {
-                        closePosition(id, "STOP_LOSS")
-                    }
-                    // Time-based exit: close after 8 hours if flat
-                    System.currentTimeMillis() - position.entryTime > 8 * 60 * 60 * 1000 -> {
-                        val pnl = position.getUnrealizedPnlPct()
-                        if (abs(pnl) < 2.0) {
-                            closePosition(id, "TIMEOUT_FLAT")
-                        }
+                // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner every cycle
+                val holdSec = (System.currentTimeMillis() - position.entryTime) / 1000
+                val pnlPct = position.getUnrealizedPnlPct()
+                val peakPnl = position.peakPnlPct.coerceAtLeast(pnlPct)
+                position.peakPnlPct = peakPnl
+
+                val priceVel = if (holdSec > 30) pnlPct / (holdSec / 60.0) else 0.0
+                val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
+                    currentPnlPct   = pnlPct,
+                    peakPnlPct      = peakPnl,
+                    entryConfidence = position.aiConfidence.toDouble(),
+                    tradingMode     = "TokenizedStockAI",
+                    holdTimeSec     = holdSec,
+                    priceVelocity   = priceVel,
+                    symbol          = position.market.symbol
+                )
+
+                when (assessment.suggestedAction) {
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
+                        closePosition(id, "AI_EXIT: ${assessment.primarySignal} (${String.format("%.2f", assessment.conviction)})")
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
+                        closePosition(id, "AI_PARTIAL: ${assessment.primarySignal} (${String.format("%.2f", assessment.conviction)})")
+                    else -> {
+                        // Safety net: extreme TP only
+                        if (position.shouldTakeProfit()) closePosition(id, "TP_SAFETY")
                     }
                 }
             } catch (e: Exception) {

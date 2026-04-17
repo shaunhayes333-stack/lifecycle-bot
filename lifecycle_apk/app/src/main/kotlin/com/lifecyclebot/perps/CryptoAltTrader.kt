@@ -1223,6 +1223,19 @@ object CryptoAltTrader {
         val timestamp = System.currentTimeMillis()
         val holdMs    = timestamp - pos.openTime
 
+        // V5.9.9: Sentient personality reacts to trade outcomes
+        try {
+            if (isWin) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(
+                    pos.market.symbol, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", holdMs / 1000
+                )
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(
+                    pos.market.symbol, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", reason
+                )
+            }
+        } catch (_: Exception) {}
+
         // V5.7.7: Archive closed position for Positions tab history
         val closedPos = pos.copy(
             currentPrice  = pos.currentPrice,

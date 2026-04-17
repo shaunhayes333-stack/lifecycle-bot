@@ -4422,6 +4422,12 @@ class Executor(
         tradeId.classified(classification, if (isScratchTrade) null else shouldLearnAsWin)
         WalletPositionLock.recordClose("Meme", ts.position.costSol)
         
+        // V5.9.9: Sentient personality reacts
+        try {
+            if (shouldLearnAsWin) SentientPersonality.onTradeWin(tradeId.symbol, pnlP, ts.position.tradingMode, (System.currentTimeMillis() - ts.position.entryTime) / 1000)
+            else if (shouldLearnAsLoss) SentientPersonality.onTradeLoss(tradeId.symbol, pnlP, ts.position.tradingMode, reason)
+        } catch (_: Exception) {}
+        
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         TradeLifecycle.clearProposalTracking(tradeId.mint)
