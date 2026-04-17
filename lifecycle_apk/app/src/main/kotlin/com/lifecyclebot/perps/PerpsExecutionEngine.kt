@@ -347,13 +347,30 @@ object PerpsExecutionEngine {
             // Get current price
             val marketData = PerpsMarketDataFetcher.getMarketData(signal.market)
             val entryPrice = marketData.price
-            
-            // Calculate position size
+
+            // V5.9.13: Symbolic leverage cap + size bias from SymbolicContext
+            val symSizeAdj = try {
+                com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment()
+            } catch (_: Exception) { 1.0 }
+            val symLevCapMult = try {
+                val sc = com.lifecyclebot.engine.SymbolicContext
+                when (sc.emotionalState) {
+                    "PANIC"    -> 0.4   // cut leverage to 40%
+                    "FEARFUL"  -> 0.6
+                    "EUPHORIC" -> 1.0   // don't increase leverage (risk discipline)
+                    "GREEDY"   -> 0.95
+                    else       -> if (sc.shouldBeDefensive()) 0.75 else 1.0
+                }
+            } catch (_: Exception) { 1.0 }
+
+            // Calculate position size (with symbolic bias)
             val balance = PerpsTraderAI.getBalance(isPaper)
-            val sizeSol = balance * (signal.recommendedSizePct / 100)
-            
+            val rawSizeSol = balance * (signal.recommendedSizePct / 100)
+            val sizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
+            val effectiveLeverage = (signal.recommendedLeverage * symLevCapMult).coerceAtLeast(1.0)
+
             if (sizeSol < 0.05) {
-                ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL")
+                ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj)")
                 failedExecutions.incrementAndGet()
                 return
             }
@@ -364,7 +381,7 @@ object PerpsExecutionEngine {
                 direction = signal.direction,
                 entryPrice = entryPrice,
                 sizeSol = sizeSol,
-                leverage = signal.recommendedLeverage,
+                leverage = effectiveLeverage,
                 signal = signal,
                 isPaper = isPaper,
             )
@@ -375,7 +392,7 @@ object PerpsExecutionEngine {
                 
                 ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner.displayName}]: " +
                     "${position.direction.emoji} ${position.market.symbol} | " +
-                    "${position.leverage}x | size=${sizeSol.fmt(3)}◎ | " +
+                    "${position.leverage}x (sym×${"%.2f".format(symLevCapMult)}) | size=${sizeSol.fmt(3)}◎ (sym×${"%.2f".format(symSizeAdj)}) | " +
                     "entry=\$${entryPrice.fmt(2)}")
             } else {
                 failedExecutions.incrementAndGet()

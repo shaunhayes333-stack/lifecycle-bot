@@ -842,6 +842,17 @@ object MetaCognitionAI {
             return "META_VETO_OVRCONF_WEAK_LAYERS"
         }
 
+        // V5.9.13: Symbolic veto — PANIC mood + high overall risk + weak edge
+        try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            if (sc.emotionalState == "PANIC" &&
+                sc.overallRisk > 0.75 &&
+                sc.edgeStrength < 0.35 &&
+                overallConfidence < 75.0) {
+                return "META_VETO_SYMBOLIC_PANIC"
+            }
+        } catch (_: Exception) {}
+
         return null
     }
 
@@ -874,7 +885,20 @@ object MetaCognitionAI {
         }
 
         val adjusted = rawScore * multiplier + trustAdjustment
-        return adjusted.toInt().coerceIn(-100, 100)
+
+        // V5.9.13: Symbolic mood nudge on meta-adjusted score
+        val symNudge = try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            when (sc.emotionalState) {
+                "PANIC"    -> -10.0
+                "FEARFUL"  -> -5.0
+                "EUPHORIC" -> +5.0
+                "GREEDY"   -> +2.5
+                else       -> 0.0
+            }
+        } catch (_: Exception) { 0.0 }
+
+        return (adjusted + symNudge).toInt().coerceIn(-100, 100)
     }
 
     // -------------------------------------------------------------------------

@@ -179,6 +179,33 @@ object AdvancedExitManager {
             }
         }
 
+        // V5.9.13: Symbolic mood modulation — tighten on risk, loosen on confidence
+        try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            when (sc.emotionalState) {
+                "PANIC" -> {
+                    stopLossPct *= 0.7   // tighter stop
+                    trailingPct *= 0.6   // tighter trail
+                    maxHold = (maxHold * 0.6).toInt()
+                }
+                "FEARFUL" -> {
+                    stopLossPct *= 0.85
+                    trailingPct *= 0.8
+                    maxHold = (maxHold * 0.8).toInt()
+                }
+                "EUPHORIC" -> {
+                    trailingPct *= 1.25
+                    takeProfitPct *= 1.15
+                    maxHold = (maxHold * 1.2).toInt()
+                }
+                "GREEDY" -> {
+                    trailingPct *= 1.1
+                    takeProfitPct *= 1.05
+                }
+                else -> Unit
+            }
+        } catch (_: Exception) {}
+
         // Hard limits first so all downstream levels match final values
         takeProfitPct = takeProfitPct.coerceIn(10.0, 200.0)
         stopLossPct = stopLossPct.coerceIn(5.0, 25.0)
