@@ -1131,19 +1131,34 @@ object CryptoAltTrader {
                     com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
                 else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
 
-                // V5.9.9: Smart exit — dynamic SL + trailing stop using AI trust scores
+                // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
                 val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
                 val peakPnl = if (updated.highestPnlPct > updated.getPnlPct()) updated.highestPnlPct else updated.getPnlPct()
-                val (smartExit, smartReason) = com.lifecyclebot.engine.SmartExitOptimizer.shouldExit(
-                    currentPnlPct = updated.getPnlPct(),
-                    peakPnlPct    = peakPnl,
-                    tradingMode   = updated.reasons.firstOrNull() ?: "CryptoAltAI",
-                    holdTimeSec   = holdSec
+
+                // Calculate price velocity (% change per minute over hold period)
+                val priceVelocity = if (holdSec > 30) updated.getPnlPct() / (holdSec / 60.0) else 0.0
+
+                val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
+                    currentPnlPct   = updated.getPnlPct(),
+                    peakPnlPct      = peakPnl,
+                    entryConfidence = updated.aiConfidence.toDouble(),
+                    tradingMode     = updated.reasons.firstOrNull() ?: "CryptoAltAI",
+                    holdTimeSec     = holdSec,
+                    priceVelocity   = priceVelocity,
+                    volumeRatio     = 1.0
                 )
 
-                when {
-                    smartExit                        -> closePosition(id, smartReason)
-                    updated.shouldTakeProfit(tpPct)   -> closePosition(id, "TP hit +${"%.2f".format(updated.getPnlPct())}%")
+                when (assessment.suggestedAction) {
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.EXIT ->
+                        closePosition(id, "AI_EXIT: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
+                    com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
+                        closePosition(id, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
+                    else -> {
+                        // Still check extreme TP as safety net (AI may override)
+                        if (updated.shouldTakeProfit(tpPct * 1.5)) {
+                            closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 1.5}%")
+                        }
+                    }
                 }
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) {}
