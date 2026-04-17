@@ -108,13 +108,17 @@ class BotService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        
+
+        // Must call startForeground() within 5 seconds of startForegroundService() or Android
+        // throws ForegroundServiceDidNotStartInTimeException. Do it here before any slow init.
+        createChannels()
+        startForeground(NOTIF_ID, buildRunningNotif())
+
         try {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             ErrorLogger.info("BotService", "onCreate starting")
-            
-            createChannels()
+
 
             strategy        = LifecycleStrategy(
                 cfg   = { ConfigStore.load(applicationContext) },
@@ -400,15 +404,6 @@ class BotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // CRITICAL: Call startForeground IMMEDIATELY to avoid ForegroundServiceDidNotStartInTimeException
-        // Android gives us only 5 seconds after startForegroundService() is called
-        try {
-            startForeground(NOTIF_ID, buildRunningNotif())
-            ErrorLogger.info("BotService", "Foreground started in onStartCommand")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "startForeground failed in onStartCommand: ${e.message}", e)
-        }
-        
         when (intent?.action) {
             ACTION_START -> {
                 if (!status.running) {
