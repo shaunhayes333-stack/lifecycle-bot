@@ -456,8 +456,8 @@ object MarketsLiveExecutor {
             return@withContext Pair(false, null)
         }
         
-        // V5.7.7 FIX: Get actual USDC balance to sell, not a derived value
-        // We posted SOL→USDC on open, now we need to close by selling that USDC
+        // V5.7.7 FIX: Get USDC balance for THIS position's size, not the entire wallet
+        // We posted SOL→USDC on open with sizeSol worth of USDC. Close only that amount.
         val usdcBalanceUnits: Long
         try {
             val tokenBalances = wallet.getTokenAccountsWithDecimals()
@@ -466,9 +466,18 @@ object MarketsLiveExecutor {
                 ErrorLogger.warn(TAG, "No USDC balance to close position")
                 return@withContext Pair(false, null)
             }
-            // USDC has 6 decimals
-            usdcBalanceUnits = (usdcData.first * 1_000_000).toLong()
-            ErrorLogger.info(TAG, "  USDC balance: ${usdcData.first} (${usdcBalanceUnits} units)")
+            
+            // Calculate proportional USDC amount for this position
+            // sizeSol is the SOL equivalent of this position. Convert to USDC.
+            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+            val positionUsdcValue = sizeSol * solPrice
+            val availableUsdc = usdcData.first
+            
+            // Use the smaller of: position value or total USDC (safety cap)
+            val usdcToSell = minOf(positionUsdcValue, availableUsdc)
+            usdcBalanceUnits = (usdcToSell * 1_000_000).toLong()
+            
+            ErrorLogger.info(TAG, "  USDC to close: ${usdcToSell.fmt(2)} of ${availableUsdc.fmt(2)} total (pos=${sizeSol.fmt(4)} SOL @ \$${solPrice.fmt(0)})")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Failed to get USDC balance: ${e.message}")
             return@withContext Pair(false, null)

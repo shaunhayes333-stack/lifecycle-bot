@@ -3412,11 +3412,45 @@ class Executor(
             
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-            val price = getActualPrice(ts)
+
+            // V5.9.8: POST-BUY ON-CHAIN VERIFICATION — prevent phantom positions
+            // Wait briefly then check if tokens actually arrived in wallet
+            Thread.sleep(2000)
+            var verifiedQty = 0.0
+            var verifiedPrice = getActualPrice(ts)
+            try {
+                val postBuyBalances = wallet.getTokenAccountsWithDecimals()
+                val tokenData = postBuyBalances[ts.mint]
+                if (tokenData != null && tokenData.first > 0.0) {
+                    verifiedQty = tokenData.first
+                    ErrorLogger.info("Executor", "✅ POST-BUY VERIFIED: ${ts.symbol} | ${"%.4f".format(verifiedQty)} tokens in wallet")
+                } else {
+                    // Retry once after additional delay
+                    Thread.sleep(3000)
+                    val retryBalances = wallet.getTokenAccountsWithDecimals()
+                    val retryData = retryBalances[ts.mint]
+                    if (retryData != null && retryData.first > 0.0) {
+                        verifiedQty = retryData.first
+                        ErrorLogger.info("Executor", "✅ POST-BUY VERIFIED (retry): ${ts.symbol} | ${"%.4f".format(verifiedQty)} tokens")
+                    } else {
+                        ErrorLogger.warn("Executor", "🚨 POST-BUY FAILED: ${ts.symbol} — tokens NOT in wallet after tx $sig. Phantom buy prevented.")
+                        onLog("🚨 BUY VERIFICATION FAILED: ${ts.symbol} — no tokens received. Trade discarded.", ts.mint)
+                        PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "POST_BUY_VERIFY_FAILED")
+                        return
+                    }
+                }
+            } catch (verifyEx: Exception) {
+                ErrorLogger.warn("Executor", "⚠️ Post-buy verify error: ${verifyEx.message} — falling back to quote qty")
+                // Fall back to calculated qty if balance check fails (RPC issues)
+            }
+
+            val price = if (verifiedPrice <= 0.0) getActualPrice(ts) else verifiedPrice
             if (price <= 0.0) {
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
-            val qty   = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+            // Use verified on-chain qty if available, otherwise fall back to quote calculation
+            val qty = if (verifiedQty > 0.0) verifiedQty
+                      else rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return

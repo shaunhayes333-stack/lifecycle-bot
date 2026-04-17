@@ -1072,7 +1072,8 @@ object CryptoAltTrader {
 
             if (success) {
                 ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${txSig ?: "ok"}")
-                updateLiveBalance(balance - sizeSol)
+                // V5.9.8: Read fresh balance from wallet (not stale calculation)
+                try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
                 true
             } else {
                 ErrorLogger.warn(TAG, "🪙 Live execution returned failure for ${signal.market.symbol}")
