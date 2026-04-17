@@ -73,10 +73,12 @@ object SymbolicExitReasoner {
         // 2. Cross-Market Regime (weight: 0.08)
         val regime = try { CrossMarketRegimeAI.getCurrentRegime() } catch (_: Exception) { GlobalRiskMode.RISK_ON }
         val regimeSignal = when (regime) {
-            GlobalRiskMode.RISK_OFF  -> if (currentPnlPct < 0) 0.8 else 0.3
-            GlobalRiskMode.RISK_ON   -> 0.0
-            GlobalRiskMode.NEUTRAL   -> if (currentPnlPct < -2.0) 0.3 else 0.0
-            else                     -> 0.1
+            GlobalRiskMode.RISK_OFF     -> if (currentPnlPct < 0) 0.8 else 0.3
+            GlobalRiskMode.RISK_ON      -> 0.0
+            GlobalRiskMode.CHAOTIC      -> if (currentPnlPct < -2.0) 0.4 else 0.1
+            GlobalRiskMode.MEAN_REVERT  -> if (currentPnlPct < -2.0) 0.3 else 0.0
+            GlobalRiskMode.ROTATIONAL   -> 0.15
+            GlobalRiskMode.TRENDING     -> 0.0
         }
         signals["v4_regime"] = regimeSignal
         totalConviction += regimeSignal * 0.08
@@ -164,7 +166,7 @@ object SymbolicExitReasoner {
         val shadowPerf = try {
             val perf = ShadowLearningEngine.getModePerformance()
             val modePerf = perf[tradingMode]
-            if (modePerf != null && modePerf.totalTrades > 5) {
+            if (modePerf != null && modePerf.trades > 5) {
                 if (modePerf.winRate < 35.0) 0.6 else if (modePerf.winRate < 45.0) 0.2 else 0.0
             } else 0.1
         } catch (_: Exception) { 0.1 }
@@ -297,7 +299,7 @@ object SymbolicExitReasoner {
         try { snap["ShadowWR"]         = (ShadowLearningEngine.getModePerformance().values.map { it.winRate }.average().takeIf { !it.isNaN() } ?: 50.0) / 100.0 } catch (_: Exception) { snap["ShadowWR"] = 0.5 }
         try { snap["EducationLevel"]   = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getCurrentLearningWeight() } catch (_: Exception) { snap["EducationLevel"] = 0.5 }
         try { snap["MetaCognition"]    = (1.0 - com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().size / 10.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["MetaCognition"] = 0.5 }
-        try { snap["FearGreed"]        = (com.lifecyclebot.v3.scoring.FearGreedAI.getTradeCount() / 100.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["FearGreed"] = 0.5 }
+        try { snap["FearGreed"]        = (com.lifecyclebot.v3.scoring.InsiderTrackerAI.getRecentSignals(50).size / 50.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["FearGreed"] = 0.5 }
         try { snap["InsiderSignals"]   = (com.lifecyclebot.v3.scoring.InsiderTrackerAI.getRecentSignals(10).size / 10.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["InsiderSignals"] = 0.0 }
         try { snap["AdaptiveEdge"]     = MarketRegimeAI.getCurrentRegimeWinRate() / 100.0 } catch (_: Exception) { snap["AdaptiveEdge"] = 0.5 }
         try { snap["MomentumPred"]     = MarketRegimeAI.getRegimeConfidence() } catch (_: Exception) { snap["MomentumPred"] = 0.5 }

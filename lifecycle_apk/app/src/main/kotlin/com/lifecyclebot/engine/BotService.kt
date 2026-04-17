@@ -2476,7 +2476,8 @@ class BotService : Service() {
                 // V5.9.9: Periodic SOL price refresh — critical for USD display
                 // Without this, paper mode with no wallet = stale $0 price
                 try {
-                    val freshPrice = com.lifecyclebot.engine.WalletManager.fetchSolPrice()
+                    val freshPrice = com.lifecyclebot.engine.WalletManager
+                        .getInstance(applicationContext).fetchSolPrice()
                     if (freshPrice > 50.0) {
                         com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = freshPrice
                     }
