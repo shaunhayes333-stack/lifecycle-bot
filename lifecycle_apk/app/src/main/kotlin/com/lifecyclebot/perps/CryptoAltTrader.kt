@@ -137,7 +137,8 @@ object CryptoAltTrader {
         val openTime      : Long = System.currentTimeMillis(),
         var closeTime     : Long? = null,
         var closePrice    : Double? = null,
-        var realizedPnl   : Double? = null
+        var realizedPnl   : Double? = null,
+        var highestPnlPct : Double = 0.0   // V5.9.9: Track peak PnL for trailing stop
     ) {
         val leverageLabel: String get() = if (isSpot) "SPOT" else "${leverage.toInt()}x"
 
@@ -932,6 +933,11 @@ object CryptoAltTrader {
             ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${signal.market.symbol}")
             return
         }
+        // V5.9.9: Cross-trader wallet exposure check
+        if (!isPaperMode.get()) {
+            val walletBal = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", sizeSol, walletBal)) return
+        }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
             ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${signal.market.symbol} — REJECTING trade")
@@ -998,6 +1004,7 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", sizeSol)
 
         // ── MetaCognitionAI — entry prediction ───────────────────────────────
         try {
@@ -1106,6 +1113,11 @@ object CryptoAltTrader {
                     continue
                 }
                 val updated = position.copy(currentPrice = data.price)
+                // V5.9.9: Track peak PnL for trailing stop
+                val currentPnl = updated.getPnlPct()
+                if (currentPnl > updated.highestPnlPct) {
+                    updated.highestPnlPct = currentPnl
+                }
                 positions[id] = updated
                 if (updated.isSpot) {
                     spotPositions[id] = updated
@@ -1118,11 +1130,20 @@ object CryptoAltTrader {
                 val tpPct = if (updated.isSpot)
                     com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
                 else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-                val slPct = if (updated.isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
+
+                // V5.9.9: Smart exit — dynamic SL + trailing stop using AI trust scores
+                val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
+                val peakPnl = if (updated.highestPnlPct > updated.getPnlPct()) updated.highestPnlPct else updated.getPnlPct()
+                val (smartExit, smartReason) = com.lifecyclebot.engine.SmartExitOptimizer.shouldExit(
+                    currentPnlPct = updated.getPnlPct(),
+                    peakPnlPct    = peakPnl,
+                    tradingMode   = updated.reasons.firstOrNull() ?: "CryptoAltAI",
+                    holdTimeSec   = holdSec
+                )
 
                 when {
-                    updated.shouldTakeProfit(tpPct) -> closePosition(id, "TP hit +${"%.2f".format(updated.getPnlPct())}%")
-                    updated.shouldStopLoss(slPct)   -> closePosition(id, "SL hit  ${"%.2f".format(updated.getPnlPct())}%")
+                    smartExit                        -> closePosition(id, smartReason)
+                    updated.shouldTakeProfit(tpPct)   -> closePosition(id, "TP hit +${"%.2f".format(updated.getPnlPct())}%")
                 }
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) {}
@@ -1133,6 +1154,7 @@ object CryptoAltTrader {
         val pos = positions.remove(positionId) ?: return
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
 
         val pnlSol = pos.getPnlSol()
         totalPnlSol += pnlSol

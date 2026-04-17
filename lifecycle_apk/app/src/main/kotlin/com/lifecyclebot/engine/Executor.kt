@@ -2643,7 +2643,16 @@ class Executor(
                     return
                 }
                 is GuardResult.Allow -> {
+                    // V5.9.9: Cross-trader exposure check
+                    if (!WalletPositionLock.canOpen("Meme", sol, walletSol)) {
+                        onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
+                        if (cfg().shadowPaperEnabled) {
+                            runShadowPaperBuy(ts, sol, score, quality, "exposure_cap", wallet, walletSol)
+                        }
+                        return
+                    }
                     liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
+                    WalletPositionLock.recordOpen("Meme", sol)
                     
                     if (cfg().shadowPaperEnabled) {
                         runShadowPaperBuy(ts, sol, score, quality, "parallel", wallet, walletSol)
@@ -4411,6 +4420,7 @@ class Executor(
         
         tradeId.closed(price, pnlP, pnl, reason)
         tradeId.classified(classification, if (isScratchTrade) null else shouldLearnAsWin)
+        WalletPositionLock.recordClose("Meme", ts.position.costSol)
         
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)

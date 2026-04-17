@@ -39,9 +39,9 @@ object AutoCompoundEngine {
 
     data class CompoundConfig(
         val enabled: Boolean = true,
-        val treasuryPct: Double = 50.0,       // V5.6.7: 50% of profit to treasury (user requested 50/50 split)
-        val compoundPct: Double = 0.0,        // V5.6.7: Disabled compound pool for cleaner 50/50
-        val walletPct: Double = 50.0,         // V5.6.7: 50% of profit back to trading wallet
+        val treasuryPct: Double = 30.0,       // V5.9.9: 30% of profit to treasury (more to wallet for loss coverage)
+        val compoundPct: Double = 0.0,        // V5.6.7: Disabled compound pool for cleaner split
+        val walletPct: Double = 70.0,         // V5.9.9: 70% of profit back to trading wallet
         val minProfitToCompound: Double = 0.01,  // Min profit before splitting
         val compoundThreshold: Double = 0.5,  // SOL needed to trigger size increase
         val maxSizeMultiplier: Double = 2.0,  // Max position size boost
