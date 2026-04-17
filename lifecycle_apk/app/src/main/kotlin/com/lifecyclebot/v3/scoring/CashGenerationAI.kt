@@ -98,7 +98,7 @@ object CashGenerationAI {
     private val paperDailyWins = AtomicInteger(0)
     private val paperDailyLosses = AtomicInteger(0)
     private val paperDailyTradeCount = AtomicInteger(0)
-    private val paperTreasuryBalanceBps = AtomicLong(600)
+    private val paperTreasuryBalanceBps = AtomicLong(588)  // ~$500 USD starting treasury (at ~$85 SOL)
 
     private val liveDailyPnlSolBps = AtomicLong(0)
     private val liveDailyWins = AtomicInteger(0)

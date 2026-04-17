@@ -14,7 +14,7 @@ data class BotConfig(
     val shadowPaperEnabled: Boolean = true,  // Run paper trades in background during live mode for learning
     val moonshotOverrideEnabled: Boolean = true,  // In paper/shadow mode, execute LIVE buys for moonshots (score>=85, quality A/B)
     val fluidLearningEnabled: Boolean = true,  // Enable fluid scaling & all profit tools in paper/shadow mode
-    val paperSimulatedBalance: Double = 5.0,   // Simulated starting balance for realistic paper trading (SOL)
+    val paperSimulatedBalance: Double = 11.76,   // ~$1000 USD starting paper balance (at ~$85 SOL)
     val autoTrade: Boolean = true,  // ENABLED BY DEFAULT - bot is autonomous
     // tokens
     val watchlist: List<String> = emptyList(),
@@ -401,7 +401,7 @@ object ConfigStore {
             shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", true),
             moonshotOverrideEnabled     = p.getBoolean("moonshot_override_enabled", true),
             fluidLearningEnabled        = p.getBoolean("fluid_learning_enabled", true),
-            paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 5.0f).toDouble(),
+            paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble(),
             autoTrade                   = p.getBoolean("auto_trade", true),
             watchlist                   = (p.getString("watchlist", "") ?: "").split(",").filter { it.isNotBlank() },
             activeToken                 = p.getString("active_token", "") ?: "",
