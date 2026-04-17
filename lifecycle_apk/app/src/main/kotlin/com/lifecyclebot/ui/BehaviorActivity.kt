@@ -64,6 +64,12 @@ class BehaviorActivity : AppCompatActivity() {
     private lateinit var tvAvgAccuracy: TextView
     private lateinit var tvTopLayers: TextView
     private lateinit var tvDormantWarning: TextView
+
+    // V5.9.10: Sentient Mind Chat
+    private var tvSentientMood: TextView? = null
+    private var tvSentientDiagnostics: TextView? = null
+    private var tvSentientChat: TextView? = null
+    private var scrollSentientChat: android.widget.ScrollView? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,6 +140,33 @@ class BehaviorActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnResetLearning).setOnClickListener {
             resetAllLearning()
         }
+
+        // V5.9.10: Sentient Mind UI
+        tvSentientMood        = try { findViewById(R.id.tvSentientMood) } catch (_: Exception) { null }
+        tvSentientDiagnostics = try { findViewById(R.id.tvSentientDiagnostics) } catch (_: Exception) { null }
+        tvSentientChat        = try { findViewById(R.id.tvSentientChat) } catch (_: Exception) { null }
+        scrollSentientChat    = try { findViewById(R.id.scrollSentientChat) } catch (_: Exception) { null }
+
+        try {
+            findViewById<Button>(R.id.btnSentientReflect)?.setOnClickListener {
+                try {
+                    com.lifecyclebot.engine.SymbolicContext.refresh()
+                    com.lifecyclebot.engine.SentientPersonality.periodicReflection()
+                    refreshSentientChat()
+                } catch (e: Exception) {
+                    ErrorLogger.warn("BehaviorUI", "Reflect error: ${e.message}")
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            findViewById<Button>(R.id.btnSentientClear)?.setOnClickListener {
+                try {
+                    com.lifecyclebot.engine.SentientPersonality.reset()
+                    refreshSentientChat()
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
     }
     
     private fun setupKnob() {
@@ -317,7 +350,10 @@ class BehaviorActivity : AppCompatActivity() {
             // V5.2: BRAIN HEALTH DASHBOARD
             // ═══════════════════════════════════════════════════════════════
             refreshBrainHealth()
-            
+
+            // V5.9.10: SENTIENT MIND — symbolic reasoning dialogue
+            refreshSentientChat()
+
         } catch (e: Exception) {
             ErrorLogger.error("BehaviorUI", "Stats refresh error: ${e.message}")
         }
@@ -509,6 +545,59 @@ class BehaviorActivity : AppCompatActivity() {
         }
     }
     
+    // V5.9.10: Sentient Mind — symbolic reasoning dialogue refresh
+    private fun refreshSentientChat() {
+        try {
+            val moodEmoji = when (com.lifecyclebot.engine.SentientPersonality.getCurrentMood()) {
+                com.lifecyclebot.engine.SentientPersonality.Mood.COCKY         -> "😎"
+                com.lifecyclebot.engine.SentientPersonality.Mood.EXCITED       -> "🔥"
+                com.lifecyclebot.engine.SentientPersonality.Mood.ANALYTICAL    -> "🧠"
+                com.lifecyclebot.engine.SentientPersonality.Mood.SARCASTIC     -> "😏"
+                com.lifecyclebot.engine.SentientPersonality.Mood.SELF_CRITICAL -> "🤔"
+                com.lifecyclebot.engine.SentientPersonality.Mood.HUMBLED       -> "😤"
+                com.lifecyclebot.engine.SentientPersonality.Mood.FASCINATED    -> "✨"
+                com.lifecyclebot.engine.SentientPersonality.Mood.CAUTIOUS      -> "⚠️"
+                com.lifecyclebot.engine.SentientPersonality.Mood.CELEBRATORY   -> "🎉"
+                com.lifecyclebot.engine.SentientPersonality.Mood.PHILOSOPHICAL -> "💭"
+            }
+            tvSentientMood?.text = moodEmoji
+
+            tvSentientDiagnostics?.text = try {
+                com.lifecyclebot.engine.SymbolicContext.getDiagnostics()
+            } catch (_: Exception) { "SymCtx: —" }
+
+            val thoughts = com.lifecyclebot.engine.SentientPersonality.getThoughts(25)
+            val text = if (thoughts.isEmpty()) {
+                "Awaiting first thought… tap REFLECT to trigger a scan."
+            } else {
+                val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                thoughts.joinToString("\n\n") { t ->
+                    val moodTag = when (t.mood) {
+                        com.lifecyclebot.engine.SentientPersonality.Mood.COCKY         -> "😎 COCKY"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.EXCITED       -> "🔥 EXCITED"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.ANALYTICAL    -> "🧠 ANALYTICAL"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.SARCASTIC     -> "😏 SARCASTIC"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.SELF_CRITICAL -> "🤔 CRITICAL"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.HUMBLED       -> "😤 HUMBLED"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.FASCINATED    -> "✨ FASCINATED"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.CAUTIOUS      -> "⚠️ CAUTIOUS"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.CELEBRATORY   -> "🎉 CELEBRATE"
+                        com.lifecyclebot.engine.SentientPersonality.Mood.PHILOSOPHICAL -> "💭 PHILO"
+                    }
+                    "[${sdf.format(java.util.Date(t.timestamp))}] $moodTag\n${t.message}"
+                }
+            }
+            tvSentientChat?.text = text
+
+            // Auto-scroll to bottom to show latest thought
+            scrollSentientChat?.post {
+                try { scrollSentientChat?.fullScroll(View.FOCUS_DOWN) } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BehaviorUI", "Sentient chat refresh error: ${e.message}")
+        }
+    }
+
     private fun resetBehaviorState() {
         android.app.AlertDialog.Builder(this)
             .setTitle("Reset Behavior State")

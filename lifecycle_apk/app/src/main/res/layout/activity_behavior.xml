@@ -536,6 +536,95 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- ══ V5.9.10: SENTIENT MIND — SYMBOLIC REASONING DIALOGUE ══ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="#0A0A14"
+                android:padding="12dp"
+                android:layout_marginTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🧠 SENTIENT MIND"
+                        android:textColor="#9945FF"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"/>
+                    <TextView
+                        android:id="@+id/tvSentientMood"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🧠"
+                        android:textSize="18sp"/>
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvSentientDiagnostics"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="SymCtx: initializing…"
+                    android:textColor="#666"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="4dp"/>
+
+                <ScrollView
+                    android:id="@+id/scrollSentientChat"
+                    android:layout_width="match_parent"
+                    android:layout_height="220dp"
+                    android:layout_marginTop="8dp"
+                    android:background="#05050A"
+                    android:padding="10dp"
+                    android:fillViewport="true">
+                    <TextView
+                        android:id="@+id/tvSentientChat"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Systems online. Awaiting first thought…"
+                        android:textColor="#BBBBBB"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="4dp"/>
+                </ScrollView>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+                    <Button
+                        android:id="@+id/btnSentientReflect"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="REFLECT"
+                        android:textColor="#9945FF"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:backgroundTint="#14001A"
+                        android:layout_marginEnd="6dp"/>
+                    <Button
+                        android:id="@+id/btnSentientClear"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="CLEAR"
+                        android:textColor="#666"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:backgroundTint="#0A0A14"/>
+                </LinearLayout>
+            </LinearLayout>
+
             <!-- ══ RESET BUTTONS ══ -->
             <LinearLayout
                 android:layout_width="match_parent"

@@ -563,6 +563,20 @@ object FinalDecisionGate {
             tags.add("mode:${tradingModeTag.name}")
         }
 
+        // V5.9.10: Symbolic Context — pull live 16-channel symbolic intelligence
+        // Every AI module can tap into this. FDG uses it to bias sizing + log mood.
+        val symCtx = try {
+            SymbolicContext.refresh(ts.symbol, ts.mint)
+            SymbolicContext
+        } catch (_: Exception) { null }
+        val symEntryAdj = try { symCtx?.getEntryAdjustment() ?: 1.0 } catch (_: Exception) { 1.0 }
+        val symSizeAdj  = try { symCtx?.getSizeAdjustment()  ?: 1.0 } catch (_: Exception) { 1.0 }
+        val symMood     = try { symCtx?.emotionalState ?: "NEUTRAL" } catch (_: Exception) { "NEUTRAL" }
+        if (symCtx != null) {
+            tags.add("sym:$symMood")
+            tags.add("sym_edge:${"%.2f".format(symCtx.edgeStrength)}")
+        }
+
         if (candidate.aiConfidence <= 0.0) {
             ErrorLogger.info("FDG", "🚫 ZERO_CONF_BLOCK: ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0% → SHADOW ONLY")
 
@@ -2161,6 +2175,19 @@ object FinalDecisionGate {
             finalSize = (finalSize * combinedSizeMultiplier).coerceAtLeast(0.02)
             checks.add(GateCheck("bootstrap_size_cut", true, "Size cut for probe: ${originalSize.format(4)} × ${combinedSizeMultiplier.format(2)} = ${finalSize.format(4)}"))
             tags.add("bootstrap_size_reduced")
+        }
+
+        // V5.9.10: Symbolic size bias — emotional state + edge strength shape sizing
+        if (blockReason == null && kotlin.math.abs(symSizeAdj - 1.0) > 0.05) {
+            val originalSize = finalSize
+            finalSize = (finalSize * symSizeAdj).coerceAtLeast(0.003)
+            checks.add(GateCheck("symbolic_size_bias", true,
+                "Symbolic size ${originalSize.format(4)} × ${symSizeAdj.format(2)} = ${finalSize.format(4)} (mood=$symMood)"))
+            tags.add("symbolic_sized")
+        }
+        // V5.9.10: Symbolic entry-bar bias — apply to quality-required confidence bar
+        if (blockReason == null && kotlin.math.abs(symEntryAdj - 1.0) > 0.05) {
+            tags.add("sym_entry:${"%.2f".format(symEntryAdj)}")
         }
 
         if (totalSoftPenalty > 0 && blockReason == null) {

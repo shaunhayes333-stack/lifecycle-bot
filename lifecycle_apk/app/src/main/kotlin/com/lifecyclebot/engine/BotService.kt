@@ -2482,6 +2482,10 @@ class BotService : Service() {
                     }
                 } catch (_: Exception) {}
 
+                // V5.9.10: Refresh global SymbolicContext — feeds all 50+ AI modules
+                // + FinalDecisionGate with live 16-channel symbolic intelligence
+                try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
+
                 try {
                     // PerpsExecutionEngine watchdog — ALWAYS runs
                     val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()

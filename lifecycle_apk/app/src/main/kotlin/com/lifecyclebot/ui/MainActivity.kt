@@ -6436,6 +6436,21 @@ This action cannot be undone.
                 }
                 
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    // V5.9.10: 16-channel symbolic snapshot — every AI module, one view
+                    val symSnap = try {
+                        com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot("SOL", "")
+                    } catch (_: Exception) { emptyMap() }
+                    val symBars = if (symSnap.isEmpty()) "Signals warming up…" else {
+                        symSnap.entries.sortedByDescending { it.value }.joinToString("\n") { (name, v) ->
+                            val pct = (v.coerceIn(0.0, 1.0) * 100).toInt()
+                            val blocks = (pct / 10).coerceIn(0, 10)
+                            val bar = "█".repeat(blocks) + "░".repeat(10 - blocks)
+                            "${name.padEnd(16)} $bar ${pct.toString().padStart(3)}%"
+                        }
+                    }
+                    val symDiag = try { com.lifecyclebot.engine.SymbolicContext.getDiagnostics() } catch (_: Exception) { "—" }
+                    val sentStatus = try { com.lifecyclebot.engine.SentientPersonality.getStatusLine() } catch (_: Exception) { "—" }
+
                     val message = """
 🧠 AI SIGNAL ANALYSIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -6443,6 +6458,20 @@ This action cannot be undone.
 📊 SOL-PERP Current: $${String.format("%.2f", solData.price)}
 24h Change: ${if (solData.priceChange24hPct >= 0) "+" else ""}${String.format("%.1f", solData.priceChange24hPct)}%
 Funding: ${String.format("%.4f", solData.fundingRate * 100)}%
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧠 SENTIENT MIND
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$sentStatus
+
+$symDiag
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 16-CHANNEL SYMBOLIC FIRING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$symBars
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 26-LAYER CONSENSUS
