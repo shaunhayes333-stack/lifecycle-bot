@@ -699,37 +699,9 @@ object PerpsTraderAI {
         val marginBps = (sizeSol * 10000).toLong()
         balanceRef.addAndGet(-marginBps)
         
-        // V5.7.3: Collect 1% trading fee for perps (split 50/50 between two wallets)
-        if (!isPaper) {
-            try {
-                val feeAmountSol = sizeSol * PERPS_TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) {
-                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val wallet = com.lifecyclebot.engine.WalletManager.getWallet()
-                            if (wallet != null) {
-                                val feeWallet1 = feeAmountSol * 0.5
-                                val feeWallet2 = feeAmountSol * 0.5
-                                
-                                if (feeWallet1 >= 0.0001) {
-                                    wallet.sendSol(PERPS_FEE_WALLET_1, feeWallet1)
-                                }
-                                if (feeWallet2 >= 0.0001) {
-                                    wallet.sendSol(PERPS_FEE_WALLET_2, feeWallet2)
-                                }
-                                
-                                ErrorLogger.info(TAG, "💸 PERPS FEE: ${feeAmountSol.fmt(6)} SOL (1%) split to both wallets")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.warn(TAG, "💸 PERPS FEE failed: ${e.message}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Fee collection error: ${e.message}")
-            }
-        }
-        
+        // PerpsTraderAI positions are synthetic (in-memory only, no DEX execution).
+        // Fee collection is skipped here — MarketsLiveExecutor handles fees for real on-chain trades.
+
         ErrorLogger.info(TAG, "📊 ${direction.emoji} POSITION OPENED: ${market.emoji} ${market.symbol} | " +
             "${signal.recommendedRiskTier.emoji} ${leverage.fmt(1)}x | " +
             "size=${sizeSol.fmt(3)}◎ | entry=\$${entryPrice.fmt(2)} | " +
@@ -867,37 +839,8 @@ object PerpsTraderAI {
         val marginBps = (position.sizeSol * 10000).toLong()
         balanceRef.addAndGet(marginBps + pnlBps)
         
-        // V5.7.3: Collect 1% trading fee on close for live trades (split 50/50)
-        if (!position.isPaper) {
-            try {
-                val feeAmountSol = position.sizeSol * PERPS_TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) {
-                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val wallet = com.lifecyclebot.engine.WalletManager.getWallet()
-                            if (wallet != null) {
-                                val feeWallet1 = feeAmountSol * 0.5
-                                val feeWallet2 = feeAmountSol * 0.5
-                                
-                                if (feeWallet1 >= 0.0001) {
-                                    wallet.sendSol(PERPS_FEE_WALLET_1, feeWallet1)
-                                }
-                                if (feeWallet2 >= 0.0001) {
-                                    wallet.sendSol(PERPS_FEE_WALLET_2, feeWallet2)
-                                }
-                                
-                                ErrorLogger.info(TAG, "💸 PERPS CLOSE FEE: ${feeAmountSol.fmt(6)} SOL (1%) split to both wallets")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.warn(TAG, "💸 PERPS CLOSE FEE failed: ${e.message}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug(TAG, "Fee collection error: ${e.message}")
-            }
-        }
-        
+        // Positions are synthetic — no close fee charged (no real DEX execution).
+
         // Update learning
         updateLearning(pnlPct, isWin, position.isPaper)
         
