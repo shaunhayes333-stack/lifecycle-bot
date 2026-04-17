@@ -131,22 +131,25 @@ object MarketsLiveExecutor {
         }
         
         // Step 2: Determine execution strategy based on market type
-        // V5.9.15: NON-CRYPTO LIVE GUARD — stocks/forex/metals/commodities have no
-        // real on-chain synthetic token for these markets yet. Previous behaviour
-        // was to swap SOL → USDC and call it "collateral positioning", which
-        // silently drained SOL to USDC for no useful exposure. Refuse live
-        // execution for these until a real synthetic route is wired.
-        val isNonCryptoSynthetic = market.isStock || market.isCommodity || market.isMetal || market.isForex
-        if (isNonCryptoSynthetic) {
-            ErrorLogger.warn(TAG,
-                "⛔ LIVE blocked for ${market.symbol} (${if (market.isStock) "STOCK" else if (market.isCommodity) "COMMODITY" else if (market.isMetal) "METAL" else "FOREX"}): " +
-                "no on-chain synthetic route — use paper mode for this asset class.")
-            failedExecutions.incrementAndGet()
-            return@withContext Pair(false, null)
-        }
-
+        // V5.9.16: Real tokenized asset routing. For non-crypto markets we look
+        // up the real on-chain mint via TokenizedAssetRegistry. If present,
+        // execute a REAL Jupiter swap SOL → <mint> (LONG) or <mint> → USDC (SHORT).
+        // Only if no verified route exists do we refuse live execution.
         val txSignature = when {
             market.isCrypto -> executeCryptoTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
+
+            market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
+                val mint = TokenizedAssetRegistry.mintFor(market.symbol)
+                if (mint == null) {
+                    ErrorLogger.warn(TAG,
+                        "⛔ LIVE blocked for ${market.symbol}: no verified on-chain route. " +
+                        "Add via TokenizedAssetRegistry.register(\"${market.symbol}\", \"<mint>\") or use paper mode.")
+                    null
+                } else {
+                    executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
+                }
+            }
+
             else -> {
                 ErrorLogger.warn(TAG, "Unknown market type for ${market.symbol}")
                 null
@@ -335,6 +338,40 @@ object MarketsLiveExecutor {
             null
         }
     }
+
+    /**
+     * V5.9.16: REAL tokenized-asset trade via Jupiter.
+     *  - LONG:  SOL → target mint (buy the tokenized asset, real on-chain exposure)
+     *  - SHORT: skipped on spot (xStocks can't be shorted on spot DEXes);
+     *           returns null so the upstream trader falls back to paper.
+     */
+    private suspend fun executeTokenizedAssetTrade(
+        wallet: SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        targetMint: String,
+    ): String? {
+        if (direction == PerpsDirection.SHORT) {
+            ErrorLogger.warn(TAG,
+                "⚠️ SHORT not supported on tokenized spot asset ${market.symbol} — skipping live (use perps or paper).")
+            return null
+        }
+        val label = TokenizedAssetRegistry.routeLabel(market.symbol)
+        ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${sizeSol.fmt(4)} SOL")
+        val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        // Tokenized-asset pools (xStocks/PAXG/EURC) are thinner than SOL/USDC —
+        // use 2% slippage tolerance to avoid spurious Jupiter rejections.
+        return executeJupiterSwap(
+            wallet         = wallet,
+            walletAddress  = walletAddress,
+            inputMint      = SOL_MINT,
+            outputMint     = targetMint,
+            amountLamports = amountLamports,
+            slippageBps    = 200,
+        )
+    }
     
     /**
      * Execute a Jupiter swap
@@ -462,42 +499,57 @@ object MarketsLiveExecutor {
         if (walletAddress.isNullOrEmpty()) {
             return@withContext Pair(false, null)
         }
-        
-        // V5.7.7 FIX: Get USDC balance for THIS position's size, not the entire wallet
-        // We posted SOL→USDC on open with sizeSol worth of USDC. Close only that amount.
-        val usdcBalanceUnits: Long
-        try {
-            val tokenBalances = wallet.getTokenAccountsWithDecimals()
-            val usdcData = tokenBalances[USDC_MINT]
-            if (usdcData == null || usdcData.first <= 0) {
-                ErrorLogger.warn(TAG, "No USDC balance to close position")
-                return@withContext Pair(false, null)
+
+        // V5.9.16: REAL close path —
+        //   Tokenized asset (xStocks / PAXG / EURC) → swap <mint> → SOL
+        //   Legacy USDC-parked positions        → swap USDC → SOL (backwards-compat)
+        //   Crypto perps should close via JupiterPerps, not here.
+        val targetMint = TokenizedAssetRegistry.mintFor(market.symbol)
+        val useTokenized = (market.isStock || market.isCommodity || market.isMetal || market.isForex) && targetMint != null
+
+        val (inputMint, amountUnits) = try {
+            val balances = wallet.getTokenAccountsWithDecimals()
+            if (useTokenized) {
+                val tokenData = balances[targetMint!!]
+                if (tokenData == null || tokenData.first <= 0) {
+                    ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — skipping.")
+                    return@withContext Pair(false, null)
+                }
+                val decimals = tokenData.second
+                val units = (tokenData.first * Math.pow(10.0, decimals.toDouble())).toLong()
+                Pair(targetMint, units)
+            } else {
+                // Legacy / fallback: USDC-parked position → USDC → SOL
+                val usdcData = balances[USDC_MINT]
+                if (usdcData == null || usdcData.first <= 0) {
+                    ErrorLogger.warn(TAG, "No USDC balance to close legacy position — skipping.")
+                    return@withContext Pair(false, null)
+                }
+                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+                val positionUsdcValue = sizeSol * solPrice
+                val usdcToSell = minOf(positionUsdcValue, usdcData.first)
+                Pair(USDC_MINT, (usdcToSell * 1_000_000).toLong())
             }
-            
-            // Calculate proportional USDC amount for this position
-            // sizeSol is the SOL equivalent of this position. Convert to USDC.
-            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
-            val positionUsdcValue = sizeSol * solPrice
-            val availableUsdc = usdcData.first
-            
-            // Use the smaller of: position value or total USDC (safety cap)
-            val usdcToSell = minOf(positionUsdcValue, availableUsdc)
-            usdcBalanceUnits = (usdcToSell * 1_000_000).toLong()
-            
-            ErrorLogger.info(TAG, "  USDC to close: ${usdcToSell.fmt(2)} of ${availableUsdc.fmt(2)} total (pos=${sizeSol.fmt(4)} SOL @ \$${solPrice.fmt(0)})")
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Failed to get USDC balance: ${e.message}")
+            ErrorLogger.warn(TAG, "Failed to read balances on close: ${e.message}")
             return@withContext Pair(false, null)
         }
-        
-        // For closing, we swap back: USDC -> SOL
+
+        if (amountUnits <= 0) {
+            ErrorLogger.warn(TAG, "Nothing to close for ${market.symbol}")
+            return@withContext Pair(false, null)
+        }
+
+        val label = if (useTokenized) TokenizedAssetRegistry.routeLabel(market.symbol) else "USDC-legacy"
+        ErrorLogger.info(TAG, "  🧾 CLOSE ${market.symbol} via $label | units=$amountUnits")
+
         val signature = executeJupiterSwap(
-            wallet = wallet,
+            wallet        = wallet,
             walletAddress = walletAddress,
-            inputMint = USDC_MINT,
-            outputMint = SOL_MINT,
-            amountLamports = usdcBalanceUnits,  // Use actual USDC balance
-            slippageBps = DEFAULT_SLIPPAGE_BPS,
+            inputMint     = inputMint,
+            outputMint    = SOL_MINT,
+            amountLamports = amountUnits,
+            slippageBps   = if (useTokenized) 200 else DEFAULT_SLIPPAGE_BPS,
         )
         
         return@withContext if (signature != null) {
