@@ -118,7 +118,7 @@
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchMemeTrader"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -148,7 +148,7 @@
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchMarketsTrader"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -467,7 +467,7 @@
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:letterSpacing="0.12"/>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchTopUp"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -900,7 +900,7 @@
                         android:textColor="#6B7280"
                         android:textSize="10sp"/>
                 </LinearLayout>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchNotifications"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -934,7 +934,7 @@
                         android:textColor="#6B7280"
                         android:textSize="10sp"/>
                 </LinearLayout>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchVibration"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -968,7 +968,7 @@
                         android:textColor="#6B7280"
                         android:textSize="10sp"/>
                 </LinearLayout>
-                <Switch
+                <androidx.appcompat.widget.SwitchCompat
                     android:id="@+id/switchSounds"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

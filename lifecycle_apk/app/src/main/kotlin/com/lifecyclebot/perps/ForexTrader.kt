@@ -108,7 +108,7 @@ object ForexTrader {
         
         engineJob = scope.launch {
             ErrorLogger.error(TAG, "💱💱💱 ForexTrader ENGINE STARTED 💱💱💱")
-            
+
             // Initial scan
             try {
                 runScanCycle()
@@ -133,17 +133,11 @@ object ForexTrader {
             }
         }
 
-        // Start position monitor
+        // Start position monitor — tracked so stop() can cancel it
         monitorJob = scope.launch {
             while (isRunning.get()) {
-                try {
-                    delay(3000)  // Monitor forex more frequently
-                    monitorPositions()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
-                }
+                delay(3000)  // Monitor forex more frequently
+                monitorPositions()
             }
         }
     }

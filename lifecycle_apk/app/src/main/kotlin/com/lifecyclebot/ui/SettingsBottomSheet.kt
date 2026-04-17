@@ -48,7 +48,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etLargeBuy: EditText
     private lateinit var etSlippage: EditText
     private lateinit var etPoll: EditText
-    private lateinit var switchTopUp: Switch
+    private lateinit var switchTopUp: SwitchCompat
     private lateinit var etTopUpMinGain: EditText
     private lateinit var etTopUpGainStep: EditText
     private lateinit var etTopUpMaxCount: EditText
@@ -61,16 +61,16 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etJupiterKey: EditText
     private lateinit var etTgBotToken: EditText
     private lateinit var etTgChatId: EditText
-    private lateinit var switchNotifications: Switch
-    private lateinit var switchVibration: Switch
-    private lateinit var switchSounds: Switch
+    private lateinit var switchNotifications: SwitchCompat
+    private lateinit var switchVibration: SwitchCompat
+    private lateinit var switchSounds: SwitchCompat
     private lateinit var switchDarkMode: SwitchCompat
     private lateinit var etWatchlist: EditText
     
     // V5.7.6: Trading Mode
     private lateinit var spTradingMode: Spinner
-    private lateinit var switchMemeTrader: Switch
-    private lateinit var switchMarketsTrader: Switch
+    private lateinit var switchMemeTrader: SwitchCompat
+    private lateinit var switchMarketsTrader: SwitchCompat
     
     fun setConfig(config: BotConfig) {
         currentConfig = config

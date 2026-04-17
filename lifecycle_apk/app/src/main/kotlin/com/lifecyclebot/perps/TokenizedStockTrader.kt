@@ -378,7 +378,7 @@ object TokenizedStockTrader {
             }
         }
 
-        // Start position monitor
+        // Start position monitor — tracked so stop() can cancel it
         monitorJob = scope.launch {
             while (isRunning.get()) {
                 try {
@@ -392,7 +392,7 @@ object TokenizedStockTrader {
             }
         }
     }
-
+    
     fun stop() {
         isRunning.set(false)
         engineJob?.cancel()
@@ -490,7 +490,7 @@ object TokenizedStockTrader {
                 ErrorLogger.error(TAG, "📈 ${market.symbol}: EXCEPTION: ${e.message}", e)
             }
         }
-        
+
         ErrorLogger.info(TAG, "📈 ═══════════════════════════════════════════════════")
         ErrorLogger.info(TAG, "📈 Scan stats: analyzed=$analyzedCount | hasPos=$skippedHasPosition | badPrice=$skippedBadPrice | signals=${signals.size}")
         

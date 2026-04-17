@@ -63,6 +63,8 @@ object PerpsExecutionEngine {
     // Job references
     private var scanJob: Job? = null
     private var positionMonitorJob: Job? = null
+
+    // Single persistent scope — prevents orphaned coroutines on repeated start/stop
     private var engineScope: CoroutineScope? = null
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -85,6 +87,7 @@ object PerpsExecutionEngine {
         isRunning.set(true)
         isPaused.set(false)
 
+        // Create a fresh scope for this run so previous orphaned coroutines are not reused
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         engineScope = scope
 
@@ -110,7 +113,7 @@ object PerpsExecutionEngine {
         positionMonitorJob?.cancel()
         engineScope?.cancel()
         engineScope = null
-
+        
         // Save state
         PerpsTraderAI.save(force = true)
         PerpsLearningBridge.save()
@@ -191,7 +194,7 @@ object PerpsExecutionEngine {
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Scan loop error: ${e.message}", e)
             }
-            
+
             // V5.7.4: Dynamic interval - faster in paper mode for more learning
             val interval = if (PerpsTraderAI.isPaperMode) SCAN_INTERVAL_MS_PAPER else SCAN_INTERVAL_MS_LIVE
             delay(interval)
@@ -242,7 +245,7 @@ object PerpsExecutionEngine {
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Position monitor error: ${e.message}", e)
             }
-            
+
             delay(POSITION_CHECK_INTERVAL_MS)
         }
     }

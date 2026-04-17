@@ -124,7 +124,7 @@ object CommoditiesTrader {
         
         engineJob = scope.launch {
             ErrorLogger.error(TAG, "🛢️🛢️🛢️ CommoditiesTrader ENGINE STARTED 🛢️🛢️🛢️")
-            
+
             // Initial scan
             try {
                 runScanCycle()
@@ -149,17 +149,11 @@ object CommoditiesTrader {
             }
         }
 
-        // Start position monitor
+        // Start position monitor — tracked so stop() can cancel it
         monitorJob = scope.launch {
             while (isRunning.get()) {
-                try {
-                    delay(5000)
-                    monitorPositions()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
-                }
+                delay(5000)
+                monitorPositions()
             }
         }
     }
@@ -221,7 +215,7 @@ object CommoditiesTrader {
                         spotSignals.add(spotSignal)
                     }
                 }
-                
+
                 // Generate LEVERAGE signal if no leverage position
                 if (!hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)

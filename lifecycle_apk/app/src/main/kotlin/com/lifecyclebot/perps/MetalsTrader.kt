@@ -107,7 +107,7 @@ object MetalsTrader {
         
         engineJob = scope.launch {
             ErrorLogger.error(TAG, "🥇🥇🥇 MetalsTrader ENGINE STARTED 🥇🥇🥇")
-            
+
             // Initial scan
             try {
                 runScanCycle()
@@ -132,17 +132,11 @@ object MetalsTrader {
             }
         }
 
-        // Start position monitor
+        // Start position monitor — tracked so stop() can cancel it
         monitorJob = scope.launch {
             while (isRunning.get()) {
-                try {
-                    delay(5000)
-                    monitorPositions()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ErrorLogger.error(TAG, "Monitor error: ${e.message}", e)
-                }
+                delay(5000)
+                monitorPositions()
             }
         }
     }
