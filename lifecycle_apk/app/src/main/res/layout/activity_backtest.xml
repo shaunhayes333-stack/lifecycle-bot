@@ -153,6 +153,14 @@
                 android:backgroundTint="#14F195"
                 android:fontFamily="monospace"
                 android:layout_marginEnd="8dp"/>
+            <Button android:id="@+id/btnBtAB"
+                android:layout_width="0dp" android:layout_height="@dimen/input_height"
+                android:layout_weight="1"
+                android:text="⚖  A/B Symbolic"
+                android:textColor="#9945FF" android:textStyle="bold"
+                android:backgroundTint="#14001A"
+                android:fontFamily="monospace"
+                android:layout_marginEnd="8dp"/>
             <TextView android:id="@+id/btnBtClear"
                 android:layout_width="wrap_content" android:layout_height="@dimen/input_height"
                 android:text="Clear"

@@ -30,6 +30,7 @@ class BacktestActivity : AppCompatActivity() {
     private lateinit var etCandles: EditText
     private lateinit var etPositionSol: EditText
     private lateinit var btnRun: Button
+    private lateinit var btnAB: Button
     private lateinit var btnClear: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var cardBtSummary: android.view.View
@@ -51,6 +52,7 @@ class BacktestActivity : AppCompatActivity() {
         etCandles      = findViewById(R.id.etBtCandles)
         etPositionSol  = findViewById(R.id.etBtPositionSol)
         btnRun         = findViewById(R.id.btnBtRun)
+        btnAB          = findViewById(R.id.btnBtAB)
         btnClear       = findViewById(R.id.btnBtClear)
         progressBar    = findViewById(R.id.btProgress)
         cardBtSummary  = findViewById(R.id.cardBtSummary)
@@ -63,10 +65,126 @@ class BacktestActivity : AppCompatActivity() {
             .also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
 
         btnRun.setOnClickListener { runBacktest() }
+        btnAB.setOnClickListener { runBacktestAB() }
         btnClear.setOnClickListener {
             tvLog.text = ""; tvSummary.text = ""
             tvSummary.visibility = View.GONE
         }
+    }
+
+    /**
+     * V5.9.14: Run backtest twice — once with Symbolic layer ON, once with it forced to NEUTRAL.
+     * Displays a side-by-side comparison so the symbolic lift is measurable.
+     */
+    private fun runBacktestAB() {
+        val mint = etMint.text.toString().trim()
+        if (mint.length < 32) {
+            tvLog.text = "Enter a valid Solana mint address (44 chars)"; return
+        }
+        val tf     = spinnerTf.selectedItem.toString()
+        val count  = etCandles.text.toString().toIntOrNull()?.coerceIn(50, 500) ?: 200
+        val posSol = etPositionSol.text.toString().toDoubleOrNull() ?: 0.10
+
+        job?.cancel()
+        progressBar.visibility = View.VISIBLE
+        btnRun.isEnabled = false
+        btnAB.isEnabled  = false
+        tvLog.text = "A/B run: fetching $count × $tf candles…"
+        cardBtSummary.visibility = View.GONE
+
+        job = lifecycleScope.launch(Dispatchers.IO) {
+            val priorBypass = com.lifecyclebot.engine.SymbolicContext.bypassMode
+            try {
+                val candles = birdeye.getCandles(mint, tf, count)
+                if (candles.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        tvLog.text = "No candles found. Check mint address."
+                        progressBar.visibility = View.GONE
+                        btnRun.isEnabled = true; btnAB.isEnabled = true
+                    }
+                    return@launch
+                }
+
+                val overview = birdeye.getTokenOverview(mint)
+                val symbol   = overview?.symbol ?: mint.take(8) + "…"
+
+                // Run 1 — Symbolic OFF (baseline)
+                com.lifecyclebot.engine.SymbolicContext.bypassMode = true
+                com.lifecyclebot.engine.SymbolicContext.refresh()
+                val baseline = replayStrategy(candles, posSol, symbol, tf)
+
+                // Run 2 — Symbolic ON
+                com.lifecyclebot.engine.SymbolicContext.bypassMode = false
+                com.lifecyclebot.engine.SymbolicContext.refresh()
+                val symbolic = replayStrategy(candles, posSol, symbol, tf)
+
+                withContext(Dispatchers.Main) {
+                    displayABResults(baseline, symbolic, symbol, candles.size, tf, posSol)
+                    progressBar.visibility = View.GONE
+                    btnRun.isEnabled = true; btnAB.isEnabled = true
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    tvLog.text = "A/B error: ${e.message}"
+                    progressBar.visibility = View.GONE
+                    btnRun.isEnabled = true; btnAB.isEnabled = true
+                }
+            } finally {
+                com.lifecyclebot.engine.SymbolicContext.bypassMode = priorBypass
+            }
+        }
+    }
+
+    private fun displayABResults(
+        baseline: BacktestResult,
+        symbolic: BacktestResult,
+        symbol: String,
+        candleCount: Int,
+        tf: String,
+        posSol: Double,
+    ) {
+        val solPrice = 130.0
+        cardBtSummary.visibility = View.VISIBLE
+
+        val netDelta = symbolic.netSol - baseline.netSol
+        val wrDelta  = symbolic.winRate - baseline.winRate
+        val lift = if (baseline.netSol != 0.0)
+            (symbolic.netSol - baseline.netSol) / kotlin.math.abs(baseline.netSol) * 100.0
+        else 0.0
+
+        tvSummary.text = buildString {
+            appendLine("━━━ A/B  $symbol  $candleCount×$tf  ${posSol}◎/trade ━━━")
+            appendLine("")
+            appendLine("BASELINE (symbolic OFF)")
+            appendLine("  trades=${baseline.totalTrades}  WR=${baseline.winRate}%")
+            appendLine("  NET=${"%.4f".format(baseline.netSol)}◎  (${"%.2f".format(baseline.netSol * solPrice)} USD)")
+            appendLine("")
+            appendLine("SYMBOLIC (all 12 modules ON)")
+            appendLine("  trades=${symbolic.totalTrades}  WR=${symbolic.winRate}%")
+            appendLine("  NET=${"%.4f".format(symbolic.netSol)}◎  (${"%.2f".format(symbolic.netSol * solPrice)} USD)")
+            appendLine("")
+            appendLine("━━━ LIFT ━━━")
+            appendLine("  NET Δ  : ${if (netDelta >= 0) "+" else ""}${"%.4f".format(netDelta)}◎")
+            appendLine("  WR Δ   : ${if (wrDelta >= 0) "+" else ""}${wrDelta}%")
+            appendLine("  Lift % : ${if (lift >= 0) "+" else ""}${"%.1f".format(lift)}%")
+        }
+
+        val log = buildString {
+            appendLine("═══ SYMBOLIC RUN TRADES ═══")
+            symbolic.trades.forEach { t ->
+                val pnlStr = if (t.pnlPct != 0.0) "  P&L: ${"%.1f".format(t.pnlPct)}%" else ""
+                val icon = when (t.type) {
+                    "BUY"               -> "📈"
+                    "SELL", "SELL(end)" -> if (t.pnlPct > 0) "✅" else "❌"
+                    else                -> "·"
+                }
+                appendLine("$icon [${t.candleIdx}] ${t.type.padEnd(8)} ${t.phase.padEnd(16)} " +
+                    "E:${t.entryScore.toString().padStart(3)} X:${t.exitScore.toString().padStart(3)}$pnlStr  ${t.signals}")
+            }
+            if (symbolic.trades.isEmpty()) appendLine("No symbolic trades fired.")
+        }
+        tvLog.text = log
+        scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
     }
 
     private fun runBacktest() {

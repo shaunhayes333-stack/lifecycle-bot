@@ -302,6 +302,52 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- V5.9.14: SYMBOLIC TELEMETRY ROW — live mood + edge + risk -->
+            <LinearLayout
+                android:id="@+id/rowSymTelemetry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="6dp"
+                android:paddingBottom="10dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvSymHomeMood"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🧠"
+                    android:textSize="18sp"/>
+
+                <TextView
+                    android:id="@+id/tvSymHomeMoodLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="NEUTRAL"
+                    android:textColor="#9945FF"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:layout_marginStart="8dp"/>
+
+                <TextView
+                    android:id="@+id/tvSymHomeStats"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="edge —  risk —  health —"
+                    android:textColor="#6B7280"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginStart="10dp"
+                    android:gravity="end"
+                    android:singleLine="true"/>
+            </LinearLayout>
+
             <!-- ═══════════════════════════════
                  QUICK STATS BAR
                  ═══════════════════════════════ -->

@@ -787,6 +787,12 @@ for legal compliance.
             findViewById<android.view.View>(R.id.btnQuickBehavior)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
         } catch (_: Exception) {}
+
+        // V5.9.14: Symbolic Telemetry row → opens Tuning (Sentient Mind panel)
+        try {
+            findViewById<android.view.View>(R.id.rowSymTelemetry)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+        } catch (_: Exception) {}
         
         // Collective Brain button
         try {
@@ -1384,6 +1390,34 @@ for legal compliance.
             tvPnlChange.text    = ""
             tvPnlChangePct.text = ""
         }
+
+        // V5.9.14: Symbolic Telemetry row — live mood/edge/risk/health
+        try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            val moodEmoji = when (sc.emotionalState) {
+                "PANIC"    -> "😱"
+                "FEARFUL"  -> "😟"
+                "EUPHORIC" -> "🤩"
+                "GREEDY"   -> "😈"
+                else       -> "🧠"
+            }
+            val moodColor = when (sc.emotionalState) {
+                "PANIC"    -> 0xFFFF4444.toInt()
+                "FEARFUL"  -> 0xFFFFAA00.toInt()
+                "EUPHORIC" -> 0xFF00FF88.toInt()
+                "GREEDY"   -> 0xFFFFD700.toInt()
+                else       -> 0xFF9945FF.toInt()
+            }
+            findViewById<TextView>(R.id.tvSymHomeMood)?.text       = moodEmoji
+            findViewById<TextView>(R.id.tvSymHomeMoodLabel)?.apply {
+                text = sc.emotionalState
+                setTextColor(moodColor)
+            }
+            findViewById<TextView>(R.id.tvSymHomeStats)?.text =
+                "edge ${(sc.edgeStrength * 100).toInt()}%  " +
+                "risk ${(sc.overallRisk * 100).toInt()}%  " +
+                "health ${(sc.marketHealth * 100).toInt()}%"
+        } catch (_: Exception) {}
 
         // ── Treasury + ScalingMode tier ──────────────────────────────
         // V4.0: Show PAPER TREASURY balance from CashGenerationAI when in paper mode

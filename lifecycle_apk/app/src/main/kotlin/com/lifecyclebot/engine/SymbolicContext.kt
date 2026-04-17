@@ -1,5 +1,8 @@
 package com.lifecyclebot.engine
 
+import android.content.Context
+import android.content.SharedPreferences
+
 /**
  * SymbolicContext — Global symbolic intelligence state
  * ═══════════════════════════════════════════════════════════════════════
@@ -13,10 +16,21 @@ package com.lifecyclebot.engine
  * Used by: FinalDecisionGate, EntryIntelligence, HoldingLogicLayer,
  *          ExitIntelligence, AdvancedExitManager, BotBrain, EducationAI,
  *          LifecycleStrategy, SentientPersonality, and any future module.
+ *
+ * V5.9.14:
+ *   - Persistence via SharedPreferences (mood/edge survive app restarts)
+ *   - bypassMode for A/B testing — when true, refresh() writes neutrals
  */
 object SymbolicContext {
 
     private const val TAG = "SymCtx"
+    private const val PREFS_NAME = "symbolic_context"
+    private const val K_RISK       = "overallRisk"
+    private const val K_CONF       = "overallConfidence"
+    private const val K_HEALTH     = "marketHealth"
+    private const val K_EDGE       = "edgeStrength"
+    private const val K_MOOD       = "emotionalState"
+    private const val K_REFRESHED  = "lastRefresh"
 
     // Live signal snapshot — refreshed every scan cycle
     @Volatile private var signals = mapOf<String, Double>()
@@ -29,10 +43,70 @@ object SymbolicContext {
     @Volatile var edgeStrength: Double = 0.5        // 0=no edge, 1=strong edge
     @Volatile var emotionalState: String = "NEUTRAL" // GREEDY/FEARFUL/NEUTRAL/EUPHORIC/PANIC
 
+    // V5.9.14: A/B toggle — when true, refresh() freezes to neutral state
+    // and persistence is skipped. Used by BacktestActivity.
+    @Volatile var bypassMode: Boolean = false
+
+    // V5.9.14: Lazy application context for save/load
+    @Volatile private var appContext: Context? = null
+
+    /** Call once from AATEApp.onCreate to wire persistence. */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        load(context)
+    }
+
+    private fun prefs(ctx: Context?): SharedPreferences? =
+        try { ctx?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) } catch (_: Exception) { null }
+
+    /** Load last persisted symbolic state (called from init). */
+    fun load(context: Context) {
+        try {
+            val p = prefs(context) ?: return
+            overallRisk       = p.getFloat(K_RISK,      0.3f).toDouble()
+            overallConfidence = p.getFloat(K_CONF,      0.5f).toDouble()
+            marketHealth      = p.getFloat(K_HEALTH,    0.5f).toDouble()
+            edgeStrength      = p.getFloat(K_EDGE,      0.5f).toDouble()
+            emotionalState    = p.getString(K_MOOD,     "NEUTRAL") ?: "NEUTRAL"
+            lastRefresh       = p.getLong(K_REFRESHED,  0L)
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "load error: ${e.message}")
+        }
+    }
+
+    /** Persist symbolic state to disk. */
+    fun save() {
+        if (bypassMode) return
+        try {
+            val p = prefs(appContext) ?: return
+            p.edit()
+                .putFloat(K_RISK,      overallRisk.toFloat())
+                .putFloat(K_CONF,      overallConfidence.toFloat())
+                .putFloat(K_HEALTH,    marketHealth.toFloat())
+                .putFloat(K_EDGE,      edgeStrength.toFloat())
+                .putString(K_MOOD,     emotionalState)
+                .putLong(K_REFRESHED,  lastRefresh)
+                .apply()
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "save error: ${e.message}")
+        }
+    }
+
     /**
      * Refresh all signals — called from BotService every scan cycle.
      */
     fun refresh(symbol: String = "", mint: String = "") {
+        // V5.9.14: Bypass = freeze to neutral baseline (for A/B testing)
+        if (bypassMode) {
+            signals = emptyMap()
+            overallRisk       = 0.3
+            overallConfidence = 0.5
+            marketHealth      = 0.5
+            edgeStrength      = 0.5
+            emotionalState    = "NEUTRAL"
+            lastRefresh       = System.currentTimeMillis()
+            return
+        }
         try {
             signals = SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
             lastRefresh = System.currentTimeMillis()
@@ -68,6 +142,9 @@ object SymbolicContext {
                 overallConfidence < 0.3 && overallRisk > 0.5       -> "FEARFUL"
                 else                                                -> "NEUTRAL"
             }
+
+            // V5.9.14: Persist latest state (best-effort)
+            save()
 
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Refresh error: ${e.message}")

@@ -32,6 +32,14 @@ class AATEApp : Application() {
         } catch (e: Exception) {
             android.util.Log.e("AATEApp", "Failed to init ErrorLogger: ${e.message}", e)
         }
+
+        // V5.9.14: Initialize SymbolicContext — loads persisted mood/edge state
+        try {
+            com.lifecyclebot.engine.SymbolicContext.init(this)
+            ErrorLogger.info("App", "SymbolicContext restored: ${com.lifecyclebot.engine.SymbolicContext.getDiagnostics()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "SymbolicContext init failed: ${e.message}", e)
+        }
         
         // Set up global uncaught exception handler
         setupCrashHandler()
