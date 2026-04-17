@@ -3605,13 +3605,12 @@ class Executor(
                                 ts.position = ts.position.copy(qtyToken = retryData.first)
                             }
                         } else if (ts.position.isOpen) {
-                            // PHANTOM DETECTED — force close it
+                            // PHANTOM DETECTED — force close via proper API
                             ErrorLogger.warn("Executor", "🚨 PHANTOM DETECTED: ${verifySymbol} — 0 tokens after 8s. Force closing.")
                             onLog("🚨 PHANTOM: ${verifySymbol} — tx landed but no tokens. Auto-closing.", verifyMint)
                             ts.position = ts.position.copy(qtyToken = 0.0)
-                            ts.position = Position.EMPTY
-                            try { PositionPersistence.removePosition(verifyMint) } catch (_: Exception) {}
-                            try { EmergentGuardrails.releasePosition(verifyMint) } catch (_: Exception) {}
+                            val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
+                            phantomId.closed(getActualPrice(ts), -100.0, -(ts.position.costSol), "PHANTOM_BUY_NO_TOKENS")
                             onNotify("🚨 Phantom Cleared", "${verifySymbol}: Buy tx returned sig but no tokens arrived. Position removed.",
                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                         }
@@ -4416,6 +4415,30 @@ class Executor(
         TradeLifecycle.closed(tradeId.mint, price, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classification, if (isScratchTrade) null else shouldLearnAsWin)
         TradeLifecycle.clearProposalTracking(tradeId.mint)
+
+        // V5.9.9: Feed meme paper trade into V4 TradeLessonRecorder → StrategyTrustAI
+        try {
+            val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
+            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+                strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
+                entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                trustScore = 0.5, fragilityScore = 0.3,
+                narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
+                leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
+                leadSource = null, expectedDelaySec = null,
+                expectedFillPrice = ts.position.entryPrice, slippagePct = 0.0,
+                executionRoute = "JUPITER_V6"
+            )
+            com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
+                context = lessonCtx, outcomePct = pnlP,
+                mfePct = if (ts.position.highestPrice > 0 && ts.position.entryPrice > 0)
+                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else pnlP.coerceAtLeast(0.0),
+                maePct = pnlP.coerceAtMost(0.0),
+                holdSec = ((System.currentTimeMillis() - ts.position.entryTime) / 1000).toInt(),
+                exitReason = reason, actualFillPrice = price
+            )
+        } catch (_: Exception) {}
         
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
@@ -5305,6 +5328,30 @@ class Executor(
         TradeLifecycle.closed(tradeId.mint, exitPrice, pnlP, reason)
         TradeLifecycle.classified(tradeId.mint, classificationLive, if (isScratchTradeLive) null else shouldLearnAsWin)
         TradeLifecycle.clearProposalTracking(tradeId.mint)
+
+        // V5.9.9: Feed meme trade into V4 TradeLessonRecorder → StrategyTrustAI
+        try {
+            val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
+            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+                strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
+                entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                trustScore = 0.5, fragilityScore = 0.3,
+                narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
+                leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
+                leadSource = null, expectedDelaySec = null,
+                expectedFillPrice = ts.position.entryPrice, slippagePct = 0.0,
+                executionRoute = "JUPITER_V6"
+            )
+            com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
+                context = lessonCtx, outcomePct = pnlP,
+                mfePct = if (ts.position.highestPrice > 0 && ts.position.entryPrice > 0)
+                    ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice * 100) else pnlP.coerceAtLeast(0.0),
+                maePct = pnlP.coerceAtMost(0.0),
+                holdSec = ((System.currentTimeMillis() - ts.position.entryTime) / 1000).toInt(),
+                exitReason = reason, actualFillPrice = exitPrice
+            )
+        } catch (_: Exception) {}
         
         if (reason.lowercase().contains("distribution")) {
             FinalDecisionGate.recordDistributionExit(tradeId.mint)
