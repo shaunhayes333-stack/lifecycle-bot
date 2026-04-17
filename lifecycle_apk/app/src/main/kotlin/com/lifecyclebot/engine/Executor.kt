@@ -3342,16 +3342,26 @@ class Executor(
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "need=${sol}SOL have=${walletSol}SOL")
             return
         }
-        
+
+        // Solana requires ~0.002 SOL rent-exempt balance for new token accounts plus tx fees.
+        // Cap the buy so we always keep this reserve, preventing InsufficientFundsForRent.
+        val RENT_RESERVE_SOL = 0.003
+        val effectiveSol = minOf(sol, walletSol - RENT_RESERVE_SOL)
+        if (effectiveSol < 0.001) {
+            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for rent reserve (${walletSol.fmt(4)}◎)", ts.mint)
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve")
+            return
+        }
+
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        
+
         val currentLayer = "LIVE"
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "layer_conflict")
             return
         }
-        
+
         val c = cfg()
 
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
@@ -3360,7 +3370,7 @@ class Executor(
             return
         }
 
-        val lamports = (sol * 1_000_000_000L).toLong()
+        val lamports = (effectiveSol * 1_000_000_000L).toLong()
         try {
             val quote = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
                                                    lamports, c.slippageBps, sol)

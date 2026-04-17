@@ -346,74 +346,80 @@ object MarketsLiveExecutor {
         amountLamports: Long,
         slippageBps: Int,
     ): String? {
-        try {
-            val api = jupiterApi ?: JupiterApi("")
-            
-            // Step 1: Get quote
-            ErrorLogger.debug(TAG, "  Getting Jupiter quote...")
-            val quote: SwapQuote
+        val api = jupiterApi ?: JupiterApi("")
+        // Retry once on 422 (stale blockhash) by fetching a completely fresh quote+tx
+        for (attempt in 0..1) {
             try {
-                quote = api.getQuote(
-                    inputMint = inputMint,
-                    outputMint = outputMint,
-                    amountRaw = amountLamports,
-                    slippageBps = slippageBps,
-                )
+                // Step 1: Get quote
+                ErrorLogger.debug(TAG, "  Getting Jupiter quote (attempt ${attempt + 1})...")
+                val quote = try {
+                    api.getQuote(
+                        inputMint = inputMint,
+                        outputMint = outputMint,
+                        amountRaw = amountLamports,
+                        slippageBps = slippageBps,
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "  Quote failed: ${e.message}")
+                    return null
+                }
+
+                if (quote.outAmount <= 0) {
+                    ErrorLogger.warn(TAG, "  Quote returned 0 output")
+                    return null
+                }
+
+                ErrorLogger.debug(TAG, "  Quote OK: outAmount=${quote.outAmount} impact=${quote.priceImpactPct}%")
+
+                if (quote.priceImpactPct > 3.0) {
+                    ErrorLogger.warn(TAG, "  Price impact too high: ${quote.priceImpactPct}% > 3%")
+                    return null
+                }
+
+                // Step 2: Build transaction
+                ErrorLogger.debug(TAG, "  Building transaction...")
+                val txResult = try {
+                    api.buildSwapTx(quote, walletAddress)
+                } catch (e: Exception) {
+                    ErrorLogger.warn(TAG, "  Build tx failed: ${e.message}")
+                    return null
+                }
+
+                if (txResult.txBase64.isEmpty()) {
+                    ErrorLogger.warn(TAG, "  Empty transaction returned")
+                    return null
+                }
+
+                // Step 3: Sign and send
+                ErrorLogger.debug(TAG, "  Signing and sending transaction...")
+                val signature = try {
+                    wallet.signSendAndConfirm(
+                        txBase64 = txResult.txBase64,
+                        useJito = false,
+                        jitoTipLamports = 0,
+                        ultraRequestId = if (quote.isUltra) txResult.requestId else null,
+                        jupiterApiKey = "",
+                        isRfqRoute = txResult.isRfqRoute,
+                    )
+                } catch (e: Exception) {
+                    // 422 means the transaction was stale — retry with a fresh quote
+                    if (attempt == 0 && e.message?.contains("422") == true) {
+                        ErrorLogger.warn(TAG, "  422 invalid signature — retrying with fresh quote")
+                        continue
+                    }
+                    ErrorLogger.error(TAG, "  Sign/send failed: ${e.message}", e)
+                    return null
+                }
+
+                ErrorLogger.info(TAG, "  Transaction confirmed: ${signature.take(24)}...")
+                return signature
+
             } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "  Quote failed: ${e.message}")
+                ErrorLogger.error(TAG, "Jupiter swap error: ${e.message}", e)
                 return null
             }
-            
-            if (quote.outAmount <= 0) {
-                ErrorLogger.warn(TAG, "  Quote returned 0 output")
-                return null
-            }
-            
-            ErrorLogger.debug(TAG, "  Quote OK: outAmount=${quote.outAmount} impact=${quote.priceImpactPct}%")
-            
-            // Check price impact
-            if (quote.priceImpactPct > 3.0) {
-                ErrorLogger.warn(TAG, "  Price impact too high: ${quote.priceImpactPct}% > 3%")
-                return null
-            }
-            
-            // Step 2: Build transaction
-            ErrorLogger.debug(TAG, "  Building transaction...")
-            val txResult = try {
-                api.buildSwapTx(quote, walletAddress)
-            } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "  Build tx failed: ${e.message}")
-                return null
-            }
-            
-            if (txResult.txBase64.isEmpty()) {
-                ErrorLogger.warn(TAG, "  Empty transaction returned")
-                return null
-            }
-            
-            // Step 3: Sign and send
-            ErrorLogger.debug(TAG, "  Signing and sending transaction...")
-            val signature = try {
-                wallet.signSendAndConfirm(
-                    txBase64 = txResult.txBase64,
-                    useJito = false,
-                    jitoTipLamports = 0,
-                    ultraRequestId = if (quote.isUltra) txResult.requestId else null,
-                    jupiterApiKey = "",
-                    isRfqRoute = txResult.isRfqRoute,
-                )
-            } catch (e: Exception) {
-                ErrorLogger.error(TAG, "  Sign/send failed: ${e.message}", e)
-                return null
-            }
-            
-            ErrorLogger.info(TAG, "  Transaction confirmed: ${signature.take(24)}...")
-            return signature
-            
-        } catch (e: Exception) {
-            ErrorLogger.error(TAG, "Jupiter swap error: ${e.message}", e)
-            return null
         }
+        return null
     }
     
     /**

@@ -552,31 +552,33 @@ class JupiterApi(private val apiKey: String = "") {
 
         val req = reqBuilder.build()
 
-        try {
-            http.newCall(req).execute().use { resp ->
-                val code = resp.code
-                val body = resp.body?.string()
-
-                if (!resp.isSuccessful) {
-                    if (code == 401) {
-                        throw RuntimeException("Jupiter API 401: API key required")
+        var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
+        for (attempt in 0..2) {
+            if (attempt > 0) Thread.sleep(1500L * attempt)
+            try {
+                http.newCall(req).execute().use { resp ->
+                    val code = resp.code
+                    val body = resp.body?.string()
+                    if (code == 429) {
+                        lastErr = RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
+                        return@use
                     }
-                    throw RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
+                    if (!resp.isSuccessful) {
+                        if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
+                        throw RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
+                    }
+                    if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter GET response")
+                    return body
                 }
-
-                if (body.isNullOrBlank()) {
-                    throw RuntimeException("Empty Jupiter GET response")
-                }
-
-                return body
+            } catch (e: UnknownHostException) {
+                lastErr = RuntimeException("Cannot resolve Jupiter host")
+            } catch (e: SocketTimeoutException) {
+                throw RuntimeException("Jupiter GET timeout")
+            } catch (e: java.io.IOException) {
+                throw RuntimeException("Jupiter GET network error: ${e.message}")
             }
-        } catch (e: UnknownHostException) {
-            throw RuntimeException("Cannot resolve Jupiter host")
-        } catch (e: SocketTimeoutException) {
-            throw RuntimeException("Jupiter GET timeout")
-        } catch (e: java.io.IOException) {
-            throw RuntimeException("Jupiter GET network error: ${e.message}")
         }
+        throw lastErr
     }
 
     private fun postOrThrow(url: String, json: String): String {
@@ -592,31 +594,33 @@ class JupiterApi(private val apiKey: String = "") {
 
         val req = reqBuilder.build()
 
-        try {
-            http.newCall(req).execute().use { resp ->
-                val code = resp.code
-                val body = resp.body?.string()
-
-                if (!resp.isSuccessful) {
-                    if (code == 401) {
-                        throw RuntimeException("Jupiter API 401: API key required")
+        var lastErr: RuntimeException = RuntimeException("Jupiter POST failed")
+        for (attempt in 0..2) {
+            if (attempt > 0) Thread.sleep(1500L * attempt)
+            try {
+                http.newCall(req).execute().use { resp ->
+                    val code = resp.code
+                    val body = resp.body?.string()
+                    if (code == 429) {
+                        lastErr = RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                        return@use
                     }
-                    throw RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                    if (!resp.isSuccessful) {
+                        if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
+                        throw RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                    }
+                    if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter POST response")
+                    return body
                 }
-
-                if (body.isNullOrBlank()) {
-                    throw RuntimeException("Empty Jupiter POST response")
-                }
-
-                return body
+            } catch (e: UnknownHostException) {
+                lastErr = RuntimeException("Cannot resolve Jupiter host")
+            } catch (e: SocketTimeoutException) {
+                throw RuntimeException("Jupiter POST timeout")
+            } catch (e: java.io.IOException) {
+                throw RuntimeException("Jupiter POST network error: ${e.message}")
             }
-        } catch (e: UnknownHostException) {
-            throw RuntimeException("Cannot resolve Jupiter host")
-        } catch (e: SocketTimeoutException) {
-            throw RuntimeException("Jupiter POST timeout")
-        } catch (e: java.io.IOException) {
-            throw RuntimeException("Jupiter POST network error: ${e.message}")
         }
+        throw lastErr
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
