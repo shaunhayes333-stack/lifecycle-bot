@@ -116,6 +116,16 @@ class BotService : Service() {
             
             createChannels()
 
+            // CRITICAL: Claim foreground slot immediately in onCreate() — before any heavy init.
+            // If onCreate() takes >5 s the OS fires ForegroundServiceDidNotStartInTimeException
+            // before onStartCommand() is ever reached. Calling startForeground() here prevents that.
+            try {
+                startForeground(NOTIF_ID, buildRunningNotif())
+                ErrorLogger.info("BotService", "Foreground claimed early in onCreate()")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Early startForeground failed: ${e.message}", e)
+            }
+
             strategy        = LifecycleStrategy(
                 cfg   = { ConfigStore.load(applicationContext) },
                 brain = { botBrain },

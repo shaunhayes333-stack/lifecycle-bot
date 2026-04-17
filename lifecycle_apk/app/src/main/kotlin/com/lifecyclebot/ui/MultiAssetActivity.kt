@@ -77,7 +77,9 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var tvNoPositions: TextView
     private lateinit var signalsContainer: LinearLayout
     private lateinit var tvNoSignals: TextView
-    private lateinit var assetsContainer: LinearLayout
+    private lateinit var assetsContainer: LinearLayout   // "Available" column (3-panel)
+    private lateinit var llTradingList: LinearLayout      // "Trading" column (3-panel)
+    private lateinit var llWatchlistList: LinearLayout    // "Watchlist" column (3-panel)
     private lateinit var tvNoAssets: TextView
     private lateinit var btnSpotMode: TextView
     private lateinit var btnLeverageMode: TextView
@@ -130,6 +132,8 @@ class MultiAssetActivity : AppCompatActivity() {
     private lateinit var btnMarketsToggle: android.widget.Button
     private lateinit var btnModeToggle: android.widget.Button  // LIVE/PAPER toggle
     private lateinit var balanceContainer: View
+    private lateinit var tvBalanceModeLabel: TextView
+    private lateinit var tvMarketsSolPrice: TextView
     private var marketsRunning = false
     private var isLiveMode = false  // V5.7.6b: Track LIVE vs PAPER mode
     
@@ -225,10 +229,12 @@ class MultiAssetActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
         tvTotalBalance = findViewById(R.id.tvTotalBalance)
         
-        // V5.7.6b: Stop/Start Button
+        // V5.7.6b: Stop/Start Button + balance hero strip
         btnMarketsToggle = findViewById(R.id.btnMarketsToggle)
         btnModeToggle = findViewById(R.id.btnModeToggle)
         balanceContainer = findViewById(R.id.balanceContainer)
+        tvBalanceModeLabel = findViewById(R.id.tvBalanceModeLabel)
+        tvMarketsSolPrice = findViewById(R.id.tvMarketsSolPrice)
         
         // Quick Stats Bar
         tvStats24hTrades = findViewById(R.id.tvStats24hTrades)
@@ -306,6 +312,9 @@ class MultiAssetActivity : AppCompatActivity() {
         // Signals
         signalsContainer = findViewById(R.id.signalsContainer)
         tvNoSignals = findViewById(R.id.tvNoSignals)
+        // Three-panel asset view
+        llTradingList = findViewById(R.id.llTradingList)
+        llWatchlistList = findViewById(R.id.llWatchlistList)
         assetsContainer = findViewById(R.id.assetsContainer)
         tvNoAssets = findViewById(R.id.tvNoAssets)
         
@@ -1093,19 +1102,22 @@ class MultiAssetActivity : AppCompatActivity() {
                 } catch (_: Exception) { SOL_PRICE_USD }
 
                 withContext(Dispatchers.Main) {
+                    // Update SOL price display
+                    tvMarketsSolPrice.text = "\$${"%,.2f".format(solPriceUsd)}"
+
                     // Use the Activity's isLiveMode flag — it is kept in sync via
                     // toggleLiveMode() and is synced from trader state in onCreate().
-                    // Do NOT call TokenizedStockTrader.isLiveMode() here; that can disagree
-                    // with the Activity state mid-transition and show the wrong balance.
                     if (isLiveMode && liveWalletSol > 0) {
                         val usdValue = liveWalletSol * solPriceUsd
-                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} LIVE"
+                        tvBalanceModeLabel.text = "LIVE BALANCE"
+                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)}"
                         tvTotalBalance.setTextColor(0xFF00FF88.toInt())
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
                     } else {
                         val usdValue = paperBalanceSol * solPriceUsd
-                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)} PAPER"
+                        tvBalanceModeLabel.text = "PAPER BALANCE"
+                        tvTotalBalance.text = "\$${"%,.0f".format(usdValue)}"
                         tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                         balanceContainer.contentDescription =
                             "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL)"
@@ -1114,7 +1126,8 @@ class MultiAssetActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "updateTotalBalance failed: ${e.message}")
                 withContext(Dispatchers.Main) {
-                    tvTotalBalance.text = "-- PAPER"
+                    tvBalanceModeLabel.text = "PAPER BALANCE"
+                    tvTotalBalance.text = "—"
                     tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
                 }
             }
@@ -1706,7 +1719,10 @@ class MultiAssetActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun updateAvailableAssets() {
+        llTradingList.removeAllViews()
+        llWatchlistList.removeAllViews()
         assetsContainer.removeAllViews()
+
         val markets = when (currentTab) {
             AssetTab.STOCKS -> PerpsMarket.values().filter { it.isStock }
             AssetTab.COMMODITIES -> PerpsMarket.values().filter { it.isCommodity }
@@ -1714,25 +1730,60 @@ class MultiAssetActivity : AppCompatActivity() {
             AssetTab.FOREX -> PerpsMarket.values().filter { it.isForex }
             AssetTab.PERPS -> PerpsMarket.values().filter { it.isCrypto }
         }
-        if (markets.isEmpty()) {
-            assetsContainer.addView(tvNoAssets)
-            return
-        }
+
+        // Determine which markets are actively open in the current tab
+        val openSymbols = try {
+            getCurrentPositions().map { it.symbol }.toSet()
+        } catch (_: Exception) { emptySet() }
+
+        // Get user watchlist from config
+        val watchlistSymbols = try {
+            com.lifecyclebot.data.ConfigStore.load(this).watchlist.map { it.uppercase() }.toSet()
+        } catch (_: Exception) { emptySet() }
+
+        var tradingCount = 0
+        var watchCount = 0
+        var availCount = 0
+
         markets.forEach { market ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(0, 7, 0, 7)
-            }
             val cachedData = try { PerpsMarketDataFetcher.getCachedPrice(market) } catch (_: Exception) { null }
             val price = cachedData?.price ?: 0.0
             val change = cachedData?.priceChange24hPct ?: 0.0
-            row.addView(TextView(this).apply {
-                text = "${getAssetLogo(market.symbol)} ${market.symbol}"
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 13f
+
+            when {
+                market.symbol in openSymbols -> {
+                    llTradingList.addView(buildPanelRow(market.symbol, price, change, 0xFF00FF88.toInt()))
+                    tradingCount++
+                }
+                market.symbol in watchlistSymbols -> {
+                    llWatchlistList.addView(buildPanelRow(market.symbol, price, change, 0xFFFFFFFF.toInt()))
+                    watchCount++
+                }
+                else -> {
+                    if (availCount < 20) {  // cap available to avoid overflow
+                        assetsContainer.addView(buildPanelRow(market.symbol, price, change, 0xFF6B7280.toInt()))
+                        availCount++
+                    }
+                }
+            }
+        }
+
+        // Empty state placeholders
+        if (tradingCount == 0) llTradingList.addView(makePanelEmpty("None"))
+        if (watchCount == 0) llWatchlistList.addView(makePanelEmpty("Add in\nSettings"))
+        if (availCount == 0) assetsContainer.addView(makePanelEmpty("Loading..."))
+    }
+
+    private fun buildPanelRow(symbol: String, price: Double, change: Double, symbolColor: Int): android.view.View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 4, 0, 4)
+            addView(TextView(this@MultiAssetActivity).apply {
+                text = "${getAssetLogo(symbol)} $symbol"
+                setTextColor(symbolColor)
+                textSize = 11f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                maxLines = 1
             })
             val priceText = when {
                 price <= 0 -> "—"
@@ -1740,22 +1791,27 @@ class MultiAssetActivity : AppCompatActivity() {
                 price >= 1 -> "\$${"%.2f".format(price)}"
                 else -> "\$${"%.4f".format(price)}"
             }
-            row.addView(TextView(this).apply {
+            addView(TextView(this@MultiAssetActivity).apply {
                 text = priceText
                 setTextColor(0xFFE5E7EB.toInt())
-                textSize = 12f
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = 12 }
+                textSize = 10f
             })
-            row.addView(TextView(this).apply {
-                text = if (price <= 0) "" else "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%"
-                setTextColor(if (change >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
-                textSize = 11f
-            })
-            assetsContainer.addView(row)
+            if (price > 0) {
+                addView(TextView(this@MultiAssetActivity).apply {
+                    text = "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%"
+                    setTextColor(if (change >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                    textSize = 9f
+                })
+            }
         }
+    }
+
+    private fun makePanelEmpty(msg: String): TextView = TextView(this).apply {
+        text = msg
+        setTextColor(0xFF4B5563.toInt())
+        textSize = 9f
+        gravity = android.view.Gravity.CENTER
+        setPadding(0, 8, 0, 8)
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
