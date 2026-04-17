@@ -746,7 +746,15 @@ class BotService : Service() {
             val cfg = ConfigStore.load(applicationContext)
             addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
 
-            // ── Paper wallet init — set to configured starting balance if not yet set ──
+            // ── Paper wallet: restore from SharedPrefs (survives app updates) ──
+            val botPrefs = getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
+            val savedBalance = botPrefs.getFloat("paper_wallet_sol", 0f).toDouble()
+            if (savedBalance > 0.01) {
+                status.paperWalletSol = savedBalance
+                addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")
+            }
+
+            // ── Paper wallet init — set to configured starting balance if still empty ──
             if (cfg.paperMode && status.paperWalletSol <= 0.0) {
                 status.paperWalletSol = cfg.paperSimulatedBalance
                 addLog("💰 Paper wallet initialised: ${cfg.paperSimulatedBalance} SOL")
@@ -1521,6 +1529,11 @@ class BotService : Service() {
             } else {
                 status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
                 ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
+                // V5.9.8: Persist to SharedPrefs so balance survives app updates
+                try {
+                    getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
+                        .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
+                } catch (_: Exception) {}
             }
         }
         
@@ -2422,6 +2435,13 @@ class BotService : Service() {
                     ErrorLogger.debug("BotService", GlobalTradeRegistry.getStats())
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "GlobalTradeRegistry sync error: ${e.message}")
+                }
+                // V5.9.8: Persist paper wallet balance every 10 loops (~50s)
+                if (cfg.paperMode && status.paperWalletSol > 0.01) {
+                    try {
+                        getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
+                            .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
+                    } catch (_: Exception) {}
                 }
             }
             
