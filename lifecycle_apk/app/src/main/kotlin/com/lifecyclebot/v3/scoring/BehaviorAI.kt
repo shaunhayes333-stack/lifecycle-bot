@@ -428,8 +428,21 @@ object BehaviorAI {
         
         // Recent big wins boost confidence
         if (sessionBigWins.get() >= 2) score += 5
-        
-        return score.coerceIn(-15, 20)  // V5.2: Cap negative impact at -15 (was -20)
+
+        // V5.9.11: Symbolic modulation — mood nudges score
+        val symScore = try {
+            val mood = com.lifecyclebot.engine.SymbolicContext.emotionalState
+            when (mood) {
+                "PANIC"    -> -8
+                "FEARFUL"  -> -4
+                "EUPHORIC" -> +4
+                "GREEDY"   -> +2
+                else       -> 0
+            }
+        } catch (_: Exception) { 0 }
+        score += (symScore * penaltyMult).toInt()
+
+        return score.coerceIn(-18, 22)  // V5.9.11: widened to admit symbolic swing
     }
     
     /**
@@ -451,8 +464,15 @@ object BehaviorAI {
         val streak = currentStreak.get()
         if (streak >= 3) mod += 3
         if (streak <= -3) mod -= 3
-        
-        return mod.coerceIn(-10, 10)
+
+        // V5.9.11: Symbolic edge adds a small confidence tilt
+        val symMod = try {
+            val edge = com.lifecyclebot.engine.SymbolicContext.edgeStrength
+            ((edge - 0.5) * 10.0).toInt()  // -5..+5
+        } catch (_: Exception) { 0 }
+        mod += symMod
+
+        return mod.coerceIn(-12, 12)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

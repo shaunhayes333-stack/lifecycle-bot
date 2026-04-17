@@ -283,8 +283,16 @@ object FluidLearningAI {
         
         // Apply behavior modifier
         val behaviorAdjustment = rawConfidence * behaviorModifier * 0.1
-        
-        return (rawConfidence + boost + behaviorAdjustment).coerceIn(0.0, 100.0)
+
+        // V5.9.11: Symbolic edge bonus — strong symbolic edge lifts confidence
+        // up to +8%; weak edge subtracts up to -5%.
+        val symAdjust = try {
+            val edge = com.lifecyclebot.engine.SymbolicContext.edgeStrength
+            val risk = com.lifecyclebot.engine.SymbolicContext.overallRisk
+            ((edge - 0.5) * 16.0) - ((risk - 0.5).coerceAtLeast(0.0) * 10.0)
+        } catch (_: Exception) { 0.0 }
+
+        return (rawConfidence + boost + behaviorAdjustment + symAdjust).coerceIn(0.0, 100.0)
     }
     
     /**
@@ -294,13 +302,20 @@ object FluidLearningAI {
     fun getBootstrapSizeMultiplier(): Double {
         val progress = getLearningProgress()
         
-        return when {
+        val baseMult = when {
             progress < 0.05 -> 0.10  // 10% of normal size (micro-position)
             progress < 0.15 -> 0.25  // 25% of normal size
             progress < 0.30 -> 0.50  // 50% of normal size
             progress < 0.50 -> 0.75  // 75% of normal size
             else -> 1.0               // Full size when mature
         }
+
+        // V5.9.11: Symbolic bias — mood + edge strength shape size
+        // PANIC/FEARFUL shrinks further, EUPHORIC/confident boosts (clamped)
+        val symMult = try {
+            com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment()
+        } catch (_: Exception) { 1.0 }
+        return (baseMult * symMult).coerceIn(0.05, 1.25)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

@@ -153,7 +153,12 @@ object HoldingLogicLayer {
             // ─────────────────────────────────────────────────────────────────
             val layer = getLayerFromMode(mode)
             val fluidMinHold = FluidLearningAI.getFluidMinHoldMinutes(layer)
-            val fluidMaxHold = FluidLearningAI.getFluidMaxHoldMinutes(layer)
+            val rawFluidMaxHold = FluidLearningAI.getFluidMaxHoldMinutes(layer)
+            // V5.9.11: Symbolic patience — mood stretches/shrinks how long winners breathe
+            val patience = try {
+                com.lifecyclebot.engine.SymbolicContext.getHoldPatience()
+            } catch (_: Exception) { 1.0 }
+            val fluidMaxHold = (rawFluidMaxHold * patience).coerceIn(rawFluidMaxHold * 0.5, rawFluidMaxHold * 1.5)
             val holdTimeUrgency = FluidLearningAI.getHoldTimeUrgency(layer, holdTimeMinutes.toDouble())
             
             // ─────────────────────────────────────────────────────────────────
