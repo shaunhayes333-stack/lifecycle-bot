@@ -240,7 +240,7 @@ object StrategyTrustAI {
 
     fun getTrustMultiplier(strategy: String): Double {
         val score = getTrustScore(strategy)
-        return when {
+        val base = when {
             score < 0.2 -> 0.0    // Vetoed
             score < 0.35 -> 0.3   // Heavily suppressed
             score < 0.5 -> 0.6    // Suppressed
@@ -248,6 +248,19 @@ object StrategyTrustAI {
             score < 0.8 -> 1.0    // Normal
             else -> 1.15          // Boosted
         }
+        if (base == 0.0) return 0.0  // Vetoed stays vetoed
+
+        // V5.9.12: Symbolic fragility feedback — market risk/edge shapes trust mult.
+        // High risk → suppress further; strong edge + confidence → modest boost.
+        val symFactor = try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            val risk = sc.overallRisk          // 0..1
+            val edge = sc.edgeStrength          // 0..1
+            // Center near 1.0, range ~0.75..1.15
+            (1.0 - (risk - 0.3).coerceAtLeast(0.0) * 0.35 + (edge - 0.5).coerceAtLeast(0.0) * 0.15)
+                .coerceIn(0.7, 1.2)
+        } catch (_: Exception) { 1.0 }
+        return (base * symFactor).coerceIn(0.0, 1.25)
     }
 
     fun isStrategyAllowed(strategy: String): Boolean =

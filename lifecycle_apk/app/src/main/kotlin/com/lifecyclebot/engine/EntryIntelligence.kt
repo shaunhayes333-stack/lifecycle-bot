@@ -214,8 +214,25 @@ object EntryIntelligence {
         maxScore += 5.0
         
         // Calculate final score (0-100)
-        val finalScore = ((totalScore / maxScore) * 100).toInt().coerceIn(0, 100)
-        
+        val rawScore = ((totalScore / maxScore) * 100).toInt().coerceIn(0, 100)
+
+        // V5.9.12: Symbolic pressure on candidate generation
+        // Aggressive + confident → nudge score up; defensive/panic → nudge down.
+        val symNudge = try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            when {
+                sc.emotionalState == "PANIC"    -> -12
+                sc.emotionalState == "FEARFUL"  -> -6
+                sc.emotionalState == "EUPHORIC" -> +6
+                sc.emotionalState == "GREEDY"   -> +3
+                sc.shouldBeAggressive()         -> +4
+                sc.shouldBeDefensive()          -> -4
+                else                             -> 0
+            }
+        } catch (_: Exception) { 0 }
+        val finalScore = (rawScore + symNudge).coerceIn(0, 100)
+        if (symNudge != 0) reasons.add("Symbolic: ${if (symNudge > 0) "+" else ""}$symNudge (mood-aware)")
+
         // Determine recommendation
         val recommendation = when {
             finalScore >= 75 -> EntryRecommendation.STRONG_BUY
@@ -223,14 +240,24 @@ object EntryIntelligence {
             finalScore >= 40 -> EntryRecommendation.WAIT
             else -> EntryRecommendation.AVOID
         }
-        
-        // Determine risk level
-        val riskLevel = when {
+
+        // Determine risk level — symbolic PANIC forces one level up
+        var riskLevel = when {
             conditions.volatility > 15 || conditions.buyPressure < 35 -> RiskLevel.EXTREME
             conditions.volatility > 10 || conditions.rsi > 80 || conditions.momentum > 50 -> RiskLevel.HIGH
             conditions.volatility > 6 || conditions.rsi > 70 -> RiskLevel.MEDIUM
             else -> RiskLevel.LOW
         }
+        try {
+            if (com.lifecyclebot.engine.SymbolicContext.emotionalState == "PANIC") {
+                riskLevel = when (riskLevel) {
+                    RiskLevel.LOW     -> RiskLevel.MEDIUM
+                    RiskLevel.MEDIUM  -> RiskLevel.HIGH
+                    RiskLevel.HIGH    -> RiskLevel.EXTREME
+                    RiskLevel.EXTREME -> RiskLevel.EXTREME
+                }
+            }
+        } catch (_: Exception) {}
         
         // Suggested wait time
         val waitMinutes = when (recommendation) {

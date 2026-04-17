@@ -901,10 +901,16 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             tradeCount < 1000 -> -3.0   // Near-normal up to 1000 trades (threshold ~39)
             else -> 0.0                 // Full learned thresholds after 1000 trades
         }
-        
+
+        // V5.9.12: Symbolic entry bar — mood raises/lowers entry bar
+        val symDelta = try {
+            val adj = com.lifecyclebot.engine.SymbolicContext.getEntryAdjustment()
+            (adj - 1.0) * baseThreshold  // e.g. adj=1.3 → +12.6 pts, adj=0.8 → -8.4 pts
+        } catch (_: Exception) { 0.0 }
+
         // Apply bootstrap loosening on top of learned delta
-        val effectiveDelta = entryThresholdDelta + bootstrapLoosening
-        return (baseThreshold + effectiveDelta).coerceIn(20.0, 68.0)  // Allow down to 20 for bootstrap
+        val effectiveDelta = entryThresholdDelta + bootstrapLoosening + symDelta
+        return (baseThreshold + effectiveDelta).coerceIn(20.0, 72.0)  // Allow down to 20 for bootstrap
     }
 
     /** Effective exit threshold incorporating all learning */
@@ -917,8 +923,20 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             tradeCount < 1000 -> -3.0
             else -> 0.0
         }
-        val effectiveDelta = exitThresholdDelta + bootstrapLoosening
-        return (baseThreshold + effectiveDelta).coerceIn(40.0, 72.0)
+        // V5.9.12: Defensive mood = easier exits (lower bar), aggressive = let runners run
+        val symExitDelta = try {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            when {
+                sc.emotionalState == "PANIC"    -> -8.0
+                sc.emotionalState == "FEARFUL"  -> -4.0
+                sc.emotionalState == "EUPHORIC" -> +3.0
+                sc.shouldBeDefensive()          -> -3.0
+                sc.shouldBeAggressive()         -> +2.0
+                else                             -> 0.0
+            }
+        } catch (_: Exception) { 0.0 }
+        val effectiveDelta = exitThresholdDelta + bootstrapLoosening + symExitDelta
+        return (baseThreshold + effectiveDelta).coerceIn(35.0, 75.0)
     }
 
     /** Size multiplier for current market regime */
@@ -1323,8 +1341,14 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         // Negative delta = brain is confident = normal sizes
         if (entryThresholdDelta > 5) mult *= 0.85
         if (entryThresholdDelta > 10) mult *= 0.7
-        
-        return mult.coerceIn(0.3, 1.5)
+
+        // V5.9.12: Symbolic size bias via SymbolicContext
+        val symSize = try {
+            com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment()
+        } catch (_: Exception) { 1.0 }
+        mult *= symSize
+
+        return mult.coerceIn(0.2, 1.5)
     }
     
     /**
