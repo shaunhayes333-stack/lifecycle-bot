@@ -1062,11 +1062,28 @@ object CryptoAltTrader {
             // V5.9.8: Always read fresh balance from wallet (not stale cache)
             val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
             if (balance > 0) updateLiveBalance(balance)
-            val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
-            if (sizeSol < 0.01) {
-                ErrorLogger.warn(TAG, "Live balance too low: ${"%.4f".format(balance)} SOL")
+
+            // V5.9.37: FLUID sizing. 3% of balance is the default target, but when
+            // the wallet is small (<1 SOL) 3% falls below Jupiter's ~0.01 SOL
+            // economical-swap floor and every trade was bailing silently.
+            // Policy:
+            //   • Hard-abort only if the wallet itself is below the floor.
+            //   • Otherwise clamp size to [FLOOR, balance * 15%] so small wallets
+            //     can still participate without YOLO-ing.
+            val floor = 0.01
+            val desired = balance * (DEFAULT_SIZE_PCT / 100)
+            if (balance < floor) {
+                ErrorLogger.warn(TAG, "🪙 ⛔ Live wallet too small: ${"%.4f".format(balance)} SOL < ${floor} floor — cannot live-trade ${signal.market.symbol}")
                 return false
             }
+            val sizeSol = desired.coerceIn(floor, (balance * 0.15).coerceAtLeast(floor))
+
+            ErrorLogger.info(
+                TAG,
+                "🪙 ⚡ LIVE ATTEMPT: ${signal.market.symbol} ${signal.direction.symbol} " +
+                "| bal=${"%.4f".format(balance)}◎ size=${"%.4f".format(sizeSol)}◎ " +
+                "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
+            )
 
             // Execute via MarketsLiveExecutor (handles Jupiter swap + signing)
             // Fee collection (0.5% spot / 1% leverage) is handled inside MarketsLiveExecutor.executeLiveTrade

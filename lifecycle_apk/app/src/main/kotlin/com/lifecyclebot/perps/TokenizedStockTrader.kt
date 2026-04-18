@@ -1458,12 +1458,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 if (fresh > 0) updateLiveBalance(fresh)
             } catch (_: Exception) {}
         }
-        val sizeSol = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100)
 
-        if (sizeSol < 0.01) {
-            ErrorLogger.warn(TAG, "🔴 LIVE: Insufficient balance for trade")
+        // V5.9.37: FLUID sizing. 5% of a small wallet falls below the Jupiter
+        // ~0.01 SOL swap floor, silently killing every live attempt. Clamp
+        // size to [FLOOR, balance * 20%] so small wallets still participate.
+        val balance = getEffectiveBalance()
+        val floor = 0.01
+        val desired = balance * (DEFAULT_SIZE_PCT / 100)
+        if (balance < floor) {
+            ErrorLogger.warn(TAG, "🔴 LIVE: wallet ${balance.fmt(4)}◎ < ${floor} floor — cannot trade ${signal.market.symbol}")
             return false
         }
+        val sizeSol = desired.coerceIn(floor, (balance * 0.20).coerceAtLeast(floor))
         
         ErrorLogger.info(TAG, "🔴 LIVE TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${leverage.toInt()}x"}")
