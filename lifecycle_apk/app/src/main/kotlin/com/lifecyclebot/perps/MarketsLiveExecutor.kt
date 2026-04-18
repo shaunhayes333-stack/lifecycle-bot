@@ -144,7 +144,7 @@ object MarketsLiveExecutor {
                 val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
                     .getTokenBySymbol(market.symbol)
                     ?.mint
-                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
+                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
 
                 when {
                     leverage > 1.0 -> {

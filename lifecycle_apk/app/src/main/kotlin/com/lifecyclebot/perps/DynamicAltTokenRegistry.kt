@@ -144,12 +144,72 @@ object DynamicAltTokenRegistry {
 
     // ─── Init ─────────────────────────────────────────────────────────────────
 
+    /**
+     * Verified Solana mainnet mints for well-known tokens.
+     * These are used at seed time so live swaps work immediately — before the
+     * Jupiter strict-list discovery cycle has had a chance to upgrade "static:*" keys.
+     */
+    private val KNOWN_SOLANA_MINTS = mapOf(
+        // Native / wrapped SOL
+        "SOL"      to "So11111111111111111111111111111111111111112",
+        // Wormhole-wrapped ETH  (Portal Bridge canonical)
+        "ETH"      to "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+        // Portal (Wormhole) BTC
+        "BTC"      to "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+        // Wrapped BTC (Sollet legacy — kept as fallback key)
+        "WBTC"     to "9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E",
+        // USDC & USDT
+        "USDC"     to "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "USDT"     to "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+        // Solana-native blue chips
+        "JUP"      to "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        "RAY"      to "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+        "ORCA"     to "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+        "PYTH"     to "HZ1JovNiVvGrGs68OD7MZaN5aFfMRXX7q8DXXCWFTW",
+        "DRIFT"    to "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7",
+        "JTO"      to "jtojtomepa8bdqftztzaudthkkna8ktwdbqfptdqtqk",
+        "TNSR"     to "TNSRxcUxoT9xBG3de7A4QJ6kLK9h2s7rH5pNNJVUqHy",
+        "KMNO"     to "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+        "MSOL"     to "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+        // Solana meme coins  (real on-chain mints — tradeable via Jupiter)
+        "BONK"     to "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "WIF"      to "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "POPCAT"   to "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+        "BOME"     to "ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82",
+        "TRUMP"    to "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+        "PNUT"     to "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump",
+        "GOAT"     to "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
+        "FARTCOIN" to "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+        "MOODENG"  to "ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzc8yy",
+        "MEW"      to "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5",
+        "WEN"      to "WENWENvqqNya429ubCdR81ZmD69brwQaaBYY6p3LCpk",
+        "SLERF"    to "7BgBvyjrZX1YKz4oh9mjb8ZScatkkwb8DzFx7LoiVkM3",
+        "PONKE"    to "5z3EqYQo9HiCEs3R84RCDMu2n7anpDMxRhdK31CR6ZDN",
+        "MYRO"     to "HhJpBhRRn4g56VsyLuT8DL5Bv31HkXqsrahTTUCZeZg4",
+        "CHILLGUY" to "Df6yfrKC8kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump",
+        "RETARDIO" to "6ogzHhzdrQr9Pgv6hZ2MNze7UrzBMAFyBBWUYp1Fhitx",
+        "GME"      to "8wXtPeU6557ETkp9WHFY1n1EcU6NxDvbAggHGsMYiHsB",
+        // DeFi / infrastructure with Solana-native presence
+        "LINK"     to "2wpTofQ8SkACrkZWrZDjXPitYa8uxmX2SkKNKMRNkSMJ",
+        "AAVE"     to "3vAs4D1WE6Na4tCgt4BApgFfENbm8WY7q4cSPD6yypump",
+        "UNI"      to "8FU95xFJhUUkyyCLU13HSzDLs7oC4QZdXQHL6SCut352",
+        "LDO"      to "HZRCwxP2Vq9PCpPXooayhJ2bxTpo5ZfALpBMRPQ3sPFV",
+        "INJ"      to "6McPRfPV6bY1e9hLxWyG54W9i9Epq75QBvXCrPLSoVnM",
+        "RAY"      to "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+        "FIDA"     to "EchesyfXePKdLtoiZSL8ppeznWjesMFZGoQjeB3s4Xmr",
+        "MNGO"     to "MangoCzJ36AjZyKwVj3VnYU4GTonjfVEnJmvvWaxLac",
+        "ATLAS"    to "ATLASXmbPQxBUYbxPsV97usA3fPQYEqzQBUHgiFCUsXx",
+        "PAXG"     to "GGisdTfU4QFtUEbuvUsxH5iMaGhLdXM3GTFqRa3KZPGH",
+    )
+
     /** Call once at startup — seeds the 56 static PerpsMarket tokens immediately */
     fun seedStaticTokens() {
         PerpsMarket.values()
             .filter { it.isCrypto && !it.isSolPerp }
             .forEach { market ->
-                val key = "static:${market.symbol}"
+                // Use real on-chain mint if we know it; otherwise use placeholder key
+                val realMint = KNOWN_SOLANA_MINTS[market.symbol.uppercase()]
+                val key = realMint ?: "static:${market.symbol}"
                 val tok = DynToken(
                     mint      = key,
                     symbol    = market.symbol,
