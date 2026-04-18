@@ -2129,8 +2129,10 @@ class SolanaMarketScanner(
         // V5.6.29d: UNIFIED PAPER/LIVE filtering - let FDG and AI layers decide execution
         // Previously LIVE had much stricter scanner filters, preventing learning transfer
         
-        // Minimum liquidity floor for both modes
-        val minLiqFloor = 2000.0
+        // V5.9.20: Minimum liquidity floor — raised from $2k to $10k paper / $25k live.
+        // $2k–$5k pools slip too heavily to be tradeable at any real size; trading them
+        // produces noise-level P&L that pollutes learning.
+        val minLiqFloor = if (isPaperMode) 10_000.0 else 25_000.0
         if (token.liquidityUsd > 0 && token.liquidityUsd < minLiqFloor) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq \$${token.liquidityUsd.toInt()} < \$${minLiqFloor.toInt()}")
             return false
@@ -2138,6 +2140,36 @@ class SolanaMarketScanner(
         
         // Basic mcap sanity check
         if (token.mcapUsd < 0) return false
+        
+        // V5.9.20: Symbol sanitizer — drop offensive + non-ASCII + typosquats.
+        // These made it through previously: HNIGGA, mɔ, 고라니, NVIDA (typosquat NVIDIA).
+        // Ticker must be printable ASCII letters/digits only.
+        if (!token.symbol.matches(Regex("^[A-Za-z0-9._\\-]{1,20}$"))) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: non-ASCII / bad chars")
+            return false
+        }
+        // Common slurs/offensive tokens (case-insensitive contains)
+        val offensiveFragments = listOf("nigga", "nigger", "fag", "tranny", "retard", "rape", "nazi", "hitler", "kike", "chink")
+        val symLow = token.symbol.lowercase()
+        val nameLow = token.name.lowercase()
+        if (offensiveFragments.any { symLow.contains(it) || nameLow.contains(it) }) {
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: offensive content")
+            return false
+        }
+        // Typosquat detection — obvious misspellings of big tickers
+        val typosquats = mapOf(
+            "NVIDA" to "NVIDIA", "NVIDEA" to "NVIDIA", "NIVIDIA" to "NVIDIA",
+            "APPEL" to "APPLE",  "APPLL" to "APPLE",
+            "TESLLA" to "TESLA", "TEZLA" to "TESLA",
+            "BITCOlN" to "BITCOIN", "BlTCOIN" to "BITCOIN",
+            "ETHERIUM" to "ETHEREUM", "ETHERUEM" to "ETHEREUM",
+            "SOLANNA" to "SOLANA", "SOLAANA" to "SOLANA",
+        )
+        val symUpper = token.symbol.uppercase()
+        if (typosquats.containsKey(symUpper)) {
+            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: typosquat of ${typosquats[symUpper]}")
+            return false
+        }
         
         // Scam pattern detection (both modes)
         val sym = token.symbol.lowercase()

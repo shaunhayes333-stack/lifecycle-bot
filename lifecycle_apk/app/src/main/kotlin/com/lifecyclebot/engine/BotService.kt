@@ -5731,13 +5731,16 @@ if (deferredCount > 0) {
     } catch (_: Exception) { 0.0 }
     val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
 
-    // V5.9: In bootstrap paper mode, allow ALL low-quality tokens through for learning data.
-    // V5.7.8: In paper mode, ALWAYS allow — no daily limits, no promotion blocks. Let all modes trade freely.
-    val allowSkipForLearning = cfg.paperMode
+    // V5.9.20 HARDENED P0 FIX: even paper/bootstrap must never accept edge=SKIP
+    // or conf < 20. Previously paper mode let EVERY signal through "for learning"
+    // which filled the book with zero-conviction garbage (mɔ, 00, XChat at conf=0).
+    // True learning needs *selected* trades, not unfiltered noise.
+    val allowSkipForLearning = false
+    val minBootstrapConf = 20
     
-    if ((edgeVerdictStr == "SKIP" || confValue <= 0) && !allowSkipForLearning) {
+    if (edgeVerdictStr == "SKIP" || confValue < minBootstrapConf) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-            "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} → SHADOW_ONLY")
+            "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} (floor=$minBootstrapConf) → SHADOW_ONLY")
         
         // Shadow track for learning
         com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(

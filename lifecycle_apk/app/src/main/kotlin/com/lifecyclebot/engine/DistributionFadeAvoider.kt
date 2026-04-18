@@ -56,17 +56,9 @@ object DistributionFadeAvoider {
      * V5.2 FIX: Paper Mode bypass - allow all tokens through for maximum learning.
      */
     fun evaluate(ts: TokenState, currentEdge: String? = null, isPaperMode: Boolean = false): FadeResult {
-        // V5.2 FIX: PAPER MODE BYPASS - Skip distribution fade check for learning
-        // Paper mode learns from distribution trades too - valuable data
-        if (isPaperMode) {
-            ErrorLogger.debug(TAG, "✅ PAPER BYPASS: ${ts.symbol} distribution fade skipped for learning")
-            return FadeResult(
-                shouldBlock = false,
-                reason = "PAPER_MODE_BYPASS",
-                scoreMultiplier = 1.0,
-                cooldownRemainingMs = 0L,
-            )
-        }
+        // V5.9.20: Paper now mirrors live — only logs via debug, no bypass.
+        // Previously paper skipped this check entirely, so paper P&L wasn't
+        // predictive of live P&L. A learning bot must learn the real constraints.
         
         val mint = ts.mint
         val now = System.currentTimeMillis()

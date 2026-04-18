@@ -77,6 +77,21 @@ object ModeSpecificExits {
                 entryScore = ts.position.entryScore.toInt()
             )
             
+            // V5.9.20: Gate runner-extension on ACTUAL momentum.
+            // Previously every position got the full 7020s extension regardless
+            // of how the trade was actually performing, so flat losers (mɔ at 0%
+            // after 26min) were kept alive until max-hold. Now: if we're already
+            // 5 min in and PnL is essentially flat, cap recommendation at 20min.
+            val pos = ts.position
+            if (pos.isOpen) {
+                val heldMin = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+                val pnlPct = if (pos.entryPrice > 0) ((ts.ref - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
+                if (heldMin > 5 && kotlin.math.abs(pnlPct) < 1.5) {
+                    ErrorLogger.info(TAG, "⏱ HoldTime capped for ${ts.symbol}: flat ${"%.1f".format(pnlPct)}% after ${heldMin.toInt()}min → max 20min")
+                    return 20
+                }
+            }
+            
             // Use maxMinutes for timeout (the "exit by" time)
             recommendation.maxMinutes.coerceIn(5, 480)
         } catch (e: Exception) {
