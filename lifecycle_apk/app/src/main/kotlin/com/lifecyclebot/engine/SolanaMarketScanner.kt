@@ -710,15 +710,19 @@ class SolanaMarketScanner(
         get() = BirdeyeApi(cfg().birdeyeApiKey)
 
     private val seenMints = ConcurrentHashMap<String, Long>()
-    private fun getSeenTtl(): Long = if (cfg().paperMode) 20_000L else 30_000L
+    // V5.9.44: Unified TTLs across paper/live. Per V5.9.34 the scanner is
+    // meant to be wide open — classification is the decision gate's job.
+    // Previous 2x-longer live TTLs starved the scanner of fresh tokens
+    // (user: "Scanner in live nulled").
+    private fun getSeenTtl(): Long = 20_000L
 
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private fun getRejectedTtl(): Long = if (cfg().paperMode) 8_000L else 15_000L
+    private fun getRejectedTtl(): Long = 8_000L
 
     private val cooldownHitCount = ConcurrentHashMap<String, Int>()
     private val saturatedMints = ConcurrentHashMap<String, Long>()
-    private fun getMaxCooldownHits(): Int = if (cfg().paperMode) 20 else 10
-    private fun getSaturationTtl(): Long = if (cfg().paperMode) 30_000L else 60_000L
+    private fun getMaxCooldownHits(): Int = 20
+    private fun getSaturationTtl(): Long = 30_000L
 
     @Volatile private var telemetryRawScanned = 0
     @Volatile private var telemetryCooldownHits = 0
@@ -2099,8 +2103,8 @@ class SolanaMarketScanner(
         val passed = passesFilterInternal(token)
         if (!passed) {
             markRejected(token.mint)
-            val c = cfg()
-            val liqFloor = if (c.paperMode) 100.0 else 3000.0
+            // V5.9.44: unified liquidity-reject telemetry floor (was paper=100, live=3000)
+            val liqFloor = 100.0
             if (token.liquidityUsd < liqFloor && token.liquidityUsd > 0) {
                 telemetryLiqRejects++
                 EfficiencyLayer.registerLiquidityRejection(token.mint, token.liquidityUsd, liqFloor)
