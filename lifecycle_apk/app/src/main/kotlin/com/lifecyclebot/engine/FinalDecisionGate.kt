@@ -1017,7 +1017,11 @@ object FinalDecisionGate {
             )
         }
 
-        val rugcheckThreshold = if (config.paperMode) {
+        // V5.9.47: all three thresholds now route through ModeLeniency so
+        // proven-edge live runs inherit paper leniency.
+        val lenient = ModeLeniency.useLenientGates(config.paperMode)
+
+        val rugcheckThreshold = if (lenient) {
             // V5.6.8 FIX: Paper mode MUST learn with rugcheck enabled!
             // Using threshold 0 means bot never learns which tokens are dangerous.
             // When switching to live, it has no idea what to avoid.
@@ -1030,14 +1034,14 @@ object FinalDecisionGate {
         }
 
         // V5.6.8 FIX: Paper must learn with realistic thresholds!
-        val buyPressureThreshold = if (config.paperMode) {
+        val buyPressureThreshold = if (lenient) {
             // Use 80% of live threshold for more learning data, but not wide open
             (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(30.0)
         } else {
             adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
         }
         
-        val topHolderThreshold = if (config.paperMode) {
+        val topHolderThreshold = if (lenient) {
             // Paper slightly looser but not wide open
             (adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier * 1.1).coerceAtMost(55.0)
         } else {
@@ -1459,9 +1463,10 @@ object FinalDecisionGate {
                     )
                 } else null
 
-                val distThreshold = if (config.paperMode) 70 else 50
+                val distLenient = ModeLeniency.useLenientGates(config.paperMode)
+                val distThreshold = if (distLenient) 70 else 50
                 val isDistributorConfident = distSignal?.isDistributing == true && distSignal.confidence >= distThreshold
-                val bypassForPaperLearning = config.paperMode &&
+                val bypassForPaperLearning = distLenient &&
                     ts.meta.pressScore >= 55.0 &&
                     !isDistributionPhase
 
@@ -1832,7 +1837,10 @@ object FinalDecisionGate {
             }
         }
 
-        val confidenceThreshold = getAdaptiveConfidence(config.paperMode, ts)
+        // V5.9.47: confidence threshold + bootstrap probe both route through
+        // ModeLeniency so proven-edge live runs get the same leniency.
+        val fdgLenient = ModeLeniency.useLenientGates(config.paperMode)
+        val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
         val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
         val adjustedConfidence = (confidence + narrativeAdjustment + orthogonalBonus).coerceIn(0.0, 100.0)
@@ -1867,7 +1875,7 @@ object FinalDecisionGate {
             val hasNoHardBlocks = blockReason == null
             val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
 
-            if (isBootstrap && config.paperMode && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
+            if (isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
                 confidenceProbe = true
                 isProbeCandidate = true
 

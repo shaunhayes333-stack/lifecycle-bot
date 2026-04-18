@@ -149,9 +149,10 @@ object ToxicModeCircuitBreaker {
         }
         
         // 4. Liquidity floor check
-        // V5.2: Paper mode uses much lower floor for learning
-        val floor = if (isPaperMode) {
-            // Paper mode: $3K floor (same as Treasury minimum)
+        // V5.2/V5.9.47: lenient mode uses much lower floor (paper/proven-edge)
+        val lenient = ModeLeniency.useLenientGates(isPaperMode)
+        val floor = if (lenient) {
+            // Lenient: $3K floor (same as Treasury minimum)
             3_000.0
         } else {
             LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!

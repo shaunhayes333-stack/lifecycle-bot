@@ -74,22 +74,23 @@ object HardRugPreFilter {
         }
         
         // V5.2 FIX: PAPER MODE BYPASS - Skip pre-filter to maximize learning
-        // Only block truly dangerous tokens (zero liquidity) in paper mode
-        if (isPaperMode) {
-            // Even in paper mode, block tokens with literally zero liquidity (can't trade)
+        // V5.9.47: proven-edge live runs ALSO bypass — they've earned it.
+        val lenient = ModeLeniency.useLenientGates(isPaperMode)
+        if (lenient) {
+            // Even in lenient mode, block tokens with literally zero liquidity (can't trade)
             // But only if they've had enough time to get polled (grace period above handles new tokens)
             if (ts.lastLiquidityUsd <= 0) {
                 return PreFilterResult(
                     pass = false,
-                    reason = "ZERO_LIQUIDITY (paper)",
+                    reason = "ZERO_LIQUIDITY (${ModeLeniency.label(isPaperMode).lowercase()})",
                     severity = FilterSeverity.HARD_FAIL,
                 )
             }
             // Allow everything else through for learning
-            ErrorLogger.debug(TAG, "✅ PAPER BYPASS: ${ts.symbol} pre-filter skipped for learning")
+            ErrorLogger.debug(TAG, "✅ LENIENT BYPASS (${ModeLeniency.label(isPaperMode)}): ${ts.symbol} pre-filter skipped for learning")
             return PreFilterResult(
                 pass = true,
-                reason = "PAPER_MODE_BYPASS",
+                reason = "LENIENT_MODE_BYPASS",
                 severity = FilterSeverity.PASS,
             )
         }

@@ -517,19 +517,23 @@ object EdgeOptimizer {
         
         // ═══════════════════════════════════════════════════════════════════
         // ADAPTIVE THRESHOLDS - Learned from trade outcomes via EdgeLearning
+        // V5.9.47: route through ModeLeniency so proven-edge live runs
+        // inherit paper thresholds (user mandate: 'live must perform
+        // exactly like paper mode').
         // ═══════════════════════════════════════════════════════════════════
-        
-        val minVolume = if (isPaperMode) 
+        val lenient = ModeLeniency.useLenientGates(isPaperMode)
+
+        val minVolume = if (lenient) 
             EdgeLearning.getPaperVolumeMin() 
         else 
             EdgeLearning.getLiveVolumeMin()
             
-        val minBuyPct = if (isPaperMode) 
+        val minBuyPct = if (lenient) 
             EdgeLearning.getPaperBuyPctMin() 
         else 
             EdgeLearning.getLiveBuyPctMin()
             
-        val requireOptimalTiming = !isPaperMode  // Paper: advisory, Live: required
+        val requireOptimalTiming = !lenient  // Lenient: advisory, Strict-live: required
         
         // Volume too low — skip
         if (volumeScore < minVolume) {
@@ -570,7 +574,7 @@ object EdgeOptimizer {
             phase.phase == MarketPhase.EARLY_ACCUMULATION && buyPct > 50 -> "B"
             // NEW: UNKNOWN phase with strong buyers gets C (not SKIP)
             phase.phase == MarketPhase.UNKNOWN && buyPct >= 55 -> "C"
-            isPaperMode && buyPct >= 45 -> "C"  // Paper: allow C quality for learning
+            lenient && buyPct >= 45 -> "C"  // Lenient (paper/proven-edge): allow C quality for learning
             else -> "C"
         }
         
