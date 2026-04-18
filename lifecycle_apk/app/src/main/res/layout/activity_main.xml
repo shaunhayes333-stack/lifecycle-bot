@@ -171,6 +171,57 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
+                 V5.9.29: LIVE READINESS BANNER
+                 Shows Jupiter + RPC + Oracle health so you can spot
+                 network/endpoint outages BEFORE trades start failing.
+                 Tap to force a re-check.
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/readinessBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:background="#0F0F16"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/tvReadinessDot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚪"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="6dp"/>
+
+                <TextView
+                    android:id="@+id/tvReadinessStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Checking live readiness…"
+                    android:textColor="#9CA3AF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:maxLines="1"
+                    android:ellipsize="end"/>
+
+                <TextView
+                    android:id="@+id/tvReadinessLatency"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#6B7280"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════
                  HERO BALANCE
                  ═══════════════════════════════ -->
             <LinearLayout

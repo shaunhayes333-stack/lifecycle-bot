@@ -51,6 +51,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pbBrainProgress: ProgressBar
     private lateinit var tvBrainEmoji: TextView
 
+    // V5.9.29: live-readiness banner
+    private lateinit var readinessBanner: View
+    private lateinit var tvReadinessDot: TextView
+    private lateinit var tvReadinessStatus: TextView
+    private lateinit var tvReadinessLatency: TextView
+
     // hero balance
     private lateinit var tvBalanceLarge: TextView
     private lateinit var tvBalanceUsd: TextView
@@ -697,6 +703,18 @@ for legal compliance.
         btnWalletTop    = findViewById(R.id.btnWalletTop)
         tvWalletDot     = findViewById(R.id.tvWalletDot)
         tvWalletShort   = findViewById(R.id.tvWalletShort)
+
+        // V5.9.29: Live readiness banner
+        readinessBanner    = try { findViewById(R.id.readinessBanner) } catch (_: Exception) { View(this) }
+        tvReadinessDot     = try { findViewById(R.id.tvReadinessDot) } catch (_: Exception) { TextView(this) }
+        tvReadinessStatus  = try { findViewById(R.id.tvReadinessStatus) } catch (_: Exception) { TextView(this) }
+        tvReadinessLatency = try { findViewById(R.id.tvReadinessLatency) } catch (_: Exception) { TextView(this) }
+        readinessBanner.setOnClickListener {
+            com.lifecyclebot.network.LiveReadinessChecker.triggerCheck()
+            android.widget.Toast.makeText(this, "Re-checking live endpoints…", android.widget.Toast.LENGTH_SHORT).show()
+            // Repaint in ~500ms after the check likely lands
+            readinessBanner.postDelayed({ renderReadiness() }, 500)
+        }
         
         // Brain learning indicator
         brainContainer   = try { findViewById(R.id.brainContainer) } catch (_: Exception) { FrameLayout(this) }
@@ -1318,10 +1336,44 @@ for legal compliance.
 
     // ── update UI ─────────────────────────────────────────────────────
 
+    /**
+     * V5.9.29: Render the live-readiness banner.
+     *   🟢 GREEN   — Jupiter + Pyth both healthy → live trading safe
+     *   🟡 YELLOW  — Jupiter OK but oracle slow/down → degraded
+     *   🔴 RED     — Jupiter unreachable → live swaps WILL fail; stay in paper
+     *   ⚪ UNKNOWN — first check hasn't returned yet
+     * Tap the banner to force an immediate re-check.
+     */
+    private fun renderReadiness() {
+        val snap = com.lifecyclebot.network.LiveReadinessChecker.current()
+        val (dot, textColor, bg) = when (snap.state) {
+            com.lifecyclebot.network.LiveReadinessChecker.State.GREEN ->
+                Triple("🟢", 0xFF9CA3AF.toInt(), 0xFF0B1A10.toInt())
+            com.lifecyclebot.network.LiveReadinessChecker.State.YELLOW ->
+                Triple("🟡", 0xFFFCD34D.toInt(), 0xFF1A1608.toInt())
+            com.lifecyclebot.network.LiveReadinessChecker.State.RED ->
+                Triple("🔴", 0xFFF87171.toInt(), 0xFF1F0B0F.toInt())
+            com.lifecyclebot.network.LiveReadinessChecker.State.UNKNOWN ->
+                Triple("⚪", 0xFF6B7280.toInt(), 0xFF0F0F16.toInt())
+        }
+        tvReadinessDot.text = dot
+        tvReadinessStatus.text = snap.summary
+        tvReadinessStatus.setTextColor(textColor)
+        readinessBanner.setBackgroundColor(bg)
+        tvReadinessLatency.text = if (snap.jupiterLatencyMs >= 0) {
+            val jup = if (snap.jupiterOk) "jup ${snap.jupiterLatencyMs}ms" else "jup ✗"
+            val py  = if (snap.pythOk) "pyth ${snap.pythLatencyMs}ms" else "pyth ✗"
+            "$jup · $py"
+        } else ""
+    }
+
     private fun updateUi(state: UiState) {
         val ts  = state.activeToken
         val cfg = state.config
         val ws  = state.walletState
+
+        // V5.9.29: refresh the live-readiness banner every UI tick
+        renderReadiness()
 
         // ── wallet top bar ────────────────────────────────────────────
         when (ws.connectionState) {
