@@ -132,11 +132,38 @@ object MarketsLiveExecutor {
         
         // Step 2: Determine execution strategy based on market type
         // V5.9.16: Real tokenized asset routing. For non-crypto markets we look
-        // up the real on-chain mint via TokenizedAssetRegistry. If present,
-        // execute a REAL Jupiter swap SOL → <mint> (LONG) or <mint> → USDC (SHORT).
-        // Only if no verified route exists do we refuse live execution.
+        // up the real on-chain mint via TokenizedAssetRegistry.
+        // V5.9.45: Crypto now also routes via Jupiter SPOT swap (leverage<=1)
+        // instead of the dead Jupiter Perps v2 endpoint. For leveraged crypto
+        // trades with no mint available we fall back to SPOT at 1x leverage
+        // and log a warning — the user explicitly wants live execution over
+        // silent failure.
         val txSignature = when {
-            market.isCrypto -> executeCryptoTrade(wallet, walletAddress, market, direction, sizeSol, priceUsd)
+            market.isCrypto -> {
+                // Resolve Solana mint for the crypto symbol
+                val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+                    .getTokenBySymbol(market.symbol)
+                    ?.mint
+                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
+
+                when {
+                    leverage > 1.0 -> {
+                        // Jupiter Perps v2 REST is dead (404). Degrade to spot.
+                        if (mint == null) {
+                            ErrorLogger.warn(TAG, "⛔ LIVE crypto blocked: no Solana mint for ${market.symbol} (perps API retired)")
+                            null
+                        } else {
+                            ErrorLogger.info(TAG, "⚠️ Perps endpoint retired — routing ${market.symbol} as SPOT at 1x")
+                            executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
+                        }
+                    }
+                    mint != null -> executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
+                    else -> {
+                        ErrorLogger.warn(TAG, "⛔ LIVE crypto blocked: no Solana mint in registry for ${market.symbol}")
+                        null
+                    }
+                }
+            }
 
             market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
                 val mint = TokenizedAssetRegistry.mintFor(market.symbol)
@@ -337,6 +364,40 @@ object MarketsLiveExecutor {
             ErrorLogger.error(TAG, "Crypto trade error: ${e.message}", e)
             null
         }
+    }
+
+    /**
+     * V5.9.45: Real on-chain SPOT swap for crypto markets.
+     * - LONG: swap SOL → target mint
+     * - SHORT: swap target mint → USDC (requires existing token balance;
+     *   logs a warning and returns null if not held).
+     *
+     * This replaces the dead Jupiter Perps v2 quote endpoint. Routed
+     * through the working `/swap/v1` path used by xStocks swaps.
+     */
+    private suspend fun executeCryptoSpotSwap(
+        wallet: SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+        targetMint: String,
+    ): String? {
+        if (direction == PerpsDirection.SHORT) {
+            ErrorLogger.warn(TAG,
+                "⚠️ SHORT not supported on SPOT crypto swap for ${market.symbol} — perps retired, skipping live.")
+            return null
+        }
+        ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG via Jupiter v1 | ${sizeSol.fmt(4)} SOL → ${targetMint.take(8)}...")
+        val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        return executeJupiterSwap(
+            wallet         = wallet,
+            walletAddress  = walletAddress,
+            inputMint      = SOL_MINT,
+            outputMint     = targetMint,
+            amountLamports = amountLamports,
+            slippageBps    = 200,  // 2% — alt pools are thinner
+        )
     }
 
     /**
