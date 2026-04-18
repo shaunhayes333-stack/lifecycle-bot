@@ -2132,10 +2132,10 @@ class SolanaMarketScanner(
         // V5.9.20: Minimum liquidity floor — raised from $2k to $10k paper / $25k live.
         // $2k–$5k pools slip too heavily to be tradeable at any real size; trading them
         // produces noise-level P&L that pollutes learning.
-        // V5.9.30: restore user's proven $5k floor (paper+live). Earlier tightening
-        // to $10k/$25k was nuking too many tradeable ops — user feedback "5k was ok".
-        // Offensive/non-ASCII/typosquat filters retain separately above.
-        val minLiqFloor = 5_000.0
+        // V5.9.31: FLUID liq floor — follows learning progress from FluidLearningAI.
+        // Starts wide (\$1.5k bootstrap), tightens to \$8k mature. Bot decides, not us.
+        // User feedback: "everything is meant to be fluid and adaptive!"
+        val minLiqFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getScannerLiqFloor()
         if (token.liquidityUsd > 0 && token.liquidityUsd < minLiqFloor) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq \$${token.liquidityUsd.toInt()} < \$${minLiqFloor.toInt()}")
             return false

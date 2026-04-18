@@ -77,18 +77,21 @@ object ModeSpecificExits {
                 entryScore = ts.position.entryScore.toInt()
             )
             
-            // V5.9.20: Gate runner-extension on ACTUAL momentum.
-            // Previously every position got the full 7020s extension regardless
-            // of how the trade was actually performing, so flat losers (mɔ at 0%
-            // after 26min) were kept alive until max-hold. Now: if we're already
-            // 5 min in and PnL is essentially flat, cap recommendation at 20min.
+            // V5.9.31 FLUID: all three numbers (tolerance, band, cap) now come from
+            // FluidLearningAI. The bot's flat-trade patience shrinks as it learns.
+            //   Bootstrap (0%):   10 min tolerance · |pnl|<2.5% band · 30 min cap
+            //   Mature   (80%):    4 min tolerance · |pnl|<1.0% band · 15 min cap
+            // User feedback: "everything is meant to be fluid and adaptive!"
             val pos = ts.position
             if (pos.isOpen) {
                 val heldMin = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
                 val pnlPct = if (pos.entryPrice > 0) ((ts.ref - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
-                if (heldMin > 5 && kotlin.math.abs(pnlPct) < 1.5) {
-                    ErrorLogger.info(TAG, "⏱ HoldTime capped for ${ts.symbol}: flat ${"%.1f".format(pnlPct)}% after ${heldMin.toInt()}min → max 20min")
-                    return 20
+                val toleranceMin = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeToleranceMin()
+                val bandPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeBandPct()
+                val capMin = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeMaxHoldMin()
+                if (heldMin > toleranceMin && kotlin.math.abs(pnlPct) < bandPct) {
+                    ErrorLogger.info(TAG, "⏱ HoldTime capped for ${ts.symbol}: flat ${"%.1f".format(pnlPct)}% after ${heldMin.toInt()}min → max ${capMin.toInt()}min (fluid)")
+                    return capMin.toInt()
                 }
             }
             

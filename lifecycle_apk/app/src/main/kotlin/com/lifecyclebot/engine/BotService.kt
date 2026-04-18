@@ -5763,13 +5763,13 @@ if (deferredCount > 0) {
     } catch (_: Exception) { 0.0 }
     val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
 
-    // V5.9.20 HARDENED P0 FIX: even paper/bootstrap must never accept edge=SKIP
-    // or conf < 20. Previously paper mode let EVERY signal through "for learning"
-    // which filled the book with zero-conviction garbage (mɔ, 00, XChat at conf=0).
-    // True learning needs *selected* trades, not unfiltered noise.
+    // V5.9.31 FLUID: the bot chooses its own conf floor via FluidLearningAI.
+    // Bootstrap (0%): ~15 — wide open, gather data.
+    // Mature (80%):  ~45 — filter low-conviction noise as winrate data accrues.
+    // This drifts with live performance — no human-set number in the hot path.
     val allowSkipForLearning = false
-    val minBootstrapConf = 20
-    
+    val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
+
     if (edgeVerdictStr == "SKIP" || confValue < minBootstrapConf) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
             "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} (floor=$minBootstrapConf) → SHADOW_ONLY")

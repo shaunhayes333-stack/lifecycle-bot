@@ -963,6 +963,33 @@ object FluidLearningAI {
 
     /** V5.9.8: Never cap TP — if a signal has a higher target, honour it */
     fun getMarketsUncappedTpPct(signalTp: Double): Double = maxOf(signalTp, getMarketsSpotTpPct())
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.31: FLUID SCANNER LIQUIDITY FLOOR
+    // Was hard-coded at \$5k (and previously \$10k paper / \$25k live). User feedback:
+    // "everything is meant to be fluid and adaptive". Scales with learning so the bot
+    // starts wide (catches long-tail fresh launches) and tightens as it matures.
+    //   Bootstrap (0%):   \$1_500  — wide net, gather data
+    //   Mature   (80%):   \$6_000  — filter unproven low-liq noise
+    //   Expert  (100%):   \$8_000  — expert-only selectivity
+    // Post-hook: FluidLearningAI itself mutates learning progress based on realized PnL,
+    // so this floor auto-drifts with winrate.
+    // ═══════════════════════════════════════════════════════════════════════════
+    private const val SCANNER_LIQ_FLOOR_BOOTSTRAP = 1_500.0
+    private const val SCANNER_LIQ_FLOOR_MATURE = 8_000.0
+    fun getScannerLiqFloor(): Double = lerp(SCANNER_LIQ_FLOOR_BOOTSTRAP, SCANNER_LIQ_FLOOR_MATURE)
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.31: FLUID FLAT-TRADE CAP
+    // Was hard-coded: 5 min hold + |pnl|<1.5% → cap at 20min. Now learned.
+    // Bot's flat-trade tolerance shrinks as it gets better at reading momentum.
+    //   Bootstrap (0%):   10 min tolerance, |pnl|<2.5% — patient, still learning
+    //   Mature   (80%):    4 min tolerance, |pnl|<1.0% — impatient, high conviction
+    //   Expert  (100%):    3 min tolerance, |pnl|<0.75% — expert cuts noise fast
+    // ═══════════════════════════════════════════════════════════════════════════
+    fun getFlatTradeToleranceMin(): Double = lerp(10.0, 3.0)
+    fun getFlatTradeBandPct(): Double = lerp(2.5, 0.75)
+    fun getFlatTradeMaxHoldMin(): Double = lerp(30.0, 15.0)
     
     /** Get fluid stop loss target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsStopLossPct(): Double = lerpMarkets(MARKETS_SL_BOOTSTRAP, MARKETS_SL_MATURE)
