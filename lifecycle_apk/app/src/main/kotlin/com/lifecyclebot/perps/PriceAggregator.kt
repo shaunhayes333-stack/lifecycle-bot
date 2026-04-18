@@ -220,15 +220,19 @@ object PriceAggregator {
     private fun getSourcesForType(type: AssetType): List<DataSource> {
         return when (type) {
             AssetType.CRYPTO -> listOf(
-                DataSource.PYTH,
-                DataSource.JUPITER,
-                DataSource.COINGECKO,
+                // V5.9.23: DEX / exchanges FIRST — they cover thousands of tokens.
+                // Pyth only covers ~200 blue-chips and shouldn't gate coverage for
+                // the long tail. Pyth is demoted to a late oracle-sanity source.
+                // User feedback: "pyth is only the first. its not the voice of truth"
                 DataSource.BINANCE,
-                DataSource.COINBASE,
-                DataSource.BIRDEYE,
+                DataSource.JUPITER,
                 DataSource.DEXSCREENER,
+                DataSource.BIRDEYE,
+                DataSource.COINBASE,
+                DataSource.COINGECKO,
                 DataSource.KRAKEN,
-                DataSource.SWITCHBOARD
+                DataSource.PYTH,           // late: oracle sanity for majors only
+                DataSource.SWITCHBOARD     // last resort
             )
             AssetType.STOCK, AssetType.ETF -> listOf(
                 // V5.9.5: Yahoo first — it returns REAL 24h % change. On-chain sources

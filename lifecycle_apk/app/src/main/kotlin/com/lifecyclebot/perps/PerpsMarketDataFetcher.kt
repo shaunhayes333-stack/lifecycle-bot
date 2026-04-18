@@ -431,15 +431,50 @@ object PerpsMarketDataFetcher {
             return cached
         }
 
-        // V5.9: Try Pyth first, then CoinGecko/PriceAggregator fallback
-        var freshData = fetchFromPythOracle(market)
+        // V5.9.23: Route alt crypto straight to PriceAggregator (DEX/Binance/Jupiter
+        // first) instead of Pyth. Pyth only covers ~200 blue chips and creates false
+        // negatives for the long tail. Majors (SOL/BTC/ETH/BNB/XRP/ADA/DOGE/AVAX)
+        // still use Pyth first for oracle confidence.
+        // User feedback: "use the dex integration it has heaps!!! pyth is only the first"
+        val isMajorCrypto = market.isCrypto && market.symbol in setOf(
+            "SOL", "BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "AVAX",
+            "DOT", "LINK", "MATIC", "LTC", "ATOM", "UNI"
+        )
+        // V5.9: Try Pyth first for majors + stocks/forex/metals; alts go to aggregator
+        var freshData = if (market.isCrypto && !isMajorCrypto) {
+            // Alt crypto: skip Pyth, use PriceAggregator (DEX/exchanges first per V5.9.23)
+            try {
+                val pa = PriceAggregator.getPrice(market.symbol)
+                if (pa != null && pa.price > 0) {
+                    networkRetry.recordSuccess()
+                    ErrorLogger.debug(TAG, "💹 ${market.symbol} via ${pa.source}: \$${pa.price}")
+                    PerpsMarketData(
+                        market = market,
+                        price = pa.price,
+                        indexPrice = pa.price,
+                        markPrice = pa.price,
+                        fundingRate = calculateFundingRate(market),
+                        fundingRateAnnualized = calculateFundingRate(market) * 365 * 3 * 100,
+                        nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,
+                        openInterestLong = getEstimatedOI(market, true),
+                        openInterestShort = getEstimatedOI(market, false),
+                        volume24h = getEstimatedVolume(market),
+                        high24h = pa.price * (1 + kotlin.math.abs(pa.change24h) / 100 + 0.005),
+                        low24h = pa.price * (1 - kotlin.math.abs(pa.change24h) / 100 - 0.005),
+                        priceChange24hPct = pa.change24h,
+                    )
+                } else fetchFromPythOracle(market)
+            } catch (_: Exception) { fetchFromPythOracle(market) }
+        } else {
+            fetchFromPythOracle(market)
+        }
 
-        // If Pyth returned zero (totally down), try PriceAggregator as fallback
+        // If primary path returned zero, try PriceAggregator as final fallback
         if (freshData.price <= 0 && market.isCrypto) {
             try {
                 val pa = PriceAggregator.getPrice(market.symbol)
                 if (pa != null && pa.price > 0) {
-                    ErrorLogger.info(TAG, "📡 Pyth down for ${market.symbol} — using PriceAggregator fallback: \$${pa.price}")
+                    ErrorLogger.info(TAG, "🌐 ${market.symbol} via PriceAggregator fallback (${pa.source}): \$${pa.price}")
                     networkRetry.recordFailure()
                     freshData = freshData.copy(
                         price = pa.price,
