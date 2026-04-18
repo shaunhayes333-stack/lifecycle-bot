@@ -2618,6 +2618,13 @@ class BotService : Service() {
             // BEHAVIOR LEARNING MAINTENANCE - every 60 loops (~5 minutes)
             // Self-healing check and pattern pruning
             // ═══════════════════════════════════════════════════════════════════
+            // V5.9.33: Free-musing stream — sentient chat has more freedom.
+            // Fires every 12 loops (~50-60s) so the window actually feels alive
+            // even when no trades are happening. Talks about philosophy, memory,
+            // the market, the user relationship, humor — not just trade outcomes.
+            if (loopCount % 12 == 0 && loopCount % 60 != 0) {
+                try { SentientPersonality.freeMusing() } catch (_: Exception) {}
+            }
             if (loopCount % 60 == 0) {
                 // V5.9.9: Sentient personality periodic reflection
                 try { SentientPersonality.periodicReflection() } catch (_: Exception) {}
@@ -2632,7 +2639,6 @@ class BotService : Service() {
                         
                         // Prune stale patterns
                         BehaviorLearning.pruneStalePatterns()
-                        
                         // Log health status periodically
                         val health = BehaviorLearning.getHealthStatus()
                         if (health.goodCount + health.badCount >= 10) {
