@@ -40,6 +40,31 @@ class AATEApp : Application() {
         } catch (e: Exception) {
             ErrorLogger.error("App", "SymbolicContext init failed: ${e.message}", e)
         }
+
+        // V5.9.19: AUTO-RECOVERY from paper-wallet inflation bug (V5.9.18 regression).
+        // If a user's persisted paper wallet is absurdly high (> 10000 SOL) we reset
+        // it to the default 11.76 SOL on boot. Without this, the inflated state
+        // triggers hundreds of oversized positions and long startup hangs/black
+        // screens on relaunch. Learning state is preserved; only cash resets.
+        try {
+            val paperPrefs = getSharedPreferences("bot_paper_wallet", MODE_PRIVATE)
+            val persistedSol = paperPrefs.getFloat("paper_wallet_sol", 11.7647f).toDouble()
+            if (persistedSol > 10_000.0) {
+                val freshSol = 11.7647f
+                paperPrefs.edit().putFloat("paper_wallet_sol", freshSol).apply()
+                ErrorLogger.warn("App",
+                    "🧯 Paper wallet auto-reset: was ${"%.2f".format(persistedSol)} SOL " +
+                    "(inflated by pre-V5.9.18 bug) → reset to $freshSol SOL. Learning preserved.")
+                // Also wipe the fluid learning simulated balance so it doesn't re-inflate.
+                try { getSharedPreferences("fluid_learning", MODE_PRIVATE)
+                    .edit().remove("simulatedBalanceSol").remove("simulatedPeakSol").apply() } catch (_: Exception) {}
+                // And clear any persisted positions (they reference the inflated wallet).
+                try { getSharedPreferences("position_persistence_v1", MODE_PRIVATE)
+                    .edit().clear().apply() } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "Paper wallet recovery check failed: ${e.message}", e)
+        }
         
         // Set up global uncaught exception handler
         setupCrashHandler()

@@ -74,9 +74,13 @@ object SymbolicContext {
         }
     }
 
-    /** Persist symbolic state to disk. */
+    /** Persist symbolic state to disk. Throttled to max 1 write per 10 s. */
+    @Volatile private var lastSaveTs = 0L
     fun save() {
         if (bypassMode) return
+        val now = System.currentTimeMillis()
+        if (now - lastSaveTs < 10_000L) return  // V5.9.19: throttle, don't spam prefs
+        lastSaveTs = now
         try {
             val p = prefs(appContext) ?: return
             p.edit()
@@ -94,6 +98,7 @@ object SymbolicContext {
 
     /**
      * Refresh all signals — called from BotService every scan cycle.
+     * V5.9.19: Throttled to max 1 full refresh per 2 s; cheaper callers hit the cache.
      */
     fun refresh(symbol: String = "", mint: String = "") {
         // V5.9.14: Bypass = freeze to neutral baseline (for A/B testing)
@@ -107,9 +112,15 @@ object SymbolicContext {
             lastRefresh       = System.currentTimeMillis()
             return
         }
+        // V5.9.19: Skip recompute if we refreshed less than 2 s ago — FDG.evaluate()
+        // runs per candidate (32+/loop) and the 16 subsystems underneath were being
+        // queried hundreds of times per second, contributing to app-boot black-screen
+        // hangs after the paper-wallet inflation storm.
+        val now = System.currentTimeMillis()
+        if (now - lastRefresh < 2_000L) return
         try {
             signals = SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
-            lastRefresh = System.currentTimeMillis()
+            lastRefresh = now
 
             // Derive composite scores from raw signals
             val trustAvg = signals["StrategyTrust"] ?: 0.5
