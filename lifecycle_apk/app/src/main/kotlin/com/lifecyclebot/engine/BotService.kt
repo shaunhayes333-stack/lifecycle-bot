@@ -1985,6 +1985,18 @@ class BotService : Service() {
         // It will keep tracking market data and learning from opportunities.
         // ═══════════════════════════════════════════════════════════════════
         
+        // V5.9.40: Clear the "was running" flag FIRST (before stopForeground/stopSelf)
+        // and use .commit() synchronously. Previously this happened AFTER stopSelf()
+        // and used .apply(), meaning a fast process-kill could drop the write and
+        // leave the flag set — on next app open AATEApp would see wasRunning=true
+        // and silently re-schedule the watchdog, which would auto-restart the bot.
+        try {
+            getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("was_running_before_shutdown", false).commit()
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Failed to clear was_running flag: ${e.message}", e)
+        }
+
         // REMOVED: walletManager.disconnect() 
         // Wallet should ONLY disconnect when user explicitly requests it
         // This allows wallet to stay connected when:
@@ -1993,8 +2005,6 @@ class BotService : Service() {
         // - App crashes and restarts
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-            .edit().putBoolean("was_running_before_shutdown", false).apply()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
         

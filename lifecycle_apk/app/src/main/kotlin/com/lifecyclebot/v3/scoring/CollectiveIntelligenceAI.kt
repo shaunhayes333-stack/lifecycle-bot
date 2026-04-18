@@ -783,8 +783,16 @@ object CollectiveIntelligenceAI {
     /**
      * V4.0: Refresh network signals from other bots.
      * These are hot tokens that other bots have broadcast.
+     *
+     * V5.9.40: Gated behind BotService.status.running. Network signals
+     * are trading-side telemetry and must not fire, log, or update the
+     * shared cache while the user has the bot stopped.
      */
     private suspend fun refreshNetworkSignals() {
+        if (!com.lifecyclebot.engine.BotService.status.running) {
+            ErrorLogger.debug(TAG, "Skipping network signal refresh — bot not running")
+            return
+        }
         try {
             val signals = CollectiveLearning.getNetworkSignals(50)
             
