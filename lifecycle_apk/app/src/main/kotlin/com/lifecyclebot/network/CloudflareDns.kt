@@ -122,7 +122,8 @@ class CloudflareDns private constructor() : Dns {
             try {
                 log("🔥 Warming up Jupiter DNS...")
                 lookup("api.jup.ag")
-                lookup("quote-api.jup.ag")
+                // V5.9.28: migrated from quote-api.jup.ag (DNS failing everywhere, host being retired)
+                lookup("lite-api.jup.ag")
                 log("🔥 Jupiter DNS warmed up!")
             } catch (e: Exception) {
                 log("⚠️ DNS warmup failed: ${e.message}")

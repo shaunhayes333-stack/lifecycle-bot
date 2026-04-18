@@ -933,11 +933,30 @@ object PerpsMarketDataFetcher {
             )
         }
         
-        // Last resort: Use cached price
-        val price = stockPrices[market.symbol] ?: run {
-            ErrorLogger.warn(TAG, "⚠️ ALL SOURCES FAILED for ${market.symbol}")
-            100.0
+        // V5.9.28 FIX: when ALL sources fail, return price=0 so downstream gates skip.
+        // Previously defaulted to $100 which produced bogus signals (e.g. BABYDOGE at $100
+        // while real price is ~$0.0000000009) and risked catastrophic live fills.
+        val cachedPrice = stockPrices[market.symbol]
+        if (cachedPrice == null) {
+            ErrorLogger.warn(TAG, "⚠️ ALL SOURCES FAILED for ${market.symbol} — returning price=0 (no cached fallback)")
+            priceSourceCache[market.symbol] = "DEAD"
+            return@withContext PerpsMarketData(
+                market = market,
+                price = 0.0,
+                indexPrice = 0.0,
+                markPrice = 0.0,
+                fundingRate = 0.0,
+                fundingRateAnnualized = 0.0,
+                nextFundingTime = 0,
+                openInterestLong = 0.0,
+                openInterestShort = 0.0,
+                volume24h = 0.0,
+                high24h = 0.0,
+                low24h = 0.0,
+                priceChange24hPct = 0.0,
+            )
         }
+        val price = cachedPrice
         priceSourceCache[market.symbol] = "CACHED"
         
         return@withContext PerpsMarketData(

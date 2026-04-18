@@ -45,7 +45,12 @@ class JupiterApi(private val apiKey: String = "") {
 
         private const val TAG = "JupiterApi"
 
-        private const val BASE_V6 = "https://quote-api.jup.ag/v6"
+        // V5.9.28 (live-trading fix): migrated from dead quote-api.jup.ag/v6.
+        // User logs showed 'Unable to resolve host quote-api.jup.ag' across Cloudflare,
+        // Google, Quad9, and system DNS — Jupiter is retiring that host before Jan 31 2026.
+        // New free tier endpoint (no API key) is lite-api.jup.ag/swap/v1.
+        // Paths /quote and /swap stay the same.
+        private const val BASE_V6 = "https://lite-api.jup.ag/swap/v1"
         private const val BASE_URL = "https://api.jup.ag"
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
