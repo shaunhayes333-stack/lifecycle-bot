@@ -413,7 +413,17 @@ class BotService : Service() {
                     scheduleKeepAliveAlarm()
                 }
             }
-            ACTION_STOP  -> stopBot()
+            ACTION_STOP  -> {
+                // V5.9.42: Clear the "was running" flag IMMEDIATELY on the main
+                // thread (.apply is non-blocking — just queues to the prefs
+                // writer thread). Then run the heavy stopBot() work on the
+                // background scope so we never ANR the main thread during stop.
+                try {
+                    getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
+                        .edit().putBoolean("was_running_before_shutdown", false).apply()
+                } catch (_: Exception) {}
+                scope.launch { stopBot() }
+            }
         }
         return START_STICKY
     }
@@ -1985,14 +1995,19 @@ class BotService : Service() {
         // It will keep tracking market data and learning from opportunities.
         // ═══════════════════════════════════════════════════════════════════
         
-        // V5.9.40: Clear the "was running" flag FIRST (before stopForeground/stopSelf)
-        // and use .commit() synchronously. Previously this happened AFTER stopSelf()
-        // and used .apply(), meaning a fast process-kill could drop the write and
-        // leave the flag set — on next app open AATEApp would see wasRunning=true
-        // and silently re-schedule the watchdog, which would auto-restart the bot.
+        // V5.9.40/42: Clear the "was running" flag FIRST (before stopForeground/stopSelf).
+        // Previously this happened AFTER stopSelf() so a fast process-kill dropped
+        // the write and AATEApp saw stale wasRunning=true on next launch → silent
+        // auto-restart.
+        //
+        // V5.9.42: Use .apply() (async) not .commit() — .commit() does sync disk IO
+        // on the main thread and triggered an ANR on stop. Because the write is
+        // queued BEFORE all the heavy shutdown work (TreasuryManager.save, trader
+        // closeAll, stopForeground/stopSelf), SharedPreferences has plenty of time
+        // to flush before the process dies.
         try {
             getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("was_running_before_shutdown", false).commit()
+                .edit().putBoolean("was_running_before_shutdown", false).apply()
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to clear was_running flag: ${e.message}", e)
         }
