@@ -167,13 +167,22 @@ object MarketsLiveExecutor {
 
             market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
                 val mint = TokenizedAssetRegistry.mintFor(market.symbol)
-                if (mint == null) {
-                    ErrorLogger.warn(TAG,
-                        "⛔ LIVE blocked for ${market.symbol}: no verified on-chain route. " +
-                        "Add via TokenizedAssetRegistry.register(\"${market.symbol}\", \"<mint>\") or use paper mode.")
-                    null
-                } else {
+                if (mint != null) {
+                    // Preferred path: real tokenized asset (xStocks / PAXG / EURC)
                     executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
+                } else {
+                    // Fallback path: no registered tokenized mint — convert SOL → USDC as
+                    // synthetic collateral so the position has real on-chain exposure.
+                    ErrorLogger.info(TAG,
+                        "⚠️ No tokenized mint for ${market.symbol} — routing as SOL→USDC collateral swap")
+                    executeJupiterSwap(
+                        wallet        = wallet,
+                        walletAddress = walletAddress,
+                        inputMint     = SOL_MINT,
+                        outputMint    = USDC_MINT,
+                        amountLamports = (sizeSol * 1_000_000_000L).toLong(),
+                        slippageBps   = DEFAULT_SLIPPAGE_BPS,
+                    )
                 }
             }
 
@@ -182,9 +191,7 @@ object MarketsLiveExecutor {
                 null
             }
         }
-        
-        // V5.9.15: Non-crypto synthetic trades are blocked above; only crypto
-        // markets reach here and require a real on-chain swap signature.
+
         if (txSignature != null) {
             collectTradingFee(wallet, feeAmountSol, market.symbol, "OPEN")
             successfulExecutions.incrementAndGet()

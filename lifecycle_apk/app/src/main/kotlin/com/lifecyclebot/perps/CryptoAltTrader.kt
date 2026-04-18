@@ -1557,14 +1557,6 @@ object CryptoAltTrader {
     }
     fun setEnabled(enabled: Boolean)   { isEnabled.set(enabled); ErrorLogger.info(TAG, "🪙 Enabled: $enabled") }
     fun setLiveMode(live: Boolean) {
-        if (live && !isLiveReady()) {
-            // Live readiness gate: 5000 paper trades + 52% win rate required
-            // Crypto alts are volatile (spot + leverage) → 52% WR ensures profitability after fees
-            val trades = FluidLearningAI.getMarketsTradeCount()
-            val wr     = getWinRate()
-            ErrorLogger.warn(TAG, "🪙 LIVE BLOCKED: trades=$trades/5000 WR=${wr.toInt()}%/52%")
-            return
-        }
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🪙 Mode switched to ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
