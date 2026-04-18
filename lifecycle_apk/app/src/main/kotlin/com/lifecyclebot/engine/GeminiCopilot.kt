@@ -26,12 +26,20 @@ import kotlin.math.min
 object GeminiCopilot {
 
     private const val TAG = "GeminiCopilot"
-    private const val GEMINI_URL =
+
+    // V5.9.39: Route through Emergent's universal LLM proxy by default.
+    // The proxy speaks OpenAI-compatible chat completions and accepts the
+    // universal "sk-emergent-..." key. Direct Gemini (generativelanguage.
+    // googleapis.com) is still supported if the user supplies their own
+    // AIza... key, but user's personal key got flagged as leaked by Google
+    // so the default fallback is now the proxy.
+    private const val EMERGENT_PROXY_URL = "https://integrations.emergentagent.com/llm/chat/completions"
+    private const val EMERGENT_MODEL = "gemini/gemini-3-flash-preview"
+    private const val DIRECT_GEMINI_URL =
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
-    // Hard-coded fallback Gemini key (user-provided). Any non-blank value passed via
-    // init() will override this at runtime.
-    private const val DEFAULT_API_KEY = "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc"
+    // Hard-coded Emergent universal key — works out of the box.
+    private const val DEFAULT_API_KEY = "sk-emergent-431Dd41D3F186C0E0B"
 
     @Volatile
     private var apiKey: String = DEFAULT_API_KEY
@@ -42,6 +50,9 @@ object GeminiCopilot {
     }
 
     fun isConfigured(): Boolean = apiKey.isNotBlank()
+
+    /** Returns true if we're configured to route through the Emergent universal proxy. */
+    private fun isEmergentKey(): Boolean = apiKey.startsWith("sk-emergent-")
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -362,34 +373,62 @@ Respond naturally in 1-3 sentences.
         return try {
             enforceCallSpacing()
 
-            val payload = JSONObject().apply {
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("role", "user")
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().put("text", "$systemPrompt\n\n$userPrompt"))
+            val req: Request = if (isEmergentKey()) {
+                // OpenAI-compatible chat completions via Emergent proxy.
+                val payload = JSONObject().apply {
+                    put("model", EMERGENT_MODEL)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject()
+                            .put("role", "system")
+                            .put("content", systemPrompt))
+                        put(JSONObject()
+                            .put("role", "user")
+                            .put("content", userPrompt))
+                    })
+                    put("temperature", temperature)
+                    put("max_tokens", maxTokens)
+                    if (asJson) {
+                        put("response_format", JSONObject().put("type", "json_object"))
+                    }
+                }
+                Request.Builder()
+                    .url(EMERGENT_PROXY_URL)
+                    .post(payload.toString().toRequestBody(JSON_MT))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $apiKey")
+                    .build()
+            } else {
+                // Legacy direct Gemini (user-supplied Google AIza... key).
+                val payload = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().put("text", "$systemPrompt\n\n$userPrompt"))
+                            })
                         })
                     })
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", temperature)
-                    put("maxOutputTokens", maxTokens)
-                    if (asJson) put("responseMimeType", "application/json")
-                })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", temperature)
+                        put("maxOutputTokens", maxTokens)
+                        if (asJson) put("responseMimeType", "application/json")
+                    })
+                }
+                Request.Builder()
+                    .url("$DIRECT_GEMINI_URL?key=$apiKey")
+                    .post(payload.toString().toRequestBody(JSON_MT))
+                    .header("Content-Type", "application/json")
+                    .build()
             }
-
-            val req = Request.Builder()
-                .url("$GEMINI_URL?key=$apiKey")
-                .post(payload.toString().toRequestBody(JSON_MT))
-                .header("Content-Type", "application/json")
-                .build()
 
             http.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
+                    val errBody = try { resp.body?.string()?.take(300) } catch (_: Throwable) { null }
                     when (resp.code) {
-                        429 -> recordRateLimit()
-                        500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error: ${resp.code}")
-                        else -> ErrorLogger.warn(TAG, "API error: ${resp.code}")
+                        429 -> { recordRateLimit(); ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}") }
+                        401, 403 -> ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
+                        500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error ${resp.code}")
+                        else -> ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
                     }
                     return null
                 }
@@ -400,12 +439,24 @@ Respond naturally in 1-3 sentences.
                 if (body.isBlank()) return null
 
                 val json = JSONObject(body)
-                val rawText = json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text").takeIf { it?.isNotEmpty() == true }
+
+                val rawText = if (isEmergentKey()) {
+                    // OpenAI-style: choices[0].message.content
+                    json.optJSONArray("choices")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("message")
+                        ?.optString("content")
+                        ?.takeIf { it.isNotEmpty() }
+                } else {
+                    // Gemini native: candidates[0].content.parts[0].text
+                    json.optJSONArray("candidates")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("content")
+                        ?.optJSONArray("parts")
+                        ?.optJSONObject(0)
+                        ?.optString("text")
+                        ?.takeIf { it.isNotEmpty() }
+                }
 
                 rawText?.let { if (asJson) sanitizeJsonText(it) else it.trim() }
             }

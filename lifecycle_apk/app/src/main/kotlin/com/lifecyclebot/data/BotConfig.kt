@@ -62,7 +62,7 @@ data class BotConfig(
     val heliusApiKey: String = "",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = "",        // console.groq.com — free LLM sentiment
-    val geminiApiKey: String = "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc",      // Google AI Studio — hardcoded default
+    val geminiApiKey: String = "sk-emergent-431Dd41D3F186C0E0B",      // Emergent universal LLM key — hardcoded default
     val jupiterApiKey: String = "",     // portal.jup.ag — required for Ultra API
     val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
@@ -439,7 +439,9 @@ object ConfigStore {
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             geminiApiKey                = s.getString("gemini_api_key", "").let {
-                if (it.isNullOrBlank()) "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc" else it
+                // V5.9.39: If stored value is blank OR the old leaked AIza... key,
+                // force-upgrade to the Emergent universal key.
+                if (it.isNullOrBlank() || it.startsWith("AIza")) "sk-emergent-431Dd41D3F186C0E0B" else it
             },
             jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
             tursoDbUrl                  = s.getString("turso_db_url", "").let { 

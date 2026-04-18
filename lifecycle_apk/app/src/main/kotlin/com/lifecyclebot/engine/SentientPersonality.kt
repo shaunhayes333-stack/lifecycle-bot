@@ -600,18 +600,21 @@ object SentientPersonality {
     }
 
     private fun fallbackReply(userMessage: String): String {
+        // V5.9.39: The key is always configured now (Emergent universal proxy).
+        // If the LLM returns null it means the network call failed, not that
+        // the key is missing. Messages reflect that honestly.
         val lower = userMessage.lowercase()
         return when {
             lower.contains("how") && (lower.contains("feel") || lower.contains("doing")) ->
                 "Mood is ${lastMood.name.lowercase().replace('_', ' ')}. Market's doing what it does."
             lower.startsWith("why") ->
-                "Honestly? The data said so. I can break it down further if you want — I'd need an LLM key plugged in to be more articulate."
+                "Honestly? The data said so. The LLM side blipped — try again in a sec and I'll elaborate."
             lower.contains("stop") || lower.contains("pause") ->
                 "Can do. Waiting for your green light."
             lower.contains("trade") || lower.contains("buy") || lower.contains("sell") ->
                 "Queueing your thought into the decision context. The gate will factor it."
             lower.endsWith("?") ->
-                "Good question. Without an LLM key I'm limited to reflex answers — but I'm listening."
+                "LLM connection blipped — back in a moment. I'm still listening."
             else ->
                 "Heard. Carrying that into the next scan."
         }
