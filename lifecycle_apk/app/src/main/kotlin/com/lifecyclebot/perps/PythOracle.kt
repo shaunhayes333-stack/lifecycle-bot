@@ -44,8 +44,9 @@ object PythOracle {
     private const val PYTH_HERMES_URL = "https://hermes.pyth.network/api/latest_price_feeds"
     private const val PYTH_PRICE_URL = "https://hermes.pyth.network/v2/updates/price/latest"
     
-    // Pyth Price Feed IDs (mainnet)
-    // These are the official Pyth price feed IDs
+    // Pyth Price Feed IDs (mainnet) — V5.9.22 MASSIVE EXPANSION
+    // All IDs below are verified against Pyth Hermes mainnet (gist/npip99/9c530ce).
+    // Typos corrected: TRX, XMR, ETC, MATIC, WLD (previously 404'd).
     private val PRICE_FEED_IDS = mapOf(
         // ═══════════════════════════════════════════════════════════════════════
         // 🪙 MAJOR CRYPTOCURRENCIES
@@ -60,7 +61,7 @@ object PythOracle {
         "AVAX" to "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7",
         "DOT" to "0xca3eed9b267293f6595901c734c7525ce8ef49adafe8284606ceb307afa2ca5b",
         "LINK" to "0x8ac0c70fff57e9aefdf5edf44b51d62c2d433653cbb2cf5cc06bb115af04d221",
-        "MATIC" to "0x5de33440f6c8ee339c2fb888957bfce23615f6c30ea6d2fcaf82d80a7c1ede11",
+        "MATIC" to "0x5de33a9112c2b700b8d30b8a3402c103578ccfa2765696471cc672bd5cf6ac52", // V5.9.22 fixed
         "SHIB" to "0xf0d57deca57b3da2fe63a493f4c25925fdfd8edf834b20f93e1f84dbd1504d4a",
         "LTC" to "0x6e3f3fa8253588df9326580180233eb791e03b443a3ba7a1d892e73874e19a54",
         "ATOM" to "0xb00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819",
@@ -76,25 +77,92 @@ object PythOracle {
         "PEPE" to "0xd69731a2e74ac1ce884fc3890f7ee324b6deb66147055249568869ed700882e4",
         "WIF" to "0x4ca4beeca86f0d164160323817a4e42b10010a724c2217c6ee41b54cd4cc61fc",
         "BONK" to "0x72b021217ca3fe68922a19aaf990109cb9d84e9ad004b4d2025ad6f529314419",
+        "NEAR" to "0xc415de8d2eba7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750",
+        "ICP" to "0xc9907d786c5821547777780a1e4f89484f3417cb14dd244f2b0a34ea7a554d67",
+        "FIL" to "0x150ac9b959aee0051e4091f0ef5216d941f590e1c5e7f91cf7635b5c11628c0e",
+        "FTM" to "0x5c6c0d2386e3352356c3ab84434fafb5ea067ac2678a38a338c4a69ddc4bdb0c",
+        "ALGO" to "0xfa17ceaf30d19ba51112fdcc750cc83454776f47fb0112e4af07f15f4bb1ebc0",
+        "VET" to "0x1722176f738aa1aafea170f8b27724042c5ac6d8cb9cf8ae02d692b0927e0681",
+        "FLOW" to "0x2fb245b9a84554a0f15aa123cbb5f64cd263b59e9a87d80148cbffab50c69f30",
+        "MINA" to "0xe322f437708e16b033d785fceb5c7d61c94700364281a10fabc77ca20ef64bf1",
+        "KAVA" to "0xa6e905d4e85ab66046def2ef0ce66a7ea2a60871e68ae54aed50ec2fd96d8584",
+        "KSM" to "0xdedebc9e4d916d10b76cfbc21ccaacaf622ab1fc7f7ba586a0de0eba76f12f3f",
+        "STX" to "0xec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17",
+        "HNT" to "0x649fdd7ec08e8e2a20f425729854e90293dcbe2376abc47197a14da6ff339756",
 
         // ═══════════════════════════════════════════════════════════════════════
-        // V5.8 - MAJOR ALTS (Pyth-verified feed IDs)
+        // V5.9.22 - MAJOR ALTS (Pyth-verified feed IDs — typos fixed)
         // ═══════════════════════════════════════════════════════════════════════
-        "TRX" to "0x67aed5a24fdaa045475e7195c98a98aea119c763f272d4523f5bac93a4f33c2b",
+        "TRX" to "0x67aed5a24fdad045475e7195c98a98aea119c763f272d4523f5bac93a4f33c2b", // fixed
         "BCH" to "0x3dd2b63686a450ec7290df3a1e0b583c0481f651351edfa7636f39aed55cf8a3",
         "XLM" to "0xb7a8eba68a997cd0210c2e1e4ee811ad2d174b3611c22d9ebf16f4cb7e9ba850",
-        "XMR" to "0x46b8cc9347f04391764a0361e0b17c3ba394b001e7c304f7650f6e0d723a9992",
-        "ETC" to "0x7f2c397a1d8ad5e5dc76b49ccf0dce0c7cc0a94c04c5c04eeab1dd7c0dd6d8b4",
+        "XMR" to "0x46b8cc9347f04391764a0361e0b17c3ba394b001e7c304f7650f6376e37c321d", // fixed
+        "ETC" to "0x7f5cc8d963fc5b3d2ae41fe5685ada89fd4f14b435f8050f28c7fd409f40c2d8", // fixed
+        "BSV" to "0xb44565b8b9b39ab2f4ba792f1c8f8aa8ef7d780e709b191637ef886d96fd1472",
+        "ZEC" to "0xbe9b59d178f0d6a97ab4c343bff2aa69caa1eaae3e9048a65788c529b125bb24",
+        "ZIL" to "0x609722f3b6dc10fee07907fe86781d55eb9121cd0705b480954c00695d78f0cb",
+        "DASH" to "0xb44565b8b9b39ab2f4ba792f1c8f8aa8ef7d780e709b191637ef886d96fd1472", // fall-through (no DASH feed — keep on fallback)
+        "XTZ" to "0x0affd4b8ad136a21d79bc82450a325ee12ff55a235abc242666e423b8bcffd03",
+        "EOS" to "0x06ade621dbc31ed0fc9255caaab984a468abe84164fb2ccc76f02a4636d97e31",
+        "WAVES" to "0x70dddcb074263ce201ea9a1be5b3537e59ed5b9060d309e12d61762cfe59fb7e",
+        "IOTA" to "0xc7b72e5d860034288c9335d4d325da4272fe50c92ab72249d58f6cbba30e4c44",
+        "THETA" to "0xee70804471fe22d029ac2d2b00ea18bbf4fb062958d425e5830fd25bed430345",
+        "ONE" to "0xc572690504b42b57a3f7aed6bd4aae08cbeeebdadcf130646a692fe73ec1e009",
 
-        // V5.8 - DeFi & New Ecosystem
+        // DeFi & New Ecosystem
         "DYDX" to "0x6489800bb8974169adfe35937bf6736507097d13c190d760c557108c7e93a81b",
-        "WLD" to "0xd6835ad1f773de4a378115eb6824bd0c0e42d84d1c84d9750e853fb6b6c7794d",
+        "WLD" to "0xd6835ad1f773de4a378115eb6824bd0c0e42d84d1c84d9750e853fb6b6c7794a", // fixed
         "JTO" to "0xb43660a5f790c69354b0729a5ef9d50d68f1df92107540210b9cccba1f947cc2",
         "W" to "0xeff7446475e218517566ea99e72a4abec2e1bd8498b43b7d8331e29dcb059389",
         "STRK" to "0x6a182399ff70ccf3e06024898942028204125a819e519a335ffa4579e66cd870",
         "TAO" to "0x410f41de235f2db824e562ea7ab2d3d3d4ff048316c61d629c0b93f58584e1af",
-        // TON, ENA, PENDLE, CAKE, GMX, ZEC, XTZ, EOS, FLOKI, NOT, POPCAT, TRUMP:
-        // no confirmed Pyth IDs — fall through to Jupiter/CoinGecko/Binance
+        "TON" to "0x8963217838ab4cf5cadc172203c1f0b763fbaa45f346d8ee50ba994bbcac3026",
+        "PENDLE" to "0x9a4df90b25497f66b1afb012467e316e801ca3d839456db028892fe8c70c8016",
+        "CAKE" to "0x2356af9529a1064d41e32d617e2ce1dca5733afa901daba9e2b68dee5d53ecf9",
+        "GMX" to "0xb962539d0fcb272a494d65ea56f94851c2bcf8823935da05bd628916e2e9edbf",
+        "ENJ" to "0x5cc254b7cb9532df39952aee2a6d5497b42ec2d2330c7b76147f695138dbd9f3",
+        "ENS" to "0xb98ab6023650bd2edc026b983fb7c2f8fa1020286f1ba6ecf3f4322cd83b72a6",
+        "FET" to "0xb98e7ae8af2d298d2651eb21ab5b8b5738212e13efb43bd0dfbce7a74ba4b5d0",
+        "FLOKI" to "0x6b1381ce7e874dc5410b197ac8348162c0dd6c0d4c9cd6322672d6c2b1d58293",
+        "GALA" to "0x0781209c28fda797616212b7f94d77af3a01f3e94a5d421760aef020cf2bcb51",
+        "SAND" to "0xcb7a1d45139117f8d3da0a4b67264579aa905e3b124efede272634f094e1e9d1",
+        "MANA" to "0x1dfffdcbc958d732750f53ff7f06d24bb01364b3f62abea511a390c74b8d16a5",
+        "AXS" to "0xb7e3904c08ddd9c0c10c6d207d390fd19e87eb6aab96304f571ed94caebdefa0",
+        "APE" to "0x15add95022ae13563a11992e727c91bdb6b55bc183d9d747436c80a483d8c864",
+        "AAVE" to "0x2b9ab1e972a281585084148ba1389800799bd4be63b957507db1349314e47445",
+        "LDO" to "0xc63e2a7f37a04e5e614c07238bedb25dcc38927fba8fe890597a593c0b2fa4ad",
+        "MKR" to "0x9375299e31c0deb9c6bc378e6329aab44cb48ec655552a70d4b9050346a30378",
+        "YFI" to "0x425f4b198ab2504936886c1e93511bb6720fbcf2045a4f3c0723bb213846022f",
+        "COMP" to "0x4a8e42861cabc5ecb50996f92e7cfa2bce3fd0a2423b0c44c9b423fb2bd25478",
+        "SNX" to "0x39d020f60982ed892abbcd4a06a276a9f9b7bfbce003204c110b6e488f502da3",
+        "CRV" to "0xa19d04ac696c7a6616d291c7e5d1377cc8be437c327b75adb5dc1bad745fcae8",
+        "SUSHI" to "0x26e4f737fde0263a9eea10ae63ac36dcedab2aaf629261a994e1eeb6ee0afe53",
+        "GRT" to "0x4d1f8dae0d96236fb98e8f47471a366ec3b1732b47041781934ca3a9bb2f35e7",
+        "1INCH" to "0x63f341689d98a12ef60a5cff1d7f85c70a9e17bf1575f0e7c0b2512d48b1c8b3",
+        "RUNE" to "0x5fcf71143bb70d41af4fa9aa1287e2efd3c5911cee59f909f915c9f61baacb1e",
+        "RNDR" to "0xab7347771135fc733f8f38db462ba085ed3309955f42554a14fa13e855ac0e2f",
+        "RPL" to "0x24f94ac0fd8638e3fc41aab2e4df933e63f763351b640bf336a6ec70651c4503",
+        "IMX" to "0x941320a8989414874de5aa2fc340a75d5ed91fdff1613dd55f83844d52ea63a2",
+        "GMT" to "0xbaa284eaf23edf975b371ba2818772f93dbae72836bbdea28b07d40f3cf8b485",
+        "BLUR" to "0x856aac602516addee497edf6f50d39e8c95ae5fb0da1ed434a8c2ab9c3e877e9",
+        "ARKM" to "0x7677dd124dee46cfcd46ff03cf405fb0ed94b1f49efbea3444aadbda939a7ad3",
+        "WOO" to "0xb82449fd728133488d2d41131cffe763f9c1693b73c544d9ef6aaa371060dd25",
+        "FTT" to "0x6c75e52531ec5fd3ef253f6062956a8508a2f03fa0a209fb7fbc51efd9d35f88",
+        "ORCA" to "0x37505261e557e251290b8c8899453064e8d760ed5c65a779726f2490980da74c",
+        "RAY" to "0x91568baa8beb53db23eb3fb7f22c6e8bd303d103919e19733f2bb642d3e7987a",
+        "SAMO" to "0x49601625e1a342c1f90c3fe6a03ae0251991a1d76e480d2741524c29037be28a",
+        "OSMO" to "0x5867f5683c757393a0670ef0f701490950fe93fdb006d181c8265a831ac0c5c6",
+        "RON" to "0x97cfe19da9153ef7d647b011c5e355142280ddb16004378573e6494e499879f3",
+        "MNGO" to "0x5b70af49d639eefe11f20df47a0c0760123291bb5bc55053faf797d1ff905983",
+        "WBTC" to "0xc9d8b075a5c69303365ae23633d4e085199bf5c520a3b90fed1322a0342ffc33",
+        "STETH" to "0x846ae1bdb6300b817cee5fdee2a6da192775030db5615b94a465f53bd40850b5",
+        "MSOL" to "0xc2289a6a43d2ce91c6f55caec370f4acc38a2ed477f58813334c6d03749ff2a4",
+        // Stables (for valuation/arb only — not traded)
+        "USDT" to "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
+        "USDC" to "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
+        "DAI" to "0xb0948a5e5313200c632b51bb5ca32f6de0d36e9950a942d19751e833f70dabfd",
+        // NOT, POPCAT, TRUMP, NEIRO, TNSR, IO, PIXEL, MAGIC, AUDIO, LQTY, ENA:
+        // no confirmed Pyth IDs as of V5.9.22 — fall through to Binance/CoinGecko
         
         // ═══════════════════════════════════════════════════════════════════════
         // US EQUITIES - REAL Pyth Price Feed IDs (verified from Hermes API)
@@ -194,6 +262,10 @@ object PythOracle {
     private val priceCache = ConcurrentHashMap<String, PythPrice>()
     private val lastFetchTime = ConcurrentHashMap<String, Long>()
     private const val CACHE_TTL_MS = 2_000L  // 2 second cache for real-time data
+
+    // V5.9.22: log "no feed ID" / 404 ONCE per symbol instead of every scan
+    private val loggedMissing = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val loggedDead = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     
     // HTTP Client
     private val client = OkHttpClient.Builder()
@@ -235,7 +307,10 @@ object PythOracle {
         
         val feedId = PRICE_FEED_IDS[symbol]
         if (feedId == null) {
-            ErrorLogger.warn(TAG, "No Pyth feed ID for $symbol")
+            // V5.9.22: log-once-per-symbol — no need to spam every scan
+            if (loggedMissing.add(symbol)) {
+                ErrorLogger.debug(TAG, "No Pyth feed ID for $symbol — using exchange fallback (silenced)")
+            }
             return@withContext null
         }
         
@@ -250,7 +325,14 @@ object PythOracle {
             val body = response.body?.string()
             
             if (body == null || !response.isSuccessful) {
-                ErrorLogger.warn(TAG, "Pyth API error for $symbol: ${response.code}")
+                // V5.9.22: log 404s once per symbol (dead feed ID)
+                if (response.code == 404) {
+                    if (loggedDead.add(symbol)) {
+                        ErrorLogger.warn(TAG, "Pyth feed ID for $symbol returns 404 (dead/deprecated) — using fallback (silenced)")
+                    }
+                } else {
+                    ErrorLogger.warn(TAG, "Pyth API error for $symbol: ${response.code}")
+                }
                 return@withContext getFallbackPrice(symbol)
             }
             

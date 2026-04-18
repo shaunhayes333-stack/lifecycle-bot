@@ -2141,19 +2141,14 @@ class SolanaMarketScanner(
         // Basic mcap sanity check
         if (token.mcapUsd < 0) return false
         
-        // V5.9.20: Symbol sanitizer — drop offensive + non-ASCII + typosquats.
-        // These made it through previously: HNIGGA, mɔ, 고라니, NVIDA (typosquat NVIDIA).
+        // V5.9.20: Symbol sanitizer — non-ASCII + typosquats only.
+        // (V5.9.22 removed the offensive-fragment filter — user feedback was
+        // "the offensive filter is dumb for memes". Meme tokens routinely use
+        // edgy names; letting the market decide is more EV-positive than
+        // paternalistic filtering.)
         // Ticker must be printable ASCII letters/digits only.
         if (!token.symbol.matches(Regex("^[A-Za-z0-9._\\-]{1,20}$"))) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: non-ASCII / bad chars")
-            return false
-        }
-        // Common slurs/offensive tokens (case-insensitive contains)
-        val offensiveFragments = listOf("nigga", "nigger", "fag", "tranny", "retard", "rape", "nazi", "hitler", "kike", "chink")
-        val symLow = token.symbol.lowercase()
-        val nameLow = token.name.lowercase()
-        if (offensiveFragments.any { symLow.contains(it) || nameLow.contains(it) }) {
-            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: offensive content")
             return false
         }
         // Typosquat detection — obvious misspellings of big tickers

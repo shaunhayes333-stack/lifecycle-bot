@@ -563,7 +563,8 @@ object PerpsMarketDataFetcher {
                     }
                 }
             } else {
-                ErrorLogger.warn(TAG, "⚠️ Pyth returned NULL for ${market.symbol}, using fallback")
+                // V5.9.22: demote to debug — the fallback always has a value, this is expected
+                ErrorLogger.debug(TAG, "Pyth NULL for ${market.symbol}, using fallback")
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "⚠️ Pyth fetch FAILED for ${market.symbol}: ${e.message}")

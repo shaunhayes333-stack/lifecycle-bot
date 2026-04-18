@@ -245,9 +245,9 @@ class WalletManager private constructor(private val ctx: Context) {
         
         // If wallet is null, try to reconnect using saved credentials
         if (w == null) {
-            ErrorLogger.warn("Wallet", "refreshBalance: wallet is null, checking for saved credentials...")
-            // Note: We can't access ConfigStore here directly, so just log and return
-            // The auto-reconnect in BotViewModel should handle this
+            // V5.9.22: paper-mode silences this warn — no wallet needed for paper trading.
+            // BotViewModel auto-reconnect handles this for live mode.
+            ErrorLogger.debug("Wallet", "refreshBalance: wallet is null (expected in paper mode)")
             return
         }
         
