@@ -2126,48 +2126,22 @@ class SolanaMarketScanner(
             return false
         }
 
-        // V5.6.29d: UNIFIED PAPER/LIVE filtering - let FDG and AI layers decide execution
-        // Previously LIVE had much stricter scanner filters, preventing learning transfer
-        
-        // V5.9.20: Minimum liquidity floor — raised from $2k to $10k paper / $25k live.
-        // $2k–$5k pools slip too heavily to be tradeable at any real size; trading them
-        // produces noise-level P&L that pollutes learning.
-        // V5.9.31: FLUID liq floor — follows learning progress from FluidLearningAI.
-        // Starts wide (\$1.5k bootstrap), tightens to \$8k mature. Bot decides, not us.
-        // User feedback: "everything is meant to be fluid and adaptive!"
-        val minLiqFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getScannerLiqFloor()
-        if (token.liquidityUsd > 0 && token.liquidityUsd < minLiqFloor) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: liq \$${token.liquidityUsd.toInt()} < \$${minLiqFloor.toInt()}")
-            return false
-        }
-        
+        // V5.9.34: SCANNER IS WIDE OPEN
+        // User correction: 'the scanner is meant to be wide open and the watchlist
+        // and decision gate etc is meant to classify the tokens'.
+        // Removed: V5.9.20/V5.9.31 liquidity floor — downstream V3 scoring already
+        //   penalises low liq; hard scanner reject was double-taxing thin pools.
+        // Removed: V5.9.20 non-ASCII filter — the decision gate sees the symbol and
+        //   can factor it. Scanner's job is to surface candidates, not judge them.
+        // Removed: V5.9.20 typosquat hard-reject — downstream Rug detection + V3
+        //   narrative scoring already handles impersonation risk.
+        //
+        // Kept below: basic mcap sanity (< 0), explicit scam words, infra impersonation —
+        // those are factual data-quality guards, not opinion filters.
+
         // Basic mcap sanity check
         if (token.mcapUsd < 0) return false
-        
-        // V5.9.20: Symbol sanitizer — non-ASCII + typosquats only.
-        // (V5.9.22 removed the offensive-fragment filter — user feedback was
-        // "the offensive filter is dumb for memes". Meme tokens routinely use
-        // edgy names; letting the market decide is more EV-positive than
-        // paternalistic filtering.)
-        // Ticker must be printable ASCII letters/digits only.
-        if (!token.symbol.matches(Regex("^[A-Za-z0-9._\\-]{1,20}$"))) {
-            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: non-ASCII / bad chars")
-            return false
-        }
-        // Typosquat detection — obvious misspellings of big tickers
-        val typosquats = mapOf(
-            "NVIDA" to "NVIDIA", "NVIDEA" to "NVIDIA", "NIVIDIA" to "NVIDIA",
-            "APPEL" to "APPLE",  "APPLL" to "APPLE",
-            "TESLLA" to "TESLA", "TEZLA" to "TESLA",
-            "BITCOlN" to "BITCOIN", "BlTCOIN" to "BITCOIN",
-            "ETHERIUM" to "ETHEREUM", "ETHERUEM" to "ETHEREUM",
-            "SOLANNA" to "SOLANA", "SOLAANA" to "SOLANA",
-        )
-        val symUpper = token.symbol.uppercase()
-        if (typosquats.containsKey(symUpper)) {
-            ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: typosquat of ${typosquats[symUpper]}")
-            return false
-        }
+
         
         // Scam pattern detection (both modes)
         val sym = token.symbol.lowercase()
