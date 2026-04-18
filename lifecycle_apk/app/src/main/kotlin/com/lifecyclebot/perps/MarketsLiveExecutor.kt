@@ -168,21 +168,16 @@ object MarketsLiveExecutor {
             market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
                 val mint = TokenizedAssetRegistry.mintFor(market.symbol)
                 if (mint != null) {
-                    // Preferred path: real tokenized asset (xStocks / PAXG / EURC)
+                    // Real tokenized asset on-chain (xStocks / PAXG / EURC) — Jupiter swap
                     executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
                 } else {
-                    // Fallback path: no registered tokenized mint — convert SOL → USDC as
-                    // synthetic collateral so the position has real on-chain exposure.
-                    ErrorLogger.info(TAG,
-                        "⚠️ No tokenized mint for ${market.symbol} — routing as SOL→USDC collateral swap")
-                    executeJupiterSwap(
-                        wallet        = wallet,
-                        walletAddress = walletAddress,
-                        inputMint     = SOL_MINT,
-                        outputMint    = USDC_MINT,
-                        amountLamports = (sizeSol * 1_000_000_000L).toLong(),
-                        slippageBps   = DEFAULT_SLIPPAGE_BPS,
-                    )
+                    // No verified on-chain route for this symbol. Do NOT execute a fake/proxy
+                    // trade — that would silently move funds without real market exposure.
+                    // Log clearly and return null so the caller skips this trade.
+                    ErrorLogger.warn(TAG,
+                        "⛔ LIVE skipped for ${market.symbol}: no on-chain route. " +
+                        "Register a real Solana mint via TokenizedAssetRegistry.register() to enable live trading.")
+                    null
                 }
             }
 

@@ -2,6 +2,7 @@ package com.lifecyclebot.perps
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
+import com.lifecyclebot.network.JupiterApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -414,8 +415,10 @@ object JupiterPerps {
             )
             
             if (quoteResponse == null) {
-                ErrorLogger.warn(TAG, "Failed to get perps quote")
-                return@withContext null
+                // Jupiter Perps v2 REST endpoint is retired (404).
+                // Fall back to a real on-chain SPOT swap so live trades still execute.
+                ErrorLogger.warn(TAG, "Perps v2 API unavailable — falling back to SPOT swap for ${market.symbol}")
+                return@withContext buildSpotFallback(wallet, walletAddress, market, direction, sizeSol)
             }
             
             // Step 2: Build the transaction via Jupiter Perps API
@@ -450,6 +453,69 @@ object JupiterPerps {
         }
     }
     
+    /**
+     * Real SPOT swap fallback used when the Jupiter Perps v2 REST API is unavailable.
+     * LONG  → SOL swapped to the token's Solana mint via Jupiter /swap/v1.
+     * SHORT → cannot short on a spot DEX without holding the asset; skipped.
+     */
+    private suspend fun buildSpotFallback(
+        wallet: com.lifecyclebot.network.SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+    ): String? = withContext(Dispatchers.IO) {
+        if (direction == PerpsDirection.SHORT) {
+            ErrorLogger.warn(TAG, "⚠️ Perps API retired — SHORT on ${market.symbol} requires perps infrastructure, skipping live.")
+            return@withContext null
+        }
+
+        val mint = DynamicAltTokenRegistry
+            .getTokenBySymbol(market.symbol)
+            ?.mint
+            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
+
+        if (mint == null) {
+            ErrorLogger.warn(TAG, "⛔ No Solana mint for ${market.symbol} in DynamicAltTokenRegistry — cannot execute live trade.")
+            return@withContext null
+        }
+
+        ErrorLogger.info(TAG, "⚠️ Perps v2 retired — routing ${market.symbol} LONG as SPOT via Jupiter | ${sizeSol.fmt(4)} SOL → ${mint.take(8)}…")
+        val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        val api = JupiterApi("")
+
+        return@withContext try {
+            val quote = api.getQuote(
+                inputMint  = SOL_MINT,
+                outputMint = mint,
+                amountRaw  = amountLamports,
+                slippageBps = 200,
+            )
+            if (quote.outAmount <= 0) {
+                ErrorLogger.warn(TAG, "Spot fallback: zero output for ${market.symbol}")
+                return@withContext null
+            }
+            val txResult = api.buildSwapTx(quote, walletAddress)
+            if (txResult.txBase64.isEmpty()) {
+                ErrorLogger.warn(TAG, "Spot fallback: empty transaction for ${market.symbol}")
+                return@withContext null
+            }
+            val signature = wallet.signSendAndConfirm(
+                txBase64       = txResult.txBase64,
+                useJito        = false,
+                jitoTipLamports = 0,
+                ultraRequestId = if (quote.isUltra) txResult.requestId else null,
+                jupiterApiKey  = "",
+                isRfqRoute     = txResult.isRfqRoute,
+            )
+            ErrorLogger.info(TAG, "✅ SPOT fallback confirmed for ${market.symbol}: ${signature.take(20)}…")
+            signature
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "Spot fallback error for ${market.symbol}: ${e.message}", e)
+            null
+        }
+    }
+
     /**
      * Get a position quote from Jupiter Perps API
      */
