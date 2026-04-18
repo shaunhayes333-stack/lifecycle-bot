@@ -566,13 +566,12 @@ object PerpsMarketDataFetcher {
                         priceChange24hPct = real24hChange,
                     )
                 } else {
-                    // V5.7.7 FIX: If Pyth is stale for STOCKS, use fallback sources
-                    // This ensures we get after-hours prices from Yahoo/etc instead of stale close prices
-                    if (market.isStock || market.isETF) {
-                        ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol}, trying PriceAggregator fallback...")
-                        // Fall through to use fallback sources below
-                    } else {
-                        // For crypto, stale but valid prices are OK
+                    // V5.9.27: stale Pyth — only trust for true CRYPTO. Stocks/ETFs/METALS/
+                    // FX/COMMODITIES must fall through to PriceAggregator. Previously any
+                    // non-stock (incl. metals like XPD/XAL) was treated as "crypto stale but
+                    // valid", causing e.g. XAL = $1.05 and XPD = $1563 to produce bogus
+                    // signals. Classify strictly.
+                    if (market.isCrypto) {
                         if (pythPrice.price > 0) {
                             ErrorLogger.debug(TAG, "📊 Pyth stale but valid (crypto): ${market.symbol} = \$${pythPrice.price.fmt(2)}")
                             val staleChange: Double = try {
@@ -595,6 +594,9 @@ object PerpsMarketDataFetcher {
                                 priceChange24hPct = staleChange,
                             )
                         }
+                    } else {
+                        // Stock, ETF, metal, commodity, forex — stale Pyth must fall through
+                        ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol} (${if(market.isMetal)"METAL" else if(market.isETF)"ETF" else if(market.isStock)"STOCK" else "OTHER"}) — using PriceAggregator")
                     }
                 }
             } else {

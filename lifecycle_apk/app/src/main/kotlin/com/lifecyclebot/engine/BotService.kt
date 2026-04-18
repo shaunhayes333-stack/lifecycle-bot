@@ -4932,12 +4932,28 @@ if (deferredCount > 0) {
                         )
                         
                         // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
-                        // V5.2.13: Block bootstrap override on V3 hard-reject or active dump signals
+                        // V5.9.27 FIX: V3 hard-reject MUST gate BOTH branches, not just bootstrap.
+                        // Previously: `shitCoinSignal.shouldEnter || (forceBootstrapEntry && !v3HardReject && !dump)`
+                        // meant a V3 FATAL (EXTREME_RUG_RISK_90) on SPIKE was silently bypassed by the
+                        // primary ShitCoin path, as seen in prod logs. Treasury already gates globally
+                        // (line 4267); ShitCoin now mirrors that structure.
                         val shitCoinV3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
-                        val shouldEnter = shitCoinSignal.shouldEnter || (forceBootstrapEntry && !shitCoinV3HardReject && !shitCoinHasDump)
+                        val shouldEnter = !shitCoinV3HardReject && !shitCoinHasDump &&
+                            (shitCoinSignal.shouldEnter || forceBootstrapEntry)
+
+                        // V5.9.27: explicit log so the block is visible when it fires
+                        if (shitCoinV3HardReject && (shitCoinSignal.shouldEnter || forceBootstrapEntry)) {
+                            val blockReason = when (v3Decision) {
+                                is com.lifecyclebot.v3.V3Decision.BlockFatal -> "V3_FATAL:${(v3Decision as com.lifecyclebot.v3.V3Decision.BlockFatal).reason}"
+                                is com.lifecyclebot.v3.V3Decision.Blocked -> "V3_BLOCKED"
+                                is com.lifecyclebot.v3.V3Decision.Rejected -> "V3_REJECTED"
+                                else -> "V3_HARD_REJECT"
+                            }
+                            ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | VETOED | $blockReason (shitCoinSignal wanted entry)")
+                        }
                         
                         // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
                         if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)) {
