@@ -1518,23 +1518,39 @@ class BotService : Service() {
         }
         // Set up paper wallet balance tracking
         executor.onPaperBalanceChange = { delta ->
-            // V5.7.8: Validate delta against current balance to catch bad price data
-            // A single trade should not return more than 100x the current wallet (data error, not a real 10000x)
-            val currentBal = status.paperWalletSol.coerceAtLeast(1.0)
-            val isSuspicious = delta > currentBal * 100 // Single trade returning 100x wallet = bad data
-            
-            if (isSuspicious) {
-                ErrorLogger.warn("PaperWallet", "SUSPICIOUS DELTA BLOCKED: delta=${delta} is ${(delta/currentBal).toInt()}x current balance ${currentBal} — likely decimal error in price data")
-                // Don't apply — this is bad data, not a real trade
+            // V5.9.21 FIX: previous guard (delta > currentBal*100) was silently
+            // DROPPING real winning-sell credits, so trade journal showed +$10k
+            // P&L while free cash stayed frozen at drawdown. The guard
+            // self-reinforced because shrinking free cash shrank the threshold.
+            //
+            // New policy: only CLAMP absurd oracle spikes, never drop. A delta
+            // is "insane" only if it's > 10,000x current balance AND > 500 SOL
+            // absolute — otherwise credit exactly as-is. Even then we clamp
+            // (don't drop) so the trade still moves the wallet in the right
+            // direction, and we log loudly so the price-feed glitch is visible.
+            val currentBal = status.paperWalletSol.coerceAtLeast(0.01)
+            val ratio = if (currentBal > 0) delta / currentBal else 0.0
+            val isInsane = delta > 500.0 && ratio > 10_000.0
+            val applied = if (isInsane) {
+                val capped = currentBal * 100.0
+                ErrorLogger.warn("PaperWallet",
+                    "INSANE DELTA CLAMPED: raw=${delta} (${ratio.toInt()}x bal=${currentBal}) — " +
+                    "oracle/price glitch suspected — crediting capped=${capped} instead of dropping")
+                capped
             } else {
-                status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
-                ErrorLogger.info("PaperWallet", "Balance changed by ${delta}: new balance = ${status.paperWalletSol}")
-                // V5.9.8: Persist to SharedPrefs so balance survives app updates
-                try {
-                    getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
-                        .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
-                } catch (_: Exception) {}
+                delta
             }
+
+            status.paperWalletSol = (status.paperWalletSol + applied).coerceAtLeast(0.0)
+            ErrorLogger.info("PaperWallet",
+                "Δ=${"%.4f".format(applied)} SOL → balance=${"%.4f".format(status.paperWalletSol)}" +
+                if (isInsane) " [CLAMPED from ${"%.4f".format(delta)}]" else "")
+
+            // V5.9.8: Persist to SharedPrefs so balance survives app updates
+            try {
+                getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
+                    .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
+            } catch (_: Exception) {}
         }
         
         // Persist running state so BootReceiver can restart after reboot
