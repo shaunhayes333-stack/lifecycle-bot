@@ -596,6 +596,40 @@
                         android:lineSpacingExtra="4dp"/>
                 </ScrollView>
 
+                <!-- V5.9.35: User-to-bot chat input — LLM-backed dialogue -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical">
+                    <EditText
+                        android:id="@+id/etChatInput"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="Ask the bot anything…"
+                        android:textColorHint="#4B5563"
+                        android:textColor="#E5E7EB"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:background="#0B0F1A"
+                        android:padding="8dp"
+                        android:maxLines="2"
+                        android:inputType="textShortMessage|textCapSentences"
+                        android:imeOptions="actionSend"/>
+                    <Button
+                        android:id="@+id/btnChatSend"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SEND"
+                        android:textSize="10sp"
+                        android:textColor="#14F195"
+                        android:fontFamily="monospace"
+                        android:backgroundTint="#00140A"
+                        android:layout_marginStart="6dp"/>
+                </LinearLayout>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

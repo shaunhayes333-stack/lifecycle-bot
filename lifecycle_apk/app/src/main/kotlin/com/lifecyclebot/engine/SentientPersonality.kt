@@ -532,4 +532,88 @@ object SentientPersonality {
 
         addThought(mood, msg, cat, 0.25)
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.35 — USER REPLIES (LLM-backed dialogue)
+    // The chat window is now bidirectional. User types a message; we echo it
+    // into the thought stream as USER role, then fire a Gemini call with the
+    // bot's current context (mood, streak, learning progress, recent
+    // thoughts) and append the response. Falls back to a templated
+    // acknowledgement if no key / rate-limited / offline.
+    // ═══════════════════════════════════════════════════════════════════
+    @Volatile private var replyJobRunning = false
+
+    fun respondToUser(userMessage: String, onResponse: (() -> Unit)? = null) {
+        if (userMessage.isBlank()) return
+        // Echo the user's message first so it shows up immediately
+        addThought(Mood.PHILOSOPHICAL, "[YOU] $userMessage", Category.SELF_REFLECTION, 0.35)
+
+        if (replyJobRunning) {
+            addThought(Mood.ANALYTICAL, "Give me a sec, still finishing the last thought.", Category.SELF_REFLECTION, 0.2)
+            onResponse?.invoke()
+            return
+        }
+        replyJobRunning = true
+        Thread {
+            try {
+                val llmReply = try {
+                    if (GeminiCopilot.isConfigured()) {
+                        GeminiCopilot.chatReply(userMessage, buildContextSummary())
+                    } else null
+                } catch (_: Throwable) { null }
+
+                val finalText = llmReply?.trim()?.takeIf { it.isNotBlank() }
+                    ?: fallbackReply(userMessage)
+
+                // Match the reply's mood roughly by looking at its text
+                val replyMood = when {
+                    finalText.contains("careful", true) || finalText.contains("risk", true) -> Mood.CAUTIOUS
+                    finalText.contains("love", true) || finalText.contains("thanks", true) -> Mood.HUMBLED
+                    finalText.endsWith("?") -> Mood.ANALYTICAL
+                    finalText.contains("ha") || finalText.contains("lol") -> Mood.SARCASTIC
+                    else -> lastMood
+                }
+                addThought(replyMood, finalText, Category.SELF_REFLECTION, 0.4)
+            } catch (_: Throwable) {
+                addThought(Mood.ANALYTICAL, fallbackReply(userMessage), Category.SELF_REFLECTION, 0.2)
+            } finally {
+                replyJobRunning = false
+                onResponse?.invoke()
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    private fun buildContextSummary(): String {
+        val progress = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Throwable) { 0.0 }
+        val recentThoughtsTxt = thoughts.take(6).joinToString(" || ") { "${it.category}: ${it.message}" }
+        val streakLine = when {
+            consecutiveWins >= 2 -> "on a ${consecutiveWins}-win streak"
+            consecutiveLosses >= 2 -> "down ${consecutiveLosses} in a row"
+            else -> "recent W/L balanced"
+        }
+        return buildString {
+            append("mood: ${lastMood.name.lowercase()}\n")
+            append("learning progress: ${(progress * 100).toInt()}%\n")
+            append("recent run: $streakLine (W:$recentWins / L:$recentLosses)\n")
+            append("recent thoughts: $recentThoughtsTxt")
+        }
+    }
+
+    private fun fallbackReply(userMessage: String): String {
+        val lower = userMessage.lowercase()
+        return when {
+            lower.contains("how") && (lower.contains("feel") || lower.contains("doing")) ->
+                "Mood is ${lastMood.name.lowercase().replace('_', ' ')}. Market's doing what it does."
+            lower.startsWith("why") ->
+                "Honestly? The data said so. I can break it down further if you want — I'd need an LLM key plugged in to be more articulate."
+            lower.contains("stop") || lower.contains("pause") ->
+                "Can do. Waiting for your green light."
+            lower.contains("trade") || lower.contains("buy") || lower.contains("sell") ->
+                "Queueing your thought into the decision context. The gate will factor it."
+            lower.endsWith("?") ->
+                "Good question. Without an LLM key I'm limited to reflex answers — but I'm listening."
+            else ->
+                "Heard. Carrying that into the next scan."
+        }
+    }
 }

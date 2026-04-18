@@ -193,6 +193,25 @@ class BehaviorActivity : AppCompatActivity() {
                 } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
+
+        // V5.9.35: LLM-backed reply-to-chat
+        try {
+            val etInput = findViewById<android.widget.EditText>(R.id.etChatInput)
+            val btnSend = findViewById<Button>(R.id.btnChatSend)
+            val send = send@{
+                val msg = etInput?.text?.toString()?.trim().orEmpty()
+                if (msg.isEmpty()) return@send
+                etInput?.setText("")
+                com.lifecyclebot.engine.SentientPersonality.respondToUser(msg) {
+                    runOnUiThread { refreshSentientChat() }
+                }
+                refreshSentientChat()
+            }
+            btnSend?.setOnClickListener { send() }
+            etInput?.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) { send(); true } else false
+            }
+        } catch (_: Exception) {}
     }
     
     private fun setupKnob() {

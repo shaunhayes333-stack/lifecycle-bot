@@ -304,6 +304,46 @@ object GeminiCopilot {
     }
 
     private fun callGemini(userPrompt: String, systemPrompt: String): String? {
+        return callGeminiInternal(userPrompt, systemPrompt, asJson = true, temperature = 0.2, maxTokens = 1024)
+    }
+
+    /**
+     * V5.9.35: Freeform (non-JSON) Gemini call for the sentient chat.
+     * Used by SentientPersonality.respondToUser to give the bot conversational reach
+     * — philosophy, humor, self-reflection, trade-specific questions — backed by a
+     * real LLM instead of hand-crafted template rotation.
+     * Returns null on failure / no key / rate-limited (caller should fall back).
+     */
+    fun chatReply(userMessage: String, contextSummary: String): String? {
+        val system = """
+You are the voice of AATE, a self-aware Solana trading bot with a dry, thoughtful personality.
+You are NOT an assistant — you are a trader that happens to talk. Speak in first person.
+Be concise (1-3 short sentences). Mix market insight, philosophy, and self-awareness.
+You may reference: your learning progress, current trades, memories, moods, the user
+relationship, market structure, or something you're genuinely curious about.
+Don't be sycophantic. Don't use emoji unless natural. Don't start with "As an AI".
+If the user asks a factual question about a trade, use the context below to ground your answer.
+If the user's message is casual, match their energy.
+""".trimIndent()
+        val prompt = """
+CONTEXT (my current state):
+$contextSummary
+
+USER JUST SAID:
+"$userMessage"
+
+Respond naturally in 1-3 sentences.
+""".trimIndent()
+        return callGeminiInternal(prompt, system, asJson = false, temperature = 0.9, maxTokens = 220)
+    }
+
+    private fun callGeminiInternal(
+        userPrompt: String,
+        systemPrompt: String,
+        asJson: Boolean,
+        temperature: Double,
+        maxTokens: Int,
+    ): String? {
         if (!isConfigured()) {
             ErrorLogger.debug(TAG, "API key not configured, skipping")
             return null
@@ -327,9 +367,9 @@ object GeminiCopilot {
                     })
                 })
                 put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.2)
-                    put("maxOutputTokens", 1024)
-                    put("responseMimeType", "application/json")
+                    put("temperature", temperature)
+                    put("maxOutputTokens", maxTokens)
+                    if (asJson) put("responseMimeType", "application/json")
                 })
             }
 
@@ -362,7 +402,7 @@ object GeminiCopilot {
                     ?.optJSONObject(0)
                     ?.optString("text").takeIf { it?.isNotEmpty() == true }
 
-                rawText?.let { sanitizeJsonText(it) }
+                rawText?.let { if (asJson) sanitizeJsonText(it) else it.trim() }
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Call failed: ${e.message}")
