@@ -4118,9 +4118,10 @@ This cannot be undone!
             }
             
             // Hide card if in live mode (already trading live)
+            // V5.9.41: key is "paper_mode" in BotConfig, not "paperMode"
             try {
                 val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
-                val isPaperMode = prefs.getBoolean("paperMode", true)
+                val isPaperMode = prefs.getBoolean("paper_mode", true)
                 if (!isPaperMode) {
                     cardLiveReadiness.visibility = View.GONE
                 } else {

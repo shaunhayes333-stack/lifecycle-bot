@@ -5783,10 +5783,25 @@ if (deferredCount > 0) {
     // Bootstrap (0%): ~15 — wide open, gather data.
     // Mature (80%):  ~45 — filter low-conviction noise as winrate data accrues.
     // This drifts with live performance — no human-set number in the hot path.
-    val allowSkipForLearning = false
+    // V5.9.41: FLUID SKIP-allowance. Hardcoded `false` meant that every
+    // candidate whose Edge layer returned "SKIP" (the majority during
+    // bootstrap) was shadow-tracked forever, so the bot could have a
+    // 60% paper win rate over 2000 trades and still never buy anything
+    // live. User explicitly wants paper learning to flow into live.
+    //
+    // We now allow SKIP through when EITHER:
+    //   • We're still in bootstrap (< 500 trades) — gather data.
+    //   • OR the proven history shows a healthy win rate with a
+    //     meaningful sample (live mode inherits paper's edge).
+    val historyStats = try { com.lifecyclebot.engine.TradeHistoryStore.getStats() } catch (_: Exception) { null }
+    val provenWinRate   = historyStats?.winRate ?: 0.0      // 0-100
+    val meaningfulCount = (historyStats?.totalWins ?: 0) + (historyStats?.totalLosses ?: 0)
+    val hasProvenEdge   = meaningfulCount >= 300 && provenWinRate >= 50.0
+
+    val allowSkipForLearning = isBootstrap || hasProvenEdge
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
 
-    if (edgeVerdictStr == "SKIP" || confValue < minBootstrapConf) {
+    if ((edgeVerdictStr == "SKIP" && !allowSkipForLearning) || confValue < minBootstrapConf) {
         ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
             "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} (floor=$minBootstrapConf) → SHADOW_ONLY")
         
@@ -5806,10 +5821,11 @@ if (deferredCount > 0) {
         return  // Exit before CANDIDATE/PROPOSED
     }
     
-    // Log when bootstrap override is used
-    if (allowSkipForLearning) {
-        ErrorLogger.info("BotService", "[V3|BOOTSTRAP] ${identity.symbol} | bootstrap override | " +
-            "edge=$edgeVerdictStr conf=${confValue.toInt()} learning=${(learningProgress * 100).toInt()}% | Allowing for V3 learning")
+    // Log when skip override is used
+    if (allowSkipForLearning && edgeVerdictStr == "SKIP") {
+        val reason = if (hasProvenEdge) "PROVEN_EDGE (wr=${provenWinRate.toInt()}% n=$meaningfulCount)" else "BOOTSTRAP"
+        ErrorLogger.info("BotService", "[V3|SKIP_OVERRIDE] ${identity.symbol} | $reason | " +
+            "edge=$edgeVerdictStr conf=${confValue.toInt()} learning=${(learningProgress * 100).toInt()}% | allowing through")
     }
     
     // ───────────────────────────────────────────────────────────────────

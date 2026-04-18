@@ -1295,11 +1295,26 @@ class LifecycleStrategy(
         }
         
         // LIVE MODE ONLY BELOW THIS POINT
-        
+
+        // V5.9.41: "Proven edge" escape hatch — if the user has built a
+        // healthy paper track record, live mode inherits the same leniency
+        // as bootstrap. Without this the live-mode floors stayed hostile
+        // (rugcheck 25, buy pressure 18) even after 2000+ proven trades
+        // and the bot couldn't buy anything in live.
+        val histStats = try { com.lifecyclebot.engine.TradeHistoryStore.getStats() } catch (_: Exception) { null }
+        val provenWr  = histStats?.winRate ?: 0.0
+        val provenCt  = (histStats?.totalWins ?: 0) + (histStats?.totalLosses ?: 0)
+        val hasProvenEdge = provenCt >= 300 && provenWr >= 50.0
+        val isLenient = isBootstrap || hasProvenEdge
+
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        val rugcheckThreshold = if (isBootstrap) 8 else (learned?.rugcheckMin ?: 12).coerceIn(10, 25)
+        val rugcheckThreshold = if (isLenient) 8 else (learned?.rugcheckMin ?: 12).coerceIn(10, 25)
         if (safety.rugcheckScore in 0..rugcheckThreshold) {
-            val mode = if (isBootstrap) "bootstrap" else "live"
+            val mode = when {
+                isBootstrap -> "bootstrap"
+                hasProvenEdge -> "proven-edge"
+                else -> "live"
+            }
             return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold [$mode])"
         }
         
@@ -1310,7 +1325,7 @@ class LifecycleStrategy(
         }
         
         // 3. EXTREME SELL PRESSURE - Buy% below learned threshold
-        val minBuyPressure = (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)
+        val minBuyPressure = if (isLenient) 10.0 else (learned?.buyPressureMin ?: 18.0).coerceIn(15.0, 35.0)
         if (pressScore < minBuyPressure) {
             return "Extreme sell pressure (buy%=${pressScore.toInt()}, learned threshold=${minBuyPressure.toInt()})"
         }
