@@ -1467,6 +1467,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val desired = balance * (DEFAULT_SIZE_PCT / 100)
         if (balance < floor) {
             ErrorLogger.warn(TAG, "🔴 LIVE: wallet ${balance.fmt(4)}◎ < ${floor} floor — cannot trade ${signal.market.symbol}")
+            com.lifecyclebot.engine.LiveAttemptStats.record(
+                "TokenizedStocks",
+                com.lifecyclebot.engine.LiveAttemptStats.Outcome.FLOOR_SKIPPED
+            )
             return false
         }
         val sizeSol = desired.coerceIn(floor, (balance * 0.20).coerceAtLeast(floor))
@@ -1489,6 +1493,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         if (success) {
             val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
             ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
+            com.lifecyclebot.engine.LiveAttemptStats.record(
+                "TokenizedStocks",
+                com.lifecyclebot.engine.LiveAttemptStats.Outcome.EXECUTED
+            )
             
             // Update live wallet balance
             try {
@@ -1499,6 +1507,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             return true
         } else {
             ErrorLogger.warn(TAG, "🔴 LIVE FAILED: ${signal.market.symbol}")
+            com.lifecyclebot.engine.LiveAttemptStats.record(
+                "TokenizedStocks",
+                com.lifecyclebot.engine.LiveAttemptStats.Outcome.FAILED
+            )
             return false
         }
     }

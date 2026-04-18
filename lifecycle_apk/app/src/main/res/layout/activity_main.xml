@@ -291,19 +291,14 @@
                         android:layout_marginBottom="5dp"
                         android:clickable="true"
                         android:focusable="true"/>
-                    
-                    <!-- Spacer to push SOL price to the right -->
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="1dp"
-                        android:layout_weight="1"/>
-                    
-                    <!-- Live SOL Price -->
+
+                    <!-- Live SOL Price (tvBalanceLarge weight=1 already pushes this to the right edge) -->
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:gravity="end|right"
+                        android:layout_marginStart="8dp"
                         android:layout_marginBottom="5dp">
                         <TextView
                             android:id="@+id/tvSolPrice"

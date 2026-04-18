@@ -1363,7 +1363,13 @@ for legal compliance.
         tvReadinessLatency.text = if (snap.jupiterLatencyMs >= 0) {
             val jup = if (snap.jupiterOk) "jup ${snap.jupiterLatencyMs}ms" else "jup ✗"
             val py  = if (snap.pythOk) "pyth ${snap.pythLatencyMs}ms" else "pyth ✗"
-            "$jup · $py"
+            // V5.9.37: append 5-min live-attempt summary so users can see
+            // in real time whether the bot is actively hunting.
+            val att = try {
+                val s = com.lifecyclebot.engine.LiveAttemptStats.snapshot()
+                if (s.attempts > 0) " · ⚡${s.executed}/${s.attempts}" else ""
+            } catch (_: Throwable) { "" }
+            "$jup · $py$att"
         } else ""
     }
 

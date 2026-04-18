@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.LiveAttemptStats
 import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.engine.TradeHistoryStore
@@ -1074,6 +1075,7 @@ object CryptoAltTrader {
             val desired = balance * (DEFAULT_SIZE_PCT / 100)
             if (balance < floor) {
                 ErrorLogger.warn(TAG, "🪙 ⛔ Live wallet too small: ${"%.4f".format(balance)} SOL < ${floor} floor — cannot live-trade ${signal.market.symbol}")
+                LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FLOOR_SKIPPED)
                 return false
             }
             val sizeSol = desired.coerceIn(floor, (balance * 0.15).coerceAtLeast(floor))
@@ -1094,6 +1096,11 @@ object CryptoAltTrader {
                 leverage    = if (isSpot) 1.0 else signal.leverage,
                 priceUsd    = signal.price,
                 traderType  = "CryptoAlt"
+            )
+
+            LiveAttemptStats.record(
+                "CryptoAlt",
+                if (success) LiveAttemptStats.Outcome.EXECUTED else LiveAttemptStats.Outcome.FAILED
             )
 
             if (success) {
