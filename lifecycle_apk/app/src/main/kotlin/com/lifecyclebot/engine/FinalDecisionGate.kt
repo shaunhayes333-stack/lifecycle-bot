@@ -497,8 +497,11 @@ object FinalDecisionGate {
     )
 
     private val edgeVetoes = java.util.concurrent.ConcurrentHashMap<String, EdgeVeto>()
+    // V5.9.46: Unified Edge-veto cooldown paper/live. Previous 6x stricter
+    // live cooldown (30s vs 5s) kept vetoed tokens off the scanner long
+    // after the reason faded, making the live scanner feel dead.
     private const val EDGE_VETO_COOLDOWN_PAPER_MS = 5 * 1000L
-    private const val EDGE_VETO_COOLDOWN_LIVE_MS = 30 * 1000L
+    private const val EDGE_VETO_COOLDOWN_LIVE_MS = 5 * 1000L
 
     @Volatile
     private var _isPaperModeForVeto = true

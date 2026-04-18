@@ -2006,8 +2006,15 @@ class Executor(
             
             val tradeState = TradeStateMachine.getState(ts.mint)
             val isPaperMode = cfg().paperMode
-            
-            if (!isPaperMode && TradeStateMachine.isInCooldown(ts.mint)) {
+            // V5.9.46: Proven-edge inheritance — once the user has demonstrated
+            // paper performance, live mode drops the extra cooldown + pattern
+            // strictness (which otherwise makes the live scanner look dead).
+            val provenEdge = try {
+                TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
+            } catch (_: Exception) { false }
+            val lenientMode = isPaperMode || provenEdge
+
+            if (!lenientMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 val lastTrade = ts.trades.lastOrNull()
                 val wasProfit = lastTrade?.let { it.side == "SELL" && (it.pnlPct ?: 0.0) > 0 } ?: false
                 val priceDroppedFromExit = lastTrade?.let { getActualPrice(ts) < it.price * 0.85 } ?: false
@@ -2027,10 +2034,10 @@ class Executor(
             }
             
             val priceHistory = ts.history.map { it.priceUsd }
-            val optimalEntry = if (isPaperMode) true else TradeStateMachine.detectEntryPattern(ts.mint, getActualPrice(ts), priceHistory)
+            val optimalEntry = if (lenientMode) true else TradeStateMachine.detectEntryPattern(ts.mint, getActualPrice(ts), priceHistory)
             
             val c = cfg()
-            val requireOptimalEntry = !isPaperMode && c.smallBuySol < 0.1
+            val requireOptimalEntry = !lenientMode && c.smallBuySol < 0.1
             
             if (requireOptimalEntry && !optimalEntry && tradeState.entryPattern != EntryPattern.NONE) {
                 if (tradeState.entryPattern == EntryPattern.FIRST_SPIKE) {

@@ -49,8 +49,13 @@ object EfficiencyLayer {
     @Volatile var isPaperMode = false
     
     // Cooldowns - V5.2.8: Separate values for Paper vs Live mode
-    private const val DISCOVERY_COOLDOWN_MS_LIVE = 30_000L   // 30 sec for live (capital protection)
-    private const val DISCOVERY_COOLDOWN_MS_PAPER = 10_000L  // 10 sec for paper (faster learning)
+    // V5.9.46: Unified discovery cooldown between paper/live. Previous 3x
+    // stricter live cooldown made the scanner feel dead after first token
+    // pass (same root-cause family as V5.9.44 scanner TTL unification).
+    // Downstream gates (FDG, hard blocks, promotion gate) handle risk; the
+    // efficiency layer's job is throughput, not risk gating.
+    private const val DISCOVERY_COOLDOWN_MS_LIVE = 10_000L
+    private const val DISCOVERY_COOLDOWN_MS_PAPER = 10_000L
     private const val LIQ_CHANGE_THRESHOLD = 0.20            // 20% liquidity change triggers reprocess
     private const val SCORE_CHANGE_THRESHOLD = 15            // 15 point score change triggers reprocess
     

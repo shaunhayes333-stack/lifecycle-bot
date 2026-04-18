@@ -316,24 +316,29 @@ object GlobalTradeRegistry {
         // ═══════════════════════════════════════════════════════════════════
         // PROBATION ROUTING DECISION
         // V5.2: Paper mode is MUCH more lenient for maximum learning exposure
+        // V5.9.46: Proven-edge live runs inherit paper leniency — same logic
+        // as the BotService promotion gate. Prevents "scanner looks dead in
+        // live" symptom after the bot has demonstrated paper performance.
         // ═══════════════════════════════════════════════════════════════════
-        val confThreshold = if (isPaperMode) PROBATION_CONF_THRESHOLD_PAPER else PROBATION_CONF_THRESHOLD
-        
+        val provenEdge = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
+        } catch (_: Exception) { false }
+        val lenientMode = isPaperMode || provenEdge
+        val confThreshold = if (lenientMode) PROBATION_CONF_THRESHOLD_PAPER else PROBATION_CONF_THRESHOLD
+
         val needsProbation = when {
             // USER_ADDED always bypasses probation
             addedBy == "USER_ADDED" || addedBy == "USER" || addedBy == "CONFIG" -> false
-            // V5.2: Paper mode - bypass probation entirely for faster learning
-            // In paper mode, we WANT to trade more tokens to gather data
-            isPaperMode && confidence >= confThreshold -> false
+            // Paper or proven-edge live mode - bypass probation for fast learning
+            lenientMode && confidence >= confThreshold -> false
             // Multi-source tokens with sufficient confidence bypass
             isMultiSource && confidence >= confThreshold -> false
             // Low confidence = probation
             confidence < confThreshold -> true
-            // Estimated liquidity = probation (live mode only)
-            isEstimatedLiquidity && !isPaperMode -> true
-            // Single source with borderline confidence = probation (live mode)
-            // V5.2: Paper mode allows single source tokens for learning
-            !isMultiSource && confidence < 60 && !isPaperMode -> true
+            // Estimated liquidity = probation (strict-live only)
+            isEstimatedLiquidity && !lenientMode -> true
+            // Single source with borderline confidence = probation (strict-live only)
+            !isMultiSource && confidence < 60 && !lenientMode -> true
             // Otherwise, allow
             else -> false
         }
