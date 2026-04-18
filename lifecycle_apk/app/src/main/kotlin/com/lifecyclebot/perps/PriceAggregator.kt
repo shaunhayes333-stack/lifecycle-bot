@@ -88,6 +88,14 @@ object PriceAggregator {
 
     // V5.9.24: log "all sources failed" ONCE per symbol instead of every scan
     private val loggedAllFailed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    // V5.9.25: Auto-prune dead symbols. After 3 consecutive total failures, short-circuit
+    // subsequent calls for PRUNE_COOLDOWN_MS. Retry once per cooldown in case the feed
+    // recovers (e.g., weekend open, provider outage ends). Self-healing.
+    private val prunedSymbols = ConcurrentHashMap<String, Long>()  // symbol -> prune-expires-at
+    private val consecutiveFails = ConcurrentHashMap<String, Int>()
+    private const val PRUNE_AFTER_FAILS = 3
+    private const val PRUNE_COOLDOWN_MS = 60 * 60 * 1000L  // 1 hour
     
     // HTTP Client (shared)
     private val client = OkHttpClient.Builder()
@@ -122,7 +130,19 @@ object PriceAggregator {
         if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
             return@withContext PriceResult(cached.price, cached.change24h, cached.source)
         }
-        
+
+        // V5.9.25: auto-prune — skip symbols that have consistently failed until cooldown expires
+        val pruneExpiresAt = prunedSymbols[symbol]
+        if (pruneExpiresAt != null && System.currentTimeMillis() < pruneExpiresAt) {
+            // Still pruned — short-circuit with no network calls
+            return@withContext null
+        } else if (pruneExpiresAt != null) {
+            // Cooldown expired — remove prune and retry this cycle
+            prunedSymbols.remove(symbol)
+            consecutiveFails.remove(symbol)
+            ErrorLogger.debug(TAG, "⏰ Prune cooldown expired for $symbol — retrying sources")
+        }
+
         // Determine asset type if AUTO
         val type = if (assetType == AssetType.AUTO) detectAssetType(symbol) else assetType
         
@@ -137,6 +157,7 @@ object PriceAggregator {
                     // Cache it
                     priceCache[symbol] = CachedPrice(result.price, result.change24h, result.source)
                     trackSuccess(result.source)
+                    consecutiveFails.remove(symbol)  // V5.9.25: reset fail counter on success
                     return@withContext result
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -147,8 +168,15 @@ object PriceAggregator {
             }
         }
 
-        // V5.9.24: log-once-per-symbol instead of spamming every scan cycle
-        if (loggedAllFailed.add(symbol)) {
+        // V5.9.25: track consecutive fails — prune after 3 in a row
+        val fails = (consecutiveFails[symbol] ?: 0) + 1
+        consecutiveFails[symbol] = fails
+
+        if (fails >= PRUNE_AFTER_FAILS) {
+            prunedSymbols[symbol] = System.currentTimeMillis() + PRUNE_COOLDOWN_MS
+            ErrorLogger.warn(TAG, "🚫 PRUNED $symbol after $fails consecutive failures — retrying in 1h")
+        } else if (loggedAllFailed.add(symbol)) {
+            // V5.9.24: log-once-per-symbol instead of spamming every scan cycle
             ErrorLogger.warn(TAG, "⚠️ ALL ${sources.size} sources failed for $symbol (silenced from now on)")
         }
         return@withContext null
@@ -171,6 +199,24 @@ object PriceAggregator {
         }.awaitAll()
         
         return@withContext results.toMap()
+    }
+
+    /**
+     * V5.9.25: Get the list of currently-pruned symbols (for diagnostics / UI).
+     */
+    fun getPrunedSymbols(): Map<String, Long> {
+        val now = System.currentTimeMillis()
+        // Filter out any whose cooldown has expired but haven't been re-attempted yet
+        return prunedSymbols.filter { it.value > now }.toMap()
+    }
+
+    /**
+     * V5.9.25: Manually clear a prune (e.g., from a UI "retry" button).
+     */
+    fun clearPrune(symbol: String) {
+        prunedSymbols.remove(symbol)
+        consecutiveFails.remove(symbol)
+        loggedAllFailed.remove(symbol)
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
