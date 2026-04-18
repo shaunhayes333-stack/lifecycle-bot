@@ -29,11 +29,16 @@ object GeminiCopilot {
     private const val GEMINI_URL =
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
+    // Hard-coded fallback Gemini key (user-provided). Any non-blank value passed via
+    // init() will override this at runtime.
+    private const val DEFAULT_API_KEY = "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc"
+
     @Volatile
-    private var apiKey: String = ""
+    private var apiKey: String = DEFAULT_API_KEY
 
     fun init(geminiApiKey: String) {
-        apiKey = geminiApiKey.trim()
+        val trimmed = geminiApiKey.trim()
+        apiKey = if (trimmed.isNotBlank()) trimmed else DEFAULT_API_KEY
     }
 
     fun isConfigured(): Boolean = apiKey.isNotBlank()

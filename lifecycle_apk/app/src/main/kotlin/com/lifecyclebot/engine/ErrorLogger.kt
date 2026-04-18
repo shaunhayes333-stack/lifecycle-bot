@@ -4,6 +4,9 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.content.ContentValues
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Process
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -55,6 +58,11 @@ object ErrorLogger {
     private var sessionId: String = UUID.randomUUID().toString().take(8)
     private const val MAX_LOGS = 500
 
+    // V5.9.36: Off-thread DB writes to prevent main-thread ANR when the
+    // app is flooded with log lines from parallel trader engines.
+    private var ioThread: HandlerThread? = null
+    private var ioHandler: Handler? = null
+
     // ── Initialize ────────────────────────────────────────────────────
 
     fun init(context: Context) {
@@ -62,11 +70,18 @@ object ErrorLogger {
         val helper = ErrorDbHelper(context)
         db = helper.writableDatabase
         sessionId = UUID.randomUUID().toString().take(8)
-        
+
+        // Spin up a dedicated low-priority background thread for log IO.
+        if (ioThread == null) {
+            val t = HandlerThread("ErrorLoggerIO", Process.THREAD_PRIORITY_BACKGROUND).also { it.start() }
+            ioThread = t
+            ioHandler = Handler(t.looper)
+        }
+
         // Log session start
         log(Level.INFO, "System", "Session started: $sessionId")
-        
-        // Cleanup old logs
+
+        // Cleanup old logs (already off-thread below via ioHandler)
         cleanup()
     }
 
@@ -82,20 +97,11 @@ object ErrorLogger {
 
     fun log(level: Level, component: String, message: String, throwable: Throwable? = null) {
         val database = db ?: return
-        
+
+        // Always mirror to logcat immediately on the caller thread — cheap,
+        // and invaluable for attaching debuggers.
+        val tag = "AATE.$component"
         try {
-            val values = ContentValues().apply {
-                put("timestamp", System.currentTimeMillis())
-                put("level", level.name)
-                put("component", component)
-                put("message", message.take(1000))  // Limit message length
-                put("stack_trace", throwable?.stackTraceToString()?.take(2000))
-                put("session_id", sessionId)
-            }
-            database.insert("error_logs", null, values)
-            
-            // Also log to Android logcat for debugging
-            val tag = "AATE.$component"
             when (level) {
                 Level.DEBUG -> android.util.Log.d(tag, message, throwable)
                 Level.INFO -> android.util.Log.i(tag, message, throwable)
@@ -103,6 +109,46 @@ object ErrorLogger {
                 Level.ERROR -> android.util.Log.e(tag, message, throwable)
                 Level.CRASH -> android.util.Log.e(tag, "CRASH: $message", throwable)
             }
+        } catch (_: Throwable) { /* never let logcat failures propagate */ }
+
+        // Capture values that we need off-thread (throwable stack must be
+        // rendered on the caller thread in case it gets mutated).
+        val ts = System.currentTimeMillis()
+        val lvlName = level.name
+        val msg = message.take(1000)
+        val stack = throwable?.stackTraceToString()?.take(2000)
+        val sid = sessionId
+
+        val handler = ioHandler
+        if (handler == null) {
+            // Init hasn't run yet — fall back to sync insert (startup only).
+            writeToDb(database, ts, lvlName, component, msg, stack, sid)
+            return
+        }
+        handler.post {
+            writeToDb(database, ts, lvlName, component, msg, stack, sid)
+        }
+    }
+
+    private fun writeToDb(
+        database: SQLiteDatabase,
+        ts: Long,
+        lvlName: String,
+        component: String,
+        msg: String,
+        stack: String?,
+        sid: String,
+    ) {
+        try {
+            val values = ContentValues().apply {
+                put("timestamp", ts)
+                put("level", lvlName)
+                put("component", component)
+                put("message", msg)
+                put("stack_trace", stack)
+                put("session_id", sid)
+            }
+            database.insert("error_logs", null, values)
         } catch (e: Exception) {
             android.util.Log.e("ErrorLogger", "Failed to log: ${e.message}")
         }
@@ -269,26 +315,31 @@ object ErrorLogger {
 
     fun cleanup() {
         val database = db ?: return
-        
-        try {
-            // Keep only the most recent MAX_LOGS entries
-            database.execSQL(
-                "DELETE FROM error_logs WHERE id NOT IN " +
-                "(SELECT id FROM error_logs ORDER BY timestamp DESC LIMIT $MAX_LOGS)"
-            )
-        } catch (e: Exception) {
-            android.util.Log.e("ErrorLogger", "Failed to cleanup: ${e.message}")
+        val runner = Runnable {
+            try {
+                database.execSQL(
+                    "DELETE FROM error_logs WHERE id NOT IN " +
+                    "(SELECT id FROM error_logs ORDER BY timestamp DESC LIMIT $MAX_LOGS)"
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("ErrorLogger", "Failed to cleanup: ${e.message}")
+            }
         }
+        // V5.9.36: never block caller thread on the DELETE query
+        ioHandler?.post(runner) ?: runner.run()
     }
 
     fun clearAll() {
         val database = db ?: return
-        try {
-            database.execSQL("DELETE FROM error_logs")
-            log(Level.INFO, "System", "Logs cleared")
-        } catch (e: Exception) {
-            android.util.Log.e("ErrorLogger", "Failed to clear: ${e.message}")
+        val runner = Runnable {
+            try {
+                database.execSQL("DELETE FROM error_logs")
+            } catch (e: Exception) {
+                android.util.Log.e("ErrorLogger", "Failed to clear: ${e.message}")
+            }
         }
+        ioHandler?.post(runner) ?: runner.run()
+        log(Level.INFO, "System", "Logs cleared")
     }
 
     // ── Database helper ───────────────────────────────────────────────

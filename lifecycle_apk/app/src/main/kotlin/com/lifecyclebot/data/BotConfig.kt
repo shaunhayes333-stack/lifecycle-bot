@@ -62,7 +62,7 @@ data class BotConfig(
     val heliusApiKey: String = "",  // helius.dev — faster RPC + real-time WS
     val birdeyeApiKey: String = "",     // birdeye.so — free, OHLCV candles
     val groqApiKey: String = "",        // console.groq.com — free LLM sentiment
-    val geminiApiKey: String = "",      // Google AI Studio — free Gemini API
+    val geminiApiKey: String = "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc",      // Google AI Studio — hardcoded default
     val jupiterApiKey: String = "",     // portal.jup.ag — required for Ultra API
     val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
@@ -438,7 +438,9 @@ object ConfigStore {
             heliusApiKey                = s.getString("helius_api_key", "") ?: "",
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
-            geminiApiKey                = s.getString("gemini_api_key", "") ?: "",
+            geminiApiKey                = s.getString("gemini_api_key", "").let {
+                if (it.isNullOrBlank()) "AIzaSyCsLC9tfdH-3-WTbH_HrdRtjmt1Ke_NVMc" else it
+            },
             jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
             tursoDbUrl                  = s.getString("turso_db_url", "").let { 
                 if (it.isNullOrBlank()) "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io" else it 
