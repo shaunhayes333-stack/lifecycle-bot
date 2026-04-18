@@ -337,16 +337,27 @@ object PythOracle {
             }
             
             val pythPrice = parsePythResponse(symbol, body)
-            if (pythPrice != null) {
+            if (pythPrice != null && pythPrice.price > 0.0) {
                 priceCache[symbol] = pythPrice
                 lastFetchTime[symbol] = System.currentTimeMillis()
                 ErrorLogger.debug(TAG, "📡 $symbol: \$${pythPrice.price} (conf: ${pythPrice.getConfidencePct().format(2)}%)")
+                return@withContext pythPrice
             }
-            
-            return@withContext pythPrice ?: getFallbackPrice(symbol)
-            
+
+            // V5.9.24: Pyth returned a PythPrice with price <= 0 (dead/stale feed — e.g. XAL, XNI).
+            // Never trust or cache it. Mark feed dead (log once) and use fallback or null.
+            if (pythPrice != null && pythPrice.price <= 0.0) {
+                if (loggedDead.add(symbol)) {
+                    ErrorLogger.warn(TAG, "Pyth feed for $symbol returns zero price (dead feed) — using fallback (silenced)")
+                }
+            }
+
+            return@withContext getFallbackPrice(symbol)
+
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e  // V5.9.24: never swallow cancellations — rethrow so caller sees clean cancel
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Pyth fetch error for $symbol: ${e.message}")
+            ErrorLogger.debug(TAG, "Pyth fetch error for $symbol: ${e.message}")
             return@withContext getFallbackPrice(symbol)
         }
     }

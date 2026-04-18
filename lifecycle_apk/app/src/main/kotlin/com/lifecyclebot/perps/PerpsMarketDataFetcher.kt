@@ -533,7 +533,7 @@ object PerpsMarketDataFetcher {
         try {
             val pythPrice = PythOracle.getPrice(market.symbol)
             
-            if (pythPrice != null) {
+            if (pythPrice != null && pythPrice.price > 0.0) {  // V5.9.24: gate on positive price
                 val isStale = pythPrice.isStale()
                 if (!isStale) {
                     ErrorLogger.debug(TAG, "📡 Pyth: ${market.symbol} = \$${pythPrice.price.fmt(2)}")
@@ -601,8 +601,12 @@ object PerpsMarketDataFetcher {
                 // V5.9.22: demote to debug — the fallback always has a value, this is expected
                 ErrorLogger.debug(TAG, "Pyth NULL for ${market.symbol}, using fallback")
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e  // V5.9.24: never swallow coroutine cancellations — caller must see them
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "⚠️ Pyth fetch FAILED for ${market.symbol}: ${e.message}")
+            // V5.9.24: demote to DEBUG — with DEX-first routing, Pyth failures are expected
+            // and always fall back to PriceAggregator (which logs its own success/failure).
+            ErrorLogger.debug(TAG, "Pyth fetch failed for ${market.symbol} (using fallback): ${e.message}")
         }
         
         // Fallback to legacy method with comprehensive stockPrices

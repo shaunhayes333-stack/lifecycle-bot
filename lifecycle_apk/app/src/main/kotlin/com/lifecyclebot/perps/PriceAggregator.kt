@@ -85,6 +85,9 @@ object PriceAggregator {
     // Source success tracking
     private val sourceSuccessCount = ConcurrentHashMap<String, AtomicInteger>()
     private val sourceFailCount = ConcurrentHashMap<String, AtomicInteger>()
+
+    // V5.9.24: log "all sources failed" ONCE per symbol instead of every scan
+    private val loggedAllFailed = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     
     // HTTP Client (shared)
     private val client = OkHttpClient.Builder()
@@ -136,13 +139,18 @@ object PriceAggregator {
                     trackSuccess(result.source)
                     return@withContext result
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e  // V5.9.24: never swallow cancellations
             } catch (e: Exception) {
                 trackFailure(source.name)
                 ErrorLogger.debug(TAG, "${source.name} failed for $symbol")
             }
         }
-        
-        ErrorLogger.warn(TAG, "⚠️ ALL ${sources.size} sources failed for $symbol")
+
+        // V5.9.24: log-once-per-symbol instead of spamming every scan cycle
+        if (loggedAllFailed.add(symbol)) {
+            ErrorLogger.warn(TAG, "⚠️ ALL ${sources.size} sources failed for $symbol (silenced from now on)")
+        }
         return@withContext null
     }
     
