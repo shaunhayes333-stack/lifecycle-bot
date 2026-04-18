@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
@@ -303,6 +304,9 @@ class BehaviorActivity : AppCompatActivity() {
         try {
             val state = BehaviorAI.getState()
             
+            // V5.9.32: render fluid dashboard on every refresh cycle
+            try { renderFluidDashboard() } catch (_: Exception) {}
+
             // Streak
             val streak = state.currentStreak
             tvStreak.text = when {
@@ -670,4 +674,146 @@ class BehaviorActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // V5.9.32: FLUID CONTROL DASHBOARD renderer
+    // Surfaces the full set of adaptive thresholds the bot is applying
+    // right now. Every value below is learned via FluidLearningAI —
+    // nothing here is a configured magic number in the hot path.
+    // ═════════════════════════════════════════════════════════════════
+    private fun renderFluidDashboard() {
+        val container = findViewById<LinearLayout>(R.id.llFluidDashboard) ?: return
+        val tvProgress = findViewById<TextView>(R.id.tvFluidProgress)
+        val tvFooter = findViewById<TextView>(R.id.tvFluidFooter)
+        container.removeAllViews()
+
+        val fla = com.lifecyclebot.v3.scoring.FluidLearningAI
+        val progress = safe { fla.getLearningProgress() } ?: 0.0
+        val mktProgress = safe { fla.getMarketsLearningProgress() } ?: 0.0
+        val phase = when {
+            progress < 0.20 -> "BOOTSTRAP"
+            progress < 0.60 -> "LEARNING"
+            progress < 0.90 -> "MATURING"
+            else -> "EXPERT"
+        }
+        tvProgress.text = "$phase · ${(progress * 100).toInt()}%"
+        tvProgress.setTextColor(when (phase) {
+            "BOOTSTRAP" -> 0xFFFCD34D.toInt()
+            "LEARNING" -> 0xFF60A5FA.toInt()
+            "MATURING" -> 0xFF14F195.toInt()
+            else -> 0xFF00FF88.toInt()
+        })
+
+        addFluidSection(container, "🎯 ENTRY GATES")
+        addFluidRow(container, "Paper conf floor",
+            safe { fla.getPaperConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—",
+            "Bot's own conviction threshold (bootstrap→mature: 15→45)")
+        addFluidRow(container, "Live conf floor",
+            safe { fla.getLiveConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—",
+            "Higher bar for real-money signals")
+        addFluidRow(container, "Min V3 score",
+            safe { fla.getMinScoreThreshold() }?.toString() ?: "—",
+            "Score cutoff for trade promotion")
+        addFluidRow(container, "Scanner liq floor",
+            safe { fla.getScannerLiqFloor() }?.let { "\$${it.toInt()}" } ?: "—",
+            "Min DEX liquidity to scan ($1.5k→$8k)")
+        addFluidRow(container, "ShitCoin score floor",
+            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidScoreThreshold() }?.toString() ?: "—",
+            "ShitCoin layer entry bar")
+        addFluidRow(container, "ShitCoin min liq",
+            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidMinLiquidity() }?.let { "\$${it.toInt()}" } ?: "—",
+            "ShitCoin liquidity bar")
+
+        addFluidSection(container, "💰 PROFIT TARGETS")
+        addFluidRow(container, "Markets spot TP",
+            safe { fla.getMarketsSpotTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "Take-profit % for spot markets")
+        addFluidRow(container, "Markets leverage TP",
+            safe { fla.getMarketsLevTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "Take-profit % for leverage markets")
+        addFluidRow(container, "ShitCoin TP",
+            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "ShitCoin layer TP")
+        addFluidRow(container, "Quality TP",
+            safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "Quality layer TP")
+
+        addFluidSection(container, "🛑 STOP LOSSES")
+        addFluidRow(container, "Markets SL",
+            safe { fla.getMarketsStopLossPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "Spot/leverage stop-loss")
+        addFluidRow(container, "ShitCoin SL",
+            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "ShitCoin layer SL")
+        addFluidRow(container, "Quality SL",
+            safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—",
+            "Quality layer SL")
+
+        addFluidSection(container, "⏱ HOLD WINDOW")
+        addFluidRow(container, "Flat-trade tolerance",
+            safe { fla.getFlatTradeToleranceMin() }?.let { "${"%.1f".format(it)}min" } ?: "—",
+            "Patience window before cap applies (10→3 min)")
+        addFluidRow(container, "Flat-trade band",
+            safe { fla.getFlatTradeBandPct() }?.let { "±${"%.2f".format(it)}%" } ?: "—",
+            "|PnL| range that counts as 'flat'")
+        addFluidRow(container, "Flat-trade cap",
+            safe { fla.getFlatTradeMaxHoldMin() }?.let { "${it.toInt()}min" } ?: "—",
+            "Max hold for flat trades (30→15 min)")
+
+        addFluidSection(container, "📊 POSITION SIZING")
+        addFluidRow(container, "Markets size %",
+            safe { fla.getMarketsPositionSizePct() }?.let { "${"%.1f".format(it * 100)}%" } ?: "—",
+            "Position size as % of wallet")
+        addFluidRow(container, "Behavior adjustment",
+            safe { com.lifecyclebot.v3.scoring.BehaviorAI.getFluidAdjustment() }?.let { "${"%+.2f".format(it)}" } ?: "—",
+            "BehaviorAI's current override signal")
+
+        tvFooter.text = "All values learned · overall ${(progress*100).toInt()}% · markets ${(mktProgress*100).toInt()}% · updates on every trade close"
+    }
+
+    private fun <T> safe(block: () -> T): T? = try { block() } catch (_: Throwable) { null }
+
+    private fun addFluidSection(container: LinearLayout, title: String) {
+        container.addView(TextView(this).apply {
+            text = title
+            textSize = 11f
+            setTextColor(0xFF9CA3AF.toInt())
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(0, dp(12), 0, dp(4))
+        })
+    }
+
+    private fun addFluidRow(container: LinearLayout, label: String, value: String, hint: String) {
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        topRow.addView(TextView(this).apply {
+            text = "• $label"
+            textSize = 11f
+            setTextColor(0xFFE5E7EB.toInt())
+            typeface = android.graphics.Typeface.MONOSPACE
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        topRow.addView(TextView(this).apply {
+            text = value
+            textSize = 12f
+            setTextColor(0xFF14F195.toInt())
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        })
+        wrap.addView(topRow)
+        wrap.addView(TextView(this).apply {
+            text = hint
+            textSize = 9f
+            setTextColor(0xFF4B5563.toInt())
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(dp(10), 0, 0, 0)
+        })
+        container.addView(wrap)
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 }
