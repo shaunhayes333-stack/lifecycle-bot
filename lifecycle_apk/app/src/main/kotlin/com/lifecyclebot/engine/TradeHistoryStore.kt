@@ -34,6 +34,40 @@ object TradeHistoryStore {
     private var prefs: SharedPreferences? = null
     private val trades = mutableListOf<Trade>()
 
+    // V5.9.43: Cached "proven edge" flag to avoid re-computing getStats()
+    // thousands of times per second on the hot path (promotion gate, hard
+    // blocks). Refreshed every STATS_CACHE_MS.
+    @Volatile private var cachedHasProvenEdge: Boolean = false
+    @Volatile private var cachedProvenWinRate: Double = 0.0
+    @Volatile private var cachedProvenTradeCount: Int = 0
+    @Volatile private var lastStatsCacheMs: Long = 0L
+    private const val STATS_CACHE_MS = 30_000L  // 30s — proven-edge status changes slowly
+
+    data class ProvenEdgeSnapshot(
+        val hasProvenEdge: Boolean,
+        val winRate: Double,      // 0-100
+        val meaningfulTrades: Int,
+    )
+
+    /**
+     * Cheap cached accessor for the hot path. Recomputes via getStats()
+     * at most once every STATS_CACHE_MS. Safe to call from any thread.
+     */
+    fun getProvenEdgeCached(): ProvenEdgeSnapshot {
+        val now = System.currentTimeMillis()
+        if (now - lastStatsCacheMs > STATS_CACHE_MS) {
+            try {
+                val s = getStats()
+                val meaningful = s.totalWins + s.totalLosses
+                cachedProvenTradeCount = meaningful
+                cachedProvenWinRate = s.winRate
+                cachedHasProvenEdge = meaningful >= 300 && s.winRate >= 50.0
+                lastStatsCacheMs = now
+            } catch (_: Exception) {}
+        }
+        return ProvenEdgeSnapshot(cachedHasProvenEdge, cachedProvenWinRate, cachedProvenTradeCount)
+    }
+
     /**
      * Initialize with context
      */

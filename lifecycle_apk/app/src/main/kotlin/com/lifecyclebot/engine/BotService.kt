@@ -5798,20 +5798,17 @@ if (deferredCount > 0) {
     // Bootstrap (0%): ~15 — wide open, gather data.
     // Mature (80%):  ~45 — filter low-conviction noise as winrate data accrues.
     // This drifts with live performance — no human-set number in the hot path.
-    // V5.9.41: FLUID SKIP-allowance. Hardcoded `false` meant that every
-    // candidate whose Edge layer returned "SKIP" (the majority during
-    // bootstrap) was shadow-tracked forever, so the bot could have a
-    // 60% paper win rate over 2000 trades and still never buy anything
-    // live. User explicitly wants paper learning to flow into live.
+    // V5.9.41/43: FLUID SKIP-allowance. Hardcoded `false` meant every SKIP
+    // candidate was shadow-tracked forever. Now fluid + cached.
     //
-    // We now allow SKIP through when EITHER:
-    //   • We're still in bootstrap (< 500 trades) — gather data.
-    //   • OR the proven history shows a healthy win rate with a
-    //     meaningful sample (live mode inherits paper's edge).
-    val historyStats = try { com.lifecyclebot.engine.TradeHistoryStore.getStats() } catch (_: Exception) { null }
-    val provenWinRate   = historyStats?.winRate ?: 0.0      // 0-100
-    val meaningfulCount = (historyStats?.totalWins ?: 0) + (historyStats?.totalLosses ?: 0)
-    val hasProvenEdge   = meaningfulCount >= 300 && provenWinRate >= 50.0
+    // V5.9.43: swap to TradeHistoryStore.getProvenEdgeCached() — previous
+    // version called full getStats() here per-token, which did 3-4 full
+    // iterations of the trade list and starved the scanner coroutines
+    // (user saw watchlist stop populating until a bot restart).
+    val provenEdge = com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached()
+    val provenWinRate   = provenEdge.winRate
+    val meaningfulCount = provenEdge.meaningfulTrades
+    val hasProvenEdge   = provenEdge.hasProvenEdge
 
     val allowSkipForLearning = isBootstrap || hasProvenEdge
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
