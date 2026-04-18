@@ -42,6 +42,9 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var tvWinRate: TextView
     private lateinit var tvAvgHold: TextView
     private lateinit var llModeStats: LinearLayout
+    // V5.9.26: wire the two previously-orphaned sections at the bottom of the screen
+    private lateinit var llBrainPatterns: LinearLayout
+    private lateinit var llBrainSignals: LinearLayout
     private lateinit var tvDataSource: TextView
     private lateinit var tvSyncStatus: TextView
     private lateinit var btnForceSync: TextView
@@ -138,6 +141,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
         tvTopMode = findViewById(R.id.tvBrainTopMode)
         tvWorstMode = findViewById(R.id.tvBrainWorstMode)
         llModeStats = findViewById(R.id.llBrainModeStats)
+        llBrainPatterns = findViewById(R.id.llBrainPatterns)  // V5.9.26
+        llBrainSignals = findViewById(R.id.llBrainSignals)    // V5.9.26
         tvDataSource = findViewById(R.id.tvBrainDataSource)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
         tvWinRate = try { findViewById(R.id.tvBrainWinRate) } catch (_: Exception) { TextView(this) }
@@ -515,6 +520,166 @@ class CollectiveBrainActivity : AppCompatActivity() {
             addSectionHeader("⚠️ AVOID")
             avoidModes.take(2).forEach { mode ->
                 addModeRow("❌", mode.modeName, mode.winRate, mode.avgPnlPct, false)
+            }
+        }
+
+        // V5.9.26: Populate the two standalone sections at the bottom
+        updateTopPatternsSection()
+        updateNetworkSignalsSection(networkSignals, hotTokens)
+    }
+
+    /**
+     * V5.9.26: Populate the standalone TOP PATTERNS section (was a dead placeholder).
+     * Uses TokenWinMemory.getBestPatterns() — learned wins/losses across pattern categories.
+     */
+    private fun updateTopPatternsSection() {
+        llBrainPatterns.removeAllViews()
+        val bestPatterns = try {
+            com.lifecyclebot.engine.TokenWinMemory.getBestPatterns(5)
+        } catch (_: Exception) { emptyList() }
+        val worstPatterns = try {
+            com.lifecyclebot.engine.TokenWinMemory.getWorstPatterns(3)
+        } catch (_: Exception) { emptyList() }
+
+        if (bestPatterns.isEmpty() && worstPatterns.isEmpty()) {
+            // Keep placeholder behaviour
+            llBrainPatterns.addView(android.widget.TextView(this).apply {
+                text = "Learning from live trades…"
+                setTextColor(0xFF4B5563.toInt())
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(20), 0, dp(20))
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            return
+        }
+
+        if (bestPatterns.isNotEmpty()) {
+            llBrainPatterns.addView(android.widget.TextView(this).apply {
+                text = "✅ WINNING PATTERNS"
+                textSize = 11f
+                setTextColor(green)
+                setPadding(0, dp(4), 0, dp(4))
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            bestPatterns.forEach { (name, stats) ->
+                addPatternRow(name, stats.wins + stats.losses, stats.winRate * 100, stats.totalPnl, true)
+            }
+        }
+        if (worstPatterns.isNotEmpty()) {
+            llBrainPatterns.addView(android.widget.TextView(this).apply {
+                text = "❌ LOSING PATTERNS"
+                textSize = 11f
+                setTextColor(red)
+                setPadding(0, dp(10), 0, dp(4))
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            worstPatterns.forEach { (name, stats) ->
+                addPatternRow(name, stats.wins + stats.losses, stats.winRate * 100, stats.totalPnl, false)
+            }
+        }
+    }
+
+    private fun addPatternRow(name: String, trades: Int, winRatePct: Double, totalPnl: Double, isPositive: Boolean) {
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, dp(2), 0, dp(2))
+        }
+        row.addView(android.widget.TextView(this).apply {
+            text = "• ${name.take(22)}"
+            textSize = 11f
+            setTextColor(white)
+            typeface = android.graphics.Typeface.MONOSPACE
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        row.addView(android.widget.TextView(this).apply {
+            val pnlStr = if (totalPnl >= 0) "+${totalPnl.toInt()}%" else "${totalPnl.toInt()}%"
+            text = "${trades}× · ${winRatePct.toInt()}% · $pnlStr"
+            textSize = 11f
+            setTextColor(if (isPositive) green else red)
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+        })
+        llBrainPatterns.addView(row)
+    }
+
+    /**
+     * V5.9.26: Populate the standalone NETWORK SIGNALS section (was a dead placeholder).
+     * Shows live broadcasts from other bots in the hive + hot tokens as a fallback.
+     */
+    private fun updateNetworkSignalsSection(
+        networkSignals: List<CollectiveLearning.NetworkSignal>,
+        hotTokens: List<CollectiveLearning.HotToken>
+    ) {
+        llBrainSignals.removeAllViews()
+
+        if (networkSignals.isEmpty() && hotTokens.isEmpty()) {
+            llBrainSignals.addView(android.widget.TextView(this).apply {
+                text = "Awaiting signals from the hive…"
+                setTextColor(0xFF4B5563.toInt())
+                textSize = 11f
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(20), 0, dp(20))
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            return
+        }
+
+        networkSignals.take(8).forEach { signal ->
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                setPadding(0, dp(3), 0, dp(3))
+            }
+            val emoji = when (signal.signalType) {
+                "MEGA_WINNER" -> "🔥"
+                "HOT_TOKEN" -> "🌐"
+                "RUG_PULL" -> "⚠️"
+                else -> "📡"
+            }
+            row.addView(android.widget.TextView(this).apply {
+                text = "$emoji ${signal.symbol.take(14)} · ${signal.signalType.take(12)}"
+                textSize = 11f
+                setTextColor(white)
+                typeface = android.graphics.Typeface.MONOSPACE
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(android.widget.TextView(this).apply {
+                val pnlStr = if (signal.pnlPct >= 0) "+${signal.pnlPct.toInt()}%" else "${signal.pnlPct.toInt()}%"
+                text = "$pnlStr (${signal.ackCount}🤖)"
+                textSize = 11f
+                setTextColor(if (signal.pnlPct >= 0) green else red)
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            })
+            llBrainSignals.addView(row)
+        }
+
+        // If no network broadcasts, fall back to hot tokens as a signal surface
+        if (networkSignals.isEmpty() && hotTokens.isNotEmpty()) {
+            llBrainSignals.addView(android.widget.TextView(this).apply {
+                text = "🔥 TRENDING (6h)"
+                textSize = 10f
+                setTextColor(muted)
+                setPadding(0, dp(6), 0, dp(4))
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            hotTokens.take(5).forEach { t ->
+                val row = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    setPadding(0, dp(2), 0, dp(2))
+                }
+                row.addView(android.widget.TextView(this).apply {
+                    text = "💎 ${t.symbol.take(14)}"
+                    textSize = 11f
+                    setTextColor(white)
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                row.addView(android.widget.TextView(this).apply {
+                    text = "+${t.avgPnlPct.toInt()}% (${t.botsTrading}🤖)"
+                    textSize = 11f
+                    setTextColor(green)
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                })
+                llBrainSignals.addView(row)
             }
         }
     }
