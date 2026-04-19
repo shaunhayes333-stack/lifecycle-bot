@@ -4656,8 +4656,8 @@ if (deferredCount > 0) {
                                     isPaper = cfg.paperMode
                                 )
 
-                                // Record Blue Chip position
-                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                                // Record Blue Chip position only if the buy actually opened one
+                                if (ts.position.isOpen) com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
                                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -4785,20 +4785,20 @@ if (deferredCount > 0) {
                                                 "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
                                                 "TP=${moonshotEffectiveTpPct.toInt()}% SL=${moonshotEffectiveSlPct.toInt()}%")
                                             
-                                            // Execute moonshot entry
-                                            executor.paperBuy(
+                                            // Execute moonshot entry — live mode runs real on-chain swap
+                                            executor.moonshotBuy(
                                                 ts = ts,
-                                                sol = moonshotScore.suggestedSizeSol,
-                                                score = moonshotScore.score.toDouble(),
-                                                identity = identity,
-                                                quality = moonshotScore.spaceMode.displayName,
-                                                skipGraduated = true,
+                                                sizeSol = moonshotScore.suggestedSizeSol,
+                                                walletSol = effectiveBalance,
                                                 wallet = wallet,
-                                                walletSol = effectiveBalance
+                                                isPaper = cfg.paperMode,
+                                                score = moonshotScore.score.toDouble(),
+                                                spaceModeEmoji = moonshotScore.spaceMode.emoji,
+                                                spaceModeName = moonshotScore.spaceMode.displayName,
                                             )
-                                            
-                                            // Register with MoonshotTraderAI
-                                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
+
+                                            // Register with MoonshotTraderAI only if position actually opened
+                                            if (ts.position.isOpen) com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
                                                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
                                                     mint = ts.mint,
                                                     symbol = ts.symbol,
@@ -5202,7 +5202,7 @@ if (deferredCount > 0) {
                             )
 
                             val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
-                            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
+                            if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
                                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
@@ -5304,18 +5304,7 @@ if (deferredCount > 0) {
                                     "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
                                     "target=${expressSignal.estimatedGainPct.toInt()}%")
                                 
-                                // Board the express ride
-                                com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    entryPrice = ts.ref,
-                                    entrySol = expressSignal.positionSizeSol,
-                                    momentum = ts.momentum ?: 0.0,
-                                    buyPressure = ts.lastBuyPressurePct,
-                                    isPaper = cfg.paperMode,
-                                )
-                                
-                                // Execute buy via Executor
+                                // Execute buy first — only board the ride if the buy actually opened
                                 executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = expressSignal.positionSizeSol,
@@ -5326,6 +5315,16 @@ if (deferredCount > 0) {
                                     isPaper = cfg.paperMode,
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                )
+
+                                if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = expressSignal.positionSizeSol,
+                                    momentum = ts.momentum ?: 0.0,
+                                    buyPressure = ts.lastBuyPressurePct,
+                                    isPaper = cfg.paperMode,
                                 )
                                 
                                 addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +

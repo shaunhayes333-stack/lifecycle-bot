@@ -3326,6 +3326,39 @@ class Executor(
         }
     }
 
+    fun moonshotBuy(
+        ts: TokenState,
+        sizeSol: Double,
+        walletSol: Double,
+        wallet: SolanaWallet?,
+        isPaper: Boolean,
+        score: Double,
+        spaceModeEmoji: String,
+        spaceModeName: String,
+    ) {
+        val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        identity.executed(getActualPrice(ts), sizeSol, isPaper)
+
+        ErrorLogger.info("Executor", "🚀 [MOONSHOT] ${ts.symbol} | " +
+            "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
+            "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | ${sizeSol.fmt(3)} SOL")
+
+        if (isPaper) {
+            paperBuy(ts = ts, sol = sizeSol, score = score, identity = identity,
+                quality = spaceModeName, skipGraduated = true, wallet = wallet, walletSol = walletSol)
+        } else {
+            if (wallet == null) {
+                ErrorLogger.error("Executor", "🚀 [MOONSHOT] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                return
+            }
+            liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
+                walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true)
+        }
+
+        ts.position.tradingMode = "MOONSHOT_$spaceModeName"
+        ts.position.tradingModeEmoji = spaceModeEmoji
+    }
+
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
