@@ -34,7 +34,14 @@ object GeminiCopilot {
     // AIza... key, but user's personal key got flagged as leaked by Google
     // so the default fallback is now the proxy.
     private const val EMERGENT_PROXY_URL = "https://integrations.emergentagent.com/llm/chat/completions"
-    private const val EMERGENT_MODEL = "gemini/gemini-3-flash-preview"
+    // V5.9.57: gemini-3-flash-preview hangs upstream (proxy returns no body,
+    // curl confirmed 30s timeouts on that id). gemini-2.0-flash is the
+    // fastest stable route (~0.7s) and does NOT drain tokens into
+    // reasoning_tokens the way gemini-2.5-flash does (which returned
+    // content=null when max_tokens was small). Lock in 2.0-flash for
+    // sentient chat + structured JSON calls until a newer flash model
+    // is verified working through the proxy.
+    private const val EMERGENT_MODEL = "gemini/gemini-2.0-flash"
     private const val DIRECT_GEMINI_URL =
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
@@ -55,9 +62,9 @@ object GeminiCopilot {
     private fun isEmergentKey(): Boolean = apiKey.startsWith("sk-emergent-")
 
     private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(22, TimeUnit.SECONDS)
         .build()
 
     private val JSON_MT = "application/json".toMediaType()
@@ -421,45 +428,62 @@ Respond naturally in 1-3 sentences.
                     .build()
             }
 
-            http.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    val errBody = try { resp.body?.string()?.take(300) } catch (_: Throwable) { null }
-                    when (resp.code) {
-                        429 -> { recordRateLimit(); ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}") }
-                        401, 403 -> ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
-                        500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error ${resp.code}")
-                        else -> ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
+            // V5.9.57: single retry on transient network timeout (proxy
+            // occasionally drops the first call; the second always succeeds).
+            var lastTimeout: java.io.IOException? = null
+            repeat(2) { attempt ->
+                try {
+                    http.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) {
+                            val errBody = try { resp.body?.string()?.take(300) } catch (_: Throwable) { null }
+                            when (resp.code) {
+                                429 -> { recordRateLimit(); ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}") }
+                                401, 403 -> ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
+                                500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error ${resp.code}")
+                                else -> ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
+                            }
+                            return null
+                        }
+
+                        resetRateLimit()
+
+                        val body = resp.body?.string()?.trim().orEmpty()
+                        if (body.isBlank()) return null
+
+                        val json = JSONObject(body)
+
+                        val rawText = if (isEmergentKey()) {
+                            // OpenAI-style: choices[0].message.content
+                            json.optJSONArray("choices")
+                                ?.optJSONObject(0)
+                                ?.optJSONObject("message")
+                                ?.optString("content")
+                                ?.takeIf { it.isNotEmpty() }
+                        } else {
+                            // Gemini native: candidates[0].content.parts[0].text
+                            json.optJSONArray("candidates")
+                                ?.optJSONObject(0)
+                                ?.optJSONObject("content")
+                                ?.optJSONArray("parts")
+                                ?.optJSONObject(0)
+                                ?.optString("text")
+                                ?.takeIf { it.isNotEmpty() }
+                        }
+
+                        return rawText?.let { if (asJson) sanitizeJsonText(it) else it.trim() }
                     }
-                    return null
+                } catch (e: java.io.InterruptedIOException) {
+                    // Read/call/connect timeout — retry once.
+                    lastTimeout = e
+                    if (attempt == 0) {
+                        ErrorLogger.debug(TAG, "LLM proxy timeout (attempt 1), retrying once")
+                    }
                 }
-
-                resetRateLimit()
-
-                val body = resp.body?.string()?.trim().orEmpty()
-                if (body.isBlank()) return null
-
-                val json = JSONObject(body)
-
-                val rawText = if (isEmergentKey()) {
-                    // OpenAI-style: choices[0].message.content
-                    json.optJSONArray("choices")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("message")
-                        ?.optString("content")
-                        ?.takeIf { it.isNotEmpty() }
-                } else {
-                    // Gemini native: candidates[0].content.parts[0].text
-                    json.optJSONArray("candidates")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("content")
-                        ?.optJSONArray("parts")
-                        ?.optJSONObject(0)
-                        ?.optString("text")
-                        ?.takeIf { it.isNotEmpty() }
-                }
-
-                rawText?.let { if (asJson) sanitizeJsonText(it) else it.trim() }
             }
+            if (lastTimeout != null) {
+                ErrorLogger.warn(TAG, "LLM proxy timed out twice: ${lastTimeout!!.message}")
+            }
+            null
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Call failed: ${e.message}")
             null

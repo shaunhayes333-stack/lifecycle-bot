@@ -2003,22 +2003,31 @@ class CryptoAltActivity : AppCompatActivity() {
             labelTv?.text = "📊 Price Chart  ($tf)"
             lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    // Use BirdeyeApi for Solana mints, fallback to fabricating from current price for CoinGecko tokens
-                    val mint = tok.mint
-                    val candles = if (!mint.startsWith("cg:") && mint.length > 20) {
-                        try { BirdeyeApi().getCandles(mint, tf, 60) } catch (_: Exception) { emptyList() }
-                    } else emptyList()
+                    // V5.9.57: Unified multi-source chart fetcher.
+                    // Tries Birdeye (Solana mints) → CoinGecko (cg:<id>) →
+                    // Yahoo (known tickers) → synth (current price + 24h chg).
+                    // Previously BirdeyeApi was the only source and silently
+                    // failed to rate-limit (no key, 10 req/min), leaving every
+                    // chart stuck on "Waiting for price data…".
+                    val points = com.lifecyclebot.network.ChartHistoryFetcher.fetch(
+                        mint          = tok.mint,
+                        symbol        = tok.symbol,
+                        timeframe     = tf,
+                        currentPrice  = tok.price,
+                        change24hPct  = tok.priceChange24h,
+                        count         = 60,
+                    )
 
                     withContext(Dispatchers.Main) {
-                        if (candles.isNotEmpty()) {
-                            chartView.setCandles(candles)
-                            labelTv?.text = "📊 Price Chart  ($tf)  ${candles.size} candles"
+                        if (points.size >= 2) {
+                            chartView.setSimpleLine(points)
+                            val label = when {
+                                points.size > 10 -> "📊 Price Chart  ($tf)  ${points.size} pts"
+                                else             -> "📊 Price Chart  (24h snapshot)"
+                            }
+                            labelTv?.text = label
                         } else {
-                            // Fallback: use current price + 24h change to draw a basic 2-point line
-                            val nowPrice  = tok.price
-                            val prevPrice = if (tok.priceChange24h != 0.0) nowPrice / (1 + tok.priceChange24h / 100.0) else nowPrice
-                            chartView.setSimpleLine(listOf(prevPrice, nowPrice))
-                            labelTv?.text = "📊 Price Chart  (24h snapshot)"
+                            labelTv?.text = "📊 Price Chart  (no data)"
                         }
                     }
                 } catch (_: Exception) {}
