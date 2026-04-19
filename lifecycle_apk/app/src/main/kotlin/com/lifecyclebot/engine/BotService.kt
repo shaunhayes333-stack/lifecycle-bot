@@ -72,9 +72,9 @@ class BotService : Service() {
                 if (cb != null) {
                     cb.invoke(delta)
                     ErrorLogger.info("UnifiedPaperWallet",
-                        "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(svc.status.paperWalletSol)}")
+                        "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(status.paperWalletSol)}")
                 } else {
-                    svc.status.paperWalletSol = (svc.status.paperWalletSol + delta).coerceAtLeast(0.0)
+                    status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
                 }
             } catch (e: Throwable) {
                 ErrorLogger.warn("UnifiedPaperWallet", "[$source] credit failed: ${e.message}")
