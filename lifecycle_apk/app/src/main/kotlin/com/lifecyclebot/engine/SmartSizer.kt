@@ -139,7 +139,28 @@ object SmartSizer {
 
         // ── Tradeable balance (reserve + treasury excluded) ──────────
         val treasuryFloor = TreasuryManager.treasurySol
-        
+
+        // V5.9.61: For small-wallet users the configured reserve (default
+        // 0.05 SOL) can eat the ENTIRE tradeable balance. Paper mode
+        // skipped the reserve subtraction entirely — so paper kept trading
+        // while live silently bailed at "reserve". Scale the reserve down
+        // proportionally when the wallet is too small to support it, so
+        // live behaves like paper on tiny wallets. We still keep a hard
+        // floor of 0.002 SOL so the user can never drain to zero.
+        val effectiveReserve = if (!isPaperMode) {
+            val configuredReserve = cfg.walletReserveSol
+            val smallWalletCap    = (effectiveWallet * 0.10).coerceAtLeast(0.002)
+            if (effectiveWallet < configuredReserve * 2.0) {
+                // wallet too small to honour the full reserve — use 10%
+                ErrorLogger.info("SmartSizer", "📏 Small-wallet reserve: configured=${configuredReserve} → effective=${smallWalletCap} (wallet=${effectiveWallet})")
+                smallWalletCap
+            } else {
+                configuredReserve
+            }
+        } else {
+            cfg.walletReserveSol
+        }
+
         // FLUID LEARNING: Use simulated balance with realistic constraints
         val tradeable = if (isPaperMode && cfg.fluidLearningEnabled) {
             // Apply same reserve logic as live mode for realistic learning
@@ -150,13 +171,16 @@ object SmartSizer {
             // Legacy paper mode - unlimited funds
             effectiveWallet.coerceAtLeast(0.0)
         } else {
-            (effectiveWallet - cfg.walletReserveSol - treasuryFloor).coerceAtLeast(0.0)
+            (effectiveWallet - effectiveReserve - treasuryFloor).coerceAtLeast(0.0)
         }
-        
-        ErrorLogger.info("SmartSizer", "📏 tradeable=$tradeable (wallet=$effectiveWallet - reserve=${cfg.walletReserveSol} - treasury=$treasuryFloor | paper=$isPaperMode | fluid=${cfg.fluidLearningEnabled})")
-        
-        if (tradeable < 0.005) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.005 floor | paper=$isPaperMode")
+
+        ErrorLogger.info("SmartSizer", "📏 tradeable=$tradeable (wallet=$effectiveWallet - reserve=${effectiveReserve} - treasury=$treasuryFloor | paper=$isPaperMode | fluid=${cfg.fluidLearningEnabled})")
+
+        // V5.9.61: Lower the "insufficient" floor from 0.005 → 0.002 so
+        // small wallets (the $5–$10 starter cohort) can actually trade
+        // once the reserve is scaled down. Still blocks truly empty ones.
+        if (tradeable < 0.002) {
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.002 floor | paper=$isPaperMode")
             return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "reserve",
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
@@ -509,7 +533,9 @@ object SmartSizer {
 
         // Dust floor - lower for paper mode
         size = size.coerceAtLeast(0.0)
-        val dustFloor = if (isPaperMode) 0.001 else 0.005  // 0.001 SOL in paper, 0.005 in real
+        // V5.9.61: live dust 0.005 → 0.002 so small-wallet starter users
+        // ($5–$10) can actually open a live position. Paper stays 0.001.
+        val dustFloor = if (isPaperMode) 0.001 else 0.002
         
         // PAPER MODE MINIMUM: Always trade at least 0.01 SOL (or 5% of wallet) to ensure learning
         if (isPaperMode && size < dustFloor) {

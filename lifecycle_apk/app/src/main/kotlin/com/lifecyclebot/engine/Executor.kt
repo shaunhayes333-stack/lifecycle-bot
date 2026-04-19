@@ -2176,15 +2176,13 @@ class Executor(
             }
             modeConfig?.let { size = size * it.positionSizeMultiplier }
             
-            if (!isPaperMode) {
-                brain?.let { b ->
-                    val emaFan = ts.meta.emafanAlignment
-                    if (b.shouldSkipTrade(ts.phase, emaFan, ts.source, entryScore)) {
-                        onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
-                        return
-                    }
-                }
-            }
+            // V5.9.61: was a live-only `brain.shouldSkipTrade()` block that
+            // silently killed trades. Paper didn't apply it, so live was
+            // stricter. With V5.9.59's entryThresholdDelta cap at +8 and
+            // the drought watchdog, this extra gate is redundant and
+            // causes exactly the paper-vs-live divergence users report.
+            // Removed entirely — the same brain already influences
+            // entryScore / sizing earlier in the pipeline.
             
             if (size < 0.001) {
                 ErrorLogger.error("Executor", "❌ ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
