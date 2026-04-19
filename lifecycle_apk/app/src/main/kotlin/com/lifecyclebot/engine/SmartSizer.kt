@@ -193,11 +193,12 @@ object SmartSizer {
         
         // Base percentage determined by AI confidence
         val aiBasePct = if (isPaperMode) {
-            // PAPER MODE: Larger fixed positions - learn faster
+            // V5.9.68 PAPER MODE BUMP: free-money mode — push size harder
+            // so the learner gets meaningful fill variance per trade.
             when {
-                aiConfidence >= 70 -> 0.15  // 15%
-                aiConfidence >= 50 -> 0.12  // 12%
-                else -> 0.10                 // 10% minimum in paper
+                aiConfidence >= 70 -> 0.25  // 25%
+                aiConfidence >= 50 -> 0.20  // 20%
+                else -> 0.15                 // 15% minimum in paper
             }
         } else {
             // REAL MODE: Conservative, confidence-driven
@@ -213,9 +214,17 @@ object SmartSizer {
         
         // Wallet tier still affects maximum, not base
         // Wallet tier affects maximum percentage
-        // PAPER MODE with large balance: Use higher percentages to test all features
-        val (tier, tierMaxPct) = if (isPaperMode && tradeable >= 1000) {
-            "paper_whale" to 0.20  // 20% max for paper whale - test bigger positions
+        // V5.9.68 PAPER MODE BUMP: double the cap across every paper tier so
+        // bigger positions can flow through. Live tiers kept unchanged.
+        val (tier, tierMaxPct) = if (isPaperMode) {
+            when {
+                tradeable < 0.5    -> "paper_micro"  to 0.30
+                tradeable < 2.0    -> "paper_small"  to 0.30
+                tradeable < 10.0   -> "paper_medium" to 0.28
+                tradeable < 50.0   -> "paper_large"  to 0.25
+                tradeable < 1000.0 -> "paper_big"    to 0.22
+                else               -> "paper_whale"  to 0.20
+            }
         } else when {
             tradeable < 0.5  -> "micro"  to 0.15
             tradeable < 2.0  -> "small"  to 0.15

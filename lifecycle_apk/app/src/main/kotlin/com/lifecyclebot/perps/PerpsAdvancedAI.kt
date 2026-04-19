@@ -221,24 +221,33 @@ object PerpsAdvancedAI {
     }
     
     private fun calculateRSI(prices: List<Double>, period: Int): Double {
-        if (prices.size < period + 1) return 50.0
-        
+        // V5.9.68: require 2× the period of history so cold-start feeds
+        // (freshly-connected BINANCE streams) don't immediately pin to 100
+        // after a few ticks of one-directional drift. The downstream
+        // recommendation engine treats RSI=100 as "overbought → SHORT" which
+        // was firing spurious SHORT signals on fresh feeds.
+        if (prices.size < period * 2) return 50.0
+
         var gains = 0.0
         var losses = 0.0
-        
+
         for (i in 1..period) {
             val change = prices[prices.size - i] - prices[prices.size - i - 1]
             if (change > 0) gains += change
             else losses += abs(change)
         }
-        
+
         val avgGain = gains / period
         val avgLoss = losses / period
-        
-        if (avgLoss == 0.0) return 100.0
-        
+
+        // Clamp to [5, 95] so cold-start extremes still expressible as "strong"
+        // without tripping absolute overbought/oversold thresholds.
+        if (avgLoss == 0.0) return 95.0
+        if (avgGain == 0.0) return 5.0
+
         val rs = avgGain / avgLoss
-        return 100 - (100 / (1 + rs))
+        val raw = 100 - (100 / (1 + rs))
+        return raw.coerceIn(5.0, 95.0)
     }
     
     private fun calculateMACD(prices: List<Double>): MacdSignal {

@@ -2180,7 +2180,8 @@ class SolanaMarketScanner(
             }
         }
 
-        ErrorLogger.info("Scanner", "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()}")
+        // V5.9.68: dedupe — outer passesFilter already logs FILTER PASS with
+        // the decision.reason so we don't need this near-identical second line.
         return true
     }
 

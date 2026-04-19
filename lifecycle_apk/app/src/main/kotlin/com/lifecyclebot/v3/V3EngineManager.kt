@@ -141,10 +141,12 @@ object V3EngineManager {
 
                 cooldownManager = CooldownManager()
                 exposureGuard = ExposureGuard(
-                    // Paper mode: 25 slots (no real money at risk, need volume for learning)
-                    // Live mode: respect user's configured limit, max 10
-                    maxOpenPositions = if (botCfg.paperMode) 25 else botCfg.maxConcurrentPositions.coerceAtMost(10),
-                    maxExposurePct = (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
+                    // V5.9.68: Paper mode is "free money" — give learning
+                    // plenty of concurrent room (50 slots) and let it run
+                    // up to 95% of total equity. Live mode stays conservative.
+                    maxOpenPositions = if (botCfg.paperMode) 50 else botCfg.maxConcurrentPositions.coerceAtMost(10),
+                    maxExposurePct = if (botCfg.paperMode) 0.95
+                                     else (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
                 )
                 learningStore = LearningStore()
                 shadowTracker = ShadowTracker()
@@ -222,8 +224,9 @@ object V3EngineManager {
 
             // Resize exposure guard slot limit for new mode
             exposureGuard = ExposureGuard(
-                maxOpenPositions = if (newBotConfig.paperMode) 25 else newBotConfig.maxConcurrentPositions.coerceAtMost(10),
-                maxExposurePct = (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
+                maxOpenPositions = if (newBotConfig.paperMode) 50 else newBotConfig.maxConcurrentPositions.coerceAtMost(10),
+                maxExposurePct = if (newBotConfig.paperMode) 0.95
+                                 else (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
             )
 
             val modeTag = when (newMode) {
@@ -300,8 +303,14 @@ object V3EngineManager {
             )
 
             val guard = exposureGuard
-            val exposurePct = if (walletSol > 0.0) {
-                (totalExposureSol / walletSol).coerceIn(0.0, 1.0)
+            // V5.9.68 FIX: exposure % must be against TOTAL equity (free + at-risk),
+            // not just the free cash that remains after buys. Dividing by `walletSol`
+            // alone caused `exposure / freeCash` to blow past 100% in paper whenever
+            // more than half the starting capital was deployed, which globally
+            // locked out all new entries even though the portfolio was healthy.
+            val totalEquity = walletSol + totalExposureSol
+            val exposurePct = if (totalEquity > 0.0) {
+                (totalExposureSol / totalEquity).coerceIn(0.0, 1.0)
             } else {
                 1.0
             }
