@@ -203,8 +203,11 @@ object FluidLearningAI {
     // 4. Liquidity >= $2K (basic safety)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.2: Looser bootstrap to generate more trades for learning
-    private const val MIN_TOKEN_AGE_BOOTSTRAP = 1.0   // Minutes - quick entry
+    // V5.9.65: age floor 1.0min → 0.25min (15s). User's log showed
+    // multiple fresh pump.fun grads (FOF age=0.72m, PEPEv27 age=0.92m,
+    // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
+    // best pump.fun plays ARE the first 60s. Let the bot see them.
+    private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
     private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0  // V5.2 FIX: Lowered from 45 - was too strict
     private const val MIN_SCORE_BOOTSTRAP = 45  // V5.2 FIX: Lowered from 50 - allow more learning
     private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // V5.2 FIX: Lowered from 7500 - was strangling
@@ -333,17 +336,32 @@ object FluidLearningAI {
      */
     fun shouldBlockBootstrapTrade(score: Int): Boolean {
         val totalTrades = getTotalTradeCount()
-        
+
+        // V5.9.65: Bypass entirely if the 30-Day Proof Run already has
+        // meaningful trade history. The FluidLearningAI counter is
+        // per-session and drifts vs the proof run (user reported 40/50
+        // bootstrap while RunTracker30D showed 1550 trades). If we have
+        // ANY real multi-trade history we're past cold-start.
+        try {
+            if (com.lifecyclebot.engine.RunTracker30D.totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
+        } catch (_: Throwable) {}
+
         // After first 50 trades, no blocking
         if (totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
-        
-        // During first 50 trades, require score >= 75
-        val shouldBlock = score < EARLY_BOOTSTRAP_MIN_SCORE
-        
+
+        // V5.9.65: was score >= 75 which NO V3 signal ever reaches
+        // (realistic V3 scores are 14-40 per user log). The caller also
+        // passes treasurySignal.confidence which is often 0, so the gate
+        // blocks 100% of trades during bootstrap. Lowered floor to 25
+        // which matches the bottom of the real V3 score distribution
+        // AND treats score==0 (no treasury signal) as "let V3 decide".
+        val effectiveFloor = 25
+        val shouldBlock = score > 0 && score < effectiveFloor
+
         if (shouldBlock) {
-            ErrorLogger.debug(TAG, "🚫 BOOTSTRAP GATE: Trade #${totalTrades + 1}/$EARLY_BOOTSTRAP_TRADES blocked (score $score < $EARLY_BOOTSTRAP_MIN_SCORE)")
+            ErrorLogger.debug(TAG, "🚫 BOOTSTRAP GATE: Trade #${totalTrades + 1}/$EARLY_BOOTSTRAP_TRADES blocked (score $score < $effectiveFloor)")
         }
-        
+
         return shouldBlock
     }
     
