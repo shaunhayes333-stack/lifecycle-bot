@@ -855,16 +855,30 @@ class BotService : Service() {
             // ── Paper wallet: restore from SharedPrefs (survives app updates) ──
             val botPrefs = getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
             val savedBalance = botPrefs.getFloat("paper_wallet_sol", 0f).toDouble()
-            if (savedBalance > 0.01) {
-                status.paperWalletSol = savedBalance
-                addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")
+            val lastModeWasPaper = botPrefs.getBoolean("last_mode_was_paper", true)
+            val modeChangedLiveToPaper = cfg.paperMode && !lastModeWasPaper
+
+            if (cfg.paperMode) {
+                // V5.9.54: If we just switched FROM live TO paper, reset wallet to configured
+                // starting balance — live wallet balance (often near-empty) must not leak in.
+                // Also clear live-session reentry lockouts and edge vetoes so they don't
+                // throttle paper trades on restart.
+                if (modeChangedLiveToPaper || savedBalance < 0.01) {
+                    status.paperWalletSol = cfg.paperSimulatedBalance
+                    addLog("🔄 ${if (modeChangedLiveToPaper) "LIVE→PAPER switch" else "Fresh start"}: paper wallet reset to ${cfg.paperSimulatedBalance} SOL")
+                    botPrefs.edit().putFloat("paper_wallet_sol", cfg.paperSimulatedBalance.toFloat()).apply()
+                } else {
+                    status.paperWalletSol = savedBalance
+                    addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")
+                }
+                // Clear state that accumulates during live sessions and blocks paper trades
+                ReentryGuard.clearAll()
+                FinalDecisionGate.clearAllEdgeVetoes()
+                addLog("🔄 Paper mode start: reentry locks + edge vetoes cleared")
             }
 
-            // ── Paper wallet init — set to configured starting balance if still empty ──
-            if (cfg.paperMode && status.paperWalletSol <= 0.0) {
-                status.paperWalletSol = cfg.paperSimulatedBalance
-                addLog("💰 Paper wallet initialised: ${cfg.paperSimulatedBalance} SOL")
-            }
+            // Persist current mode so next start can detect a mode switch
+            botPrefs.edit().putBoolean("last_mode_was_paper", cfg.paperMode).apply()
             
             // Determine best RPC URL - prefer Helius if key available
             val rpcUrl = if (cfg.heliusApiKey.isNotBlank()) {

@@ -540,6 +540,11 @@ object FinalDecisionGate {
         edgeVetoes.remove(mint)
     }
 
+    // V5.9.54: called on mode switch so live-session vetoes don't block paper trades
+    fun clearAllEdgeVetoes() {
+        edgeVetoes.clear()
+    }
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,
