@@ -5009,9 +5009,11 @@ class Executor(
                             onLog("🧹 DUST-BUSTER: Final balance = $finalRemaining tokens", tradeId.mint)
                         } catch (dustEx: Exception) {
                             onLog("⚠️ DUST-BUSTER FAILED: ${dustEx.message?.take(60)}", tradeId.mint)
-                            onNotify("🚨 Dust Remaining!",
-                                "${ts.symbol}: ${remainingPct}% tokens still in wallet. Manual sell may be needed.",
+                            onNotify("🚨 Sell Incomplete!",
+                                "${ts.symbol}: ${remainingPct}% tokens still in wallet — sell queued for retry.",
                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                            // V5.9.52: re-throw so position is NOT cleared and the sell is re-queued
+                            throw RuntimeException("Sell incomplete: $remainingPct% tokens remain after dust-buster failed (${dustEx.message?.take(40)})")
                         }
                     }
                 } else {
