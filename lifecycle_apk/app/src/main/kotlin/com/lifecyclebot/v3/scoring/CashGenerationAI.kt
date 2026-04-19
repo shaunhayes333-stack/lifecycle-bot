@@ -259,14 +259,12 @@ object CashGenerationAI {
 
     fun addToTreasury(profitSol: Double, isPaper: Boolean) {
         if (profitSol <= 0) return
-        // Sanity cap: a single trade can allocate at most 100 SOL to the treasury.
-        // Prevents a price-scale anomaly (e.g. lamport-unit price leak) from producing
-        // an astronomical treasury balance in one shot.
-        val cappedProfit = profitSol.coerceAtMost(100.0)
-        val bps = (cappedProfit * 100).toLong()
-        
-        // V5.7.7: Also cap TOTAL treasury balance to prevent runaway values
-        val MAX_TREASURY_BPS = 100_000_00L  // 1000 SOL max (100,000 bps)
+        // V5.9.53: removed 100 SOL per-trade cap — legitimate big wins were truncated.
+        // The 100 SOL/trade limit was meant for oracle-spike protection but excluded real gains.
+        val bps = (profitSol * 100).toLong()
+
+        // Treasury total cap raised to 100,000 SOL — previous 1000 SOL cap excluded large profits
+        val MAX_TREASURY_BPS = 10_000_000_00L  // 100,000 SOL max
         
         if (isPaper) {
             val newBalance = paperTreasuryBalanceBps.addAndGet(bps)

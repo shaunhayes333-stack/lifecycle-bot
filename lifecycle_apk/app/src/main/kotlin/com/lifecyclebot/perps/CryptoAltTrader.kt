@@ -117,7 +117,7 @@ object CryptoAltTrader {
     private const val KEY_LOSSES  = "losing_trades"
     private const val KEY_PNL             = "total_pnl_sol"
     private const val KEY_INITIAL_BALANCE  = "initial_balance"
-    private const val MAX_REASONABLE_PNL   = 500.0  // cap: 500 SOL max pnl stored
+    // V5.9.53: removed hard 500 SOL cap — legitimate big wins were silently excluded
     private const val KEY_LIVE    = "is_live_mode"
 
     // ─── Position model ───────────────────────────────────────────────────────
@@ -1412,7 +1412,6 @@ object CryptoAltTrader {
         winningTrades.set( p.getInt(KEY_WINS,    0))
         losingTrades.set(  p.getInt(KEY_LOSSES,  0))
         totalPnlSol       = p.getFloat(KEY_PNL, 0f).toDouble()
-                              .coerceIn(-MAX_REASONABLE_PNL, MAX_REASONABLE_PNL)
         val savedInitial  = p.getFloat(KEY_INITIAL_BALANCE, 0f).toDouble()
         if (savedInitial > 0.0) initialBalance = savedInitial
         else if (paperBalance > 0.0) initialBalance = paperBalance
@@ -1448,8 +1447,7 @@ object CryptoAltTrader {
                     totalTrades.set(state.totalTrades)
                     winningTrades.set(state.totalWins)
                     losingTrades.set(state.totalLosses)
-                    // V5.9.5: Clamp insane pnl values — float precision + bad accumulation
-                    totalPnlSol  = state.totalPnlSol.coerceIn(-MAX_REASONABLE_PNL, MAX_REASONABLE_PNL)
+                    totalPnlSol  = state.totalPnlSol
                     // Track initial balance for correct pnl% display
                     if (initialBalance <= 0.0 && paperBalance > 0.0) initialBalance = paperBalance
                     isPaperMode.set(!state.isLiveMode)
@@ -1591,7 +1589,7 @@ object CryptoAltTrader {
         val total = totalTrades.get()
         return if (total > 0) winningTrades.get().toDouble() / total * 100 else 0.0
     }
-    fun getTotalPnlSol(): Double = totalPnlSol.coerceIn(-MAX_REASONABLE_PNL, MAX_REASONABLE_PNL)
+    fun getTotalPnlSol(): Double = totalPnlSol
     fun getInitialBalance(): Double = if (initialBalance > 0.0) initialBalance else paperBalance
 
     fun getUnrealizedPnlSol(): Double = positions.values.sumOf { it.getPnlSol() }

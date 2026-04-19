@@ -3748,7 +3748,7 @@ class Executor(
                 ts               = System.currentTimeMillis(),
                 reason           = "partial_${newSoldPct.toInt()}pct",
                 pnlSol           = profitSol,
-                pnlPct           = pnlPct.coerceIn(-100.0, 10_000.0),
+                pnlPct           = pnlPct.coerceAtLeast(-100.0),
                 tradingMode      = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
                 mint             = ts.mint,
