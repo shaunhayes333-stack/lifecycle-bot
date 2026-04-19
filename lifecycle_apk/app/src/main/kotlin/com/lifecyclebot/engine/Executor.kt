@@ -573,9 +573,26 @@ class Executor(
         source: String = "unknown",
         brain: BotBrain? = null,
         setupQuality: String = "C",    // A+ / B / C from strategy
+        ts: TokenState? = null,        // V5.9.69: optional — enables PatternClassifier boost
     ): Double {
         val isPaperMode = cfg().paperMode
-        
+
+        // V5.9.69: PatternClassifier boost — additive on aiConfidence plus a
+        // sizing multiplier. Paper-only gate enforced inside the classifier
+        // (returns 0 / 1.0 in live until it has 50 live samples @ 55% wr).
+        var adjustedConfidence = aiConfidence
+        var patternSizeMult = 1.0
+        if (ts != null) {
+            try {
+                val feats = PatternClassifier.extract(ts)
+                val boost = PatternClassifier.getConfidenceBoost(feats, isPaperMode)
+                if (boost != 0) {
+                    adjustedConfidence = (aiConfidence + boost).coerceIn(0.0, 100.0)
+                }
+                patternSizeMult = PatternClassifier.getSizeMultiplier(feats, isPaperMode)
+            } catch (_: Exception) {}
+        }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -592,7 +609,7 @@ class Executor(
             liquidityUsd         = liquidityUsd,
             solPriceUsd          = solPx,
             mcapUsd              = mcapUsd,
-            aiConfidence         = aiConfidence,
+            aiConfidence         = adjustedConfidence,
             phase                = phase,
             source               = source,
             brain                = brain,
@@ -602,7 +619,13 @@ class Executor(
         if (result.solAmount <= 0.0) {
             onLog("📊 AI Sizer blocked: ${result.explanation}", "sizing")
         } else {
-            onLog("📊 AI Sizer: conf=${aiConfidence.toInt()} → ${result.explanation}", "sizing")
+            val finalSol = result.solAmount * patternSizeMult
+            if (patternSizeMult != 1.0) {
+                onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
+                      "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
+            }
+            onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
+            return finalSol
         }
 
         return result.solAmount
@@ -632,6 +655,7 @@ class Executor(
             source = ts.source,
             brain = brain,
             setupQuality = quality,
+            ts = ts,  // V5.9.69: enable PatternClassifier
         )
     }
     
@@ -643,6 +667,20 @@ class Executor(
         val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
+
+        // V5.9.69 PatternClassifier hooks — continuous-feature online learner.
+        // BUY: stash features. SELL: run one SGD step on the outcome.
+        try {
+            if (trade.side == "BUY") {
+                PatternClassifier.noteEntry(ts.mint, PatternClassifier.extract(ts))
+            } else if (trade.side == "SELL") {
+                PatternClassifier.noteExit(
+                    mint = ts.mint,
+                    pnlPct = trade.pnlPct,
+                    isLive = trade.mode.equals("live", ignoreCase = true)
+                )
+            }
+        } catch (_: Exception) {}
 
         // V5.9.58: reset BotBrain's drought watchdog on every BUY so the
         // watchdog only eases thresholds if the scanner has truly gone
@@ -2162,6 +2200,7 @@ class Executor(
                 source = ts.source,
                 brain = brain,
                 setupQuality = setupQuality,
+                ts = ts,  // V5.9.69: enable PatternClassifier
             )
             
             if (qualityPenalty < 1.0) {
@@ -2451,6 +2490,7 @@ class Executor(
             source = ts.source,
             brain = brain,
             setupQuality = decision.setupQuality,
+            ts = ts,  // V5.9.69: enable PatternClassifier
         )
         
         if (fdgApprovedSize == null) {
