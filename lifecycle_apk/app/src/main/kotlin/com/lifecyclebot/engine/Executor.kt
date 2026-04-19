@@ -1689,6 +1689,21 @@ class Executor(
         }
 
         val HARD_FLOOR_STOP_PCT = 15.0
+
+        // V5.9.67 ProfitabilityLayer hooks — trailing stop + liquidity drain
+        // exit. These run BEFORE the hard floor so in-profit positions get
+        // locked in before the −15% emergency cutoff fires.
+        ProfitabilityLayer.checkTrailingStop(ts)?.let { reason ->
+            onLog("🪢 TRAIL STOP: ${ts.symbol} | $reason", ts.mint)
+            TradeStateMachine.startCooldown(ts.mint)
+            return reason
+        }
+        ProfitabilityLayer.checkDrainExit(ts)?.let { reason ->
+            onLog("🕳️ DRAIN EXIT: ${ts.symbol} | $reason", ts.mint)
+            TradeStateMachine.startCooldown(ts.mint)
+            return reason
+        }
+
         if (gainPct <= -HARD_FLOOR_STOP_PCT) {
             onLog("🛑 HARD FLOOR STOP: ${ts.symbol} at ${gainPct.toInt()}% - EMERGENCY EXIT", ts.mint)
             markForRecoveryScan(ts, gainPct, "hard_floor")
