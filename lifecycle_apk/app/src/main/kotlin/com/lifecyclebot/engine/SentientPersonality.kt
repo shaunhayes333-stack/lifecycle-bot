@@ -584,12 +584,11 @@ object SentientPersonality {
     }
 
     private fun buildContextSummary(): String {
-        // V5.9.58: Rich, living telemetry block the LLM can actually use.
-        // Previously only mood + learning % + W/L were exposed, so the
-        // chat never felt plugged in. Now we surface wallet/mode/phase,
-        // open positions by symbol+PnL, lifetime W/L stats, 30-day proof
-        // numbers, and the top recent thoughts — i.e. everything a user
-        // would see scrolling around the app.
+        // V5.9.60: Expose the ENTIRE app to the LLM, not just the meme bot.
+        // Every sub-trader (Alts, Stocks, Commodities, Metals, Forex),
+        // plus regime, collective hive, insider tracker, watchlist and
+        // shadow engine — so the LLM can reason across the whole bot,
+        // not only what BotService.status knows about.
         val progress = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Throwable) { 0.0 }
         val recentThoughtsTxt = thoughts.take(8).joinToString(" || ") { "${it.category}: ${it.message}" }
         val streakLine = when {
@@ -598,8 +597,8 @@ object SentientPersonality {
             else -> "recent W/L balanced"
         }
 
-        // Wallet + mode — BotService.status is a companion val, always safe to read.
-        val botLine = try {
+        // ── Meme bot (BotService) ──────────────────────────────────────
+        val memeLine = try {
             val s = BotService.status
             val svc = BotService.instance
             val paperMode = try {
@@ -607,27 +606,111 @@ object SentientPersonality {
             } catch (_: Throwable) { true }
             val modeTag = if (paperMode) "PAPER" else "LIVE"
             val runTag  = if (s.running) "RUNNING" else "STOPPED"
-            "bot: $runTag · $modeTag · paperSol=${"%.4f".format(s.paperWalletSol)} · liveSol=${"%.4f".format(s.walletSol)} · open=${s.openPositionCount} · exposure=${"%.4f".format(s.totalExposureSol)} SOL"
-        } catch (_: Throwable) { "bot: (status unavailable)" }
+            "meme: $runTag · $modeTag · paperSol=${"%.4f".format(s.paperWalletSol)} · liveSol=${"%.4f".format(s.walletSol)} · open=${s.openPositionCount} · exposure=${"%.4f".format(s.totalExposureSol)} SOL"
+        } catch (_: Throwable) { "meme: (status unavailable)" }
 
-        // Open positions by symbol with live PnL %
-        val openLine = try {
-            val opens = BotService.status.openPositions.take(10)
-            if (opens.isEmpty()) "open positions: none"
-            else "open positions: " + opens.joinToString(", ") { ts ->
+        val memeOpenLine = try {
+            val opens = BotService.status.openPositions.take(6)
+            if (opens.isEmpty()) "meme opens: none"
+            else "meme opens: " + opens.joinToString(", ") { ts ->
                 val entry = ts.position.entryPrice
                 val pnl = if (entry > 0) (ts.lastPrice / entry - 1.0) * 100.0 else 0.0
                 "${ts.symbol}(${"%+.1f".format(pnl)}%)"
             }
-        } catch (_: Throwable) { "open positions: ?" }
+        } catch (_: Throwable) { "meme opens: ?" }
 
-        // Lifetime W/L snapshot
+        // ── CryptoAlts ─────────────────────────────────────────────────
+        val altsLine = try {
+            val bal = com.lifecyclebot.perps.CryptoAltTrader.getBalance()
+            val tr  = com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades()
+            val wr  = com.lifecyclebot.perps.CryptoAltTrader.getWinRate()
+            val pnl = com.lifecyclebot.perps.CryptoAltTrader.getTotalPnlSol()
+            val opens = com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions()
+            val openStr = if (opens.isEmpty()) "none" else opens.take(4).joinToString(",") { p ->
+                val ePct = if (p.entryPrice > 0) (p.currentPrice / p.entryPrice - 1.0) * 100.0 else 0.0
+                "${p.market.symbol}(${"%+.1f".format(ePct)}%)"
+            }
+            "alts: bal=${"%.3f".format(bal)}◎ · trades=$tr · wr=${"%.0f".format(wr)}% · pnl=${"%+.3f".format(pnl)}◎ · open=[$openStr]"
+        } catch (_: Throwable) { "alts: ?" }
+
+        // ── Tokenized Stocks ───────────────────────────────────────────
+        val stocksLine = try {
+            val bal = com.lifecyclebot.perps.TokenizedStockTrader.getBalance()
+            val tr  = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
+            val wr  = com.lifecyclebot.perps.TokenizedStockTrader.getWinRate()
+            val pnl = com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol()
+            val opens = com.lifecyclebot.perps.TokenizedStockTrader.getAllPositions()
+            val openStr = if (opens.isEmpty()) "none" else opens.take(4).joinToString(",") { p ->
+                val ePct = if (p.entryPrice > 0) (p.currentPrice / p.entryPrice - 1.0) * 100.0 else 0.0
+                "${p.market.symbol}(${"%+.1f".format(ePct)}%)"
+            }
+            val mktStatus = try { com.lifecyclebot.perps.TokenizedStockTrader.getMarketStatus() } catch (_: Throwable) { "?" }
+            "stocks: bal=${"%.3f".format(bal)}◎ · trades=$tr · wr=${"%.0f".format(wr)}% · pnl=${"%+.3f".format(pnl)}◎ · open=[$openStr] · mkt=$mktStatus"
+        } catch (_: Throwable) { "stocks: ?" }
+
+        // ── Commodities / Metals / Forex ──────────────────────────────
+        val commLine = try {
+            val tr  = com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades()
+            val wr  = com.lifecyclebot.perps.CommoditiesTrader.getWinRate()
+            val pnl = com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol()
+            val opens = com.lifecyclebot.perps.CommoditiesTrader.getAllPositions().size
+            "commodities: trades=$tr · wr=${"%.0f".format(wr)}% · pnl=${"%+.3f".format(pnl)}◎ · open=$opens"
+        } catch (_: Throwable) { "commodities: ?" }
+
+        val metalsLine = try {
+            val tr  = com.lifecyclebot.perps.MetalsTrader.getTotalTrades()
+            val wr  = com.lifecyclebot.perps.MetalsTrader.getWinRate()
+            val pnl = com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol()
+            val opens = com.lifecyclebot.perps.MetalsTrader.getAllPositions().size
+            "metals: trades=$tr · wr=${"%.0f".format(wr)}% · pnl=${"%+.3f".format(pnl)}◎ · open=$opens"
+        } catch (_: Throwable) { "metals: ?" }
+
+        val forexLine = try {
+            val tr  = com.lifecyclebot.perps.ForexTrader.getTotalTrades()
+            val wr  = com.lifecyclebot.perps.ForexTrader.getWinRate()
+            val pnl = com.lifecyclebot.perps.ForexTrader.getTotalPnlSol()
+            val opens = com.lifecyclebot.perps.ForexTrader.getAllPositions().size
+            "forex: trades=$tr · wr=${"%.0f".format(wr)}% · pnl=${"%+.3f".format(pnl)}◎ · open=$opens"
+        } catch (_: Throwable) { "forex: ?" }
+
+        // ── Global regime (V4 Meta-intelligence) ──────────────────────
+        val regimeLine = try {
+            val r = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime()
+            "global regime: $r"
+        } catch (_: Throwable) { "global regime: ?" }
+
+        // ── Hive / Collective ─────────────────────────────────────────
+        val hiveLine = try {
+            val s = com.lifecyclebot.collective.CollectiveLearning.getStats()
+            val patterns = s["patterns"] ?: 0
+            val modes    = s["modeStats"] ?: 0
+            val whales   = s["whaleStats"] ?: 0
+            val enabled  = s["enabled"] ?: false
+            "hive: on=$enabled · patterns=$patterns · modes=$modes · whales=$whales"
+        } catch (_: Throwable) { "hive: ?" }
+
+        // ── Insider wallet tracker ────────────────────────────────────
+        val insiderLine = try {
+            val s = com.lifecyclebot.perps.InsiderWalletTracker.getStats()
+            val active = s["active_wallets"] ?: 0
+            val total  = s["total_wallets"] ?: 0
+            "insiders: $active/$total active"
+        } catch (_: Throwable) { "insiders: ?" }
+
+        // ── Watchlist / Alerts ────────────────────────────────────────
+        val watchlistLine = try {
+            val wl = com.lifecyclebot.perps.WatchlistEngine.getWatchlist().size
+            val al = com.lifecyclebot.perps.WatchlistEngine.getActiveAlerts().size
+            "watchlist: $wl tokens · $al active alerts"
+        } catch (_: Throwable) { "watchlist: ?" }
+
+        // ── Lifetime meme stats ──────────────────────────────────────
         val statsLine = try {
             val s = TradeHistoryStore.getStats()
-            "lifetime: ${s.totalWins}W/${s.totalLosses}L (${"%.0f".format(s.winRate)}% win) · 24h=${s.trades24h} trades · avg win=${"%.1f".format(s.avgWinPct)}%"
-        } catch (_: Throwable) { "lifetime: ?" }
+            "meme lifetime: ${s.totalWins}W/${s.totalLosses}L (${"%.0f".format(s.winRate)}% win) · 24h=${s.trades24h}t · avg win=${"%.1f".format(s.avgWinPct)}%"
+        } catch (_: Throwable) { "meme lifetime: ?" }
 
-        // 30-day proof run numbers
+        // ── 30-day proof run ─────────────────────────────────────────
         val proofLine = try {
             val start = RunTracker30D.startBalance
             val cur   = RunTracker30D.currentBalance
@@ -635,23 +718,18 @@ object SentientPersonality {
             "30d proof: day ${RunTracker30D.getCurrentDay()}/30 · ${"%+.1f".format(retPct)}% · ${RunTracker30D.totalTrades}t"
         } catch (_: Throwable) { "30d proof: ?" }
 
-        // Current focus token (first open, else first known)
-        val regimeLine = try {
-            val firstActive = BotService.status.tokens.values.firstOrNull { it.position.isOpen }
-                ?: BotService.status.tokens.values.firstOrNull()
-            if (firstActive != null) "focus token: ${firstActive.symbol} phase=${firstActive.phase}"
-            else "focus token: (idle)"
-        } catch (_: Throwable) { "focus token: ?" }
-
         return buildString {
             append("mood: ${lastMood.name.lowercase()}\n")
             append("learning progress: ${(progress * 100).toInt()}%\n")
             append("streak: $streakLine (W:$recentWins / L:$recentLosses)\n")
-            append("$botLine\n")
-            append("$openLine\n")
+            append("$memeLine\n")
+            append("$memeOpenLine\n")
+            append("$altsLine\n")
+            append("$stocksLine\n")
+            append("$commLine · $metalsLine · $forexLine\n")
+            append("$regimeLine · $hiveLine · $insiderLine · $watchlistLine\n")
             append("$statsLine\n")
             append("$proofLine\n")
-            append("$regimeLine\n")
             append("recent thoughts: $recentThoughtsTxt")
         }
     }
