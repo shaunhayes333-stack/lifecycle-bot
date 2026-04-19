@@ -867,10 +867,19 @@ object FinalDecisionGate {
         val toxicPatternFlags = mutableListOf<String>()
         if (isCGrade) toxicPatternFlags.add("quality_C")
         if (confidence < 35.0) toxicPatternFlags.add("conf<35")
-        if (earlyMemoryScore <= -8) toxicPatternFlags.add("memory<=-8")
+        // V5.9.63: was memory<=-8 — combined with quality_C + AI_degraded
+        // (which is the default state in paper for any fresh meme) this
+        // formed a 3-flag HARD_KILL too easily. Tightened to <=-14 so
+        // only genuinely burned tokens contribute this flag.
+        if (earlyMemoryScore <= -14) toxicPatternFlags.add("memory<=-14")
         if (earlyAIDegraded) toxicPatternFlags.add("AI_degraded")
 
-        if (toxicPatternFlags.size >= 3 && !canBypassConfidenceFloors) {
+        // V5.9.63: require 4 of 4 flags to HARD_KILL (was 3 of 4).
+        // With 3 you were killing every C-grade fresh launch with any
+        // mildly-negative memory — choking volume exactly the user
+        // complained about. At 4/4 it's genuinely toxic: C-grade AND
+        // low confidence AND deeply negative memory AND AI degraded.
+        if (toxicPatternFlags.size >= 4 && !canBypassConfidenceFloors) {
             ErrorLogger.warn("FDG", "🚫 HARD_KILL TOXIC PATTERN: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} | KRIS_RULE → REJECT")
 
             return FinalDecision(
@@ -895,7 +904,7 @@ object FinalDecisionGate {
                     )
                 )
             )
-        } else if (toxicPatternFlags.size >= 3 && canBypassConfidenceFloors) {
+        } else if (toxicPatternFlags.size >= 4 && canBypassConfidenceFloors) {
             ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")
             tags.add("bootstrap_toxic_bypass")
         }

@@ -195,12 +195,25 @@ class BotOrchestrator(
     private fun checkPreScoreMemoryKill(candidate: CandidateSnapshot): PreScoreKill? {
         return try {
             val memoryScore = com.lifecyclebot.engine.TokenWinMemory.getMemoryScoreForMint(candidate.mint)
-            if (memoryScore <= -10) {  // V5.7: Restored to -10 — -7 was too aggressive at bootstrap
+            // V5.9.63: User reported volume choked by shadow-kills.
+            // Previous -10 threshold blocked tokens after just ONE
+            // -31% paper loss (memory = -15 fires a single trade deep).
+            // In paper we're supposed to be LEARNING — push the floor
+            // to -25 so only tokens with multiple bad prints get skipped.
+            // Live keeps the tighter -12 so we don't chase proven losers
+            // with real SOL.
+            val isPaper = try {
+                com.lifecyclebot.engine.BotService.instance?.let {
+                    com.lifecyclebot.data.ConfigStore.load(it.applicationContext).paperMode
+                } ?: true
+            } catch (_: Exception) { true }
+            val floor = if (isPaper) -25 else -12
+            if (memoryScore <= floor) {
                 logger.stage(
                     "PRE_SCORE_KILL",
                     candidate.symbol,
                     "BLOCKED",
-                    "memory=$memoryScore <= -10 -> SHADOW (skip scoring)"
+                    "memory=$memoryScore <= $floor -> SHADOW (skip scoring)"
                 )
                 PreScoreKill(
                     memoryScore = memoryScore,
@@ -237,16 +250,23 @@ class BotOrchestrator(
             (10 + (p * 30)).toInt().coerceIn(10, 40)
         } catch (_: Exception) { 35 }
 
-        val shouldKillEarly = effectiveConfidence < fluidKillFloor || memoryScore <= -10  // V5.7: restored -10
+        // V5.9.63: also loosened — paper -25, live -12 (was -10 both)
+        val memoryFloorPre = try {
+            val isPaper = com.lifecyclebot.engine.BotService.instance?.let {
+                com.lifecyclebot.data.ConfigStore.load(it.applicationContext).paperMode
+            } ?: true
+            if (isPaper) -25 else -12
+        } catch (_: Exception) { -12 }
+        val shouldKillEarly = effectiveConfidence < fluidKillFloor || memoryScore <= memoryFloorPre
         if (!shouldKillEarly) return null
 
         val reason = when {
-            effectiveConfidence < fluidKillFloor && memoryScore <= -10 ->
+            effectiveConfidence < fluidKillFloor && memoryScore <= memoryFloorPre ->
                 "C_GRADE_LOW_CONF_${effectiveConfidence}_BAD_MEMORY_$memoryScore"
             effectiveConfidence < fluidKillFloor ->
                 "C_GRADE_CONF_FLOOR_$effectiveConfidence"
             else ->
-                "C_GRADE_BAD_MEMORY_$memoryScore"  // memoryScore <= -10
+                "C_GRADE_BAD_MEMORY_$memoryScore"
         }
 
         return PreProposalKill(

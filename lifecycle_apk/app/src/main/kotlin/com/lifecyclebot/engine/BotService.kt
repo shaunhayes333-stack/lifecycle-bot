@@ -1080,10 +1080,15 @@ class BotService : Service() {
                             
                             // Define dual eligibility thresholds
 
-                            // V5.6.29d: UNIFIED PAPER/LIVE thresholds - let FDG and AI layers decide
-                            // Previously LIVE had much stricter filters, but this prevented learning
-                            val paperMinLiquidity = 2000.0    // $2K floor for both modes
-                            val liveMinLiquidity = 2000.0     // Same as paper - let AI decide
+                            // V5.9.63: User log showed UET ($893) and JOB
+                            // ($974) fresh launches bouncing off the $2K
+                            // floor on their first bootstrap poll, then
+                            // rebuilding past $5–6K seconds later —
+                            // which is typical pump.fun behaviour. Paper
+                            // should see them to LEARN; live still holds
+                            // the $2K safety net.
+                            val paperMinLiquidity = 500.0     // was 2000 — let paper see fresh launches
+                            val liveMinLiquidity = 2000.0     // unchanged safety floor for real SOL
                             val paperMinScore = 1.0           // Let everything through; watchlist scoring filters quality
                             val liveMinScore = 1.0            // Same as paper - FDG gates execution
                             
