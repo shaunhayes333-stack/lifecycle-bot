@@ -805,6 +805,7 @@ class BotService : Service() {
     }
 
 
+    fun startBot() {
         if (status.running) return
         
         try {
