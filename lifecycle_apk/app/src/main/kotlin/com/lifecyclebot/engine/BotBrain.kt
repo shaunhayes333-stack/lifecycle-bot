@@ -84,6 +84,37 @@ class BotBrain(
     @Volatile var totalTradesAnalysed: Int     = 0
     @Volatile var lastLlmInsight: String       = ""
 
+    // V5.9.58: Drought watchdog — track when the last BUY fired so the
+    // brain can actively loosen its own entry gate if it has locked the
+    // scanner out of the market. User reported "buys dry up" after long
+    // runs; this self-heals without waiting for a new trade outcome.
+    @Volatile var lastBuyMs: Long = 0L
+    @Volatile private var lastDroughtNudgeMs: Long = 0L
+    private val DROUGHT_CHECK_MS = 60_000L          // check once a minute
+    private val DROUGHT_TRIGGER_MS = 10 * 60_000L   // no-buy for 10 min = choke
+    private val DROUGHT_NUDGE_STEP = 1.5            // ease threshold by this much per nudge
+
+    /** Called from the Executor when a BUY is actually placed. */
+    fun onBuyFired() { lastBuyMs = System.currentTimeMillis() }
+
+    /**
+     * Called from the scanner hot path (cheap, gated). If no BUY has fired
+     * for DROUGHT_TRIGGER_MS and our entryThresholdDelta is stricter than
+     * neutral, ease it gently toward 0 until something starts firing.
+     */
+    fun maybeEaseDrought() {
+        val now = System.currentTimeMillis()
+        if (now - lastDroughtNudgeMs < DROUGHT_CHECK_MS) return
+        lastDroughtNudgeMs = now
+        if (lastBuyMs == 0L) return   // no baseline yet — wait for first buy
+        val sinceBuy = now - lastBuyMs
+        if (sinceBuy < DROUGHT_TRIGGER_MS) return
+        if (entryThresholdDelta <= 0.0) return  // already loose or negative — leave alone
+        val before = entryThresholdDelta
+        entryThresholdDelta = (entryThresholdDelta - DROUGHT_NUDGE_STEP).coerceAtLeast(0.0)
+        onLog("🧠 Drought watchdog: no buy for ${sinceBuy / 60_000}min — easing entry delta ${"%+.1f".format(before)} → ${"%+.1f".format(entryThresholdDelta)}")
+    }
+
     // ── ADAPTIVE HARD BLOCK THRESHOLDS ───────────────────────────────────
     // These thresholds are learned from trade outcomes.
     // Start with defaults and adjust based on what actually causes losses.
@@ -293,13 +324,19 @@ class BotBrain(
 
             // Restore entry threshold delta from overall win rate
             // WIDE learning scope - don't allow strictness until LOTS of data
+            // V5.9.58: User reported scanner "chokes" after long runs
+            // — buys dry up because entryThresholdDelta compounds toward
+            // +15 and combines with phase/source/mood penalties to push
+            // the effective threshold to ~69/72, starving every candidate.
+            // Halving the strictness ceiling keeps the bot adaptive but
+            // prevents it from locking itself out of the market.
             val maxStrictness = when {
                 trades.size < 100 -> 0.0    // NO tightening with <100 trades
-                trades.size < 300 -> 3.0    // Can't go above +3 with <300 trades
-                trades.size < 500 -> 5.0    // Can't go above +5 with <500 trades
-                trades.size < 750 -> 8.0    // Can't go above +8 with <750 trades
-                trades.size < 1000 -> 10.0  // Can't go above +10 with <1000 trades
-                else -> 15.0                // Full range after 1000 trades
+                trades.size < 300 -> 2.0    // Was 3.0
+                trades.size < 500 -> 3.5    // Was 5.0
+                trades.size < 750 -> 5.0    // Was 8.0
+                trades.size < 1000 -> 6.5   // Was 10.0
+                else -> 8.0                 // Was 15.0 — hard ceiling
             }
             
             entryThresholdDelta = when {
@@ -582,7 +619,8 @@ class BotBrain(
         report.appendLine("  Overall: ${overallWr.toInt()}% WR  avgWin:+${avgWinPnl.toInt()}%  avgLoss:${avgLossPnl.toInt()}%")
 
         // ── Apply changes with safety bounds ─────────────────────────
-        entryThresholdDelta  = (entryThresholdDelta + entryDelta).coerceIn(-12.0, +15.0)
+        // V5.9.58: ceiling +15 → +8 (choke prevention)
+        entryThresholdDelta  = (entryThresholdDelta + entryDelta).coerceIn(-12.0, +8.0)
         exitThresholdDelta   = (exitThresholdDelta  + exitDelta).coerceIn(-8.0, +10.0)
         phaseBoosts          = newPhaseBoosts
         sourceBoosts         = newSourceBoosts
@@ -807,7 +845,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 // Many bad patterns confirmed — don't let LLM lower threshold globally
                 blendedEntry.coerceAtLeast(entryThresholdDelta - 1.0)
             } else blendedEntry
-            entryThresholdDelta = llmEntryGuard.coerceIn(-12.0, 15.0)
+            entryThresholdDelta = llmEntryGuard.coerceIn(-12.0, 8.0)
             exitThresholdDelta  = blendedExit.coerceIn(-8.0, 10.0)
 
             // Phase adjustments from LLM
@@ -910,7 +948,10 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
 
         // Apply bootstrap loosening on top of learned delta
         val effectiveDelta = entryThresholdDelta + bootstrapLoosening + symDelta
-        return (baseThreshold + effectiveDelta).coerceIn(20.0, 72.0)  // Allow down to 20 for bootstrap
+        // V5.9.58: Cap effective threshold at 60 (was 72) so the bot can't
+        // lock itself out of the market even with worst-case mood + learned
+        // delta + phase boosts stacking.
+        return (baseThreshold + effectiveDelta).coerceIn(20.0, 60.0)
     }
 
     /** Effective exit threshold incorporating all learning */
@@ -1162,10 +1203,10 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                     recentRecentWinRate >= 0.75 -> -4.0   // Hot streak - be aggressive
                     recentRecentWinRate >= 0.65 -> -2.0
                     recentRecentWinRate >= 0.55 -> 0.0
-                    recentRecentWinRate >= 0.45 -> 3.0
-                    recentRecentWinRate >= 0.35 -> 6.0
-                    else -> 10.0                           // Cold streak - be selective
-                }.coerceIn(-12.0, 15.0)
+                    recentRecentWinRate >= 0.45 -> 2.0    // Was 3.0
+                    recentRecentWinRate >= 0.35 -> 4.0    // Was 6.0
+                    else -> 6.0                            // Was 10.0 — cold-streak cap
+                }.coerceIn(-12.0, 8.0)                     // Was (-12, 15)
             }
             
             // ═══════════════════════════════════════════════════════════════════

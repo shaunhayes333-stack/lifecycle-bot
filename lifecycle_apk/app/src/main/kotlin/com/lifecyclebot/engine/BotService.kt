@@ -4054,6 +4054,8 @@ if (deferredCount > 0) {
     }
     
     val modeConfForEval = if (cfg.autoMode) modeConf else null
+    // V5.9.58: Gentle self-heal if the scanner has choked itself off.
+    try { executor.brain?.maybeEaseDrought() } catch (_: Exception) {}
     val (result, decision) = strategy.evaluateWithDecision(ts, modeConfForEval, cfg.paperMode, executor.brain)
 
         synchronized(ts) {

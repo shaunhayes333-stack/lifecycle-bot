@@ -643,6 +643,13 @@ class Executor(
         val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
+
+        // V5.9.58: reset BotBrain's drought watchdog on every BUY so the
+        // watchdog only eases thresholds if the scanner has truly gone
+        // silent for 10+ minutes.
+        if (trade.side == "BUY") {
+            try { brain?.onBuyFired() } catch (_: Exception) {}
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // V3.2: Record losses to ToxicModeCircuitBreaker
