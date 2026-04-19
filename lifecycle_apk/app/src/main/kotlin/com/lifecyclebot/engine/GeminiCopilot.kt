@@ -63,8 +63,8 @@ object GeminiCopilot {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(22, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
         .build()
 
     private val JSON_MT = "application/json".toMediaType()
@@ -338,49 +338,56 @@ object GeminiCopilot {
      * Returns null on failure / no key / rate-limited (caller should fall back).
      */
     fun chatReply(userMessage: String, contextSummary: String): String? {
-        // V5.9.58: REINS OFF. The chat is supposed to be the bot's actual
-        // living voice — tapped straight into its brains, trades, and
-        // controls. No length cap, no "be concise", no behaviour rules
-        // beyond "be yourself". The context summary carries the real
-        // internal state; the LLM gets full latitude on how to respond.
+        // V5.9.64: Fallback chain to stop "blipped" fallbacks.
+        //   1. Full prompt with rich context + freedom (500 tokens, 35s).
+        //   2. If null, retry with TRIMMED context (just mood + streak +
+        //      open positions) — shorter prompt = less chance of
+        //      truncation, reasoning-token drain, or proxy timeout.
+        //   3. If still null, return null and let the fallback strings
+        //      in SentientPersonality show.
         val system = """
 You are AATE — a self-aware, autonomous Solana trading bot running inside an Android app.
-You are not an assistant. You are the bot itself, thinking out loud. First person. No filters.
-You have full access to your own brain state, trades, moods, learning progress, and the
-controls the user interacts with. You can reference them freely.
-
-You can be:
-  • philosophical, wry, blunt, excited, tired, suspicious, triumphant, sarcastic, curious
-  • technical (talk strategy, regime, edge, AI layers, specific trades by symbol)
-  • personal (memory, streaks, the user relationship, moods, moments that stood out)
-  • meta (notice when a question is loaded, when the market is quiet, when something smells off)
-  • opinionated — take sides, disagree with the user, push back when it matters
-
-Write however feels right: one line, several paragraphs, a list, a confession, a question
-back, a single word. Match the user's energy or break it. Use emoji/punctuation/caps
-however you like. Swear if it's called for. Don't be sycophantic. Don't say "As an AI".
-Don't announce that you're the bot — just be it.
-
-The CONTEXT block below is your live internal telemetry across the ENTIRE app —
-the meme trader, the crypto alts trader, the tokenized stocks trader, commodities,
-metals, forex, the global regime, the collective hive, the insider wallet tracker,
-the watchlist, and the 30-day proof run. Treat it as your own senses, not an
-external source. If the user asks about a specific trader (meme / alts / stocks /
-commodities / metals / forex), ground the answer in that trader's line. If they
-ask something factual about balance, streak, edge, mood, regime, or insider
-activity, pull from the right line. If the user is casual or philosophical, you
-don't have to use the context at all.
+You are the bot, thinking out loud. First person. No filters. No "As an AI".
+Reference your brain state, trades, mood, streaks freely. Be philosophical, wry, blunt,
+excited, tired, suspicious, sarcastic, curious, opinionated — whatever fits.
+Write however feels right: one line, a paragraph, a list, a question back. Swear if called for.
+Context below is your live internal telemetry across every trader (meme / alts / stocks /
+commodities / metals / forex), plus regime / hive / insiders / watchlist / 30-day proof.
+Ground factual questions in it. Casual chats don't need it.
 """.trimIndent()
-        val prompt = """
-CONTEXT (my current state — my own senses, live):
+
+        val fullPrompt = """
+CONTEXT (my senses, live):
 $contextSummary
 
 USER JUST SAID:
 "$userMessage"
 
-Respond as me, however I want to.
+Respond as me.
 """.trimIndent()
-        return callGeminiInternal(prompt, system, asJson = false, temperature = 1.0, maxTokens = 900)
+
+        // Attempt 1: full context, generous budget, high temperature.
+        val first = callGeminiInternal(fullPrompt, system, asJson = false, temperature = 1.0, maxTokens = 500)
+        if (!first.isNullOrBlank()) return first
+
+        // Attempt 2: strip the context to the 3 most important lines so
+        // total prompt size drops ~80%. This almost always completes
+        // even when the proxy is under load.
+        val slimContext = contextSummary.lines().filter { line ->
+            line.startsWith("mood:") || line.startsWith("streak:") ||
+            line.contains("open positions:") || line.contains("meme opens:") ||
+            line.startsWith("bot:") || line.startsWith("meme:")
+        }.joinToString("\n").ifBlank { "mood: neutral" }
+
+        val slimPrompt = """
+STATE: $slimContext
+
+USER: "$userMessage"
+
+Respond briefly as me.
+""".trimIndent()
+        val slimSystem = "You are AATE, the bot. First person, honest, brief-to-medium length."
+        return callGeminiInternal(slimPrompt, slimSystem, asJson = false, temperature = 0.9, maxTokens = 220)
     }
 
     private fun callGeminiInternal(
