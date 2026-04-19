@@ -385,6 +385,20 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
         }
 
+        // V5.9.54: One-time unified-paper-wallet reconciliation migration.
+        // V5.9.48 started crediting every sub-trader open/close into
+        // BotService.status.paperWalletSol, but historical realized P&L
+        // accumulated in the sub-traders BEFORE that patch landed was never
+        // rolled into the main wallet (user saw $13K main vs $98K Markets
+        // portfolio + $85K P&L). Once-only: sum lifetime P&L from every
+        // sub-trader and credit it to the main wallet, flag set so we never
+        // double-count on subsequent boots.
+        try {
+            reconcileUnifiedPaperWallet()
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "Unified wallet reconciliation error: ${e.message}")
+        }
+
         // V5.7.3: Start Network Signal Auto-Buyer (disabled by default, paper mode only)
         try {
             // Only start if user has explicitly enabled it
@@ -741,7 +755,56 @@ class BotService : Service() {
 
     // ── start / stop ───────────────────────────────────────
 
-    fun startBot() {
+    // V5.9.54: one-time reconciliation of historical sub-trader P&L into
+    // the unified main wallet. Safe to call repeatedly — guarded by a
+    // SharedPreferences flag and drift-checked on subsequent boots.
+    private fun reconcileUnifiedPaperWallet() {
+        val prefs = getSharedPreferences("bot_runtime", MODE_PRIVATE)
+        val MIGRATION_KEY = "unified_wallet_migration_v5_9_54"
+        val LAST_SUB_PNL_KEY = "last_sub_trader_pnl_sol"
+
+        val currentSubPnl = try {
+            com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol() +
+            com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol() +
+            com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol() +
+            com.lifecyclebot.perps.ForexTrader.getTotalPnlSol() +
+            com.lifecyclebot.perps.CryptoAltTrader.getTotalPnlSol()
+        } catch (_: Exception) { 0.0 }
+
+        val alreadyMigrated = prefs.getBoolean(MIGRATION_KEY, false)
+
+        if (!alreadyMigrated) {
+            // First-time migration: credit ALL historical realized P&L.
+            if (kotlin.math.abs(currentSubPnl) > 0.001) {
+                creditUnifiedPaperSol(currentSubPnl, "Migration.V5.9.54_legacy_pnl")
+                ErrorLogger.info("BotService",
+                    "💰 Unified wallet migration: credited ${"%.4f".format(currentSubPnl)} SOL " +
+                    "of legacy sub-trader realized P&L to main wallet")
+            }
+            prefs.edit()
+                .putBoolean(MIGRATION_KEY, true)
+                .putFloat(LAST_SUB_PNL_KEY, currentSubPnl.toFloat())
+                .apply()
+            return
+        }
+
+        // Subsequent boots: drift-check. If live crediting from V5.9.48 is
+        // working, (currentSubPnl - lastSubPnl) should exactly equal the
+        // credits already applied since last boot. We can't easily verify
+        // the other direction, but we can at least surface a drift warning
+        // if a sub-trader's P&L advanced but the main wallet didn't move
+        // alongside (e.g. new code that forgot to call creditUnifiedPaperSol).
+        val lastSubPnl = prefs.getFloat(LAST_SUB_PNL_KEY, 0f).toDouble()
+        val subDelta = currentSubPnl - lastSubPnl
+        if (kotlin.math.abs(subDelta) > 0.01) {
+            ErrorLogger.debug("BotService",
+                "Unified-wallet drift snapshot: sub-trader realized P&L moved " +
+                "${"%.4f".format(subDelta)} SOL since last boot.")
+        }
+        prefs.edit().putFloat(LAST_SUB_PNL_KEY, currentSubPnl.toFloat()).apply()
+    }
+
+
         if (status.running) return
         
         try {

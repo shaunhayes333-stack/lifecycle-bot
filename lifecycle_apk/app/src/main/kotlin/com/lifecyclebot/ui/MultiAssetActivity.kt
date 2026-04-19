@@ -1277,10 +1277,20 @@ class MultiAssetActivity : AppCompatActivity() {
                 // CryptoAltTrader is the single wallet — all screens read from it
                 val paperBaseSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
 
-                // V5.9.52: Include all realized Markets P&L in the paper portfolio balance.
-                // paperBaseSol tracks the meme-bot wallet and is unrelated to Markets profits;
-                // Markets traders each track their own P&L separately, so we add it explicitly.
-                val marketsPnlSol = try {
+                // V5.9.52/V5.9.54: Historical Markets P&L used to be added here
+                // to compensate for the main wallet not crediting sub-trader
+                // closes (pre-V5.9.48). V5.9.54's reconciliation migration now
+                // folds that history into `paperBaseSol` itself, and V5.9.48
+                // keeps it up-to-date on every open/close. So we add ONLY the
+                // delta that hasn't been migrated yet — if the migration flag
+                // is set, the value is already canonical and we add zero.
+                val migrated = try {
+                    applicationContext
+                        .getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
+                        .getBoolean("unified_wallet_migration_v5_9_54", false)
+                } catch (_: Throwable) { false }
+
+                val marketsPnlSol = if (migrated) 0.0 else try {
                     TokenizedStockTrader.getTotalPnlSol() +
                     CommoditiesTrader.getTotalPnlSol() +
                     MetalsTrader.getTotalPnlSol() +
