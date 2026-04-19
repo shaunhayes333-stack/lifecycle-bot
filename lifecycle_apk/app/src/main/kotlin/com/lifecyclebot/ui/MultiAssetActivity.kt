@@ -1275,8 +1275,20 @@ class MultiAssetActivity : AppCompatActivity() {
                 } catch (_: Exception) { -1.0 }
 
                 // CryptoAltTrader is the single wallet — all screens read from it
-        val paperBalanceSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
+                val paperBaseSol = com.lifecyclebot.engine.BotService.status.paperWalletSol
 
+                // V5.9.52: Include all realized Markets P&L in the paper portfolio balance.
+                // paperBaseSol tracks the meme-bot wallet and is unrelated to Markets profits;
+                // Markets traders each track their own P&L separately, so we add it explicitly.
+                val marketsPnlSol = try {
+                    TokenizedStockTrader.getTotalPnlSol() +
+                    CommoditiesTrader.getTotalPnlSol() +
+                    MetalsTrader.getTotalPnlSol() +
+                    ForexTrader.getTotalPnlSol() +
+                    CryptoAltTrader.getTotalPnlSol() +
+                    PerpsTraderAI.getLifetimePnlSol()
+                } catch (_: Exception) { 0.0 }
+                val paperBalanceSol = paperBaseSol + marketsPnlSol
 
                 // Get SOL price — Pyth first, cached fallback
                 val solPriceUsd = try {
