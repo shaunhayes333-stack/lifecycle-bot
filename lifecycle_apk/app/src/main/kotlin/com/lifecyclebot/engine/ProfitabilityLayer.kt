@@ -236,9 +236,11 @@ object ProfitabilityLayer {
         } catch (_: Throwable) {}
     }
 
-    fun isEvicted(symbol: String): Boolean = try {
-        val until = evictedUntil[symbol] ?: return false
-        if (System.currentTimeMillis() < until) true
-        else { evictedUntil.remove(symbol); false }
-    } catch (_: Throwable) { false }
+    fun isEvicted(symbol: String): Boolean {
+        return try {
+            val until = evictedUntil[symbol] ?: return false
+            if (System.currentTimeMillis() < until) true
+            else { evictedUntil.remove(symbol); false }
+        } catch (_: Throwable) { false }
+    }
 }
