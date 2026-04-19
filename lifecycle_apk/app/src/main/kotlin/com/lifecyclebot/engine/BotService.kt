@@ -54,6 +54,34 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "[NO_BUY/$stage] $symbol | $reason$mintTag$extraTag")
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // UNIFIED PAPER WALLET
+        // V5.9.48: Every sub-trader (CryptoAlt, TokenizedStocks, Commodities,
+        // Metals, Forex) used to keep its own isolated paper balance. User
+        // kept seeing $34K Markets portfolio + $31K P&L while the main dash
+        // showed $2,733 — because the Markets profits never flowed back into
+        // the canonical wallet. One source of truth now lives here: any
+        // paper-side trade (open or close) from ANY trader routes through
+        // `creditUnifiedPaperSol(delta)`, which delegates to the same
+        // safety-clamped callback the Executor already uses.
+        // ═══════════════════════════════════════════════════════════════
+        fun creditUnifiedPaperSol(delta: Double, source: String) {
+            val svc = instance ?: return
+            try {
+                val cb = if (svc::executor.isInitialized) svc.executor.onPaperBalanceChange else null
+                if (cb != null) {
+                    cb.invoke(delta)
+                    ErrorLogger.info("UnifiedPaperWallet",
+                        "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(svc.status.paperWalletSol)}")
+                } else {
+                    svc.status.paperWalletSol = (svc.status.paperWalletSol + delta).coerceAtLeast(0.0)
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.warn("UnifiedPaperWallet", "[$source] credit failed: ${e.message}")
+            }
+        }
+
+
         fun logBuyHandoff(symbol: String, mint: String, sizeSol: Double, source: String = "", score: Double = 0.0) {
             if (!DEBUG_PIPELINE) return
             val srcTag = if (source.isNotBlank()) " | src=$source" else ""

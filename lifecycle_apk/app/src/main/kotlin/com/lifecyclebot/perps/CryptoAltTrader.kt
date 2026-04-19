@@ -994,6 +994,11 @@ object CryptoAltTrader {
         if (isPaperMode.get()) {
             // V5.9.5: Deduct from shared FluidLearning pool
             try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(signal.market.symbol, finalSize) } catch (_: Exception) {}
+            // V5.9.48: Unified paper wallet — debit deployed capital from main.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = -finalSize,
+                source = "CryptoAlt.open[${signal.market.symbol}]"
+            )
         }
 
         // ── BehaviorAI tilt protection ──────────────────────────────────────
@@ -1213,6 +1218,11 @@ object CryptoAltTrader {
             try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.market.symbol, pos.sizeSol, pnlSol) } catch (_: Exception) {}
             // Keep local paperBalance in sync for persistence/Turso
             paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+            // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = pos.sizeSol + pnlSol,
+                source = "CryptoAlt.close[${pos.market.symbol}]"
+            )
         } else {
             // Live mode: execute on-chain close — MUST wait for result before removing position
             var closeSuccess = false

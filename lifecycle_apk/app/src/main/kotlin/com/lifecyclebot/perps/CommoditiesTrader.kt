@@ -513,6 +513,11 @@ object CommoditiesTrader {
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positionSizeSol.coerceAtLeast(0.0))
+            // V5.9.48: unified paper wallet — debit deployed capital from main.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = -positionSizeSol,
+                source = "Commodities.open[${signal.market.symbol}]"
+            )
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
@@ -651,13 +656,20 @@ object CommoditiesTrader {
             else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) try {
-            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
-                mint = position.market.symbol,
-                originalSol = position.size,
-                pnlSol = pnl
+        if (isPaperMode.get()) {
+            try {
+                com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                    mint = position.market.symbol,
+                    originalSol = position.size,
+                    pnlSol = pnl
+                )
+            } catch (_: Exception) {}
+            // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = position.size + pnl,
+                source = "Commodities.close[${position.market.symbol}]"
             )
-        } catch (_: Exception) {}
+        }
         
         // Record pattern for AI memory
         try {

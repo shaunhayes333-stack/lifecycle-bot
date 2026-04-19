@@ -493,6 +493,11 @@ object MetalsTrader {
         // Deduct from appropriate balance
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("MetalsTrader", positionSizeSol.coerceAtLeast(0.0))
+            // V5.9.48: unified paper wallet — debit deployed capital from main.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = -positionSizeSol,
+                source = "Metals.open[${signal.market.symbol}]"
+            )
         }
         
         ErrorLogger.info(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${positionSizeSol}◎ | score=${signal.score}")
@@ -627,13 +632,20 @@ object MetalsTrader {
             else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) try {
-            com.lifecyclebot.engine.FluidLearning.recordPaperSell(
-                mint = position.market.symbol,
-                originalSol = position.size,
-                pnlSol = pnl
+        if (isPaperMode.get()) {
+            try {
+                com.lifecyclebot.engine.FluidLearning.recordPaperSell(
+                    mint = position.market.symbol,
+                    originalSol = position.size,
+                    pnlSol = pnl
+                )
+            } catch (_: Exception) {}
+            // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = position.size + pnl,
+                source = "Metals.close[${position.market.symbol}]"
             )
-        } catch (_: Exception) {}
+        }
         
         // Record pattern for AI memory
         try {

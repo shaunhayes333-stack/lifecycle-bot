@@ -958,6 +958,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // Deduct from balance (Hive-adjusted size)
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
+            // V5.9.48: unified paper wallet — debit the deployed capital so the
+            // main dashboard shows the real free cash while the position is open.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = -hiveSizeSol,
+                source = "TokenizedStocks.open[${signal.market.symbol}]"
+            )
         }
         
         // Notify FluidLearningAI
@@ -1076,6 +1082,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             } catch (_: Exception) {}
         } else {
             // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
+            // V5.9.48: Unified paper wallet — credit capital + PnL back to main dashboard.
+            com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                delta = position.sizeSol + netPnlSol,
+                source = "TokenizedStocks.close[${position.market.symbol}]"
+            )
         }
         
         // Record to FluidLearningAI
