@@ -222,6 +222,12 @@ object TradeHistoryStore {
         return trades.filter { it.side == "SELL" && it.ts >= midnightToday }
     }
 
+    /** V5.9.56: Snapshot of all SELL trades for consumers that need to
+     *  recompute lifetime realized P&L (e.g. RunTracker30D). Returns a
+     *  defensive copy so concurrent mutation doesn't corrupt iteration. */
+    fun getAllSells(): List<Trade> = trades.filter { it.side == "SELL" }.toList()
+
+
     /**
      * Calculate 24h win rate using decisive trades only:
      * winRate = wins / (wins + losses)

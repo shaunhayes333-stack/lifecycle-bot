@@ -224,7 +224,14 @@ object RunTracker30D {
         }
         
         // V5.6.15: Track realized P&L in SOL (not accumulated percentages)
-        val realizedPnlSol = sizeSol * (pnlPct / 100.0)
+        // V5.9.56: SANITY CAP — without this, a single glitchy trade carrying a
+        // huge pnlPct (e.g. micro-cap decimal-shift feeding 9,999,999 %) would
+        // nuke the accumulator. User saw "+161,980,464 SOL realized" on the
+        // 30-Day Proof Run due to exactly this. Same cap we already apply to
+        // bestTradePnlPct / worstTradePnlPct is now applied to the value that
+        // feeds the accumulator.
+        val sanitizedPnlPct = pnlPct.coerceIn(-100.0, 10000.0)
+        val realizedPnlSol = sizeSol * (sanitizedPnlPct / 100.0)
         totalRealizedPnlSol += realizedPnlSol
         
         // Track best/worst trade percentages (capped for sanity)
@@ -736,6 +743,27 @@ SYSTEM
         try {
             val stats = TradeHistoryStore.getStats()
             
+            // V5.9.56: Always recompute totalRealizedPnlSol from the canonical
+            // per-trade pnlSol records. This fixes the "+161,980,464 SOL
+            // realized" bug caused by legacy bad-data accumulation. Each
+            // individual pnlSol is sanity-clamped so one glitch can't
+            // explode the total.
+            val recomputedPnl = try {
+                TradeHistoryStore.getAllSells()
+                    .sumOf { it.pnlSol.coerceIn(-1_000.0, 10_000.0) }
+            } catch (_: Exception) {
+                totalRealizedPnlSol
+            }
+            val driftSol = recomputedPnl - totalRealizedPnlSol
+            if (kotlin.math.abs(driftSol) > 0.01) {
+                ErrorLogger.info(TAG,
+                    "📊 PnL RECOMPUTE: ${"%.4f".format(totalRealizedPnlSol)} → " +
+                    "${"%.4f".format(recomputedPnl)} SOL (drift=${"%.4f".format(driftSol)})")
+                totalRealizedPnlSol = recomputedPnl
+                // currentBalance follows: recompute from the run's start.
+                currentBalance = (startBalance + recomputedPnl).coerceAtLeast(0.0)
+            }
+
             // Update RunTracker30D to match TradeHistoryStore totals
             // Only sync if TradeHistoryStore has more trades (it's the source of truth)
             if (stats.totalTrades > totalTrades) {
@@ -748,8 +776,8 @@ SYSTEM
                 scratches = stats.totalScratches
                 
                 ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
-                save()
             }
+            save()
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Sync error: ${e.message}")
         }
