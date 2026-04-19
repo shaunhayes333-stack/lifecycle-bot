@@ -186,13 +186,34 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         ConfigStore.save(ctx, cfg)
         
         // Only restart if important settings changed (not just watchlist)
-        if (settingsChanged && _ui.value.running) { 
-            com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", 
+        if (settingsChanged && _ui.value.running) {
+            com.lifecyclebot.engine.ErrorLogger.info("BotViewModel",
                 "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
                 "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
                 "helius=${cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim()}")
-            stopBot()
-            startBot() 
+            // V5.9.66: Previously this fired stopBot() and startBot() back-
+            // to-back. onStartCommand dispatches each intent to the scope
+            // and returns immediately, so the START intent arrived while
+            // status.running was still true → onStartCommand saw
+            // "already running" and only rescheduled keep-alive. The
+            // subsequent async STOP then flipped running=false and left
+            // the bot permanently idle until the user toggled again.
+            // Sequence them on a coroutine and wait for status.running to
+            // become false before re-starting.
+            viewModelScope.launch {
+                stopBot()
+                // Wait up to 6 seconds for status.running to flip false.
+                // Scanner loops poll every 1.5s so this almost always
+                // resolves within 2–3s. After the timeout we issue
+                // startBot() anyway — onStartCommand will either bring
+                // us up or confirm we're still running.
+                val deadline = System.currentTimeMillis() + 6_000L
+                while (com.lifecyclebot.engine.BotService.status.running &&
+                       System.currentTimeMillis() < deadline) {
+                    delay(150)
+                }
+                startBot()
+            }
         }
     }
 
