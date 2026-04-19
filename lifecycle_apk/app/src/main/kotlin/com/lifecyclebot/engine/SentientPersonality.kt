@@ -584,17 +584,74 @@ object SentientPersonality {
     }
 
     private fun buildContextSummary(): String {
+        // V5.9.58: Rich, living telemetry block the LLM can actually use.
+        // Previously only mood + learning % + W/L were exposed, so the
+        // chat never felt plugged in. Now we surface wallet/mode/phase,
+        // open positions by symbol+PnL, lifetime W/L stats, 30-day proof
+        // numbers, and the top recent thoughts — i.e. everything a user
+        // would see scrolling around the app.
         val progress = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Throwable) { 0.0 }
-        val recentThoughtsTxt = thoughts.take(6).joinToString(" || ") { "${it.category}: ${it.message}" }
+        val recentThoughtsTxt = thoughts.take(8).joinToString(" || ") { "${it.category}: ${it.message}" }
         val streakLine = when {
             consecutiveWins >= 2 -> "on a ${consecutiveWins}-win streak"
             consecutiveLosses >= 2 -> "down ${consecutiveLosses} in a row"
             else -> "recent W/L balanced"
         }
+
+        // Wallet + mode — BotService.status is a companion val, always safe to read.
+        val botLine = try {
+            val s = BotService.status
+            val svc = BotService.instance
+            val paperMode = try {
+                if (svc != null) com.lifecyclebot.data.ConfigStore.load(svc.applicationContext).paperMode else true
+            } catch (_: Throwable) { true }
+            val modeTag = if (paperMode) "PAPER" else "LIVE"
+            val runTag  = if (s.running) "RUNNING" else "STOPPED"
+            "bot: $runTag · $modeTag · paperSol=${"%.4f".format(s.paperWalletSol)} · liveSol=${"%.4f".format(s.walletSol)} · open=${s.openPositionCount} · exposure=${"%.4f".format(s.totalExposureSol)} SOL"
+        } catch (_: Throwable) { "bot: (status unavailable)" }
+
+        // Open positions by symbol with live PnL %
+        val openLine = try {
+            val opens = BotService.status.openPositions.take(10)
+            if (opens.isEmpty()) "open positions: none"
+            else "open positions: " + opens.joinToString(", ") { ts ->
+                val entry = ts.position.entryPrice
+                val pnl = if (entry > 0) (ts.lastPrice / entry - 1.0) * 100.0 else 0.0
+                "${ts.symbol}(${"%+.1f".format(pnl)}%)"
+            }
+        } catch (_: Throwable) { "open positions: ?" }
+
+        // Lifetime W/L snapshot
+        val statsLine = try {
+            val s = TradeHistoryStore.getStats()
+            "lifetime: ${s.totalWins}W/${s.totalLosses}L (${"%.0f".format(s.winRate)}% win) · 24h=${s.trades24h} trades · avg win=${"%.1f".format(s.avgWinPct)}%"
+        } catch (_: Throwable) { "lifetime: ?" }
+
+        // 30-day proof run numbers
+        val proofLine = try {
+            val start = RunTracker30D.startBalance
+            val cur   = RunTracker30D.currentBalance
+            val retPct = if (start > 0) (cur - start) / start * 100.0 else 0.0
+            "30d proof: day ${RunTracker30D.getCurrentDay()}/30 · ${"%+.1f".format(retPct)}% · ${RunTracker30D.totalTrades}t"
+        } catch (_: Throwable) { "30d proof: ?" }
+
+        // Current focus token (first open, else first known)
+        val regimeLine = try {
+            val firstActive = BotService.status.tokens.values.firstOrNull { it.position.isOpen }
+                ?: BotService.status.tokens.values.firstOrNull()
+            if (firstActive != null) "focus token: ${firstActive.symbol} phase=${firstActive.phase}"
+            else "focus token: (idle)"
+        } catch (_: Throwable) { "focus token: ?" }
+
         return buildString {
             append("mood: ${lastMood.name.lowercase()}\n")
             append("learning progress: ${(progress * 100).toInt()}%\n")
-            append("recent run: $streakLine (W:$recentWins / L:$recentLosses)\n")
+            append("streak: $streakLine (W:$recentWins / L:$recentLosses)\n")
+            append("$botLine\n")
+            append("$openLine\n")
+            append("$statsLine\n")
+            append("$proofLine\n")
+            append("$regimeLine\n")
             append("recent thoughts: $recentThoughtsTxt")
         }
     }

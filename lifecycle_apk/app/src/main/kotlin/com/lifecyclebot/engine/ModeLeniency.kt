@@ -36,8 +36,23 @@ object ModeLeniency {
     @JvmStatic
     fun useLenientGates(isPaperMode: Boolean): Boolean {
         if (isPaperMode) return true
+        // V5.9.58: Check BOTH the local TradeHistoryStore AND the 30-Day
+        // Proof Run. Users with a running proof (e.g. 1549 trades at 59%
+        // WR) were seeing their "live-proven" flag stay off forever
+        // because TradeHistoryStore is fed by the meme bot only and the
+        // Markets/Alts traders feed RunTracker30D via FluidLearningAI.
+        // Either proof-of-edge counts.
         return try {
-            TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
+            if (TradeHistoryStore.getProvenEdgeCached().hasProvenEdge) return true
+            val totalTrades = RunTracker30D.totalTrades
+            val start = RunTracker30D.startBalance
+            val cur = RunTracker30D.currentBalance
+            // Use positive return as a proven-edge proxy when the run has
+            // enough volume — we don't have a cached lifetime win rate on
+            // RunTracker30D, but a ≥300-trade run in positive territory is
+            // plenty of evidence the bot's edge is real.
+            if (totalTrades >= 300 && start > 0 && cur >= start) return true
+            false
         } catch (_: Throwable) {
             false
         }
