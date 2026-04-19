@@ -563,12 +563,24 @@ object MarketsLiveExecutor {
             return@withContext Pair(false, null)
         }
 
-        // V5.9.16: REAL close path —
+        // V5.9.16/V5.9.50: REAL close path —
         //   Tokenized asset (xStocks / PAXG / EURC) → swap <mint> → SOL
-        //   Legacy USDC-parked positions        → swap USDC → SOL (backwards-compat)
-        //   Crypto perps should close via JupiterPerps, not here.
-        val targetMint = TokenizedAssetRegistry.mintFor(market.symbol)
-        val useTokenized = (market.isStock || market.isCommodity || market.isMetal || market.isForex) && targetMint != null
+        //   Crypto (V5.9.45 spot-swap opens)        → swap <crypto_mint> → SOL
+        //   Legacy USDC-parked positions            → swap USDC → SOL (backwards-compat)
+        // Previously crypto was explicitly excluded from tokenized routing and
+        // always fell through to the USDC branch — since V5.9.45 opens the
+        // real crypto mint (not USDC), every crypto live BUY since then has
+        // been un-closable. That silently locked capital in the alt token.
+        val tokenizedMint = TokenizedAssetRegistry.mintFor(market.symbol)
+        val cryptoMint = if (market.isCrypto) {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry
+                .getTokenBySymbol(market.symbol)
+                ?.mint
+                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
+        } else null
+        val targetMint = tokenizedMint ?: cryptoMint
+        val useTokenized = targetMint != null &&
+            (market.isStock || market.isCommodity || market.isMetal || market.isForex || market.isCrypto)
 
         val (inputMint, amountUnits) = try {
             val balances = wallet.getTokenAccountsWithDecimals()
