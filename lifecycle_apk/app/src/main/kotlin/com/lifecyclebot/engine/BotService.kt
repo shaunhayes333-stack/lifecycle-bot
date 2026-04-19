@@ -3688,6 +3688,58 @@ if (deferredCount > 0) {
                 return  // skip full cycle — but we may have added fallback data
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.62: PRE-PIPELINE DECIMAL-CORRUPTION FILTER
+            //
+            // The scanner occasionally ingests quotes where the price is off
+            // by 10^N (wrong decimal place reported by DexScreener), which
+            // produces open positions with phantom +440,000,000% "wins".
+            //
+            // This filter runs BEFORE the token is added to status.tokens
+            // and before any price update is persisted. It ONLY rejects
+            // clearly broken feed data — it never blocks legitimate wins,
+            // never touches the wallet, never closes open positions.
+            //
+            // Rules (all conservative):
+            //   a) First-ingest: reject if price implies impossible supply
+            //      (< 1 or > 1e15 tokens) OR if FDV/MCAP ratio > 1000.
+            //   b) Already-tracked: reject the INCOMING tick if it would
+            //      jump the price by more than 100× vs the last recorded
+            //      ts.lastPrice (i.e. +9900% in a single poll — physically
+            //      impossible in a normal meme candle unless the feed is
+            //      misreporting decimals). The position stays open at its
+            //      last valid price; a future healthy tick recovers it.
+            // ═══════════════════════════════════════════════════════════════
+            val incomingPrice = pair.candle.priceUsd
+            val incomingMcap  = pair.candle.marketCap
+            val incomingFdv   = pair.fdv
+            val existingTs    = status.tokens[mint]
+
+            val firstIngest = existingTs == null
+            if (firstIngest && incomingPrice > 0 && incomingMcap > 0) {
+                val impliedSupply = incomingMcap / incomingPrice
+                val badSupply     = impliedSupply < 1.0 || impliedSupply > 1e15
+                val badFdvRatio   = incomingFdv > 0 && incomingMcap > 0 && incomingFdv / incomingMcap > 1000
+                if (badSupply || badFdvRatio) {
+                    ErrorLogger.warn("BotService",
+                        "🚫 DISCOVERY-FILTER rejected ${pair.baseSymbol.ifBlank { mint.take(6) }}: " +
+                        "price=$incomingPrice mcap=$incomingMcap fdv=$incomingFdv impliedSupply=$impliedSupply " +
+                        "(badSupply=$badSupply badFdv=$badFdvRatio) — decimal-corrupt feed, not adding to scanner"
+                    )
+                    return   // pre-pipeline — token never enters status.tokens
+                }
+            }
+            if (!firstIngest && incomingPrice > 0 && existingTs!!.lastPrice > 0) {
+                val jumpMult = incomingPrice / existingTs.lastPrice
+                if (jumpMult > 100.0 || (jumpMult > 0 && jumpMult < 0.01)) {
+                    ErrorLogger.warn("BotService",
+                        "🚫 TICK-FILTER rejected ${existingTs.symbol}: prev=${existingTs.lastPrice} → new=$incomingPrice " +
+                        "(jump=${"%.1f".format(jumpMult)}x) — decimal-shift artifact, keeping last valid price"
+                    )
+                    return   // drop this poll entirely; position stays at last good price
+                }
+            }
+
 
         synchronized(status.tokens) {
             if (!status.tokens.containsKey(mint)) {
@@ -3719,27 +3771,10 @@ if (deferredCount > 0) {
                 return
             }
 
-            // V5.7.8: Validate price against mcap/supply to catch decimal mismatches
-            // If price * known_supply differs from mcap by >100x, the price is likely wrong
-            var validatedPrice = pair.candle.priceUsd
-            if (validatedPrice > 0 && pair.candle.marketCap > 0) {
-                val supply = if (validatedPrice > 0) pair.candle.marketCap / validatedPrice else 0.0
-                // Sanity: meme coins typically have supply 1M-1T, price 0.0000001-100
-                // If price implies supply < 1 or > 1e15, it's a decimal error
-                if (supply > 0 && (supply < 1.0 || supply > 1e15)) {
-                    // Try to fix: derive price from mcap and a reasonable supply estimate
-                    val estimatedSupply = pair.candle.marketCap / validatedPrice
-                    ErrorLogger.warn("BotService", "PRICE VALIDATION: ${ts.symbol} price=$validatedPrice mcap=${pair.candle.marketCap} impliedSupply=$estimatedSupply — possible decimal error")
-                }
-                // Cross-check: if we have FDV and it's wildly different from mcap, flag it
-                if (pair.fdv > 0 && pair.candle.marketCap > 0) {
-                    val mcapFdvRatio = pair.fdv / pair.candle.marketCap
-                    // FDV should be >= mcap, and typically within 1-10x for meme coins
-                    if (mcapFdvRatio > 1000) {
-                        ErrorLogger.warn("BotService", "PRICE VALIDATION: ${ts.symbol} FDV/MCAP ratio=${mcapFdvRatio.toInt()} — likely decimal error in price")
-                    }
-                }
-            }
+            // V5.9.62: decimal/price-sanity was hoisted above to act as a
+            // discovery-gate + tick-gate. By the time we reach here the
+            // quote is trusted enough to persist.
+            val validatedPrice = incomingPrice
             
             ts.lastPrice        = validatedPrice
             ts.lastMcap         = pair.candle.marketCap
