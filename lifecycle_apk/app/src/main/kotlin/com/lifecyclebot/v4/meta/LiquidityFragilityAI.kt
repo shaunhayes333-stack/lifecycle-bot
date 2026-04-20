@@ -68,7 +68,8 @@ object LiquidityFragilityAI {
         }
 
         // 2. Depth analysis (shallow depth = fragile)
-        val depthScore = when {
+        // V5.9.56: skip when depthUsd==0 (no data) — missing data is neutral, not a penalty
+        val depthScore = if (depthUsd <= 0.0) 1.0 else when {
             depthUsd < 1_000 -> 0.1
             depthUsd < 10_000 -> 0.3
             depthUsd < 50_000 -> 0.5
@@ -79,7 +80,8 @@ object LiquidityFragilityAI {
         fragility += (1.0 - depthScore) * 0.20
 
         // 3. Volume analysis (low volume = fragile)
-        fragility += when {
+        // V5.9.56: skip when volume24hUsd==0 (no data) — missing data is neutral, not a penalty
+        fragility += if (volume24hUsd <= 0.0) 0.0 else when {
             volume24hUsd < 5_000 -> 0.20
             volume24hUsd < 50_000 -> 0.10
             volume24hUsd < 500_000 -> 0.05
@@ -216,8 +218,9 @@ object LiquidityFragilityAI {
 
     fun getReport(symbol: String): FragilityReport? = reports[symbol]
 
+    // V5.9.56: default 0.1 (STABLE) — unknown symbols should not be pre-penalised as MODERATE
     fun getFragilityScore(symbol: String): Double =
-        reports[symbol]?.fragilityScore ?: 0.3
+        reports[symbol]?.fragilityScore ?: 0.1
 
     fun getMaxSafeSize(symbol: String): Double =
         reports[symbol]?.maxSafeSize ?: 1.0
@@ -227,9 +230,11 @@ object LiquidityFragilityAI {
         return report.fragilityLevel != FragilityLevel.CRITICAL
     }
 
+    // V5.9.56: coefficient 0.5 (was 0.8) — 0.8 was cutting position 40% at fragility=0.5;
+    // 0.5 gives a gentler slope so moderate-fragility assets still get reasonable size
     fun getSafetyMultiplier(symbol: String): Double {
         val fragility = getFragilityScore(symbol)
-        return (1.0 - fragility * 0.8).coerceIn(0.1, 1.0)
+        return (1.0 - fragility * 0.5).coerceIn(0.2, 1.0)
     }
 
     fun clear() {

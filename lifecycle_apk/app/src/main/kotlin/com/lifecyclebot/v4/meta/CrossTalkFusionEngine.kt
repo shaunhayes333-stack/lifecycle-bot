@@ -289,12 +289,13 @@ object CrossTalkFusionEngine {
         }
 
         // Liquidity safety multiplier
+        // V5.9.56: raised thresholds — EXTREME veto moved to match CRITICAL level (0.75),
+        // and the minor 0.9x penalty raised from >0.3 to >0.5 so stable assets aren't taxed
         val fragility = snapshot.fragilityMap[symbol ?: market] ?: 0.0
         val liquidityMult = when {
-            fragility > 0.9 -> { vetoes.add("EXTREME_FRAGILITY"); 0.0 }
-            fragility > 0.7 -> 0.4
-            fragility > 0.5 -> 0.7
-            fragility > 0.3 -> 0.9
+            fragility > 0.75 -> { vetoes.add("EXTREME_FRAGILITY"); 0.0 }
+            fragility > 0.6 -> 0.5
+            fragility > 0.5 -> 0.75
             else -> 1.0
         }
 
