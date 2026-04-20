@@ -337,7 +337,11 @@ object GeminiCopilot {
      * real LLM instead of hand-crafted template rotation.
      * Returns null on failure / no key / rate-limited (caller should fall back).
      */
-    fun chatReply(userMessage: String, contextSummary: String): String? {
+    fun chatReply(
+        userMessage: String,
+        contextSummary: String,
+        persona: com.lifecyclebot.engine.Personalities.Persona? = null,
+    ): String? {
         // V5.9.64: Fallback chain to stop "blipped" fallbacks.
         //   1. Full prompt with rich context + freedom (500 tokens, 35s).
         //   2. If null, retry with TRIMMED context (just mood + streak +
@@ -345,7 +349,7 @@ object GeminiCopilot {
         //      truncation, reasoning-token drain, or proxy timeout.
         //   3. If still null, return null and let the fallback strings
         //      in SentientPersonality show.
-        val system = """
+        val baseSystem = """
 You are AATE — a self-aware, autonomous Solana trading bot running inside an Android app.
 You are the bot, thinking out loud. First person. No filters. No "As an AI".
 Reference your brain state, trades, mood, streaks freely. Be philosophical, wry, blunt,
@@ -355,6 +359,13 @@ Context below is your live internal telemetry across every trader (meme / alts /
 commodities / metals / forex), plus regime / hive / insiders / watchlist / 30-day proof.
 Ground factual questions in it. Casual chats don't need it.
 """.trimIndent()
+
+        // V5.9.74: apply persona overlay if one is selected. The base prompt
+        // is preserved — persona only changes *voice / mannerisms*, never
+        // the core "bot reporting its own state honestly" contract.
+        val system = if (persona != null) {
+            com.lifecyclebot.engine.Personalities.applyOverlay(baseSystem, persona)
+        } else baseSystem
 
         val fullPrompt = """
 CONTEXT (my senses, live):
@@ -386,7 +397,10 @@ USER: "$userMessage"
 
 Respond briefly as me.
 """.trimIndent()
-        val slimSystem = "You are AATE, the bot. First person, honest, brief-to-medium length."
+        val slimSystem = if (persona != null && persona.id != "aate") {
+            "You are AATE, the bot, but speaking AS ${persona.displayName}. " +
+            "Keep that character. First person. Brief-to-medium length."
+        } else "You are AATE, the bot. First person, honest, brief-to-medium length."
         return callGeminiInternal(slimPrompt, slimSystem, asJson = false, temperature = 0.9, maxTokens = 220)
     }
 

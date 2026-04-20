@@ -577,6 +577,30 @@
                     android:fontFamily="monospace"
                     android:layout_marginTop="4dp"/>
 
+                <!-- V5.9.74: Personality selector — 12 personas -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PERSONA"
+                        android:textColor="#9945FF"
+                        android:textSize="10sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginEnd="8dp"/>
+                    <Spinner
+                        android:id="@+id/spinnerPersona"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:backgroundTint="#9945FF"
+                        android:popupBackground="#0B0F1A"/>
+                </LinearLayout>
+
                 <ScrollView
                     android:id="@+id/scrollSentientChat"
                     android:layout_width="match_parent"
@@ -584,6 +608,13 @@
                     android:layout_marginTop="8dp"
                     android:background="#05050A"
                     android:padding="10dp"
+                    android:scrollbars="vertical"
+                    android:scrollbarThumbVertical="@android:color/darker_gray"
+                    android:scrollbarSize="4dp"
+                    android:scrollbarStyle="insideOverlay"
+                    android:scrollbarFadeDuration="500"
+                    android:scrollbarDefaultDelayBeforeFade="600"
+                    android:fadeScrollbars="true"
                     android:fillViewport="true">
                     <TextView
                         android:id="@+id/tvSentientChat"

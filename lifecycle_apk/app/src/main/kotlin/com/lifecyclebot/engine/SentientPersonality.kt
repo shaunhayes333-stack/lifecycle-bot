@@ -558,7 +558,11 @@ object SentientPersonality {
             try {
                 val llmReply = try {
                     if (GeminiCopilot.isConfigured()) {
-                        GeminiCopilot.chatReply(userMessage, buildContextSummary())
+                        val persona = try {
+                            val svcCtx = BotService.instance?.applicationContext
+                            svcCtx?.let { com.lifecyclebot.engine.Personalities.getActive(it) }
+                        } catch (_: Throwable) { null }
+                        GeminiCopilot.chatReply(userMessage, buildContextSummary(), persona)
                     } else null
                 } catch (_: Throwable) { null }
 

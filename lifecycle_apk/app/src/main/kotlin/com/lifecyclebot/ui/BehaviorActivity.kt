@@ -212,6 +212,36 @@ class BehaviorActivity : AppCompatActivity() {
                 if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) { send(); true } else false
             }
         } catch (_: Exception) {}
+
+        // V5.9.74: persona spinner — pick one of 12 voices for the LLM chat
+        try {
+            val spinner = findViewById<android.widget.Spinner>(R.id.spinnerPersona)
+            if (spinner != null) {
+                val personas = com.lifecyclebot.engine.Personalities.ALL
+                val labels = personas.map { it.displayName }
+                val adapter = android.widget.ArrayAdapter(
+                    this,
+                    android.R.layout.simple_spinner_item,
+                    labels
+                )
+                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                spinner.adapter = adapter
+                val activeId = com.lifecyclebot.engine.Personalities.getActive(this).id
+                spinner.setSelection(com.lifecyclebot.engine.Personalities.indexOf(activeId), false)
+                spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        val picked = personas.getOrNull(position) ?: return
+                        com.lifecyclebot.engine.Personalities.setActive(this@BehaviorActivity, picked.id)
+                        android.widget.Toast.makeText(
+                            this@BehaviorActivity,
+                            "Persona: ${picked.displayName}",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+                }
+            }
+        } catch (_: Exception) {}
     }
     
     private fun setupKnob() {
