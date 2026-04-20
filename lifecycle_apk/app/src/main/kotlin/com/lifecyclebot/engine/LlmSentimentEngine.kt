@@ -7,18 +7,19 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
  * LLM Sentiment Engine — Groq-backed structured sentiment scoring.
  *
- * Safe design goals:
+ * Design goals:
  * - Never crashes decision flow
  * - Returns null on API failure so caller can fall back
  * - Caches results briefly to avoid hammering Groq
  * - Hard clamps all scores
- * - Avoids Kotlin stdlib ambiguity issues that can break CI builds
+ * - Uses safer locale/thread handling for CI/runtime stability
  */
 class LlmSentimentEngine(
     private val groqApiKey: String = "",
@@ -33,7 +34,7 @@ class LlmSentimentEngine(
         val riskFlags: List<String>,
         val hardBlock: Boolean,
         val blockReason: String,
-        val source: String,             // "llm" | "keyword_fallback"
+        val source: String,             // "llm"
     )
 
     private data class CacheEntry(
@@ -45,6 +46,7 @@ class LlmSentimentEngine(
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     private val jsonMediaType = "application/json".toMediaType()
@@ -55,7 +57,10 @@ class LlmSentimentEngine(
     @Volatile
     private var lastCallMs: Long = 0L
 
-    private val minCallIntervalMs = 1_200L
+    private val throttleLock = Any()
+
+    // 2.1s keeps you under Groq free-plan 30 RPM average.
+    private val minCallIntervalMs = 2_100L
 
     companion object {
         private const val TAG = "LlmSentiment"
@@ -66,6 +71,7 @@ class LlmSentimentEngine(
         private const val MAX_BUNDLE_CHARS = 800
         private const val MAX_REASONING_CHARS = 220
         private const val DEFAULT_CONFIDENCE = 50.0
+        private const val MAX_COMPLETION_TOKENS = 400
     }
 
     /**
@@ -90,9 +96,10 @@ class LlmSentimentEngine(
             val cacheKey = buildCacheKey(symbol, mintAddress, sanitizedEvents)
             val now = System.currentTimeMillis()
 
-            val cached = cache[cacheKey]
-            if (cached != null && now - cached.timestampMs < cacheTtlMs) {
-                return cached.result
+            cache[cacheKey]?.let { cached ->
+                if (now - cached.timestampMs < cacheTtlMs) {
+                    return cached.result
+                }
             }
 
             val textBundle = buildTextBundle(sanitizedEvents)
@@ -134,7 +141,7 @@ class LlmSentimentEngine(
             lastTs = 0L
         }
 
-        val upperSymbol = symbol.uppercase()
+        val upperSymbol = symbol.uppercase(Locale.US)
         return upperSymbol + "_" + mintAddress + "_" + count + "_" + firstTs + "_" + lastTs
     }
 
@@ -142,7 +149,7 @@ class LlmSentimentEngine(
         val sb = StringBuilder()
 
         for (event in events) {
-            val source = event.source.uppercase()
+            val source = event.source.uppercase(Locale.US)
             val text = event.text
                 .replace(Regex("\\s+"), " ")
                 .trim()
@@ -157,9 +164,7 @@ class LlmSentimentEngine(
                 sb.length + 1 + candidate.length
             }
 
-            if (projectedLen > MAX_BUNDLE_CHARS) {
-                break
-            }
+            if (projectedLen > MAX_BUNDLE_CHARS) break
 
             if (sb.isNotEmpty()) sb.append('\n')
             sb.append(candidate)
@@ -178,7 +183,7 @@ class LlmSentimentEngine(
         val payload = JSONObject().apply {
             put("model", MODEL)
             put("temperature", 0.1)
-            put("max_tokens", 400)
+            put("max_completion_tokens", MAX_COMPLETION_TOKENS)
             put("response_format", JSONObject().put("type", "json_object"))
             put(
                 "messages",
@@ -209,7 +214,8 @@ class LlmSentimentEngine(
 
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    ErrorLogger.warn(TAG, "Groq HTTP ${response.code}")
+                    val errorBody = response.body?.string().orEmpty().take(300)
+                    ErrorLogger.warn(TAG, "Groq HTTP ${response.code}: $errorBody")
                     return null
                 }
 
@@ -232,7 +238,7 @@ class LlmSentimentEngine(
                     return null
                 }
 
-                parseLlmResponse(content)
+                parseLlmResponse(extractJsonObject(content))
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Groq call failed: ${e.message}")
@@ -252,8 +258,8 @@ class LlmSentimentEngine(
             val rawBlockReason = j.optString("block_reason", "").trim()
 
             LlmSentiment(
-                score = j.optDouble("score", 0.0).coerceIn(-100.0, 100.0),
-                confidence = j.optDouble("confidence", DEFAULT_CONFIDENCE).coerceIn(0.0, 100.0),
+                score = safeDouble(j, "score", 0.0).coerceIn(-100.0, 100.0),
+                confidence = safeDouble(j, "confidence", DEFAULT_CONFIDENCE).coerceIn(0.0, 100.0),
                 reasoning = j.optString("reasoning", "")
                     .replace(Regex("\\s+"), " ")
                     .trim()
@@ -271,11 +277,24 @@ class LlmSentimentEngine(
         }
     }
 
+    private fun safeDouble(obj: JSONObject, key: String, fallback: Double): Double {
+        return try {
+            val v = obj.opt(key) ?: return fallback
+            when (v) {
+                is Number -> v.toDouble()
+                is String -> v.toDoubleOrNull() ?: fallback
+                else -> fallback
+            }
+        } catch (_: Exception) {
+            fallback
+        }
+    }
+
     private fun JSONArray?.toSafeStringList(limit: Int): List<String> {
         if (this == null || this.length() == 0) return emptyList()
 
         val out = ArrayList<String>()
-        val capped = if (this.length() < limit) this.length() else limit
+        val capped = minOf(this.length(), limit)
 
         for (i in 0 until capped) {
             val value = this.optString(i).trim()
@@ -288,22 +307,44 @@ class LlmSentimentEngine(
     }
 
     private fun throttle() {
-        val now = System.currentTimeMillis()
-        val waitMs = minCallIntervalMs - (now - lastCallMs)
+        synchronized(throttleLock) {
+            val now = System.currentTimeMillis()
+            val waitMs = minCallIntervalMs - (now - lastCallMs)
 
-        if (waitMs > 0L) {
-            try {
-                Thread.sleep(waitMs)
-            } catch (_: InterruptedException) {
+            if (waitMs > 0L) {
+                try {
+                    Thread.sleep(waitMs)
+                } catch (_: InterruptedException) {
+                }
             }
-        }
 
-        lastCallMs = System.currentTimeMillis()
+            lastCallMs = System.currentTimeMillis()
+        }
     }
 
     private fun cleanupCacheIfNeeded(now: Long) {
         if (cache.size <= 200) return
-        cache.entries.removeIf { now - it.value.timestampMs > cacheTtlMs }
+
+        val iterator = cache.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (now - entry.value.timestampMs > cacheTtlMs) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun extractJsonObject(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed
+
+        val firstBrace = trimmed.indexOf('{')
+        val lastBrace = trimmed.lastIndexOf('}')
+        return if (firstBrace >= 0 && lastBrace > firstBrace) {
+            trimmed.substring(firstBrace, lastBrace + 1)
+        } else {
+            trimmed
+        }
     }
 
     private fun systemPrompt(): String = """
@@ -325,6 +366,7 @@ Interpretation rules:
 - hard_block = true only for very strong scam/rug/honeypot style evidence
 - Keep reasoning concise
 - Do not include markdown
+- Do not wrap the JSON in code fences
 """.trimIndent()
 
     private fun buildPrompt(
