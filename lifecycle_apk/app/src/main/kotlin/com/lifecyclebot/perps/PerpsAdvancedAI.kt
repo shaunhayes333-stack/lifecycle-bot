@@ -240,8 +240,10 @@ object PerpsAdvancedAI {
         val avgGain = gains / period
         val avgLoss = losses / period
 
-        // Clamp to [5, 95] so cold-start extremes still expressible as "strong"
-        // without tripping absolute overbought/oversold thresholds.
+        // V5.9.55: flat prices (no gains AND no losses) must return neutral 50,
+        // not 95 — the avgLoss==0 check fired first and pinned all weekend/quiet
+        // stocks to "overbought", generating spurious SHORT signals.
+        if (avgLoss == 0.0 && avgGain == 0.0) return 50.0
         if (avgLoss == 0.0) return 95.0
         if (avgGain == 0.0) return 5.0
 
