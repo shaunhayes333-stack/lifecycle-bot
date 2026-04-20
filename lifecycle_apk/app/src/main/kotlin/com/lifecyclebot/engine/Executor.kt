@@ -4929,23 +4929,44 @@ class Executor(
             val tokenData = onChainBalances[ts.mint]
             
             if (tokenData == null || tokenData.first <= 0.0) {
-                // V5.7.8: Track zero-balance retries — force close after 5 attempts
+                // V5.9.72 CRITICAL FIX: previous logic force-closed the position
+                // after 5 "zero balance" reads, calling tradeId.closed(...) and
+                // returning CONFIRMED even though NO swap was broadcast. If the
+                // RPC returned an empty/errored map (rate-limit, slow sync),
+                // the tokens were still in the user's wallet but the bot
+                // marked them "sold at -100%", ate the PnL accounting, and
+                // walked away. User saw: tokens remain on-chain, no SOL back.
+                //
+                // New behaviour:
+                //   - If the on-chain map came back NON-EMPTY and this mint is
+                //     simply absent/zero → tokens are genuinely gone (rug,
+                //     honeypot, external sell). We surface that as an orphan
+                //     alert, leave the position open, and let the user clear
+                //     it manually via the UI. We do NOT claim a sell PnL.
+                //   - If the map is EMPTY / threw → RPC is broken, tokens
+                //     are almost certainly still there. Retry with backoff,
+                //     never close.
+                val mapEmpty = onChainBalances.isEmpty()
                 val retryCount = zeroBalanceRetries.merge(ts.mint, 1) { old, _ -> old + 1 } ?: 1
-                
-                if (retryCount >= 5) {
-                    // Force close — tokens are gone (rug, failed buy, or already sold externally)
-                    onLog("FORCE CLOSE: ${ts.symbol} — 0 balance after $retryCount checks. Tokens gone.", tradeId.mint)
-                    ErrorLogger.warn("Executor", "FORCE CLOSE: ${ts.symbol} — balance=0 after $retryCount retries. Position dead.")
-                    zeroBalanceRetries.remove(ts.mint)
-                    
-                    // Mark position as closed via the proper API
-                    tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "ZERO_BALANCE_FORCE_CLOSE")
-                    
-                    return SellResult.CONFIRMED
+
+                if (!mapEmpty && retryCount >= 20) {
+                    onLog("🚨 ORPHAN ALERT: ${ts.symbol} — on-chain balance has been 0 for $retryCount " +
+                          "consecutive reads. Tokens likely rugged / externally sold. Position kept OPEN for " +
+                          "manual release.", tradeId.mint)
+                    onNotify("🚨 Orphan Position",
+                        "${ts.symbol}: on-chain balance 0 for $retryCount polls. No swap was sent. " +
+                        "Clear manually from the positions panel.",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    // IMPORTANT: do NOT call tradeId.closed(...) here. The bot
+                    // claiming a trade it never made is what burned the user
+                    // in V5.9.71 and earlier.
+                    return SellResult.FAILED_RETRYABLE
                 }
-                
-                onLog("SELL BLOCKED: On-chain balance=0 for ${ts.symbol} (retry $retryCount/5)", tradeId.mint)
-                ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} balance=0 on-chain (retry $retryCount/5)")
+
+                onLog("SELL BLOCKED: ${if (mapEmpty) "RPC returned empty balance map" else "balance=0"} " +
+                      "for ${ts.symbol} (retry $retryCount/20)", tradeId.mint)
+                ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} " +
+                    "${if (mapEmpty) "RPC_EMPTY_MAP" else "ONCHAIN_ZERO"} (retry $retryCount/20)")
                 return SellResult.FAILED_RETRYABLE
             }
             
@@ -4961,11 +4982,21 @@ class Executor(
             val isDust = actualBalanceUi < 1.0 || currentValueEstimate < 0.001 // Less than 1 token or < 0.001 SOL
             
             if (isDust && isDeepLoss) {
-                onLog("DUST FORCE CLOSE: ${ts.symbol} | balance=$actualBalanceUi tokens worth ~${String.format("%.6f", currentValueEstimate)} SOL — too small for Jupiter", tradeId.mint)
-                ErrorLogger.warn("Executor", "DUST FORCE CLOSE: ${ts.symbol} — ${actualBalanceUi} tokens at -${String.format("%.0f", (1.0 - currentValueEstimate / entryValueSol.coerceAtLeast(0.0001)) * 100)}%")
-                zeroBalanceRetries.remove(ts.mint)
-                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "DUST_FORCE_CLOSE")
-                return SellResult.CONFIRMED
+                // V5.9.72 CRITICAL FIX: previously this branch called
+                // tradeId.closed(-100%) and returned CONFIRMED — claiming a
+                // sell that never happened. The tokens remained in the
+                // wallet. Instead we now alert the user and pause retries
+                // on this mint; the position stays OPEN until the user
+                // manually releases it or Jupiter becomes quotable again.
+                onLog("🚨 STUCK POSITION: ${ts.symbol} — balance=$actualBalanceUi (~${String.format("%.6f", currentValueEstimate)} SOL) " +
+                      "too small for Jupiter. NOT sold — tokens remain on-chain.", tradeId.mint)
+                onNotify("🚨 Stuck Position",
+                    "${ts.symbol}: dust-sized balance, Jupiter can't route. Tokens remain in wallet. " +
+                    "Clear manually from the positions panel.",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                ErrorLogger.warn("Executor", "STUCK POSITION: ${ts.symbol} — dust (${actualBalanceUi} tokens) — " +
+                    "left open, no swap broadcast.")
+                return SellResult.FAILED_RETRYABLE
             }
             
             val multiplier = 10.0.pow(actualDecimals.toDouble())
@@ -5016,12 +5047,21 @@ class Executor(
                 if (quote != null) break
             }
             
-            // V5.7.8: If ALL quote attempts failed, force close — don't queue for later
+            // V5.9.72 CRITICAL FIX: If ALL quote attempts failed, KEEP the
+            // position open. Previously this force-closed with -100% PnL and
+            // claimed a sell that never happened; the tokens stayed in the
+            // user's wallet. A failed Jupiter quote is almost always
+            // recoverable (rate-limit, indexer lag, momentary thin pool).
             if (quote == null) {
-                onLog("SELL FORCE CLOSE: ${ts.symbol} — all ${slippageLevels.size * 2} quote attempts failed. Pool likely dead.", tradeId.mint)
-                ErrorLogger.warn("Executor", "SELL FORCE CLOSE: ${ts.symbol} — Jupiter cannot quote. Force closing as total loss.")
-                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "JUPITER_QUOTE_EXHAUSTED")
-                return SellResult.CONFIRMED
+                onLog("🚨 SELL STUCK: ${ts.symbol} — all ${slippageLevels.size * 2} quote attempts failed. " +
+                      "Position kept OPEN; will retry next cycle.", tradeId.mint)
+                onNotify("🚨 Jupiter Can't Quote",
+                    "${ts.symbol}: no route from Jupiter right now. Bot will retry. " +
+                    "If persistent, clear manually from the positions panel.",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                ErrorLogger.warn("Executor", "SELL STUCK: ${ts.symbol} — Jupiter quote exhausted; " +
+                    "NOT closing position, NOT claiming sell PnL.")
+                return SellResult.FAILED_RETRYABLE
             }
 
             val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
@@ -5165,6 +5205,11 @@ class Executor(
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnl, pos.costSol)
+
+            // V5.9.72: clear retry counters on a genuine successful swap so
+            // the mint starts fresh next time.
+            zeroBalanceRetries.remove(ts.mint)
+            zeroBalanceRetries.remove(ts.mint + "_broadcast")
             
             onLog("📊 SELL DEBUG: solBack=${solBack.fmt(6)} | costSol=${pos.costSol.fmt(6)} | pnl=${pnl.fmt(6)} | pnlPct=${pnlP.fmtPct()}", tradeId.mint)
 
@@ -5234,20 +5279,30 @@ class Executor(
             onLog("SELL EXCEPTION: ${e.javaClass.simpleName} | ${safe}", tradeId.mint)
             onLog("   Stack: ${e.stackTrace.take(3).joinToString(" → ") { "${it.fileName}:${it.lineNumber}" }}", tradeId.mint)
             
-            // V5.7.8: Track broadcast failures — force close after 5
+            // V5.9.72 CRITICAL FIX: broadcast failures do NOT mean the tokens
+            // are gone or the sell happened. Previously this silently closed
+            // the position after 5 exceptions and returned CONFIRMED, even
+            // though NO successful signature ever existed. Tokens stayed in
+            // wallet, bot forgot them. Now: always return FAILED_RETRYABLE so
+            // the position stays open and the next tick gets another chance.
             val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
-            if (broadcastRetries >= 5) {
-                onLog("SELL FORCE CLOSE: ${ts.symbol} — $broadcastRetries broadcast failures. Closing as loss.", tradeId.mint)
-                ErrorLogger.warn("Executor", "SELL FORCE CLOSE: ${ts.symbol} — broadcast exhausted after $broadcastRetries attempts")
-                zeroBalanceRetries.remove(ts.mint + "_broadcast")
-                tradeId.closed(getActualPrice(ts), -100.0, -(pos.costSol), "BROADCAST_EXHAUSTED")
-                return SellResult.CONFIRMED
+            if (broadcastRetries >= 5 && broadcastRetries % 5 == 0) {
+                // Louder notification every 5 consecutive failures — but we
+                // still don't close. User decides when to give up.
+                onLog("🚨 SELL BROADCAST STUCK: ${ts.symbol} — $broadcastRetries consecutive " +
+                      "broadcast failures. Tokens still in wallet. Position remains OPEN.", tradeId.mint)
+                onNotify("🚨 Sell Stuck",
+                    "${ts.symbol}: $broadcastRetries broadcast attempts failed. Tokens remain. " +
+                    "Retry continues; clear manually if you want to stop.",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                ErrorLogger.warn("Executor", "SELL BROADCAST STUCK: ${ts.symbol} after $broadcastRetries retries — " +
+                    "position kept OPEN, no fake CONFIRMED.")
             }
-            
+
             onNotify("Sell Failed",
-                "${ts.symbol}: ${safe.take(80)} (attempt $broadcastRetries/5)",
+                "${ts.symbol}: ${safe.take(80)} (retry $broadcastRetries, position still open)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            onToast("SELL FAILED: ${ts.symbol} (attempt $broadcastRetries/5)")
+            onToast("SELL FAILED: ${ts.symbol} (attempt $broadcastRetries)")
             return SellResult.FAILED_RETRYABLE
         }
 
