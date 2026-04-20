@@ -53,7 +53,19 @@ object GeminiCopilot {
 
     fun init(geminiApiKey: String) {
         val trimmed = geminiApiKey.trim()
+        val previous = apiKey
         apiKey = if (trimmed.isNotBlank()) trimmed else DEFAULT_API_KEY
+        // V5.9.80: when the key actually changes, reset the self-imposed
+        // rate-limit / backoff state. Previously a 429 from the Emergent
+        // proxy stuck us in a 60s–10min cooldown that ALSO blocked Google
+        // direct calls with a fresh AIza… key — so swapping keys still
+        // showed 'rate-limited Nmin' until the cooldown naturally expired.
+        if (previous != apiKey) {
+            rateLimitedUntil = 0L
+            consecutive429Count = 0
+            lastBlipDiagnostic = null
+            ErrorLogger.info(TAG, "🔑 Key changed — rate-limit counters reset")
+        }
     }
 
     fun isConfigured(): Boolean = apiKey.isNotBlank()
