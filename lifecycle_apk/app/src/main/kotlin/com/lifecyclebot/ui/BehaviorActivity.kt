@@ -242,6 +242,28 @@ class BehaviorActivity : AppCompatActivity() {
                 }
             }
         } catch (_: Exception) {}
+
+        // V5.9.75: mute button — toggles VoiceManager, updates the icon.
+        try {
+            val btnMute = findViewById<Button>(R.id.btnChatMute)
+            if (btnMute != null) {
+                fun paint() {
+                    val muted = com.lifecyclebot.engine.VoiceManager.isMuted(this)
+                    btnMute.text = if (muted) "🔇" else "🔊"
+                    btnMute.setTextColor(if (muted) 0xFFE5E7EB.toInt() else 0xFF14F195.toInt())
+                }
+                paint()
+                btnMute.setOnClickListener {
+                    val nowMuted = com.lifecyclebot.engine.VoiceManager.toggleMute(this)
+                    paint()
+                    android.widget.Toast.makeText(
+                        this,
+                        if (nowMuted) "Voice muted" else "Voice on",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        } catch (_: Exception) {}
     }
     
     private fun setupKnob() {

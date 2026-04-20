@@ -659,6 +659,19 @@
                         android:fontFamily="monospace"
                         android:backgroundTint="#00140A"
                         android:layout_marginStart="6dp"/>
+                    <Button
+                        android:id="@+id/btnChatMute"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔇"
+                        android:textSize="14sp"
+                        android:textColor="#E5E7EB"
+                        android:fontFamily="monospace"
+                        android:backgroundTint="#12001A"
+                        android:minWidth="44dp"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        android:layout_marginStart="4dp"/>
                 </LinearLayout>
 
                 <LinearLayout

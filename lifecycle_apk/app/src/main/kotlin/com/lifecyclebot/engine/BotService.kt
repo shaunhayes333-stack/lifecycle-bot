@@ -231,6 +231,9 @@ class BotService : Service() {
         // V5.9.69: Initialize PatternClassifier — online logistic-regression
         // pattern brain that learns from every closed trade.
         try { PatternClassifier.init(applicationContext) } catch (_: Exception) {}
+
+        // V5.9.75: Initialize VoiceManager (mute-by-default).
+        try { VoiceManager.init(applicationContext) } catch (_: Exception) {}
         
         // V5.6.28e: Initialize BehaviorAI with context for persistence, then load from history
         try {

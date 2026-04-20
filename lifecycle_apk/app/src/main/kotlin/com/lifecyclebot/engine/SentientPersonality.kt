@@ -578,6 +578,17 @@ object SentientPersonality {
                     else -> lastMood
                 }
                 addThought(replyMood, finalText, Category.SELF_REFLECTION, 0.4)
+
+                // V5.9.75: speak the reply via VoiceManager (no-op if muted).
+                try {
+                    val svcCtx = BotService.instance?.applicationContext
+                    if (svcCtx != null) {
+                        val personaForVoice = try {
+                            com.lifecyclebot.engine.Personalities.getActive(svcCtx)
+                        } catch (_: Throwable) { null }
+                        com.lifecyclebot.engine.VoiceManager.speak(finalText, personaForVoice)
+                    }
+                } catch (_: Throwable) {}
             } catch (_: Throwable) {
                 addThought(Mood.ANALYTICAL, fallbackReply(userMessage), Category.SELF_REFLECTION, 0.2)
             } finally {
