@@ -100,10 +100,20 @@ object PatternClassifier {
         x[11] = clamp(m.move3Pct / 20.0, -1.0, 1.0)
         x[12] = clamp(m.move8Pct / 40.0, -1.0, 1.0)
         x[13] = if (isMemeyLike(ts)) 1.0 else -1.0
+        // V5.9.71: sanitise — any NaN / ±Inf from an upstream divide-by-zero
+        // (e.g., rangePct on a flat candle) becomes 0.0 so the SGD step
+        // never corrupts the weights.
+        for (i in x.indices) {
+            val v = x[i]
+            if (v.isNaN() || v.isInfinite()) x[i] = 0.0
+        }
         return x
     }
 
-    private fun norm50(v: Double): Double = clamp((v - 50.0) / 50.0, -1.0, 1.0)
+    private fun norm50(v: Double): Double {
+        if (v.isNaN() || v.isInfinite()) return 0.0
+        return clamp((v - 50.0) / 50.0, -1.0, 1.0)
+    }
     private fun safeLog10(v: Double): Double = ln(v) / ln(10.0)
     private fun clamp(v: Double, lo: Double, hi: Double): Double = max(lo, min(hi, v))
     private fun isMemeyLike(ts: TokenState): Boolean {
@@ -117,6 +127,17 @@ object PatternClassifier {
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         load()
+        // V5.9.71: force-reset any weights persisted by V5.9.69/70 — those
+        // sessions were poisoned by NaN-feature gradients. Users who've
+        // already burned samples in that build get a clean slate on first
+        // V5.9.71 launch and the sanitiser + guards keep it clean going
+        // forward.
+        val storedVer = prefs?.getInt("classifier_version", 0) ?: 0
+        if (storedVer < 71) {
+            ErrorLogger.warn(TAG, "🧹 Version bump v$storedVer → v71 — resetting to clear NaN-corrupted history")
+            reset()
+            prefs?.edit()?.putInt("classifier_version", 71)?.apply()
+        }
         ErrorLogger.info(TAG, "🧠 INIT: samples=$totalSamples live=$trainedLiveSamples " +
             "paper=$paperSamples liveWinRate=${liveWinRatePct().toInt()}%")
     }
@@ -124,13 +145,21 @@ object PatternClassifier {
     private fun load() {
         prefs?.let { p ->
             for (i in 0..DIM) {
-                weights[i] = p.getFloat("w$i", 0f).toDouble()
+                val w = p.getFloat("w$i", 0f).toDouble()
+                weights[i] = if (w.isNaN() || w.isInfinite()) 0.0 else w
             }
             totalSamples = p.getInt("total", 0)
             trainedLiveSamples = p.getInt("live", 0)
             liveWinningSamples = p.getInt("liveW", 0)
             paperSamples = p.getInt("paper", 0)
             paperWinningSamples = p.getInt("paperW", 0)
+        }
+        // V5.9.71: if any weight is non-finite (including loaded) hard reset
+        // — an earlier NaN gradient could have poisoned the whole vector.
+        if (weights.any { it.isNaN() || it.isInfinite() }) {
+            ErrorLogger.warn(TAG, "⚠️ Non-finite weight on load — resetting classifier")
+            for (i in weights.indices) weights[i] = 0.0
+            save()
         }
     }
 
@@ -176,11 +205,32 @@ object PatternClassifier {
         val p = sigmoid(logit(x))
         val err = y - p
 
+        // V5.9.71: hard guard — if we ever see a NaN/Inf in the forward pass,
+        // the weights are poisoned. Reset to zero and skip this update so we
+        // don't compound the corruption. All further steps then train cleanly
+        // from a blank slate.
+        if (p.isNaN() || p.isInfinite() || err.isNaN() || err.isInfinite()) {
+            ErrorLogger.warn(TAG, "⚠️ NaN/Inf in forward pass (p=$p err=$err) — resetting weights")
+            for (i in weights.indices) weights[i] = 0.0
+            save()
+            return
+        }
+
         // SGD update with L2 regularisation
         weights[0] += alpha * err  // bias
         for (i in 0 until DIM) {
             val w = weights[i + 1]
             weights[i + 1] = w + alpha * (err * x[i] - L2 * w)
+        }
+
+        // Belt-and-braces: if the update somehow produced a non-finite weight
+        // (shouldn't — features & err are both finite at this point — but
+        // cheap to check), reset before it propagates.
+        if (weights.any { it.isNaN() || it.isInfinite() }) {
+            ErrorLogger.warn(TAG, "⚠️ Non-finite weight after SGD — resetting")
+            for (i in weights.indices) weights[i] = 0.0
+            save()
+            return
         }
 
         totalSamples++
@@ -218,7 +268,10 @@ object PatternClassifier {
     // ═══════════════════════════════════════════════════════════════════
     fun predictWinProb(features: DoubleArray): Double {
         if (totalSamples < 5) return 0.5  // not enough data
-        return sigmoid(logit(features))
+        val z = logit(features)
+        if (z.isNaN() || z.isInfinite()) return 0.5
+        val p = sigmoid(z)
+        return if (p.isNaN() || p.isInfinite()) 0.5 else p
     }
 
     /**
