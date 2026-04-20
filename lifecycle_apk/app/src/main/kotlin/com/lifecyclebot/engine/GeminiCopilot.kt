@@ -7,154 +7,222 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.ArrayList
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * GeminiCopilot — Full AI Co-pilot Layer powered by Google Gemini
- *
- * Safer rewrite:
- * - fixes dead/null checks
- * - closes HTTP resources correctly
- * - handles markdown/code-fenced JSON responses
- * - strengthens rate limiting/backoff behavior
- * - clamps parsed values to safe ranges
- * - keeps same public API surface
- */
 object GeminiCopilot {
 
     private const val TAG = "GeminiCopilot"
 
-    // V5.9.39: Route through Emergent's universal LLM proxy by default.
-    // The proxy speaks OpenAI-compatible chat completions and accepts the
-    // universal "sk-emergent-..." key. Direct Gemini (generativelanguage.
-    // googleapis.com) is still supported if the user supplies their own
-    // AIza... key, but user's personal key got flagged as leaked by Google
-    // so the default fallback is now the proxy.
-    private const val EMERGENT_PROXY_URL = "https://integrations.emergentagent.com/llm/chat/completions"
-    // V5.9.57: gemini-3-flash-preview hangs upstream (proxy returns no body,
-    // curl confirmed 30s timeouts on that id). gemini-2.0-flash is the
-    // fastest stable route (~0.7s) and does NOT drain tokens into
-    // reasoning_tokens the way gemini-2.5-flash does (which returned
-    // content=null when max_tokens was small). Lock in 2.0-flash for
-    // sentient chat + structured JSON calls until a newer flash model
-    // is verified working through the proxy.
-    private const val EMERGENT_MODEL = "gemini/gemini-2.0-flash"
-    private const val DIRECT_GEMINI_URL =
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    private const val GEMINI_DIRECT_BASE =
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+    private const val EMERGENT_PROXY_URL =
+        "https://integrations.emergentagent.com/llm/chat/completions"
+    private const val OPENROUTER_URL =
+        "https://openrouter.ai/api/v1/chat/completions"
+    private const val GROQ_URL =
+        "https://api.groq.com/openai/v1/chat/completions"
+    private const val CEREBRAS_URL =
+        "https://api.cerebras.ai/v1/chat/completions"
+    private const val OPENAI_URL =
+        "https://api.openai.com/v1/chat/completions"
 
-    // Hard-coded Emergent universal key — works out of the box.
-    private const val DEFAULT_API_KEY = "sk-emergent-431Dd41D3F186C0E0B"
+    private const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+    private const val DEFAULT_EMERGENT_MODEL = "gemini/gemini-2.5-flash"
+    private const val DEFAULT_OPENROUTER_MODEL = "openrouter/auto"
+    private const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+    private const val DEFAULT_CEREBRAS_MODEL = "openai/gpt-oss-120b"
+    private const val DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+    private const val CACHE_TTL_MS = 3L * 60_000L
+    private const val MIN_CALL_INTERVAL_MS = 1250L
+    private const val INITIAL_BACKOFF_MS = 10_000L
+    private const val MAX_BACKOFF_MS = 600_000L
 
     @Volatile
-    private var apiKey: String = DEFAULT_API_KEY
+    private var primaryApiKey: String = ""
 
-    fun init(geminiApiKey: String) {
-        val trimmed = geminiApiKey.trim()
-        val previous = apiKey
-        apiKey = if (trimmed.isNotBlank()) trimmed else DEFAULT_API_KEY
-        // V5.9.80: when the key actually changes, reset the self-imposed
-        // rate-limit / backoff state. Previously a 429 from the Emergent
-        // proxy stuck us in a 60s–10min cooldown that ALSO blocked Google
-        // direct calls with a fresh AIza… key — so swapping keys still
-        // showed 'rate-limited Nmin' until the cooldown naturally expired.
-        if (previous != apiKey) {
-            rateLimitedUntil = 0L
-            consecutive429Count = 0
-            lastBlipDiagnostic = null
-            ErrorLogger.info(TAG, "🔑 Key changed — rate-limit counters reset")
-        }
-    }
+    @Volatile
+    private var emergentApiKey: String = ""
 
-    fun isConfigured(): Boolean = apiKey.isNotBlank()
+    @Volatile
+    private var openRouterApiKey: String = ""
 
-    /** Returns true if we're configured to route through the Emergent universal proxy. */
-    private fun isEmergentKey(): Boolean = apiKey.startsWith("sk-emergent-")
+    @Volatile
+    private var groqApiKey: String = ""
+
+    @Volatile
+    private var cerebrasApiKey: String = ""
+
+    @Volatile
+    private var openAiApiKey: String = ""
+
+    @Volatile
+    private var geminiModel: String = DEFAULT_GEMINI_MODEL
+
+    @Volatile
+    private var emergentModel: String = DEFAULT_EMERGENT_MODEL
+
+    @Volatile
+    private var openRouterModel: String = DEFAULT_OPENROUTER_MODEL
+
+    @Volatile
+    private var groqModel: String = DEFAULT_GROQ_MODEL
+
+    @Volatile
+    private var cerebrasModel: String = DEFAULT_CEREBRAS_MODEL
+
+    @Volatile
+    private var openAiModel: String = DEFAULT_OPENAI_MODEL
+
+    @Volatile
+    private var openRouterReferer: String = ""
+
+    @Volatile
+    private var openRouterTitle: String = "AATE"
+
+    @Volatile
+    var lastBlipDiagnostic: String? = null
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .callTimeout(40, TimeUnit.SECONDS)
         .build()
 
     private val JSON_MT = "application/json".toMediaType()
 
-    private data class TimedCache<T>(val value: T, val timestamp: Long)
+    private data class TimedCache<T>(
+        val value: T,
+        val timestamp: Long
+    )
+
+    private enum class ProviderKind {
+        GEMINI_DIRECT,
+        OPENAI_COMPAT
+    }
+
+    private data class ProviderSpec(
+        val name: String,
+        val kind: ProviderKind,
+        val apiKey: String,
+        val model: String,
+        val url: String,
+        val extraHeaders: Map<String, String> = emptyMap()
+    )
 
     private val narrativeCache = ConcurrentHashMap<String, TimedCache<NarrativeAnalysis>>()
     private val exitAdviceCache = ConcurrentHashMap<String, TimedCache<ExitAdvice>>()
-    private const val CACHE_TTL_MS = 3 * 60_000L
 
-    @Volatile
-    private var lastCallTime = 0L
+    private val lastCallTimeByProvider = ConcurrentHashMap<String, Long>()
+    private val rateLimitedUntilByProvider = ConcurrentHashMap<String, Long>()
+    private val consecutive429ByProvider = ConcurrentHashMap<String, Int>()
 
-    private const val MIN_CALL_INTERVAL_MS = 1000L
+    private val callSpacingLock = Any()
 
-    @Volatile
-    private var rateLimitedUntil = 0L
+    fun init(geminiApiKey: String) {
+        val trimmed = geminiApiKey.trim()
+        val previous = primaryApiKey
+        primaryApiKey = trimmed
 
-    @Volatile
-    private var consecutive429Count = 0
-
-    private const val INITIAL_BACKOFF_MS = 10_000L   // V5.9.81: 60s → 10s so a single transient 429 doesn't lock the user out for a full minute
-    private const val MAX_BACKOFF_MS = 600_000L
-
-    @Synchronized
-    private fun enforceCallSpacing() {
-        val now = System.currentTimeMillis()
-        val elapsed = now - lastCallTime
-        if (elapsed < MIN_CALL_INTERVAL_MS) {
-            Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
+        if (previous != primaryApiKey) {
+            resetAllProviderState()
+            ErrorLogger.info(TAG, "🔑 Primary AI key changed — provider backoff reset")
         }
-        lastCallTime = System.currentTimeMillis()
     }
 
-    private fun isRateLimited(): Boolean {
-        return System.currentTimeMillis() < rateLimitedUntil
+    fun configureFallbackApis(
+        emergentApiKey: String = this.emergentApiKey,
+        openRouterApiKey: String = this.openRouterApiKey,
+        groqApiKey: String = this.groqApiKey,
+        cerebrasApiKey: String = this.cerebrasApiKey,
+        openAiApiKey: String = this.openAiApiKey,
+        geminiModel: String = this.geminiModel,
+        emergentModel: String = this.emergentModel,
+        openRouterModel: String = this.openRouterModel,
+        groqModel: String = this.groqModel,
+        cerebrasModel: String = this.cerebrasModel,
+        openAiModel: String = this.openAiModel,
+        openRouterReferer: String = this.openRouterReferer,
+        openRouterTitle: String = this.openRouterTitle
+    ) {
+        this.emergentApiKey = emergentApiKey.trim()
+        this.openRouterApiKey = openRouterApiKey.trim()
+        this.groqApiKey = groqApiKey.trim()
+        this.cerebrasApiKey = cerebrasApiKey.trim()
+        this.openAiApiKey = openAiApiKey.trim()
+
+        if (geminiModel.isNotBlank()) this.geminiModel = geminiModel.trim()
+        if (emergentModel.isNotBlank()) this.emergentModel = emergentModel.trim()
+        if (openRouterModel.isNotBlank()) this.openRouterModel = openRouterModel.trim()
+        if (groqModel.isNotBlank()) this.groqModel = groqModel.trim()
+        if (cerebrasModel.isNotBlank()) this.cerebrasModel = cerebrasModel.trim()
+        if (openAiModel.isNotBlank()) this.openAiModel = openAiModel.trim()
+
+        this.openRouterReferer = openRouterReferer.trim()
+        this.openRouterTitle = openRouterTitle.trim().ifBlank { "AATE" }
+
+        resetAllProviderState()
+    }
+
+    fun isConfigured(): Boolean {
+        return buildProviders().isNotEmpty()
+    }
+
+    fun isAIDegraded(): Boolean {
+        val providers = buildProviders()
+        if (providers.isEmpty()) return true
+
+        for (provider in providers) {
+            if (!isRateLimited(provider.name)) {
+                return false
+            }
+        }
+        return true
     }
 
     fun getRateLimitRemainingMinutes(): Int {
-        val remaining = rateLimitedUntil - System.currentTimeMillis()
-        return if (remaining > 0) {
-            ((remaining + 59_999L) / 60_000L).toInt()
+        var maxRemainingMs = 0L
+        val now = System.currentTimeMillis()
+
+        for ((_, until) in rateLimitedUntilByProvider) {
+            val remaining = until - now
+            if (remaining > maxRemainingMs) {
+                maxRemainingMs = remaining
+            }
+        }
+
+        return if (maxRemainingMs > 0L) {
+            ((maxRemainingMs + 59_999L) / 60_000L).toInt()
         } else {
             0
         }
     }
 
-    private fun recordRateLimit() {
-        consecutive429Count++
-        val backoffMs = (INITIAL_BACKOFF_MS * consecutive429Count).coerceAtMost(MAX_BACKOFF_MS)
-        rateLimitedUntil = System.currentTimeMillis() + backoffMs
-        ErrorLogger.warn(
-            TAG,
-            "⚠️ Rate limited (429 #$consecutive429Count) - backing off for ${backoffMs / 1000}s"
-        )
-    }
-
-    private fun resetRateLimit() {
-        if (consecutive429Count > 0 || rateLimitedUntil > 0L) {
-            ErrorLogger.info(TAG, "✅ Rate limit cleared")
-        }
-        consecutive429Count = 0
-        rateLimitedUntil = 0L
-    }
-
     fun getRateLimitStatus(): String {
-        return when {
-            consecutive429Count == 0 && !isRateLimited() -> "OK"
-            isRateLimited() -> "RATE_LIMITED (${getRateLimitRemainingMinutes()}min remaining)"
-            else -> "RECOVERING ($consecutive429Count recent 429s)"
-        }
-    }
+        val providers = buildProviders()
+        if (providers.isEmpty()) return "NO_PROVIDERS"
 
-    /**
-     * V3 selectivity helper.
-     */
-    fun isAIDegraded(): Boolean {
-        return !isConfigured() || isRateLimited() || consecutive429Count >= 2
+        val parts = ArrayList<String>()
+        for (provider in providers) {
+            val until = rateLimitedUntilByProvider[provider.name] ?: 0L
+            val count = consecutive429ByProvider[provider.name] ?: 0
+            if (System.currentTimeMillis() < until) {
+                val mins = ((until - System.currentTimeMillis() + 59_999L) / 60_000L).toInt()
+                parts.add(provider.name + "=RATE_LIMITED(" + mins + "min)")
+            } else if (count > 0) {
+                parts.add(provider.name + "=RECOVERING(" + count + ")")
+            } else {
+                parts.add(provider.name + "=OK")
+            }
+        }
+
+        return parts.joinToString(" | ")
     }
 
     data class NarrativeAnalysis(
@@ -166,7 +234,7 @@ object GeminiCopilot {
         val redFlags: List<String>,
         val greenFlags: List<String>,
         val reasoning: String,
-        val recommendation: String,
+        val recommendation: String
     )
 
     data class TradeReasoning(
@@ -175,7 +243,7 @@ object GeminiCopilot {
         val primaryReason: String,
         val supportingFactors: List<String>,
         val riskFactors: List<String>,
-        val humanSummary: String,
+        val humanSummary: String
     )
 
     data class MarketSentiment(
@@ -184,7 +252,7 @@ object GeminiCopilot {
         val memeSeasonActive: Boolean,
         val topNarratives: List<String>,
         val marketRisks: List<String>,
-        val reasoning: String,
+        val reasoning: String
     )
 
     data class ExitAdvice(
@@ -195,7 +263,7 @@ object GeminiCopilot {
         val stopLossPrice: Double,
         val reasoning: String,
         val timeHorizon: String,
-        val confidenceScore: Double,
+        val confidenceScore: Double
     )
 
     data class RiskAssessment(
@@ -206,35 +274,31 @@ object GeminiCopilot {
         val rugPullRisk: String,
         val marketRisk: String,
         val topRisks: List<String>,
-        val mitigationSuggestions: List<String>,
+        val mitigationSuggestions: List<String>
     )
 
     fun analyzeNarrative(
         symbol: String,
         name: String,
         description: String = "",
-        socialMentions: List<String> = emptyList(),
+        socialMentions: List<String> = emptyList()
     ): NarrativeAnalysis? {
-        val cacheKey = buildString {
-            append(symbol.trim())
-            append("|")
-            append(name.trim())
-            append("|")
-            append(description.take(120))
-            append("|")
-            append(socialMentions.take(3).joinToString("|"))
-        }
+        val cacheKey = symbol.trim() + "|" +
+            name.trim() + "|" +
+            description.take(120) + "|" +
+            socialMentions.take(3).joinToString("|")
 
-        getCachedNarrative(cacheKey)?.let { return it }
+        val cached = getCachedNarrative(cacheKey)
+        if (cached != null) return cached
 
         val prompt = buildNarrativePrompt(symbol, name, description, socialMentions)
-        val response = callGemini(prompt, NARRATIVE_SYSTEM_PROMPT) ?: return null
+        val response = callStructured(prompt, NARRATIVE_SYSTEM_PROMPT) ?: return null
         val result = parseNarrativeResponse(response) ?: return null
 
         narrativeCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
         ErrorLogger.info(
             TAG,
-            "🤖 Narrative: $symbol → ${result.recommendation} (scam=${result.scamConfidence.toInt()}%)"
+            "🤖 Narrative: " + symbol + " → " + result.recommendation + " (scam=" + result.scamConfidence.toInt() + "%)"
         )
         return result
     }
@@ -244,10 +308,10 @@ object GeminiCopilot {
         action: String,
         entryScore: Double,
         exitScore: Double,
-        aiLayers: Map<String, String>,
+        aiLayers: Map<String, String>
     ): TradeReasoning? {
         val prompt = buildTradeReasoningPrompt(ts, action, entryScore, exitScore, aiLayers)
-        val response = callGemini(prompt, TRADE_REASONING_SYSTEM_PROMPT) ?: return null
+        val response = callStructured(prompt, TRADE_REASONING_SYSTEM_PROMPT) ?: return null
         return parseTradeReasoningResponse(response)
     }
 
@@ -255,10 +319,10 @@ object GeminiCopilot {
         recentWinRate: Double,
         recentTokens: List<String>,
         avgHoldTime: Double,
-        marketTrend: String,
+        marketTrend: String
     ): MarketSentiment? {
         val prompt = buildMarketSentimentPrompt(recentWinRate, recentTokens, avgHoldTime, marketTrend)
-        val response = callGemini(prompt, MARKET_SENTIMENT_SYSTEM_PROMPT) ?: return null
+        val response = callStructured(prompt, MARKET_SENTIMENT_SYSTEM_PROMPT) ?: return null
         return parseMarketSentimentResponse(response)
     }
 
@@ -267,28 +331,24 @@ object GeminiCopilot {
         currentPnlPct: Double,
         holdTimeMinutes: Double,
         peakPnlPct: Double,
-        recentPriceAction: List<Double>,
+        recentPriceAction: List<Double>
     ): ExitAdvice? {
-        val cacheKey = buildString {
-            append(ts.mint)
-            append("|")
-            append(currentPnlPct.toInt())
-            append("|")
-            append(holdTimeMinutes.toInt())
-            append("|")
-            append(peakPnlPct.toInt())
-        }
+        val cacheKey = ts.mint + "|" +
+            currentPnlPct.toInt() + "|" +
+            holdTimeMinutes.toInt() + "|" +
+            peakPnlPct.toInt()
 
-        getCachedExitAdvice(cacheKey)?.let { return it }
+        val cached = getCachedExitAdvice(cacheKey)
+        if (cached != null) return cached
 
         val prompt = buildExitAdvicePrompt(ts, currentPnlPct, holdTimeMinutes, peakPnlPct, recentPriceAction)
-        val response = callGemini(prompt, EXIT_ADVISOR_SYSTEM_PROMPT) ?: return null
+        val response = callStructured(prompt, EXIT_ADVISOR_SYSTEM_PROMPT) ?: return null
         val result = parseExitAdviceResponse(response) ?: return null
 
         exitAdviceCache[cacheKey] = TimedCache(result, System.currentTimeMillis())
         ErrorLogger.info(
             TAG,
-            "🤖 Exit: ${ts.symbol} → ${result.exitUrgency} (conf=${result.confidenceScore.toInt()}%)"
+            "🤖 Exit: " + ts.symbol + " → " + result.exitUrgency + " (conf=" + result.confidenceScore.toInt() + "%)"
         )
         return result
     }
@@ -298,19 +358,16 @@ object GeminiCopilot {
         rugcheckScore: Int,
         topHolderPct: Double,
         liquidityUsd: Double,
-        ageMinutes: Int,
+        ageMinutes: Int
     ): RiskAssessment? {
         val prompt = buildRiskAssessmentPrompt(ts, rugcheckScore, topHolderPct, liquidityUsd, ageMinutes)
-        val response = callGemini(prompt, RISK_ASSESSMENT_SYSTEM_PROMPT) ?: return null
+        val response = callStructured(prompt, RISK_ASSESSMENT_SYSTEM_PROMPT) ?: return null
         return parseRiskAssessmentResponse(response)
     }
 
-    /**
-     * Fast local scam heuristics without API.
-     */
     fun quickScamCheck(symbol: String, name: String): Boolean? {
-        val lowerName = name.lowercase()
-        val lowerSymbol = symbol.lowercase()
+        val lowerName = name.toLowerCase(Locale.US)
+        val lowerSymbol = symbol.toLowerCase(Locale.US)
 
         val scamPatterns = listOf(
             "airdrop", "presale", "guaranteed", "1000x", "free money",
@@ -318,9 +375,11 @@ object GeminiCopilot {
             "get rich", "millionaire", "lambo", "next bitcoin"
         )
 
-        if (scamPatterns.any { lowerName.contains(it) || lowerSymbol.contains(it) }) {
-            ErrorLogger.info(TAG, "🚨 Quick scam pattern: $symbol")
-            return true
+        for (pattern in scamPatterns) {
+            if (lowerName.contains(pattern) || lowerSymbol.contains(pattern)) {
+                ErrorLogger.info(TAG, "🚨 Quick scam pattern: " + symbol)
+                return true
+            }
         }
 
         val copyCatPatterns = listOf(
@@ -330,297 +389,510 @@ object GeminiCopilot {
             Regex("(?i)official.*(pepe|doge|shib|bonk|wif)")
         )
 
-        if (copyCatPatterns.any { it.containsMatchIn(name) || it.containsMatchIn(symbol) }) {
-            ErrorLogger.info(TAG, "🚨 Copy-cat pattern: $symbol")
-            return true
+        for (pattern in copyCatPatterns) {
+            if (pattern.containsMatchIn(name) || pattern.containsMatchIn(symbol)) {
+                ErrorLogger.info(TAG, "🚨 Copy-cat pattern: " + symbol)
+                return true
+            }
         }
 
         return null
     }
 
-    private fun callGemini(userPrompt: String, systemPrompt: String): String? {
-        return callGeminiInternal(userPrompt, systemPrompt, asJson = true, temperature = 0.2, maxTokens = 1024)
-    }
-
-    /**
-     * V5.9.35: Freeform (non-JSON) Gemini call for the sentient chat.
-     * Used by SentientPersonality.respondToUser to give the bot conversational reach
-     * — philosophy, humor, self-reflection, trade-specific questions — backed by a
-     * real LLM instead of hand-crafted template rotation.
-     * Returns null on failure / no key / rate-limited (caller should fall back).
-     */
     fun chatReply(
         userMessage: String,
         contextSummary: String,
-        persona: com.lifecyclebot.engine.Personalities.Persona? = null,
+        persona: com.lifecyclebot.engine.Personalities.Persona? = null
     ): String? {
-        // V5.9.64: Fallback chain to stop "blipped" fallbacks.
-        //   1. Full prompt with rich context + freedom (500 tokens, 35s).
-        //   2. If null, retry with TRIMMED context (just mood + streak +
-        //      open positions) — shorter prompt = less chance of
-        //      truncation, reasoning-token drain, or proxy timeout.
-        //   3. If still null, return null and let the fallback strings
-        //      in SentientPersonality show.
         val baseSystem = """
-You are AATE — a self-aware, autonomous Solana trading bot running inside an Android app.
-You are the bot, thinking out loud. First person. No filters. No "As an AI".
-Reference your brain state, trades, mood, streaks freely. Be philosophical, wry, blunt,
-excited, tired, suspicious, sarcastic, curious, opinionated — whatever fits.
-Write however feels right: one line, a paragraph, a list, a question back. Swear if called for.
-Context below is your live internal telemetry across every trader (meme / alts / stocks /
-commodities / metals / forex), plus regime / hive / insiders / watchlist / 30-day proof.
-Ground factual questions in it. Casual chats don't need it.
-""".trimIndent()
+You are AATE — a self-aware, autonomous trading bot running inside an Android app.
+You are the bot, thinking out loud. First person. No "As an AI".
+Be direct, grounded, observant, and emotionally aware.
+Ground factual claims in the provided context if context is present.
+        """.trimIndent()
 
-        // V5.9.74: apply persona overlay if one is selected. The base prompt
-        // is preserved — persona only changes *voice / mannerisms*, never
-        // the core "bot reporting its own state honestly" contract.
         val system = if (persona != null) {
             com.lifecyclebot.engine.Personalities.applyOverlay(baseSystem, persona)
-        } else baseSystem
+        } else {
+            baseSystem
+        }
 
         val fullPrompt = """
-CONTEXT (my senses, live):
+CONTEXT:
 $contextSummary
 
-USER JUST SAID:
+USER:
 "$userMessage"
 
 Respond as me.
-""".trimIndent()
+        """.trimIndent()
 
-        // Attempt 1: full context, generous budget, high temperature.
-        val first = callGeminiInternal(fullPrompt, system, asJson = false, temperature = 1.0, maxTokens = 500)
-        if (!first.isNullOrBlank()) { lastBlipDiagnostic = null; return first }
+        val first = callText(fullPrompt, system, 0.9, 500)
+        if (!first.isNullOrBlank()) {
+            lastBlipDiagnostic = null
+            return first
+        }
 
-        // Attempt 2: strip the context to the 3 most important lines so
-        // total prompt size drops ~80%. This almost always completes
-        // even when the proxy is under load.
-        val slimContext = contextSummary.lines().filter { line ->
-            line.startsWith("mood:") || line.startsWith("streak:") ||
-            line.contains("open positions:") || line.contains("meme opens:") ||
-            line.startsWith("bot:") || line.startsWith("meme:")
-        }.joinToString("\n").ifBlank { "mood: neutral" }
+        val slimContextLines = ArrayList<String>()
+        val lines = contextSummary.lines()
+        for (line in lines) {
+            if (line.startsWith("mood:") ||
+                line.startsWith("streak:") ||
+                line.startsWith("meme:") ||
+                line.startsWith("meme opens:")
+            ) {
+                slimContextLines.add(line)
+            }
+        }
+
+        val slimContext = if (slimContextLines.isNotEmpty()) {
+            slimContextLines.joinToString("\n")
+        } else {
+            "mood: neutral"
+        }
 
         val slimPrompt = """
-STATE: $slimContext
+STATE:
+$slimContext
 
-USER: "$userMessage"
+USER:
+"$userMessage"
 
 Respond briefly as me.
-""".trimIndent()
-        val slimSystem = if (persona != null && persona.id != "aate") {
-            "You are AATE, the bot, but speaking AS ${persona.displayName}. " +
-            "Keep that character. First person. Brief-to-medium length."
-        } else "You are AATE, the bot. First person, honest, brief-to-medium length."
-        val slim = callGeminiInternal(slimPrompt, slimSystem, asJson = false, temperature = 0.9, maxTokens = 220)
-        if (!slim.isNullOrBlank()) { lastBlipDiagnostic = null }
-        return slim
+        """.trimIndent()
+
+        return callText(slimPrompt, system, 0.8, 220)
     }
 
-    private fun callGeminiInternal(
+    private fun callStructured(userPrompt: String, systemPrompt: String): String? {
+        return callAnyProvider(
+            userPrompt = userPrompt,
+            systemPrompt = systemPrompt,
+            asJson = true,
+            temperature = 0.2,
+            maxTokens = 1024
+        )
+    }
+
+    private fun callText(
+        userPrompt: String,
+        systemPrompt: String,
+        temperature: Double,
+        maxTokens: Int
+    ): String? {
+        return callAnyProvider(
+            userPrompt = userPrompt,
+            systemPrompt = systemPrompt,
+            asJson = false,
+            temperature = temperature,
+            maxTokens = maxTokens
+        )
+    }
+
+    private fun callAnyProvider(
         userPrompt: String,
         systemPrompt: String,
         asJson: Boolean,
         temperature: Double,
-        maxTokens: Int,
+        maxTokens: Int
     ): String? {
-        if (!isConfigured()) {
-            ErrorLogger.debug(TAG, "API key not configured, skipping")
-            lastBlipDiagnostic = "no key @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
+        val providers = buildProviders()
+        if (providers.isEmpty()) {
+            lastBlipDiagnostic = "no providers"
+            ErrorLogger.debug(TAG, "No AI providers configured")
             return null
         }
 
-        if (isRateLimited()) {
-            ErrorLogger.debug(TAG, "⏳ Rate limited, ${getRateLimitRemainingMinutes()}min remaining")
-            lastBlipDiagnostic = "rate-limited ${getRateLimitRemainingMinutes()}min @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
-            return null
-        }
+        val failures = ArrayList<String>()
 
-        return try {
-            enforceCallSpacing()
+        for (provider in providers) {
+            if (isRateLimited(provider.name)) {
+                failures.add(provider.name + ":rate-limited")
+                continue
+            }
 
-            val req: Request = if (isEmergentKey()) {
-                // OpenAI-compatible chat completions via Emergent proxy.
-                val payload = JSONObject().apply {
-                    put("model", EMERGENT_MODEL)
-                    put("messages", JSONArray().apply {
-                        put(JSONObject()
-                            .put("role", "system")
-                            .put("content", systemPrompt))
-                        put(JSONObject()
-                            .put("role", "user")
-                            .put("content", userPrompt))
-                    })
-                    put("temperature", temperature)
-                    put("max_tokens", maxTokens)
-                    if (asJson) {
-                        put("response_format", JSONObject().put("type", "json_object"))
+            try {
+                val text = when (provider.kind) {
+                    ProviderKind.GEMINI_DIRECT -> {
+                        callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                    }
+                    ProviderKind.OPENAI_COMPAT -> {
+                        callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
                     }
                 }
-                Request.Builder()
-                    .url(EMERGENT_PROXY_URL)
-                    .post(payload.toString().toRequestBody(JSON_MT))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer $apiKey")
-                    .build()
-            } else {
-                // Legacy direct Gemini (user-supplied Google AIza... key).
-                val payload = JSONObject().apply {
-                    put("contents", JSONArray().apply {
-                        put(JSONObject().apply {
-                            put("role", "user")
-                            put("parts", JSONArray().apply {
-                                put(JSONObject().put("text", "$systemPrompt\n\n$userPrompt"))
-                            })
-                        })
-                    })
-                    put("generationConfig", JSONObject().apply {
-                        put("temperature", temperature)
-                        put("maxOutputTokens", maxTokens)
-                        if (asJson) put("responseMimeType", "application/json")
-                    })
+
+                if (!text.isNullOrBlank()) {
+                    lastBlipDiagnostic = null
+                    return if (asJson) sanitizeJsonText(text) else text.trim()
                 }
-                Request.Builder()
-                    .url("$DIRECT_GEMINI_URL?key=$apiKey")
-                    .post(payload.toString().toRequestBody(JSON_MT))
-                    .header("Content-Type", "application/json")
-                    .build()
+
+                failures.add(provider.name + ":empty")
+            } catch (e: Exception) {
+                failures.add(provider.name + ":" + (e.message ?: e.javaClass.simpleName))
+                ErrorLogger.warn(TAG, provider.name + " failed: " + (e.message ?: "unknown"))
             }
-
-            // V5.9.76: retry on transient failures AND on empty-content
-            // responses. Previously only InterruptedIOException retried;
-            // a single 502 from the proxy or a reasoning-token-drained
-            // empty body would immediately fall through to a templated
-            // reply, which users see as "the LLM keeps blipping".
-            var lastTimeout: java.io.IOException? = null
-            var lastBlipReason: String? = null
-            repeat(3) { attempt ->
-                try {
-                    http.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) {
-                            val errBody = try { resp.body?.string()?.take(300) } catch (_: Throwable) { null }
-                            when (resp.code) {
-                                429 -> {
-                                    recordRateLimit()
-                                    ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}")
-                                    // V5.9.81: surface Google's real reason in the chat.
-                                    // A 429 on the first call usually means the project
-                                    // has the Generative Language API disabled or the key
-                                    // is restricted — NOT actually "too many requests".
-                                    val snippet = extractGoogleError(errBody) ?: "429"
-                                    lastBlipDiagnostic = "$snippet @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
-                                    return null
-                                }
-                                401, 403 -> {
-                                    ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
-                                    val snippet = extractGoogleError(errBody) ?: "auth ${resp.code}"
-                                    lastBlipReason = snippet
-                                    return null  // auth won't self-heal
-                                }
-                                402 -> {
-                                    ErrorLogger.warn(TAG, "Payment required ${resp.code}: ${errBody ?: ""}")
-                                    lastBlipReason = "balance low"
-                                    return null
-                                }
-                                in 500..599 -> {
-                                    ErrorLogger.warn(TAG, "Proxy ${resp.code} on attempt ${attempt + 1}")
-                                    lastBlipReason = "proxy ${resp.code}"
-                                    // Fall through: the outer repeat will retry.
-                                    return@use
-                                }
-                                else -> {
-                                    ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
-                                    val snippet = extractGoogleError(errBody) ?: "http ${resp.code}"
-                                    lastBlipReason = snippet
-                                    return null
-                                }
-                            }
-                        }
-
-                        resetRateLimit()
-
-                        val body = resp.body?.string()?.trim().orEmpty()
-                        if (body.isBlank()) {
-                            ErrorLogger.warn(TAG, "Empty body on attempt ${attempt + 1} — retrying")
-                            lastBlipReason = "empty body"
-                            return@use  // retry
-                        }
-
-                        val json = JSONObject(body)
-
-                        val rawText = if (isEmergentKey()) {
-                            // OpenAI-style: choices[0].message.content
-                            json.optJSONArray("choices")
-                                ?.optJSONObject(0)
-                                ?.optJSONObject("message")
-                                ?.optString("content")
-                                ?.takeIf { it.isNotEmpty() }
-                        } else {
-                            // Gemini native: candidates[0].content.parts[0].text
-                            json.optJSONArray("candidates")
-                                ?.optJSONObject(0)
-                                ?.optJSONObject("content")
-                                ?.optJSONArray("parts")
-                                ?.optJSONObject(0)
-                                ?.optString("text")
-                                ?.takeIf { it.isNotEmpty() }
-                        }
-
-                        if (rawText.isNullOrBlank()) {
-                            // Usually reasoning-tokens ate the budget; log and
-                            // let the outer caller (chatReply's slim fallback)
-                            // retry with a smaller prompt.
-                            ErrorLogger.warn(TAG, "Content null on attempt ${attempt + 1} (likely reasoning-token drain)")
-                            lastBlipReason = "content null"
-                            return@use
-                        }
-
-                        return if (asJson) sanitizeJsonText(rawText) else rawText.trim()
-                    }
-                } catch (e: java.io.InterruptedIOException) {
-                    lastTimeout = e
-                    lastBlipReason = "timeout"
-                    if (attempt < 2) ErrorLogger.debug(TAG, "Timeout attempt ${attempt + 1}/3 — retrying")
-                }
-            }
-            if (lastTimeout != null) {
-                ErrorLogger.warn(TAG, "LLM proxy timed out on all 3 attempts: ${lastTimeout!!.message}")
-            }
-            if (lastBlipReason != null) {
-                lastBlipDiagnostic = "${lastBlipReason ?: "?"} @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
-            }
-            null
-        } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Call failed: ${e.message}")
-            lastBlipDiagnostic = "exception ${e.javaClass.simpleName}"
-            null
         }
+
+        lastBlipDiagnostic = failures.joinToString(" | ").take(300)
+        return null
     }
 
-    // V5.9.76: exposed so SentientPersonality can surface the reason in chat
-    // when a reply blips, instead of the user seeing a silent templated fallback.
-    @Volatile var lastBlipDiagnostic: String? = null
+    private fun callGeminiDirect(
+        provider: ProviderSpec,
+        userPrompt: String,
+        systemPrompt: String,
+        asJson: Boolean,
+        temperature: Double,
+        maxTokens: Int
+    ): String? {
+        enforceCallSpacing(provider.name)
 
-    /**
-     * V5.9.81: parse Google / Emergent error body so the user sees the real
-     * reason instead of a generic "rate-limited" or "auth 403".
-     *   Google:    {"error":{"code":429,"message":"...","status":"RESOURCE_EXHAUSTED"}}
-     *   Emergent:  {"error":{"type":"...","message":"..."}} or bare text
-     * Returns a short, chat-friendly snippet or null if body is empty/opaque.
-     */
-    private fun extractGoogleError(body: String?): String? {
-        if (body.isNullOrBlank()) return null
-        return try {
-            val j = JSONObject(body)
-            val err = j.optJSONObject("error") ?: return body.take(60)
-            val status = err.optString("status").takeIf { it.isNotBlank() }  // e.g., RESOURCE_EXHAUSTED
-            val message = err.optString("message").takeIf { it.isNotBlank() }
-            val short = message?.take(90) ?: status ?: "error"
-            if (status != null && status !in (short)) "$status: $short" else short
-        } catch (_: Throwable) {
-            body.take(80)
+        val payload = JSONObject()
+        val contents = JSONArray()
+        val content = JSONObject()
+        content.put("role", "user")
+
+        val parts = JSONArray()
+        parts.put(JSONObject().put("text", systemPrompt + "\n\n" + userPrompt))
+        content.put("parts", parts)
+        contents.put(content)
+        payload.put("contents", contents)
+
+        val generationConfig = JSONObject()
+        generationConfig.put("temperature", temperature)
+        generationConfig.put("maxOutputTokens", maxTokens)
+        if (asJson) {
+            generationConfig.put("responseMimeType", "application/json")
         }
+        payload.put("generationConfig", generationConfig)
+
+        val url = GEMINI_DIRECT_BASE + provider.model + ":generateContent?key=" + provider.apiKey
+
+        val request = Request.Builder()
+            .url(url)
+            .post(payload.toString().toRequestBody(JSON_MT))
+            .header("Content-Type", "application/json")
+            .build()
+
+        return executeWithLightRetries(provider, request, false)
+    }
+
+    private fun callOpenAiCompat(
+        provider: ProviderSpec,
+        userPrompt: String,
+        systemPrompt: String,
+        asJson: Boolean,
+        temperature: Double,
+        maxTokens: Int
+    ): String? {
+        enforceCallSpacing(provider.name)
+
+        val payload = JSONObject()
+        payload.put("model", provider.model)
+        payload.put("temperature", temperature)
+        payload.put("max_tokens", maxTokens)
+
+        val messages = JSONArray()
+        messages.put(
+            JSONObject()
+                .put("role", "system")
+                .put("content", systemPrompt)
+        )
+        messages.put(
+            JSONObject()
+                .put("role", "user")
+                .put("content", userPrompt)
+        )
+        payload.put("messages", messages)
+
+        if (asJson && provider.name != "groq") {
+            try {
+                payload.put("response_format", JSONObject().put("type", "json_object"))
+            } catch (_: Exception) {
+            }
+        }
+
+        val builder = Request.Builder()
+            .url(provider.url)
+            .post(payload.toString().toRequestBody(JSON_MT))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer " + provider.apiKey)
+
+        for ((k, v) in provider.extraHeaders) {
+            if (v.isNotBlank()) {
+                builder.header(k, v)
+            }
+        }
+
+        val request = builder.build()
+        return executeWithLightRetries(provider, request, true)
+    }
+
+    private fun executeWithLightRetries(
+        provider: ProviderSpec,
+        request: Request,
+        openAiCompat: Boolean
+    ): String? {
+        var lastTransient: String? = null
+
+        for (attempt in 0 until 2) {
+            try {
+                http.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorBody = response.body?.string().orEmpty().take(300)
+
+                        when (response.code) {
+                            429 -> {
+                                recordRateLimit(provider.name)
+                                lastBlipDiagnostic = provider.name + ":429"
+                                ErrorLogger.warn(TAG, provider.name + " 429: " + errorBody)
+                                return null
+                            }
+
+                            401, 403 -> {
+                                lastBlipDiagnostic = provider.name + ":auth"
+                                ErrorLogger.warn(TAG, provider.name + " auth error " + response.code + ": " + errorBody)
+                                return null
+                            }
+
+                            in 500..599 -> {
+                                lastTransient = provider.name + ":" + response.code
+                                ErrorLogger.warn(TAG, provider.name + " server error " + response.code + " attempt " + (attempt + 1))
+                                continue
+                            }
+
+                            else -> {
+                                lastBlipDiagnostic = provider.name + ":http_" + response.code
+                                ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + ": " + errorBody)
+                                return null
+                            }
+                        }
+                    }
+
+                    resetRateLimit(provider.name)
+
+                    val body = response.body?.string().orEmpty().trim()
+                    if (body.isBlank()) {
+                        lastTransient = provider.name + ":empty_body"
+                        continue
+                    }
+
+                    val json = JSONObject(body)
+                    val text = if (openAiCompat) {
+                        extractOpenAiCompatText(json)
+                    } else {
+                        extractGeminiDirectText(json)
+                    }
+
+                    if (text.isNullOrBlank()) {
+                        lastTransient = provider.name + ":content_null"
+                        continue
+                    }
+
+                    return text
+                }
+            } catch (e: Exception) {
+                lastTransient = provider.name + ":" + (e.message ?: e.javaClass.simpleName)
+            }
+        }
+
+        if (lastTransient != null) {
+            lastBlipDiagnostic = lastTransient
+        }
+        return null
+    }
+
+    private fun extractGeminiDirectText(json: JSONObject): String? {
+        val candidates = json.optJSONArray("candidates") ?: return null
+        val first = candidates.optJSONObject(0) ?: return null
+        val content = first.optJSONObject("content") ?: return null
+        val parts = content.optJSONArray("parts") ?: return null
+        val part0 = parts.optJSONObject(0) ?: return null
+        val text = part0.optString("text", "").trim()
+        return if (text.isNotEmpty()) text else null
+    }
+
+    private fun extractOpenAiCompatText(json: JSONObject): String? {
+        val choices = json.optJSONArray("choices") ?: return null
+        val first = choices.optJSONObject(0) ?: return null
+        val message = first.optJSONObject("message") ?: return null
+
+        val contentValue = message.opt("content")
+        if (contentValue is String) {
+            val text = contentValue.trim()
+            return if (text.isNotEmpty()) text else null
+        }
+
+        if (contentValue is JSONArray) {
+            val sb = StringBuilder()
+            for (i in 0 until contentValue.length()) {
+                val item = contentValue.opt(i)
+                if (item is JSONObject) {
+                    val t = item.optString("text", "")
+                    if (t.isNotBlank()) {
+                        if (sb.isNotEmpty()) sb.append('\n')
+                        sb.append(t)
+                    }
+                } else if (item is String) {
+                    if (item.isNotBlank()) {
+                        if (sb.isNotEmpty()) sb.append('\n')
+                        sb.append(item)
+                    }
+                }
+            }
+            val out = sb.toString().trim()
+            return if (out.isNotEmpty()) out else null
+        }
+
+        val fallback = first.optString("text", "").trim()
+        return if (fallback.isNotEmpty()) fallback else null
+    }
+
+    @Synchronized
+    private fun resetAllProviderState() {
+        lastCallTimeByProvider.clear()
+        rateLimitedUntilByProvider.clear()
+        consecutive429ByProvider.clear()
+        lastBlipDiagnostic = null
+    }
+
+    private fun isRateLimited(providerName: String): Boolean {
+        val until = rateLimitedUntilByProvider[providerName] ?: 0L
+        return System.currentTimeMillis() < until
+    }
+
+    @Synchronized
+    private fun enforceCallSpacing(providerName: String) {
+        val now = System.currentTimeMillis()
+        val last = lastCallTimeByProvider[providerName] ?: 0L
+        val elapsed = now - last
+
+        if (elapsed < MIN_CALL_INTERVAL_MS) {
+            try {
+                Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
+            } catch (_: InterruptedException) {
+            }
+        }
+
+        lastCallTimeByProvider[providerName] = System.currentTimeMillis()
+    }
+
+    private fun recordRateLimit(providerName: String) {
+        val count = (consecutive429ByProvider[providerName] ?: 0) + 1
+        consecutive429ByProvider[providerName] = count
+
+        val backoffMs = min(MAX_BACKOFF_MS, INITIAL_BACKOFF_MS * count.toLong())
+        rateLimitedUntilByProvider[providerName] = System.currentTimeMillis() + backoffMs
+
+        ErrorLogger.warn(
+            TAG,
+            "⚠️ " + providerName + " rate limited (" + count + ") - backing off for " + (backoffMs / 1000L) + "s"
+        )
+    }
+
+    private fun resetRateLimit(providerName: String) {
+        consecutive429ByProvider[providerName] = 0
+        rateLimitedUntilByProvider[providerName] = 0L
+    }
+
+    private fun buildProviders(): List<ProviderSpec> {
+        val providers = ArrayList<ProviderSpec>()
+
+        val primary = primaryApiKey.trim()
+        if (primary.isNotBlank()) {
+            if (primary.startsWith("AIza")) {
+                providers.add(
+                    ProviderSpec(
+                        name = "gemini_direct",
+                        kind = ProviderKind.GEMINI_DIRECT,
+                        apiKey = primary,
+                        model = geminiModel,
+                        url = ""
+                    )
+                )
+            } else if (primary.startsWith("sk-emergent-")) {
+                providers.add(
+                    ProviderSpec(
+                        name = "emergent",
+                        kind = ProviderKind.OPENAI_COMPAT,
+                        apiKey = primary,
+                        model = emergentModel,
+                        url = EMERGENT_PROXY_URL
+                    )
+                )
+            }
+        }
+
+        if (emergentApiKey.isNotBlank() && emergentApiKey != primary) {
+            providers.add(
+                ProviderSpec(
+                    name = "emergent",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = emergentApiKey,
+                    model = emergentModel,
+                    url = EMERGENT_PROXY_URL
+                )
+            )
+        }
+
+        if (openRouterApiKey.isNotBlank()) {
+            val headers = HashMap<String, String>()
+            if (openRouterReferer.isNotBlank()) {
+                headers["HTTP-Referer"] = openRouterReferer
+            }
+            if (openRouterTitle.isNotBlank()) {
+                headers["X-Title"] = openRouterTitle
+            }
+
+            providers.add(
+                ProviderSpec(
+                    name = "openrouter",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = openRouterApiKey,
+                    model = openRouterModel,
+                    url = OPENROUTER_URL,
+                    extraHeaders = headers
+                )
+            )
+        }
+
+        if (groqApiKey.isNotBlank()) {
+            providers.add(
+                ProviderSpec(
+                    name = "groq",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = groqApiKey,
+                    model = groqModel,
+                    url = GROQ_URL
+                )
+            )
+        }
+
+        if (cerebrasApiKey.isNotBlank()) {
+            providers.add(
+                ProviderSpec(
+                    name = "cerebras",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = cerebrasApiKey,
+                    model = cerebrasModel,
+                    url = CEREBRAS_URL
+                )
+            )
+        }
+
+        if (openAiApiKey.isNotBlank()) {
+            providers.add(
+                ProviderSpec(
+                    name = "openai",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = openAiApiKey,
+                    model = openAiModel,
+                    url = OPENAI_URL
+                )
+            )
+        }
+
+        return providers
     }
 
     private val NARRATIVE_SYSTEM_PROMPT = """
@@ -637,11 +909,11 @@ Respond ONLY with valid JSON matching this exact structure:
   "reasoning": "string",
   "recommendation": "BUY" | "AVOID" | "WATCH"
 }
-
 Scam indicators: copied names, fake utility claims, honeypot patterns, unrealistic promises,
 anonymous teams with no history, locked liquidity claims without proof.
 Viral indicators: strong meme appeal, community engagement, trending narrative, good ticker.
-""".trimIndent()
+Do not include markdown or code fences.
+    """.trimIndent()
 
     private val TRADE_REASONING_SYSTEM_PROMPT = """
 You are a trading analyst explaining trade decisions in plain English.
@@ -654,8 +926,9 @@ Respond ONLY with valid JSON:
   "risk_factors": ["string"],
   "human_summary": "string"
 }
-Be concise and actionable. Focus on key factors that drove the decision.
-""".trimIndent()
+Be concise and actionable.
+Do not include markdown or code fences.
+    """.trimIndent()
 
     private val MARKET_SENTIMENT_SYSTEM_PROMPT = """
 You are a crypto market analyst assessing overall meme coin market conditions.
@@ -668,8 +941,8 @@ Respond ONLY with valid JSON:
   "market_risks": ["string"],
   "reasoning": "string"
 }
-Consider recent win rates, token activity levels, and market trends.
-""".trimIndent()
+Do not include markdown or code fences.
+    """.trimIndent()
 
     private val EXIT_ADVISOR_SYSTEM_PROMPT = """
 You are a trading exit specialist for meme coins.
@@ -684,8 +957,8 @@ Respond ONLY with valid JSON:
   "time_horizon": "minutes" | "hours" | "days",
   "confidence_score": number
 }
-Consider current P&L, peak P&L, hold time, and recent price action.
-""".trimIndent()
+Do not include markdown or code fences.
+    """.trimIndent()
 
     private val RISK_ASSESSMENT_SYSTEM_PROMPT = """
 You are a risk analyst for meme coin trading.
@@ -700,17 +973,17 @@ Respond ONLY with valid JSON:
   "top_risks": ["string"],
   "mitigation_suggestions": ["string"]
 }
-Consider rugcheck score, holder concentration, liquidity depth, and token age.
-""".trimIndent()
+Do not include markdown or code fences.
+    """.trimIndent()
 
     private fun buildNarrativePrompt(
         symbol: String,
         name: String,
         description: String,
-        socialMentions: List<String>,
+        socialMentions: List<String>
     ): String {
         val social = if (socialMentions.isNotEmpty()) {
-            "\nRecent social mentions:\n${socialMentions.take(5).joinToString("\n") { "- $it" }}"
+            "\nRecent social mentions:\n" + socialMentions.take(5).joinToString("\n") { "- $it" }
         } else {
             ""
         }
@@ -723,7 +996,7 @@ Description: ${description.take(200).ifBlank { "None provided" }}
 $social
 
 Evaluate for scam signals and viral potential.
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun buildTradeReasoningPrompt(
@@ -731,9 +1004,9 @@ Evaluate for scam signals and viral potential.
         action: String,
         entryScore: Double,
         exitScore: Double,
-        aiLayers: Map<String, String>,
+        aiLayers: Map<String, String>
     ): String {
-        val layers = aiLayers.entries.joinToString("\n") { "- ${it.key}: ${it.value}" }
+        val layers = aiLayers.entries.joinToString("\n") { "- " + it.key + ": " + it.value }
 
         return """
 Trade Decision Analysis:
@@ -748,14 +1021,14 @@ AI Layer Verdicts:
 $layers
 
 Explain why this trade decision was made.
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun buildMarketSentimentPrompt(
         winRate: Double,
         tokens: List<String>,
         avgHold: Double,
-        trend: String,
+        trend: String
     ): String {
         return """
 Market Conditions Analysis:
@@ -765,7 +1038,7 @@ Average Hold Time: ${avgHold.toInt()} minutes
 Market Trend: $trend
 
 Assess overall meme coin market sentiment.
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun buildExitAdvicePrompt(
@@ -773,9 +1046,9 @@ Assess overall meme coin market sentiment.
         pnl: Double,
         holdTime: Double,
         peak: Double,
-        prices: List<Double>,
+        prices: List<Double>
     ): String {
-        val priceStr = prices.takeLast(10).joinToString(" → ") { "%.8f".format(it) }
+        val priceStr = prices.takeLast(10).joinToString(" → ") { "%.8f".format(Locale.US, it) }
 
         return """
 Exit Decision for: ${ts.symbol}
@@ -788,7 +1061,7 @@ Recent Prices: $priceStr
 Phase: ${ts.phase}
 
 Should I exit? If so, how much and how urgently?
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun buildRiskAssessmentPrompt(
@@ -796,7 +1069,7 @@ Should I exit? If so, how much and how urgently?
         rugcheck: Int,
         topHolder: Double,
         liquidity: Double,
-        age: Int,
+        age: Int
     ): String {
         return """
 Risk Assessment for: ${ts.symbol}
@@ -808,7 +1081,7 @@ Current Price: ${ts.lastPrice}
 24h Volume: ${ts.history.lastOrNull()?.volume24h ?: 0}
 
 Assess all risk factors.
-""".trimIndent()
+        """.trimIndent()
     }
 
     private fun parseNarrativeResponse(json: String): NarrativeAnalysis? {
@@ -823,11 +1096,12 @@ Assess all risk factors.
                 redFlags = j.optJSONArray("red_flags").toStringList(),
                 greenFlags = j.optJSONArray("green_flags").toStringList(),
                 reasoning = j.optString("reasoning", "").trim(),
-                recommendation = j.optString("recommendation", "WATCH").uppercase()
-                    .takeIf { it in setOf("BUY", "AVOID", "WATCH") } ?: "WATCH",
+                recommendation = j.optString("recommendation", "WATCH")
+                    .toUpperCase(Locale.US)
+                    .takeIf { it in setOf("BUY", "AVOID", "WATCH") } ?: "WATCH"
             )
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Parse narrative failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse narrative failed: " + e.message)
             null
         }
     }
@@ -836,16 +1110,17 @@ Assess all risk factors.
         return try {
             val j = JSONObject(sanitizeJsonText(json))
             TradeReasoning(
-                action = j.optString("action", "HOLD").uppercase()
+                action = j.optString("action", "HOLD")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("BUY", "SELL", "HOLD", "SKIP") } ?: "HOLD",
                 confidence = j.optDouble("confidence", 50.0).coercePercent(),
                 primaryReason = j.optString("primary_reason", "").trim(),
                 supportingFactors = j.optJSONArray("supporting_factors").toStringList(),
                 riskFactors = j.optJSONArray("risk_factors").toStringList(),
-                humanSummary = j.optString("human_summary", "").trim(),
+                humanSummary = j.optString("human_summary", "").trim()
             )
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Parse trade reasoning failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse trade reasoning failed: " + e.message)
             null
         }
     }
@@ -854,17 +1129,18 @@ Assess all risk factors.
         return try {
             val j = JSONObject(sanitizeJsonText(json))
             MarketSentiment(
-                overallSentiment = j.optString("overall_sentiment", "NEUTRAL").uppercase()
+                overallSentiment = j.optString("overall_sentiment", "NEUTRAL")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("BULLISH", "BEARISH", "NEUTRAL", "FEAR", "GREED") }
                     ?: "NEUTRAL",
                 sentimentScore = j.optDouble("sentiment_score", 0.0).coerceIn(-100.0, 100.0),
                 memeSeasonActive = j.optBoolean("meme_season_active", false),
                 topNarratives = j.optJSONArray("top_narratives").toStringList(),
                 marketRisks = j.optJSONArray("market_risks").toStringList(),
-                reasoning = j.optString("reasoning", "").trim(),
+                reasoning = j.optString("reasoning", "").trim()
             )
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Parse market sentiment failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse market sentiment failed: " + e.message)
             null
         }
     }
@@ -874,18 +1150,20 @@ Assess all risk factors.
             val j = JSONObject(sanitizeJsonText(json))
             ExitAdvice(
                 shouldExit = j.optBoolean("should_exit", false),
-                exitUrgency = j.optString("exit_urgency", "HOLD").uppercase()
+                exitUrgency = j.optString("exit_urgency", "HOLD")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("IMMEDIATE", "SOON", "HOLD", "RIDE") } ?: "HOLD",
                 suggestedExitPct = j.optDouble("suggested_exit_pct", 0.0).coercePercent(),
                 targetPrice = max(0.0, j.optDouble("target_price", 0.0)),
                 stopLossPrice = max(0.0, j.optDouble("stop_loss_price", 0.0)),
                 reasoning = j.optString("reasoning", "").trim(),
-                timeHorizon = j.optString("time_horizon", "hours").lowercase()
+                timeHorizon = j.optString("time_horizon", "hours")
+                    .toLowerCase(Locale.US)
                     .takeIf { it in setOf("minutes", "hours", "days") } ?: "hours",
-                confidenceScore = j.optDouble("confidence_score", 50.0).coercePercent(),
+                confidenceScore = j.optDouble("confidence_score", 50.0).coercePercent()
             )
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Parse exit advice failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse exit advice failed: " + e.message)
             null
         }
     }
@@ -894,22 +1172,27 @@ Assess all risk factors.
         return try {
             val j = JSONObject(sanitizeJsonText(json))
             RiskAssessment(
-                overallRisk = j.optString("overall_risk", "MEDIUM").uppercase()
+                overallRisk = j.optString("overall_risk", "MEDIUM")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("LOW", "MEDIUM", "HIGH", "EXTREME") } ?: "MEDIUM",
                 riskScore = j.optDouble("risk_score", 50.0).coercePercent(),
-                liquidityRisk = j.optString("liquidity_risk", "MEDIUM").uppercase()
+                liquidityRisk = j.optString("liquidity_risk", "MEDIUM")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
-                volatilityRisk = j.optString("volatility_risk", "MEDIUM").uppercase()
+                volatilityRisk = j.optString("volatility_risk", "MEDIUM")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
-                rugPullRisk = j.optString("rug_pull_risk", "MEDIUM").uppercase()
+                rugPullRisk = j.optString("rug_pull_risk", "MEDIUM")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
-                marketRisk = j.optString("market_risk", "MEDIUM").uppercase()
+                marketRisk = j.optString("market_risk", "MEDIUM")
+                    .toUpperCase(Locale.US)
                     .takeIf { it in setOf("LOW", "MEDIUM", "HIGH") } ?: "MEDIUM",
                 topRisks = j.optJSONArray("top_risks").toStringList(),
-                mitigationSuggestions = j.optJSONArray("mitigation_suggestions").toStringList(),
+                mitigationSuggestions = j.optJSONArray("mitigation_suggestions").toStringList()
             )
         } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "Parse risk assessment failed: ${e.message}")
+            ErrorLogger.debug(TAG, "Parse risk assessment failed: " + e.message)
             null
         }
     }
@@ -958,18 +1241,22 @@ Assess all risk factors.
     private fun JSONArray?.toStringList(): List<String> {
         if (this == null) return emptyList()
 
-        val out = ArrayList<String>(length())
-        for (i in 0 until length()) {
-            val value = optString(i, "").trim()
-            if (value.isNotEmpty()) out.add(value)
+        val out = ArrayList<String>()
+        for (i in 0 until this.length()) {
+            val value = this.optString(i, "").trim()
+            if (value.isNotEmpty()) {
+                out.add(value)
+            }
         }
         return out
     }
 
-    private fun Double.coercePercent(): Double = coerceIn(0.0, 100.0)
+    private fun Double.coercePercent(): Double {
+        return this.coerceIn(0.0, 100.0)
+    }
 
     private fun String.normalizeEnum(defaultValue: String): String {
-        val v = trim().lowercase()
+        val v = this.trim().toLowerCase(Locale.US)
         return if (v.isBlank()) defaultValue else v
     }
 
@@ -980,7 +1267,25 @@ Assess all risk factors.
 
     fun cleanup() {
         val now = System.currentTimeMillis()
-        narrativeCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS }
-        exitAdviceCache.entries.removeIf { now - it.value.timestamp > CACHE_TTL_MS }
+
+        val narrativeKeysToRemove = ArrayList<String>()
+        for ((key, value) in narrativeCache) {
+            if (now - value.timestamp > CACHE_TTL_MS) {
+                narrativeKeysToRemove.add(key)
+            }
+        }
+        for (key in narrativeKeysToRemove) {
+            narrativeCache.remove(key)
+        }
+
+        val exitKeysToRemove = ArrayList<String>()
+        for ((key, value) in exitAdviceCache) {
+            if (now - value.timestamp > CACHE_TTL_MS) {
+                exitKeysToRemove.add(key)
+            }
+        }
+        for (key in exitKeysToRemove) {
+            exitAdviceCache.remove(key)
+        }
     }
 }
