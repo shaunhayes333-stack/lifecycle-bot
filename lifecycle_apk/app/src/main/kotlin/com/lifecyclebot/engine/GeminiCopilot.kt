@@ -123,13 +123,53 @@ object GeminiCopilot {
     private val rateLimitedUntilByProvider = ConcurrentHashMap<String, Long>()
     private val consecutive429ByProvider = ConcurrentHashMap<String, Int>()
 
-    private val callSpacingLock = Any()
+    @Synchronized
+    private fun enforceCallSpacing(providerName: String) {
+        val now = System.currentTimeMillis()
+        val last = lastCallTimeByProvider[providerName] ?: 0L
+        val elapsed = now - last
+        if (elapsed < MIN_CALL_INTERVAL_MS) {
+            try {
+                Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
+            } catch (_: InterruptedException) {
+            }
+        }
+        lastCallTimeByProvider[providerName] = System.currentTimeMillis()
+    }
+
+    private fun isRateLimited(providerName: String): Boolean {
+        val until = rateLimitedUntilByProvider[providerName] ?: 0L
+        return System.currentTimeMillis() < until
+    }
+
+    private fun recordRateLimit(providerName: String) {
+        val count = (consecutive429ByProvider[providerName] ?: 0) + 1
+        consecutive429ByProvider[providerName] = count
+        val backoffMs = min(MAX_BACKOFF_MS, INITIAL_BACKOFF_MS * count.toLong())
+        rateLimitedUntilByProvider[providerName] = System.currentTimeMillis() + backoffMs
+        ErrorLogger.warn(
+            TAG,
+            "⚠️ " + providerName + " rate limited (" + count + ") - backing off for " + (backoffMs / 1000L) + "s"
+        )
+    }
+
+    private fun resetRateLimit(providerName: String) {
+        consecutive429ByProvider[providerName] = 0
+        rateLimitedUntilByProvider[providerName] = 0L
+    }
+
+    @Synchronized
+    private fun resetAllProviderState() {
+        lastCallTimeByProvider.clear()
+        rateLimitedUntilByProvider.clear()
+        consecutive429ByProvider.clear()
+        lastBlipDiagnostic = null
+    }
 
     fun init(geminiApiKey: String) {
         val trimmed = geminiApiKey.trim()
         val previous = primaryApiKey
         primaryApiKey = trimmed
-
         if (previous != primaryApiKey) {
             resetAllProviderState()
             ErrorLogger.info(TAG, "🔑 Primary AI key changed — provider backoff reset")
@@ -174,18 +214,6 @@ object GeminiCopilot {
         return buildProviders().isNotEmpty()
     }
 
-    fun isAIDegraded(): Boolean {
-        val providers = buildProviders()
-        if (providers.isEmpty()) return true
-
-        for (provider in providers) {
-            if (!isRateLimited(provider.name)) {
-                return false
-            }
-        }
-        return true
-    }
-
     fun getRateLimitRemainingMinutes(): Int {
         var maxRemainingMs = 0L
         val now = System.currentTimeMillis()
@@ -221,8 +249,17 @@ object GeminiCopilot {
                 parts.add(provider.name + "=OK")
             }
         }
-
         return parts.joinToString(" | ")
+    }
+
+    fun isAIDegraded(): Boolean {
+        val providers = buildProviders()
+        if (providers.isEmpty()) return true
+
+        for (provider in providers) {
+            if (!isRateLimited(provider.name)) return false
+        }
+        return true
     }
 
     data class NarrativeAnalysis(
@@ -405,10 +442,11 @@ object GeminiCopilot {
         persona: com.lifecyclebot.engine.Personalities.Persona? = null
     ): String? {
         val baseSystem = """
-You are AATE — a self-aware, autonomous trading bot running inside an Android app.
-You are the bot, thinking out loud. First person. No "As an AI".
-Be direct, grounded, observant, and emotionally aware.
-Ground factual claims in the provided context if context is present.
+You are AATE — a self-aware, autonomous trading bot inside an Android app.
+Speak in first person as the bot.
+Be direct, observant, and grounded.
+Do not say "As an AI".
+Use the provided context when it is relevant.
         """.trimIndent()
 
         val system = if (persona != null) {
@@ -433,20 +471,21 @@ Respond as me.
             return first
         }
 
-        val slimContextLines = ArrayList<String>()
+        val slimLines = ArrayList<String>()
         val lines = contextSummary.lines()
         for (line in lines) {
             if (line.startsWith("mood:") ||
                 line.startsWith("streak:") ||
+                line.startsWith("bot:") ||
                 line.startsWith("meme:") ||
                 line.startsWith("meme opens:")
             ) {
-                slimContextLines.add(line)
+                slimLines.add(line)
             }
         }
 
-        val slimContext = if (slimContextLines.isNotEmpty()) {
-            slimContextLines.joinToString("\n")
+        val slimContext = if (slimLines.isNotEmpty()) {
+            slimLines.joinToString("\n")
         } else {
             "mood: neutral"
         }
@@ -461,7 +500,11 @@ USER:
 Respond briefly as me.
         """.trimIndent()
 
-        return callText(slimPrompt, system, 0.8, 220)
+        val slim = callText(slimPrompt, system, 0.8, 220)
+        if (!slim.isNullOrBlank()) {
+            lastBlipDiagnostic = null
+        }
+        return slim
     }
 
     private fun callStructured(userPrompt: String, systemPrompt: String): String? {
@@ -512,13 +555,10 @@ Respond briefly as me.
             }
 
             try {
-                val text = when (provider.kind) {
-                    ProviderKind.GEMINI_DIRECT -> {
-                        callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                    }
-                    ProviderKind.OPENAI_COMPAT -> {
-                        callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
-                    }
+                val text = if (provider.kind == ProviderKind.GEMINI_DIRECT) {
+                    callGeminiDirect(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
+                } else {
+                    callOpenAiCompat(provider, userPrompt, systemPrompt, asJson, temperature, maxTokens)
                 }
 
                 if (!text.isNullOrBlank()) {
@@ -528,8 +568,9 @@ Respond briefly as me.
 
                 failures.add(provider.name + ":empty")
             } catch (e: Exception) {
-                failures.add(provider.name + ":" + (e.message ?: e.javaClass.simpleName))
-                ErrorLogger.warn(TAG, provider.name + " failed: " + (e.message ?: "unknown"))
+                val reason = e.message ?: e.javaClass.simpleName
+                failures.add(provider.name + ":" + reason)
+                ErrorLogger.warn(TAG, provider.name + " failed: " + reason)
             }
         }
 
@@ -550,10 +591,10 @@ Respond briefly as me.
         val payload = JSONObject()
         val contents = JSONArray()
         val content = JSONObject()
-        content.put("role", "user")
-
         val parts = JSONArray()
+
         parts.put(JSONObject().put("text", systemPrompt + "\n\n" + userPrompt))
+        content.put("role", "user")
         content.put("parts", parts)
         contents.put(content)
         payload.put("contents", contents)
@@ -574,7 +615,7 @@ Respond briefly as me.
             .header("Content-Type", "application/json")
             .build()
 
-        return executeWithLightRetries(provider, request, false)
+        return executeWithRetries(provider, request, false)
     }
 
     private fun callOpenAiCompat(
@@ -593,22 +634,16 @@ Respond briefly as me.
         payload.put("max_tokens", maxTokens)
 
         val messages = JSONArray()
-        messages.put(
-            JSONObject()
-                .put("role", "system")
-                .put("content", systemPrompt)
-        )
-        messages.put(
-            JSONObject()
-                .put("role", "user")
-                .put("content", userPrompt)
-        )
+        messages.put(JSONObject().put("role", "system").put("content", systemPrompt))
+        messages.put(JSONObject().put("role", "user").put("content", userPrompt))
         payload.put("messages", messages)
 
-        if (asJson && provider.name != "groq") {
-            try {
-                payload.put("response_format", JSONObject().put("type", "json_object"))
-            } catch (_: Exception) {
+        if (asJson) {
+            if (provider.name != "groq") {
+                try {
+                    payload.put("response_format", JSONObject().put("type", "json_object"))
+                } catch (_: Exception) {
+                }
             }
         }
 
@@ -625,10 +660,10 @@ Respond briefly as me.
         }
 
         val request = builder.build()
-        return executeWithLightRetries(provider, request, true)
+        return executeWithRetries(provider, request, true)
     }
 
-    private fun executeWithLightRetries(
+    private fun executeWithRetries(
         provider: ProviderSpec,
         request: Request,
         openAiCompat: Boolean
@@ -636,6 +671,9 @@ Respond briefly as me.
         var lastTransient: String? = null
 
         for (attempt in 0 until 2) {
+            var shouldRetry = false
+            var extractedText: String? = null
+
             try {
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
@@ -646,57 +684,68 @@ Respond briefly as me.
                                 recordRateLimit(provider.name)
                                 lastBlipDiagnostic = provider.name + ":429"
                                 ErrorLogger.warn(TAG, provider.name + " 429: " + errorBody)
-                                return null
+                                extractedText = null
+                                shouldRetry = false
                             }
 
                             401, 403 -> {
                                 lastBlipDiagnostic = provider.name + ":auth"
                                 ErrorLogger.warn(TAG, provider.name + " auth error " + response.code + ": " + errorBody)
-                                return null
+                                extractedText = null
+                                shouldRetry = false
                             }
 
                             in 500..599 -> {
                                 lastTransient = provider.name + ":" + response.code
                                 ErrorLogger.warn(TAG, provider.name + " server error " + response.code + " attempt " + (attempt + 1))
-                                continue
+                                extractedText = null
+                                shouldRetry = true
                             }
 
                             else -> {
                                 lastBlipDiagnostic = provider.name + ":http_" + response.code
                                 ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + ": " + errorBody)
-                                return null
+                                extractedText = null
+                                shouldRetry = false
+                            }
+                        }
+                    } else {
+                        resetRateLimit(provider.name)
+
+                        val body = response.body?.string().orEmpty().trim()
+                        if (body.isBlank()) {
+                            lastTransient = provider.name + ":empty_body"
+                            shouldRetry = true
+                        } else {
+                            val json = JSONObject(body)
+                            extractedText = if (openAiCompat) {
+                                extractOpenAiCompatText(json)
+                            } else {
+                                extractGeminiDirectText(json)
+                            }
+
+                            if (extractedText.isNullOrBlank()) {
+                                lastTransient = provider.name + ":content_null"
+                                shouldRetry = true
                             }
                         }
                     }
-
-                    resetRateLimit(provider.name)
-
-                    val body = response.body?.string().orEmpty().trim()
-                    if (body.isBlank()) {
-                        lastTransient = provider.name + ":empty_body"
-                        continue
-                    }
-
-                    val json = JSONObject(body)
-                    val text = if (openAiCompat) {
-                        extractOpenAiCompatText(json)
-                    } else {
-                        extractGeminiDirectText(json)
-                    }
-
-                    if (text.isNullOrBlank()) {
-                        lastTransient = provider.name + ":content_null"
-                        continue
-                    }
-
-                    return text
                 }
             } catch (e: Exception) {
                 lastTransient = provider.name + ":" + (e.message ?: e.javaClass.simpleName)
+                shouldRetry = true
+            }
+
+            if (!extractedText.isNullOrBlank()) {
+                return extractedText
+            }
+
+            if (!shouldRetry) {
+                return null
             }
         }
 
-        if (lastTransient != null) {
+        if (!lastTransient.isNullOrBlank()) {
             lastBlipDiagnostic = lastTransient
         }
         return null
@@ -748,57 +797,10 @@ Respond briefly as me.
         return if (fallback.isNotEmpty()) fallback else null
     }
 
-    @Synchronized
-    private fun resetAllProviderState() {
-        lastCallTimeByProvider.clear()
-        rateLimitedUntilByProvider.clear()
-        consecutive429ByProvider.clear()
-        lastBlipDiagnostic = null
-    }
-
-    private fun isRateLimited(providerName: String): Boolean {
-        val until = rateLimitedUntilByProvider[providerName] ?: 0L
-        return System.currentTimeMillis() < until
-    }
-
-    @Synchronized
-    private fun enforceCallSpacing(providerName: String) {
-        val now = System.currentTimeMillis()
-        val last = lastCallTimeByProvider[providerName] ?: 0L
-        val elapsed = now - last
-
-        if (elapsed < MIN_CALL_INTERVAL_MS) {
-            try {
-                Thread.sleep(MIN_CALL_INTERVAL_MS - elapsed)
-            } catch (_: InterruptedException) {
-            }
-        }
-
-        lastCallTimeByProvider[providerName] = System.currentTimeMillis()
-    }
-
-    private fun recordRateLimit(providerName: String) {
-        val count = (consecutive429ByProvider[providerName] ?: 0) + 1
-        consecutive429ByProvider[providerName] = count
-
-        val backoffMs = min(MAX_BACKOFF_MS, INITIAL_BACKOFF_MS * count.toLong())
-        rateLimitedUntilByProvider[providerName] = System.currentTimeMillis() + backoffMs
-
-        ErrorLogger.warn(
-            TAG,
-            "⚠️ " + providerName + " rate limited (" + count + ") - backing off for " + (backoffMs / 1000L) + "s"
-        )
-    }
-
-    private fun resetRateLimit(providerName: String) {
-        consecutive429ByProvider[providerName] = 0
-        rateLimitedUntilByProvider[providerName] = 0L
-    }
-
     private fun buildProviders(): List<ProviderSpec> {
         val providers = ArrayList<ProviderSpec>()
-
         val primary = primaryApiKey.trim()
+
         if (primary.isNotBlank()) {
             if (primary.startsWith("AIza")) {
                 providers.add(
@@ -837,12 +839,8 @@ Respond briefly as me.
 
         if (openRouterApiKey.isNotBlank()) {
             val headers = HashMap<String, String>()
-            if (openRouterReferer.isNotBlank()) {
-                headers["HTTP-Referer"] = openRouterReferer
-            }
-            if (openRouterTitle.isNotBlank()) {
-                headers["X-Title"] = openRouterTitle
-            }
+            if (openRouterReferer.isNotBlank()) headers["HTTP-Referer"] = openRouterReferer
+            if (openRouterTitle.isNotBlank()) headers["X-Title"] = openRouterTitle
 
             providers.add(
                 ProviderSpec(
@@ -909,9 +907,6 @@ Respond ONLY with valid JSON matching this exact structure:
   "reasoning": "string",
   "recommendation": "BUY" | "AVOID" | "WATCH"
 }
-Scam indicators: copied names, fake utility claims, honeypot patterns, unrealistic promises,
-anonymous teams with no history, locked liquidity claims without proof.
-Viral indicators: strong meme appeal, community engagement, trending narrative, good ticker.
 Do not include markdown or code fences.
     """.trimIndent()
 
@@ -926,7 +921,6 @@ Respond ONLY with valid JSON:
   "risk_factors": ["string"],
   "human_summary": "string"
 }
-Be concise and actionable.
 Do not include markdown or code fences.
     """.trimIndent()
 
@@ -1131,8 +1125,7 @@ Assess all risk factors.
             MarketSentiment(
                 overallSentiment = j.optString("overall_sentiment", "NEUTRAL")
                     .toUpperCase(Locale.US)
-                    .takeIf { it in setOf("BULLISH", "BEARISH", "NEUTRAL", "FEAR", "GREED") }
-                    ?: "NEUTRAL",
+                    .takeIf { it in setOf("BULLISH", "BEARISH", "NEUTRAL", "FEAR", "GREED") } ?: "NEUTRAL",
                 sentimentScore = j.optDouble("sentiment_score", 0.0).coerceIn(-100.0, 100.0),
                 memeSeasonActive = j.optBoolean("meme_season_active", false),
                 topNarratives = j.optJSONArray("top_narratives").toStringList(),
@@ -1240,13 +1233,10 @@ Assess all risk factors.
 
     private fun JSONArray?.toStringList(): List<String> {
         if (this == null) return emptyList()
-
         val out = ArrayList<String>()
         for (i in 0 until this.length()) {
             val value = this.optString(i, "").trim()
-            if (value.isNotEmpty()) {
-                out.add(value)
-            }
+            if (value.isNotEmpty()) out.add(value)
         }
         return out
     }
