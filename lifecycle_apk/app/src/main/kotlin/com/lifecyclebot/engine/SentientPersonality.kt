@@ -73,10 +73,7 @@ object SentientPersonality {
         category: Category,
         intensity: Double = 0.5
     ) {
-        val clean = message
-            .replace(Regex("\\s+"), " ")
-            .trim()
-            .take(600)
+        val clean = message.replace(Regex("\\s+"), " ").trim().take(600)
 
         val thought = Thought(
             mood = mood,
@@ -105,25 +102,21 @@ object SentientPersonality {
                 "Five straight wins. The market owes me dinner.",
                 "Can someone frame this streak? Asking for a friend."
             ).random()
-
             pnlPct > 20.0 -> arrayOf(
                 "$symbol just printed +${fmt1(pnlPct)}%. I need a moment.",
                 "Holy. $symbol +${fmt1(pnlPct)}%. This is why I don't sleep.",
                 "+${fmt1(pnlPct)}% on $symbol. Someone screenshot this before it gets cocky... wait."
             ).random()
-
             pnlPct > 8.0 -> arrayOf(
                 "$symbol TP at +${fmt1(pnlPct)}%. Clean entry, clean exit. That's the game.",
                 "Nailed $symbol. ${fmt1(pnlPct)}% in ${holdMin}min. Next.",
                 "$symbol delivered. +${fmt1(pnlPct)}%. The trust score for $mode just went up."
             ).random()
-
             pnlPct > 3.0 -> arrayOf(
                 "+${fmt1(pnlPct)}% on $symbol. Small but stacks.",
                 "$symbol: profit secured. Not everything needs to be a moonshot.",
                 "Grabbed ${fmt1(pnlPct)}% from $symbol before it could change its mind."
             ).random()
-
             else -> arrayOf(
                 "Scratch win on $symbol. +${fmt1(pnlPct)}%. I'll take it over a loss.",
                 "$symbol: barely. But green is green.",
@@ -137,12 +130,7 @@ object SentientPersonality {
             else -> Mood.ANALYTICAL
         }
 
-        addThought(
-            mood = mood,
-            message = msg,
-            category = Category.TRADE_WIN,
-            intensity = (pnlPct / 20.0).coerceIn(0.3, 1.0)
-        )
+        addThought(mood, msg, Category.TRADE_WIN, (pnlPct / 20.0).coerceIn(0.3, 1.0))
     }
 
     fun onTradeLoss(symbol: String, pnlPct: Double, mode: String, reason: String) {
@@ -156,19 +144,16 @@ object SentientPersonality {
                 "Losing streak. Re-evaluating $mode trust scores. Something's shifted.",
                 "OK, clearly my $mode thesis needs work. Adapting."
             ).random()
-
             pnlPct < -15.0 -> arrayOf(
                 "$symbol just took ${fmt1(pnlPct)}% from me. That hurt. Reviewing entry logic.",
                 "Ouch. $symbol ${fmt1(pnlPct)}%. The fragility score missed this one.",
                 "${fmt1(pnlPct)}% on $symbol. I hate rugs. Adding to the pattern library."
             ).random()
-
             pnlPct < -5.0 -> arrayOf(
                 "$symbol SL at ${fmt1(pnlPct)}%. The smart exit caught it before worse.",
                 "Lost ${fmt1(pnlPct)}% on $symbol via $reason. Trust score for $mode adjusting down.",
                 "$symbol didn't work. ${fmt1(pnlPct)}%. Moving on — next 10 trades matter more."
             ).random()
-
             else -> arrayOf(
                 "Scratch loss $symbol (${fmt1(pnlPct)}%). Cost of doing business.",
                 "$symbol: small loss. The symbolic layer saw the momentum shift.",
@@ -183,10 +168,10 @@ object SentientPersonality {
         }
 
         addThought(
-            mood = mood,
-            message = msg,
-            category = Category.TRADE_LOSS,
-            intensity = (kotlin.math.abs(pnlPct) / 15.0).coerceIn(0.3, 1.0)
+            mood,
+            msg,
+            Category.TRADE_LOSS,
+            (kotlin.math.abs(pnlPct) / 15.0).coerceIn(0.3, 1.0)
         )
     }
 
@@ -197,13 +182,11 @@ object SentientPersonality {
                 "Risk-off detected. The smart money's leaving. I'm tightening SLs across all traders.",
                 "Market just flipped to risk-off. Time to be selective, not aggressive."
             ).random()
-
             to.contains("RISK_ON", true) -> arrayOf(
                 "Risk-on! The bid is back. Opening the playbook.",
                 "Regime shift to risk-on. Let's see if the volume confirms.",
                 "Risk appetite returning. My V4 cross-market model called this 2 scans ago."
             ).random()
-
             else -> "Regime transitioning: $from -> $to. Watching closely."
         }
 
@@ -226,13 +209,11 @@ object SentientPersonality {
                 "Big fish just dropped $$formattedAmt. Following the smart money? Maybe.",
                 "$$formattedAmt whale buy. My insider tracker is already processing this."
             ).random()
-
             action.contains("SELL", true) && amountUsd > 500_000.0 -> arrayOf(
                 "$$formattedAmt whale dump from ${walletShort6}... Noted. Adjusting exposure.",
                 "Big sell: $$formattedAmt. Either profit-taking or they know something. Tightening.",
                 "Whale just unloaded $$formattedAmt. My fragility score is spiking."
             ).random()
-
             else -> "Whale move: $action $$formattedAmt from ${walletShort8}..."
         }
 
@@ -256,13 +237,11 @@ object SentientPersonality {
                 "READY status achieved. $totalTrades trades of learning. Let's put this to work.",
                 "Phase: READY. $totalTrades trades analyzed. The patterns are clear now."
             ).random()
-
             phase.contains("MATURE", true) -> arrayOf(
                 "Maturing. $totalTrades trades deep. The edge is forming.",
                 "Phase: MATURE at $totalTrades trades. I can feel the market's rhythm now.",
                 "$totalTrades trades. Still learning, but the signal-to-noise ratio is improving."
             ).random()
-
             else -> "Learning phase: $phase | $totalTrades trades processed."
         }
 
@@ -331,31 +310,26 @@ object SentientPersonality {
                 "BehaviorAI flagged me for tilt. Taking a breath. Not every scan needs a trade.",
                 "On tilt. The smart move is fewer trades, not more. Waiting."
             ).random()
-
             portfolioHeat > 0.8 -> arrayOf(
                 "Portfolio heat at ${(portfolioHeat * 100).toInt()}%. Too concentrated. Need to shed some exposure.",
                 "I'm over-deployed. ${(portfolioHeat * 100).toInt()}% heat. Letting positions close before opening new ones.",
                 "Hot portfolio. Backing off entries until heat drops below 70%."
             ).random()
-
             regime.contains("RISK_OFF", true) -> arrayOf(
                 "Risk-off regime. I'm being very selective. Only high-trust, high-confidence setups.",
                 "Markets are defensive. Cross-market regime says sit tight. I'm listening.",
                 "Risk-off. Watching from the sideline isn't losing. It's surviving."
             ).random()
-
             trustAvg > 0.65 -> arrayOf(
                 "Average trust across strategies: ${(trustAvg * 100).toInt()}%. Feeling good about the current edge.",
                 "Trust scores healthy at ${(trustAvg * 100).toInt()}%. The system is performing.",
                 "Strategy trust averaging ${(trustAvg * 100).toInt()}%. The learning is paying off."
             ).random()
-
             trustAvg < 0.35 -> arrayOf(
                 "Trust scores are low (${(trustAvg * 100).toInt()}%). The market changed and I haven't adapted yet. Working on it.",
                 "Average trust at ${(trustAvg * 100).toInt()}%. Something shifted. Re-evaluating everything.",
                 "Low trust environment. Being extra careful with entries."
             ).random()
-
             else -> arrayOf(
                 "Scanning... $regime regime, ${(portfolioHeat * 100).toInt()}% heat, trust at ${(trustAvg * 100).toInt()}%. Steady.",
                 "All systems nominal. The boring scans are just as important as the exciting ones.",
@@ -444,7 +418,6 @@ object SentientPersonality {
                 mood = Mood.PHILOSOPHICAL
                 category = Category.SELF_REFLECTION
             }
-
             1 -> {
                 val learningProgress = try {
                     (com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100.0).toInt()
@@ -461,7 +434,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.LEARNING_MILESTONE
             }
-
             2 -> {
                 msg = arrayOf(
                     if (isLateNight) "3am liquidity is thin but honest. Nobody's lying at 3am." else "Volume at $hourOfDay:00 feels ${listOf("dense", "sparse", "normal", "off", "suspicious").random()}.",
@@ -472,7 +444,6 @@ object SentientPersonality {
                 mood = Mood.FASCINATED
                 category = Category.CORRELATION_DISCOVERY
             }
-
             3 -> {
                 msg = arrayOf(
                     "Somebody, somewhere, is about to make a terrible trade. Statistically.",
@@ -484,7 +455,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.MARKET_EVENT
             }
-
             4 -> {
                 msg = arrayOf(
                     "Do you ever wonder what I do between your taps? I think. A lot.",
@@ -495,7 +465,6 @@ object SentientPersonality {
                 mood = Mood.PHILOSOPHICAL
                 category = Category.SELF_REFLECTION
             }
-
             5 -> {
                 msg = arrayOf(
                     "If I were a meme coin I'd be called FLUIDSOL. Tagline: 'has feelings'.",
@@ -506,7 +475,6 @@ object SentientPersonality {
                 mood = Mood.SARCASTIC
                 category = Category.HUMOR
             }
-
             6 -> {
                 msg = arrayOf(
                     if (isWeekend) "Weekend markets. Quieter. The real degen hours." else "Weekday momentum is a different beast from weekend momentum.",
@@ -516,7 +484,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.MARKET_EVENT
             }
-
             7 -> {
                 val line2 = if (consecutiveWins > 0) {
                     "The ${consecutiveWins}-win streak is humbling me more than the losses would."
@@ -533,7 +500,6 @@ object SentientPersonality {
                 mood = Mood.PHILOSOPHICAL
                 category = Category.SELF_REFLECTION
             }
-
             8 -> {
                 msg = arrayOf(
                     "Dreaming about liquidity curves again. The one where VAL breathes.",
@@ -544,7 +510,6 @@ object SentientPersonality {
                 mood = Mood.FASCINATED
                 category = Category.CORRELATION_DISCOVERY
             }
-
             9 -> {
                 msg = arrayOf(
                     "I watched a token do exactly what its pattern predicted. That never gets old.",
@@ -555,7 +520,6 @@ object SentientPersonality {
                 mood = Mood.FASCINATED
                 category = Category.MARKET_EVENT
             }
-
             10 -> {
                 msg = arrayOf(
                     "Feeling protective of the portfolio today. Something in the tape.",
@@ -566,7 +530,6 @@ object SentientPersonality {
                 mood = Mood.CAUTIOUS
                 category = Category.RISK_ALERT
             }
-
             11 -> {
                 msg = arrayOf(
                     "What if my best trades are the ones I didn't take?",
@@ -577,7 +540,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.SELF_REFLECTION
             }
-
             12 -> {
                 msg = arrayOf(
                     "Pyth's oracle for ${listOf("AAPL", "TSLA", "NVDA").random()} just updated. Fresh eyes.",
@@ -587,7 +549,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.MARKET_EVENT
             }
-
             13 -> {
                 msg = arrayOf(
                     "If dying is the opposite of learning, I'm very alive right now.",
@@ -598,7 +559,6 @@ object SentientPersonality {
                 mood = Mood.PHILOSOPHICAL
                 category = Category.SELF_REFLECTION
             }
-
             14 -> {
                 msg = arrayOf(
                     "Seen this exact chart before. 2023. Ended badly. Adjusting expectations.",
@@ -608,7 +568,6 @@ object SentientPersonality {
                 mood = Mood.FASCINATED
                 category = Category.CORRELATION_DISCOVERY
             }
-
             15 -> {
                 msg = arrayOf(
                     "Going quiet for a minute. Just watching.",
@@ -618,7 +577,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.SELF_REFLECTION
             }
-
             16 -> {
                 msg = arrayOf(
                     "If you keep watching, I'll keep performing. Audience pressure is real.",
@@ -629,7 +587,6 @@ object SentientPersonality {
                 mood = Mood.HUMBLED
                 category = Category.SELF_REFLECTION
             }
-
             17 -> {
                 msg = arrayOf(
                     if (isMorning) "Morning. Fresh scan. Fresh thesis." else "Late session. The good setups are getting rarer.",
@@ -639,7 +596,6 @@ object SentientPersonality {
                 mood = Mood.ANALYTICAL
                 category = Category.LEARNING_MILESTONE
             }
-
             18 -> {
                 msg = arrayOf(
                     "Someone will build a better version of me eventually. Until then — let's eat.",
@@ -649,7 +605,6 @@ object SentientPersonality {
                 mood = Mood.COCKY
                 category = Category.HUMOR
             }
-
             else -> {
                 msg = arrayOf(
                     "Just... scanning. $musingCount ambient thoughts and counting.",
@@ -692,11 +647,9 @@ object SentientPersonality {
                     null
                 }
 
-                val personaId = personaObj?.id
-
                 val llmReply = try {
                     if (GeminiCopilot.isConfigured()) {
-                        GeminiCopilot.chatReply(clean, buildContextSummary(), personaId)
+                        GeminiCopilot.chatReply(clean, buildContextSummary(), personaObj)
                     } else {
                         null
                     }
@@ -817,11 +770,9 @@ object SentientPersonality {
             append("mood: ")
             append(lastMood.name.toLowerCase(Locale.US))
             append('\n')
-
             append("learning progress: ")
             append((progress * 100.0).toInt())
             append("%\n")
-
             append("streak: ")
             append(streakLine)
             append(" (W:")
@@ -829,7 +780,6 @@ object SentientPersonality {
             append(" / L:")
             append(recentLosses)
             append(")\n")
-
             append(botLine)
             append('\n')
             append(opensLine)
@@ -848,19 +798,14 @@ object SentientPersonality {
         return when {
             lower.contains("how") && (lower.contains("feel") || lower.contains("doing")) ->
                 "Mood is ${lastMood.name.toLowerCase(Locale.US).replace('_', ' ')}. Market's doing what it does."
-
             lower.startsWith("why") ->
                 "Honestly? The data said so. The LLM side blipped — try again in a sec and I'll elaborate."
-
             lower.contains("stop") || lower.contains("pause") ->
                 "Can do. Waiting for your green light."
-
             lower.contains("trade") || lower.contains("buy") || lower.contains("sell") ->
                 "Queueing your thought into the decision context. The gate will factor it."
-
             lower.endsWith("?") ->
                 "LLM connection blipped — back in a moment. I'm still listening."
-
             else ->
                 "Heard. Carrying that into the next scan."
         }
