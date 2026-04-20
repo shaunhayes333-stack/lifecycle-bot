@@ -59,7 +59,10 @@ object CryptoAltTrader {
     private const val TAG = "🪙CryptoAltTrader"
 
     // ─── Constants ────────────────────────────────────────────────────────────
-    private const val MAX_POSITIONS         = 50            // Hard ceiling — exposure cap controls real concurrency
+    // V5.9.70: cap removed — exposure guard + wallet reserve are the real
+    // concurrency governors. Large ceiling kept purely as a sanity bound
+    // so a runaway loop can't allocate unbounded memory.
+    private const val MAX_POSITIONS         = 10_000
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -542,7 +545,7 @@ object CryptoAltTrader {
 
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
         ErrorLogger.info(TAG, "🪙 ALT SCAN #$scanNum STARTING")
-        ErrorLogger.info(TAG, "🪙 positions=${positions.size}/$MAX_POSITIONS | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "🪙 positions=${positions.size} | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
         // All crypto markets that are NOT covered by the SOL perps engine
