@@ -98,7 +98,7 @@ object GeminiCopilot {
     @Volatile
     private var consecutive429Count = 0
 
-    private const val INITIAL_BACKOFF_MS = 60_000L
+    private const val INITIAL_BACKOFF_MS = 10_000L   // V5.9.81: 60s → 10s so a single transient 429 doesn't lock the user out for a full minute
     private const val MAX_BACKOFF_MS = 600_000L
 
     @Synchronized
@@ -504,11 +504,18 @@ Respond briefly as me.
                                 429 -> {
                                     recordRateLimit()
                                     ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}")
-                                    return null  // don't retry 429
+                                    // V5.9.81: surface Google's real reason in the chat.
+                                    // A 429 on the first call usually means the project
+                                    // has the Generative Language API disabled or the key
+                                    // is restricted — NOT actually "too many requests".
+                                    val snippet = extractGoogleError(errBody) ?: "429"
+                                    lastBlipDiagnostic = "$snippet @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
+                                    return null
                                 }
                                 401, 403 -> {
                                     ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
-                                    lastBlipReason = "auth ${resp.code}"
+                                    val snippet = extractGoogleError(errBody) ?: "auth ${resp.code}"
+                                    lastBlipReason = snippet
                                     return null  // auth won't self-heal
                                 }
                                 402 -> {
@@ -524,7 +531,8 @@ Respond briefly as me.
                                 }
                                 else -> {
                                     ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
-                                    lastBlipReason = "http ${resp.code}"
+                                    val snippet = extractGoogleError(errBody) ?: "http ${resp.code}"
+                                    lastBlipReason = snippet
                                     return null
                                 }
                             }
@@ -593,6 +601,27 @@ Respond briefly as me.
     // V5.9.76: exposed so SentientPersonality can surface the reason in chat
     // when a reply blips, instead of the user seeing a silent templated fallback.
     @Volatile var lastBlipDiagnostic: String? = null
+
+    /**
+     * V5.9.81: parse Google / Emergent error body so the user sees the real
+     * reason instead of a generic "rate-limited" or "auth 403".
+     *   Google:    {"error":{"code":429,"message":"...","status":"RESOURCE_EXHAUSTED"}}
+     *   Emergent:  {"error":{"type":"...","message":"..."}} or bare text
+     * Returns a short, chat-friendly snippet or null if body is empty/opaque.
+     */
+    private fun extractGoogleError(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        return try {
+            val j = JSONObject(body)
+            val err = j.optJSONObject("error") ?: return body.take(60)
+            val status = err.optString("status").takeIf { it.isNotBlank() }  // e.g., RESOURCE_EXHAUSTED
+            val message = err.optString("message").takeIf { it.isNotBlank() }
+            val short = message?.take(90) ?: status ?: "error"
+            if (status != null && status !in (short)) "$status: $short" else short
+        } catch (_: Throwable) {
+            body.take(80)
+        }
+    }
 
     private val NARRATIVE_SYSTEM_PROMPT = """
 You are a Solana meme coin analyst specializing in detecting scams and evaluating token narratives.
