@@ -439,9 +439,12 @@ object ConfigStore {
             birdeyeApiKey               = s.getString("birdeye_api_key", "") ?: "",
             groqApiKey                  = s.getString("groq_api_key", "") ?: "",
             geminiApiKey                = s.getString("gemini_api_key", "").let {
-                // V5.9.39: If stored value is blank OR the old leaked AIza... key,
-                // force-upgrade to the Emergent universal key.
-                if (it.isNullOrBlank() || it.startsWith("AIza")) "sk-emergent-431Dd41D3F186C0E0B" else it
+                // V5.9.79: previously this stripped ANY AIza... key and
+                // force-reverted to the Emergent proxy, silently destroying
+                // every user-pasted personal Google key. Now we only fall
+                // back to the Emergent proxy when the stored value is
+                // actually blank. User-supplied keys survive saves.
+                if (it.isNullOrBlank()) "sk-emergent-431Dd41D3F186C0E0B" else it
             },
             jupiterApiKey               = s.getString("jupiter_api_key", "") ?: "",
             tursoDbUrl                  = s.getString("turso_db_url", "").let { 
