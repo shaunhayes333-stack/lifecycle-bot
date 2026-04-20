@@ -567,7 +567,16 @@ object SentientPersonality {
                 } catch (_: Throwable) { null }
 
                 val finalText = llmReply?.trim()?.takeIf { it.isNotBlank() }
-                    ?: fallbackReply(userMessage)
+                    ?: run {
+                        // V5.9.76: surface WHY the LLM blipped so the user
+                        // stops seeing silent template replies with no clue
+                        // what went wrong (auth/timeout/balance/proxy).
+                        val reason = try {
+                            com.lifecyclebot.engine.GeminiCopilot.lastBlipDiagnostic
+                        } catch (_: Throwable) { null }
+                        val suffix = if (!reason.isNullOrBlank()) " [llm: $reason]" else ""
+                        fallbackReply(userMessage) + suffix
+                    }
 
                 // Match the reply's mood roughly by looking at its text
                 val replyMood = when {

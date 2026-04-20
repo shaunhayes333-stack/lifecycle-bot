@@ -379,7 +379,7 @@ Respond as me.
 
         // Attempt 1: full context, generous budget, high temperature.
         val first = callGeminiInternal(fullPrompt, system, asJson = false, temperature = 1.0, maxTokens = 500)
-        if (!first.isNullOrBlank()) return first
+        if (!first.isNullOrBlank()) { lastBlipDiagnostic = null; return first }
 
         // Attempt 2: strip the context to the 3 most important lines so
         // total prompt size drops ~80%. This almost always completes
@@ -401,7 +401,9 @@ Respond briefly as me.
             "You are AATE, the bot, but speaking AS ${persona.displayName}. " +
             "Keep that character. First person. Brief-to-medium length."
         } else "You are AATE, the bot. First person, honest, brief-to-medium length."
-        return callGeminiInternal(slimPrompt, slimSystem, asJson = false, temperature = 0.9, maxTokens = 220)
+        val slim = callGeminiInternal(slimPrompt, slimSystem, asJson = false, temperature = 0.9, maxTokens = 220)
+        if (!slim.isNullOrBlank()) { lastBlipDiagnostic = null }
+        return slim
     }
 
     private fun callGeminiInternal(
@@ -472,27 +474,56 @@ Respond briefly as me.
                     .build()
             }
 
-            // V5.9.57: single retry on transient network timeout (proxy
-            // occasionally drops the first call; the second always succeeds).
+            // V5.9.76: retry on transient failures AND on empty-content
+            // responses. Previously only InterruptedIOException retried;
+            // a single 502 from the proxy or a reasoning-token-drained
+            // empty body would immediately fall through to a templated
+            // reply, which users see as "the LLM keeps blipping".
             var lastTimeout: java.io.IOException? = null
-            repeat(2) { attempt ->
+            var lastBlipReason: String? = null
+            repeat(3) { attempt ->
                 try {
                     http.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) {
                             val errBody = try { resp.body?.string()?.take(300) } catch (_: Throwable) { null }
                             when (resp.code) {
-                                429 -> { recordRateLimit(); ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}") }
-                                401, 403 -> ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
-                                500, 502, 503, 504 -> ErrorLogger.warn(TAG, "Temporary API error ${resp.code}")
-                                else -> ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
+                                429 -> {
+                                    recordRateLimit()
+                                    ErrorLogger.warn(TAG, "429 rate-limited: ${errBody ?: ""}")
+                                    return null  // don't retry 429
+                                }
+                                401, 403 -> {
+                                    ErrorLogger.warn(TAG, "Auth error ${resp.code}: ${errBody ?: ""}")
+                                    lastBlipReason = "auth ${resp.code}"
+                                    return null  // auth won't self-heal
+                                }
+                                402 -> {
+                                    ErrorLogger.warn(TAG, "Payment required ${resp.code}: ${errBody ?: ""}")
+                                    lastBlipReason = "balance low"
+                                    return null
+                                }
+                                in 500..599 -> {
+                                    ErrorLogger.warn(TAG, "Proxy ${resp.code} on attempt ${attempt + 1}")
+                                    lastBlipReason = "proxy ${resp.code}"
+                                    // Fall through: the outer repeat will retry.
+                                    return@use
+                                }
+                                else -> {
+                                    ErrorLogger.warn(TAG, "API error ${resp.code}: ${errBody ?: ""}")
+                                    lastBlipReason = "http ${resp.code}"
+                                    return null
+                                }
                             }
-                            return null
                         }
 
                         resetRateLimit()
 
                         val body = resp.body?.string()?.trim().orEmpty()
-                        if (body.isBlank()) return null
+                        if (body.isBlank()) {
+                            ErrorLogger.warn(TAG, "Empty body on attempt ${attempt + 1} — retrying")
+                            lastBlipReason = "empty body"
+                            return@use  // retry
+                        }
 
                         val json = JSONObject(body)
 
@@ -514,25 +545,40 @@ Respond briefly as me.
                                 ?.takeIf { it.isNotEmpty() }
                         }
 
-                        return rawText?.let { if (asJson) sanitizeJsonText(it) else it.trim() }
+                        if (rawText.isNullOrBlank()) {
+                            // Usually reasoning-tokens ate the budget; log and
+                            // let the outer caller (chatReply's slim fallback)
+                            // retry with a smaller prompt.
+                            ErrorLogger.warn(TAG, "Content null on attempt ${attempt + 1} (likely reasoning-token drain)")
+                            lastBlipReason = "content null"
+                            return@use
+                        }
+
+                        return if (asJson) sanitizeJsonText(rawText) else rawText.trim()
                     }
                 } catch (e: java.io.InterruptedIOException) {
-                    // Read/call/connect timeout — retry once.
                     lastTimeout = e
-                    if (attempt == 0) {
-                        ErrorLogger.debug(TAG, "LLM proxy timeout (attempt 1), retrying once")
-                    }
+                    lastBlipReason = "timeout"
+                    if (attempt < 2) ErrorLogger.debug(TAG, "Timeout attempt ${attempt + 1}/3 — retrying")
                 }
             }
             if (lastTimeout != null) {
-                ErrorLogger.warn(TAG, "LLM proxy timed out twice: ${lastTimeout!!.message}")
+                ErrorLogger.warn(TAG, "LLM proxy timed out on all 3 attempts: ${lastTimeout!!.message}")
+            }
+            if (lastBlipReason != null) {
+                lastBlipDiagnostic = "${lastBlipReason ?: "?"} @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
             }
             null
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Call failed: ${e.message}")
+            lastBlipDiagnostic = "exception ${e.javaClass.simpleName}"
             null
         }
     }
+
+    // V5.9.76: exposed so SentientPersonality can surface the reason in chat
+    // when a reply blips, instead of the user seeing a silent templated fallback.
+    @Volatile var lastBlipDiagnostic: String? = null
 
     private val NARRATIVE_SYSTEM_PROMPT = """
 You are a Solana meme coin analyst specializing in detecting scams and evaluating token narratives.
