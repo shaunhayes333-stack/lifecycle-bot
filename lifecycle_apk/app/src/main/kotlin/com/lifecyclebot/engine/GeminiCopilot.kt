@@ -415,11 +415,13 @@ Respond briefly as me.
     ): String? {
         if (!isConfigured()) {
             ErrorLogger.debug(TAG, "API key not configured, skipping")
+            lastBlipDiagnostic = "no key @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
             return null
         }
 
         if (isRateLimited()) {
             ErrorLogger.debug(TAG, "⏳ Rate limited, ${getRateLimitRemainingMinutes()}min remaining")
+            lastBlipDiagnostic = "rate-limited ${getRateLimitRemainingMinutes()}min @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
             return null
         }
 
