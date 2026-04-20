@@ -115,6 +115,11 @@ class BotService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var wallet: SolanaWallet? = null
+
+    // V5.9.73: track in-flight wallet connect so startBot() returns
+    // immediately instead of blocking for 30–90s while RPC fallbacks
+    // sequentially time out. stopBot() / mode switch can cancel it cleanly.
+    @Volatile private var walletConnectJob: kotlinx.coroutines.Job? = null
     private lateinit var strategy: LifecycleStrategy
     internal lateinit var executor: Executor
     private lateinit var sentimentEngine: SentimentEngine
@@ -896,31 +901,37 @@ class BotService : Service() {
                     addLog("✓ Wallet already connected: ${walletManager.state.value.shortKey}")
                     walletManager.getWallet()
                 } else {
-                    // Need to connect wallet
-                    addLog("Attempting wallet connection to ${rpcUrl.take(40)}...")
-                    try {
-                        val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
-                        if (connected) {
-                            addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
-                            walletManager.getWallet()
-                        } else {
-                            addLog("⚠️ Wallet error: ${walletManager.state.value.errorMessage} — using paper mode")
-                            null
-                        }
-                    } catch (e: Exception) {
-                        addLog("⚠️ Wallet connection failed: ${e.message} — using paper mode")
-                        null
-                    }
+                    // V5.9.73 FIX: previously this called walletManager.connect()
+                    // SYNCHRONOUSLY inside startBot(). Each RPC attempt could
+                    // time out for ~30s; with two fallbacks sequenced after
+                    // the user's RPC that's the 90-second freeze where the
+                    // bot loop never starts, the UI stops receiving log
+                    // updates, and toggling to paper mode can't recover
+                    // until the stuck connect finally returns.
+                    //
+                    // Now: kick connect off in a detached coroutine, let
+                    // startBot() continue immediately. Live trades inside
+                    // the bot loop already null-check `wallet` and skip
+                    // live actions until it's ready. Reconciliation fires
+                    // once the wallet actually arrives.
+                    addLog("🔌 Connecting wallet in background…")
+                    launchWalletConnect(cfg.privateKeyB58, rpcUrl, runReconciliation = true)
+                    null
                 }
             } else {
                 addLog("Paper mode enabled or no key provided")
-                // DON'T disconnect - just set local wallet to null for paper mode
-                // walletManager.disconnect() -- REMOVED: This was disconnecting the wallet!
+                // Any in-flight live connect is now obsolete — kill it so
+                // switching from live → paper doesn't leave a stuck job
+                // holding the wallet variable.
+                walletConnectJob?.cancel()
+                walletConnectJob = null
                 null
             }
 
             // Run startup reconciliation to catch any state mismatch
             // from previous crash, manual sells, or failed transactions
+            // (only fires here if wallet was already connected; the async
+            // connect path above triggers it from inside the launch.)
             val liveWallet = wallet
             if (liveWallet != null) {
                 scope.launch {
@@ -941,7 +952,7 @@ class BotService : Service() {
                         addLog("Reconciliation error: ${e.message}")
                     }
                 }
-            } else {
+            } else if (cfg.paperMode) {
                 addLog("Paper mode — skipping on-chain reconciliation")
             }
             
@@ -1788,8 +1799,76 @@ class BotService : Service() {
         }
     }
 
+    /**
+     * V5.9.73: Kick off a wallet connect in the background so startBot()
+     * / in-loop reconnect never blocks the IO thread for 30-90s of
+     * sequential RPC timeouts. Cancels any previous in-flight attempt.
+     *
+     * @param runReconciliation fire StartupReconciler once connected —
+     *        true for cold start, false for mid-loop reconnect where
+     *        we only want the wallet back online.
+     */
+    private fun launchWalletConnect(
+        privateKeyB58: String,
+        rpcUrl: String,
+        runReconciliation: Boolean,
+    ) {
+        walletConnectJob?.cancel()
+        walletConnectJob = scope.launch {
+            try {
+                val connected = walletManager.connect(privateKeyB58, rpcUrl)
+                val cfgNow = ConfigStore.load(applicationContext)
+                if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+
+                if (connected && !cfgNow.paperMode) {
+                    wallet = walletManager.getWallet()
+                    addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
+                    ErrorLogger.info("BotService", "✓ Wallet connected in background")
+
+                    if (runReconciliation) {
+                        val liveWallet = wallet
+                        if (liveWallet != null) {
+                            try {
+                                val reconciler = StartupReconciler(
+                                    wallet  = liveWallet,
+                                    status  = status,
+                                    onLog   = { msg -> addLog(msg) },
+                                    onAlert = { title, body ->
+                                        sendTradeNotif(title, body,
+                                            NotificationHistory.NotifEntry.NotifType.INFO)
+                                    },
+                                    executor = executor,
+                                    autoSellOrphans = true,
+                                )
+                                reconciler.reconcile()
+                            } catch (e: Exception) {
+                                addLog("Reconciliation error: ${e.message}")
+                            }
+                        }
+                    }
+                } else if (!connected) {
+                    val msg = walletManager.state.value.errorMessage.ifBlank { "unknown" }
+                    addLog("⚠️ Wallet connect failed: $msg")
+                    ErrorLogger.warn("BotService", "Wallet connect failed: $msg")
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                addLog("Wallet connect cancelled")
+                throw e
+            } catch (e: Exception) {
+                addLog("⚠️ Wallet connect error: ${e.message}")
+                ErrorLogger.warn("BotService", "Wallet connect exception: ${e.message}")
+            }
+        }
+    }
+
     fun stopBot() {
         addLog("Stopping bot...")
+
+        // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
+        // timeout from the previous live-start doesn't leak past the stop
+        // and block the next paper-mode start from going clean.
+        walletConnectJob?.cancel()
+        walletConnectJob = null
         
         // V5.7.8: In paper mode, purge only obviously bad trades (not all history)
         try {
@@ -2490,28 +2569,22 @@ class BotService : Service() {
             // If wallet is null in live mode, sells will fail silently!
             // ═══════════════════════════════════════════════════════════════════
             if (!cfg.paperMode && wallet == null) {
-                ErrorLogger.error("BotService", "🚨 LIVE MODE but wallet is NULL! Attempting reconnect...")
-                addLog("🚨 WALLET NULL IN LIVE MODE - Reconnecting...")
-                
-                // Try to reconnect
-                if (cfg.privateKeyB58.isNotBlank()) {
-                    try {
+                // V5.9.73 FIX: fire-and-forget reconnect so the bot loop
+                // doesn't stall for up to 90s when RPCs are slow. Previously
+                // this called walletManager.connect() synchronously and
+                // blocked every live-mode tick where wallet was null until
+                // all fallback RPCs timed out.
+                val existing = walletConnectJob
+                if (existing == null || !existing.isActive) {
+                    if (cfg.privateKeyB58.isNotBlank()) {
+                        ErrorLogger.warn("BotService", "🚨 LIVE MODE wallet null — launching background reconnect")
+                        addLog("🚨 WALLET NULL in live mode — reconnecting in background…")
                         val rpcUrl = cfg.rpcUrl.ifBlank { "https://api.mainnet-beta.solana.com" }
-                        val connected = walletManager.connect(cfg.privateKeyB58, rpcUrl)
-                        if (connected) {
-                            wallet = walletManager.getWallet()
-                            addLog("✅ Wallet reconnected: ${walletManager.state.value.shortKey}")
-                            ErrorLogger.info("BotService", "✅ Wallet reconnected successfully")
-                        } else {
-                            addLog("❌ Wallet reconnect failed: ${walletManager.state.value.errorMessage}")
-                            ErrorLogger.error("BotService", "❌ Wallet reconnect failed")
-                        }
-                    } catch (e: Exception) {
-                        addLog("❌ Wallet reconnect error: ${e.message}")
-                        ErrorLogger.error("BotService", "❌ Wallet reconnect error: ${e.message}")
+                        launchWalletConnect(cfg.privateKeyB58, rpcUrl, runReconciliation = false)
+                    } else {
+                        ErrorLogger.warn("BotService", "🚨 LIVE MODE but no private key configured")
+                        addLog("🚨 Live mode: no private key configured — cannot reconnect")
                     }
-                } else {
-                    addLog("❌ Cannot reconnect - no private key configured")
                 }
             }
             
