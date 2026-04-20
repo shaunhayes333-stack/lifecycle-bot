@@ -178,7 +178,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             // Trim strings to avoid whitespace false positives
             cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim() ||
             cfg.birdeyeApiKey.trim() != currentCfg.birdeyeApiKey.trim() ||
-            cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim()
+            cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim() ||
+            // V5.9.77: pasting a new Gemini key now restarts so
+            // GeminiCopilot.init() picks it up. Previously the new key sat
+            // in config but the LLM kept using the previous one until the
+            // user manually stopped and started the bot.
+            cfg.geminiApiKey.trim() != currentCfg.geminiApiKey.trim()
             // NOTE: Telegram settings and sound do NOT require a restart
             // They can be picked up on next use
         
