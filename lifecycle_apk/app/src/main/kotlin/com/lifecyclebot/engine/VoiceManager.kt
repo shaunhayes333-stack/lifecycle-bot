@@ -3,255 +3,111 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import android.speech.tts.UtteranceProgressListener
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.9.75 — VoiceManager.
+ * VoiceManager — rewritten.
  *
- * Speaks LLM replies using:
- *  (a) Android built-in TextToSpeech for regional accents (en-IE / en-GB /
- *      en-AU / en-US) — free, offline once locale is installed.
- *  (b) OpenAI TTS through the Emergent universal proxy for stylised voices
- *      (Morgan Freeman narration, Batman gravel, Frasier storyteller…).
+ * Fixes:
+ * - Android TTS job state now ends on utterance completion, not immediately after speak()
+ * - Remote playback uses unique temp files instead of one shared filename
+ * - Persona fallback preserves intended locale instead of always dropping to en-US
+ * - Android voice selection now tries to pick an actual matching installed voice
+ * - Remote persona voices support per-persona override IDs from SharedPreferences
  *
- * Persona → voice routing is declared in personaVoice().
- *
- * Mute state is persisted in SharedPreferences. Default = MUTED so the
- * bot never surprises a user with random speech on first launch.
+ * SharedPreferences (voice_prefs_v2):
+ * - muted : Boolean
+ * - tts_api_url : String
+ * - tts_api_key : String
+ * - tts_model_default : String
+ * - tts_voice_<personaId> : String
+ * - tts_locale_<personaId> : String
  */
 object VoiceManager {
 
     private const val TAG = "VoiceManager"
-    private const val PREFS = "voice_prefs_v1"
+    private const val PREFS = "voice_prefs_v2"
+
     private const val KEY_MUTED = "muted"
-    private const val EMERGENT_TTS_URL = "https://integrations.emergentagent.com/llm/audio/speech"
-    private const val EMERGENT_KEY = "sk-emergent-431Dd41D3F186C0E0B"
+    private const val KEY_API_URL = "tts_api_url"
+    private const val KEY_API_KEY = "tts_api_key"
+    private const val KEY_DEFAULT_MODEL = "tts_model_default"
 
-    private var tts: TextToSpeech? = null
-    @Volatile private var ttsReady = false
-    private val ttsInitLock = Any()
-
-    private var mediaPlayer: MediaPlayer? = null
-    private val currentJob = AtomicBoolean(false)
+    // Default proxy URL. Move key + URL into prefs/settings.
+    private const val DEFAULT_TTS_URL = "https://integrations.emergentagent.com/llm/audio/speech"
+    private const val DEFAULT_MODEL = "gpt-4o-mini-tts"
 
     private var appCtx: Context? = null
 
+    @Volatile private var tts: TextToSpeech? = null
+    @Volatile private var ttsReady = false
+    private val ttsInitLock = Any()
+
+    @Volatile private var mediaPlayer: MediaPlayer? = null
+    private val generation = AtomicLong(0L)
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
         .build()
 
-    // ─── Strategy ────────────────────────────────────────────────────────
     sealed class VoiceSpec {
-        /** Android built-in TTS. locale = e.g. "en-IE", "en-GB". */
-        data class Android(val locale: String, val pitch: Float = 1.0f, val speed: Float = 1.0f) : VoiceSpec()
+        data class Android(
+            val localeTag: String,
+            val pitch: Float = 1.0f,
+            val speed: Float = 1.0f,
+            val preferredHints: List<String> = emptyList()
+        ) : VoiceSpec()
 
-        /** OpenAI TTS via Emergent proxy. */
-        data class OpenAI(val voice: String, val speed: Double = 1.0, val hd: Boolean = false) : VoiceSpec()
+        data class Remote(
+            val voice: String,
+            val model: String = DEFAULT_MODEL,
+            val speed: Double = 1.0,
+            val fallbackLocaleTag: String = "en-US"
+        ) : VoiceSpec()
     }
 
-    /** Persona → voice strategy. */
-    private fun personaVoice(personaId: String): VoiceSpec = when (personaId) {
-        "aate"        -> VoiceSpec.Android(locale = "en-US")
-        "irishman"    -> VoiceSpec.Android(locale = "en-IE", speed = 1.05f)
-        "batman"      -> VoiceSpec.OpenAI(voice = "onyx", speed = 0.92, hd = true)
-        "gentleman"   -> VoiceSpec.Android(locale = "en-GB", speed = 0.95f)
-        "frasier"     -> VoiceSpec.OpenAI(voice = "fable", speed = 0.98, hd = true)
-        "wallstreet"  -> VoiceSpec.OpenAI(voice = "ash", speed = 1.15)
-        "zen"         -> VoiceSpec.OpenAI(voice = "sage", speed = 0.85)
-        "cockney"     -> VoiceSpec.Android(locale = "en-GB", pitch = 1.1f, speed = 1.1f)
-        "cowboy"      -> VoiceSpec.OpenAI(voice = "alloy", speed = 0.88)
-        "hunter_s"    -> VoiceSpec.OpenAI(voice = "onyx", speed = 1.1)
-        "narrator"    -> VoiceSpec.OpenAI(voice = "fable", speed = 0.9, hd = true)
-        "pirate"      -> VoiceSpec.OpenAI(voice = "echo", speed = 1.05)
-        else          -> VoiceSpec.Android(locale = "en-US")
-    }
-
-    // ─── Public API ─────────────────────────────────────────────────────
     fun init(ctx: Context) {
         appCtx = ctx.applicationContext
-        // Lazy-init Android TTS on first speak to avoid startup cost.
         ErrorLogger.info(TAG, "🔊 VoiceManager init (muted=${isMuted(ctx)})")
     }
 
     fun isMuted(ctx: Context): Boolean {
         val c = appCtx ?: ctx.applicationContext.also { appCtx = it }
-        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MUTED, true)
+        return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_MUTED, true)
     }
 
-    /** Returns the new muted state. */
     fun toggleMute(ctx: Context): Boolean {
         val c = appCtx ?: ctx.applicationContext.also { appCtx = it }
-        val newMuted = !isMuted(c)
-        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_MUTED, newMuted).apply()
+        val prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val newMuted = !prefs.getBoolean(KEY_MUTED, true)
+        prefs.edit().putBoolean(KEY_MUTED, newMuted).apply()
         if (newMuted) stop()
         ErrorLogger.info(TAG, "🔊 Mute toggled → muted=$newMuted")
         return newMuted
     }
 
     fun stop() {
+        generation.incrementAndGet()
+
         try { tts?.stop() } catch (_: Throwable) {}
+
         try { mediaPlayer?.stop() } catch (_: Throwable) {}
+        try { mediaPlayer?.reset() } catch (_: Throwable) {}
         try { mediaPlayer?.release() } catch (_: Throwable) {}
         mediaPlayer = null
-        currentJob.set(false)
-    }
-
-    fun speak(text: String, persona: Personalities.Persona?) {
-        val ctx = appCtx ?: return
-        if (text.isBlank()) return
-        if (isMuted(ctx)) return
-
-        // Strip markdown / excessive punctuation so TTS sounds natural.
-        val clean = cleanForSpeech(text)
-        if (clean.isBlank()) return
-
-        // Serial: interrupt previous speech.
-        stop()
-        currentJob.set(true)
-
-        val spec = personaVoice(persona?.id ?: "aate")
-        when (spec) {
-            is VoiceSpec.Android -> speakAndroid(clean, spec)
-            is VoiceSpec.OpenAI  -> speakOpenAI(clean, spec)
-        }
-    }
-
-    // ─── Android TTS ────────────────────────────────────────────────────
-    private fun speakAndroid(text: String, spec: VoiceSpec.Android) {
-        val ctx = appCtx ?: return
-        ensureTts()
-        val locale = Locale.forLanguageTag(spec.locale)
-
-        Thread {
-            // Wait up to 2s for TTS engine to initialise.
-            val deadline = System.currentTimeMillis() + 2000
-            while (!ttsReady && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(50) } catch (_: InterruptedException) {}
-            }
-            if (!ttsReady) {
-                ErrorLogger.warn(TAG, "Android TTS not ready after 2s — skipping")
-                currentJob.set(false)
-                return@Thread
-            }
-
-            try {
-                val engine = tts ?: return@Thread
-                val res = engine.setLanguage(locale)
-                if (res == TextToSpeech.LANG_MISSING_DATA ||
-                    res == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    // Fall back to en-US.
-                    engine.setLanguage(Locale.US)
-                    ErrorLogger.debug(TAG, "Locale ${spec.locale} unavailable, fell back to en-US")
-                }
-                engine.setPitch(spec.pitch)
-                engine.setSpeechRate(spec.speed)
-                engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "aate-${System.currentTimeMillis()}")
-            } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "Android TTS speak failed: ${e.message}")
-            } finally {
-                currentJob.set(false)
-            }
-        }.apply { isDaemon = true }.start()
-    }
-
-    private fun ensureTts() {
-        if (tts != null) return
-        synchronized(ttsInitLock) {
-            if (tts != null) return
-            val ctx = appCtx ?: return
-            tts = TextToSpeech(ctx) { status ->
-                ttsReady = (status == TextToSpeech.SUCCESS)
-                if (!ttsReady) {
-                    ErrorLogger.warn(TAG, "Android TTS init failed status=$status")
-                }
-            }
-        }
-    }
-
-    // ─── OpenAI TTS via Emergent proxy ─────────────────────────────────
-    private fun speakOpenAI(text: String, spec: VoiceSpec.OpenAI) {
-        val ctx = appCtx ?: return
-        // Text limit 4096 per OpenAI; be safer and split on first 900 for responsiveness.
-        val trimmed = if (text.length > 900) text.substring(0, 900) + "…" else text
-
-        Thread {
-            try {
-                val body = JSONObject().apply {
-                    put("model", if (spec.hd) "tts-1-hd" else "tts-1")
-                    put("voice", spec.voice)
-                    put("input", trimmed)
-                    put("response_format", "mp3")
-                    put("speed", spec.speed)
-                }
-                val req = Request.Builder()
-                    .url(EMERGENT_TTS_URL)
-                    .header("Authorization", "Bearer $EMERGENT_KEY")
-                    .header("Content-Type", "application/json")
-                    .post(body.toString().toRequestBody("application/json".toMediaTypeOrNull()))
-                    .build()
-
-                http.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        ErrorLogger.warn(TAG,
-                            "OpenAI TTS HTTP ${resp.code} — falling back to Android TTS")
-                        // Fallback so the user still hears the reply.
-                        speakAndroid(trimmed, VoiceSpec.Android(locale = "en-US"))
-                        return@Thread
-                    }
-                    val bytes = resp.body?.bytes()
-                    if (bytes == null || bytes.isEmpty()) {
-                        ErrorLogger.warn(TAG, "OpenAI TTS empty body — Android fallback")
-                        speakAndroid(trimmed, VoiceSpec.Android(locale = "en-US"))
-                        return@Thread
-                    }
-
-                    val cacheFile = File(ctx.cacheDir, "tts_latest.mp3")
-                    cacheFile.writeBytes(bytes)
-
-                    val mp = MediaPlayer()
-                    mediaPlayer = mp
-                    mp.setDataSource(cacheFile.absolutePath)
-                    mp.setOnCompletionListener {
-                        currentJob.set(false)
-                        try { it.release() } catch (_: Throwable) {}
-                        if (mediaPlayer === it) mediaPlayer = null
-                    }
-                    mp.setOnErrorListener { _, what, extra ->
-                        ErrorLogger.warn(TAG, "MediaPlayer error $what/$extra")
-                        currentJob.set(false)
-                        true
-                    }
-                    mp.prepare()
-                    mp.start()
-                }
-            } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "OpenAI TTS failed: ${e.message} — Android fallback")
-                try { speakAndroid(trimmed, VoiceSpec.Android(locale = "en-US")) } catch (_: Throwable) {}
-            }
-        }.apply { isDaemon = true }.start()
-    }
-
-    // ─── Text sanitisation ──────────────────────────────────────────────
-    private fun cleanForSpeech(raw: String): String {
-        // Strip markdown code fences, asterisks, backticks, URLs.
-        var s = raw
-        s = s.replace(Regex("```[\\s\\S]*?```"), " ")
-        s = s.replace(Regex("`([^`]*)`"), "$1")
-        s = s.replace(Regex("[*_#>]"), "")
-        s = s.replace(Regex("https?://\\S+"), "link")
-        s = s.replace(Regex("\\s+"), " ").trim()
-        return s
     }
 
     fun shutdown() {
@@ -259,5 +115,444 @@ object VoiceManager {
         try { tts?.shutdown() } catch (_: Throwable) {}
         tts = null
         ttsReady = false
+    }
+
+    fun speak(text: String, persona: Personalities.Persona?) {
+        val ctx = appCtx ?: return
+        if (text.isBlank()) return
+        if (isMuted(ctx)) return
+
+        val clean = cleanForSpeech(text)
+        if (clean.isBlank()) return
+
+        val token = generation.incrementAndGet()
+        stopMediaOnly()
+
+        val personaId = persona?.id ?: "aate"
+        val spec = resolveVoiceSpec(ctx, personaId)
+
+        when (spec) {
+            is VoiceSpec.Android -> speakAndroid(clean, spec, token)
+            is VoiceSpec.Remote -> speakRemote(clean, spec, token)
+        }
+    }
+
+    fun previewPersona(personaId: String, sampleText: String = "Voice check. This is how I currently sound.") {
+        val ctx = appCtx ?: return
+        if (isMuted(ctx)) return
+        val clean = cleanForSpeech(sampleText)
+        val token = generation.incrementAndGet()
+        stopMediaOnly()
+
+        when (val spec = resolveVoiceSpec(ctx, personaId)) {
+            is VoiceSpec.Android -> speakAndroid(clean, spec, token)
+            is VoiceSpec.Remote -> speakRemote(clean, spec, token)
+        }
+    }
+
+    private fun resolveVoiceSpec(ctx: Context, personaId: String): VoiceSpec {
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        val overrideVoice = prefs.getString("tts_voice_$personaId", null)?.trim().orEmpty()
+        val overrideLocale = prefs.getString("tts_locale_$personaId", null)?.trim().orEmpty()
+
+        if (overrideVoice.isNotBlank()) {
+            return VoiceSpec.Remote(
+                voice = overrideVoice,
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = when (personaId) {
+                    "wallstreet" -> 1.12
+                    "zen" -> 0.88
+                    "narrator" -> 0.92
+                    "cowboy" -> 0.90
+                    else -> 1.0
+                },
+                fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId)
+            )
+        }
+
+        return when (personaId) {
+            "aate" -> VoiceSpec.Remote(
+                voice = "alloy",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 1.0,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "irishman" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-IE",
+                pitch = 0.98f,
+                speed = 1.03f,
+                preferredHints = listOf("ireland", "irish", "en-ie")
+            )
+
+            "gentleman" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-GB",
+                pitch = 0.96f,
+                speed = 0.94f,
+                preferredHints = listOf("gb", "uk", "british", "en-gb")
+            )
+
+            "cockney" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-GB",
+                pitch = 1.06f,
+                speed = 1.06f,
+                preferredHints = listOf("gb", "uk", "british", "en-gb")
+            )
+
+            "batman" -> VoiceSpec.Remote(
+                voice = "onyx",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 0.88,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "frasier" -> VoiceSpec.Remote(
+                voice = "fable",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 0.95,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "wallstreet" -> VoiceSpec.Remote(
+                voice = "ash",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 1.12,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "zen" -> VoiceSpec.Remote(
+                voice = "sage",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 0.88,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "cowboy" -> VoiceSpec.Remote(
+                voice = "alloy",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 0.90,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "hunter_s" -> VoiceSpec.Remote(
+                voice = "onyx",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 1.04,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "narrator" -> VoiceSpec.Remote(
+                voice = "fable",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 0.92,
+                fallbackLocaleTag = "en-US"
+            )
+
+            "pirate" -> VoiceSpec.Remote(
+                voice = "echo",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 1.00,
+                fallbackLocaleTag = "en-GB"
+            )
+
+            else -> VoiceSpec.Remote(
+                voice = "alloy",
+                model = prefs.getString(KEY_DEFAULT_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
+                speed = 1.0,
+                fallbackLocaleTag = "en-US"
+            )
+        }
+    }
+
+    private fun defaultLocaleForPersona(personaId: String): String {
+        return when (personaId) {
+            "irishman" -> "en-IE"
+            "gentleman", "cockney", "pirate" -> "en-GB"
+            "aate", "batman", "frasier", "wallstreet", "zen", "cowboy", "hunter_s", "narrator" -> "en-US"
+            else -> "en-US"
+        }
+    }
+
+    // Android TTS
+
+    private fun ensureTts() {
+        if (tts != null) return
+
+        synchronized(ttsInitLock) {
+            if (tts != null) return
+            val ctx = appCtx ?: return
+
+            tts = TextToSpeech(ctx) { status ->
+                ttsReady = (status == TextToSpeech.SUCCESS)
+                if (!ttsReady) {
+                    ErrorLogger.warn(TAG, "Android TTS init failed status=$status")
+                    return@TextToSpeech
+                }
+
+                try {
+                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            ErrorLogger.debug(TAG, "Android TTS start: $utteranceId")
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            ErrorLogger.debug(TAG, "Android TTS done: $utteranceId")
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            ErrorLogger.warn(TAG, "Android TTS error: $utteranceId")
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            ErrorLogger.warn(TAG, "Android TTS error: $utteranceId code=$errorCode")
+                        }
+                    })
+                } catch (t: Throwable) {
+                    ErrorLogger.warn(TAG, "Failed to attach TTS listener: ${t.message}")
+                }
+            }
+        }
+    }
+
+    private fun speakAndroid(text: String, spec: VoiceSpec.Android, token: Long) {
+        ensureTts()
+
+        Thread {
+            val deadline = System.currentTimeMillis() + 2500L
+            while (!ttsReady && System.currentTimeMillis() < deadline) {
+                try { Thread.sleep(50) } catch (_: InterruptedException) {}
+            }
+
+            if (!ttsReady) {
+                ErrorLogger.warn(TAG, "Android TTS not ready after wait")
+                return@Thread
+            }
+
+            if (token != generation.get()) return@Thread
+
+            try {
+                val engine = tts ?: return@Thread
+                val locale = Locale.forLanguageTag(spec.localeTag)
+
+                val langResult = engine.setLanguage(locale)
+                if (langResult == TextToSpeech.LANG_MISSING_DATA ||
+                    langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    engine.setLanguage(Locale.forLanguageTag("en-US"))
+                    ErrorLogger.warn(TAG, "Locale ${spec.localeTag} unavailable, using en-US")
+                }
+
+                val bestVoice = pickBestInstalledVoice(engine, locale, spec.preferredHints)
+                if (bestVoice != null) {
+                    try {
+                        engine.voice = bestVoice
+                        ErrorLogger.debug(TAG, "Selected Android voice=${bestVoice.name}")
+                    } catch (t: Throwable) {
+                        ErrorLogger.warn(TAG, "Setting Android voice failed: ${t.message}")
+                    }
+                }
+
+                engine.setPitch(spec.pitch.coerceIn(0.6f, 1.4f))
+                engine.setSpeechRate(spec.speed.coerceIn(0.7f, 1.3f))
+
+                val utteranceId = "aate-${token}-${System.currentTimeMillis()}"
+                engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            } catch (t: Throwable) {
+                ErrorLogger.warn(TAG, "Android speak failed: ${t.message}")
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun pickBestInstalledVoice(
+        engine: TextToSpeech,
+        locale: Locale,
+        hints: List<String>
+    ): android.speech.tts.Voice? {
+        return try {
+            val voices = engine.voices ?: return null
+            val langTag = locale.toLanguageTag().lowercase(Locale.US)
+
+            val exactLocale = voices.filter { it.locale?.toLanguageTag()?.equals(locale.toLanguageTag(), true) == true }
+            val byHints = exactLocale.firstOrNull { voice ->
+                val hay = "${voice.name} ${voice.locale?.toLanguageTag()}".lowercase(Locale.US)
+                hints.any { hay.contains(it.lowercase(Locale.US)) }
+            }
+
+            byHints
+                ?: exactLocale.firstOrNull { !it.isNetworkConnectionRequired }
+                ?: exactLocale.firstOrNull()
+                ?: voices.firstOrNull {
+                    it.locale?.language?.equals(locale.language, true) == true &&
+                        !it.isNetworkConnectionRequired
+                }
+                ?: voices.firstOrNull {
+                    it.locale?.toLanguageTag()?.lowercase(Locale.US)?.contains(langTag.substringBefore("-")) == true
+                }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    // Remote TTS
+
+    private fun speakRemote(text: String, spec: VoiceSpec.Remote, token: Long) {
+        val ctx = appCtx ?: return
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        val apiUrl = prefs.getString(KEY_API_URL, DEFAULT_TTS_URL)?.trim().orEmpty()
+        val apiKey = prefs.getString(KEY_API_KEY, "")?.trim().orEmpty()
+
+        if (apiUrl.isBlank() || apiKey.isBlank()) {
+            ErrorLogger.warn(TAG, "Remote TTS missing URL/key, falling back to Android")
+            speakAndroid(
+                text = text,
+                spec = VoiceSpec.Android(localeTag = spec.fallbackLocaleTag),
+                token = token
+            )
+            return
+        }
+
+        val trimmed = text.take(1200)
+
+        Thread {
+            try {
+                if (token != generation.get()) return@Thread
+
+                val body = JSONObject().apply {
+                    put("model", spec.model)
+                    put("voice", spec.voice)
+                    put("input", trimmed)
+                    put("response_format", "mp3")
+                    put("speed", spec.speed)
+                }
+
+                val req = Request.Builder()
+                    .url(apiUrl)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Content-Type", "application/json")
+                    .post(body.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                http.newCall(req).execute().use { resp ->
+                    if (token != generation.get()) return@use
+
+                    if (!resp.isSuccessful) {
+                        val err = resp.body?.string().orEmpty().take(300)
+                        ErrorLogger.warn(TAG, "Remote TTS HTTP ${resp.code}: $err")
+                        speakAndroid(
+                            text = trimmed,
+                            spec = VoiceSpec.Android(localeTag = spec.fallbackLocaleTag),
+                            token = token
+                        )
+                        return@use
+                    }
+
+                    val bytes = resp.body?.bytes()
+                    if (bytes == null || bytes.isEmpty()) {
+                        ErrorLogger.warn(TAG, "Remote TTS empty body")
+                        speakAndroid(
+                            text = trimmed,
+                            spec = VoiceSpec.Android(localeTag = spec.fallbackLocaleTag),
+                            token = token
+                        )
+                        return@use
+                    }
+
+                    if (token != generation.get()) return@use
+
+                    val outFile = File(ctx.cacheDir, "tts_${token}_${UUID.randomUUID()}.mp3")
+                    outFile.writeBytes(bytes)
+
+                    playMp3(outFile, token)
+                }
+            } catch (t: Throwable) {
+                ErrorLogger.warn(TAG, "Remote TTS failed: ${t.message}")
+                try {
+                    speakAndroid(
+                        text = trimmed,
+                        spec = VoiceSpec.Android(localeTag = spec.fallbackLocaleTag),
+                        token = token
+                    )
+                } catch (_: Throwable) {}
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun playMp3(file: File, token: Long) {
+        if (token != generation.get()) {
+            try { file.delete() } catch (_: Throwable) {}
+            return
+        }
+
+        try {
+            stopMediaOnly()
+
+            val mp = MediaPlayer()
+            mediaPlayer = mp
+
+            mp.setDataSource(file.absolutePath)
+
+            mp.setOnCompletionListener {
+                try { it.release() } catch (_: Throwable) {}
+                if (mediaPlayer === it) mediaPlayer = null
+                try { file.delete() } catch (_: Throwable) {}
+            }
+
+            mp.setOnErrorListener { player, what, extra ->
+                ErrorLogger.warn(TAG, "MediaPlayer error $what/$extra")
+                try { player.release() } catch (_: Throwable) {}
+                if (mediaPlayer === player) mediaPlayer = null
+                try { file.delete() } catch (_: Throwable) {}
+                true
+            }
+
+            mp.prepare()
+
+            if (token != generation.get()) {
+                try { mp.release() } catch (_: Throwable) {}
+                if (mediaPlayer === mp) mediaPlayer = null
+                try { file.delete() } catch (_: Throwable) {}
+                return
+            }
+
+            mp.start()
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "playMp3 failed: ${t.message}")
+            try { file.delete() } catch (_: Throwable) {}
+        }
+    }
+
+    private fun stopMediaOnly() {
+        try { mediaPlayer?.stop() } catch (_: Throwable) {}
+        try { mediaPlayer?.reset() } catch (_: Throwable) {}
+        try { mediaPlayer?.release() } catch (_: Throwable) {}
+        mediaPlayer = null
+    }
+
+    // Sanitisation
+
+    private fun cleanForSpeech(raw: String): String {
+        var s = raw
+
+        s = s.replace(Regex("```[\\s\\S]*?```"), " ")
+        s = s.replace(Regex("`([^`]*)`"), "$1")
+        s = s.replace(Regex("\\[([^\\]]+)]\\(([^)]+)\\)"), "$1")
+        s = s.replace(Regex("https?://\\S+"), "link")
+        s = s.replace("&", " and ")
+        s = s.replace("@", " at ")
+        s = s.replace(Regex("[*_#>`~]"), " ")
+        s = s.replace(Regex("\\b([A-Z]{2,})\\b")) { match ->
+            match.value.toCharArray().joinToString(" ") { it.toString() }
+        }
+        s = s.replace(Regex("\\s+"), " ").trim()
+
+        return s
     }
 }
