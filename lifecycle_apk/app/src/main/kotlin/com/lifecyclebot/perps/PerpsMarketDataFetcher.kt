@@ -693,23 +693,24 @@ object PerpsMarketDataFetcher {
     }
     
     private fun createSolMarketData(price: Double): PerpsMarketData {
-        // Generate realistic-looking mock data
-        val change24h = (Math.random() * 10 - 5)  // -5% to +5%
-        
+        // V5.9.86: no simulated randomness. When we only have a price we don't
+        // invent OI/volume/funding/mark deltas — leave them zeroed so downstream
+        // can tell "data unavailable" vs a real feed. Display layers already
+        // render "--" for zero-valued fields.
         return PerpsMarketData(
             market = PerpsMarket.SOL,
             price = price,
             indexPrice = price,
-            markPrice = price * (1 + Math.random() * 0.002 - 0.001),  // Slight deviation
-            fundingRate = (Math.random() * 0.0002 - 0.0001),
-            fundingRateAnnualized = (Math.random() * 0.0002 - 0.0001) * 365 * 3 * 100,
-            nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,
-            openInterestLong = 50_000_000.0 + Math.random() * 10_000_000,
-            openInterestShort = 45_000_000.0 + Math.random() * 10_000_000,
-            volume24h = 100_000_000.0 + Math.random() * 50_000_000,
-            high24h = price * (1 + Math.abs(change24h) / 100 + 0.01),
-            low24h = price * (1 - Math.abs(change24h) / 100 - 0.01),
-            priceChange24hPct = change24h,
+            markPrice = price,
+            fundingRate = 0.0,
+            fundingRateAnnualized = 0.0,
+            nextFundingTime = 0,
+            openInterestLong = 0.0,
+            openInterestShort = 0.0,
+            volume24h = 0.0,
+            high24h = price,
+            low24h = price,
+            priceChange24hPct = 0.0,
         )
     }
     
@@ -792,40 +793,23 @@ object PerpsMarketDataFetcher {
      * Calculate funding rate based on market conditions
      */
     private fun calculateFundingRate(market: PerpsMarket): Double {
-        // In production, would fetch from exchange
-        // For now, simulate based on market
-        return when (market) {
-            PerpsMarket.SOL -> (Math.random() * 0.0002 - 0.0001)  // -0.01% to +0.01%
-            else -> 0.0  // No funding for stocks
-        }
+        // V5.9.86: no simulated funding rates. Returning 0.0 signals "unknown".
+        // Downstream leverage accounting already treats 0.0 as no funding cost.
+        return 0.0
     }
     
     /**
-     * Get estimated open interest
+     * Get estimated open interest — V5.9.86: returns 0.0 (unknown) instead of
+     * a randomised fake, so the UI can show "--" and the bot never uses a
+     * fabricated OI value for gating or sizing decisions.
      */
-    private fun getEstimatedOI(market: PerpsMarket, isLong: Boolean): Double {
-        val baseOI = when (market) {
-            PerpsMarket.SOL -> 100_000_000.0
-            PerpsMarket.NVDA -> 50_000_000.0
-            PerpsMarket.TSLA -> 40_000_000.0
-            else -> 20_000_000.0
-        }
-        
-        val ratio = if (isLong) 0.55 else 0.45  // Slight long bias
-        return baseOI * ratio * (0.9 + Math.random() * 0.2)
-    }
+    private fun getEstimatedOI(market: PerpsMarket, isLong: Boolean): Double = 0.0
     
     /**
-     * Get estimated 24h volume
+     * Get estimated 24h volume — V5.9.86: returns 0.0 (unknown) instead of a
+     * randomised fake. No fabricated volume anywhere in the hot path.
      */
-    private fun getEstimatedVolume(market: PerpsMarket): Double {
-        return when (market) {
-            PerpsMarket.SOL -> 500_000_000.0 + Math.random() * 200_000_000
-            PerpsMarket.NVDA -> 200_000_000.0 + Math.random() * 100_000_000
-            PerpsMarket.TSLA -> 150_000_000.0 + Math.random() * 75_000_000
-            else -> 50_000_000.0 + Math.random() * 25_000_000
-        }
-    }
+    private fun getEstimatedVolume(market: PerpsMarket): Double = 0.0
     
     /**
      * Calculate price change percentage

@@ -593,6 +593,16 @@ class MultiAssetActivity : AppCompatActivity() {
     
     // V5.7.6b: Set mode for all traders
     private fun setAllTradersMode(live: Boolean) {
+        // V5.9.86: Purge stale in-memory paper positions for traders that do
+        // NOT persist state (Forex / Metals / Commodities). Prevents phantom
+        // rows from a previous paper session polluting the new mode, which
+        // caused "position not found" on close and inflated open counts.
+        try {
+            ForexTrader.purgeAllPositions("MODE_FLIP→${if (live) "LIVE" else "PAPER"}")
+            MetalsTrader.purgeAllPositions("MODE_FLIP→${if (live) "LIVE" else "PAPER"}")
+            CommoditiesTrader.purgeAllPositions("MODE_FLIP→${if (live) "LIVE" else "PAPER"}")
+        } catch (_: Exception) {}
+
         TokenizedStockTrader.setLiveMode(live)
         CommoditiesTrader.setLiveMode(live)
         MetalsTrader.setLiveMode(live)

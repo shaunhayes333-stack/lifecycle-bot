@@ -831,6 +831,20 @@ object ForexTrader {
             } catch (_: Exception) {}
         }
     }
+
+    /**
+     * V5.9.86: Wipe in-memory paper positions. Called on mode-flip so that
+     * stale paper rows (entirely in-RAM for Forex/Metals/Commodities) don't
+     * pretend to be live positions and can't be "closed" into the void.
+     * Safe: Forex never persists, so this never touches disk/Turso.
+     */
+    fun purgeAllPositions(reason: String = "MODE_FLIP") {
+        val total = spotPositions.size + leveragePositions.size
+        if (total == 0) return
+        spotPositions.clear()
+        leveragePositions.clear()
+        ErrorLogger.info(TAG, "🧹 ForexTrader: purged $total stale positions ($reason)")
+    }
     
     fun updateLiveBalance(balanceSol: Double) {
         liveWalletBalance = balanceSol

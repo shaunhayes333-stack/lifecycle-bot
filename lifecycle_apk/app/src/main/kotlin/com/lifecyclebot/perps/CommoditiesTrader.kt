@@ -847,6 +847,15 @@ object CommoditiesTrader {
             } catch (_: Exception) {}
         }
     }
+
+    /** V5.9.86: Wipe stale in-memory paper positions. See ForexTrader.purgeAllPositions. */
+    fun purgeAllPositions(reason: String = "MODE_FLIP") {
+        val total = spotPositions.size + leveragePositions.size
+        if (total == 0) return
+        spotPositions.clear()
+        leveragePositions.clear()
+        ErrorLogger.info(TAG, "🧹 CommoditiesTrader: purged $total stale positions ($reason)")
+    }
     
     fun updateLiveBalance(balanceSol: Double) {
         liveWalletBalance = balanceSol
