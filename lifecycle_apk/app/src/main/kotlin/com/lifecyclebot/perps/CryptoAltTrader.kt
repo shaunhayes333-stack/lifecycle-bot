@@ -630,16 +630,13 @@ object CryptoAltTrader {
                 ErrorLogger.debug(TAG, "Max positions reached")
                 break
             }
-            // V5.9.91: SOFT CAP — over 30 open, replace weakest if signal clearly beats it
-            if (positions.size >= SOFT_CAP_POSITIONS) {
-                val weakest = positions.values.minByOrNull { it.aiScore }
-                if (weakest == null || signal.score < weakest.aiScore + REPLACE_SCORE_MARGIN) {
-                    ErrorLogger.debug(TAG, "🪙 soft cap hit (${positions.size}) — signal ${signal.market.symbol}(${signal.score}) doesn't beat weakest ${weakest?.market?.symbol}(${weakest?.aiScore}) by $REPLACE_SCORE_MARGIN")
-                    continue
-                }
-                ErrorLogger.info(TAG, "🪙♻️ PRIORITY REPLACE: closing ${weakest.market.symbol}(score=${weakest.aiScore}) to make room for ${signal.market.symbol}(score=${signal.score})")
-                closePosition(weakest.id, "REPLACED_BY_HIGHER_SCORE")
-            }
+            // V5.9.98: Soft cap + priority-replace removed per user — it was
+            // blocking genuine top-5 signals (SHIB 76, MNGO 74, XLM 74,
+            // ALPHA 74, AUDIO 74) because the current book of 39 held
+            // positions all had score >= 84. Let every qualifying signal
+            // open; MAX_POSITIONS (10_000) remains as the hard sanity
+            // bound. Fluid position size already shrinks low-conviction
+            // entries so over-cap risk is naturally bounded.
 
             // V5.9.3: Respect the UI SPOT/LEVERAGE toggle instead of alternating by parity
             val useSpotDefault = !preferLeverage.get()
