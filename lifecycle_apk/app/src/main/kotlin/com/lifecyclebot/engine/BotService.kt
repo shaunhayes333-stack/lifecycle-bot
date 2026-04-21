@@ -4242,7 +4242,13 @@ if (deferredCount > 0) {
             try {
                 val scanResult = SmartChartScanner.quickScan(ts)
                 if (scanResult != null && scanResult.confidence >= 60) {
-                    // Log significant patterns
+                    // V5.9.91: cache so the entry path can consume the
+                    // bearish signal instead of ignoring it.
+                    SmartChartCache.update(
+                        mint = ts.mint,
+                        bias = scanResult.overallBias,
+                        confidence = scanResult.confidence
+                    )
                     val patternStr = buildString {
                         scanResult.candlePatterns.forEach { append(it.emoji) }
                         scanResult.chartPatterns.forEach { append(it.emoji) }

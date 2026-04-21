@@ -530,6 +530,17 @@ object PerpsMarketDataFetcher {
      * V5.7.4: Improved fallback handling and logging
      */
     private suspend fun fetchFromPythOracle(market: PerpsMarket): PerpsMarketData {
+        // V5.9.91: Pyth doesn't publish feeds for most exotic FX (USDBRL,
+        // USDTRY, USDRUB, USDSGD, EURGBP, CADJPY…) nor soft commodities
+        // (COFFEE, COCOA, WHEAT, SUGAR…) nor micro-cap crypto (BLAST, SCROLL,
+        // PORTAL, CVXF…). Previously we still hit the Pyth API every cycle
+        // for all of them, got NULL, then fell back → 25+ wasted round-trips
+        // per tick. Gate on the official supported-symbol list and skip
+        // straight to the fallback path for everything else.
+        val pythSupported = PythOracle.getSupportedSymbols()
+        if (!pythSupported.contains(market.symbol)) {
+            return fetchFallbackForMarket(market)
+        }
         try {
             val pythPrice = PythOracle.getPrice(market.symbol)
             
@@ -612,6 +623,15 @@ object PerpsMarketDataFetcher {
         }
         
         // Fallback to legacy method with comprehensive stockPrices
+        return fetchFallbackForMarket(market)
+    }
+
+    /**
+     * V5.9.91: Shared fallback dispatcher — used both as the post-Pyth
+     * fallback and as the direct path when the symbol isn't in Pyth's
+     * supported list (avoids an unnecessary Pyth round-trip).
+     */
+    private suspend fun fetchFallbackForMarket(market: PerpsMarket): PerpsMarketData {
         return when (market) {
             PerpsMarket.SOL -> fetchSolDataFallback()
             else -> fetchStockDataFallback(market)

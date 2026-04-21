@@ -2448,6 +2448,19 @@ class Executor(
             "quality=${decision.finalQuality} | edge=${decision.edgePhase} | " +
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
             "paper=$isPaper | autoTrade=${cfg().autoTrade}")
+
+        // V5.9.91: SmartChart veto. If the multi-timeframe scanner reads >=80%
+        // bearish with >=70 confidence in the last 2 min, skip the LONG entry.
+        // This fixes the contradictory log pattern where SmartChart said
+        // "BEARISH (100%)" and V3 still ran EXECUTE_AGGRESSIVE on the same tick.
+        run {
+            val bearish = SmartChartCache.getBearishConfidence(ts.mint)
+            if (bearish != null && bearish >= 80.0) {
+                ErrorLogger.info("Executor", "🚫 SMARTCHART_BLOCK: ${ts.symbol} | bearish=${bearish.toInt()}% — skipping LONG entry")
+                onLog("🚫 ${ts.symbol}: SmartChart ${bearish.toInt()}% bearish — skip entry", ts.mint)
+                return
+            }
+        }
         
         if (ts.history.size >= 3) {
             val recentCandles = ts.history.takeLast(3)

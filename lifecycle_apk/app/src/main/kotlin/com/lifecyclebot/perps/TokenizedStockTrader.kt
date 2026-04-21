@@ -36,7 +36,7 @@ import kotlin.math.abs
  */
 object TokenizedStockTrader {
     
-    private const val TAG = "📈StockTrader"
+    private const val TAG = "📈MarketsTrader"
     
     // ═══════════════════════════════════════════════════════════════════════════
     // CONFIGURATION
@@ -545,12 +545,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) }
         val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) }
         
-        // V5.7.8: ALSO scan crypto perps (SOL, BTC, ETH, BNB, XRP) — they trade 24/7
-        val cryptoMarkets = PerpsMarket.values().filter { !it.isStock && it.tradingHours == "24/7" }
-        
-        // Trade crypto first (always active), then Pyth stocks, then others
-        val stockMarkets = cryptoMarkets + pythStocks + otherStocks.take(10)
-        ErrorLogger.info(TAG, "📈 Scanning ${cryptoMarkets.size} crypto + ${pythStocks.size} Pyth stocks + ${otherStocks.take(10).size} others")
+        // V5.9.91: Crypto is fully owned by CryptoAltTrader now — TST
+        // scanning them too produced duplicate low-conviction signals on the
+        // same symbols (SAND/MANA/AXS/XTZ/EOS/...). Stocks/Pyth stocks only.
+        val stockMarkets = pythStocks + otherStocks.take(10)
+        ErrorLogger.info(TAG, "📈 Scanning ${pythStocks.size} Pyth stocks + ${otherStocks.take(10).size} others (crypto handled by CryptoAltTrader)")
         
         // Fetch prices and generate signals
         val signals = mutableListOf<StockSignal>()

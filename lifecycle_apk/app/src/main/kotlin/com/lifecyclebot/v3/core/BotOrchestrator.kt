@@ -79,11 +79,18 @@ class BotOrchestrator(
 
         val scoreCard = unifiedScorer.score(candidate, ctx)
         lifecycle.mark(candidate.mint, LifecycleState.SCORED)
+        // V5.9.91: health summary so it's visible at a glance which layers are
+        // actually contributing. If active/total stays <8/22 across many
+        // tokens, the scoring system is starved of inputs — not the quality
+        // grader.
+        val active = scoreCard.components.count { it.value != 0 }
+        val positive = scoreCard.components.count { it.value > 0 }
+        val total = scoreCard.components.size
         logger.stage(
             "SCORING",
             candidate.symbol,
             "OK",
-            "total=${scoreCard.total} :: ${
+            "total=${scoreCard.total} layers=$active/$total active ($positive pos) :: ${
                 scoreCard.components.joinToString(" | ") { "${it.name}=${it.value}" }
             }"
         )

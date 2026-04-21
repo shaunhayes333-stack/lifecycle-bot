@@ -63,6 +63,12 @@ object CryptoAltTrader {
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
     private const val MAX_POSITIONS         = 10_000
+    // V5.9.91: SOFT cap — once positions exceed this, new entries only open
+    // by REPLACING the weakest open position (lowest entry score) when the
+    // incoming signal outscores it. Keeps capital rotating instead of
+    // saturating at 110+ dead trades.
+    private const val SOFT_CAP_POSITIONS    = 30
+    private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -623,6 +629,16 @@ object CryptoAltTrader {
             if (positions.size >= MAX_POSITIONS) {
                 ErrorLogger.debug(TAG, "Max positions reached")
                 break
+            }
+            // V5.9.91: SOFT CAP — over 30 open, replace weakest if signal clearly beats it
+            if (positions.size >= SOFT_CAP_POSITIONS) {
+                val weakest = positions.values.minByOrNull { it.aiScore }
+                if (weakest == null || signal.score < weakest.aiScore + REPLACE_SCORE_MARGIN) {
+                    ErrorLogger.debug(TAG, "🪙 soft cap hit (${positions.size}) — signal ${signal.market.symbol}(${signal.score}) doesn't beat weakest ${weakest?.market?.symbol}(${weakest?.aiScore}) by $REPLACE_SCORE_MARGIN")
+                    continue
+                }
+                ErrorLogger.info(TAG, "🪙♻️ PRIORITY REPLACE: closing ${weakest.market.symbol}(score=${weakest.aiScore}) to make room for ${signal.market.symbol}(score=${signal.score})")
+                closePosition(weakest.id, "REPLACED_BY_HIGHER_SCORE")
             }
 
             // V5.9.3: Respect the UI SPOT/LEVERAGE toggle instead of alternating by parity
