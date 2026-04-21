@@ -6072,7 +6072,20 @@ if (deferredCount > 0) {
     // LEGACY FALLBACK: Only runs if V3 is disabled
     // This path will be deprecated once V3 is fully validated
     // ═══════════════════════════════════════════════════════════════════
-    
+
+    // V5.9.94: Actually enforce what the comment above promised. When V3 is
+    // enabled, the legacy PROMOTION_GATE / FDG pipeline below is dead code
+    // but was still firing for tokens where V3 was skipped at 4325 (either
+    // because ts.position.isOpen == true, or V3EngineManager.isReady() was
+    // false). Those emissions produced the phantom "[V3|PROMOTION_GATE] X
+    // | allow=false | → SHADOW_ONLY" lines we saw on BULL / SNOW / LENS /
+    // UN / dog / MSGA / RCSC / TERMINAL / CATEROID / SIF / 1 — none of
+    // which were ever V3-scored. Hard-gate on cfg.v3EngineEnabled so the
+    // legacy path is genuinely deprecated when V3 is on.
+    if (cfg.v3EngineEnabled) {
+        return
+    }
+
     // Legacy suppression penalty (for comparison logging)
     val suppressionPenalty = DistributionFadeAvoider.getSuppressionPenalty(identity.mint)
     
