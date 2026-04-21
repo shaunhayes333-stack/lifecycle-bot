@@ -565,16 +565,21 @@ object EdgeOptimizer {
             )
         }
         
-        // Grade the trade
+        // Grade the trade — V5.9.90: More paths to A / A+ so quality isn't a
+        // constant "B" as it was in practice. Was: only REACCUM+optimal or
+        // EXPANSION+buyPct>56 reached A. Now optimal-entry + strong pressure
+        // also qualifies.
         val quality = when {
+            phase.phase == MarketPhase.REACCUMULATION && entryTiming.isOptimalEntry && buyPct > 55 -> "A+"
+            phase.phase == MarketPhase.EXPANSION && buyPct > 62 -> "A+"
             phase.phase == MarketPhase.REACCUMULATION && entryTiming.isOptimalEntry -> "A"
             phase.phase == MarketPhase.EXPANSION && buyPct > 56 -> "A"
+            entryTiming.isOptimalEntry && buyPct > 58 -> "A"  // optimal + strong pressure
             entryTiming.isOptimalEntry -> "B"
             phase.phase == MarketPhase.EXPANSION -> "B"
             phase.phase == MarketPhase.EARLY_ACCUMULATION && buyPct > 50 -> "B"
-            // NEW: UNKNOWN phase with strong buyers gets C (not SKIP)
             phase.phase == MarketPhase.UNKNOWN && buyPct >= 55 -> "C"
-            lenient && buyPct >= 45 -> "C"  // Lenient (paper/proven-edge): allow C quality for learning
+            lenient && buyPct >= 45 -> "C"
             else -> "C"
         }
         

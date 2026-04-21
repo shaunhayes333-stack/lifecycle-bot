@@ -720,7 +720,10 @@ object CashGenerationAI {
 
         ErrorLogger.info(
             TAG,
-            "💰 TREASURY ENTRY: $symbol | " +
+            // V5.9.90: renamed from "TREASURY ENTRY" — this log fires when
+            // CashGen APPROVES the signal; actual entry is still gated by
+            // BotService cooldown / duplicates / safety checks downstream.
+            "💰 TREASURY SIGNAL: $symbol | " +
                 "score=$treasuryScore conf=${treasuryConfidence}% | " +
                 "size=${positionSol.fmt(3)} SOL (dailyPnl=${dailyPnl.fmt(2)}◎) | " +
                 "TP=${takeProfitPct.fmt(1)}% SL=${stopLossPct.fmt(1)}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}",

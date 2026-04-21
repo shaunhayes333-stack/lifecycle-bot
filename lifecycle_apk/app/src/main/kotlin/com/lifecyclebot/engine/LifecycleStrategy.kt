@@ -981,7 +981,8 @@ class LifecycleStrategy(
             
             setupQuality = when {
                 qualityScore >= 7 -> "A+"   // Excellent setup
-                qualityScore >= 4 -> "B"    // Good setup  
+                qualityScore >= 5 -> "A"    // V5.9.90: strong setup (new tier)
+                qualityScore >= 3 -> "B"    // V5.9.90: relaxed from 4 — good setup
                 else -> "C"                  // Basic setup
             }
             
@@ -3064,7 +3065,8 @@ class LifecycleStrategy(
         
         setupQuality = when {
             qualityScore >= 6 -> "A+"   // Excellent setup
-            qualityScore >= 3 -> "B"    // Good setup
+            qualityScore >= 4 -> "A"    // V5.9.90: strong setup (new tier)
+            qualityScore >= 2 -> "B"    // V5.9.90: good setup (relaxed from 3)
             else -> "C"                  // Basic setup
         }
         
