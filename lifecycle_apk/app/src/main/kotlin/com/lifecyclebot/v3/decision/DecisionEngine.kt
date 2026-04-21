@@ -399,10 +399,20 @@ class FinalDecisionEngine(
         val effectiveMinConf = minConfForExecute - starvationRelief
         val effectiveCGradeConf = cGradeMinConf - starvationRelief
 
+        // V5.9.93: Tie EXECUTE_AGGRESSIVE confidence floor to the downstream
+        // TradeAuthorizer promotion-gate floor (B-grade needs conf >= 40, C
+        // needs conf >= 25). Previously the band could select
+        // EXECUTE_AGGRESSIVE at conf ~30 and the gate would then post-hoc
+        // downgrade to SHADOW_ONLY. Raise the aggressive floor so the band
+        // and the gate agree.
+        val aggressiveConfFloor = maxOf(effectiveMinConf + 10, 40)
+        val standardConfFloor   = maxOf(effectiveMinConf, if (isCGrade) 25 else 40)
+        val smallConfFloor      = maxOf(effectiveCGradeConf, 25)
+
         val band = when {
-            hasMomentumOrVolume && score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= effectiveMinConf + 10 -> DecisionBand.EXECUTE_AGGRESSIVE
-            hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= effectiveMinConf -> DecisionBand.EXECUTE_STANDARD
-            hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= effectiveCGradeConf -> DecisionBand.EXECUTE_SMALL
+            hasMomentumOrVolume && score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
+            hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= standardConfFloor -> DecisionBand.EXECUTE_STANDARD
+            hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }

@@ -1,6 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.core.LayerHealthTracker
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.v3.arb.ArbScannerAI
 import com.lifecyclebot.v3.arb.ArbEvaluation
@@ -87,6 +88,9 @@ class UnifiedScorer(
             // V5.7.4 INSIDER TRACKER AI - Layer 27
             insiderTrackerScore(candidate)                     // Insider wallet monitoring
         )
+
+        // V5.9.93: record per-layer health so zero-emit layers surface in logs
+        try { LayerHealthTracker.record(baseComponents) } catch (_: Exception) {}
         
         // ═══════════════════════════════════════════════════════════════════════
         // V5.8: SOFT PENALTY CAP — cap combined negative from subjective/noisy factors

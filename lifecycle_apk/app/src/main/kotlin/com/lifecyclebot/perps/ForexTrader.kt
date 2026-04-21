@@ -454,7 +454,9 @@ object ForexTrader {
             } catch (_: Exception) {}
         }
         val balance = getEffectiveBalance()
-        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0).coerceAtLeast(0.01)
+        // V5.9.93: fluid sizing — scale base 5% by conviction (0.45x..2.00x)
+        val sizeMult = PerpsFluidSizing.sizeMultiplier(signal.score, signal.confidence)
+        val positionSizeSol = (balance * DEFAULT_SIZE_PCT / 100.0 * sizeMult).coerceAtLeast(0.01)
         if (balance < positionSizeSol) {
             ErrorLogger.warn(TAG, "💱 Insufficient balance for ${signal.market.symbol}")
             return
@@ -471,16 +473,22 @@ object ForexTrader {
             return  // Live mode: done. No paper position.
         }
         
+        // V5.9.93: fluid TP/SL
+        val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
+        val baseTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+        val tpPct = baseTpPct * tpMult
+        val slPct = SL_PERCENT * slMult
+
         val tp = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 + com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
+            signal.price * (1 + tpPct / 100)
         } else {
-            signal.price * (1 - com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() / 100)
+            signal.price * (1 - tpPct / 100)
         }
         
         val sl = if (signal.direction == PerpsDirection.LONG) {
-            signal.price * (1 - SL_PERCENT / 100)
+            signal.price * (1 - slPct / 100)
         } else {
-            signal.price * (1 + SL_PERCENT / 100)
+            signal.price * (1 + slPct / 100)
         }
         
         val position = ForexPosition(

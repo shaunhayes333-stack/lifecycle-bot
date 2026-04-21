@@ -4446,7 +4446,21 @@ if (deferredCount > 0) {
             // V4.0 FIX: But Treasury CANNOT override V3 rejections!
             // If V3 REJECTED/BLOCKED a token, Treasury must respect that decision.
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+            // V5.9.93: ONE-BOOK-PER-TOKEN lockout. When V3 is about to
+            // EXECUTE the CORE book on this same tick, skip Treasury
+            // entirely — the audit showed Treasury and V3 opening the
+            // same mint on the same tick (double-buy, conflicting TP/SL
+            // ladders). Treasury will re-evaluate on later ticks once
+            // the CORE position is open/closed.
+            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute
+            if (v3WillExecuteCore) {
+                ErrorLogger.info(
+                    "BotService",
+                    "💰 [TREASURY] ${ts.symbol} | SKIP | V3_EXECUTE_SAME_TICK — one book per token"
+                )
+            }
+
+            if (!v3WillExecuteCore && !ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 try {
                     // ═══════════════════════════════════════════════════════════════════
                     // V4.0 FIX: CHECK FINAL EXECUTION PERMIT
@@ -5815,6 +5829,31 @@ if (deferredCount > 0) {
                     }
                     
                     if (!cfg.v3ShadowMode) {
+                        // V5.9.93: FRESH-LAUNCH DRAWDOWN GATE
+                        // When SmartChart has < 10 candles, it cannot veto
+                        // bearish moves, so substitute a simple drawdown
+                        // check: skip the entry if price has dropped more
+                        // than 15% from the earliest recorded candle (pool
+                        // formation). Protects against brand-new rugs.
+                        run {
+                            val candles = ts.history
+                            if (candles.size in 1..9) {
+                                val firstPrice = candles.first().priceUsd
+                                if (firstPrice > 0.0 && ts.ref > 0.0) {
+                                    val drawdownPct = ((ts.ref - firstPrice) / firstPrice) * 100.0
+                                    if (drawdownPct <= -15.0) {
+                                        ErrorLogger.info(
+                                            "BotService",
+                                            "[V3|FRESH_DRAWDOWN] ${identity.symbol} | SKIP | " +
+                                                "candles=${candles.size} dd=${drawdownPct.toInt()}% " +
+                                                "(first=${firstPrice} now=${ts.ref})"
+                                        )
+                                        return
+                                    }
+                                }
+                            }
+                        }
+
                         // V5.2: MUST check TradeAuthorizer BEFORE any execution
                         val authResult = TradeAuthorizer.authorize(
                             mint = ts.mint,
@@ -5889,6 +5928,11 @@ if (deferredCount > 0) {
                         ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")
                         addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)
                     }
+                    // V5.9.93: V3 owns the decision when enabled — do NOT fall
+                    // through to the legacy PROMOTION_GATE path, which was
+                    // post-hoc emitting SHADOW_ONLY after the core buy already
+                    // fired. Treasury and all other layer evaluations ran above.
+                    return
                 }
                 
                 is com.lifecyclebot.v3.V3Decision.Watch -> {
@@ -5921,6 +5965,9 @@ if (deferredCount > 0) {
                     // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
                     // ═══════════════════════════════════════════════════════════════════
                     // Previously: return (BLOCKED Treasury Mode!)
+                    // V5.9.93: Treasury already evaluated above (line ~4449).
+                    // Returning here prevents legacy PROMOTION_GATE co-firing.
+                    return
                 }
                 
                 is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
@@ -6007,12 +6054,13 @@ if (deferredCount > 0) {
             return
         }
         
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.3 FIX: DO NOT RETURN HERE!
-        // Treasury Mode runs CONCURRENTLY and must evaluate ALL tokens,
-        // including those that V3 marked as WATCH/Execute.
-        // Previously: return (this KILLED Treasury Mode entirely!)
-        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.93: Any V3-enabled code path that reaches here (e.g. Rejected
+        // with SHITCOIN_CANDIDATE routing, which intentionally falls through
+        // the when) should NOT re-enter the legacy PROMOTION_GATE/FDG pipeline
+        // — all eligible layers (Treasury, ShitCoin, BlueChip, Moonshot, DIP)
+        // have already evaluated above. Returning here prevents the
+        // post-hoc SHADOW_ONLY emission we saw in the audit log.
+        return
     }
     
     // ═══════════════════════════════════════════════════════════════════
