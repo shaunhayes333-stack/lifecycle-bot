@@ -276,52 +276,53 @@ object VoiceManager {
 
 
     private fun defaultRemoteVoiceForPersona(personaId: String): String {
-        // V5.9.88 — constrained to the 9 voices the Emergent proxy actually
-        // supports (alloy/ash/coral/echo/fable/nova/onyx/sage/shimmer).
-        // `ballad`, `verse`, `marin`, `cedar` are rejected and silently fall
-        // back to Android TTS, which is why voices sounded identical before.
+        // V5.9.89 — Restricted to the voices that are UNAMBIGUOUSLY MALE in
+        // the OpenAI TTS lineup. Previous map used `fable` and `echo` — both
+        // are androgynous-to-feminine in practice, which is why male
+        // personas like irishman / gentleman kept coming out female.
         //
-        // Male-leaning: ash, echo, fable, onyx (4 distinct timbres)
-        // Neutral-ish: alloy, sage
-        // Female: coral, nova, shimmer (waifu only)
+        // Safe male voices: onyx (deep), ash (articulate), alloy (neutral).
+        // Distinct personas same-voice are differentiated by speed (0.72..1.22).
+        // `sage` stays only on zen (genuinely neutral contemplative voice).
+        // `nova` stays only on waifu (the single female persona).
         return when (personaId) {
-            "aate"       -> "alloy"   // neutral bot
-            "irishman"   -> "fable"   // storytelling male, lyrical
+            "aate"       -> "alloy"   // neutral male default
+            "irishman"   -> "alloy"   // lively neutral male (accent via speed lift)
             "batman"     -> "onyx"    // deepest gravelly male
-            "gentleman"  -> "fable"   // British-leaning storyteller
-            "frasier"    -> "ash"     // articulate American male
+            "gentleman"  -> "onyx"    // deep British-leaning male
+            "frasier"    -> "ash"     // articulate educated male
             "wallstreet" -> "ash"     // articulate fast male
-            "zen"        -> "sage"    // wise, measured
-            "cockney"    -> "echo"    // smooth male
-            "cowboy"     -> "onyx"    // deep male (drawl via slow speed)
+            "zen"        -> "sage"    // neutral contemplative
+            "cockney"    -> "alloy"   // neutral male, fast
+            "cowboy"     -> "onyx"    // deep Texas drawl male
             "hunter_s"   -> "ash"     // articulate manic male
             "narrator"   -> "onyx"    // deep documentary baritone
             "pirate"     -> "onyx"    // deep authoritative male
-            "waifu"      -> "nova"    // bright female (the one female)
-            "cleetus"    -> "echo"    // smooth male (loud via Android pitch)
-            "peter"      -> "echo"    // smooth male, goofy energy
+            "waifu"      -> "nova"    // bright female (the ONLY female)
+            "cleetus"    -> "ash"     // loud confident American male
+            "peter"      -> "ash"     // cartoon-dad articulate male
             else         -> "alloy"
         }
     }
 
     private fun defaultRemoteSpeedForPersona(personaId: String): Double {
-        // V5.9.88 — speed differentiation is now the PRIMARY lever since
-        // `instructions` is ignored by the proxy. We spread from 0.76..1.22.
+        // V5.9.89 — speed is the main differentiator since we collapsed to
+        // 3 male voices. Wider spread (0.72..1.22) than before.
         return when (personaId) {
             "aate"       -> 1.00
-            "irishman"   -> 1.08
-            "batman"     -> 0.76
-            "gentleman"  -> 0.94
+            "irishman"   -> 1.12   // lively lilt
+            "batman"     -> 0.72   // slowest, brooding
+            "gentleman"  -> 0.90   // measured
             "frasier"    -> 1.00
-            "wallstreet" -> 1.22
-            "zen"        -> 0.80
-            "cockney"    -> 1.12
-            "cowboy"     -> 0.82
-            "hunter_s"   -> 1.18
-            "narrator"   -> 0.90
+            "wallstreet" -> 1.22   // fastest
+            "zen"        -> 0.78
+            "cockney"    -> 1.15   // fast patter
+            "cowboy"     -> 0.80   // slow drawl
+            "hunter_s"   -> 1.20   // manic
+            "narrator"   -> 0.88
             "pirate"     -> 0.98
             "waifu"      -> 1.14
-            "cleetus"    -> 1.10
+            "cleetus"    -> 1.12
             "peter"      -> 1.06
             else         -> 1.0
         }
