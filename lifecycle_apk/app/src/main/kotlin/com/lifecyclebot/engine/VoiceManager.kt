@@ -33,7 +33,7 @@ object VoiceManager {
     private const val KEY_LOCAL_MODEL_DIR = "tts_local_model_dir"
 
     private const val DEFAULT_REMOTE_URL = "https://integrations.emergentagent.com/llm/audio/speech"
-    private const val DEFAULT_REMOTE_MODEL = "gpt-4o-mini-tts"
+    private const val DEFAULT_REMOTE_MODEL = "tts-1-hd"   // V5.9.88 — proxy only supports tts-1 and tts-1-hd
     private const val DEFAULT_LOCAL_ENGINE = "sherpa"
 
     private var appCtx: Context? = null
@@ -231,7 +231,7 @@ object VoiceManager {
 
             return VoiceSpec.Remote(
                 voice = remoteVoice,
-                model = prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL) ?: DEFAULT_REMOTE_MODEL,
+                model = sanitizedTtsModel(prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL)),
                 speed = defaultRemoteSpeedForPersona(personaId),
                 fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId),
                 instructions = defaultRemoteInstructionsForPersona(personaId)
@@ -261,46 +261,67 @@ object VoiceManager {
         }
     }
 
+    private val ALLOWED_TTS_MODELS = setOf("tts-1", "tts-1-hd")
+
+    /**
+     * V5.9.88: Emergent proxy rejects anything outside `tts-1`/`tts-1-hd`.
+     * If a stale SharedPreferences entry still points to `gpt-4o-mini-tts`
+     * (from V5.9.87), coerce it back to the default so requests stop silently
+     * 4xx-ing and falling through to Android TTS.
+     */
+    private fun sanitizedTtsModel(stored: String?): String {
+        val s = stored?.trim().orEmpty()
+        return if (s in ALLOWED_TTS_MODELS) s else DEFAULT_REMOTE_MODEL
+    }
+
+
     private fun defaultRemoteVoiceForPersona(personaId: String): String {
-        // V5.9.87 — Mostly male voices, tuned per persona.
-        // Distinct voices are alloy/ash/ballad/echo/fable/onyx/sage/verse/nova/coral.
-        // We differentiate with instructions + speed rather than unique voice IDs.
+        // V5.9.88 — constrained to the 9 voices the Emergent proxy actually
+        // supports (alloy/ash/coral/echo/fable/nova/onyx/sage/shimmer).
+        // `ballad`, `verse`, `marin`, `cedar` are rejected and silently fall
+        // back to Android TTS, which is why voices sounded identical before.
+        //
+        // Male-leaning: ash, echo, fable, onyx (4 distinct timbres)
+        // Neutral-ish: alloy, sage
+        // Female: coral, nova, shimmer (waifu only)
         return when (personaId) {
             "aate"       -> "alloy"   // neutral bot
-            "irishman"   -> "ballad"  // lyrical male, most song-like
-            "batman"     -> "onyx"    // deepest, gravelliest male
-            "gentleman"  -> "fable"   // British narrator male
-            "frasier"    -> "ash"     // articulate, slightly pompous American male
-            "wallstreet" -> "verse"   // fast expressive American male
-            "zen"        -> "sage"    // soft, calm
-            "cockney"    -> "echo"    // clear male, can project East-End
-            "cowboy"     -> "onyx"    // deep male, drawl via instructions + slow speed
-            "hunter_s"   -> "verse"   // manic expressive male
-            "narrator"   -> "onyx"    // deep Morgan-Freeman-esque
-            "pirate"     -> "ballad"  // theatrical male
+            "irishman"   -> "fable"   // storytelling male, lyrical
+            "batman"     -> "onyx"    // deepest gravelly male
+            "gentleman"  -> "fable"   // British-leaning storyteller
+            "frasier"    -> "ash"     // articulate American male
+            "wallstreet" -> "ash"     // articulate fast male
+            "zen"        -> "sage"    // wise, measured
+            "cockney"    -> "echo"    // smooth male
+            "cowboy"     -> "onyx"    // deep male (drawl via slow speed)
+            "hunter_s"   -> "ash"     // articulate manic male
+            "narrator"   -> "onyx"    // deep documentary baritone
+            "pirate"     -> "onyx"    // deep authoritative male
             "waifu"      -> "nova"    // bright female (the one female)
-            "cleetus"    -> "ash"     // loud confident American male
-            "peter"      -> "echo"    // friendly clear male, goofy energy
+            "cleetus"    -> "echo"    // smooth male (loud via Android pitch)
+            "peter"      -> "echo"    // smooth male, goofy energy
             else         -> "alloy"
         }
     }
 
     private fun defaultRemoteSpeedForPersona(personaId: String): Double {
+        // V5.9.88 — speed differentiation is now the PRIMARY lever since
+        // `instructions` is ignored by the proxy. We spread from 0.76..1.22.
         return when (personaId) {
             "aate"       -> 1.00
-            "irishman"   -> 1.05
-            "batman"     -> 0.78
-            "gentleman"  -> 0.96
+            "irishman"   -> 1.08
+            "batman"     -> 0.76
+            "gentleman"  -> 0.94
             "frasier"    -> 1.00
-            "wallstreet" -> 1.18
-            "zen"        -> 0.82
-            "cockney"    -> 1.10
-            "cowboy"     -> 0.88
-            "hunter_s"   -> 1.12
-            "narrator"   -> 0.92
-            "pirate"     -> 0.95
-            "waifu"      -> 1.08
-            "cleetus"    -> 1.04
+            "wallstreet" -> 1.22
+            "zen"        -> 0.80
+            "cockney"    -> 1.12
+            "cowboy"     -> 0.82
+            "hunter_s"   -> 1.18
+            "narrator"   -> 0.90
+            "pirate"     -> 0.98
+            "waifu"      -> 1.14
+            "cleetus"    -> 1.10
             "peter"      -> 1.06
             else         -> 1.0
         }
@@ -781,7 +802,7 @@ object VoiceManager {
                 text = text,
                 spec = VoiceSpec.Remote(
                     voice = "alloy",
-                    model = prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL) ?: DEFAULT_REMOTE_MODEL,
+                    model = sanitizedTtsModel(prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL)),
                     speed = 1.0,
                     fallbackLocaleTag = fallbackLocaleTag
                 ),

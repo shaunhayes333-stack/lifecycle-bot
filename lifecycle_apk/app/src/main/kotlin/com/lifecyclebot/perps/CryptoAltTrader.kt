@@ -650,7 +650,7 @@ object CryptoAltTrader {
                     market   = "CRYPTO",
                     sector   = signal.market.emoji,
                     direction= signal.direction.name,
-                    sizeSol  = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100),
+                    sizeSol  = getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100) * fluidSizeMultiplier(signal.score, signal.confidence),
                     leverage = leverage
                 )
             } catch (_: Exception) {}
@@ -920,7 +920,11 @@ object CryptoAltTrader {
 
         // Paper execution — only when in paper mode
         val balance = getEffectiveBalance()
-        val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
+        // V5.9.88: FLUID SIZING — scale with AI score + confidence instead of
+        // the old flat 3% for every trade. Range: 0.4x..2.0x base size.
+        // High-conviction (score≥85, conf≥80) rides 2x; low-conviction <55/40 rides 0.4x.
+        val sizeMult = fluidSizeMultiplier(signal.score, signal.confidence)
+        val sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult
 
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${signal.market.symbol} (${sizeSol} SOL)")
@@ -959,17 +963,23 @@ object CryptoAltTrader {
         val tpPct = if (isSpot)
             com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
         else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-        val slPct  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
+        val slPctBase  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
         val lev    = if (isSpot) 1.0 else signal.leverage
+
+        // V5.9.88: FLUID TP/SL — scale with conviction, stop flat TP+7%/SL-3%
+        // on every trade. High-score signals get wider TP + tighter SL;
+        // low-score get tighter TP + wider SL (asymmetric conviction curve).
+        val (tpMult, slMult) = fluidTpSlMultiplier(signal.score, signal.confidence)
 
         // Hivemind size / TP modifier
         val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
         val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.25)
-        val finalTp   = (tpPct + hiveTpAdj).coerceAtLeast(1.5)
+        val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
+        val finalSl   = (slPctBase * slMult).coerceIn(1.5, 15.0)
 
         val (tp, sl) = when (signal.direction) {
-            PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - slPct / 100)
-            PerpsDirection.SHORT -> signal.price * (1 - finalTp / 100) to signal.price * (1 + slPct / 100)
+            PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - finalSl / 100)
+            PerpsDirection.SHORT -> signal.price * (1 - finalTp / 100) to signal.price * (1 + finalSl / 100)
         }
 
         val position = AltPosition(
@@ -1080,7 +1090,9 @@ object CryptoAltTrader {
             //   • Otherwise clamp size to [FLOOR, balance * 15%] so small wallets
             //     can still participate without YOLO-ing.
             val floor = 0.01
-            val desired = balance * (DEFAULT_SIZE_PCT / 100)
+            // V5.9.88: fluid sizing on LIVE path too — scale conviction-based
+            val sizeMult = fluidSizeMultiplier(signal.score, signal.confidence)
+            val desired = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult
             if (balance < floor) {
                 ErrorLogger.warn(TAG, "🪙 ⛔ Live wallet too small: ${"%.4f".format(balance)} SOL < ${floor} floor — cannot live-trade ${signal.market.symbol}")
                 LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FLOOR_SKIPPED)
@@ -1404,6 +1416,54 @@ object CryptoAltTrader {
         savePersistedState()
         persistTradeToTurso(pos, pnlSol, reason)
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.88: FLUID SIZING & FLUID TP/SL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Scales base position size based on combined AI score + confidence.
+     * Returns a multiplier in [0.4, 2.0] — low-conviction trades ride smaller,
+     * high-conviction rides bigger. No more flat 3% on every signal.
+     */
+    private fun fluidSizeMultiplier(score: Int, confidence: Int): Double {
+        val s = score.coerceIn(0, 100)
+        val c = confidence.coerceIn(0, 100)
+        // Blend score (60%) and confidence (40%) — score is the harder signal.
+        val blended = (s * 0.6 + c * 0.4)
+        return when {
+            blended >= 88 -> 2.00    // "all in" conviction
+            blended >= 80 -> 1.65
+            blended >= 72 -> 1.35
+            blended >= 64 -> 1.10
+            blended >= 56 -> 0.90
+            blended >= 48 -> 0.70
+            else          -> 0.45    // whisper-only, low-risk probe
+        }
+    }
+
+    /**
+     * Scales TP and SL distances based on conviction. Stops the old "every
+     * position shows TP+7% SL-3%" pattern — high-conviction trades get more
+     * room to run and a tighter stop; low-conviction trades get a tighter
+     * TP and a looser stop to absorb noise.
+     *
+     * Returns (tpMult, slMult) where 1.0 = base pct.
+     */
+    private fun fluidTpSlMultiplier(score: Int, confidence: Int): Pair<Double, Double> {
+        val s = score.coerceIn(0, 100)
+        val c = confidence.coerceIn(0, 100)
+        val blended = (s * 0.6 + c * 0.4)
+        return when {
+            blended >= 85 -> 1.75 to 0.75   // wide TP, tight SL — ride the winner
+            blended >= 75 -> 1.40 to 0.85
+            blended >= 65 -> 1.15 to 0.95
+            blended >= 55 -> 1.00 to 1.00   // neutral
+            blended >= 45 -> 0.85 to 1.15   // take profit early, wider stop
+            else          -> 0.70 to 1.30   // scalp-only probe
+        }
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════════════
     // HIVEMIND ENTRY MODIFIER
