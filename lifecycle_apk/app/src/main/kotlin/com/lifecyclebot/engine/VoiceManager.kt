@@ -247,6 +247,8 @@ object VoiceManager {
         return when (personaId) {
             "irishman" -> "en-IE"
             "gentleman", "cockney", "pirate" -> "en-GB"
+            "waifu" -> "en-US"
+            "cleetus", "peter" -> "en-US"
             else -> "en-US"
         }
     }
@@ -259,6 +261,9 @@ object VoiceManager {
             "zen" -> "sage"
             "pirate" -> "echo"
             "cowboy" -> "alloy"
+            "waifu" -> "shimmer"
+            "cleetus" -> "ash"
+            "peter" -> "echo"
             else -> "alloy"
         }
     }
@@ -271,6 +276,9 @@ object VoiceManager {
             "cowboy" -> 0.90
             "batman" -> 0.86
             "hunter_s" -> 1.04
+            "waifu" -> 1.08
+            "cleetus" -> 0.97
+            "peter" -> 1.05
             else -> 1.0
         }
     }
@@ -281,6 +289,9 @@ object VoiceManager {
             "zen" -> "soft"
             "wallstreet" -> "fast"
             "batman" -> "deep"
+            "waifu" -> "soft"
+            "cleetus" -> "fast"
+            "peter" -> "default"
             else -> "default"
         }
     }
@@ -291,6 +302,9 @@ object VoiceManager {
             "zen" -> 1
             "wallstreet" -> 2
             "batman" -> 3
+            "waifu" -> 4
+            "cleetus" -> 5
+            "peter" -> 6
             else -> 0
         }
     }
@@ -301,6 +315,9 @@ object VoiceManager {
             "zen" -> 0.84f
             "narrator" -> 0.90f
             "batman" -> 0.86f
+            "waifu" -> 1.06f
+            "cleetus" -> 0.96f
+            "peter" -> 1.04f
             else -> 1.0f
         }
     }
@@ -385,6 +402,27 @@ object VoiceManager {
                 pitch = 0.96f,
                 speed = 0.98f,
                 preferredHints = listOf("gb", "uk", "british", "en-gb")
+            )
+
+            "waifu" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
+                pitch = 1.32f,
+                speed = 1.08f,
+                preferredHints = listOf("female", "us", "en-us")
+            )
+
+            "cleetus" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
+                pitch = 0.94f,
+                speed = 0.96f,
+                preferredHints = listOf("us", "male", "en-us")
+            )
+
+            "peter" -> VoiceSpec.Android(
+                localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
+                pitch = 1.10f,
+                speed = 1.04f,
+                preferredHints = listOf("us", "male", "en-us")
             )
 
             else -> VoiceSpec.Android(

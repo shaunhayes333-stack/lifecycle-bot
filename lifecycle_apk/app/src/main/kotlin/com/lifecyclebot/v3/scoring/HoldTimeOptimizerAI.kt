@@ -38,6 +38,10 @@ import java.util.concurrent.ConcurrentHashMap
 object HoldTimeOptimizerAI {
     
     private const val TAG = "HoldTimeAI"
+
+    // V5.9.83: 7 days is an extremely generous upper bound — anything higher is
+    // almost certainly a raw-epoch-leak bug upstream, not a real hold time.
+    private const val MAX_SANE_HOLD_MINUTES = 60 * 24 * 7  // 10 080
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA STRUCTURES
@@ -239,6 +243,19 @@ object HoldTimeOptimizerAI {
         pnlPct: Double,
         setupQuality: String
     ) {
+        // V5.9.83: Sanity-clamp. If callers ever pass a raw epoch-like value
+        // (e.g. because pos.entryTime was 0 and they subtracted from now())
+        // the resulting "minutes" would be in the tens of millions — 56 years —
+        // and poison every single hold-time pattern. Reject absurd values and
+        // anything negative.
+        if (actualHoldMinutes < 0 || actualHoldMinutes > MAX_SANE_HOLD_MINUTES) {
+            ErrorLogger.warn(
+                TAG,
+                "recordOutcome rejected bad holdMinutes=$actualHoldMinutes mint=${mint.take(8)} " +
+                    "(allowed 0..$MAX_SANE_HOLD_MINUTES). Likely unset entryTime upstream."
+            )
+            return
+        }
         // Convert minutes to seconds for internal storage
         recordOutcomeSeconds(mint, actualHoldMinutes * 60, pnlPct, setupQuality)
     }

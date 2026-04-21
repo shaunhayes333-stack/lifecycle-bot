@@ -4012,7 +4012,9 @@ class Executor(
         if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
         
         // FIX: these were missing and caused your compile failure
-        val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
+        val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
+        val holdTimeMins = (System.currentTimeMillis() - entryTimeSafe) / 60_000.0
         val holdMinutes = holdTimeMins
         
         val simulatedSlippagePct = when {
@@ -5559,7 +5561,9 @@ class Executor(
             ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
-        val holdMinutesLive = ((System.currentTimeMillis() - ts.position.entryTime) / 60000).toInt()
+        // V5.9.83: guard against unset entryTime
+        val liveEntryTimeSafe = if (ts.position.entryTime > 1_000_000_000_000L) ts.position.entryTime else System.currentTimeMillis()
+        val holdMinutesLive = ((System.currentTimeMillis() - liveEntryTimeSafe) / 60000).toInt()
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
         ExitIntelligence.resetPosition(tradeId.mint)
@@ -5736,7 +5740,9 @@ class Executor(
                 else -> "NEUTRAL"
             }
             
-            val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000.0
+            // V5.9.83: guard against unset entryTime (raw epoch leak bug)
+            val entryTimeSafe3 = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
+            val holdMinutes = (System.currentTimeMillis() - entryTimeSafe3) / 60000.0
             val peakPnlPct = if (pos.entryPrice > 0 && pos.highestPrice > 0) {
                 ((pos.highestPrice - pos.entryPrice) / pos.entryPrice) * 100
             } else pnlP

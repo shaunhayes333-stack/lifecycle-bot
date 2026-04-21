@@ -67,6 +67,22 @@ object SentientPersonality {
     private fun fmt1(v: Double): String = String.format(Locale.US, "%.1f", v)
     private fun fmt0(v: Double): String = String.format(Locale.US, "%.0f", v)
 
+    private fun fmtTune(v: Double): String {
+        return if (v == v.toLong().toDouble() && kotlin.math.abs(v) < 1e12) {
+            v.toLong().toString()
+        } else {
+            String.format(Locale.US, "%.3f", v).trimEnd('0').trimEnd('.')
+        }
+    }
+
+    /** Called by LlmParameterTuner when a whitelisted config change is applied. */
+    fun onTuneApplied(key: String, oldValue: Double, newValue: Double, reason: String) {
+        val arrow = if (newValue > oldValue) "↑" else "↓"
+        val cleanReason = reason.ifBlank { "llm auto-tune" }
+        val msg = "🎛️ Tuned $key $arrow ${fmtTune(oldValue)} → ${fmtTune(newValue)} ($cleanReason)"
+        addThought(Mood.ANALYTICAL, msg, Category.SELF_REFLECTION, 0.45)
+    }
+
     private fun addThought(
         mood: Mood,
         message: String,
@@ -657,8 +673,37 @@ object SentientPersonality {
                     null
                 }
 
-                val finalText = if (!llmReply.isNullOrBlank()) {
-                    llmReply.trim()
+                val tuned = try {
+                    if (!llmReply.isNullOrBlank()) {
+                        com.lifecyclebot.engine.LlmParameterTuner.extractAndApply(ctx, llmReply)
+                    } else {
+                        null
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+
+                val replyCore = tuned?.cleanedReply?.takeIf { it.isNotBlank() }
+                    ?: llmReply?.takeIf {
+                        // if tuner stripped the block and left nothing, avoid echoing raw markup
+                        tuned == null || !tuned.hadBlock
+                    }
+
+                val tuneSummary = tuned?.changes?.takeIf { it.isNotEmpty() }?.let { changes ->
+                    changes.joinToString("; ") { c ->
+                        "${c.key} ${fmtTune(c.oldValue)}→${fmtTune(c.newValue)}"
+                    }
+                }
+
+                val finalText = if (!replyCore.isNullOrBlank()) {
+                    val base = replyCore.trim()
+                    if (tuneSummary != null) {
+                        "$base\n\n🎛️ auto-tuned: $tuneSummary"
+                    } else {
+                        base
+                    }
+                } else if (tuneSummary != null) {
+                    "🎛️ auto-tuned: $tuneSummary"
                 } else {
                     val reason = try {
                         GeminiCopilot.lastBlipDiagnostic

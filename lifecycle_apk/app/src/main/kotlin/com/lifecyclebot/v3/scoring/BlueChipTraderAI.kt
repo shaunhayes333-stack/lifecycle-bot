@@ -674,18 +674,18 @@ object BlueChipTraderAI {
     
     // V5.4: Fluid thresholds - much lower at bootstrap to allow paper mode to trade
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
-    private const val BC_SCORE_BOOTSTRAP = 22       // V5.4: was 40 — too high when V3 scores 14-20
-    private const val BC_SCORE_MATURE = 35          // Tighten as we gain experience
+    // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
+    private const val BC_SCORE_BOOTSTRAP = 30       // V5.9.83: 22 -> 30 (was bleeding capital)
+    private const val BC_SCORE_MATURE = 38          // Slight bump with bootstrap
 
-    // V5.4: Conf floor dropped — with bootstrap boost below, effective = 10+10 = 20%
-    private const val BC_CONF_BOOTSTRAP = 10        // V5.4: was 20 — too strict for bootstrap
-    private const val BC_CONF_MATURE = 45           // Unchanged
-    private const val BC_CONF_BOOST_MAX = 12.0      // 12% bootstrap boost
+    // V5.9.83: Conf floor raised so initial entries are higher-conviction.
+    private const val BC_CONF_BOOTSTRAP = 22        // V5.9.83: 10 -> 22
+    private const val BC_CONF_MATURE = 48
+    private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
-    // V5.4: Liq floor at bootstrap dropped from $75K → $20K
-    // Most Solana paper tokens have $5K-$40K liquidity. $75K excluded everything.
-    private const val BC_LIQ_BOOTSTRAP = 5_000.0   // V5.4: was 75_000
-    private const val BC_LIQ_MATURE = 8_000.0      // Tighten at maturity (experienced = selective)
+    // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
+    private const val BC_LIQ_BOOTSTRAP = 15_000.0   // V5.9.83: 5_000 -> 15_000
+    private const val BC_LIQ_MATURE = 25_000.0      // Tighten at maturity (experienced = selective)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()

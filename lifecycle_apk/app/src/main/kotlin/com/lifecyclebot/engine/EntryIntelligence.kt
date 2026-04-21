@@ -234,10 +234,12 @@ object EntryIntelligence {
         if (symNudge != 0) reasons.add("Symbolic: ${if (symNudge > 0) "+" else ""}$symNudge (mood-aware)")
 
         // Determine recommendation
+        // V5.9.83: EntryAI was producing ~11% win rate — thresholds were too loose.
+        // Bumped BUY from 55->65 and STRONG_BUY from 75->82 for higher conviction.
         val recommendation = when {
-            finalScore >= 75 -> EntryRecommendation.STRONG_BUY
-            finalScore >= 55 -> EntryRecommendation.BUY
-            finalScore >= 40 -> EntryRecommendation.WAIT
+            finalScore >= 82 -> EntryRecommendation.STRONG_BUY
+            finalScore >= 65 -> EntryRecommendation.BUY
+            finalScore >= 45 -> EntryRecommendation.WAIT
             else -> EntryRecommendation.AVOID
         }
 
