@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LayerHealthTracker {
 
-    private const val SUMMARY_EVERY = 50   // log a summary every 50 tokens
+    private const val SUMMARY_EVERY = 20   // log a summary every 20 scored tokens
 
     private data class Stats(
         val zeroCount: AtomicLong = AtomicLong(0),
