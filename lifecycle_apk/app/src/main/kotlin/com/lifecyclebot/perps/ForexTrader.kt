@@ -735,6 +735,21 @@ object ForexTrader {
     fun getSpotPositions(): List<ForexPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<ForexPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<ForexPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
+
+    /**
+     * V5.9.85: Public manual-close used by the Markets UI. Looks the position up
+     * in both maps so callers only need the id. Returns `true` when a matching
+     * position was found and close was attempted; `false` when the id is unknown
+     * (= phantom row → UI should purge it locally).
+     */
+    fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {
+        if (positionId.isBlank()) return false
+        val (pos, map) = spotPositions[positionId]?.let { it to spotPositions }
+            ?: leveragePositions[positionId]?.let { it to leveragePositions }
+            ?: return false
+        closePosition(pos, map, reason)
+        return true
+    }
     fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol

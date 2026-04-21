@@ -1596,6 +1596,19 @@ object CryptoAltTrader {
     fun getLeveragePositions(): List<AltPosition> = leveragePositions.values.toList()
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
 
+    /** V5.9.85: Manual close for Markets UI. */
+    fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {
+        if (positionId.isBlank()) return false
+        if (positions[positionId] == null &&
+            spotPositions[positionId] == null &&
+            leveragePositions[positionId] == null
+        ) {
+            return false
+        }
+        closePosition(positionId, reason)
+        return true
+    }
+
     fun getTotalTrades(): Int    = totalTrades.get()
     fun getWinCount(): Int       = winningTrades.get()
     fun getWinRate(): Double {

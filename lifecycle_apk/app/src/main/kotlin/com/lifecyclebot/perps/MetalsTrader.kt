@@ -729,6 +729,16 @@ object MetalsTrader {
     fun getSpotPositions(): List<MetalPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<MetalPosition> = leveragePositions.values.toList()
     fun getAllPositions(): List<MetalPosition> = spotPositions.values.toList() + leveragePositions.values.toList()
+
+    /** V5.9.85: Manual close for Markets UI. Returns true when position found. */
+    fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {
+        if (positionId.isBlank()) return false
+        val (pos, map) = spotPositions[positionId]?.let { it to spotPositions }
+            ?: leveragePositions[positionId]?.let { it to leveragePositions }
+            ?: return false
+        closePosition(pos, map, reason)
+        return true
+    }
     fun getBalance(): Double = if (isPaperMode.get()) com.lifecyclebot.engine.BotService.status.paperWalletSol else liveWalletBalance
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol

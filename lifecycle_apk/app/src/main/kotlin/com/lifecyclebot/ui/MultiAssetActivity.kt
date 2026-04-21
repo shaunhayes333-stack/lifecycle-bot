@@ -1755,21 +1755,37 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setMessage("Close ${pos.symbol} position?\n\nCurrent P&L: ${if (pos.pnl >= 0) "+" else ""}${"%.4f".format(pos.pnl)} SOL (${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%)")
         builder.setPositiveButton("Close Position") { _, _ ->
             android.widget.Toast.makeText(this, "Closing ${pos.symbol}...", android.widget.Toast.LENGTH_SHORT).show()
-            // V5.9: Close via PerpsTraderAI
+            // V5.9.85: Route to the trader that actually owns this position based on the
+            // current tab, instead of blindly calling PerpsTraderAI (which only knows
+            // Perps positions and returned null for every Markets row → "position not
+            // found" spam).
             scope.launch {
                 try {
-                    val currentPrice = PerpsMarketDataFetcher.getMarketData(
-                        PerpsMarket.values().find { it.symbol == pos.symbol } ?: return@launch
-                    ).price
-                    val result = PerpsTraderAI.closePosition(
-                        positionId = pos.id,
-                        exitPrice  = currentPrice,
-                        exitReason = PerpsExitSignal.AI_EXIT
-                    )
+                    val ok = withContext(Dispatchers.IO) {
+                        when (currentTab) {
+                            AssetTab.PERPS -> {
+                                val market = PerpsMarket.values().find { it.symbol == pos.symbol }
+                                val currentPrice = if (market != null) PerpsMarketDataFetcher.getMarketData(market).price else 0.0
+                                val perpResult = if (pos.id.isNotBlank()) {
+                                    PerpsTraderAI.closePosition(
+                                        positionId = pos.id,
+                                        exitPrice = currentPrice,
+                                        exitReason = PerpsExitSignal.AI_EXIT
+                                    )
+                                } else null
+                                if (perpResult != null) true
+                                else TokenizedStockTrader.closePositionManual(pos.id, "USER")
+                            }
+                            AssetTab.STOCKS       -> TokenizedStockTrader.closePositionManual(pos.id, "USER")
+                            AssetTab.COMMODITIES  -> CommoditiesTrader.closePositionManual(pos.id, "USER")
+                            AssetTab.METALS       -> MetalsTrader.closePositionManual(pos.id, "USER")
+                            AssetTab.FOREX        -> ForexTrader.closePositionManual(pos.id, "USER")
+                            AssetTab.CRYPTO       -> CryptoAltTrader.closePositionManual(pos.id, "USER")
+                        }
+                    }
                     withContext(Dispatchers.Main) {
-                        val msg = if (result != null)
-                            "✅ ${pos.symbol} closed | PnL: ${if ((result.sizeSol * result.pnlPct) >= 0) "+" else ""}${"%.4f".format(result.sizeSol * result.pnlPct / 100.0)} SOL"
-                        else "⚠️ Could not close ${pos.symbol} — position not found"
+                        val msg = if (ok) "✅ ${pos.symbol} closed"
+                        else "⚠️ Could not close ${pos.symbol} — position not found (id=${pos.id.ifBlank { "<none>" }})"
                         android.widget.Toast.makeText(this@MultiAssetActivity, msg, android.widget.Toast.LENGTH_LONG).show()
                         refreshData()
                     }
@@ -2552,7 +2568,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol = pos.size,
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
-                            leverage = pos.leverage
+                            leverage = pos.leverage,
+                            id = pos.id
                         )
                     }
                     // Also include TST-managed SOL Perps positions (TST scans crypto 24/7).
@@ -2578,7 +2595,8 @@ class MultiAssetActivity : AppCompatActivity() {
                                 sizeSol = pos.size,
                                 sizeUsd = pos.size * solPrice,
                                 openTime = pos.openTime,
-                                leverage = if (pos.isSpot) 1.0 else pos.leverage
+                                leverage = if (pos.isSpot) 1.0 else pos.leverage,
+                                id = pos.id
                             )
                         }
                     perpsPositions + cryptoFromTrader
@@ -2607,7 +2625,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol = pos.size,
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
-                            leverage = pos.leverage
+                            leverage = pos.leverage,
+                            id = pos.id
                         )
                     }
                 }
@@ -2633,7 +2652,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol = pos.size,
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
-                            leverage = if (pos.isSpot) 1.0 else 2.0
+                            leverage = if (pos.isSpot) 1.0 else 2.0,
+                            id = pos.id
                         )
                     }
                 }
@@ -2659,7 +2679,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol = pos.size,
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
-                            leverage = pos.leverage
+                            leverage = pos.leverage,
+                            id = pos.id
                         )
                     }
                 }
@@ -2685,7 +2706,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol = pos.size,
                             sizeUsd = pos.size * solPrice,
                             openTime = pos.openTime,
-                            leverage = pos.leverage
+                            leverage = pos.leverage,
+                            id = pos.id
                         )
                     }
                 }
@@ -2711,7 +2733,8 @@ class MultiAssetActivity : AppCompatActivity() {
                             sizeSol        = pos.sizeSol,
                             sizeUsd        = pos.sizeSol * solPrice,
                             openTime       = pos.openTime,
-                            leverage       = pos.leverage
+                            leverage       = pos.leverage,
+                            id             = pos.id
                         )
                     }
                 }

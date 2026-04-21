@@ -1402,6 +1402,22 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     }
 
     fun getAllPositions(): List<StockPosition> = positions.values.toList()
+
+    /**
+     * V5.9.85: Public manual-close for Markets UI. Returns true when the id
+     * matches an open position (both SPOT and LEVERAGE tables are checked).
+     */
+    fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {
+        if (positionId.isBlank()) return false
+        if (positions[positionId] == null &&
+            spotPositions[positionId] == null &&
+            leveragePositions[positionId] == null
+        ) {
+            return false
+        }
+        closePosition(positionId, reason)
+        return true
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.6b: LIVE TRADING MODE

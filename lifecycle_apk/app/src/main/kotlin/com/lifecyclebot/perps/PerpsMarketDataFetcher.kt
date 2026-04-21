@@ -713,61 +713,13 @@ object PerpsMarketDataFetcher {
         )
     }
     
-    /**
-     * Fetch stock market data (simulated for now)
-     * In production, would use tokenized stock oracles on Solana
-     */
-    private suspend fun fetchStockData(market: PerpsMarket): PerpsMarketData = withContext(Dispatchers.IO) {
-        try {
-            // Get base price (simulated - in production would use real oracle)
-            val basePrice = stockPrices[market.symbol] ?: 100.0
-            
-            // Add some randomness to simulate live price movement
-            val priceVariation = basePrice * (Math.random() * 0.02 - 0.01)  // +/- 1%
-            val price = basePrice + priceVariation
-            
-            // Update stored price
-            stockPrices[market.symbol] = price
-            
-            // Simulate 24h change
-            val change24h = (Math.random() * 6 - 3)  // -3% to +3%
-            
-            return@withContext PerpsMarketData(
-                market = market,
-                price = price,
-                indexPrice = price,
-                markPrice = price,
-                fundingRate = 0.0,  // No funding for stocks
-                fundingRateAnnualized = 0.0,
-                nextFundingTime = 0,
-                openInterestLong = 10_000_000.0 + Math.random() * 5_000_000,
-                openInterestShort = 8_000_000.0 + Math.random() * 4_000_000,
-                volume24h = 50_000_000.0 + Math.random() * 25_000_000,
-                high24h = price * (1 + Math.abs(change24h) / 100 + 0.005),
-                low24h = price * (1 - Math.abs(change24h) / 100 - 0.005),
-                priceChange24hPct = change24h,
-            )
-        } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Failed to fetch ${market.symbol} data: ${e.message}")
-            // Return mock data
-            return@withContext PerpsMarketData(
-                market = market,
-                price = stockPrices[market.symbol] ?: 100.0,
-                indexPrice = stockPrices[market.symbol] ?: 100.0,
-                markPrice = stockPrices[market.symbol] ?: 100.0,
-                fundingRate = 0.0,
-                fundingRateAnnualized = 0.0,
-                nextFundingTime = 0,
-                openInterestLong = 10_000_000.0,
-                openInterestShort = 8_000_000.0,
-                volume24h = 50_000_000.0,
-                high24h = (stockPrices[market.symbol] ?: 100.0) * 1.02,
-                low24h = (stockPrices[market.symbol] ?: 100.0) * 0.98,
-                priceChange24hPct = 0.0,
-            )
-        }
-    }
+    // V5.9.85: REMOVED `fetchStockData` (was a Math.random price walker producing
+    // simulated stock prices). It was unreferenced but a reviewer could still
+    // wire it up by accident. Real stock pricing now goes exclusively through
+    // PythOracle → PriceAggregator → `fetchStockDataFallback` below. No
+    // simulated data anywhere in the hot path.
     
+
     /**
      * Get all available markets with current data
      */
