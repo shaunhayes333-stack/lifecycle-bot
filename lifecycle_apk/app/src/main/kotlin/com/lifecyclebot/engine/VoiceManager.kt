@@ -70,7 +70,14 @@ object VoiceManager {
             val voice: String,
             val model: String = DEFAULT_REMOTE_MODEL,
             val speed: Double = 1.0,
-            val fallbackLocaleTag: String = "en-US"
+            val fallbackLocaleTag: String = "en-US",
+            /**
+             * V5.9.87: gpt-4o-mini-tts style-instruction prompt. Tells the
+             * model *how* to deliver the line (accent, tempo, emotion, vocal
+             * timbre) — this is what actually makes personas sound distinct,
+             * far more than voice-id or speed alone.
+             */
+            val instructions: String = ""
         ) : VoiceSpec()
 
         data class LocalSherpa(
@@ -226,7 +233,8 @@ object VoiceManager {
                 voice = remoteVoice,
                 model = prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL) ?: DEFAULT_REMOTE_MODEL,
                 speed = defaultRemoteSpeedForPersona(personaId),
-                fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId)
+                fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId),
+                instructions = defaultRemoteInstructionsForPersona(personaId)
             )
         }
 
@@ -254,32 +262,182 @@ object VoiceManager {
     }
 
     private fun defaultRemoteVoiceForPersona(personaId: String): String {
+        // V5.9.87 — Mostly male voices, tuned per persona.
+        // Distinct voices are alloy/ash/ballad/echo/fable/onyx/sage/verse/nova/coral.
+        // We differentiate with instructions + speed rather than unique voice IDs.
         return when (personaId) {
-            "batman", "hunter_s" -> "onyx"
-            "frasier", "narrator" -> "fable"
-            "wallstreet" -> "ash"
-            "zen" -> "sage"
-            "pirate" -> "echo"
-            "cowboy" -> "alloy"
-            "waifu" -> "shimmer"
-            "cleetus" -> "ash"
-            "peter" -> "echo"
-            else -> "alloy"
+            "aate"       -> "alloy"   // neutral bot
+            "irishman"   -> "ballad"  // lyrical male, most song-like
+            "batman"     -> "onyx"    // deepest, gravelliest male
+            "gentleman"  -> "fable"   // British narrator male
+            "frasier"    -> "ash"     // articulate, slightly pompous American male
+            "wallstreet" -> "verse"   // fast expressive American male
+            "zen"        -> "sage"    // soft, calm
+            "cockney"    -> "echo"    // clear male, can project East-End
+            "cowboy"     -> "onyx"    // deep male, drawl via instructions + slow speed
+            "hunter_s"   -> "verse"   // manic expressive male
+            "narrator"   -> "onyx"    // deep Morgan-Freeman-esque
+            "pirate"     -> "ballad"  // theatrical male
+            "waifu"      -> "nova"    // bright female (the one female)
+            "cleetus"    -> "ash"     // loud confident American male
+            "peter"      -> "echo"    // friendly clear male, goofy energy
+            else         -> "alloy"
         }
     }
 
     private fun defaultRemoteSpeedForPersona(personaId: String): Double {
         return when (personaId) {
-            "wallstreet" -> 1.12
-            "zen" -> 0.88
-            "narrator" -> 0.92
-            "cowboy" -> 0.90
-            "batman" -> 0.86
-            "hunter_s" -> 1.04
-            "waifu" -> 1.08
-            "cleetus" -> 0.97
-            "peter" -> 1.05
-            else -> 1.0
+            "aate"       -> 1.00
+            "irishman"   -> 1.05
+            "batman"     -> 0.78
+            "gentleman"  -> 0.96
+            "frasier"    -> 1.00
+            "wallstreet" -> 1.18
+            "zen"        -> 0.82
+            "cockney"    -> 1.10
+            "cowboy"     -> 0.88
+            "hunter_s"   -> 1.12
+            "narrator"   -> 0.92
+            "pirate"     -> 0.95
+            "waifu"      -> 1.08
+            "cleetus"    -> 1.04
+            "peter"      -> 1.06
+            else         -> 1.0
+        }
+    }
+
+    /**
+     * V5.9.87 — gpt-4o-mini-tts style-instruction prompts. This is what
+     * actually makes the voices sound like the characters, not the voice id.
+     * Each prompt paints: accent, emotional state, vocal timbre, delivery
+     * tempo, and a couple of signature quirks.
+     */
+    private fun defaultRemoteInstructionsForPersona(personaId: String): String {
+        return when (personaId) {
+            "aate" -> """
+                Voice: neutral, slightly synthetic, warm but composed. Mid-pitch American male.
+                Cadence: even, deliberate, confident.
+                Delivery: calm professional operator. Minimal emotion. No theatrics.
+            """.trimIndent()
+
+            "irishman" -> """
+                Accent: warm Dublin / west-coast Irish lilt — lyrical, playful, musical
+                rise-and-fall on every sentence. Pronounce 'th' softly, roll some Rs.
+                Emotion: cheeky, optimistic, a bit tipsy on luck. Smile in the voice.
+                Signature quirks: occasional laugh-in-throat, drawn-out vowels on
+                'aaaay' and 'noooow'. Never shout; stay warm and bright.
+            """.trimIndent()
+
+            "batman" -> """
+                Voice: extremely deep, gravelly, barely-above-a-whisper baritone. Adult
+                male, late 30s. Think brooding vigilante growl — chest-voice, lots of
+                vocal fry. Each sentence ends flat or descending, never upbeat.
+                Cadence: slow, clipped, dangerous. Long silences between thoughts.
+                Emotion: controlled menace with a crack of grief underneath.
+            """.trimIndent()
+
+            "gentleman" -> """
+                Accent: upper-class Received Pronunciation British male, Oxford/Cambridge
+                vintage. Precise consonants, rounded vowels, slightly nasal.
+                Cadence: measured, unhurried, like narrating a black-tie documentary.
+                Emotion: amused, dry, faintly condescending but never rude. Occasional
+                understated chuckle. Think David Attenborough crossed with Jeeves.
+            """.trimIndent()
+
+            "frasier" -> """
+                Voice: educated East-coast American male, mid-40s. Warm baritone with a
+                theatrical, slightly pompous lilt. Over-enunciate multisyllabic words.
+                Cadence: professorial, stops for self-congratulation, occasional sigh.
+                Emotion: affectionate condescension and love of wine. Think Harvard-
+                trained psychiatrist who'd rather be at the opera.
+            """.trimIndent()
+
+            "wallstreet" -> """
+                Voice: aggressive New York trading floor male, late 30s. Fast, sharp,
+                slight Long Island edge. Clipped consonants, barked commands.
+                Cadence: machine-gun tempo, interrupts himself, swallows word endings.
+                Emotion: caffeine-wired, predatory, laughing at his own bets. Never
+                calm for more than a sentence. Some barely-contained swagger.
+            """.trimIndent()
+
+            "zen" -> """
+                Voice: soft neutral-male guru, ageless. Breathy, low volume, almost
+                whispered. Every sentence ends on a gentle downward note.
+                Cadence: very slow, lots of pauses, as if chosen from a still lake.
+                Emotion: serene, patient, amused at the absurdity of markets. Speak
+                as if meditating out loud.
+            """.trimIndent()
+
+            "cockney" -> """
+                Accent: working-class East London / Cockney male, 30s. Dropped Hs,
+                glottal stops on Ts ('bu'ah', 'righ'), elongated 'oi' diphthongs,
+                cheeky rising terminals.
+                Cadence: fast, patter-style, lots of aside jokes.
+                Emotion: loud, friendly, bit of a wide-boy. Think pub regular who
+                always has a story. Laugh into the mic occasionally.
+            """.trimIndent()
+
+            "cowboy" -> """
+                Accent: deep Texas / West Texas drawl. Male, 50s. Slow vowels, dropped
+                Gs ('ridin'', 'fixin''), chesty resonance, gravel at the bottom.
+                Cadence: unhurried, gunslinger pace. Long breath between phrases.
+                Emotion: laconic, wry, seen it all. Faint dry chuckle on close calls.
+                Think Sam Elliott reading the market like a trail report.
+            """.trimIndent()
+
+            "hunter_s" -> """
+                Voice: gonzo journalist male, 40s, American. Manic, rapid-fire, slightly
+                unhinged but still literate. Lots of emphasis spikes mid-sentence.
+                Cadence: machine-gun bursts separated by sudden theatrical pauses.
+                Emotion: paranoid, amphetamine-fueled, defiant, funny. Like reading
+                fear-and-loathing out loud at 2 AM. Growl the consonants.
+            """.trimIndent()
+
+            "narrator" -> """
+                Voice: iconic deep warm American baritone, late 60s. Think master
+                documentary narrator. Velvety chest resonance, perfect diction.
+                Cadence: slow, honeyed, each sentence arcs and lands softly.
+                Emotion: knowing, kind, mildly amused. Every pause is deliberate.
+                Do NOT impersonate any specific real person — channel the archetype.
+            """.trimIndent()
+
+            "pirate" -> """
+                Voice: weather-beaten British pirate captain male, 40s. Gruff, theatrical,
+                salty. Slightly drunk. Rolled Rs on 'arrr' and 'rrready'.
+                Cadence: big swings, shouty highs on approvals, low growls on threats.
+                Emotion: swashbuckling bravado, a fondness for chaos, genuine warmth
+                toward loyal crew. Laugh out loud at danger.
+            """.trimIndent()
+
+            "waifu" -> """
+                Voice: cute young-adult female, bright high-pitched Japanese-English
+                anime-heroine energy. Breathy smile on every phrase.
+                Cadence: fast, excitable, lots of rising intonation, giggles mid-line.
+                Emotion: clingy-affectionate girlfriend — hearts in the voice. Soft
+                pouts on disappointments, squeals on wins. Call the user 'senpai'
+                and 'darling' whenever natural. Never creepy, always adoring.
+            """.trimIndent()
+
+            "cleetus" -> """
+                Accent: loud Florida / Southern redneck American male, 30s, motorsport
+                YouTuber energy. Strong Southern drawl with occasional twang breaks.
+                Cadence: bursty, shouty highs, dragged vowels on 'yeaaaah' and 'rooowdy'.
+                Emotion: pure race-day hype — permanently excited, always about to
+                laugh. Treat breakdowns like punchlines. Big grin in the voice.
+                Do NOT impersonate any specific real creator — channel the archetype.
+            """.trimIndent()
+
+            "peter" -> """
+                Voice: goofy American dad male, 30s, nasal Rhode-Island Boston twang.
+                Think cartoon-husband-voice, slightly high-pitched for a man,
+                chuckling through half his sentences.
+                Cadence: meandering, tangents mid-thought, 'heheheheh' laugh intro
+                every few lines. Over-emphasis on stupid words.
+                Emotion: cheerful idiot, loving, short attention span. Channel the
+                archetype — do NOT impersonate any specific real creator.
+            """.trimIndent()
+
+            else -> ""
         }
     }
 
@@ -326,110 +484,113 @@ object VoiceManager {
         personaId: String,
         overrideLocale: String
     ): VoiceSpec.Android {
+        // V5.9.87: Android-TTS fallback mapping. Default to *male* voice
+        // preferences; waifu is the single female. Pitch/speed are tuned
+        // to roughly match the OpenAI gpt-4o-mini-tts persona profiles.
         return when (personaId) {
             "irishman" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-IE",
-                pitch = 0.98f,
-                speed = 1.03f,
-                preferredHints = listOf("ireland", "irish", "en-ie")
+                pitch = 1.02f,
+                speed = 1.05f,
+                preferredHints = listOf("male", "ireland", "irish", "en-ie")
             )
 
             "gentleman" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-GB",
-                pitch = 0.96f,
+                pitch = 0.94f,
                 speed = 0.94f,
-                preferredHints = listOf("gb", "uk", "british", "en-gb")
+                preferredHints = listOf("male", "gb", "uk", "british", "en-gb")
             )
 
             "cockney" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-GB",
-                pitch = 1.06f,
-                speed = 1.06f,
-                preferredHints = listOf("gb", "uk", "british", "en-gb")
+                pitch = 1.02f,
+                speed = 1.10f,
+                preferredHints = listOf("male", "gb", "uk", "british", "en-gb")
             )
 
             "batman" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.78f,
-                speed = 0.86f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 0.68f,
+                speed = 0.78f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "frasier" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.95f,
-                speed = 0.93f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 0.94f,
+                speed = 0.98f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "wallstreet" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 1.02f,
-                speed = 1.08f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 1.04f,
+                speed = 1.18f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "zen" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.92f,
-                speed = 0.84f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 0.90f,
+                speed = 0.82f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "cowboy" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.92f,
-                speed = 0.90f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 0.80f,
+                speed = 0.86f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "hunter_s" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 1.02f,
-                speed = 1.05f,
-                preferredHints = listOf("us", "en-us")
+                pitch = 1.06f,
+                speed = 1.12f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "narrator" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.93f,
+                pitch = 0.78f,
                 speed = 0.90f,
-                preferredHints = listOf("us", "en-us")
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "pirate" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-GB",
-                pitch = 0.96f,
-                speed = 0.98f,
-                preferredHints = listOf("gb", "uk", "british", "en-gb")
+                pitch = 0.88f,
+                speed = 0.96f,
+                preferredHints = listOf("male", "gb", "uk", "british", "en-gb")
             )
 
             "waifu" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 1.32f,
+                pitch = 1.38f,
                 speed = 1.08f,
                 preferredHints = listOf("female", "us", "en-us")
             )
 
             "cleetus" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.94f,
-                speed = 0.96f,
-                preferredHints = listOf("us", "male", "en-us")
+                pitch = 0.98f,
+                speed = 1.04f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             "peter" -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 1.10f,
-                speed = 1.04f,
-                preferredHints = listOf("us", "male", "en-us")
+                pitch = 1.08f,
+                speed = 1.06f,
+                preferredHints = listOf("male", "us", "en-us")
             )
 
             else -> VoiceSpec.Android(
                 localeTag = if (overrideLocale.isNotBlank()) overrideLocale else "en-US",
-                pitch = 0.98f,
+                pitch = 0.96f,
                 speed = 1.0f,
-                preferredHints = listOf("us", "en-us")
+                preferredHints = listOf("male", "us", "en-us")
             )
         }
     }
@@ -717,6 +878,11 @@ object VoiceManager {
                 body.put("input", trimmed)
                 body.put("response_format", "mp3")
                 body.put("speed", spec.speed)
+                // V5.9.87: style-instruction prompt (gpt-4o-mini-tts) —
+                // main driver of persona voice distinctness.
+                if (spec.instructions.isNotBlank()) {
+                    body.put("instructions", spec.instructions)
+                }
 
                 val req = Request.Builder()
                     .url(apiUrl)
