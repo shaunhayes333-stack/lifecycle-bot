@@ -91,7 +91,22 @@ class BotOrchestrator(
             candidate.symbol,
             "OK",
             "total=${scoreCard.total} layers=$active/$total active ($positive pos) :: ${
-                scoreCard.components.joinToString(" | ") { "${it.name}=${it.value}" }
+                scoreCard.components.joinToString(" | ") { c ->
+                    // V5.9.96: inline zero-reason for every silent layer so
+                    // we can see exactly WHY each of the 13 consistently-dead
+                    // layers (momentum/volume/memory/copytrade/suppression/
+                    // feargreed/volatility/orderflow/smartmoney/holdtime/
+                    // liquiditycycle/insider_tracker/metacognition) returns
+                    // 0 — without waiting for the 20-eval health summary.
+                    if (c.value == 0) {
+                        val hint = c.reason.trim().takeIf { it.isNotBlank() }
+                            ?.take(40)?.replace("|", "¦")
+                        if (hint.isNullOrBlank()) "${c.name}=0"
+                        else "${c.name}=0(${hint})"
+                    } else {
+                        "${c.name}=${c.value}"
+                    }
+                }
             }"
         )
 
