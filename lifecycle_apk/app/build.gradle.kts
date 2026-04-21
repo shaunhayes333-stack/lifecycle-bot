@@ -173,4 +173,10 @@ dependencies {
     
     // V5.6.10: Turso LibSQL native Android SDK for collective learning
     implementation("tech.turso.libsql:libsql:0.1.1")
+
+    // V5.9.83: Sherpa ONNX on-device TTS (offline voice for Sentient Chat)
+    //   - Ships Kotlin API under `com.k2fsa.sherpa.onnx.*` + native .so libs
+    //   - Required for `SherpaTtsBridge` local TTS fallback path
+    //   - JitPack builds from k2-fsa/sherpa-onnx at the given tag
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.12.39")
 }
