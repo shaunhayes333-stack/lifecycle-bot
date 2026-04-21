@@ -4544,6 +4544,23 @@ if (deferredCount > 0) {
                             return
                         }
 
+                        // V5.9.92: SmartChart veto for Treasury (same fix as
+                        // Executor entry in V5.9.91). Treasury had its own
+                        // scoring path that bypassed chart-bias checks — if
+                        // the scanner reads >=80% bearish in the last 2 min
+                        // we skip regardless of Treasury score.
+                        val tsBearish = try {
+                            com.lifecyclebot.engine.SmartChartCache.getBearishConfidence(ts.mint)
+                        } catch (_: Exception) { null }
+                        if (tsBearish != null && tsBearish >= 80.0) {
+                            ErrorLogger.info(
+                                "BotService",
+                                "💰 [TREASURY] ${ts.symbol} | SMARTCHART_BLOCK | bearish=${tsBearish.toInt()}% — skip"
+                            )
+                            return
+                        }
+
+
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
