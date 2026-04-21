@@ -2790,13 +2790,19 @@ class LifecycleStrategy(
                 }
                 
                 // ── DYNAMIC TRAILING STOP ──
-                // Trail gets tighter as gains increase
+                // V5.9.97: Tighter trails so winners don't round-trip.
+                // Log showed BULL peak +49% → -1% (gave back 51%),
+                // UN peak +33% → -1% (gave back 35%), 1 peak +78% → +47%
+                // (gave back 31%). Previous trails were 30-50% wide.
+                // New curve: once a trade is up >= 30%, lock in more
+                // aggressively (give back at most 15%). Once up >= 100%,
+                // trail at just 12% to preserve moonshot wins.
                 val trailPct = when {
-                    peakGain >= 100.0 -> 20.0   // At +100%, trail at 20% from peak
-                    peakGain >= 50.0 -> 25.0    // At +50%, trail at 25% from peak
-                    peakGain >= 30.0 -> 30.0    // At +30%, trail at 30% from peak
-                    peakGain >= 15.0 -> 40.0    // At +15%, trail at 40% from peak
-                    else -> 50.0                 // Below +15%, trail at 50%
+                    peakGain >= 100.0 -> 12.0   // At +100%, trail at 12% from peak
+                    peakGain >= 50.0  -> 13.0   // At +50%, trail at 13%
+                    peakGain >= 30.0  -> 15.0   // At +30%, trail at 15% (user req)
+                    peakGain >= 15.0  -> 25.0   // At +15%, give room (25%)
+                    else              -> 40.0   // Below +15%, trail at 40%
                 }
                 
                 val drawdownFromPeak = peakGain - paperGainPct
@@ -2849,9 +2855,15 @@ class LifecycleStrategy(
                 // If AI learned longer holds are more profitable, extend the limits.
                 // 
                 val learnedHoldMultiplier = if (ExitIntelligence.getTotalExits() >= 20) {
-                    // If learned optimal hold > 10 mins, scale up time limits
+                    // If learned optimal hold > 10 mins, scale up time limits.
+                    // V5.9.97: cap at 1.5x (was 2.5x). Log showed the 2.5x
+                    // cap was letting winners overstay into round-trip —
+                    // unc peaked +X% then exited at +30% after 279m. Shorter
+                    // max-hold forces earlier profit lock-in on mid-tier
+                    // wins without cutting legit moonshots (they hit the
+                    // upper paperGainPct brackets and get 12-72h anyway).
                     val learnedOptimal = ExitIntelligence.getLearnedOptimalHoldMinutes()
-                    (learnedOptimal.toDouble() / 10.0).coerceIn(0.8, 2.5)
+                    (learnedOptimal.toDouble() / 10.0).coerceIn(0.8, 1.5)
                 } else 1.0  // Not enough data
                 
                 val maxHoldForGain = when {

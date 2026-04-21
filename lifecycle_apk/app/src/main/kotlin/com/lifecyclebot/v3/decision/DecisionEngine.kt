@@ -405,12 +405,20 @@ class FinalDecisionEngine(
         // EXECUTE_AGGRESSIVE at conf ~30 and the gate would then post-hoc
         // downgrade to SHADOW_ONLY. Raise the aggressive floor so the band
         // and the gate agree.
-        val aggressiveConfFloor = maxOf(effectiveMinConf + 10, 40)
-        val standardConfFloor   = maxOf(effectiveMinConf, if (isCGrade) 25 else 40)
-        val smallConfFloor      = maxOf(effectiveCGradeConf, 25)
+        // V5.9.97: EXECUTE_AGGRESSIVE is the LARGEST position-size band, so
+        // stop firing it on weak convictions. Require score >= 40 AND conf
+        // >= 50 regardless of bootstrap relief. Previously the bot bet its
+        // BIGGEST sizes on its WEAKEST setups (BEE/CAM both executed at
+        // score=26-27, conf=46 — those should have been EXECUTE_SMALL at
+        // most). STANDARD and SMALL keep their existing fluid floors so
+        // the bot can still learn from smaller probes.
+        val aggressiveConfFloor  = maxOf(effectiveMinConf + 10, 50)
+        val aggressiveScoreFloor = maxOf((effectiveMinScore * 1.3).toInt(), 40)
+        val standardConfFloor    = maxOf(effectiveMinConf, if (isCGrade) 25 else 40)
+        val smallConfFloor       = maxOf(effectiveCGradeConf, 25)
 
         val band = when {
-            hasMomentumOrVolume && score >= (effectiveMinScore * 1.3).toInt() && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
+            hasMomentumOrVolume && score >= aggressiveScoreFloor && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
             hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= standardConfFloor -> DecisionBand.EXECUTE_STANDARD
             hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
