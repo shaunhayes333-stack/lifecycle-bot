@@ -1668,6 +1668,38 @@ class Executor(
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return null
 
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.9.124 — REFLEX AI (sub-second reflex gate). Runs BEFORE every
+        // other exit path so meme snipers get hard-exited on catastrophic
+        // red candles / liquidity drains without waiting for the
+        // full scan tick. PARTIAL_LOCK is informational here — the
+        // milestone-partial-sell layer (checkPartialSell) picks up the 2x
+        // move on its own.
+        // ═══════════════════════════════════════════════════════════════════════
+        try {
+            val currentLiq = ts.lastLiquidityUsd
+            val reflex = com.lifecyclebot.v3.scoring.ReflexAI.evaluate(ts, price, currentLiq)
+            when (reflex) {
+                com.lifecyclebot.v3.scoring.ReflexAI.Reflex.ABORT -> {
+                    onLog("⚡ REFLEX ABORT: ${ts.symbol} - immediate exit", ts.mint)
+                    markForRecoveryScan(ts, pct(pos.entryPrice, price), "reflex_abort")
+                    TradeStateMachine.startCooldown(ts.mint)
+                    return "reflex_abort"
+                }
+                com.lifecyclebot.v3.scoring.ReflexAI.Reflex.LIQ_DRAIN -> {
+                    onLog("⚡ REFLEX LIQ_DRAIN: ${ts.symbol} - liquidity collapse exit", ts.mint)
+                    TradeStateMachine.startCooldown(ts.mint)
+                    return "reflex_liq_drain"
+                }
+                com.lifecyclebot.v3.scoring.ReflexAI.Reflex.PARTIAL_LOCK -> {
+                    onLog("⚡ REFLEX PARTIAL_LOCK: ${ts.symbol} +2x fast move (milestone partial will fire)", ts.mint)
+                    // fall through — riskCheck does not execute partial sells;
+                    // the milestone-partial-sell layer handles the actual sell.
+                }
+                null -> {}
+            }
+        } catch (_: Exception) {}
+
         pos.highestPrice = maxOf(pos.highestPrice, price)
         if (pos.lowestPrice == 0.0 || price < pos.lowestPrice) {
             pos.lowestPrice = price

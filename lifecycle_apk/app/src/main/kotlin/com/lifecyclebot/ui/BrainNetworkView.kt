@@ -179,21 +179,50 @@ class BrainNetworkView @JvmOverloads constructor(
             "ShitCoinTraderAI" to "SHITCOIN",
             "BlueChipTraderAI" to "BLUECHIP",
             "MoonshotTraderAI" to "MOONSHOT",
+            // V5.9.123 — 15 new layers. Spread across a third ring so the
+            // existing two-ring layout stays uncluttered.
+            "CorrelationHedgeAI" to "CORREL",
+            "LiquidityExitPathAI" to "EXIT_PATH",
+            "MEVDetectionAI" to "MEV",
+            "StablecoinFlowAI" to "MACRO",
+            "OperatorFingerprintAI" to "OP_FP",
+            "SessionEdgeAI" to "SESSION",
+            "ExecutionCostPredictorAI" to "EXEC_COST",
+            "DrawdownCircuitAI" to "DD_CIRC",
+            "CapitalEfficiencyAI" to "CAP_EFF",
+            "TokenDNAClusteringAI" to "DNA",
+            "PeerAlphaVerificationAI" to "PEER",
+            "NewsShockAI" to "NEWS",
+            "FundingRateAwarenessAI" to "FUND",
+            "OrderbookImbalancePulseAI" to "OB_PULSE",
+            "AITrustNetworkAI" to "TRUST",
+            "ReflexAI" to "REFLEX",
         )
         
         aiLayers.clear()
         
-        // Distribute layers across two rings
-        val innerRing = layerDefs.take(12)
-        val outerRing = layerDefs.drop(12)
+        // V5.9.123: 3-ring distribution — 12 in inner, 13 in middle, remainder outer.
+        val innerRing  = layerDefs.take(12)
+        val middleRing = layerDefs.drop(12).take(13)
+        val outerRing  = layerDefs.drop(25)
         
         innerRing.forEachIndexed { index, (name, shortName) ->
             aiLayers.add(AILayerNode(
                 name = name,
                 shortName = shortName,
-                angle = (index * 360.0 / innerRing.size) - 90,  // Start from top
+                angle = (index * 360.0 / innerRing.size) - 90,
                 ring = 0,
                 pulsePhase = (index * 0.08f) % 1f,
+            ))
+        }
+        
+        middleRing.forEachIndexed { index, (name, shortName) ->
+            aiLayers.add(AILayerNode(
+                name = name,
+                shortName = shortName,
+                angle = (index * 360.0 / middleRing.size) - 90 + 15,
+                ring = 1,
+                pulsePhase = (index * 0.06f + 0.5f) % 1f,
             ))
         }
         
@@ -201,9 +230,9 @@ class BrainNetworkView @JvmOverloads constructor(
             aiLayers.add(AILayerNode(
                 name = name,
                 shortName = shortName,
-                angle = (index * 360.0 / outerRing.size) - 90 + 15,  // Offset
-                ring = 1,
-                pulsePhase = (index * 0.06f + 0.5f) % 1f,
+                angle = (index * 360.0 / outerRing.size) - 90 + 7,
+                ring = 2,
+                pulsePhase = (index * 0.05f + 0.25f) % 1f,
             ))
         }
     }
@@ -314,23 +343,24 @@ class BrainNetworkView @JvmOverloads constructor(
         val centerY = height / 2f
         val minDim = min(width, height)
         
-        // Ring radii
+        // Ring radii — V5.9.123: 3-ring layout to fit 40+ AI layers
         val brainRadius = minDim * 0.12f
-        val innerRingRadius = minDim * 0.30f
-        val outerRingRadius = minDim * 0.42f
-        val nodeRadius = minDim * 0.025f
+        val innerRingRadius = minDim * 0.26f
+        val middleRingRadius = minDim * 0.36f
+        val outerRingRadius = minDim * 0.46f
+        val nodeRadius = minDim * 0.022f
         
         // Draw background grid/circuit pattern (subtle)
         drawCircuitBackground(canvas, centerX, centerY, minDim)
         
         // Draw connection lines (dim)
-        drawConnections(canvas, centerX, centerY, innerRingRadius, outerRingRadius, nodeRadius)
+        drawConnections(canvas, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
         
         // Draw neural pulses
-        drawPulses(canvas, centerX, centerY, brainRadius, innerRingRadius, outerRingRadius)
+        drawPulses(canvas, centerX, centerY, brainRadius, innerRingRadius, middleRingRadius, outerRingRadius)
         
         // Draw AI layer nodes
-        drawNodes(canvas, centerX, centerY, innerRingRadius, outerRingRadius, nodeRadius)
+        drawNodes(canvas, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
         
         // Draw central brain
         drawBrain(canvas, centerX, centerY, brainRadius)
@@ -356,11 +386,15 @@ class BrainNetworkView @JvmOverloads constructor(
     private fun drawConnections(
         canvas: Canvas, 
         cx: Float, cy: Float,
-        innerRadius: Float, outerRadius: Float,
+        innerRadius: Float, middleRadius: Float, outerRadius: Float,
         nodeRadius: Float
     ) {
         aiLayers.forEach { layer ->
-            val ringRadius = if (layer.ring == 0) innerRadius else outerRadius
+            val ringRadius = when (layer.ring) {
+                0 -> innerRadius
+                1 -> middleRadius
+                else -> outerRadius
+            }
             val rad = Math.toRadians(layer.angle)
             val nodeX = cx + ringRadius * cos(rad).toFloat()
             val nodeY = cy + ringRadius * sin(rad).toFloat()
@@ -380,11 +414,15 @@ class BrainNetworkView @JvmOverloads constructor(
         canvas: Canvas,
         cx: Float, cy: Float,
         brainRadius: Float,
-        innerRadius: Float, outerRadius: Float
+        innerRadius: Float, middleRadius: Float, outerRadius: Float
     ) {
         activePulses.forEach { pulse ->
             val layer = pulse.fromNode
-            val ringRadius = if (layer.ring == 0) innerRadius else outerRadius
+            val ringRadius = when (layer.ring) {
+                0 -> innerRadius
+                1 -> middleRadius
+                else -> outerRadius
+            }
             val rad = Math.toRadians(layer.angle)
             
             val startX = cx + ringRadius * cos(rad).toFloat()
@@ -414,11 +452,15 @@ class BrainNetworkView @JvmOverloads constructor(
     private fun drawNodes(
         canvas: Canvas,
         cx: Float, cy: Float,
-        innerRadius: Float, outerRadius: Float,
+        innerRadius: Float, middleRadius: Float, outerRadius: Float,
         nodeRadius: Float
     ) {
         aiLayers.forEach { layer ->
-            val ringRadius = if (layer.ring == 0) innerRadius else outerRadius
+            val ringRadius = when (layer.ring) {
+                0 -> innerRadius
+                1 -> middleRadius
+                else -> outerRadius
+            }
             val rad = Math.toRadians(layer.angle)
             val nodeX = cx + ringRadius * cos(rad).toFloat()
             val nodeY = cy + ringRadius * sin(rad).toFloat()

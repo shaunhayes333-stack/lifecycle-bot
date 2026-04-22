@@ -1,6 +1,8 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicReference
 

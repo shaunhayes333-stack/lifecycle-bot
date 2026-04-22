@@ -2,6 +2,8 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 

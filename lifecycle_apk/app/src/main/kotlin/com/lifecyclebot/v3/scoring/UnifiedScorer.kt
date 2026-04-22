@@ -144,6 +144,32 @@ class UnifiedScorer(
         } else baseComponents
 
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.9.124: V5.9.123-LAYER PENALTY CAP
+        // The 14 new V5.9.123 scoring layers can cumulatively stack -138 in worst
+        // case, which would veto every trade outright. Cap their combined
+        // negative contribution at -25 so they add signal without creating
+        // all-layer buy/sell blocks. Positive contributions remain uncapped.
+        // ═══════════════════════════════════════════════════════════════════════
+        val v59123LayerNames = setOf(
+            "correlationhedgeai", "liquidityexitpathai", "mevdetectionai",
+            "stablecoinflowai", "operatorfingerprintai", "sessionedgeai",
+            "executioncostpredictorai", "drawdowncircuitai", "capitalefficiencyai",
+            "tokendnaclusteringai", "peeralphaverificationai", "newsshockai",
+            "fundingrateawarenessai", "orderbookimbalancepulseai"
+        )
+        val v59123PenaltyTotal = cappedBaseComponents
+            .filter { it.name.lowercase() in v59123LayerNames && it.value < 0 }
+            .sumOf { it.value }
+        val v59123CappedComponents = if (v59123PenaltyTotal < -25) {
+            val scale = -25.0 / v59123PenaltyTotal
+            cappedBaseComponents.map { comp ->
+                if (comp.name.lowercase() in v59123LayerNames && comp.value < 0) {
+                    comp.copy(value = (comp.value * scale).toInt())
+                } else comp
+            }
+        } else cappedBaseComponents
+
+        // ═══════════════════════════════════════════════════════════════════════
         // COLLECTIVE INTELLIGENCE AI - Layer 21: Hive Mind Synthesis
         // Aggregates wisdom from all AATE instances via Turso collective learning
         // ═══════════════════════════════════════════════════════════════════════
@@ -153,7 +179,7 @@ class UnifiedScorer(
                 symbol = candidate.symbol,
                 source = candidate.source.name,  // Convert SourceType to String
                 liquidityUsd = candidate.liquidityUsd,
-                v3Score = cappedBaseComponents.sumOf { it.value },
+                v3Score = v59123CappedComponents.sumOf { it.value },
                 v3Confidence = 70  // Default, will be refined by MetaCognition
             )
             ScoreComponent(
@@ -170,7 +196,7 @@ class UnifiedScorer(
         }
         
         // Combine base components with collective intelligence
-        val allComponents = cappedBaseComponents + collectiveComponent
+        val allComponents = v59123CappedComponents + collectiveComponent
         
         // ═══════════════════════════════════════════════════════════════════════
         // METACOGNITION AI - Layer 22: Self-Aware Executive Function
@@ -266,11 +292,11 @@ class UnifiedScorer(
             }
             
             // Return scorecard with all components including behavior
-            return ScoreCard(cappedBaseComponents + metaComponent + behaviorComponent)
+            return ScoreCard(v59123CappedComponents + metaComponent + behaviorComponent)
 
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "MetaCognitionAI error: ${e.message}")
-            return ScoreCard(cappedBaseComponents)
+            return ScoreCard(v59123CappedComponents)
         }
     }
     

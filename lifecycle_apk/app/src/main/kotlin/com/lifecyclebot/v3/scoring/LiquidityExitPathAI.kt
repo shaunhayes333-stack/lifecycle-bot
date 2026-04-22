@@ -1,6 +1,8 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.scanner.CandidateSnapshot
 
 /**
  * V5.9.123 — LiquidityExitPathAI

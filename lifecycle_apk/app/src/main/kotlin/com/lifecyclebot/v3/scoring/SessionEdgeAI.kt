@@ -3,6 +3,8 @@ package com.lifecyclebot.v3.scoring
 import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.v3.core.TradingContext
+import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.TimeZone
