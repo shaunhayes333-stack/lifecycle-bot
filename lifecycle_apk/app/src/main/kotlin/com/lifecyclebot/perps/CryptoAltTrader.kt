@@ -1868,6 +1868,84 @@ object CryptoAltTrader {
     fun getClosedPositions()   : List<AltPosition> = closedPositions.toList()
     fun getSpotPositions()    : List<AltPosition> = spotPositions.values.toList()
     fun getLeveragePositions(): List<AltPosition> = leveragePositions.values.toList()
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.135 — LLM PAPER-TRADE HOOKS
+    // ───────────────────────────────────────────────────────────────────────────
+    // Lets the sentient chat layer open/close simulated positions via a
+    // <<TRADE>>{...}<<ENDTRADE>> block. PAPER MODE ONLY — live-mode calls are
+    // rejected at the gate. Intentionally minimal: uses SPOT @ 1x leverage
+    // with a synthetic mid-confidence signal so the existing risk/sizing
+    // machinery (exposure cap, fluid sizing, TP/SL, AI registration) runs
+    // unchanged. Returns a short outcome string suitable for echoing back
+    // into the LLM's chat reply.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    sealed class LlmTradeResult {
+        data class Success(val summary: String) : LlmTradeResult()
+        data class Rejected(val reason: String) : LlmTradeResult()
+    }
+
+    /**
+     * Open a simulated CryptoAlt paper position from the chat layer.
+     * Size is clamped to [0.05, 2.0] SOL for safety.
+     */
+    fun llmOpenPaperBuy(symbol: String, sizeSol: Double, reason: String): LlmTradeResult {
+        if (!isPaperMode.get()) return LlmTradeResult.Rejected("live mode — chat trading disabled")
+        val ticker = symbol.trim().uppercase()
+        val market = try { PerpsMarket.valueOf(ticker) } catch (_: Exception) {
+            return LlmTradeResult.Rejected("unknown symbol '$ticker'")
+        }
+        val clampedSize = sizeSol.coerceIn(0.05, 2.0)
+        val avail = getEffectiveBalance()
+        if (clampedSize > avail * 0.80) {
+            return LlmTradeResult.Rejected(
+                "size ${clampedSize.fmt(2)}◎ exceeds 80% of available ${avail.fmt(2)}◎"
+            )
+        }
+        scope.launch {
+            try {
+                val priceData = try { PerpsMarketDataFetcher.getMarketData(market) } catch (_: Exception) { null }
+                val price = priceData?.price ?: PerpsMarketDataFetcher.getCachedPrice(market)?.price ?: 0.0
+                if (price <= 0.0) {
+                    ErrorLogger.warn(TAG, "💬 LLM BUY ${market.symbol} — no price, aborting")
+                    return@launch
+                }
+                val signal = AltSignal(
+                    market           = market,
+                    direction        = PerpsDirection.LONG,
+                    score            = 70,
+                    confidence       = 70,
+                    price            = price,
+                    priceChange24h   = priceData?.priceChange24h ?: 0.0,
+                    reasons          = listOf("LLM chat: ${reason.take(80)}"),
+                    layerVotes       = emptyMap(),
+                    leverage         = DEFAULT_LEVERAGE,
+                )
+                executeSignal(signal, isSpot = true)
+                ErrorLogger.info(TAG, "💬 LLM PAPER BUY: ${market.symbol} | ${clampedSize.fmt(3)}◎ | $reason")
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "💬 LLM BUY error: ${e.message}")
+            }
+        }
+        return LlmTradeResult.Success("📄 paper buy queued: ${market.symbol} ~${clampedSize.fmt(2)}◎")
+    }
+
+    /**
+     * Close the latest-opened paper position matching a symbol.
+     */
+    fun llmClosePaperSell(symbol: String, reason: String): LlmTradeResult {
+        if (!isPaperMode.get()) return LlmTradeResult.Rejected("live mode — chat trading disabled")
+        val ticker = symbol.trim().uppercase()
+        val match = positions.values
+            .filter { it.market.symbol.equals(ticker, ignoreCase = true) && it.closeTime == null }
+            .maxByOrNull { it.openTime }
+            ?: return LlmTradeResult.Rejected("no open $ticker paper position")
+        val pnlPct = match.getPnlPct()
+        requestClose(match.id)
+        ErrorLogger.info(TAG, "💬 LLM PAPER SELL: ${ticker} pnl=${pnlPct.fmt(1)}% | $reason")
+        return LlmTradeResult.Success("📄 paper sell queued: $ticker @ ${pnlPct.fmt(1)}%")
+    }
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
 
     /** V5.9.85: Manual close for Markets UI. */

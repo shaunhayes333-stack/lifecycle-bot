@@ -717,7 +717,22 @@ object SentientPersonality {
                     null
                 }
 
-                val replyCore = tuned?.cleanedReply?.takeIf { it.isNotBlank() }
+                // V5.9.135 — run the paper-trade executor on whatever the
+                // TUNE pass left behind, so a single reply can carry both
+                // a <<TUNE>> block and a <<TRADE>> block.
+                val afterTune = tuned?.cleanedReply ?: llmReply
+                val traded = try {
+                    if (!afterTune.isNullOrBlank()) {
+                        com.lifecyclebot.engine.LlmPaperTradeExecutor.extractAndExecute(afterTune)
+                    } else {
+                        null
+                    }
+                } catch (_: Throwable) {
+                    null
+                }
+
+                val replyCore = traded?.cleanedReply?.takeIf { it.isNotBlank() }
+                    ?: tuned?.cleanedReply?.takeIf { it.isNotBlank() }
                     ?: llmReply?.takeIf {
                         // if tuner stripped the block and left nothing, avoid echoing raw markup
                         tuned == null || !tuned.hadBlock
@@ -729,15 +744,23 @@ object SentientPersonality {
                     }
                 }
 
+                val tradeSummary = traded?.outcome ?: traded?.rejected?.let { "⚠️ trade rejected: $it" }
+
                 val finalText = if (!replyCore.isNullOrBlank()) {
                     val base = replyCore.trim()
-                    if (tuneSummary != null) {
-                        "$base\n\n🎛️ auto-tuned: $tuneSummary"
-                    } else {
-                        base
+                    val suffix = buildString {
+                        if (tuneSummary != null) append("\n\n🎛️ auto-tuned: ").append(tuneSummary)
+                        if (tradeSummary != null) append("\n\n").append(tradeSummary)
                     }
-                } else if (tuneSummary != null) {
-                    "🎛️ auto-tuned: $tuneSummary"
+                    base + suffix
+                } else if (tuneSummary != null || tradeSummary != null) {
+                    buildString {
+                        if (tuneSummary != null) append("🎛️ auto-tuned: ").append(tuneSummary)
+                        if (tradeSummary != null) {
+                            if (isNotEmpty()) append("\n\n")
+                            append(tradeSummary)
+                        }
+                    }
                 } else {
                     val reason = try {
                         GeminiCopilot.lastBlipDiagnostic
