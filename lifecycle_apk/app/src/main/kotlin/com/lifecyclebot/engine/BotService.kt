@@ -860,6 +860,10 @@ class BotService : Service() {
             val cfg = ConfigStore.load(applicationContext)
             addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
 
+            // V5.9.105: fresh start = clean circuit breaker. beginSession() is
+            // called below once the live wallet balance is known.
+            LiveSafetyCircuitBreaker.reset()
+
             // ── Paper wallet: restore from SharedPrefs (survives app updates) ──
             val botPrefs = getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
             val savedBalance = botPrefs.getFloat("paper_wallet_sol", 0f).toDouble()
@@ -1832,6 +1836,24 @@ class BotService : Service() {
                     wallet = walletManager.getWallet()
                     addLog("✓ Wallet connected: ${walletManager.state.value.shortKey}")
                     ErrorLogger.info("BotService", "✓ Wallet connected in background")
+
+                    // V5.9.105: live-safety circuit breaker — refuse live trades
+                    // if the wallet starts below 0.1 SOL (dust bleeds fees on
+                    // every Jupiter swap). Also seeds session-PnL halt.
+                    try {
+                        val liveSol = wallet?.getSolBalance() ?: 0.0
+                        LiveSafetyCircuitBreaker.beginSession(liveSol)
+                        if (LiveSafetyCircuitBreaker.isTripped()) {
+                            addLog("🚨 LIVE HALT: ${LiveSafetyCircuitBreaker.trippedReason()}")
+                            sendTradeNotif(
+                                "🚨 Live Trading Disabled",
+                                LiveSafetyCircuitBreaker.trippedReason(),
+                                NotificationHistory.NotifEntry.NotifType.INFO,
+                            )
+                        }
+                    } catch (e: Exception) {
+                        addLog("⚠️ Could not seed live safety CB: ${e.message}")
+                    }
 
                     if (runReconciliation) {
                         val liveWallet = wallet

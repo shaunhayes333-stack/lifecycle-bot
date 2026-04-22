@@ -60,25 +60,31 @@ class MomentumAI : ScoringModule {
 /**
  * V3 Liquidity AI
  * LP health and draining detection
+ *
+ * V5.9.105: bridged with legacy LiquidityDepthAI so V3 sees on-chain
+ * COLLAPSE/DRAIN signals. Previously V3 could score "FAIR" while the
+ * legacy module was already screaming -13% drain — the two were running
+ * on parallel tracks. Now COLLAPSE = fatal veto, DRAIN = heavy penalty.
  */
 class LiquidityAI : ScoringModule {
     override val name = "liquidity"
-    
+
     override fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreComponent {
         var score = 0
         val reasons = mutableListOf<String>()
-        
+        var fatal = false
+
         val draining = candidate.extraBoolean("liquidityDraining")
         val phase = candidate.extraString("phase")
         val volumeExpanding = candidate.extraBoolean("volumeExpanding")
-        
+
         // Liquidity level scoring
         when {
             candidate.liquidityUsd >= 40_000 -> { score += 8; reasons += "Strong liquidity base" }
             candidate.liquidityUsd >= 15_000 -> { score += 5; reasons += "Good liquidity" }
             candidate.liquidityUsd < 3_000 -> { score -= 8; reasons += "Thin liquidity" }
         }
-        
+
         // Draining penalty (contextual)
         if (draining) {
             val penalty = when {
@@ -89,11 +95,36 @@ class LiquidityAI : ScoringModule {
             score -= penalty
             reasons += "Liquidity draining"
         }
-        
+
+        // V5.9.105: bridge in LiquidityDepthAI on-chain trend so V3 can veto
+        // a rug that the legacy detector has already spotted.
+        try {
+            val depth = com.lifecyclebot.engine.LiquidityDepthAI.analyzeTrend(candidate.mint)
+            when (depth.trend) {
+                com.lifecyclebot.engine.LiquidityDepthAI.Trend.COLLAPSE -> {
+                    score -= 15
+                    fatal = true
+                    reasons += "LP_COLLAPSE ${depth.changePercent.toInt()}%"
+                }
+                com.lifecyclebot.engine.LiquidityDepthAI.Trend.DRAIN -> {
+                    // Drain with high confidence is nearly as bad as collapse
+                    val p = if (depth.confidence >= 60.0) 10 else 6
+                    score -= p
+                    reasons += "LP_DRAIN ${depth.changePercent.toInt()}%"
+                }
+                com.lifecyclebot.engine.LiquidityDepthAI.Trend.SPIKE -> {
+                    score += 3
+                    reasons += "LP_SPIKE ${depth.changePercent.toInt()}%"
+                }
+                else -> { /* STABLE / GROWTH / UNKNOWN — neutral */ }
+            }
+        } catch (_: Exception) { /* best-effort — never fail scoring on depth error */ }
+
         return ScoreComponent(
             name = name,
-            value = score.coerceIn(-15, 10),
-            reason = reasons.ifEmpty { listOf("Neutral liquidity") }.joinToString(", ")
+            value = score.coerceIn(-25, 12),
+            reason = reasons.ifEmpty { listOf("Neutral liquidity") }.joinToString(", "),
+            fatal = fatal,
         )
     }
 }

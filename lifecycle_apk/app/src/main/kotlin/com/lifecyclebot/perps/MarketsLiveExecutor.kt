@@ -69,6 +69,127 @@ object MarketsLiveExecutor {
             cfg.slippageBps.coerceIn(10, MAX_SLIPPAGE_BPS)
         } catch (_: Exception) { 100 }
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.105: POST-SWAP TOKEN VERIFICATION
+    // Same class of fix as Executor.kt phantom guard (V5.9.102). On Alt /
+    // Forex / Metals / Commodities / Stocks live paths, a Jupiter swap can
+    // return a valid signature but deliver 0 tokens (rug / pool drain /
+    // MEV sandwich). Previously we recorded a phantom position and kept
+    // burning tx fees trying to "manage" it. Now: poll the on-chain
+    // balance of the target mint. If it didn't increase, we return null
+    // so the caller never records the phantom.
+    //
+    // Poll strategy: 3 polls × 4s = up to 12s. On RPC error, keep polling
+    // (inconclusive != phantom — never wipe on error alone).
+    // ═══════════════════════════════════════════════════════════════════
+    private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? {
+        return try {
+            wallet.getTokenAccountsWithDecimals()[mint]?.first ?: 0.0
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "  RPC read failed for ${mint.take(6)}…: ${e.message}")
+            null  // null = inconclusive (RPC error), not zero
+        }
+    }
+
+    /**
+     * Verify a BUY actually delivered tokens on-chain. Returns true if
+     * the target mint balance increased by at least minDelta above the
+     * pre-swap snapshot.
+     *
+     * Returns false ONLY when ALL polls returned a definitive 0-delta
+     * reading (no RPC errors). On any inconclusive result we return true
+     * and log a warning — the position will be adopted later by
+     * StartupReconciler rather than wiped silently.
+     */
+    private suspend fun verifyBuyDelivered(
+        wallet: SolanaWallet,
+        targetMint: String,
+        balanceBefore: Double,
+        symbol: String,
+        minDelta: Double = 0.0,
+    ): Boolean {
+        val maxPolls = 3
+        val pollIntervalMs = 4_000L
+        var anyRpcError = false
+        for (attempt in 1..maxPolls) {
+            kotlinx.coroutines.delay(pollIntervalMs)
+            val now = readTokenUi(wallet, targetMint)
+            if (now == null) {
+                anyRpcError = true
+                continue
+            }
+            val delta = now - balanceBefore
+            if (delta > minDelta) {
+                ErrorLogger.info(
+                    TAG,
+                    "  ✅ POST-BUY OK: $symbol | +${"%.6f".format(delta)} tokens confirmed on-chain (poll $attempt/$maxPolls)"
+                )
+                return true
+            }
+        }
+        return if (anyRpcError) {
+            ErrorLogger.warn(
+                TAG,
+                "  ⚠️ POST-BUY INCONCLUSIVE: $symbol — RPC errors masked verification. Treating as delivered so reconciler can adopt."
+            )
+            true  // inconclusive → let StartupReconciler / periodic loop adopt
+        } else {
+            ErrorLogger.warn(
+                TAG,
+                "  🚨 PHANTOM BUY: $symbol — 0 tokens delivered after ${maxPolls * pollIntervalMs / 1000}s. Discarding."
+            )
+            false
+        }
+    }
+
+    /**
+     * Verify a SELL actually reduced the holding. Returns true if the
+     * input mint balance decreased by at least minDelta.
+     *
+     * Same inconclusive-on-error policy as verifyBuyDelivered — we do
+     * NOT want to double-sell because an RPC blip hid the burn.
+     */
+    private suspend fun verifySellExecuted(
+        wallet: SolanaWallet,
+        inputMint: String,
+        balanceBefore: Double,
+        symbol: String,
+        minDelta: Double = 0.0,
+    ): Boolean {
+        val maxPolls = 3
+        val pollIntervalMs = 4_000L
+        var anyRpcError = false
+        for (attempt in 1..maxPolls) {
+            kotlinx.coroutines.delay(pollIntervalMs)
+            val now = readTokenUi(wallet, inputMint)
+            if (now == null) {
+                anyRpcError = true
+                continue
+            }
+            val delta = balanceBefore - now
+            if (delta > minDelta) {
+                ErrorLogger.info(
+                    TAG,
+                    "  ✅ POST-SELL OK: $symbol | -${"%.6f".format(delta)} tokens burned on-chain (poll $attempt/$maxPolls)"
+                )
+                return true
+            }
+        }
+        return if (anyRpcError) {
+            ErrorLogger.warn(
+                TAG,
+                "  ⚠️ POST-SELL INCONCLUSIVE: $symbol — RPC errors masked verification. Trusting tx sig."
+            )
+            true
+        } else {
+            ErrorLogger.warn(
+                TAG,
+                "  🚨 PHANTOM SELL: $symbol — balance unchanged after ${maxPolls * pollIntervalMs / 1000}s. Tx landed but no burn detected."
+            )
+            false
+        }
+    }
     
     /**
      * Initialize with Jupiter API key (optional)
@@ -401,14 +522,18 @@ object MarketsLiveExecutor {
         }
         ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG via Jupiter v1 | ${sizeSol.fmt(4)} SOL → ${targetMint.take(8)}...")
         val amountLamports = (sizeSol * 1_000_000_000L).toLong()
-        return executeJupiterSwap(
+        // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
+        val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
+        val sig = executeJupiterSwap(
             wallet         = wallet,
             walletAddress  = walletAddress,
             inputMint      = SOL_MINT,
             outputMint     = targetMint,
             amountLamports = amountLamports,
             slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
-        )
+        ) ?: return null
+        // V5.9.105: verify tokens actually arrived — otherwise phantom
+        return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
     }
 
     /**
@@ -433,16 +558,20 @@ object MarketsLiveExecutor {
         val label = TokenizedAssetRegistry.routeLabel(market.symbol)
         ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${sizeSol.fmt(4)} SOL")
         val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
+        val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
         // Tokenized-asset pools (xStocks/PAXG/EURC) are thinner than SOL/USDC —
         // use 2% slippage tolerance to avoid spurious Jupiter rejections.
-        return executeJupiterSwap(
+        val sig = executeJupiterSwap(
             wallet         = wallet,
             walletAddress  = walletAddress,
             inputMint      = SOL_MINT,
             outputMint     = targetMint,
             amountLamports = amountLamports,
             slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
-        )
+        ) ?: return null
+        // V5.9.105: verify tokens actually arrived — otherwise phantom
+        return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
     }
     
     /**
@@ -627,6 +756,11 @@ object MarketsLiveExecutor {
         val label = if (useTokenized) TokenizedAssetRegistry.routeLabel(market.symbol) else "USDC-legacy"
         ErrorLogger.info(TAG, "  🧾 CLOSE ${market.symbol} via $label | units=$amountUnits")
 
+        // V5.9.105: snapshot input-mint balance BEFORE swap so we can
+        // verify the burn actually happened on-chain. Prevents the sell
+        // side of the same phantom class that Executor.kt V5.9.102 fixed.
+        val sellBalanceBefore = readTokenUi(wallet, inputMint) ?: 0.0
+
         val signature = executeJupiterSwap(
             wallet        = wallet,
             walletAddress = walletAddress,
@@ -635,6 +769,15 @@ object MarketsLiveExecutor {
             amountLamports = amountUnits,
             slippageBps   = configuredSlippageBps(),
         )
+
+        // V5.9.105: verify sell actually burned the input mint on-chain
+        if (signature != null && sellBalanceBefore > 0.0) {
+            val sellOk = verifySellExecuted(wallet, inputMint, sellBalanceBefore, market.symbol)
+            if (!sellOk) {
+                ErrorLogger.warn(TAG, "CLOSE FAILED VERIFY: ${market.symbol} — tx sig landed but no burn. Not recording close.")
+                return@withContext Pair(false, null)
+            }
+        }
         
         return@withContext if (signature != null) {
             // V5.7.7: Collect fee on close as well

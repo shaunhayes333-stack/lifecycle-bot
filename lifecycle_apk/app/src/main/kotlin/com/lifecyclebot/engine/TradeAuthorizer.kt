@@ -145,7 +145,21 @@ object TradeAuthorizer {
         // Paper trades with bad rug scores still train the model on outcomes (good learning signal).
         // V5.6.8: MANIPULATED book ALWAYS bypasses rugcheck — it trades intentionally risky tokens
         val bypassRugcheck = requestedBook == ExecutionBook.MANIPULATED
-        
+
+        // V5.9.105: LIVE SAFETY CIRCUIT BREAKER — refuse live trades when the
+        // wallet is below the startup floor OR session drawdown halt fired.
+        // Paper mode is unaffected so learning loops stay live.
+        if (!isPaperMode && LiveSafetyCircuitBreaker.isTripped()) {
+            val cbReason = LiveSafetyCircuitBreaker.trippedReason()
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIVE_SAFETY_CB_TRIPPED — $cbReason")
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = "LIVE_SAFETY_CB:$cbReason",
+                blockLevel = BlockLevel.HARD,
+                canRetry = false,
+            )
+        }
+
         when {
             rugcheckScore <= 1 -> {
                 if (isPaperMode || bypassRugcheck) {

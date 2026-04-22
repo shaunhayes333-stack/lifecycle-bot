@@ -1441,7 +1441,9 @@ class Executor(
             recordTrade(ts, trade)
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
-            
+            // V5.9.105: feed live PnL into session drawdown circuit breaker
+            LiveSafetyCircuitBreaker.recordTradeResult(netPnl)
+
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
             
@@ -1575,6 +1577,7 @@ class Executor(
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
+                LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
                       "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -3943,6 +3946,7 @@ class Executor(
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
                     SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
+                    LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -5283,6 +5287,7 @@ class Executor(
             EmergentGuardrails.unregisterPosition(tradeId.mint)
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
+            LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
             
             if (pnl > 0) {
                 try {
