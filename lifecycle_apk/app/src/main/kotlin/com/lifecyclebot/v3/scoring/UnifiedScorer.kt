@@ -292,11 +292,17 @@ class UnifiedScorer(
             }
             
             // Return scorecard with all components including behavior
-            return ScoreCard(v59123CappedComponents + metaComponent + behaviorComponent)
+            // Return scorecard with all components including behavior
+            val finalCard = ScoreCard(v59123CappedComponents + metaComponent + behaviorComponent)
+            // V5.9.126 — capture entry scores for real per-layer accuracy learning
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
+            return finalCard
 
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "MetaCognitionAI error: ${e.message}")
-            return ScoreCard(v59123CappedComponents)
+            val fallbackCard = ScoreCard(v59123CappedComponents)
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components) } catch (_: Exception) {}
+            return fallbackCard
         }
     }
     

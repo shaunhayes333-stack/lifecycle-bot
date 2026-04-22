@@ -268,6 +268,95 @@ object EducationSubLayerAI {
     }
     
     private val layerPerformance = ConcurrentHashMap<String, LayerPerformanceMetrics>()
+
+    // V5.9.126 — REAL ACCURACY LEARNING
+    // Capture per-layer entry scores keyed by mint. On trade close, correlate
+    // the layer's entry-time prediction direction (sign of its score) with the
+    // actual PnL sign. Layer gets a SUCCESS only when it correctly predicted
+    // the direction; NEUTRAL scores (|score| ≤ 2) are skipped (no prediction).
+    // This replaces the old "every layer succeeds on every win" fake learning.
+    private data class EntryScoreSnapshot(
+        val scores: Map<String, Int>,
+        val timestamp: Long = System.currentTimeMillis(),
+    )
+    private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
+    private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 2  // |score| ≤ 2 → no prediction
+    private const val REAL_ACCURACY_EXPIRY_MS = 24 * 60 * 60 * 1000L  // purge after 24h
+
+    /**
+     * V5.9.126 — called by UnifiedScorer at entry time for every scored
+     * candidate. Map: component name → integer score. Used at trade close to
+     * compute real per-layer prediction accuracy.
+     */
+    fun recordEntryScores(mint: String, components: List<ScoreComponent>) {
+        if (mint.isBlank() || components.isEmpty()) return
+        // Garbage-collect stale snapshots occasionally (cheap bounded sweep)
+        if (pendingEntryScores.size > 500) {
+            val cutoff = System.currentTimeMillis() - REAL_ACCURACY_EXPIRY_MS
+            pendingEntryScores.entries.removeIf { it.value.timestamp < cutoff }
+        }
+        val map = components.associate { normalizeLayerName(it.name) to it.value }
+        pendingEntryScores[mint] = EntryScoreSnapshot(map)
+    }
+
+    /**
+     * Canonical name used across scoring/diagnostics. Maps a component name
+     * (as emitted by UnifiedScorer) to the REGISTERED_LAYERS key.
+     */
+    private fun normalizeLayerName(componentName: String): String = when (componentName.lowercase()) {
+        "entry"              -> "EntryAI"
+        "momentum"           -> "MomentumPredictorAI"
+        "liquidity"          -> "LiquidityDepthAI"
+        "volume"             -> "OrderFlowImbalanceAI"
+        "holders"            -> "HolderSafetyAI"
+        "narrative"          -> "NarrativeDetectorAI"
+        "memory"             -> "TokenWinMemory"
+        "regime"             -> "MarketRegimeAI"
+        "time"               -> "TimeOptimizationAI"
+        "copytrade"          -> "CopyTradeAI"
+        "suppression"        -> "SuppressionAI"
+        "feargreed"          -> "FearGreedAI"
+        "social"             -> "SocialVelocityAI"
+        "volatility"         -> "VolatilityRegimeAI"
+        "orderflow"          -> "OrderFlowImbalanceAI"
+        "smartmoney"         -> "SmartMoneyDivergenceAI"
+        "holdtime"           -> "HoldTimeOptimizerAI"
+        "liquiditycycle"     -> "LiquidityCycleAI"
+        "collective_ai"      -> "CollectiveIntelligenceAI"
+        "metacognition"      -> "MetaCognitionAI"
+        "behavior"           -> "BehaviorLearning"
+        "insider_tracker"    -> "InsiderTrackerAI"
+        else -> componentName  // V5.9.123 layers already use their class name
+    }
+
+    /**
+     * V5.9.126 — compute real per-layer success for a closed trade.
+     * Called from recordTradeOutcomeAcrossAllLayers AFTER the legacy
+     * hooks so dedicated recordOutcome() paths still run as before.
+     * For each layer in REGISTERED_LAYERS that has an entry score:
+     *   - bullish score (>= +3) + win  → success
+     *   - bullish score (>= +3) + loss → failure
+     *   - bearish score (<= -3) + loss → success (correctly bearish)
+     *   - bearish score (<= -3) + win  → failure (missed the rip)
+     *   - neutral (|score|<=2)          → skip (no prediction)
+     *
+     * Returns count of layers whose real accuracy was updated.
+     */
+    private fun applyRealAccuracyLearning(outcome: TradeOutcomeData): Int {
+        val snap = pendingEntryScores.remove(outcome.mint) ?: return 0
+        var updated = 0
+        snap.scores.forEach { (layerName, score) ->
+            if (layerName !in REGISTERED_LAYERS) return@forEach
+            if (abs(score) <= REAL_ACCURACY_NEUTRAL_THRESHOLD) return@forEach
+            val predictedBullish = score > 0
+            val wasCorrect = (predictedBullish && outcome.isWin) || (!predictedBullish && !outcome.isWin)
+            try {
+                markLayerUpdated(layerName, wasCorrect)
+                updated++
+            } catch (_: Exception) {}
+        }
+        return updated
+    }
     
     // Track all AI layers that should be learning
     private val REGISTERED_LAYERS = listOf(
@@ -569,6 +658,12 @@ object EducationSubLayerAI {
         // recordOutcome hooks yet (they learn from live market ticks/scans),
         // so we just mark them as updated so they appear as active/learning
         // in the BrainNetwork diagnostic view.
+        //
+        // V5.9.126: REAL ACCURACY LEARNING — the mark below just bumps the
+        // "last updated" timestamp so dormant-detection works on very first
+        // trade; the ACTUAL accuracy update happens in applyRealAccuracyLearning
+        // below, which correlates each layer's entry score direction with the
+        // PnL sign.
         // ═══════════════════════════════════════════════════════════════════
         listOf(
             "CorrelationHedgeAI", "LiquidityExitPathAI", "MEVDetectionAI",
@@ -579,9 +674,28 @@ object EducationSubLayerAI {
             "AITrustNetworkAI", "ReflexAI",
         ).forEach { layerName ->
             try {
-                markLayerUpdated(layerName, outcome.isWin)
+                // V5.9.126: touch lastRecordedTimestamp if layer has no metrics
+                // yet (so the node shows as active after first trade); real
+                // accuracy is updated in applyRealAccuracyLearning() below.
+                if (layerPerformance[layerName] == null) {
+                    layerPerformance[layerName] = LayerPerformanceMetrics(layerName).also {
+                        it.lastRecordedTimestamp = System.currentTimeMillis()
+                    }
+                }
                 layersUpdated++
             } catch (e: Exception) { errors.add("$layerName: ${e.message}") }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.126 — REAL PER-LAYER ACCURACY LEARNING
+        // Correlate each scored layer's entry-time direction (sign of score)
+        // with the actual PnL sign. Only layers that made a prediction
+        // (|score| > 2) get their accuracy updated. Runs AFTER legacy hooks
+        // so dedicated recordOutcome() paths still execute unchanged.
+        // ═══════════════════════════════════════════════════════════════════
+        val realUpdates = applyRealAccuracyLearning(outcome)
+        if (realUpdates > 0) {
+            ErrorLogger.info(TAG, "🎯 REAL ACCURACY: ${outcome.symbol} — ${realUpdates} layers updated from entry-score correlation")
         }
         
         // ═══════════════════════════════════════════════════════════════════
