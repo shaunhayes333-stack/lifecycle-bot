@@ -59,7 +59,16 @@ object MarketsLiveExecutor {
     // Constants
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
     private const val USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-    private const val DEFAULT_SLIPPAGE_BPS = 100  // 1%
+    // V5.9.104: hard slippage ceiling for ALL perps-family live swaps
+    private const val MAX_SLIPPAGE_BPS = 500   // 5% — matches Executor.kt memecoin cap
+
+    private fun configuredSlippageBps(): Int {
+        val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return 100
+        return try {
+            val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+            cfg.slippageBps.coerceIn(10, MAX_SLIPPAGE_BPS)
+        } catch (_: Exception) { 100 }
+    }
     
     /**
      * Initialize with Jupiter API key (optional)
@@ -273,7 +282,7 @@ object MarketsLiveExecutor {
         val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
         if (!bridge.success) {
             ErrorLogger.warn(TAG, "  Bridge failed: ${bridge.errorMsg} — falling back to direct SOL swap")
-            return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS)
+            return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps())
         }
         return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
     }
@@ -316,7 +325,7 @@ object MarketsLiveExecutor {
             inputMint = SOL_MINT,
             outputMint = USDC_MINT,
             amountLamports = (sizeSol * 1_000_000_000).toLong(),
-            slippageBps = DEFAULT_SLIPPAGE_BPS,
+            slippageBps = configuredSlippageBps(),
         )
     }
 
@@ -398,7 +407,7 @@ object MarketsLiveExecutor {
             inputMint      = SOL_MINT,
             outputMint     = targetMint,
             amountLamports = amountLamports,
-            slippageBps    = 200,  // 2% — alt pools are thinner
+            slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
         )
     }
 
@@ -432,7 +441,7 @@ object MarketsLiveExecutor {
             inputMint      = SOL_MINT,
             outputMint     = targetMint,
             amountLamports = amountLamports,
-            slippageBps    = 200,
+            slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
         )
     }
     
@@ -624,7 +633,7 @@ object MarketsLiveExecutor {
             inputMint     = inputMint,
             outputMint    = SOL_MINT,
             amountLamports = amountUnits,
-            slippageBps   = if (useTokenized) 200 else DEFAULT_SLIPPAGE_BPS,
+            slippageBps   = configuredSlippageBps(),
         )
         
         return@withContext if (signature != null) {

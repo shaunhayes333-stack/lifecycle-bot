@@ -22,8 +22,16 @@ import com.lifecyclebot.engine.ServiceWatchdog
  */
 class AATEApp : Application() {
 
+    companion object {
+        // V5.9.104: global app context accessor for static utilities
+        // (MarketsLiveExecutor, etc.) that need to load BotConfig.
+        @Volatile private var _appCtx: android.content.Context? = null
+        fun appContextOrNull(): android.content.Context? = _appCtx
+    }
+
     override fun onCreate() {
         super.onCreate()
+        _appCtx = applicationContext
         
         // Initialize ErrorLogger FIRST - before anything else
         try {

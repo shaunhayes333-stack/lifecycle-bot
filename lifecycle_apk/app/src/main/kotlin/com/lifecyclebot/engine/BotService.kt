@@ -2488,7 +2488,7 @@ class BotService : Service() {
                 lastReconcileAt = System.currentTimeMillis()
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val w = solanaWallet
+                        val w = wallet
                         if (w != null && w.isConnected()) {
                             val r = com.lifecyclebot.engine.StartupReconciler(
                                 wallet = w,
@@ -5222,18 +5222,17 @@ if (deferredCount > 0) {
                         } else 0.0
                         
                         // V5.9.103: COLLAPSE GUARD — skip ShitCoin emit on draining-liquidity tokens
-                        // Log repeatedly showed 💧 X: COLLAPSE then ShitCoin QUALIFIED on
-                        // the same token. The V3 veto was catching it, but relying on two
-                        // separate layers to agree is fragile. Compute a simple liquidity
-                        // collapse flag inline: if recent peak liquidity in the last 40
-                        // candles dropped by >=20% to current, this token is draining
-                        // and ShitCoin should not even attempt entry.
-                        val liqCollapseDetected = run {
-                            val window = ts.history.takeLast(40)
-                            val peakLiq = window.maxOfOrNull { it.liquidityUsd } ?: 0.0
-                            val curLiq = ts.lastLiquidityUsd
-                            peakLiq > 0.0 && curLiq > 0.0 && ((curLiq - peakLiq) / peakLiq) * 100.0 <= -20.0
-                        }
+                        // Uses LiquidityDepthAI's existing trend analysis (same engine that
+                        // already logs '💧 X: COLLAPSE ...'). If trend is COLLAPSE or DRAIN
+                        // with depth POOR/DANGEROUS, we skip the evaluate entirely rather
+                        // than relying on V3 to veto after ShitCoin already emits QUALIFIED.
+                        val liqCollapseDetected = try {
+                            val trend = com.lifecyclebot.engine.LiquidityDepthAI.analyzeTrend(ts.mint)
+                            trend.trend == com.lifecyclebot.engine.LiquidityDepthAI.Trend.COLLAPSE ||
+                                (trend.trend == com.lifecyclebot.engine.LiquidityDepthAI.Trend.DRAIN &&
+                                    (trend.depthQuality == com.lifecyclebot.engine.LiquidityDepthAI.DepthQuality.POOR ||
+                                     trend.depthQuality == com.lifecyclebot.engine.LiquidityDepthAI.DepthQuality.DANGEROUS))
+                        } catch (_: Exception) { false }
                         if (liqCollapseDetected) {
                             ErrorLogger.info(
                                 "BotService",
