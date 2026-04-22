@@ -509,6 +509,19 @@ Default to a natural, normal LLM-style reply with emotional range.
         )
     }
 
+    /**
+     * V5.9.129 — public entry point for SentienceOrchestrator. Lets the
+     * sentient brain's autonomous self-reflection loop speak through the
+     * same LLM plumbing as chat, without exposing the entire internal
+     * provider stack.
+     */
+    fun rawText(
+        userPrompt: String,
+        systemPrompt: String,
+        temperature: Double = 1.05,
+        maxTokens: Int = 900
+    ): String? = callText(userPrompt, systemPrompt, temperature, maxTokens)
+
     private fun callAnyProvider(
         userPrompt: String,
         systemPrompt: String,

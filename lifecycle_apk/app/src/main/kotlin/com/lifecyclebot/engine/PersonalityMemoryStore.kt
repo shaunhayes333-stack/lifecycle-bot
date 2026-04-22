@@ -121,6 +121,8 @@ object PersonalityMemoryStore {
         WORST_LOSS, BIGGEST_GIVEBACK, LONGEST_WINSTREAK, LONGEST_LOSSSTREAK,
         PERSONA_CHANGED, GRADUATED_TO_LIVE, CIRCUIT_BREAKER_TRIP, RUG_SURVIVED,
         NEW_ATH_BALANCE,
+        // V5.9.129: LLM-driven self-reflection milestones from SentienceOrchestrator
+        SELF_REFLECTION,
     }
 
     data class Milestone(

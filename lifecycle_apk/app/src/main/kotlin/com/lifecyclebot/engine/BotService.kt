@@ -265,6 +265,17 @@ class BotService : Service() {
             GeminiCopilot.init(cfg.geminiApiKey)
             ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
         }
+
+        // V5.9.129: Start the Sentience loop — LLM ↔ Personality ↔ Symbolic feedback.
+        // Runs every 6 min, reflects on live state, mutates traits + symbolic
+        // composites, injects autonomous thoughts into the stream. Guarded by
+        // tight clamps (±0.06 traits, ±0.08 symbolic per cycle).
+        try {
+            SentienceOrchestrator.start(applicationContext)
+            ErrorLogger.info("BotService", "🌌 SentienceOrchestrator started")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "SentienceOrchestrator start error: ${e.message}")
+        }
         
         // V5.6: Initialize On-Device ML Engine for trade predictions
         try {

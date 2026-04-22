@@ -939,6 +939,17 @@ object EducationSubLayerAI {
             layerPerformance[name]?.isLearning ?: false
         }
     }
+
+    /**
+     * V5.9.129 — public accessor for SentienceOrchestrator. Returns the
+     * layer's rolling accuracy in [0.0, 1.0]. 0.5 = no predictive edge;
+     * < 0.5 = actively wrong; > 0.5 = positive edge. Unknown layers → 0.5
+     * (neutral baseline) rather than an error so callers can just iterate.
+     */
+    fun getLayerAccuracy(layerName: String): Double {
+        val m = layerPerformance[layerName] ?: return 0.5
+        return m.accuracy.coerceIn(0.0, 1.0)
+    }
     
     /**
      * Reset all learning (use with caution!).

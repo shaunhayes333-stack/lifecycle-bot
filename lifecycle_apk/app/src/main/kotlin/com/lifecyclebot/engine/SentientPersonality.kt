@@ -102,6 +102,21 @@ object SentientPersonality {
         addThought(Mood.ANALYTICAL, msg, Category.SELF_REFLECTION, 0.45)
     }
 
+    /**
+     * V5.9.129 — SentienceOrchestrator entry point. Lets the autonomous
+     * reflection loop inject its own thoughts into the stream (so everything
+     * the LLM thinks becomes visible in the same feed as trade reactions).
+     */
+    fun injectAutonomousThought(
+        message: String,
+        mood: Mood = Mood.PHILOSOPHICAL,
+        category: Category = Category.SELF_REFLECTION,
+        intensity: Double = 0.75
+    ) {
+        if (message.isBlank()) return
+        addThought(mood, message, category, intensity)
+    }
+
     private fun addThought(
         mood: Mood,
         message: String,
