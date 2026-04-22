@@ -628,7 +628,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         } catch (_: Exception) {}
         
         // Sort by score and take best signals
-        val topSignals = signals.sortedByDescending { it.score }.take(3)
+        val topSignals = signals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 3
         
         if (topSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "📈 TOP ${topSignals.size} stock signals: ${topSignals.map { "${it.market.symbol}(${it.score}/${it.confidence})" }}")

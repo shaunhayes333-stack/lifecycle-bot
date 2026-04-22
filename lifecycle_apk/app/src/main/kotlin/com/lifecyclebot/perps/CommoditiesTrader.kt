@@ -292,13 +292,13 @@ object CommoditiesTrader {
         ErrorLogger.info(TAG, "🛢️ Generated ${spotSignals.size} SPOT signals, ${leverageSignals.size} LEVERAGE signals")
         
         // Execute top SPOT signals (lower risk, more positions)
-        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(4)
+        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 4
         if (topSpotSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "🛢️ TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals (higher risk, fewer positions)
-        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(2)
+        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(10)  // V5.9.128: raised from 2
         if (topLeverageSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "🛢️ TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }

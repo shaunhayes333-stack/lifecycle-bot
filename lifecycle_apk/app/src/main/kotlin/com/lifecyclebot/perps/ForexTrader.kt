@@ -267,13 +267,13 @@ object ForexTrader {
         }
         
         // Execute top SPOT signals
-        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(5)
+        val topSpotSignals = spotSignals.sortedByDescending { it.score }.take(25)  // V5.9.128: raised from 5
         if (topSpotSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "💱 TOP SPOT: ${topSpotSignals.map { "${it.market.symbol}(${it.score})" }}")
         }
         
         // Execute top LEVERAGE signals
-        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(3)
+        val topLeverageSignals = leverageSignals.sortedByDescending { it.score }.take(10)  // V5.9.128: raised from 3
         if (topLeverageSignals.isNotEmpty()) {
             ErrorLogger.info(TAG, "💱 TOP LEVERAGE: ${topLeverageSignals.map { "${it.market.symbol}(${it.score})" }}")
         }

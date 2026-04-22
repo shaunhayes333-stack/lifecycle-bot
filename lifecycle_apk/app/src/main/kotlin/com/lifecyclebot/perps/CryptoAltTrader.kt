@@ -520,7 +520,7 @@ object CryptoAltTrader {
             val topDyn = dynExecutableSignals
                 .filter { it.score >= scoreThresh && it.confidence >= confThresh }
                 .sortedByDescending { it.score }
-                .take(3) // max 3 new positions per DynScan cycle
+                .take(25) // V5.9.128: raised from 3 → 25 to use full 449-token universe
             for (sig in topDyn) {
                 if (positions.size >= MAX_POSITIONS) break
                 if (hasPosition(sig.market)) continue
@@ -616,7 +616,7 @@ object CryptoAltTrader {
             CrossTalkFusionEngine.fuse()
         } catch (_: Exception) {}
 
-        val topSignals = signals.sortedByDescending { it.score }.take(5)
+        val topSignals = signals.sortedByDescending { it.score }.take(50)  // V5.9.128: raised from 5 → 50 so the bot actually uses the full alt universe
 
         if (topSignals.isEmpty()) {
             ErrorLogger.warn(TAG, "🪙 ⚠️ NO SIGNALS — skipping execution")
