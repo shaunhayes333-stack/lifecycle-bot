@@ -703,7 +703,38 @@ object CashGenerationAI {
                 "💰 GLOBAL COMPOUND BOOST: ${globalMultiplier.fmt(2)}x → pos=${positionSol.fmt(3)}SOL",
             )
         }
-        
+
+        // V5.9.101 CRITICAL LIVE MONEY-LEAK FIX:
+        // Previously Treasury could request a 0.15-0.18 SOL entry while the
+        // live wallet held only 0.01 SOL. The live-buy path then silently
+        // clamped size to (wallet - rent reserve) ≈ 0.007 SOL, submitted
+        // the swap anyway, ate the tx fees + slippage, and the Treasury
+        // virtual-accounting ledger drifted out of sync with the real
+        // wallet. Rinse/repeat drained a user from 1.0 SOL -> 0.01 SOL
+        // while showing no visible positions in the UI.
+        // In LIVE mode, cap the requested size at (actual wallet minus a
+        // safety reserve for rent + fees). If the cap would drop the size
+        // below MIN_POSITION_SOL, return 0.0 so the caller skips the trade
+        // entirely instead of firing an under-sized swap that burns fees.
+        if (!isPaperMode) {
+            val liveSafetyReserveSol = 0.01   // rent-exempt + tx fees + fee-wallet split
+            val walletCeiling = (lastKnownWalletBalance - liveSafetyReserveSol).coerceAtLeast(0.0)
+            if (positionSol > walletCeiling) {
+                if (walletCeiling < MIN_POSITION_SOL) {
+                    ErrorLogger.warn(
+                        TAG,
+                        "💰 LIVE SIZE SKIP: requested=${positionSol.fmt(3)}◎ but wallet=${lastKnownWalletBalance.fmt(4)}◎ leaves only ${walletCeiling.fmt(4)}◎ after reserve — below MIN_POSITION_SOL=${MIN_POSITION_SOL}; skip trade"
+                    )
+                    return 0.0
+                }
+                ErrorLogger.info(
+                    TAG,
+                    "💰 LIVE SIZE CAP: ${positionSol.fmt(3)}◎ -> ${walletCeiling.fmt(4)}◎ (wallet=${lastKnownWalletBalance.fmt(4)}◎ minus ${liveSafetyReserveSol}◎ reserve)"
+                )
+                positionSol = walletCeiling
+            }
+        }
+
         ErrorLogger.info(TAG, "💰 FINAL SIZE: ${positionSol.fmt(3)}◎ | wallet=${effectiveBalance.fmt(2)}◎ streak=$currentStreak mode=$mode")
 
         val baseTakeProfitPct = when (mode) {
