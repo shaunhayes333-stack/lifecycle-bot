@@ -1165,36 +1165,44 @@ object FluidLearningAI {
         // to lock in those gains and tighten to ensure losses are mitigated"
         // ═══════════════════════════════════════════════════════════════
         if (currentPnlPct > 0 && peakPnlPct > 3.0) {  // V4.1: Start trailing earlier (at 3% not 5%)
-            // V4.1: Much tighter trailing - lock in more gains
-            // Bootstrap: Keep 60% of peak gain (was 50%)
-            // Mature: Keep 80% of peak gain (was 70%)
+            // V5.9.118: REWRITTEN — the old code had TWO bugs:
+            //   (1) ascending threshold order meant `if (peak>8)` caught every
+            //       case and the 15% / 25% lock tiers were dead code.
+            //   (2) the profit-trailing branches returned a NEGATED stop value
+            //       (e.g. peak=377% → `-maxOf(2, 301.6) = -301.6`), so the
+            //       exit check `gainPct <= dynamicStop` compared +251 <= -301
+            //       which is NEVER true. Runners like UGOR +290% → +50% never
+            //       fired any lock. This is the profit-floor regression that
+            //       has been "fixed" 3 times without taking hold.
+            //
+            // NEW SEMANTICS:
+            //   - While in profit, return a POSITIVE trailing stop level
+            //     (the exit fires when gainPct falls TO that level).
+            //   - Tiers are checked DESCENDING so the biggest-runner rule wins.
+            //   - Peak-drawdown hard floor: once peak >= 100%, force exit if
+            //     current gain has given back >= 35% of the peak. No runner
+            //     survives handing back a third of its high.
+            //
+            // Bootstrap: keep 60% of peak. Mature: keep 80% of peak.
             val keepRatio = lerp(0.60, 0.80)
-            
-            // Trail stop = Peak gain minus trail distance
-            // E.g., peak=20%, keepRatio=0.8 → trail distance=4% → stop at +16%
-            val trailDistance = peakPnlPct * (1.0 - keepRatio)
-            val trailingStop = peakPnlPct - trailDistance
-            
-            // V4.1: Once we've seen 8%+ profit, NEVER go below +2% (guaranteed small win)
-            if (peakPnlPct > 8.0) {
-                val minStop = 2.0  // Lock in at least 2% profit
-                return -maxOf(minStop, trailingStop)
+            val trailingStop = peakPnlPct * keepRatio
+
+            // Peak-drawdown hard floor for big runners (peak >= 100%).
+            // If we've given back >= 35% of peak pnl, fire exit.
+            val peakDrawdownFloor = if (peakPnlPct >= 100.0) peakPnlPct - 35.0 else Double.NEGATIVE_INFINITY
+
+            // Minimum locked-profit tiers (DESCENDING so the big ones win).
+            val minLockedProfit = when {
+                peakPnlPct > 25.0 -> 10.0   // Seen 25%+ → never exit below +10%
+                peakPnlPct > 15.0 -> 5.0    // Seen 15%+ → never exit below +5%
+                peakPnlPct > 8.0  -> 2.0    // Seen 8%+  → never exit below +2%
+                else              -> 0.0
             }
-            
-            // V4.1: Once we've seen 15%+ profit, lock in at least 5%
-            if (peakPnlPct > 15.0) {
-                val minStop = 5.0
-                return -maxOf(minStop, trailingStop)
-            }
-            
-            // V4.1: Once we've seen 25%+ profit, lock in at least 10%
-            if (peakPnlPct > 25.0) {
-                val minStop = 10.0
-                return -maxOf(minStop, trailingStop)
-            }
-            
-            // For smaller gains (3-8%), use trailing but allow down to base stop
-            return -maxOf(trailingStop, baseStop)
+
+            // Return POSITIVE trailing stop level. Executor compares
+            // `gainPct <= dynamicStopPct` — works identically for negative
+            // loss stops and positive profit-trailing stops.
+            return maxOf(minLockedProfit, trailingStop, peakDrawdownFloor)
         }
         
         // ═══════════════════════════════════════════════════════════════

@@ -1816,6 +1816,18 @@ class Executor(
             return "${stopType}_loss"
         }
 
+        // V5.9.118: REGRESSION GUARD — if a runner gives back >35% of its peak
+        // and the dynamic stop above did NOT fire, something is miswired
+        // (this was the UGOR +290%→+50% failure mode that kept regressing).
+        // WARN at most once per position so the log screams before we ship.
+        if (peakPnlPct >= 100.0 && (peakPnlPct - gainPct) >= 35.0 && !pos.profitFloorRegressionLogged) {
+            ErrorLogger.warn("Executor",
+                "⚠️ PROFIT-FLOOR REGRESSION: ${ts.symbol} peak=+${peakPnlPct.toInt()}% " +
+                "now=+${gainPct.toInt()}% (gave back ${(peakPnlPct - gainPct).toInt()}%) " +
+                "but dynamicStop=${dynamicStopPct.toInt()}% didn't fire — locks are misconfigured")
+            pos.profitFloorRegressionLogged = true
+        }
+
         if (heldSecs < 90.0) return null
 
         val currentLiq = ts.lastLiquidityUsd

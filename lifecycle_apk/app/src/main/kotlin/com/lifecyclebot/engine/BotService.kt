@@ -7700,6 +7700,30 @@ if (deferredCount > 0) {
         try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.init()
             com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(this)  // V5.8.0: restore Markets trade count
+            // V5.9.118: Self-check — boot-time assertion that getDynamicFluidStop
+            // returns sane values for runners. This is a permanent regression
+            // guard for the profit-floor-lock bug that has returned 3 times.
+            // A mis-signed stop (e.g. returning -342 for a +377% peak runner)
+            // will scream in the log BEFORE the bot takes a single bad trade.
+            try {
+                val testStop = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = 20.0,
+                    currentPnlPct = 251.0,
+                    peakPnlPct = 377.0,
+                    holdTimeSeconds = 600.0,
+                    volatility = 50.0,
+                )
+                if (testStop <= 0.0 || testStop > 377.0) {
+                    ErrorLogger.crash("BotService",
+                        "🚨 PROFIT-FLOOR REGRESSION AT BOOT: getDynamicFluidStop(peak=377%,now=251%) returned $testStop — MUST be positive and <= peak. Runners will not lock gains. This was the UGOR +290% → +50% bug.",
+                        RuntimeException("profit-floor self-check failed: stop=$testStop"))
+                } else {
+                    ErrorLogger.info("BotService",
+                        "✅ Profit-floor self-check: peak=377% now=251% → lock at +${testStop.toInt()}% (exit fires correctly)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "Profit-floor self-check skipped: ${e.message}")
+            }
             initCount++
         } catch (e: Exception) {
             failCount++

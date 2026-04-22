@@ -111,6 +111,10 @@ data class Position(
     // UI + persistence + exit loops skip positions in this state.
     // ═══════════════════════════════════════════════════════════════════
     val pendingVerify: Boolean = false,
+    // V5.9.118: Regression guard — set to true the first time the
+    // profit-floor-regression WARN has been logged for this position so
+    // we don't spam the log. Intentionally var/transient — not persisted.
+    var profitFloorRegressionLogged: Boolean = false,
 ) {
     val isOpen get() = qtyToken > 0.0 && !pendingVerify
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
