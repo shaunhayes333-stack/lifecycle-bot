@@ -455,7 +455,7 @@ object ConfigStore {
             },
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
-            maxConcurrentPositions      = p.getInt("max_concurrent_positions", 3),
+            maxConcurrentPositions      = p.getInt("max_concurrent_positions", 10),
             maxTotalExposureSol         = p.getFloat("max_total_exposure_sol", 0.30f).toDouble(),
             minHoldMins                 = p.getFloat("min_hold_mins", 3.0f).toDouble(),
             maxHoldMinsHard             = p.getFloat("max_hold_mins_hard", 120.0f).toDouble(),

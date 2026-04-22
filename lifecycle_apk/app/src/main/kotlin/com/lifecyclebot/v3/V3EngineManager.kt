@@ -308,11 +308,18 @@ object V3EngineManager {
             // alone caused `exposure / freeCash` to blow past 100% in paper whenever
             // more than half the starting capital was deployed, which globally
             // locked out all new entries even though the portfolio was healthy.
+            // V5.9.99 CRITICAL LIVE FIX: when totalEquity is zero (live wallet
+            // hasn't finished loading, or brand-new tiny account with stale
+            // status values) DO NOT claim 100% exposure — that was silently
+            // firing GLOBAL_EXPOSURE_MAX on every V3 eligibility check for
+            // a fresh live account, blocking all entries despite zero open
+            // positions. Default to 0% so the position-count leg remains
+            // the actual guard until a real balance is known.
             val totalEquity = walletSol + totalExposureSol
             val exposurePct = if (totalEquity > 0.0) {
                 (totalExposureSol / totalEquity).coerceIn(0.0, 1.0)
             } else {
-                1.0
+                0.0
             }
             guard?.currentExposurePct = exposurePct
 

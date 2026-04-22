@@ -161,6 +161,10 @@ class ExposureGuard(
     }
 
     fun openCount(): Int = openMints.size
+
+    // V5.9.99: expose cap values so EligibilityGate can log which leg fired
+    fun maxSlots(): Int = maxOpenPositions
+    fun maxPct(): Double = maxExposurePct
 }
 
 /**
@@ -200,7 +204,15 @@ class EligibilityGate(
 
         // Global exposure maxed
         if (exposureGuard.isGlobalExposureMaxed()) {
-            return EligibilityResult.fail("GLOBAL_EXPOSURE_MAX")
+            // V5.9.99: emit which leg of the cap fired so live-mode users
+            // can see whether it's the slot count or the exposure pct that's
+            // blocking entries — previously both triggered the same opaque
+            // GLOBAL_EXPOSURE_MAX message.
+            val reason = if (exposureGuard.openCount() >= exposureGuard.maxSlots())
+                "GLOBAL_EXPOSURE_MAX_SLOTS(${exposureGuard.openCount()}/${exposureGuard.maxSlots()})"
+            else
+                "GLOBAL_EXPOSURE_MAX_PCT(${(exposureGuard.currentExposurePct*100).toInt()}%/${(exposureGuard.maxPct()*100).toInt()}%)"
+            return EligibilityResult.fail(reason)
         }
 
         return EligibilityResult.pass()
