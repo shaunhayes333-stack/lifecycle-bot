@@ -201,10 +201,32 @@ object PositionPersistence {
         var restoredCount = 0
         
         for ((mint, saved) in persisted) {
-            // Check if position is too old (> 24 hours) — might be stale
+            // V5.9.122: paper positions NEVER go stale — they represent real
+            // simulated capital. Previously anything > 24h old was silently
+            // dropped on restart, which wiped the paper balance attached to
+            // it (the SOL was debited on BUY but never refunded on drop).
+            // Users reported losing hundreds of thousands of paper dollars
+            // across app updates because of this. Now:
+            //   • Paper positions: NEVER dropped for age. They live until
+            //     normal exit logic closes them.
+            //   • Live positions: keep the 7-day (was 24h) cutoff — after
+            //     a week an on-chain position most likely was manually
+            //     closed outside the app and we shouldn't resurrect it.
+            //   • If we DO drop a paper position (future path), we MUST
+            //     refund the costSol to UnifiedPaperWallet before dropping.
             val ageHours = (System.currentTimeMillis() - saved.savedAt) / 3600_000.0
-            if (ageHours > 24.0) {
-                ErrorLogger.warn(TAG, "⚠️ STALE position for ${saved.symbol}: ${String.format("%.1f", ageHours)}h old — skipping restore")
+            if (!saved.isPaperPosition && ageHours > 24.0 * 7) {
+                ErrorLogger.warn(TAG, "⚠️ STALE live position for ${saved.symbol}: ${String.format("%.1f", ageHours)}h old — skipping restore")
+                continue
+            }
+            if (saved.isPaperPosition && ageHours > 24.0 * 60) {
+                // 60-day sanity cap to prevent infinite growth of junk rows.
+                // REFUND the paper SOL back so capital isn't lost.
+                ErrorLogger.warn(TAG, "⚠️ Very old paper position for ${saved.symbol} (${String.format("%.1f", ageHours)}h) — refunding ${saved.costSol} SOL and dropping")
+                try {
+                    BotService.creditUnifiedPaperSol(saved.costSol,
+                        source = "stale_paper_refund[${saved.symbol}]")
+                } catch (_: Exception) { /* non-fatal */ }
                 continue
             }
             

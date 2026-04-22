@@ -143,6 +143,20 @@ class StartupReconciler(
 
         openPositions.forEach { ts ->
             try {
+                // V5.9.122: CRITICAL FIX — skip paper positions entirely.
+                // Paper positions have no on-chain existence, so
+                // getTokenBalance() always returns 0, and the ghost-detection
+                // branch below unconditionally wiped them on every startup.
+                // This is THE bug that silently wiped hundreds of thousands
+                // of paper dollars across app updates — paper positions
+                // were classified as ghosts by a live-chain reconciler that
+                // should never have been inspecting them.
+                if (ts.position.isPaperPosition) {
+                    onLog("Reconcile: 📝 ${ts.symbol} is a paper position — skipping on-chain ghost check")
+                    verified.add(ts.mint)
+                    return@forEach
+                }
+
                 val tokenBalance = getTokenBalance(ts.mint)
 
                 if (tokenBalance <= 0.0) {
@@ -157,6 +171,18 @@ class StartupReconciler(
 
                     // Clear the ghost position
                     synchronized(ts) {
+                        // V5.9.122: safety net — if a paper position ever slips
+                        // past the guard above, refund the paper SOL before
+                        // clearing so capital isn't lost silently.
+                        if (ts.position.isPaperPosition && ts.position.costSol > 0.0) {
+                            try {
+                                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                                    ts.position.costSol,
+                                    source = "ghost_reconcile_refund[${ts.symbol}]"
+                                )
+                                onLog("💰 Refunded ${ts.position.costSol} paper SOL from ghost ${ts.symbol}")
+                            } catch (_: Exception) { /* non-fatal */ }
+                        }
                         ts.position   = com.lifecyclebot.data.Position()
                         ts.lastExitTs = System.currentTimeMillis()
                     }
