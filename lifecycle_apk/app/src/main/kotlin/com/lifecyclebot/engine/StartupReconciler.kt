@@ -220,6 +220,29 @@ class StartupReconciler(
                 
                 // Skip SOL and common wrapped tokens
                 if (mint == "So11111111111111111111111111111111111111112") return@forEach
+
+                // V5.9.110: PROTECT Markets-trader holdings from orphan auto-sell.
+                // xStocks / PAXG / EURC mints belong to TokenizedStockTrader /
+                // MetalsTrader / ForexTrader. Previously the reconciler was
+                // liquidating these on every restart — user saw 1 SOL turn into
+                // tokens they could see on-chain but with "0 Open" in the UI.
+                if (mint in com.lifecyclebot.perps.TokenizedAssetRegistry.allMints()) {
+                    val sym = status.tokens[mint]?.symbol ?: mint.take(8)
+                    onLog("🛡️ RESPECTED: $sym ($qty tokens) — Markets-trader holding, not orphan")
+                    return@forEach
+                }
+
+                // V5.9.110: also respect DynamicAltTokenRegistry real Solana mints
+                // (CryptoAltTrader holdings like WOJAK, BLAST, etc.).
+                try {
+                    val altHolding = com.lifecyclebot.perps.DynamicAltTokenRegistry
+                        .getAllTokens()
+                        .any { it.mint == mint && !it.mint.startsWith("cg:") && !it.mint.startsWith("static:") }
+                    if (altHolding) {
+                        onLog("🛡️ RESPECTED alt token ${mint.take(8)}… ($qty) — CryptoAlt holding")
+                        return@forEach
+                    }
+                } catch (_: Exception) {}
                 
                 // This is an orphaned token - not tracked but has balance
                 orphansFound++

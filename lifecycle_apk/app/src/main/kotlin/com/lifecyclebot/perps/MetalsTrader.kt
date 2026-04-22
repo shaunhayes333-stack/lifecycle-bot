@@ -459,10 +459,39 @@ object MetalsTrader {
             val success = executeLiveTrade(signal, typeLabel)
             if (success) {
                 ErrorLogger.info(TAG, "🥇 LIVE trade success: ${signal.market.symbol}")
+                // V5.9.110: CRITICAL FIX — previously LIVE mode skipped position
+                // creation entirely, so the swap happened on-chain but the bot
+                // had zero record of it (UI 0 Open, no TP/SL, no 30-day entry).
+                // Now we mirror the paper-mode bookkeeping for live too.
+                val (tpMultL, slMultL) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
+                val liveTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() * tpMultL
+                val liveSlPct = SL_PERCENT * slMultL
+                val liveTp = if (signal.direction == PerpsDirection.LONG)
+                    signal.price * (1 + liveTpPct / 100) else signal.price * (1 - liveTpPct / 100)
+                val liveSl = if (signal.direction == PerpsDirection.LONG)
+                    signal.price * (1 - liveSlPct / 100) else signal.price * (1 + liveSlPct / 100)
+                val livePos = MetalPosition(
+                    id = "${if (signal.leverage == 1.0) "SPOT" else "LEV"}_${signal.market.symbol}_${System.currentTimeMillis()}",
+                    market = signal.market,
+                    direction = signal.direction,
+                    entryPrice = signal.price,
+                    currentPrice = signal.price,
+                    size = positionSizeSol,
+                    leverage = signal.leverage,
+                    takeProfit = liveTp,
+                    stopLoss = liveSl,
+                    reasons = signal.reasons,
+                )
+                positionMap[livePos.id] = livePos
+                ErrorLogger.info(
+                    TAG,
+                    "🥇 LIVE POSITION OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} size=${positionSizeSol}◎"
+                )
+                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
             } else {
                 ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
             }
-            return  // Live mode: done. No paper position.
+            return  // Live mode: done.
         }
         
         // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction

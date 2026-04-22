@@ -135,6 +135,13 @@ object TokenizedAssetRegistry {
     /** Known symbols (built-in + user). */
     fun knownSymbols(): Set<String> = MINTS.keys + userMints.keys
 
+    /**
+     * V5.9.110: All Solana mints registered to Markets traders. Used by
+     * StartupReconciler to skip auto-selling these on restart — they are
+     * legit Markets-trader holdings, NOT orphans.
+     */
+    fun allMints(): Set<String> = MINTS.values.toSet() + userMints.values.toSet()
+
     /** SOL mint re-exported for convenience. */
     const val SOL_MINT  = UniversalBridgeEngine.SOL_MINT
     const val USDC_MINT = UniversalBridgeEngine.USDC_MINT

@@ -876,13 +876,52 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
         // V5.7.6b: LIVE mode — execute real on-chain trade. No paper fallback.
         if (!isPaperMode.get()) {
-            val success = executeLiveTrade(signal, isSpot)
-            if (success) {
+            val liveSizeSol = executeLiveTrade(signal, isSpot)
+            if (liveSizeSol != null) {
                 ErrorLogger.info(TAG, "📈 LIVE trade success: ${signal.market.symbol}")
+                // V5.9.110: CRITICAL FIX — previously LIVE mode returned here
+                // without ever creating a StockPosition, so the swap went
+                // through on-chain but the bot had zero record of it. The UI
+                // showed "0 Open" while real SOL was deployed into xStocks.
+                // Now we mirror the paper-mode bookkeeping so TP/SL, the
+                // 30-day sheet, and the UI all see the live position.
+                val leverage = if (isSpot) 1.0 else signal.leverage
+                val tpPct = if (isSpot) 3.0 else 6.0
+                val slPct = if (isSpot) 3.0 else 4.0
+                val (tp, sl) = when (signal.direction) {
+                    PerpsDirection.LONG ->
+                        signal.price * (1 + tpPct / 100) to signal.price * (1 - slPct / 100)
+                    PerpsDirection.SHORT ->
+                        signal.price * (1 - tpPct / 100) to signal.price * (1 + slPct / 100)
+                }
+                val position = StockPosition(
+                    id = "STOCK_${positionIdCounter.incrementAndGet()}",
+                    market = signal.market,
+                    direction = signal.direction,
+                    entryPrice = signal.price,
+                    currentPrice = signal.price,
+                    sizeSol = liveSizeSol,
+                    leverage = leverage,
+                    takeProfitPrice = tp,
+                    stopLossPrice = sl,
+                    aiScore = signal.score,
+                    aiConfidence = signal.confidence,
+                    reasons = signal.reasons,
+                )
+                positions[position.id] = position
+                if (isSpot) spotPositions[position.id] = position
+                else leveragePositions[position.id] = position
+                totalTrades.incrementAndGet()
+                ErrorLogger.info(
+                    TAG,
+                    "📈 LIVE POSITION OPENED: ${signal.market.symbol} ${signal.direction} " +
+                        "sz=${liveSizeSol.fmt(4)}◎ tp=${tp.fmt(2)} sl=${sl.fmt(2)}"
+                )
+                savePersistedState()
             } else {
                 ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
             }
-            return  // Live mode: done. No paper position.
+            return  // Live mode: done.
         }
         
         // PAPER MODE execution — only when in paper mode
@@ -1481,7 +1520,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     /** Execute LIVE trade via MarketsLiveExecutor
      * V5.7.6b: Fully wired to on-chain execution via Jupiter API
      */
-    private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Boolean {
+    private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Double? {
         val leverage = if (isSpot) 1.0 else signal.leverage
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
         if (liveWalletBalance <= 0.0) {
@@ -1503,7 +1542,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 "TokenizedStocks",
                 com.lifecyclebot.engine.LiveAttemptStats.Outcome.FLOOR_SKIPPED
             )
-            return false
+            return null
         }
         val sizeSol = desired.coerceIn(floor, (balance * 0.20).coerceAtLeast(floor))
         
@@ -1536,14 +1575,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 updateLiveBalance(newBalance)
             } catch (_: Exception) {}
             
-            return true
+            return sizeSol
         } else {
             ErrorLogger.warn(TAG, "🔴 LIVE FAILED: ${signal.market.symbol}")
             com.lifecyclebot.engine.LiveAttemptStats.record(
                 "TokenizedStocks",
                 com.lifecyclebot.engine.LiveAttemptStats.Outcome.FAILED
             )
-            return false
+            return null
         }
     }
     
