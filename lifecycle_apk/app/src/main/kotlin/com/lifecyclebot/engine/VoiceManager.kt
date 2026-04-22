@@ -92,6 +92,50 @@ object VoiceManager {
     fun init(ctx: Context) {
         appCtx = ctx.applicationContext
         ErrorLogger.info(TAG, "🔊 VoiceManager init (muted=${isMuted(ctx)})")
+        // V5.9.120: one-shot purge of any stale per-persona override keys
+        // from earlier versions (V5.9.87 tried `fable`/`echo`, V5.9.88 tried
+        // `gpt-4o-mini-tts` model, etc.). Those keys silently win over the
+        // current correct defaults and cause 'Cleetus sounds female' bugs.
+        // The purge is idempotent and runs once per app version.
+        try { purgeStaleVoiceOverridesOnce(ctx) } catch (_: Throwable) {}
+    }
+
+    private fun purgeStaleVoiceOverridesOnce(ctx: Context) {
+        val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val purgeKey = "voice_overrides_purged_v5_9_120"
+        if (prefs.getBoolean(purgeKey, false)) return
+
+        val editor = prefs.edit()
+        // Personalities that MUST be male — nuke any stale per-persona voice
+        // override so the current male defaults in
+        // defaultRemoteVoiceForPersona() take effect.
+        val maleOnly = listOf(
+            "aate", "irishman", "batman", "gentleman", "frasier",
+            "wallstreet", "cockney", "cowboy", "hunter_s",
+            "narrator", "pirate", "cleetus", "peter"
+        )
+        var purged = 0
+        maleOnly.forEach { pid ->
+            val key = "tts_voice_$pid"
+            if (prefs.contains(key)) {
+                val stale = prefs.getString(key, null)
+                // Known-bad feminine-leaning voices we've shipped by accident
+                if (stale in setOf("nova", "shimmer", "fable", "echo", "coral")) {
+                    editor.remove(key)
+                    purged++
+                }
+            }
+        }
+        // Also purge any stale model pointer that breaks the proxy
+        val model = prefs.getString(KEY_REMOTE_MODEL, null)
+        if (model != null && model !in ALLOWED_TTS_MODELS) {
+            editor.putString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL)
+            purged++
+        }
+        editor.putBoolean(purgeKey, true).apply()
+        if (purged > 0) {
+            ErrorLogger.info(TAG, "🔊 Purged $purged stale voice override(s) — male personas will now use correct OpenAI voices")
+        }
     }
 
     fun isMuted(ctx: Context): Boolean {
@@ -164,12 +208,77 @@ object VoiceManager {
         stopMediaOnly()
 
         val personaId = persona?.id ?: "aate"
+
+        // V5.9.120: if the user has dropped a signature-phrase MP3/WAV into
+        // assets/phrases/{personaId}/{slug}.{mp3|wav}, AND the text we're
+        // about to speak is a close match for that phrase (exact/contains),
+        // play the recording directly. Bypasses TTS entirely for iconic
+        // one-liners like "Hell yeah brother" / "Arrr matey" / "Hehehehehe".
+        // If no asset matches, fall through to normal TTS.
+        if (maybePlaySignaturePhrase(ctx, personaId, clean, token)) return
+
         val spec = resolveVoiceSpec(ctx, personaId)
 
         when (spec) {
             is VoiceSpec.LocalSherpa -> speakLocalSherpa(clean, spec, token)
             is VoiceSpec.Remote -> speakRemote(clean, spec, token)
             is VoiceSpec.Android -> speakAndroid(clean, spec, token)
+        }
+    }
+
+    /**
+     * V5.9.120 — signature-phrase asset pipeline.
+     *
+     * Checks assets/phrases/{personaId}/ for files whose filename slug
+     * matches (stripped, lowercased) the start or full body of `text`. If
+     * a match exists AND the text is short enough to be just the phrase
+     * (≤ 60 chars), copy the asset to cache and play it. Returns true if
+     * the phrase played.
+     *
+     * The folder structure is user-controlled — download any free WAV/MP3
+     * from the internet, name it e.g. "hell_yeah_brother.mp3", drop it in
+     * assets/phrases/cleetus/, and it plays whenever the persona says
+     * "hell yeah brother".
+     */
+    private fun maybePlaySignaturePhrase(
+        ctx: Context,
+        personaId: String,
+        text: String,
+        token: Long
+    ): Boolean {
+        if (text.length > 80) return false
+        val norm = text.lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        if (norm.isBlank()) return false
+
+        val folder = "phrases/$personaId"
+        val names = try {
+            ctx.assets.list(folder)?.toList() ?: emptyList()
+        } catch (_: Throwable) { return false }
+        if (names.isEmpty()) return false
+
+        val match = names.firstOrNull { filename ->
+            val slug = filename.substringBeforeLast('.').lowercase(Locale.US)
+                .replace('_', ' ')
+                .replace('-', ' ')
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            slug.isNotBlank() && (norm == slug || norm.startsWith(slug) || norm.contains(slug))
+        } ?: return false
+
+        return try {
+            val outFile = File(ctx.cacheDir, "tts_phrase_${token}_${match}")
+            ctx.assets.open("$folder/$match").use { input ->
+                FileOutputStream(outFile).use { out -> input.copyTo(out) }
+            }
+            ErrorLogger.info(TAG, "🔊 Playing signature phrase asset: $folder/$match")
+            playAudioFile(outFile, token)
+            true
+        } catch (t: Throwable) {
+            ErrorLogger.warn(TAG, "Signature phrase play failed ($match): ${t.message}")
+            false
         }
     }
 
@@ -299,7 +408,7 @@ object VoiceManager {
             "narrator"   -> "onyx"    // deep documentary baritone
             "pirate"     -> "onyx"    // deep authoritative male
             "waifu"      -> "nova"    // bright female (the ONLY female)
-            "cleetus"    -> "ash"     // loud confident American male
+            "cleetus"    -> "onyx"    // V5.9.120: was `ash` (androgynous in practice) — onyx is unambiguously deep-male for Florida redneck
             "peter"      -> "ash"     // cartoon-dad articulate male
             else         -> "alloy"
         }

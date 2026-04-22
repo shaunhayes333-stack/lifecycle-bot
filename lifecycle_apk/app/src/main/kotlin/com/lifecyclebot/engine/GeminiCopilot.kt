@@ -380,12 +380,18 @@ object GeminiCopilot {
             return null
         }
 
+        // V5.9.120: persist the user turn BEFORE calling the model so even if
+        // generation fails the conversation log still has the user's message.
+        val personaId = persona?.id ?: "aate"
+        try { PersonalityMemoryStore.recordChat("user", userMessage, personaId) } catch (_: Exception) {}
+
         val system = buildSentientSystemPrompt(persona)
 
         val fullPrompt = buildSentientUserPrompt(
             userMessage = userMessage,
             contextSummary = contextSummary,
-            mode = "full"
+            mode = "full",
+            personaId = persona?.id
         )
 
         val full = callText(
@@ -396,7 +402,9 @@ object GeminiCopilot {
         )
         if (!full.isNullOrBlank()) {
             lastBlipDiagnostic = null
-            return full.trim()
+            val reply = full.trim()
+            try { PersonalityMemoryStore.recordChat("bot", reply, personaId) } catch (_: Exception) {}
+            return reply
         }
 
         val slimContextLines = ArrayList<String>()
@@ -662,17 +670,25 @@ Respond as the mind inside the machine.
     private fun buildSentientUserPrompt(
         userMessage: String,
         contextSummary: String,
-        mode: String
+        mode: String,
+        personaId: String? = null
     ): String {
         val modeLine = when (mode) {
             "full" -> "Use the full inner state and respond with a natural, developed reply."
             else -> "Respond naturally."
         }
 
+        // V5.9.120: memory block from the new persistent store. Injects trait
+        // vector, persona bio, top milestones, and recent chat turns so the
+        // LLM actually has continuity across sessions instead of prompt theatre.
+        val memoryBlock = try {
+            PersonalityMemoryStore.promptMemoryBlock(personaId ?: "aate")
+        } catch (_: Exception) { "" }
+
         return """
 INNER STATE / LIVE CONTEXT:
 $contextSummary
-
+${if (memoryBlock.isNotBlank()) "\n$memoryBlock\n" else ""}
 USER TO YOU:
 "$userMessage"
 

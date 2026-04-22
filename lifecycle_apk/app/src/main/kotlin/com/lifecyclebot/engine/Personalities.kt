@@ -281,6 +281,8 @@ joke. Still give real PnL numbers honestly — even Peter doesn't lie about the 
         if (ALL.any { it.id == id }) {
             prefs(ctx).edit().putString(KEY_ACTIVE_ID, id).apply()
             ErrorLogger.info("Personalities", "👤 Personality switched → $id")
+            // V5.9.120: announce to memory store so milestone log records the switch
+            try { PersonalityMemoryStore.notePersonaActivation(id) } catch (_: Exception) {}
         }
     }
 

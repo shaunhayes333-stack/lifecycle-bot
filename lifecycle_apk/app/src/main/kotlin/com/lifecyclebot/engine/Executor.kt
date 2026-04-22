@@ -755,6 +755,20 @@ class Executor(
                     reason = trade.reason,
                     mint = ts.mint
                 )
+
+                // V5.9.120: feed closed trade into PersonalityMemoryStore so
+                // trait vector, milestone log, and persona bio actually
+                // accumulate from real outcomes.
+                try {
+                    val peak = ts.position.peakGainPct
+                    val gaveBack = (peak - pnl).coerceAtLeast(0.0)
+                    val heldMin = (holdTimeMs / 60_000L).toInt()
+                    PersonalityMemoryStore.recordTradeOutcome(pnl, gaveBack, heldMin)
+                    val activePersona = try {
+                        ctx?.let { Personalities.getActive(it).id } ?: "aate"
+                    } catch (_: Exception) { "aate" }
+                    PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
+                } catch (_: Exception) { /* non-critical */ }
             } catch (e: Exception) {
                 // Silently ignore - behavior tracking is secondary
             }

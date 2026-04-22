@@ -9,6 +9,25 @@ object SentientPersonality {
     private const val TAG = "Sentient"
     private const val MAX_LOG_SIZE = 200
 
+    // V5.9.120: Public hook — any caller that knows the active persona can
+    // pull a persona-aware quote from PersonalityQuoteBanks. The trait vector
+    // nudges the mood selection so the quote reflects actual lived state
+    // (disciplined+paranoid picks different lines than euphoric+aggressive).
+    fun quoteForPersona(
+        personaId: String,
+        fallbackMood: PersonalityQuoteBanks.Mood = PersonalityQuoteBanks.Mood.FLOW
+    ): String {
+        val traits = try { PersonalityMemoryStore.getTraits() } catch (_: Exception) { null }
+        val resolvedMood = when {
+            traits == null -> fallbackMood
+            traits.euphoria >  0.50 -> PersonalityQuoteBanks.Mood.WIN
+            traits.euphoria < -0.50 -> PersonalityQuoteBanks.Mood.LOSS
+            traits.paranoia >  0.50 && traits.discipline < -0.30 -> PersonalityQuoteBanks.Mood.GIVEBACK
+            else                    -> fallbackMood
+        }
+        return PersonalityQuoteBanks.pick(personaId, resolvedMood)
+    }
+
     data class Thought(
         val timestamp: Long = System.currentTimeMillis(),
         val mood: Mood,
