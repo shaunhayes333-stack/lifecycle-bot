@@ -1405,6 +1405,19 @@ object CryptoAltTrader {
         val pnlSol = pos.getPnlSol()
         totalPnlSol += pnlSol
 
+        // V5.9.136 — route outcome to the LLM Trade Score scoreboard if
+        // this was a chat-triggered paper trade (marked by the reasons
+        // prefix set in llmOpenPaperBuy).
+        if (isPaperMode.get() && pos.reasons.any { it.startsWith("LLM chat:", ignoreCase = true) }) {
+            try {
+                com.lifecyclebot.engine.LlmTradeScore.recordClose(
+                    pnlSol = pnlSol,
+                    pnlPct = pos.getPnlPct(),
+                    symbol = pos.market.symbol,
+                )
+            } catch (_: Exception) {}
+        }
+
         // V5.9.130: close the V3 bridge learning loop so every one of the 41
         // AI layers gets its real-accuracy update based on how this alt trade
         // played out vs what each layer predicted at entry.
@@ -1917,12 +1930,13 @@ object CryptoAltTrader {
                     score            = 70,
                     confidence       = 70,
                     price            = price,
-                    priceChange24h   = priceData?.priceChange24h ?: 0.0,
+                    priceChange24h   = priceData?.priceChange24hPct ?: 0.0,
                     reasons          = listOf("LLM chat: ${reason.take(80)}"),
                     layerVotes       = emptyMap(),
                     leverage         = DEFAULT_LEVERAGE,
                 )
                 executeSignal(signal, isSpot = true)
+                try { com.lifecyclebot.engine.LlmTradeScore.recordOpen() } catch (_: Exception) {}
                 ErrorLogger.info(TAG, "💬 LLM PAPER BUY: ${market.symbol} | ${clampedSize.fmt(3)}◎ | $reason")
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "💬 LLM BUY error: ${e.message}")

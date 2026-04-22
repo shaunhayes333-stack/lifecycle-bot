@@ -71,6 +71,10 @@ class BehaviorActivity : AppCompatActivity() {
     private var tvSentientDiagnostics: TextView? = null
     private var tvSentientChat: TextView? = null
     private var scrollSentientChat: android.widget.ScrollView? = null
+
+    // V5.9.136: LLM Paper-Trade Scoreboard
+    private var tvLlmScoreSummary: TextView? = null
+    private var tvLlmScoreDetail: TextView? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -172,6 +176,35 @@ class BehaviorActivity : AppCompatActivity() {
         tvSentientDiagnostics = try { findViewById(R.id.tvSentientDiagnostics) } catch (_: Exception) { null }
         tvSentientChat        = try { findViewById(R.id.tvSentientChat) } catch (_: Exception) { null }
         scrollSentientChat    = try { findViewById(R.id.scrollSentientChat) } catch (_: Exception) { null }
+
+        // V5.9.136: LLM Paper-Trade Scoreboard — sits directly under chat.
+        tvLlmScoreSummary = try { findViewById(R.id.tvLlmScoreSummary) } catch (_: Exception) { null }
+        tvLlmScoreDetail  = try { findViewById(R.id.tvLlmScoreDetail)  } catch (_: Exception) { null }
+        try { com.lifecyclebot.engine.LlmTradeScore.init(applicationContext) } catch (_: Exception) {}
+        tvLlmScoreSummary?.setOnClickListener {
+            val d = tvLlmScoreDetail ?: return@setOnClickListener
+            if (d.visibility == View.VISIBLE) {
+                d.visibility = View.GONE
+            } else {
+                d.text = try { com.lifecyclebot.engine.LlmTradeScore.detailBlock() }
+                         catch (_: Exception) { "—" }
+                d.visibility = View.VISIBLE
+            }
+        }
+        // Long-press the summary row to zero the scoreboard.
+        tvLlmScoreSummary?.setOnLongClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Reset LLM Scoreboard?")
+                .setMessage("Clear the sentient desk's paper-trade W/L history?")
+                .setPositiveButton("Reset") { _, _ ->
+                    try { com.lifecyclebot.engine.LlmTradeScore.reset() } catch (_: Exception) {}
+                    refreshLlmScoreboard()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            true
+        }
+        refreshLlmScoreboard()
 
         try {
             findViewById<Button>(R.id.btnSentientReflect)?.setOnClickListener {
@@ -377,6 +410,9 @@ class BehaviorActivity : AppCompatActivity() {
             
             // V5.9.32: render fluid dashboard on every refresh cycle
             try { renderFluidDashboard() } catch (_: Exception) {}
+
+            // V5.9.136: refresh the LLM scoreboard cheaply on each tick
+            try { refreshLlmScoreboard() } catch (_: Exception) {}
 
             // Streak
             val streak = state.currentStreak
@@ -621,9 +657,28 @@ class BehaviorActivity : AppCompatActivity() {
         }
     }
     
-    // V5.9.10: Sentient Mind — symbolic reasoning dialogue refresh
-    private fun refreshSentientChat() {
+    // V5.9.136 — refresh LLM paper-trade scoreboard (summary + detail).
+    private fun refreshLlmScoreboard() {
+        val sum = tvLlmScoreSummary ?: return
         try {
+            sum.text = com.lifecyclebot.engine.LlmTradeScore.summaryLine()
+            val s = com.lifecyclebot.engine.LlmTradeScore.snapshot()
+            // Tint based on net PnL: green positive, red negative, purple neutral.
+            sum.setTextColor(when {
+                s.opens == 0        -> 0xFF9945FF.toInt()
+                s.netPnlSol > 0.001 -> 0xFF00FF88.toInt()
+                s.netPnlSol < -0.001 -> 0xFFFF4466.toInt()
+                else                 -> 0xFF9945FF.toInt()
+            })
+            val det = tvLlmScoreDetail
+            if (det != null && det.visibility == View.VISIBLE) {
+                det.text = com.lifecyclebot.engine.LlmTradeScore.detailBlock()
+            }
+        } catch (_: Exception) {}
+    }
+
+    // V5.9.10: Sentient Mind — symbolic reasoning dialogue refresh
+    private fun refreshSentientChat() {        try {
             val moodEmoji = when (com.lifecyclebot.engine.SentientPersonality.getCurrentMood()) {
                 com.lifecyclebot.engine.SentientPersonality.Mood.COCKY         -> "😎"
                 com.lifecyclebot.engine.SentientPersonality.Mood.EXCITED       -> "🔥"

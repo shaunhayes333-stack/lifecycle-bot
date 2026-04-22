@@ -674,6 +674,36 @@
                         android:layout_marginStart="4dp"/>
                 </LinearLayout>
 
+                <!-- V5.9.136 — LLM paper-trade scoreboard. Shows the chat
+                     layer's own W/L record vs. the 41-layer bot. Clickable:
+                     tap to toggle detail (best / worst / last trade). -->
+                <TextView
+                    android:id="@+id/tvLlmScoreSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧠 LLM DESK · no chat trades yet"
+                    android:textColor="#9945FF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:background="#120020"
+                    android:padding="8dp"
+                    android:layout_marginTop="6dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
+
+                <TextView
+                    android:id="@+id/tvLlmScoreDetail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#B8A5D6"
+                    android:textSize="9sp"
+                    android:fontFamily="monospace"
+                    android:background="#0A0014"
+                    android:padding="8dp"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone"/>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
