@@ -948,7 +948,12 @@ class BotService : Service() {
                                     NotificationHistory.NotifEntry.NotifType.INFO)
                             },
                             executor = executor,  // Pass executor for orphan auto-sell
-                            autoSellOrphans = !cfg.paperMode  // Only auto-sell in live mode
+                            // V5.9.102: default off. Adoption path now runs first;
+                            // only truly-unknown mints with no price data fall
+                            // through to the sell path. User's friend lost tracked
+                            // exits on profitable positions (FOF +$10.95) because
+                            // auto-sell liquidated them on startup.
+                            autoSellOrphans = false
                         )
                         reconciler.reconcile()
                     } catch (e: Exception) {
@@ -1841,7 +1846,7 @@ class BotService : Service() {
                                             NotificationHistory.NotifEntry.NotifType.INFO)
                                     },
                                     executor = executor,
-                                    autoSellOrphans = true,
+                                    autoSellOrphans = false,  // V5.9.102: prefer adoption over sell
                                 )
                                 reconciler.reconcile()
                             } catch (e: Exception) {

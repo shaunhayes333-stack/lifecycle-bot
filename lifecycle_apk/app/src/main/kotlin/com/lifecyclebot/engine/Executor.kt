@@ -3690,8 +3690,19 @@ class Executor(
                 } catch (_: Exception) {}
             }
 
-            // V5.9.15: PHANTOM GUARD — verify tokens on-chain BEFORE lifting the
+            // V5.9.15 / V5.9.102: PHANTOM GUARD — verify tokens on-chain BEFORE lifting the
             // pendingVerify flag. UI, persistence, and exit loops skip pending positions.
+            // V5.9.102 upgrade: original 8s window was too short on congested
+            // Solana RPC and incorrectly wiped real positions as "phantoms"
+            // (user's friend ended up with FOF/ASTRA/SWIF tokens on-chain
+            // that the bot had forgotten about entirely). Changes:
+            //   • Poll 5 times at 6s intervals (up to ~30s total wait).
+            //   • If any poll sees the tokens, promote immediately.
+            //   • On RPC exception, keep polling — DO NOT wipe the position
+            //     (previously a silent debug-level log, position stuck in
+            //     pendingVerify forever and invisible to the UI).
+            //   • Only declare PHANTOM after all 5 polls return 0 tokens
+            //     AND no exception has masked the result.
             val verifyMint = ts.mint
             val verifySymbol = ts.symbol
             val verifyWallet = wallet
@@ -3699,52 +3710,70 @@ class Executor(
             val verifyTradeMint = tradeId.mint
             val verifyTradeSymbol = tradeId.symbol
             GlobalScope.launch(Dispatchers.IO) {
-                try {
-                    Thread.sleep(3000) // Wait for tx finalization
-                    val postBuyBalances = verifyWallet.getTokenAccountsWithDecimals()
-                    val tokenData = postBuyBalances[verifyMint]
-                    var verifiedQty = tokenData?.first ?: 0.0
-                    if (verifiedQty <= 0.0) {
-                        // Retry once with extra time
-                        Thread.sleep(5000)
-                        val retryBal = verifyWallet.getTokenAccountsWithDecimals()
-                        verifiedQty = retryBal[verifyMint]?.first ?: 0.0
-                    }
-                    if (verifiedQty > 0.0) {
-                        // ✅ Tokens confirmed — promote position to real (visible to UI)
-                        if (ts.position.pendingVerify) {
-                            val promoted = ts.position.copy(
-                                qtyToken = verifiedQty,
-                                pendingVerify = false,
-                            )
-                            ts.position = promoted
-                            ErrorLogger.info("Executor",
-                                "✅ POST-BUY OK: ${verifySymbol} | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live")
-                            EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
-                            try {
-                                PositionPersistence.savePosition(ts)
-                            } catch (e: Exception) {
-                                ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
-                            }
+                var verifiedQty = 0.0
+                var anyRpcError = false
+                val pollIntervalMs = 6_000L
+                val maxPolls = 5
+                for (pollNum in 1..maxPolls) {
+                    try {
+                        Thread.sleep(pollIntervalMs)
+                        val balances = verifyWallet.getTokenAccountsWithDecimals()
+                        val tokenData = balances[verifyMint]
+                        val qty = tokenData?.first ?: 0.0
+                        if (qty > 0.0) {
+                            verifiedQty = qty
+                            break
                         }
-                    } else if (ts.position.pendingVerify) {
-                        // 🚨 PHANTOM — no tokens arrived. Wipe the position entirely.
-                        ErrorLogger.warn("Executor",
-                            "🚨 PHANTOM DETECTED: ${verifySymbol} — 0 tokens after 8s. Discarding pending position.")
-                        onLog("🚨 PHANTOM: ${verifySymbol} — tx landed but no tokens. Position discarded.", verifyMint)
-                        ts.position = Position()  // full wipe, never persisted, never registered
-                        try {
-                            // savePosition removes closed positions from prefs
-                            PositionPersistence.savePosition(ts)
-                        } catch (_: Exception) {}
-                        val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
-                        phantomId.closed(getActualPrice(ts), -100.0, -sol, "PHANTOM_BUY_NO_TOKENS")
-                        onNotify("🚨 Phantom Cleared",
-                            "${verifySymbol}: tx returned sig but no tokens arrived. Position discarded.",
-                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    } catch (e: Exception) {
+                        anyRpcError = true
+                        ErrorLogger.warn(
+                            "Executor",
+                            "⚠️ POST-BUY RPC poll $pollNum/$maxPolls failed for $verifySymbol: ${e.message} — will retry"
+                        )
                     }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("Executor", "Post-buy verify error (non-fatal): ${e.message}")
+                }
+                if (verifiedQty > 0.0) {
+                    if (ts.position.pendingVerify) {
+                        val promoted = ts.position.copy(
+                            qtyToken = verifiedQty,
+                            pendingVerify = false,
+                        )
+                        ts.position = promoted
+                        ErrorLogger.info(
+                            "Executor",
+                            "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"
+                        )
+                        EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
+                        try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
+                            ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
+                        }
+                    }
+                } else if (anyRpcError && ts.position.pendingVerify) {
+                    // All polls returned 0 OR errored. If ANY error masked the
+                    // result, we cannot safely conclude phantom — keep the
+                    // position pendingVerify so the periodic reconciler /
+                    // next restart can adopt it from the on-chain wallet.
+                    ErrorLogger.warn(
+                        "Executor",
+                        "⚠️ POST-BUY INCONCLUSIVE: $verifySymbol — RPC errors during verify; leaving pendingVerify " +
+                            "so StartupReconciler can adopt from wallet later"
+                    )
+                } else if (ts.position.pendingVerify) {
+                    // All polls OK and all returned 0 → true phantom
+                    ErrorLogger.warn(
+                        "Executor",
+                        "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s. Discarding pending position."
+                    )
+                    onLog("🚨 PHANTOM: $verifySymbol — tx landed but no tokens. Position discarded.", verifyMint)
+                    ts.position = Position()
+                    try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                    val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
+                    phantomId.closed(getActualPrice(ts), -100.0, -sol, "PHANTOM_BUY_NO_TOKENS")
+                    onNotify(
+                        "🚨 Phantom Cleared",
+                        "$verifySymbol: tx returned sig but no tokens arrived. Position discarded.",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO
+                    )
                 }
             }
 

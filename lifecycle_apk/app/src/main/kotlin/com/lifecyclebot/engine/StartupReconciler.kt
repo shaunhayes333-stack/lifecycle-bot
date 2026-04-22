@@ -83,34 +83,57 @@ class StartupReconciler(
         // ── 2. Verify open positions ──────────────────────────────
         val openPositions = status.openPositions
 
-        if (openPositions.isEmpty()) {
-            // Even with no tracked positions, scan on-chain token accounts
-            // in case the bot crashed mid-buy and missed recording the position
-            try {
-                val tokenAccounts = wallet.getTokenAccounts()
-                tokenAccounts.forEach { (mint, qty) ->
-                    val ts = status.tokens[mint]
-                    if (ts != null && !ts.position.isOpen && qty > 0) {
-                        onLog("Reconcile: untracked ${ts.symbol} — crash recovery")
-                        val crashPrice = ts.history.lastOrNull()?.priceUsd
-                            ?: ts.lastPrice.takeIf { it > 0 }
-                        if (crashPrice != null && crashPrice > 0 && !ts.position.isOpen) {
-                            ts.position = com.lifecyclebot.data.Position(
-                                entryPrice = crashPrice,
-                                entryTime  = System.currentTimeMillis() - 60_000L,
-                                qtyToken   = qty,
-                                costSol    = 0.0,
-                                entryScore = 50.0,
-                                entryPhase = "crash_recovery",
-                            )
-                            onLog("Reconcile: reconstructed ${ts.symbol} @ $crashPrice")
-                        }
-                        warnings.add("Recovered untracked position: ${ts.symbol}")
-                        onAlert("Position Recovered",
-                            "${ts.symbol}: crash-recovery position. Exit manually if needed.")
-                    }
+        // V5.9.102: ADOPT ORPHAN TOKENS (always runs — was only on empty book)
+        // The original logic only scanned for untracked wallet tokens when
+        // openPositions was empty. That meant if the bot had ANY tracked
+        // position, real-on-chain-but-untracked tokens (caused by phantom
+        // guard wiping positions that actually settled, or tx timing drift)
+        // would fall through to scanAndSellOrphanedTokens() below and get
+        // LIQUIDATED AT MARKET. Users saw profitable positions auto-dumped.
+        // Now we always try to adopt first; only truly unknown mints fall
+        // through to the orphan sell path.
+        val adoptedMints = mutableListOf<String>()
+        try {
+            val tokenAccounts = wallet.getTokenAccounts()
+            val trackedMints = openPositions.map { it.mint }.toSet()
+            tokenAccounts.forEach { (mint, qty) ->
+                if (qty <= 0.0) return@forEach
+                if (mint in trackedMints) return@forEach
+                if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                val ts = status.tokens[mint] ?: return@forEach
+                if (ts.position.isOpen) return@forEach
+                val adoptPrice = ts.history.lastOrNull()?.priceUsd
+                    ?: ts.lastPrice.takeIf { it > 0 }
+                    ?: return@forEach
+                if (adoptPrice <= 0.0) return@forEach
+                synchronized(ts) {
+                    ts.position = com.lifecyclebot.data.Position(
+                        entryPrice = adoptPrice,
+                        entryTime  = System.currentTimeMillis() - 60_000L,
+                        qtyToken   = qty,
+                        costSol    = 0.0,
+                        entryScore = 50.0,
+                        entryPhase = "adopted_from_wallet",
+                        highestPrice = adoptPrice,
+                    )
                 }
-            } catch (_: Exception) {}
+                adoptedMints += mint
+                onLog("📥 ADOPTED: ${ts.symbol} | ${"%.4f".format(qty)} tokens @ ${adoptPrice} — bot will manage exits")
+                onAlert(
+                    "Position Adopted",
+                    "${ts.symbol}: ${"%.2f".format(qty)} tokens found on-chain and now tracked. " +
+                        "Bot will manage TP/SL from here."
+                )
+            }
+            if (adoptedMints.isNotEmpty()) {
+                onLog("📥 Adopted ${adoptedMints.size} on-chain position(s) into bot state")
+            }
+        } catch (e: Exception) {
+            onLog("Reconcile: adopt scan failed — ${e.message}")
+            warnings.add("Adopt scan failed: ${e.message}")
+        }
+
+        if (openPositions.isEmpty() && adoptedMints.isEmpty()) {
             onLog("Reconcile: no open positions to verify")
             return ReconciliationResult(onChainSol, botStateSol, mismatch,
                 ghostCleared, verified, warnings)
