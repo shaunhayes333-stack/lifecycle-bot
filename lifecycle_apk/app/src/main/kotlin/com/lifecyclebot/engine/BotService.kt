@@ -54,6 +54,22 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "[NO_BUY/$stage] $symbol | $reason$mintTag$extraTag")
         }
 
+        // V5.9.116: Per-mint throttle for layer-level "why I skipped" diagnostics
+        // so Quality + ShitCoin Express emit at most one rejection log per mint
+        // every 60s instead of spamming. Before this, they skipped silently and
+        // the user saw zero trades with zero explanation in the logs.
+        private val layerSkipLogThrottle = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val LAYER_SKIP_LOG_MIN_INTERVAL_MS = 60_000L
+
+        fun logLayerSkip(layer: String, symbol: String, mint: String, reason: String) {
+            val key = "$layer|$mint"
+            val now = System.currentTimeMillis()
+            val last = layerSkipLogThrottle[key] ?: 0L
+            if (now - last < LAYER_SKIP_LOG_MIN_INTERVAL_MS) return
+            layerSkipLogThrottle[key] = now
+            ErrorLogger.info("BotService", "[$layer SKIP] $symbol | $reason")
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // UNIFIED PAPER WALLET
         // V5.9.48: Every sub-trader (CryptoAlt, TokenizedStocks, Commodities,
@@ -3969,12 +3985,16 @@ if (deferredCount > 0) {
                     ts.mint, pair.candle.priceUsd
                 )
 
-                // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 5.0
+                // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 3.0
                 // ts.momentum was NEVER assigned anywhere, blocking all Express entries
+                // V5.9.116: Require only 3 candles (was 5) so fresh launches get a
+                // momentum read sooner — Express was silent on most tokens because
+                // it hadn't collected 5 candles yet.
                 val histSnap = ts.history
                 val histSize = histSnap.size
                 val refPrice = when {
                     histSize >= 5 -> histSnap.elementAtOrNull(histSize - 5)?.priceUsd ?: 0.0
+                    histSize >= 3 -> histSnap.elementAtOrNull(histSize - 3)?.priceUsd ?: 0.0
                     histSize >= 2 -> histSnap.firstOrNull()?.priceUsd ?: 0.0
                     else -> 0.0
                 }
@@ -4842,7 +4862,10 @@ if (deferredCount > 0) {
                         if (qualitySignal.shouldEnter) {
                             ErrorLogger.info("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SHOULD_ENTER | score=${qualitySignal.qualityScore}")
                         } else {
-                            ErrorLogger.debug("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SKIP | ${qualitySignal.reason} | mcap=$${ts.lastMcap.toInt()} liq=$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                            // V5.9.116: Promote from debug → throttled info so user
+                            // actually sees WHY Quality never fires.
+                            logLayerSkip("⭐ QUALITY", ts.symbol, ts.mint,
+                                "${qualitySignal.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
                         }
                         
                         if (qualitySignal.shouldEnter) {
@@ -5607,8 +5630,19 @@ if (deferredCount > 0) {
                     val passesPreFilter = ts.lastMcap <= 300_000 && ts.lastMcap >= 2_000 &&
                         momentum >= 3.0 && ts.lastBuyPressurePct >= 50
                     
-                    if (passesPreFilter) {
-                        
+                    if (!passesPreFilter) {
+                        // V5.9.116: throttled diagnostic so the user can see WHY
+                        // Express never qualifies instead of silent skip.
+                        val mcap = ts.lastMcap.toInt()
+                        val reason = when {
+                            ts.lastMcap < 2_000 -> "mcap=\$$mcap < \$2K"
+                            ts.lastMcap > 300_000 -> "mcap=\$$mcap > \$300K"
+                            momentum < 3.0 -> "mom=${momentum.fmt(1)}% < 3.0%"
+                            ts.lastBuyPressurePct < 50 -> "buyP=${ts.lastBuyPressurePct.toInt()}% < 50%"
+                            else -> "unknown"
+                        }
+                        logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, reason)
+                    } else {
                         val isTrending = ts.source.contains("TRENDING", ignoreCase = true)
                         val isBoosted = ts.source.contains("BOOSTED", ignoreCase = true)
                         
@@ -5633,6 +5667,10 @@ if (deferredCount > 0) {
                             tokenAgeMinutes = tokenAgeMinutes,
                         )
                         
+                        if (!expressSignal.shouldRide) {
+                            // V5.9.116: throttled diagnostic for score-stage rejections.
+                            logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, expressSignal.reason)
+                        }
                         if (expressSignal.shouldRide) {
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
@@ -5647,7 +5685,6 @@ if (deferredCount > 0) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                             )
-                            
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
                             } else {
