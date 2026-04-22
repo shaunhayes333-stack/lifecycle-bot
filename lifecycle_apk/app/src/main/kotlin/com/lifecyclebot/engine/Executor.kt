@@ -762,10 +762,15 @@ class Executor(
                 try {
                     val peak = ts.position.peakGainPct
                     val gaveBack = (peak - pnl).coerceAtLeast(0.0)
-                    val heldMin = (holdTimeMs / 60_000L).toInt()
+                    val heldMs = if (ts.position.entryTime > 0) {
+                        System.currentTimeMillis() - ts.position.entryTime
+                    } else 0L
+                    val heldMin = (heldMs / 60_000L).toInt()
                     PersonalityMemoryStore.recordTradeOutcome(pnl, gaveBack, heldMin)
                     val activePersona = try {
-                        ctx?.let { Personalities.getActive(it).id } ?: "aate"
+                        com.lifecyclebot.AATEApp.appContextOrNull()?.let {
+                            Personalities.getActive(it).id
+                        } ?: "aate"
                     } catch (_: Exception) { "aate" }
                     PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
                 } catch (_: Exception) { /* non-critical */ }
