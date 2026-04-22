@@ -592,8 +592,9 @@ object PriceAggregator {
     )
     
     private suspend fun fetchBirdeye(symbol: String): PriceResult? {
-        // Get mint address for symbol
-        val mint = xStockMints[symbol] ?: return null
+        // V5.9.107: fall back to DynamicAltTokenRegistry mint for alt tokens
+        // (BLAST/WOJAK/BABYDOGE/etc) whose xStockMints entry is absent.
+        val mint = resolveSolanaMint(symbol) ?: return null
         return try {
             val price = BirdeyeOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
@@ -604,8 +605,9 @@ object PriceAggregator {
     }
     
     private suspend fun fetchDexScreener(symbol: String): PriceResult? {
-        // Get mint address for symbol
-        val mint = xStockMints[symbol] ?: return null
+        // V5.9.107: fall back to DynamicAltTokenRegistry mint for alt tokens
+        // so DexScreener covers the long tail of Solana mints.
+        val mint = resolveSolanaMint(symbol) ?: return null
         return try {
             val price = DexScreenerOracle.getPriceByAddress(mint)
             if (price != null && price > 0) {
@@ -613,6 +615,27 @@ object PriceAggregator {
                 PriceResult(price, calcChange(symbol, price), "DEXSCREENER")
             } else null
         } catch (e: Exception) { null }
+    }
+
+    /**
+     * V5.9.107: Shared Solana-mint resolver for Birdeye/DexScreener/Jupiter
+     * by-address lookups. Order:
+     *   1) xStockMints (xStocks/PAXG/EURC)
+     *   2) DynamicAltTokenRegistry — actual Solana mints for alts (BLAST, SCROLL,
+     *      PORTAL, BABYDOGE, WOJAK, etc). Entries prefixed with `cg:` or `static:`
+     *      are NOT real on-chain mints and are skipped.
+     */
+    private fun resolveSolanaMint(symbol: String): String? {
+        xStockMints[symbol]?.let { return it }
+        return try {
+            val tokMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+                .getTokenBySymbol(symbol)?.mint
+            if (tokMint != null
+                && tokMint.isNotBlank()
+                && !tokMint.startsWith("cg:")
+                && !tokMint.startsWith("static:")
+            ) tokMint else null
+        } catch (_: Exception) { null }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

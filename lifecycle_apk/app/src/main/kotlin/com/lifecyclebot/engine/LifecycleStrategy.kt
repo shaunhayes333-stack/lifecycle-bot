@@ -2916,6 +2916,35 @@ class LifecycleStrategy(
             
             // REAL MODE: Full exit logic
             if (phase in listOf("breakdown", "dying")) return "EXIT"
+
+            // V5.9.107: PROFIT-FLOOR MILESTONE LOCK (LIVE mode)
+            // Mirrors the paper-mode lock at V5.9.106 so live positions also
+            // bank moonshots on tick-to-tick crashes past the normal trail.
+            // Updates peakGainPct in-place (live mode didn't always refresh
+            // it before this commit), then exits if the current gain has
+            // fallen below the milestone floor for that peak.
+            run {
+                val liveGain = pct(pos.entryPrice, ts.ref)
+                if (liveGain > pos.peakGainPct) pos.peakGainPct = liveGain
+                val livePeak = pos.peakGainPct
+                val liveFloor = when {
+                    livePeak >= 500.0 -> 300.0
+                    livePeak >= 300.0 -> 180.0
+                    livePeak >= 200.0 -> 120.0
+                    livePeak >= 100.0 -> 60.0
+                    livePeak >= 50.0  -> 25.0
+                    livePeak >= 25.0  -> 12.0
+                    else              -> Double.NEGATIVE_INFINITY
+                }
+                if (liveGain < liveFloor) {
+                    ErrorLogger.info(
+                        "Strategy",
+                        "🔒 LIVE FLOOR LOCK: ${ts.symbol} peak +${livePeak.toInt()}% → now +${liveGain.toInt()}% < floor +${liveFloor.toInt()}% — locking in"
+                    )
+                    return "EXIT"
+                }
+            }
+
             // FIX 1c: Brain exit threshold — negative delta = tighter exits (take profit sooner)
             val brainExitAdj    = try { brain()?.exitThresholdDelta ?: 0.0 } catch (_: Exception) { 0.0 }
             val baseExitThresh  = modeConf?.exitScoreThreshold ?: c.exitScoreThreshold
