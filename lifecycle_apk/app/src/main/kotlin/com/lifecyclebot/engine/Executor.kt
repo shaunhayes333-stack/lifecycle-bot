@@ -1405,7 +1405,7 @@ class Executor(
         val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
         
         try {
-            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+            val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
             val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             security.enforceSignDelay()
@@ -1554,7 +1554,7 @@ class Executor(
                     return true
                 }
                 val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
-                val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+                val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
                 val quote     = getQuoteWithSlippageGuard(
                     ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
                 val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
@@ -3910,7 +3910,7 @@ class Executor(
                     val newSoldPct = pos.partialSoldPct + (pct * 100)
                     
                     val sellUnits = resolveSellUnits(ts, sellQty, wallet = activeWallet)
-                    val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+                    val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
                     
                     onLog("📊 LIVE PARTIAL: Getting quote for $sellUnits units @ ${sellSlippage}bps slippage", ts.mint)
                     
@@ -5065,21 +5065,26 @@ class Executor(
         var pnlP = 0.0
 
         try {
-            val sellSlippage = (c.slippageBps * 2).coerceAtMost(1000)
+            val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
             onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits", tradeId.mint)
             
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
             
             // V5.7.8: Aggressive sell — try normal slippage, then 2x, then 5x, then max
-            val slippageLevels = listOf(sellSlippage, sellSlippage * 2, sellSlippage * 5, 5000)
+            // V5.9.103: all slippage levels hard-capped at 500 bps (5%).
+            // Previous panic-escalation went to 5000 bps (50%) which would
+            // accept selling a rugged token at half price — unacceptable for
+            // a fee-paying swap. If 5% can't fill, abort the sell and let
+            // the reconciler handle the stuck position on next startup.
+            val slippageLevels = listOf(sellSlippage, 300, 500).distinct()
             
             for (slipLevel in slippageLevels) {
                 for (attempt in 1..2) {
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                           tokenUnits, slipLevel.coerceAtMost(5000), isBuy = false)
+                                                           tokenUnits, slipLevel.coerceAtMost(500), isBuy = false)
                         onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
                         break
                     } catch (e: Exception) {
@@ -6007,7 +6012,7 @@ class Executor(
             onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
             
             val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
-            val sellSlippage = (c.slippageBps * 3).coerceAtMost(2000)
+            val sellSlippage = (c.slippageBps * 3).coerceAtMost(500)   // V5.9.103: hard cap 5%
             
             val quote = getQuoteWithSlippageGuard(
                 mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)

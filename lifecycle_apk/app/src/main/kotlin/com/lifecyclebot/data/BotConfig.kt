@@ -29,7 +29,7 @@ data class BotConfig(
     // risk
     val stopLossPct: Double = 10.0,          // raised from 6 — meme coins need room
     val trailingStopBasePct: Double = 8.0,
-    val slippageBps: Int = 200,
+    val slippageBps: Int = 100,   // V5.9.103: default 1%, hard cap 5% enforced on load
     // exit tuning
     val exitScoreThreshold: Double = 58.0,   // lowered from 62 — slightly more aggressive
     val momentumExitCandles: Int = 3,
@@ -411,7 +411,7 @@ object ConfigStore {
             maxPositionSol              = p.getFloat("max_position_sol", 0.15f).toDouble(),
             stopLossPct                 = p.getFloat("stop_loss_pct", 10.0f).toDouble(),
             trailingStopBasePct         = p.getFloat("trailing_stop_base_pct", 8.0f).toDouble(),
-            slippageBps                 = p.getInt("slippage_bps", 200),
+            slippageBps                 = p.getInt("slippage_bps", 100).coerceIn(10, 500),  // V5.9.103: hard cap 5%
             exitScoreThreshold          = p.getFloat("exit_score_threshold", 58.0f).toDouble(),
             momentumExitCandles         = p.getInt("momentum_exit_candles", 3),
             entryCooldownSec            = p.getInt("entry_cooldown_sec", 120),

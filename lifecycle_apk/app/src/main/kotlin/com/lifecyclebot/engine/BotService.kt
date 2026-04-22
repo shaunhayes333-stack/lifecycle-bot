@@ -2461,7 +2461,16 @@ class BotService : Service() {
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             rapidStopLossMonitor()
         }
-        
+
+        // V5.9.103: PERIODIC WALLET RECONCILIATION
+        // Re-run StartupReconciler every 5 min during a live session so
+        // positions that drift mid-session (phantom-wiped buys that actually
+        // settled, silent sell failures leaving orphan tokens, tokens bought
+        // outside the bot in the same wallet) get adopted and managed. Without
+        // this, drift is invisible until the next bot restart.
+        var lastReconcileAt = System.currentTimeMillis()
+        val reconcileIntervalMs = 5 * 60 * 1000L
+
         var loopCount = 0
         while (status.running) {
           try {
@@ -2473,7 +2482,32 @@ class BotService : Service() {
             // V5.2 FIX: Use correct balance based on paper/live mode
             // ═══════════════════════════════════════════════════════════════════
             val cfg = ConfigStore.load(applicationContext)
-            
+
+            // V5.9.103: periodic reconcile (live mode only)
+            if (!cfg.paperMode && System.currentTimeMillis() - lastReconcileAt > reconcileIntervalMs) {
+                lastReconcileAt = System.currentTimeMillis()
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val w = solanaWallet
+                        if (w != null && w.isConnected()) {
+                            val r = com.lifecyclebot.engine.StartupReconciler(
+                                wallet = w,
+                                status = status,
+                                onLog = { msg -> addLog("[reconcile] $msg") },
+                                onAlert = { title, body ->
+                                    ErrorLogger.info("BotService", "⚠️ $title — $body")
+                                },
+                                executor = executor,
+                                autoSellOrphans = false,
+                            )
+                            r.reconcile()
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.warn("BotService", "Periodic reconcile error: ${e.message}")
+                    }
+                }
+            }
+
             // V5.7.6: Skip meme trading logic if meme trader is disabled
             val memeEnabled = cfg.memeTraderEnabled || cfg.tradingMode == 0 || cfg.tradingMode == 2
             if (!memeEnabled) {
@@ -5187,6 +5221,26 @@ if (deferredCount > 0) {
                             ((ts.lastMcap / 69_000.0) * 100).coerceAtMost(100.0)
                         } else 0.0
                         
+                        // V5.9.103: COLLAPSE GUARD — skip ShitCoin emit on draining-liquidity tokens
+                        // Log repeatedly showed 💧 X: COLLAPSE then ShitCoin QUALIFIED on
+                        // the same token. The V3 veto was catching it, but relying on two
+                        // separate layers to agree is fragile. Compute a simple liquidity
+                        // collapse flag inline: if recent peak liquidity in the last 40
+                        // candles dropped by >=20% to current, this token is draining
+                        // and ShitCoin should not even attempt entry.
+                        val liqCollapseDetected = run {
+                            val window = ts.history.takeLast(40)
+                            val peakLiq = window.maxOfOrNull { it.liquidityUsd } ?: 0.0
+                            val curLiq = ts.lastLiquidityUsd
+                            peakLiq > 0.0 && curLiq > 0.0 && ((curLiq - peakLiq) / peakLiq) * 100.0 <= -20.0
+                        }
+                        if (liqCollapseDetected) {
+                            ErrorLogger.info(
+                                "BotService",
+                                "💩 [SHITCOIN] ${ts.symbol} | SKIP_EVAL | LIQUIDITY_COLLAPSE detected — not safe to enter"
+                            )
+                        } else {
+
                         val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -5394,6 +5448,7 @@ if (deferredCount > 0) {
                             } // end authResult.isExecutable()
                         }
                     }
+                    } // V5.9.103: close else of liqCollapseDetected guard
                     }
                 } catch (scEx: Exception) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")

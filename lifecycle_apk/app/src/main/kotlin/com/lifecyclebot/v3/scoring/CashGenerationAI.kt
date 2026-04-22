@@ -725,7 +725,16 @@ object CashGenerationAI {
                         TAG,
                         "💰 LIVE SIZE SKIP: requested=${positionSol.fmt(3)}◎ but wallet=${lastKnownWalletBalance.fmt(4)}◎ leaves only ${walletCeiling.fmt(4)}◎ after reserve — below MIN_POSITION_SOL=${MIN_POSITION_SOL}; skip trade"
                     )
-                    return 0.0
+                    return TreasurySignal(
+                        shouldEnter     = false,
+                        positionSizeSol = 0.0,
+                        takeProfitPct   = 0.0,
+                        stopLossPct     = 0.0,
+                        confidence      = treasuryConfidence,
+                        reason          = "REJECTED: LIVE_WALLET_TOO_SMALL (${lastKnownWalletBalance.fmt(4)}◎)",
+                        mode            = mode,
+                        isPaperMode     = isPaperMode,
+                    )
                 }
                 ErrorLogger.info(
                     TAG,
