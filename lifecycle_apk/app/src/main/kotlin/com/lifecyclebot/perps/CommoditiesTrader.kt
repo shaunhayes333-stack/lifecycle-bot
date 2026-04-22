@@ -756,6 +756,11 @@ object CommoditiesTrader {
             }
         } catch (_: Exception) {}
 
+        // V5.9.112: feed live PnL into LiveSafetyCircuitBreaker for session drawdown halt.
+        if (!isPaperMode.get()) {
+            try { com.lifecyclebot.engine.LiveSafetyCircuitBreaker.recordTradeResult(pnl) } catch (_: Exception) {}
+        }
+
         // V5.7.6b: Persist trade to Turso
         persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
     }

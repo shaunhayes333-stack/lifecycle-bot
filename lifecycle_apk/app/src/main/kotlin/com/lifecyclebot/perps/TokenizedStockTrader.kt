@@ -1232,6 +1232,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             }
         } catch (_: Exception) {}
 
+        // V5.9.112: feed live PnL into LiveSafetyCircuitBreaker for session drawdown halt.
+        if (!isPaperMode.get()) {
+            try { com.lifecyclebot.engine.LiveSafetyCircuitBreaker.recordTradeResult(netPnlSol) } catch (_: Exception) {}
+        }
+
         // V5.7.6b: Persist to Turso for learning memory (with net P&L)
         persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)
         
