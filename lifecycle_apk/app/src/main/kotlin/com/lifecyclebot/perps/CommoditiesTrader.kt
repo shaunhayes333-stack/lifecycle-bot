@@ -702,6 +702,26 @@ object CommoditiesTrader {
             PerpsLearningBridge.recordCommodityTrade(position.market, position.direction, isWin, pnlPct)
         } catch (_: Exception) {}
         
+        // V5.9.109: feed whole-bot 30-day sheet so Commodities wins aren't
+        // wiped on app update (previously only Turso-persisted per-trader).
+        try {
+            if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                com.lifecyclebot.engine.RunTracker30D.recordTrade(
+                    symbol      = position.market.symbol,
+                    mint        = position.market.symbol,
+                    entryPrice  = position.entryPrice,
+                    exitPrice   = position.currentPrice,
+                    sizeSol     = position.size,
+                    pnlPct      = pnlPct,
+                    holdTimeSec = (System.currentTimeMillis() - position.openTime) / 1000,
+                    mode        = "Commod_${position.tradeType.name}",
+                    score       = 50,
+                    confidence  = 50,
+                    decision    = reason
+                )
+            }
+        } catch (_: Exception) {}
+
         // V5.7.6b: Persist trade to Turso
         persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
     }

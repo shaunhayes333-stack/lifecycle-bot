@@ -1173,6 +1173,26 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             "P&L: ${if (netPnlPct >= 0) "+" else ""}${netPnlPct.fmt(1)}% (${if (netPnlSol >= 0) "+" else ""}${netPnlSol.fmt(4)}◎) $feeStr | " +
             "hold=${holdMins}m | WR=${getWinRate().toInt()}%")
         
+        // V5.9.109: feed whole-bot 30-day sheet so wins from Stocks
+        // aren't wiped on update (previously only Turso-persisted per-trader).
+        try {
+            if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
+                com.lifecyclebot.engine.RunTracker30D.recordTrade(
+                    symbol      = position.market.symbol,
+                    mint        = position.market.symbol,
+                    entryPrice  = position.entryPrice,
+                    exitPrice   = position.currentPrice,
+                    sizeSol     = position.sizeSol,
+                    pnlPct      = netPnlPct,
+                    holdTimeSec = (System.currentTimeMillis() - position.entryTime) / 1000,
+                    mode        = "Stocks_${if (position.isSpot) "SPOT" else "${position.leverage.toInt()}x"}",
+                    score       = 50,
+                    confidence  = 50,
+                    decision    = reason
+                )
+            }
+        } catch (_: Exception) {}
+
         // V5.7.6b: Persist to Turso for learning memory (with net P&L)
         persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)
         

@@ -1444,6 +1444,25 @@ class Executor(
             // V5.9.105: feed live PnL into session drawdown circuit breaker
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)
 
+            // V5.9.109: FAIRNESS — profit-lock partial sells must pay the
+            // same 0.5% fee as full sells. Basis = costSol × sellFraction
+            // (portion actually being sold). Previously this path silently
+            // skipped the fee split, short-changing the two wallets.
+            try {
+                val sellBasisSol = pos.costSol * sellFraction
+                val feeAmountSol = sellBasisSol * MEME_TRADING_FEE_PERCENT
+                if (feeAmountSol >= 0.0001) {
+                    val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
+                    val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
+                    if (feeWallet1 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
+                    if (feeWallet2 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of profit-lock) split 50/50", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE PROFIT-LOCK FEE: ${feeAmountSol} SOL split to both wallets")
+                }
+            } catch (feeEx: Exception) {
+                ErrorLogger.warn("Executor", "💸 PROFIT-LOCK FEE failed: ${feeEx.message}")
+            }
+
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
             
@@ -1578,6 +1597,20 @@ class Executor(
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
                 LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
+                // V5.9.109: FAIRNESS — partial sell #1 pays same 0.5% fee
+                // (of the portion sold) to both wallets as full sells do.
+                try {
+                    val feeAmountSol = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+                    if (feeAmountSol >= 0.0001) {
+                        val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
+                        val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
+                        if (feeWallet1 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
+                        if (feeWallet2 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                        ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE: ${feeAmountSol} SOL split to both wallets")
+                    }
+                } catch (feeEx: Exception) {
+                    ErrorLogger.warn("Executor", "💸 PARTIAL-SELL FEE failed: ${feeEx.message}")
+                }
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
                       "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -3947,6 +3980,19 @@ class Executor(
                     security.recordTrade(liveTrade)
                     SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
                     LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
+                    // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
+                    try {
+                        val feeAmountSol = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
+                        if (feeAmountSol >= 0.0001) {
+                            val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
+                            val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
+                            if (feeWallet1 >= 0.0001) activeWallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
+                            if (feeWallet2 >= 0.0001) activeWallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                            ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE (v2): ${feeAmountSol} SOL split to both wallets")
+                        }
+                    } catch (feeEx: Exception) {
+                        ErrorLogger.warn("Executor", "💸 PARTIAL-SELL FEE (v2) failed: ${feeEx.message}")
+                    }
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
