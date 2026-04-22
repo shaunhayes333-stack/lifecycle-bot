@@ -1282,9 +1282,32 @@ object CryptoAltTrader {
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
                         closePosition(id, "AI_PARTIAL: ${assessment.primarySignal} (conv=${"%.2f".format(assessment.conviction)})")
                     else -> {
-                        // Still check extreme TP as safety net (AI may override)
-                        if (updated.shouldTakeProfit(tpPct * 1.5)) {
-                            closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 1.5}%")
+                        // V5.9.118: FLUID PROFIT-FLOOR LOCK — same lock semantics
+                        // as the main meme trader so alts runners don't give back
+                        // huge gains. getDynamicFluidStop returns a POSITIVE
+                        // trailing stop level while in profit; exit fires when
+                        // currentPnl <= that level. Paired with a peak-drawdown
+                        // hard floor (>=35% give-back on peak>=100%).
+                        val dynamicLock = try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                                modeDefaultStop = 20.0,
+                                currentPnlPct = currentPnl,
+                                peakPnlPct = peakPnl,
+                                holdTimeSeconds = holdSec.toDouble(),
+                                volatility = 50.0,
+                            )
+                        } catch (_: Exception) { Double.NEGATIVE_INFINITY }
+
+                        val lockFired = dynamicLock > 0.0 && currentPnl <= dynamicLock
+                        val peakDrawdownFired = peakPnl >= 100.0 && (peakPnl - currentPnl) >= 35.0
+
+                        when {
+                            lockFired ->
+                                closePosition(id, "FLUID_LOCK: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% lock=+${dynamicLock.toInt()}%")
+                            peakDrawdownFired ->
+                                closePosition(id, "PEAK_DRAWDOWN: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% (gave back ${(peakPnl - currentPnl).toInt()}%)")
+                            updated.shouldTakeProfit(tpPct * 1.5) ->
+                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 1.5}%")
                         }
                     }
                 }

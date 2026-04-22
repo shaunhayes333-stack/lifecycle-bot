@@ -2279,6 +2279,34 @@ for legal compliance.
                     gravity = android.view.Gravity.END
                 })
             }
+
+            // V5.9.118: Peak Gain / Profit-Lock badge — shows the peak gain,
+            // current give-back, and the dynamic profit-floor lock level so
+            // the user can SEE the lock armed on every open position. If this
+            // row shows peak=+290% now=+251% lock=+255%, the lock is live.
+            if (pos.peakGainPct >= 10.0) {
+                val lockLevel = try {
+                    val stop = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                        modeDefaultStop = 20.0,
+                        currentPnlPct = gainPct,
+                        peakPnlPct = pos.peakGainPct,
+                        holdTimeSeconds = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0),
+                        volatility = ts.volatility ?: 50.0,
+                    )
+                    // Positive stop = profit trailing lock. Negative = loss stop (don't show).
+                    if (stop > 0.0) stop else null
+                } catch (_: Exception) { null }
+
+                val peakCol = if (pos.peakGainPct >= 100.0) 0xFFFACC15.toInt() else muted
+                right.addView(TextView(this).apply {
+                    val peakTxt = "Peak +${pos.peakGainPct.toInt()}%"
+                    text = if (lockLevel != null) "🎯 $peakTxt · lock +${lockLevel.toInt()}%" else "🎯 $peakTxt"
+                    textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
+                    setTextColor(peakCol)
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    gravity = android.view.Gravity.END
+                })
+            }
             row.addView(right)
 
             val div = View(this).apply {

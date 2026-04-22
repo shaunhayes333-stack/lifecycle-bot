@@ -2111,6 +2111,34 @@ class CryptoAltActivity : AppCompatActivity() {
                 tpSlRow.addView(tv("SL: -$slPct%", 10f, red, mono = true))
                 posSection.addView(tpSlRow)
 
+                // V5.9.118: Peak Gain / Profit-Lock badge — same visual as the
+                // main meme trader tile. Shows the peak pnl the position has
+                // reached and where the fluid profit-floor lock is armed, so
+                // the user can SEE locks at a glance in the alts trader too.
+                if (pos.highestPnlPct >= 10.0) {
+                    val holdSecs = ((System.currentTimeMillis() - pos.openTime) / 1000.0).coerceAtLeast(0.0)
+                    val lockLevel = try {
+                        val stop = com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                            modeDefaultStop = 20.0,
+                            currentPnlPct = pnlPct,
+                            peakPnlPct = pos.highestPnlPct,
+                            holdTimeSeconds = holdSecs,
+                            volatility = 50.0,
+                        )
+                        if (stop > 0.0) stop else null
+                    } catch (_: Exception) { null }
+
+                    val peakCol = if (pos.highestPnlPct >= 100.0) 0xFFFACC15.toInt() else muted
+                    val peakTxt = "Peak +${pos.highestPnlPct.toInt()}%"
+                    val lockTxt = if (lockLevel != null) " · lock +${lockLevel.toInt()}%" else ""
+                    val peakRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 2 } }
+                    peakRow.addView(tv("🎯 $peakTxt$lockTxt", 10f, peakCol, mono = true).apply {
+                        layoutParams = llp(match, wrap)
+                        gravity = Gravity.END
+                    })
+                    posSection.addView(peakRow)
+                }
+
                 // Size row
                 val sizeRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 2 } }
                 sizeRow.addView(tv("Size", 10f, muted).apply { layoutParams = llp(0, wrap, 1f) })
