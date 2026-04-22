@@ -601,7 +601,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     if (signal.score >= scoreThresh && signal.confidence >= confThresh) {
                         signals.add(signal)
                     } else {
-                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID THRESHOLD (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
+                        // V5.9.130: SCORE-OVERRIDE BYPASS — strong score (≥70) within
+                        // 5 pts of conf threshold lets signal through. Prevents the
+                        // learned conf threshold from drifting past the signal
+                        // generator's output (e.g. TSLA score=65/50 with gate 52).
+                        val strongScoreBypass = signal.score >= 70 && signal.score >= scoreThresh &&
+                            signal.confidence >= (confThresh - 5)
+                        if (strongScoreBypass) {
+                            signals.add(signal)
+                            ErrorLogger.info(TAG, "📈 ${market.symbol}: score-override bypass (score=${signal.score} / conf=${signal.confidence})")
+                        } else {
+                            ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID THRESHOLD (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
+                        }
                     }
                 } else {
                     ErrorLogger.warn(TAG, "📈 ${market.symbol}: analyzeStock returned NULL")
@@ -645,6 +656,29 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 ErrorLogger.debug(TAG, "Max positions reached")
                 break
             }
+
+            // V5.9.130: full V3 stack gate — same 41 AI layers as memetrader.
+            val v3Ok = try {
+                val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
+                    symbol = signal.market.symbol,
+                    assetClass = "STOCK",
+                    price = signal.price,
+                    technicalScore = signal.score,
+                    technicalConfidence = signal.confidence,
+                    liqUsd = 10_000_000.0,
+                    mcapUsd = 1_000_000_000.0,
+                    priceChangePct = signal.priceChange24h,
+                    direction = signal.direction.name,
+                )
+                if (!verdict.shouldEnter) {
+                    ErrorLogger.debug(TAG, "📈 V3 veto: ${signal.market.symbol} blended=${verdict.blendedScore}")
+                    false
+                } else {
+                    ErrorLogger.info(TAG, "📈 V3 PASS: ${signal.market.symbol} v3=${verdict.v3Score} blended=${verdict.blendedScore}")
+                    true
+                }
+            } catch (_: Exception) { true }
+            if (!v3Ok) continue
             
             // V5.9.3: Respect UI SPOT/LEVERAGE toggle; removed parity alternation
             val useSpotDefault = !preferLeverage.get()
@@ -948,6 +982,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             leveragePositions[position.id] = position
         }
         totalTrades.incrementAndGet()
+
+        // V5.9.130: register V3 entry for real-accuracy close loop.
+        try {
+            PerpsUnifiedScorerBridge.registerEntry(
+                symbol = signal.market.symbol,
+                assetClass = "STOCK",
+                direction = signal.direction.name,
+                entryPrice = signal.price,
+                entryLiqUsd = 10_000_000.0,
+                v3Score = signal.score,
+            )
+        } catch (_: Exception) {}
         
         // V5.9.114: UNIFIED capital-move. Paper debits paper wallet;
         // live fires a Jupiter swap at the EXACT same hiveSizeSol so
@@ -1046,6 +1092,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // V5.7.6b: Remove from Turso
         removePositionFromTurso(positionId)
+
+        // V5.9.130: close V3 learning loop → drives real accuracy update on
+        // every one of the 41 AI layers based on how this stock trade resolved
+        // vs what each layer predicted.
+        try {
+            PerpsUnifiedScorerBridge.recordClose(
+                symbol = position.market.symbol,
+                assetClass = "STOCK",
+                pnlPct = position.getUnrealizedPnlPct(),
+            )
+        } catch (_: Exception) {}
         
         // V5.7.7: Calculate P&L with fee deduction
         val grossPnlPct = position.getUnrealizedPnlPct()

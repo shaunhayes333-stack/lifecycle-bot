@@ -449,6 +449,26 @@ object MetalsTrader {
             ErrorLogger.info(TAG, "🥇 Skipping $symbol — already have an open position")
             return
         }
+
+        // V5.9.130: full V3 stack gate — 41 AI layers.
+        try {
+            val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
+                symbol = symbol,
+                assetClass = "METAL",
+                price = signal.price,
+                technicalScore = signal.score,
+                technicalConfidence = signal.confidence,
+                liqUsd = 50_000_000.0,
+                mcapUsd = 1_000_000_000.0,
+                priceChangePct = signal.priceChange24h,
+                direction = signal.direction.name,
+            )
+            if (!verdict.shouldEnter) {
+                ErrorLogger.debug(TAG, "🥇 V3 veto: $symbol blended=${verdict.blendedScore}")
+                return
+            }
+            ErrorLogger.info(TAG, "🥇 V3 PASS: $symbol v3=${verdict.v3Score} blended=${verdict.blendedScore}")
+        } catch (_: Exception) {}
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
         if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
             try {
@@ -522,6 +542,18 @@ object MetalsTrader {
         }
         
         ErrorLogger.info(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${positionSizeSol}◎ | score=${signal.score}")
+
+        // V5.9.130: register V3 entry for real-accuracy close loop.
+        try {
+            PerpsUnifiedScorerBridge.registerEntry(
+                symbol = signal.market.symbol,
+                assetClass = "METAL",
+                direction = signal.direction.name,
+                entryPrice = signal.price,
+                entryLiqUsd = 50_000_000.0,
+                v3Score = signal.score,
+            )
+        } catch (_: Exception) {}
         
         // V5.7.6b: Record trade start for Markets learning counter
         try {
@@ -629,6 +661,15 @@ object MetalsTrader {
         val pnl = grossPnl - totalFeeSol
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
+
+        // V5.9.130: close V3 learning loop → real accuracy on 41 layers.
+        try {
+            PerpsUnifiedScorerBridge.recordClose(
+                symbol = position.market.symbol,
+                assetClass = "METAL",
+                pnlPct = pnlPct,
+            )
+        } catch (_: Exception) {}
 
         // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
         if (!isPaperMode.get()) {

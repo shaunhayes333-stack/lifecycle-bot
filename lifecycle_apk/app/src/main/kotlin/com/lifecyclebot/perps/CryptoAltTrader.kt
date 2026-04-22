@@ -589,9 +589,19 @@ object CryptoAltTrader {
                     val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
                     val confThresh  = FluidLearningAI.getMarketsSpotConfThreshold()
 
-                    if (signal.score >= scoreThresh && signal.confidence >= confThresh) {
+                    // V5.9.130: SCORE-OVERRIDE BYPASS — when the signal score is
+                    // strong (≥70) but confidence sits within 5 points of the
+                    // threshold, let it through. The prior hard conf veto was
+                    // freezing 80+% of high-score signals (IOTA 83/50, QTUM 83/50,
+                    // ZIL 68/50) against learned thresholds drifting to 52/53.
+                    val scoreOk = signal.score >= scoreThresh
+                    val confOk  = signal.confidence >= confThresh
+                    val strongScoreBypass = signal.score >= 70 && signal.confidence >= (confThresh - 5)
+
+                    if (scoreOk && (confOk || strongScoreBypass)) {
                         signals.add(signal)
-                        ErrorLogger.info(TAG, "🪙 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
+                        val tag = if (confOk) "" else " [score-override]"
+                        ErrorLogger.info(TAG, "🪙 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}$tag")
                     } else {
                         ErrorLogger.warn(TAG, "🪙 ${market.symbol}: below threshold (${signal.score}<$scoreThresh or ${signal.confidence}<$confThresh)")
                     }
@@ -618,14 +628,43 @@ object CryptoAltTrader {
 
         val topSignals = signals.sortedByDescending { it.score }.take(50)  // V5.9.128: raised from 5 → 50 so the bot actually uses the full alt universe
 
-        if (topSignals.isEmpty()) {
+        // V5.9.130: FULL V3 STACK — run every signal through UnifiedScorer so the
+        // alt trader gets the SAME 41 AI layers + AITrustNetwork + 14 V5.9.123
+        // layers + real accuracy loop + ReflexAI that the memetrader uses.
+        val v3Filtered = topSignals.mapNotNull { sig ->
+            try {
+                val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
+                    symbol = sig.market.symbol,
+                    assetClass = "ALT",
+                    price = sig.price,
+                    technicalScore = sig.score,
+                    technicalConfidence = sig.confidence,
+                    liqUsd = 500_000.0,               // alt perps are deep
+                    mcapUsd = 50_000_000.0,
+                    priceChangePct = sig.priceChange24h,
+                    direction = sig.direction.name,
+                )
+                if (!verdict.shouldEnter) {
+                    ErrorLogger.debug(TAG, "🪙 V3 veto: ${sig.market.symbol} blended=${verdict.blendedScore} reasons=${verdict.topReasons.take(3)}")
+                    null
+                } else {
+                    ErrorLogger.info(TAG, "🪙 V3 PASS: ${sig.market.symbol} v3=${verdict.v3Score} blended=${verdict.blendedScore} trust=×${"%.2f".format(verdict.trustMultiplier)}")
+                    sig to verdict
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "🪙 V3 bridge error for ${sig.market.symbol}: ${e.message}")
+                sig to null   // fall back — allow signal through on bridge error
+            }
+        }
+
+        if (v3Filtered.isEmpty()) {
             ErrorLogger.warn(TAG, "🪙 ⚠️ NO SIGNALS — skipping execution")
             return
         }
 
-        ErrorLogger.info(TAG, "🪙 TOP ${topSignals.size} signals: ${topSignals.map { "${it.market.symbol}(${it.score}/${it.confidence})" }}")
+        ErrorLogger.info(TAG, "🪙 TOP ${v3Filtered.size} V3-filtered signals: ${v3Filtered.map { "${it.first.market.symbol}(${it.first.score}/${it.first.confidence})" }}")
 
-        for (signal in topSignals) {
+        for ((signal, verdict) in v3Filtered) {
             if (positions.size >= MAX_POSITIONS) {
                 ErrorLogger.debug(TAG, "Max positions reached")
                 break
@@ -1039,6 +1078,19 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
 
+        // V5.9.130: register entry with the V3 bridge so the real accuracy
+        // loop + ReflexAI gate have a record to close against.
+        try {
+            PerpsUnifiedScorerBridge.registerEntry(
+                symbol = signal.market.symbol,
+                assetClass = "ALT",
+                direction = signal.direction.name,
+                entryPrice = signal.price,
+                entryLiqUsd = 500_000.0,
+                v3Score = signal.score,
+            )
+        } catch (_: Exception) {}
+
         // ── BehaviorAI tilt protection ──────────────────────────────────────
         try {
             if (BehaviorAI.isTiltProtectionActive()) {
@@ -1324,6 +1376,17 @@ object CryptoAltTrader {
 
         val pnlSol = pos.getPnlSol()
         totalPnlSol += pnlSol
+
+        // V5.9.130: close the V3 bridge learning loop so every one of the 41
+        // AI layers gets its real-accuracy update based on how this alt trade
+        // played out vs what each layer predicted at entry.
+        try {
+            PerpsUnifiedScorerBridge.recordClose(
+                symbol = pos.market.symbol,
+                assetClass = "ALT",
+                pnlPct = pos.getPnlPct(),
+            )
+        } catch (_: Exception) {}
 
         // V5.7.7: Count trades at close so win rate is accurate (wins+losses / total)
         totalTrades.incrementAndGet()
