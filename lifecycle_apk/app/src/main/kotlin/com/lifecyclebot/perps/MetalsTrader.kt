@@ -465,45 +465,9 @@ object MetalsTrader {
             return
         }
         
-        // V5.7.6b: Check if LIVE mode - execute on-chain
-        if (!isPaperMode.get()) {
-            val success = executeLiveTrade(signal, typeLabel)
-            if (success) {
-                ErrorLogger.info(TAG, "🥇 LIVE trade success: ${signal.market.symbol}")
-                // V5.9.110: CRITICAL FIX — previously LIVE mode skipped position
-                // creation entirely, so the swap happened on-chain but the bot
-                // had zero record of it (UI 0 Open, no TP/SL, no 30-day entry).
-                // Now we mirror the paper-mode bookkeeping for live too.
-                val (tpMultL, slMultL) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-                val liveTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() * tpMultL
-                val liveSlPct = SL_PERCENT * slMultL
-                val liveTp = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 + liveTpPct / 100) else signal.price * (1 - liveTpPct / 100)
-                val liveSl = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 - liveSlPct / 100) else signal.price * (1 + liveSlPct / 100)
-                val livePos = MetalPosition(
-                    id = "${if (signal.leverage == 1.0) "SPOT" else "LEV"}_${signal.market.symbol}_${System.currentTimeMillis()}",
-                    market = signal.market,
-                    direction = signal.direction,
-                    entryPrice = signal.price,
-                    currentPrice = signal.price,
-                    size = positionSizeSol,
-                    leverage = signal.leverage,
-                    takeProfit = liveTp,
-                    stopLoss = liveSl,
-                    reasons = signal.reasons,
-                )
-                positionMap[livePos.id] = livePos
-                ErrorLogger.info(
-                    TAG,
-                    "🥇 LIVE POSITION OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} size=${positionSizeSol}◎"
-                )
-                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
-            } else {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
-            }
-            return  // Live mode: done.
-        }
+        // V5.9.114: REMOVED the V5.9.110 early-return live branch so live
+        // runs the same sizing/TP/SL pipeline as paper. The live swap
+        // fires below where paper debits the paper wallet (unified path).
         
         // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
@@ -538,7 +502,9 @@ object MetalsTrader {
         
         positionMap[position.id] = position
         
-        // Deduct from appropriate balance
+        // V5.9.114: UNIFIED capital move. Paper debits paper wallet; live
+        // fires Jupiter swap at the same positionSizeSol so sizing learnt
+        // in paper carries into live 1:1. Live failure rolls back the position.
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("MetalsTrader", positionSizeSol.coerceAtLeast(0.0))
             // V5.9.48: unified paper wallet — debit deployed capital from main.
@@ -546,6 +512,13 @@ object MetalsTrader {
                 delta = -positionSizeSol,
                 source = "Metals.open[${signal.market.symbol}]"
             )
+        } else {
+            val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
+            if (!liveOk) {
+                positionMap.remove(position.id)
+                ErrorLogger.warn(TAG, "🔴 LIVE metal trade failed: ${signal.market.symbol} — rolled back")
+                return
+            }
         }
         
         ErrorLogger.info(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${positionSizeSol}◎ | score=${signal.score}")
@@ -556,6 +529,28 @@ object MetalsTrader {
         } catch (_: Exception) {}
     }
     
+    /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
+    private suspend fun executeLiveTradeAtSize(signal: MetalSignal, typeLabel: String, sizeSol: Double): Boolean {
+        ErrorLogger.info(TAG, "🔴 LIVE METAL TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol.coerceAtLeast(0.01),
+            leverage = signal.leverage,
+            priceUsd = signal.price,
+            traderType = "Metals",
+        )
+        if (success) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            return true
+        }
+        return false
+    }
+
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
     private suspend fun executeLiveTrade(signal: MetalSignal, typeLabel: String): Boolean {
         ErrorLogger.info(TAG, "🔴 LIVE METAL TRADE: ${signal.direction.emoji} ${signal.market.symbol}")

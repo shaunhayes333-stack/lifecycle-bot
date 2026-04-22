@@ -874,56 +874,12 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
-        // V5.7.6b: LIVE mode — execute real on-chain trade. No paper fallback.
-        if (!isPaperMode.get()) {
-            val liveSizeSol = executeLiveTrade(signal, isSpot)
-            if (liveSizeSol != null) {
-                ErrorLogger.info(TAG, "📈 LIVE trade success: ${signal.market.symbol}")
-                // V5.9.110: CRITICAL FIX — previously LIVE mode returned here
-                // without ever creating a StockPosition, so the swap went
-                // through on-chain but the bot had zero record of it. The UI
-                // showed "0 Open" while real SOL was deployed into xStocks.
-                // Now we mirror the paper-mode bookkeeping so TP/SL, the
-                // 30-day sheet, and the UI all see the live position.
-                val leverage = if (isSpot) 1.0 else signal.leverage
-                val tpPct = if (isSpot) 3.0 else 6.0
-                val slPct = if (isSpot) 3.0 else 4.0
-                val (tp, sl) = when (signal.direction) {
-                    PerpsDirection.LONG ->
-                        signal.price * (1 + tpPct / 100) to signal.price * (1 - slPct / 100)
-                    PerpsDirection.SHORT ->
-                        signal.price * (1 - tpPct / 100) to signal.price * (1 + slPct / 100)
-                }
-                val position = StockPosition(
-                    id = "STOCK_${positionIdCounter.incrementAndGet()}",
-                    market = signal.market,
-                    direction = signal.direction,
-                    entryPrice = signal.price,
-                    currentPrice = signal.price,
-                    sizeSol = liveSizeSol,
-                    leverage = leverage,
-                    takeProfitPrice = tp,
-                    stopLossPrice = sl,
-                    aiScore = signal.score,
-                    aiConfidence = signal.confidence,
-                    reasons = signal.reasons,
-                )
-                positions[position.id] = position
-                if (isSpot) spotPositions[position.id] = position
-                else leveragePositions[position.id] = position
-                totalTrades.incrementAndGet()
-                ErrorLogger.info(
-                    TAG,
-                    "📈 LIVE POSITION OPENED: ${signal.market.symbol} ${signal.direction} " +
-                        "sz=${liveSizeSol.fmt(4)}◎ tp=${tp.fmt(2)} sl=${sl.fmt(2)}"
-                )
-                savePersistedState()
-            } else {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
-            }
-            return  // Live mode: done.
-        }
-        
+        // V5.9.114: UNIFIED paper + live pipeline.
+        // Per user policy — live must behave exactly like paper. All
+        // sizing, meme-cross-learn TP/SL, hive modifiers, sanity checks
+        // run the same way in both modes; only the capital-move step
+        // differs (paper wallet debit vs Jupiter swap).
+
         // PAPER MODE execution — only when in paper mode
         val balance = getEffectiveBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
@@ -993,7 +949,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
         totalTrades.incrementAndGet()
         
-        // Deduct from balance (Hive-adjusted size)
+        // V5.9.114: UNIFIED capital-move. Paper debits paper wallet;
+        // live fires a Jupiter swap at the EXACT same hiveSizeSol so
+        // sizing learnt in paper carries 1:1 into live. If the live swap
+        // fails, we DO NOT keep the position in our map (roll back).
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("TokenizedStockTrader", hiveSizeSol.coerceAtLeast(0.0))
             // V5.9.48: unified paper wallet — debit the deployed capital so the
@@ -1002,6 +961,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 delta = -hiveSizeSol,
                 source = "TokenizedStocks.open[${signal.market.symbol}]"
             )
+        } else {
+            val liveOk = executeLiveTradeAtSize(signal, isSpot, hiveSizeSol)
+            if (!liveOk) {
+                // Roll back: remove the position we just inserted.
+                positions.remove(position.id)
+                spotPositions.remove(position.id)
+                leveragePositions.remove(position.id)
+                totalTrades.decrementAndGet()
+                ErrorLogger.warn(TAG, "🔴 LIVE stock trade failed: ${signal.market.symbol} — position rolled back")
+                return
+            }
+            savePersistedState()
         }
         
         // Notify FluidLearningAI
@@ -1525,6 +1496,65 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     /** Execute LIVE trade via MarketsLiveExecutor
      * V5.7.6b: Fully wired to on-chain execution via Jupiter API
      */
+    /**
+     * V5.9.114: LIVE Jupiter swap at a CALLER-provided size so live mirrors
+     * paper's exact sizing pipeline. Returns true only after swap + phantom
+     * verify both succeeded.
+     */
+    private suspend fun executeLiveTradeAtSize(
+        signal: StockSignal,
+        isSpot: Boolean,
+        sizeSol: Double,
+    ): Boolean {
+        val leverage = if (isSpot) 1.0 else signal.leverage
+        if (liveWalletBalance <= 0.0) {
+            try {
+                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (fresh > 0) updateLiveBalance(fresh)
+            } catch (_: Exception) {}
+        }
+        val balance = getEffectiveBalance()
+        val floor = 0.01
+        if (balance < floor || sizeSol < floor) {
+            ErrorLogger.warn(TAG, "🔴 LIVE: bal=${balance.fmt(4)}◎ size=${sizeSol.fmt(4)} — cannot trade ${signal.market.symbol}")
+            com.lifecyclebot.engine.LiveAttemptStats.record(
+                "TokenizedStocks",
+                com.lifecyclebot.engine.LiveAttemptStats.Outcome.FLOOR_SKIPPED
+            )
+            return false
+        }
+        ErrorLogger.info(TAG, "🔴 LIVE TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
+        ErrorLogger.info(TAG, "🔴 Price: \$${signal.price.fmt(2)} | ${if (isSpot) "SPOT" else "${leverage.toInt()}x"}")
+        ErrorLogger.info(TAG, "🔴 Size (paper-matched): ${sizeSol.fmt(4)} SOL | Score: ${signal.score}")
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol,
+            leverage = leverage,
+            priceUsd = signal.price,
+            traderType = "TokenizedStocks",
+        )
+        if (success) {
+            val txLog = txSignature?.take(16)?.let { "tx=$it..." } ?: "bridge-collateral"
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | $txLog")
+            com.lifecyclebot.engine.LiveAttemptStats.record(
+                "TokenizedStocks",
+                com.lifecyclebot.engine.LiveAttemptStats.Outcome.EXECUTED
+            )
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            return true
+        }
+        ErrorLogger.warn(TAG, "🔴 LIVE FAILED: ${signal.market.symbol}")
+        com.lifecyclebot.engine.LiveAttemptStats.record(
+            "TokenizedStocks",
+            com.lifecyclebot.engine.LiveAttemptStats.Outcome.FAILED
+        )
+        return false
+    }
+
     private suspend fun executeLiveTrade(signal: StockSignal, isSpot: Boolean): Double? {
         val leverage = if (isSpot) 1.0 else signal.leverage
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked

@@ -472,44 +472,9 @@ object ForexTrader {
             return
         }
         
-        // V5.7.6b: Check if LIVE mode - execute on-chain
-        if (!isPaperMode.get()) {
-            val success = executeLiveTrade(signal, typeLabel)
-            if (success) {
-                ErrorLogger.info(TAG, "💱 LIVE trade success: ${signal.market.symbol}")
-                // V5.9.110: CRITICAL FIX — live mode used to skip position
-                // creation entirely. Now mirror paper bookkeeping so live
-                // Forex trades show in UI and get TP/SL managed.
-                val (tpMultL, slMultL) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-                val liveTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct() * tpMultL
-                val liveSlPct = SL_PERCENT * slMultL
-                val liveTp = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 + liveTpPct / 100) else signal.price * (1 - liveTpPct / 100)
-                val liveSl = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 - liveSlPct / 100) else signal.price * (1 + liveSlPct / 100)
-                val livePos = ForexPosition(
-                    id = "${if (signal.leverage == 1.0) "SPOT" else "LEV"}_${signal.market.symbol}_${System.currentTimeMillis()}",
-                    market = signal.market,
-                    direction = signal.direction,
-                    entryPrice = signal.price,
-                    currentPrice = signal.price,
-                    size = positionSizeSol,
-                    leverage = signal.leverage,
-                    takeProfit = liveTp,
-                    stopLoss = liveSl,
-                    reasons = signal.reasons,
-                )
-                positionMap[livePos.id] = livePos
-                ErrorLogger.info(
-                    TAG,
-                    "💱 LIVE POSITION OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} size=${positionSizeSol}◎"
-                )
-                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
-            } else {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
-            }
-            return  // Live mode: done.
-        }
+        // V5.9.114: REMOVED the V5.9.110 early-return live branch so live
+        // runs the same sizing/TP/SL pipeline as paper. Live swap fires
+        // below where paper debits the paper wallet (unified path).
         
         // V5.9.93: fluid TP/SL
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
@@ -544,14 +509,21 @@ object ForexTrader {
         
         positionMap[position.id] = position
         
-        // Deduct from appropriate balance
+        // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
+        // Jupiter swap at same positionSizeSol. Live failure rolls back.
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("ForexTrader", positionSizeSol.coerceAtLeast(0.0))
-            // V5.9.48: unified paper wallet — debit deployed capital from main.
             com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                 delta = -positionSizeSol,
                 source = "Forex.open[${signal.market.symbol}]"
             )
+        } else {
+            val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
+            if (!liveOk) {
+                positionMap.remove(position.id)
+                ErrorLogger.warn(TAG, "🔴 LIVE forex trade failed: ${signal.market.symbol} — rolled back")
+                return
+            }
         }
         
         ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${positionSizeSol}◎ | score=${signal.score}")
@@ -563,6 +535,28 @@ object ForexTrader {
     }
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
+    /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
+    private suspend fun executeLiveTradeAtSize(signal: ForexSignal, typeLabel: String, sizeSol: Double): Boolean {
+        ErrorLogger.info(TAG, "🔴 LIVE FOREX TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol.coerceAtLeast(0.01),
+            leverage = signal.leverage,
+            priceUsd = signal.price,
+            traderType = "Forex",
+        )
+        if (success) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            return true
+        }
+        return false
+    }
+
     private suspend fun executeLiveTrade(signal: ForexSignal, typeLabel: String): Boolean {
         ErrorLogger.info(TAG, "🔴 LIVE FOREX TRADE: ${signal.direction.emoji} ${signal.market.symbol}")
         ErrorLogger.info(TAG, "🔴 Price: ${signal.price.fmt(5)} | $typeLabel")

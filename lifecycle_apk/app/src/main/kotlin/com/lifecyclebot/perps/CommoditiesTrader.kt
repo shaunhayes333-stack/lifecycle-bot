@@ -472,50 +472,9 @@ object CommoditiesTrader {
             return
         }
         
-        // V5.7.6b: LIVE mode — execute real on-chain trade. No paper fallback.
-        if (!isPaperMode.get()) {
-            val success = executeLiveTrade(signal)
-            if (success) {
-                ErrorLogger.info(TAG, "🛢️ LIVE trade success: ${signal.market.symbol}")
-                // V5.9.110: CRITICAL FIX — live mode used to skip position
-                // creation. Mirror paper bookkeeping so live Commodities
-                // trades show in UI and TP/SL/30-day sheet see them.
-                val (tpMultL, slMultL) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
-                val liveBaseTp = if (signal.tradeType == TradeType.SPOT)
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-                else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-                val liveBaseSl = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
-                val liveTpPct = liveBaseTp * tpMultL
-                val liveSlPct = liveBaseSl * slMultL
-                val liveTp = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 + liveTpPct / 100) else signal.price * (1 - liveTpPct / 100)
-                val liveSl = if (signal.direction == PerpsDirection.LONG)
-                    signal.price * (1 - liveSlPct / 100) else signal.price * (1 + liveSlPct / 100)
-                val livePos = CommodityPosition(
-                    id = "${signal.tradeType.name}_${signal.market.symbol}_${System.currentTimeMillis()}",
-                    market = signal.market,
-                    direction = signal.direction,
-                    tradeType = signal.tradeType,
-                    entryPrice = signal.price,
-                    currentPrice = signal.price,
-                    size = positionSizeSol,
-                    takeProfit = liveTp,
-                    stopLoss = liveSl,
-                    reasons = signal.reasons,
-                )
-                if (signal.tradeType == TradeType.SPOT) spotPositions[livePos.id] = livePos
-                else leveragePositions[livePos.id] = livePos
-                val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
-                ErrorLogger.info(
-                    TAG,
-                    "🛢️ LIVE POSITION OPENED: ${signal.tradeType.emoji} ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} $leverageStr size=${positionSizeSol}◎"
-                )
-                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
-            } else {
-                ErrorLogger.warn(TAG, "🔴 LIVE trade failed: ${signal.market.symbol}")
-            }
-            return  // Live mode: done.
-        }
+        // V5.9.114: REMOVED the V5.9.110 early-return live branch so live
+        // uses the same sizing/TP/SL pipeline as paper. Live swap fires
+        // below at the capital-move branch (paper-matched sizing).
         
         // V5.9.8: Dynamic TP — 4→25% as learning matures, never caps legitimate runs
         // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction
@@ -559,14 +518,22 @@ object CommoditiesTrader {
             leveragePositions[position.id] = position
         }
         
-        // Deduct from appropriate balance
+        // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
+        // Jupiter swap at same positionSizeSol. Live failure rolls back.
         if (isPaperMode.get()) {
             com.lifecyclebot.engine.FluidLearning.recordPaperBuy("CommoditiesTrader", positionSizeSol.coerceAtLeast(0.0))
-            // V5.9.48: unified paper wallet — debit deployed capital from main.
             com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                 delta = -positionSizeSol,
                 source = "Commodities.open[${signal.market.symbol}]"
             )
+        } else {
+            val liveOk = executeLiveTradeAtSize(signal, positionSizeSol)
+            if (!liveOk) {
+                if (signal.tradeType == TradeType.SPOT) spotPositions.remove(position.id)
+                else leveragePositions.remove(position.id)
+                ErrorLogger.warn(TAG, "🔴 LIVE commodity trade failed: ${signal.market.symbol} — rolled back")
+                return
+            }
         }
         
         val leverageStr = if (signal.tradeType == TradeType.SPOT) "1x SPOT" else "${signal.tradeType.leverage.toInt()}x LEV"
@@ -579,6 +546,28 @@ object CommoditiesTrader {
     }
     
     /** V5.7.6b: Execute LIVE trade via MarketsLiveExecutor */
+    /** V5.9.114: LIVE swap at caller-supplied size (paper-matched). */
+    private suspend fun executeLiveTradeAtSize(signal: CommoditySignal, sizeSol: Double): Boolean {
+        ErrorLogger.info(TAG, "🔴 LIVE COMMODITY TRADE: ${signal.direction.emoji} ${signal.market.symbol} size=${sizeSol.fmt(4)}◎")
+        val (success, txSignature) = MarketsLiveExecutor.executeLiveTrade(
+            market = signal.market,
+            direction = signal.direction,
+            sizeSol = sizeSol.coerceAtLeast(0.01),
+            leverage = if (signal.tradeType == TradeType.SPOT) 1.0 else signal.tradeType.leverage,
+            priceUsd = signal.price,
+            traderType = "Commodities",
+        )
+        if (success) {
+            ErrorLogger.info(TAG, "🔴 LIVE SUCCESS: ${signal.market.symbol} | tx=${txSignature?.take(16) ?: "bridge"}")
+            try {
+                val newBalance = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: liveWalletBalance
+                updateLiveBalance(newBalance)
+            } catch (_: Exception) {}
+            return true
+        }
+        return false
+    }
+
     private suspend fun executeLiveTrade(signal: CommoditySignal): Boolean {
         val sizeSol = (getEffectiveBalance() * (DEFAULT_SIZE_PCT / 100.0)).coerceAtLeast(0.01)
         

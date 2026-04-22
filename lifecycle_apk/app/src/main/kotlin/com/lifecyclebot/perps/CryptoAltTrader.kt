@@ -920,55 +920,12 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
-        // LIVE mode — execute real on-chain trade. No paper fallback.
-        if (!isPaperMode.get()) {
-            val liveSizeSol = executeLiveTrade(signal, isSpot)
-            if (liveSizeSol != null) {
-                ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol}")
-                // V5.9.112: CRITICAL FIX — live CryptoAlt trades used to return
-                // here without ever creating an AltPosition, so real SOL flowed
-                // into alts but positions/UI/TP/SL/30-day sheet were blind.
-                // Mirror paper bookkeeping now so live positions are tracked.
-                val tpBase = if (isSpot)
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-                else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-                val (tpMultL, slMultL) = fluidTpSlMultiplier(signal.score, signal.confidence)
-                val slBase = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
-                val liveTpPct = (tpBase * tpMultL).coerceAtLeast(1.5)
-                val liveSlPct = (slBase * slMultL).coerceIn(1.5, 15.0)
-                val (liveTp, liveSl) = when (signal.direction) {
-                    PerpsDirection.LONG ->
-                        signal.price * (1 + liveTpPct / 100) to signal.price * (1 - liveSlPct / 100)
-                    PerpsDirection.SHORT ->
-                        signal.price * (1 - liveTpPct / 100) to signal.price * (1 + liveSlPct / 100)
-                }
-                val livePos = AltPosition(
-                    id             = "ALT_${positionCounter.incrementAndGet()}",
-                    market         = signal.market,
-                    direction      = signal.direction,
-                    isSpot         = isSpot,
-                    entryPrice     = signal.price,
-                    currentPrice   = signal.price,
-                    sizeSol        = liveSizeSol,
-                    leverage       = if (isSpot) 1.0 else signal.leverage,
-                    takeProfitPrice = liveTp,
-                    stopLossPrice   = liveSl,
-                    aiScore        = signal.score,
-                    aiConfidence   = signal.confidence,
-                    reasons        = signal.reasons,
-                )
-                positions[livePos.id] = livePos
-                totalTrades.incrementAndGet()
-                ErrorLogger.info(
-                    TAG,
-                    "🪙 LIVE POSITION OPENED: ${livePos.leverageLabel} ${signal.direction.symbol} ${signal.market.symbol} @ ${signal.price.fmt(6)} sz=${liveSizeSol.fmt(4)}◎ tp=${liveTp.fmt(6)} sl=${liveSl.fmt(6)}"
-                )
-                try { saveToSharedPrefs() } catch (_: Exception) {}
-            } else {
-                ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol}")
-            }
-            return  // Live mode: done.
-        }
+        // V5.9.114: UNIFIED paper + live pipeline.
+        // User policy: "live mode should behave exactly like paper". All
+        // sizing, sanity, exposure, hive, TP/SL, AI registrations, and
+        // position bookkeeping now run identically in both modes. The ONLY
+        // difference is the capital-move step: paper debits the paper
+        // wallet, live fires a Jupiter swap for the SAME finalSize.
 
         // Paper execution — only when in paper mode
         val balance = getEffectiveBalance()
@@ -1050,12 +1007,12 @@ object CryptoAltTrader {
             reasons        = signal.reasons
         )
 
-        positions[position.id]         = position
-        if (isSpot) spotPositions[position.id]     = position
-        else        leveragePositions[position.id]  = position
-
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
 
+        // V5.9.114: UNIFIED capital move. Paper debits paper wallet;
+        // live fires a Jupiter swap at the EXACT same finalSize so sizing
+        // learnt in paper carries 1:1 into live. If the live swap fails
+        // we roll back: the position is not created and we return.
         if (isPaperMode.get()) {
             // V5.9.5: Deduct from shared FluidLearning pool
             try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(signal.market.symbol, finalSize) } catch (_: Exception) {}
@@ -1064,7 +1021,23 @@ object CryptoAltTrader {
                 delta = -finalSize,
                 source = "CryptoAlt.open[${signal.market.symbol}]"
             )
+        } else {
+            // LIVE mode — execute Jupiter swap at the exact paper-sized
+            // finalSize. If the swap + phantom-verify fail, we do NOT
+            // create a bot position (nothing to clean up on-chain either,
+            // because MarketsLiveExecutor only returns success after the
+            // target mint actually arrived on-chain).
+            val liveOk = executeLiveTradeAtSize(signal, isSpot, finalSize)
+            if (!liveOk) {
+                ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol} — position not recorded")
+                return
+            }
+            ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol} (paper-sized ${finalSize.fmt(4)}◎)")
         }
+
+        positions[position.id]         = position
+        if (isSpot) spotPositions[position.id]     = position
+        else        leveragePositions[position.id]  = position
 
         // ── BehaviorAI tilt protection ──────────────────────────────────────
         try {
@@ -1124,6 +1097,65 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     // LIVE EXECUTION — Jupiter DEX Swap
     // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * V5.9.114: execute a LIVE Jupiter swap at a CALLER-provided size.
+     * This is the surgical version of [executeLiveTrade] that does NOT
+     * recompute sizing — it trusts the paper-mode pipeline's final size
+     * so live behaves exactly like paper. Returns true only after the
+     * swap succeeded AND the post-swap phantom verification confirmed
+     * the target mint arrived on-chain.
+     */
+    private suspend fun executeLiveTradeAtSize(
+        signal: AltSignal,
+        isSpot: Boolean,
+        sizeSol: Double,
+    ): Boolean {
+        return try {
+            val wallet = WalletManager.getWallet()
+                ?: run { ErrorLogger.warn(TAG, "No wallet — cannot execute LIVE alt trade"); return false }
+
+            val balance = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            if (balance > 0) updateLiveBalance(balance)
+            val floor = 0.01
+            if (balance < floor || sizeSol < floor) {
+                ErrorLogger.warn(TAG, "🪙 ⛔ Live floor: bal=${"%.4f".format(balance)} size=${"%.4f".format(sizeSol)} — skip ${signal.market.symbol}")
+                LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FLOOR_SKIPPED)
+                return false
+            }
+
+            ErrorLogger.info(
+                TAG,
+                "🪙 ⚡ LIVE ATTEMPT: ${signal.market.symbol} ${signal.direction.symbol} " +
+                "| bal=${"%.4f".format(balance)}◎ size=${"%.4f".format(sizeSol)}◎ " +
+                "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
+            )
+
+            val (success, txSig) = MarketsLiveExecutor.executeLiveTrade(
+                market      = signal.market,
+                direction   = signal.direction,
+                sizeSol     = sizeSol,
+                leverage    = if (isSpot) 1.0 else signal.leverage,
+                priceUsd    = signal.price,
+                traderType  = "CryptoAlt"
+            )
+            LiveAttemptStats.record(
+                "CryptoAlt",
+                if (success) LiveAttemptStats.Outcome.EXECUTED else LiveAttemptStats.Outcome.FAILED
+            )
+            if (success) {
+                ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${txSig ?: "ok"}")
+                try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
+                true
+            } else {
+                ErrorLogger.warn(TAG, "🪙 Live execution returned failure for ${signal.market.symbol}")
+                false
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error(TAG, "🪙 Live trade exception: ${e.message}", e)
+            false
+        }
+    }
 
     private suspend fun executeLiveTrade(signal: AltSignal, isSpot: Boolean): Double? {
         return try {
