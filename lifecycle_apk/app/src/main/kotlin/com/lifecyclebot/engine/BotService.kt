@@ -2511,7 +2511,7 @@ class BotService : Service() {
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val w = wallet
-                        if (w != null && w.isConnected()) {
+                        if (w != null && w.publicKeyB58.isNotEmpty()) {
                             val r = com.lifecyclebot.engine.StartupReconciler(
                                 wallet = w,
                                 status = status,

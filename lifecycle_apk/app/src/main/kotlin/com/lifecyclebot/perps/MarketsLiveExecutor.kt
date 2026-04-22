@@ -423,7 +423,7 @@ object MarketsLiveExecutor {
         val sizeUsd     = sizeSol * solPriceUsd
         ErrorLogger.info(TAG, "  Executing COMMODITY trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
         val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
-        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS) }
+        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps()) }
         return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
     }
 
@@ -465,7 +465,7 @@ object MarketsLiveExecutor {
         val sizeUsd     = sizeSol * solPriceUsd
         ErrorLogger.info(TAG, "  Executing FOREX trade: ${direction.emoji} ${market.symbol} | \$${sizeUsd.fmt(2)} via UniversalBridge")
         val bridge = UniversalBridgeEngine.prepareCapital(wallet, UniversalBridgeEngine.USDC_MINT, sizeUsd)
-        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), DEFAULT_SLIPPAGE_BPS) }
+        if (!bridge.success) { return executeJupiterSwap(wallet, walletAddress, SOL_MINT, USDC_MINT, (sizeSol * 1_000_000_000).toLong(), configuredSlippageBps()) }
         return bridge.swapTxSig  // V5.9: null = no swap needed (was placeholder string)
     }
     
