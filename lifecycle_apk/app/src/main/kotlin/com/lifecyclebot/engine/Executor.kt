@@ -5004,7 +5004,10 @@ class Executor(
             
             val currentHolderCount = ts.history.lastOrNull()?.holderCount ?: 0
             val currentVolume = ts.history.lastOrNull()?.vol ?: 0.0
-            val holdTimeDouble = (System.currentTimeMillis() - ts.position.entryTime) / 60000.0
+            // V5.9.127: guard against unset entryTime (raw epoch leak → 56-year hold)
+            val entryTimeSafeEdu = if (ts.position.entryTime > 1_000_000_000_000L)
+                ts.position.entryTime else System.currentTimeMillis()
+            val holdTimeDouble = (System.currentTimeMillis() - entryTimeSafeEdu) / 60000.0
             val approxTokenAgeMinutes = holdTimeDouble + 5.0
             val peakPnl = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0) {
                 ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
