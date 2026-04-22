@@ -325,15 +325,21 @@ class JournalActivity : AppCompatActivity() {
         val tradeCount = com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("Clear All Trade History?")
+            .setTitle("Clear Journal Only?")
             .setMessage(
-                "This will permanently delete $tradeCount trades from the journal.\n\n" +
-                    "Your win rate and all statistics will be reset to 0.\n\n" +
+                "This will permanently delete $tradeCount journal rows.\n\n" +
+                    "Your win rate / daily stats on this screen will reset to 0.\n\n" +
+                    "✅ Learned AI values are PRESERVED:\n" +
+                    "• BehaviorAI (streak, tilt, discipline)\n" +
+                    "• FluidLearningAI (learning progress %)\n" +
+                    "• ML Engine weights\n" +
+                    "• Pattern classifier / SmartSizer memory\n\n" +
+                    "(To wipe learned intelligence, use Behavior → Reset All Learning.)\n\n" +
                     "This action cannot be undone."
             )
-            .setPositiveButton("Clear All") { _, _ ->
+            .setPositiveButton("Clear Journal") { _, _ ->
                 com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades()
-                Toast.makeText(this, "Trade history cleared", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Journal cleared — learned AI preserved", Toast.LENGTH_SHORT).show()
                 refreshTrades()
             }
             .setNegativeButton("Cancel", null)

@@ -27,12 +27,25 @@ object TradeHistoryStore {
     private const val PREFS_NAME = "trade_history_store"
     private const val KEY_TRADES = "trades_json"
     private const val KEY_LAST_CLEANUP = "last_cleanup"
+    // V5.9.115: Lifetime counters that survive journal clears.
+    // These back-feed FluidLearningAI / ML / behavior layers so clearing
+    // the visual journal never wipes learned progress.
+    private const val KEY_LIFETIME_STATS = "lifetime_stats_json"
 
     private const val WIN_THRESHOLD_PCT = 0.5
     private const val LOSS_THRESHOLD_PCT = -2.0
 
     private var prefs: SharedPreferences? = null
     private val trades = mutableListOf<Trade>()
+
+    // V5.9.115: Persistent lifetime totals. NEVER cleared by clearAllTrades().
+    // Only reset by explicit BehaviorActivity "Reset All Learning" action.
+    @Volatile private var lifetimeSells: Int = 0
+    @Volatile private var lifetimeWins: Int = 0
+    @Volatile private var lifetimeLosses: Int = 0
+    @Volatile private var lifetimeScratches: Int = 0
+    @Volatile private var lifetimeWinPnlSum: Double = 0.0
+    @Volatile private var lifetimeRealizedPnlSol: Double = 0.0
 
     // V5.9.43: Cached "proven edge" flag to avoid re-computing getStats()
     // thousands of times per second on the hot path (promotion gate, hard
@@ -74,8 +87,15 @@ object TradeHistoryStore {
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadTrades()
+        loadLifetimeStats()
+        // V5.9.115: Back-fill lifetime stats from existing trade history the
+        // first time this counter is introduced so users who already have
+        // trade history don't drop to 0 lifetime on upgrade.
+        if (lifetimeSells == 0 && trades.any { it.side == "SELL" }) {
+            backfillLifetimeFromTrades()
+        }
         cleanupOldTrades()
-        ErrorLogger.info("TradeHistoryStore", "📊 Loaded ${trades.size} trades from storage")
+        ErrorLogger.info("TradeHistoryStore", "📊 Loaded ${trades.size} trades from storage (lifetime sells=$lifetimeSells)")
     }
 
     /**
@@ -83,6 +103,7 @@ object TradeHistoryStore {
      */
     fun recordTrade(trade: Trade) {
         trades.add(trade)
+        bumpLifetimeFor(trade)
         saveTrades()
         ErrorLogger.debug("TradeHistoryStore", "💾 Saved trade: ${trade.side} ${trade.sol.fmt(4)} SOL")
     }
@@ -97,6 +118,7 @@ object TradeHistoryStore {
 
         if (toAdd.isNotEmpty()) {
             trades.addAll(toAdd)
+            toAdd.forEach { bumpLifetimeFor(it) }
             saveTrades()
             ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new trades")
         }
@@ -109,12 +131,76 @@ object TradeHistoryStore {
 
     /**
      * MANUAL CLEAR - Only callable by user from Journal UI.
-     * Clears all trade history and resets stats.
+     *
+     * V5.9.115: This ONLY clears the visible trade history (rows/stats used
+     * by the Journal tab). Lifetime learning counters, BehaviorAI state,
+     * FluidLearningAI progress, ML engine weights, and ALL other AI memory
+     * are explicitly preserved. The user must use the Behavior tab's
+     * "Reset All Learning" button to wipe learned intelligence.
      */
     fun clearAllTrades() {
         trades.clear()
         saveTrades()
-        ErrorLogger.info("TradeHistoryStore", "🗑️ MANUAL CLEAR: All trade history cleared by user")
+        // DO NOT touch lifetime counters — those back the learned AI progress.
+        ErrorLogger.info(
+            "TradeHistoryStore",
+            "🗑️ MANUAL CLEAR: Journal rows cleared (lifetime=${lifetimeSells} sells preserved — learned AI intact)"
+        )
+    }
+
+    /**
+     * V5.9.115: FULL reset — wipe journal AND lifetime counters.
+     * ONLY called from BehaviorActivity "Reset All Learning" / FluidLearningAI.resetAllLearning().
+     * This is the ONE place that is allowed to wipe learned progress.
+     */
+    fun fullResetIncludingLifetime() {
+        trades.clear()
+        lifetimeSells = 0
+        lifetimeWins = 0
+        lifetimeLosses = 0
+        lifetimeScratches = 0
+        lifetimeWinPnlSum = 0.0
+        lifetimeRealizedPnlSol = 0.0
+        saveTrades()
+        saveLifetimeStats()
+        ErrorLogger.warn(
+            "TradeHistoryStore",
+            "🔄 FULL RESET: Trades + lifetime counters wiped (learned AI reset)"
+        )
+    }
+
+    /**
+     * V5.9.115: Lifetime snapshot that persists through journal clears.
+     * Consumed by FluidLearningAI / BehaviorAI / ML layers as the true
+     * basis for learning progress.
+     */
+    data class LifetimeSnapshot(
+        val totalSells: Int,
+        val totalWins: Int,
+        val totalLosses: Int,
+        val totalScratches: Int,
+        val winRate: Double,           // 0-100, among decisive trades
+        val avgWinPct: Double,
+        val realizedPnlSol: Double,
+    )
+
+    fun getLifetimeStats(): LifetimeSnapshot {
+        val decisive = lifetimeWins + lifetimeLosses
+        val winRate = if (decisive > 0) {
+            lifetimeWins.toDouble() * 100.0 / decisive.toDouble()
+        } else 50.0
+        val avgWin = if (lifetimeWins > 0) {
+            lifetimeWinPnlSum / lifetimeWins.toDouble()
+        } else 10.0
+        return LifetimeSnapshot(
+            totalSells = lifetimeSells,
+            totalWins = lifetimeWins,
+            totalLosses = lifetimeLosses,
+            totalScratches = lifetimeScratches,
+            winRate = winRate,
+            avgWinPct = avgWin,
+            realizedPnlSol = lifetimeRealizedPnlSol,
+        )
     }
 
     /**
@@ -139,6 +225,10 @@ object TradeHistoryStore {
             mint = mint,
         )
         trades.add(partialTrade)
+        // Partial profits count toward lifetime realized P&L but NOT toward
+        // win/loss decisive counts (they aren't full exits).
+        lifetimeRealizedPnlSol += profitSol
+        saveLifetimeStats()
         saveTrades()
         ErrorLogger.debug(
             "TradeHistoryStore",
@@ -419,4 +509,74 @@ object TradeHistoryStore {
     private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT
 
     private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.115: Lifetime counters (survive clearAllTrades)
+    // ═══════════════════════════════════════════════════════════════════
+
+    private fun bumpLifetimeFor(trade: Trade) {
+        if (trade.side != "SELL") return
+        lifetimeSells++
+        when {
+            isWin(trade) -> {
+                lifetimeWins++
+                lifetimeWinPnlSum += trade.pnlPct
+            }
+            isLoss(trade) -> lifetimeLosses++
+            else -> lifetimeScratches++
+        }
+        lifetimeRealizedPnlSol += trade.pnlSol
+        saveLifetimeStats()
+    }
+
+    private fun saveLifetimeStats() {
+        try {
+            val obj = JSONObject().apply {
+                put("sells", lifetimeSells)
+                put("wins", lifetimeWins)
+                put("losses", lifetimeLosses)
+                put("scratches", lifetimeScratches)
+                put("winPnlSum", lifetimeWinPnlSum)
+                put("realizedPnlSol", lifetimeRealizedPnlSol)
+            }
+            prefs?.edit()?.putString(KEY_LIFETIME_STATS, obj.toString())?.apply()
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "Failed to save lifetime stats: ${e.message}")
+        }
+    }
+
+    private fun loadLifetimeStats() {
+        try {
+            val json = prefs?.getString(KEY_LIFETIME_STATS, null) ?: return
+            val obj = JSONObject(json)
+            lifetimeSells = obj.optInt("sells", 0)
+            lifetimeWins = obj.optInt("wins", 0)
+            lifetimeLosses = obj.optInt("losses", 0)
+            lifetimeScratches = obj.optInt("scratches", 0)
+            lifetimeWinPnlSum = obj.optDouble("winPnlSum", 0.0)
+            lifetimeRealizedPnlSol = obj.optDouble("realizedPnlSol", 0.0)
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "Failed to load lifetime stats: ${e.message}")
+        }
+    }
+
+    /**
+     * One-time migration: when the lifetime counter is first introduced,
+     * seed it from the existing trade history so users don't drop to 0.
+     */
+    private fun backfillLifetimeFromTrades() {
+        val sells = trades.filter { it.side == "SELL" }
+        if (sells.isEmpty()) return
+        lifetimeSells = sells.size
+        lifetimeWins = sells.count { isWin(it) }
+        lifetimeLosses = sells.count { isLoss(it) }
+        lifetimeScratches = sells.size - lifetimeWins - lifetimeLosses
+        lifetimeWinPnlSum = sells.filter { isWin(it) }.sumOf { it.pnlPct }
+        lifetimeRealizedPnlSol = sells.sumOf { it.pnlSol }
+        saveLifetimeStats()
+        ErrorLogger.info(
+            "TradeHistoryStore",
+            "📊 Back-filled lifetime stats from ${sells.size} existing SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)"
+        )
+    }
 }

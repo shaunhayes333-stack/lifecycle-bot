@@ -141,9 +141,9 @@ object FluidLearningAI {
         behaviorModifier = 0.0
         aggressionModifier = 0.0
         
-        // Clear historical trade stats
+        // Clear historical trade stats AND lifetime counters (explicit reset only).
         try {
-            TradeHistoryStore.clearAllTrades()
+            TradeHistoryStore.fullResetIncludingLifetime()
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Failed to clear TradeHistoryStore: ${e.message}")
         }
@@ -160,14 +160,15 @@ object FluidLearningAI {
     /**
      * Get total trade count (historical + session).
      * Used for bootstrap calculations and logging.
+     *
+     * V5.9.115: Uses lifetime counters that survive journal clears so the
+     * user can decluter the journal without wiping learned progress.
      */
     fun getTotalTradeCount(): Int {
-        val historicalStats = try {
-            TradeHistoryStore.getStats()
-        } catch (_: Exception) { null }
-        
-        val historicalTrades = historicalStats?.totalTrades ?: 0
-        return historicalTrades + sessionTrades.get()
+        val lifetime = try {
+            TradeHistoryStore.getLifetimeStats().totalSells
+        } catch (_: Exception) { 0 }
+        return lifetime + sessionTrades.get()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -480,12 +481,13 @@ object FluidLearningAI {
         }
         
         // Get historical + session trades
-        val historicalStats = try {
-            TradeHistoryStore.getStats()
+        // V5.9.115: Use lifetime stats so journal clears don't wipe progress.
+        val lifetime = try {
+            TradeHistoryStore.getLifetimeStats()
         } catch (_: Exception) { null }
-        
-        val historicalTrades = historicalStats?.totalTrades ?: 0
-        val historicalWinRate = historicalStats?.winRate ?: 50.0
+
+        val historicalTrades = lifetime?.totalSells ?: 0
+        val historicalWinRate = lifetime?.winRate ?: 50.0
         
         val totalTrades = historicalTrades + sessionTrades.get()
         val sessionWinRate = if (sessionTrades.get() > 0) {
@@ -1279,8 +1281,9 @@ object FluidLearningAI {
     
     fun getState(): FluidState {
         val progress = getLearningProgress()
-        val historicalStats = try { TradeHistoryStore.getStats() } catch (_: Exception) { null }
-        val historicalTrades = historicalStats?.totalTrades ?: 0
+        // V5.9.115: Lifetime counter survives journal clears.
+        val lifetime = try { TradeHistoryStore.getLifetimeStats() } catch (_: Exception) { null }
+        val historicalTrades = lifetime?.totalSells ?: 0
         val totalTrades = historicalTrades + sessionTrades.get()
         val sessionWinRate = if (sessionTrades.get() > 0) {
             sessionWins.get().toDouble() / sessionTrades.get() * 100
