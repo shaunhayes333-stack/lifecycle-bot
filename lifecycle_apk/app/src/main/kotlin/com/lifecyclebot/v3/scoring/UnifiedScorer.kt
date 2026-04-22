@@ -64,7 +64,7 @@ class UnifiedScorer(
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
         // Collect scores from all 19 base AI modules
         // V4.1: Use sourceScoreWithTiming for source timing lag penalty
-        val baseComponents = listOf(
+        val preTrust = listOf(
             sourceScoreWithTiming(candidate.source, candidate.mint),
             entryAI.score(candidate, ctx),
             momentumAI.score(candidate, ctx),
@@ -86,8 +86,41 @@ class UnifiedScorer(
             HoldTimeOptimizerAI.score(candidate, ctx),     // Hold time optimization
             LiquidityCycleAI.score(candidate, ctx),         // Market-wide liquidity cycles
             // V5.7.4 INSIDER TRACKER AI - Layer 27
-            insiderTrackerScore(candidate)                     // Insider wallet monitoring
+            insiderTrackerScore(candidate),                     // Insider wallet monitoring
+            // V5.9.123 — Layers 28-42: correlation + exit-path + meta-trust
+            // + macro + DNA + operator + session + drawdown + capital-efficiency
+            // + news + funding + orderbook-pulse + peer-alpha + MEV + (ReflexAI
+            //   is tick-driven, not entry-scored, so it's wired in Executor).
+            CorrelationHedgeAI.score(candidate, ctx),
+            LiquidityExitPathAI.score(candidate, ctx),
+            MEVDetectionAI.score(candidate, ctx),
+            StablecoinFlowAI.score(candidate, ctx),
+            OperatorFingerprintAI.score(candidate, ctx),
+            SessionEdgeAI.score(candidate, ctx),
+            ExecutionCostPredictorAI.score(candidate, ctx),
+            DrawdownCircuitAI.score(candidate, ctx),
+            CapitalEfficiencyAI.score(candidate, ctx),
+            TokenDNAClusteringAI.score(candidate, ctx),
+            PeerAlphaVerificationAI.score(candidate, ctx),
+            NewsShockAI.score(candidate, ctx),
+            FundingRateAwarenessAI.score(candidate, ctx),
+            OrderbookImbalancePulseAI.score(candidate, ctx)
         )
+
+        // V5.9.123 — AITrustNetworkAI meta-weighting. Each layer's positive
+        // vote is scaled by its recent precision (0.4×–1.6×). Layers that
+        // historically call winners are amplified; layers that fire on
+        // losers are muted. Turns the static-50%-everywhere Trust panel
+        // into an actual learning meta-layer.
+        val preBaseComponents = run {
+            preTrust.map { c ->
+                if (c.value > 0) {
+                    val w = AITrustNetworkAI.getTrustWeight(c.name)
+                    c.copy(value = (c.value * w).toInt())
+                } else c
+            }
+        }
+        val baseComponents = preBaseComponents
 
         // V5.9.93: record per-layer health so zero-emit layers surface in logs
         try { LayerHealthTracker.record(baseComponents) } catch (_: Exception) {}

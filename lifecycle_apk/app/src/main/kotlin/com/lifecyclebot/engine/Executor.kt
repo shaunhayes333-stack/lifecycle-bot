@@ -774,6 +774,17 @@ class Executor(
                     } catch (_: Exception) { "aate" }
                     PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
                 } catch (_: Exception) { /* non-critical */ }
+
+                // V5.9.123 — feed closed-trade outcome into every new layer that
+                // learns from realized results. Each call fails soft.
+                try {
+                    val won = pnl > 0.5
+                    com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerClosed(ts.mint)
+                    com.lifecyclebot.v3.scoring.SessionEdgeAI.recordOutcome(
+                        com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession(), won)
+                    // OperatorFingerprint: creator is not in TokenState directly — skip
+                    // unless we've stashed it in ts.meta. Graceful no-op otherwise.
+                } catch (_: Exception) {}
             } catch (e: Exception) {
                 // Silently ignore - behavior tracking is secondary
             }
@@ -3036,6 +3047,13 @@ class Executor(
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
         )
+        // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
+        // sees this position as cluster peer pressure.
+        try {
+            com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerOpen(
+                mint = ts.mint, symbol = ts.symbol, mcapUsd = ts.lastMcap
+            )
+        } catch (_: Exception) {}
         val trade = Trade(
             side = "BUY", 
             mode = "paper", 

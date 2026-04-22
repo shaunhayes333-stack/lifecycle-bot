@@ -7704,6 +7704,11 @@ if (deferredCount > 0) {
             // chat history. Without this the LLM and personality layer has
             // amnesia on every restart.
             try { PersonalityMemoryStore.init(this) } catch (_: Exception) {}
+            // V5.9.123: new AI layers with persistent state.
+            try { com.lifecyclebot.v3.scoring.AITrustNetworkAI.init(this) } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.OperatorFingerprintAI.init(this) } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.SessionEdgeAI.init(this) } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.init(this) } catch (_: Exception) {}
             // V5.9.118: Self-check — boot-time assertion that getDynamicFluidStop
             // returns sane values for runners. This is a permanent regression
             // guard for the profit-floor-lock bug that has returned 3 times.
