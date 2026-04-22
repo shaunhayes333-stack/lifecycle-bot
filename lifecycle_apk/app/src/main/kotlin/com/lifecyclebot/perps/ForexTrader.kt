@@ -27,7 +27,7 @@ object ForexTrader {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val MAX_POSITIONS = 25
+    private const val MAX_POSITIONS = 100   // V5.9.100: user req — each trader can hold 100
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds (forex is fast)
     private const val DEFAULT_SIZE_PCT = 5.0  // 5% of balance per trade (matches TokenizedStockTrader)
     // V5.9.8: TP now dynamic via FluidLearningAI (static 3% removed)

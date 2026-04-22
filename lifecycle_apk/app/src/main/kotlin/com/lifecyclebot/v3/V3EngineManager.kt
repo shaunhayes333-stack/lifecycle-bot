@@ -144,7 +144,8 @@ object V3EngineManager {
                     // V5.9.68: Paper mode is "free money" — give learning
                     // plenty of concurrent room (50 slots) and let it run
                     // up to 95% of total equity. Live mode stays conservative.
-                    maxOpenPositions = if (botCfg.paperMode) 50 else botCfg.maxConcurrentPositions.coerceAtMost(10),
+                    // V5.9.100: user raised live slot ceiling 10 -> 100.
+                    maxOpenPositions = if (botCfg.paperMode) 100 else botCfg.maxConcurrentPositions.coerceAtMost(100),
                     maxExposurePct = if (botCfg.paperMode) 0.95
                                      else (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
                 )
@@ -224,7 +225,7 @@ object V3EngineManager {
 
             // Resize exposure guard slot limit for new mode
             exposureGuard = ExposureGuard(
-                maxOpenPositions = if (newBotConfig.paperMode) 50 else newBotConfig.maxConcurrentPositions.coerceAtMost(10),
+                maxOpenPositions = if (newBotConfig.paperMode) 100 else newBotConfig.maxConcurrentPositions.coerceAtMost(100),
                 maxExposurePct = if (newBotConfig.paperMode) 0.95
                                  else (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
             )
