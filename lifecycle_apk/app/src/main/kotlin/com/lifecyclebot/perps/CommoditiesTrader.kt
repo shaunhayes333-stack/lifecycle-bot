@@ -447,6 +447,15 @@ object CommoditiesTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun executeSignal(signal: CommoditySignal) {
+        // V5.9.113: enforce one-position-per-symbol across spot+leverage maps.
+        // The close path sells the ENTIRE on-chain balance of the target mint,
+        // which would orphan a twin position if both types exist for the same symbol.
+        val symbol = signal.market.symbol
+        if (spotPositions.values.any { it.market.symbol == symbol } ||
+            leveragePositions.values.any { it.market.symbol == symbol }) {
+            ErrorLogger.info(TAG, "🛢️ Skipping $symbol — already have an open position")
+            return
+        }
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
         if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
             try {

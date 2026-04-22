@@ -438,6 +438,17 @@ object MetalsTrader {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private suspend fun executeSignal(signal: MetalSignal, positionMap: ConcurrentHashMap<String, MetalPosition>, typeLabel: String) {
+        // V5.9.113: prevent duplicate positions for the same market across
+        // spot+leverage maps. closeLivePosition sells the ENTIRE on-chain
+        // balance of the target mint, so two concurrent positions in the
+        // same symbol would orphan one when the other closes. Safer to
+        // one-position-per-symbol like CryptoAlt / TokenizedStocks already do.
+        val symbol = signal.market.symbol
+        if (spotPositions.values.any { it.market.symbol == symbol } ||
+            leveragePositions.values.any { it.market.symbol == symbol }) {
+            ErrorLogger.info(TAG, "🥇 Skipping $symbol — already have an open position")
+            return
+        }
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
         if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
             try {
