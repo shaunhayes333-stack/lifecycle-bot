@@ -471,8 +471,12 @@ class BehaviorActivity : AppCompatActivity() {
             val megaScore = EducationSubLayerAI.getMegaScore()
             val levelProgress = EducationSubLayerAI.getLevelProgress()
             
-            // Maturity is capped at 100% for pre-PhD, but Mega Brain shows level progress
-            val maturityPct = if (isMegaBrain) 100 else (totalTrades / 10.0).coerceAtMost(100.0).toInt()
+            // V5.9.133 — Maturity NEVER caps at 100%. Progress bar always
+            // shows within-level progress (0-100% per tier), and the text
+            // shows the current curriculum level + total accumulated
+            // training points. The bot keeps evolving through Mega Brain,
+            // Singularity, all the way to Transcendence (1M trades).
+            val levelPct = levelProgress.coerceIn(0, 100)
             
             // Update curriculum level display with special styling for Mega Brain
             val levelDisplay = if (isMegaBrain) {
@@ -483,12 +487,14 @@ class BehaviorActivity : AppCompatActivity() {
             tvCurriculumLevel.text = levelDisplay
             tvCurriculumLevel.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFFFFD700.toInt())
             
-            // Update maturity progress
-            progressMaturity.progress = if (isMegaBrain) levelProgress else maturityPct
+            // Progress bar always reflects progress inside the current tier.
+            progressMaturity.progress = levelPct
+            // Label shows: pre-PhD → within-tier %; post-PhD → megaScore points
+            // (never a locked "100%" — learning never stops).
             tvMaturityPct.text = if (isMegaBrain) {
-                "⚡ ${megaScore.toInt()} pts"
+                "⚡ ${megaScore.toInt()} pts · $levelPct% to next"
             } else {
-                "$maturityPct%"
+                "$levelPct% → ${level.displayName}"
             }
             tvMaturityPct.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())
             
@@ -502,34 +508,33 @@ class BehaviorActivity : AppCompatActivity() {
             
             // Update brain network view with Mega Brain data
             brainNetworkView.updateLayerStatus(diagnostics)
+            // V5.9.133 — feed per-layer graduated curriculum to the view so
+            // each of the 41 nodes shows its OWN level (Task 2a).
+            brainNetworkView.updateLayerMaturity(EducationSubLayerAI.getAllLayerMaturity())
             brainNetworkView.setCurriculumLevel(
                 level = level.displayName,
                 icon = level.icon,
-                maturity = maturityPct,
+                maturity = levelPct,
                 trades = totalTrades,
                 megaBrain = isMegaBrain,
                 score = megaScore,
                 progress = levelProgress
             )
             
-            // Calculate average accuracy - improves with learning but never "maxes out"
-            val learningWeight = EducationSubLayerAI.getCurrentLearningWeight()
-            val baseAccuracy = when {
-                totalTrades < 10 -> 50
-                totalTrades < 50 -> 52
-                totalTrades < 100 -> 55
-                totalTrades < 250 -> 58
-                totalTrades < 500 -> 62
-                totalTrades < 750 -> 66
-                totalTrades < 1000 -> 70
-                totalTrades < 1500 -> 72
-                totalTrades < 2000 -> 74
-                totalTrades < 3000 -> 76
-                totalTrades < 5000 -> 78
-                totalTrades < 10000 -> 80
-                else -> 82  // Even at max, not 100% - always room to learn!
+            // V5.9.133 — REAL average Bayesian-smoothed accuracy across
+            // registered layers. Previously the UI displayed a hardcoded
+            // ladder (50% at <10 trades, 82% forever after 10k) that was
+            // independent of actual performance — pure theatre. Now we
+            // average getLayerAccuracy() (smoothed, 0..1) across all 41
+            // registered layers and report the real number.
+            val accSamples = EducationSubLayerAI.getAllLayerMaturity().values
+                .filter { it.trades > 0 }
+                .map { it.smoothedAccuracy }
+            val avgAccuracy = if (accSamples.isEmpty()) {
+                50
+            } else {
+                (accSamples.average() * 100).toInt().coerceIn(0, 99)
             }
-            val avgAccuracy = baseAccuracy
             
             tvAvgAccuracy.text = "$avgAccuracy%"
             tvAvgAccuracy.setTextColor(when {
@@ -539,51 +544,22 @@ class BehaviorActivity : AppCompatActivity() {
                 else -> 0xFFFFFFFF.toInt()
             })
             
-            // Top performing layers with motivational message
+            // V5.9.133 — REAL top 3 performing layers by Bayesian-smoothed
+            // accuracy (was: hardcoded "HoldTimeAI 68%" strings that lied
+            // independent of reality). If no layer has any trades yet, show
+            // the motivational message for the current curriculum level.
             val motivational = EducationSubLayerAI.getMotivationalMessage()
-            val topLayers = when (level) {
-                EducationSubLayerAI.CurriculumLevel.FRESHMAN -> 
-                    "Collecting data..."
-                EducationSubLayerAI.CurriculumLevel.SOPHOMORE -> 
-                    "HoldTimeAI • MomentumAI learning..."
-                EducationSubLayerAI.CurriculumLevel.JUNIOR -> 
-                    "HoldTimeAI 62% • WhaleAI 58% • MetaAI 56%"
-                EducationSubLayerAI.CurriculumLevel.SENIOR -> 
-                    "HoldTimeAI 68% • WhaleAI 65% • NarrativeAI 63%"
-                EducationSubLayerAI.CurriculumLevel.MASTERS -> 
-                    "HoldTimeAI 72% • WhaleAI 70% • MetaAI 68%"
-                EducationSubLayerAI.CurriculumLevel.PHD -> 
-                    "HoldTimeAI 78% • WhaleAI 75% • NarrativeAI 73%"
-                // Mega Brain levels
-                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_I,
-                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_II,
-                EducationSubLayerAI.CurriculumLevel.MEGA_BRAIN_III ->
-                    "⚡ All layers optimizing • Accuracy: $avgAccuracy%"
-                EducationSubLayerAI.CurriculumLevel.QUANTUM_MIND,
-                EducationSubLayerAI.CurriculumLevel.NEURAL_APEX ->
-                    "🔥 Peak performance • Multi-dimensional analysis active"
-                EducationSubLayerAI.CurriculumLevel.MARKET_ORACLE,
-                EducationSubLayerAI.CurriculumLevel.ALPHA_ARCHITECT ->
-                    "Oracle mode - Predictive patterns: ACTIVE"
-                EducationSubLayerAI.CurriculumLevel.TRADING_GOD,
-                EducationSubLayerAI.CurriculumLevel.SINGULARITY ->
-                    "TRANSCENDED - ${totalTrades} trades learned"
-                // V5.7.8: Ascended levels
-                EducationSubLayerAI.CurriculumLevel.VOID_WALKER,
-                EducationSubLayerAI.CurriculumLevel.CHAOS_ENGINE ->
-                    "VOID STATE - Pattern recognition beyond human limits"
-                EducationSubLayerAI.CurriculumLevel.DARK_ORACLE,
-                EducationSubLayerAI.CurriculumLevel.ENTROPY_LORD ->
-                    "ENTROPY MASTERED - ${totalTrades} trades in the neural fabric"
-                EducationSubLayerAI.CurriculumLevel.MARKET_WEAVER,
-                EducationSubLayerAI.CurriculumLevel.ALPHA_PREDATOR ->
-                    "APEX PREDATOR - Hunting alpha across all dimensions"
-                EducationSubLayerAI.CurriculumLevel.PRIME_ARCHITECT,
-                EducationSubLayerAI.CurriculumLevel.NEURAL_SOVEREIGN ->
-                    "SOVEREIGN MIND - ${totalTrades} trades woven into reality"
-                EducationSubLayerAI.CurriculumLevel.OMEGA_MIND,
-                EducationSubLayerAI.CurriculumLevel.TRANSCENDENCE ->
-                    "OMEGA - The market IS the mind. ${totalTrades} trades."
+            val topMaturity = EducationSubLayerAI.getAllLayerMaturity().values
+                .filter { it.trades >= 3 }
+                .sortedByDescending { it.smoothedAccuracy }
+                .take(3)
+            val topLayers = if (topMaturity.isEmpty()) {
+                motivational
+            } else {
+                topMaturity.joinToString(" • ") { m ->
+                    val short = m.layerName.removeSuffix("AI").take(10)
+                    "$short ${(m.smoothedAccuracy * 100).toInt()}%"
+                }
             }
             tvTopLayers.text = topLayers
             tvTopLayers.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())

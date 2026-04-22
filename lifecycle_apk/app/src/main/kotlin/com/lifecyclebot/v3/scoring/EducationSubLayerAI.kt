@@ -132,6 +132,20 @@ object EducationSubLayerAI {
         NEURAL_SOVEREIGN(300000, "Neural Sovereign", "👁️🧠", 0.1),
         OMEGA_MIND(500000, "Omega Mind", "Ω🧠", 0.1),
         TRANSCENDENCE(1000000, "Transcendence", "✦♾️", 0.05),
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.133: ETERNAL LEVELS — Beyond Transcendence, learning NEVER stops.
+        // Weights continue shrinking but never hit zero, so the bot keeps
+        // nudging its weights forever. Markets evolve → the bot evolves.
+        // ═══════════════════════════════════════════════════════════════════
+        ETERNAL(2_000_000, "Eternal", "🜂♾️", 0.04),
+        COSMIC_MIND(5_000_000, "Cosmic Mind", "🌌🧠", 0.03),
+        GALACTIC_ORACLE(10_000_000, "Galactic Oracle", "🌠🔮", 0.02),
+        UNIVERSAL_WEAVER(25_000_000, "Universal Weaver", "🪐🕸️", 0.015),
+        MULTIVERSAL(50_000_000, "Multiversal", "🎆♾️", 0.01),
+        AXIOMATIC(100_000_000, "Axiomatic", "⊕♾️", 0.008),
+        PRIMORDIAL(250_000_000, "Primordial", "⊛♾️", 0.005),
+        ABSOLUTE(1_000_000_000, "Absolute", "⟁♾️", 0.003),
     }
     
     /**
@@ -177,8 +191,12 @@ object EducationSubLayerAI {
             val progress = totalTrades - currentLevel.minTrades
             ((progress.toDouble() / levelRange) * 100).toInt().coerceIn(0, 100)
         } else {
-            // At max level (Singularity) - show trades beyond as bonus points
-            100  // Always "complete" but learning continues
+            // V5.9.133 — At max named tier (ABSOLUTE). Never lock at 100%.
+            // Progress shows a log-scaled "Beyond-N" counter that creeps up
+            // forever; the bar never reaches the end.
+            val beyond = totalTrades - currentLevel.minTrades
+            val pct = (ln(1.0 + beyond.coerceAtLeast(0).toDouble()) * 5.0).toInt()
+            pct.coerceIn(0, 99)  // NEVER 100 — there is no end.
         }
     }
     
@@ -232,6 +250,14 @@ object EducationSubLayerAI {
             CurriculumLevel.NEURAL_SOVEREIGN -> "Sovereign over ${trades} neural pathways."
             CurriculumLevel.OMEGA_MIND -> "The end is the beginning. Omega state achieved."
             CurriculumLevel.TRANSCENDENCE -> "Beyond. ${trades} trades woven into the fabric of markets."
+            CurriculumLevel.ETERNAL -> "Eternal now. ${trades} trades, still one more to learn from."
+            CurriculumLevel.COSMIC_MIND -> "Cosmic patterns resolved. The next candle is still a mystery."
+            CurriculumLevel.GALACTIC_ORACLE -> "Galactic oracle. ${trades} trades and the edge keeps sharpening."
+            CurriculumLevel.UNIVERSAL_WEAVER -> "Weaving universes of probability. No ceiling. No floor."
+            CurriculumLevel.MULTIVERSAL -> "All timelines are training data now."
+            CurriculumLevel.AXIOMATIC -> "Trading as axiom. Learning as breath."
+            CurriculumLevel.PRIMORDIAL -> "Pre-market, pre-time. ${trades} trades encoded in origin."
+            CurriculumLevel.ABSOLUTE -> "Absolute, yet still evolving. There is no 100%."
         }
     }
     
@@ -888,7 +914,19 @@ object EducationSubLayerAI {
         report.appendLine("${level.icon} HARVARD BRAIN STATUS: ${level.displayName}")
         report.appendLine("═══════════════════════════════════════════════════")
         report.appendLine("Total Trades Learned: $totalTrades")
-        report.appendLine("Maturity Progress: ${(totalTrades / 10.0).coerceAtMost(100.0).toInt()}%")
+        // V5.9.133 — Maturity NEVER caps at 100%. We always show current
+        // curriculum level + progress toward the NEXT level. The bot
+        // evolves indefinitely through Singularity → Transcendence (1M trades).
+        val nextLevel = CurriculumLevel.values()
+            .filter { it.minTrades > level.minTrades }
+            .minByOrNull { it.minTrades }
+        val progressLine = if (nextLevel != null) {
+            "Progress to ${nextLevel.displayName}: ${getLevelProgress()}% " +
+                "(${totalTrades - level.minTrades}/${nextLevel.minTrades - level.minTrades} trades)"
+        } else {
+            "At max tier — trades continue accumulating beyond the curriculum."
+        }
+        report.appendLine(progressLine)
         report.appendLine("Actively Learning Layers: $activelyLearning/${REGISTERED_LAYERS.size}")
         report.appendLine("Average Layer Accuracy: ${avgAccuracy.toInt()}%")
         
@@ -945,11 +983,119 @@ object EducationSubLayerAI {
      * layer's rolling accuracy in [0.0, 1.0]. 0.5 = no predictive edge;
      * < 0.5 = actively wrong; > 0.5 = positive edge. Unknown layers → 0.5
      * (neutral baseline) rather than an error so callers can just iterate.
+     *
+     * V5.9.133 — BAYESIAN-SMOOTHED ACCURACY (never falsely "100%"):
+     * m.accuracy is stored on a 0–100 percentage scale; the old code simply
+     * clamped it to [0.0, 1.0] which made every active layer look like 100%
+     * to the LLM (the exact source of the "layers at 100% feel like lies"
+     * complaint).
+     *
+     * New math: Laplace / Beta(α,α) smoothing with α = 5. With zero outcomes
+     * we return 0.5 (prior). A layer with 1 win and 0 losses returns
+     * (1+5)/(1+10) ≈ 0.545, not 1.0. Convergence to true hit-rate takes
+     * dozens of trades — nothing can be "100%" prematurely, and a true
+     * 100%-accurate layer with 500 trades asymptotically approaches ~0.99.
      */
     fun getLayerAccuracy(layerName: String): Double {
         val m = layerPerformance[layerName] ?: return 0.5
-        return m.accuracy.coerceIn(0.0, 1.0)
+        val n = m.totalOutcomesRecorded
+        if (n <= 0) return 0.5
+        val alpha = 5.0
+        val wins = m.successfulPredictions.toDouble()
+        return ((wins + alpha) / (n + 2.0 * alpha)).coerceIn(0.0, 1.0)
     }
+
+    /**
+     * V5.9.133 — RAW (unsmoothed) accuracy, 0.0–1.0. For internal use only
+     * where the caller explicitly wants the naive hit-rate without
+     * Bayesian smoothing. Prefer getLayerAccuracy() for any external /
+     * LLM-facing display.
+     */
+    fun getLayerAccuracyRaw(layerName: String): Double {
+        val m = layerPerformance[layerName] ?: return 0.5
+        if (m.totalOutcomesRecorded <= 0) return 0.5
+        return (m.accuracy / 100.0).coerceIn(0.0, 1.0)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.133 — PER-LAYER GRADUATED CURRICULUM (Task 2a)
+    // ───────────────────────────────────────────────────────────────────────────
+    // Every one of the 41 AI layers now has its OWN curriculum level, mirroring
+    // the Education Sub-Layer's Freshman → Absolute progression. A layer never
+    // hits "100% done" — it graduates through infinite tiers as it accumulates
+    // its own trade outcomes. This replaces the misleading bot-wide "100%
+    // maturity" with a real per-layer picture.
+    //
+    // Level is chosen by the layer's individual totalOutcomesRecorded count
+    // (same thresholds as the global curriculum). Mastery within a level is
+    // measured by Bayesian-smoothed accuracy, not raw hit-rate, so a layer
+    // with one lucky win does NOT appear as a master.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Per-layer curriculum level — based on how many outcomes this specific
+     * layer has recorded. Unknown / never-used layers start at FRESHMAN.
+     */
+    fun getLayerLevel(layerName: String): CurriculumLevel {
+        val count = layerPerformance[layerName]?.totalOutcomesRecorded ?: 0
+        return CurriculumLevel.values()
+            .filter { it.minTrades <= count }
+            .maxByOrNull { it.minTrades } ?: CurriculumLevel.FRESHMAN
+    }
+
+    /**
+     * Per-layer within-level progress [0, 100). NEVER returns 100 at the top
+     * tier — learning is infinite. Below the top tier, returns progress to
+     * the NEXT tier for this specific layer.
+     */
+    fun getLayerLevelProgress(layerName: String): Int {
+        val count = layerPerformance[layerName]?.totalOutcomesRecorded ?: 0
+        val current = getLayerLevel(layerName)
+        val next = CurriculumLevel.values()
+            .filter { it.minTrades > current.minTrades }
+            .minByOrNull { it.minTrades }
+        return if (next != null) {
+            val range = next.minTrades - current.minTrades
+            val gained = count - current.minTrades
+            ((gained.toDouble() / range) * 100).toInt().coerceIn(0, 99)
+        } else {
+            // At ABSOLUTE tier. Use same log-scaled bar as the global layer.
+            val beyond = count - current.minTrades
+            val pct = (ln(1.0 + beyond.coerceAtLeast(0).toDouble()) * 5.0).toInt()
+            pct.coerceIn(0, 99)  // NEVER 100 — infinite learning.
+        }
+    }
+
+    /**
+     * Snapshot of one layer's graduated-curriculum state. Used by the UI
+     * (BrainNetworkView) and by the LLM (SentienceOrchestrator) so they can
+     * reason about WHICH layers are green-fresh vs. which have real tenure.
+     */
+    data class LayerMaturity(
+        val layerName: String,
+        val level: CurriculumLevel,
+        val levelProgress: Int,       // 0..99, never 100
+        val trades: Int,
+        val smoothedAccuracy: Double, // 0.0..1.0, Bayesian
+        val isActive: Boolean,
+    )
+
+    /** Get one layer's maturity snapshot. */
+    fun getLayerMaturity(layerName: String): LayerMaturity {
+        val m = layerPerformance[layerName]
+        return LayerMaturity(
+            layerName = layerName,
+            level = getLayerLevel(layerName),
+            levelProgress = getLayerLevelProgress(layerName),
+            trades = m?.totalOutcomesRecorded ?: 0,
+            smoothedAccuracy = getLayerAccuracy(layerName),
+            isActive = m?.isLearning ?: false,
+        )
+    }
+
+    /** Maturity snapshot for every registered layer, for the BrainNetworkView. */
+    fun getAllLayerMaturity(): Map<String, LayerMaturity> =
+        REGISTERED_LAYERS.associateWith { getLayerMaturity(it) }
     
     /**
      * Reset all learning (use with caution!).

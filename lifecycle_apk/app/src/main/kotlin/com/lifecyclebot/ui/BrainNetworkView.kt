@@ -39,6 +39,13 @@ class BrainNetworkView @JvmOverloads constructor(
         var angle: Double = 0.0,      // Position around the brain
         var ring: Int = 0,            // Which ring (0=inner, 1=outer)
         var pulsePhase: Float = 0f,   // Animation phase for this node's pulse
+        // V5.9.133 — Per-layer graduated curriculum (Task 2a).
+        // Every layer has its OWN tier (Freshman → Absolute). No layer is
+        // ever "done" — learning is infinite.
+        var levelName: String = "Freshman",
+        var levelIcon: String = "🎓",
+        var levelProgress: Int = 0,   // 0..99 — never 100.
+        var trades: Int = 0,
     ) {
         val color: Int get() = when {
             !isActive -> 0xFFFF8800.toInt()       // Orange - dormant
@@ -267,6 +274,34 @@ class BrainNetworkView @JvmOverloads constructor(
     fun updateLayerAccuracy(layerAccuracy: Map<String, Double>) {
         aiLayers.forEach { layer ->
             layer.accuracy = layerAccuracy[layer.name] ?: 50.0
+        }
+        invalidate()
+    }
+
+    /**
+     * V5.9.133 — Update per-layer graduated curriculum (Task 2a).
+     * Each layer gets its OWN level (Freshman → Absolute), within-tier
+     * progress, and trade count. No layer ever reaches "100% done".
+     *
+     * Map value layout: Pair<levelName, Pair<levelIcon, Pair<levelProgress, trades>>>
+     * — ugly, but avoids a new public data class dependency across modules.
+     * Caller uses com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+     * and unpacks per layer.
+     */
+    fun updateLayerMaturity(
+        maturity: Map<String, com.lifecyclebot.v3.scoring.EducationSubLayerAI.LayerMaturity>
+    ) {
+        aiLayers.forEach { layer ->
+            maturity[layer.name]?.let { m ->
+                layer.levelName = m.level.displayName
+                layer.levelIcon = m.level.icon
+                layer.levelProgress = m.levelProgress
+                layer.trades = m.trades
+                // smoothedAccuracy is 0..1 — upscale to 0..100 for the
+                // color-coding `accuracy` field already used by the view.
+                layer.accuracy = m.smoothedAccuracy * 100.0
+                layer.isActive = m.isActive
+            }
         }
         invalidate()
     }
