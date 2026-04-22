@@ -589,21 +589,40 @@ object CryptoAltTrader {
                     val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
                     val confThresh  = FluidLearningAI.getMarketsSpotConfThreshold()
 
-                    // V5.9.130: SCORE-OVERRIDE BYPASS — when the signal score is
-                    // strong (≥70) but confidence sits within 5 points of the
-                    // threshold, let it through. The prior hard conf veto was
-                    // freezing 80+% of high-score signals (IOTA 83/50, QTUM 83/50,
-                    // ZIL 68/50) against learned thresholds drifting to 52/53.
-                    val scoreOk = signal.score >= scoreThresh
-                    val confOk  = signal.confidence >= confThresh
-                    val strongScoreBypass = signal.score >= 70 && signal.confidence >= (confThresh - 5)
+                    // V5.9.132: V3 IS THE GATE. Fluid score/conf gate is now
+                    // only a preliminary sanity check — any signal with score≥45
+                    // gets a V3 UnifiedScorer evaluation (41 layers + AITrustNet).
+                    // If V3 passes, it enters even if the fluid conf gate would
+                    // have blocked. 50/50 signals no longer get silently dropped.
+                    val fluidPass = signal.score >= scoreThresh && signal.confidence >= confThresh
+                    val prefilterOk = signal.score >= 45
 
-                    if (scoreOk && (confOk || strongScoreBypass)) {
+                    if (fluidPass) {
                         signals.add(signal)
-                        val tag = if (confOk) "" else " [score-override]"
-                        ErrorLogger.info(TAG, "🪙 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}$tag")
+                        ErrorLogger.info(TAG, "🪙 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
+                    } else if (prefilterOk) {
+                        val v3Approves = try {
+                            val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
+                                symbol = market.symbol,
+                                assetClass = "ALT",
+                                price = signal.price,
+                                technicalScore = signal.score,
+                                technicalConfidence = signal.confidence,
+                                liqUsd = 500_000.0,
+                                mcapUsd = 50_000_000.0,
+                                priceChangePct = signal.priceChange24h,
+                                direction = signal.direction.name,
+                            )
+                            if (verdict.shouldEnter) {
+                                ErrorLogger.info(TAG, "🪙 V3-OVERRIDE: ${market.symbol} (score=${signal.score}/${signal.confidence} vs fluid ${scoreThresh}/${confThresh}) → v3=${verdict.v3Score} blended=${verdict.blendedScore}")
+                                true
+                            } else false
+                        } catch (_: Exception) { false }
+
+                        if (v3Approves) signals.add(signal)
+                        else ErrorLogger.warn(TAG, "🪙 ${market.symbol}: BELOW FLUID + V3 VETO (${signal.score}<$scoreThresh or ${signal.confidence}<$confThresh)")
                     } else {
-                        ErrorLogger.warn(TAG, "🪙 ${market.symbol}: below threshold (${signal.score}<$scoreThresh or ${signal.confidence}<$confThresh)")
+                        ErrorLogger.warn(TAG, "🪙 ${market.symbol}: below prefilter (${signal.score}<45)")
                     }
                 } else {
                     ErrorLogger.warn(TAG, "🪙 ${market.symbol}: analyzeAlt returned null")

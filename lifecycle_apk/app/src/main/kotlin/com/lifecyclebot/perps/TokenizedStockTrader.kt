@@ -597,22 +597,40 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     // V5.7.6: Use FLUID thresholds from FluidLearningAI
                     val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
                     val confThresh = FluidLearningAI.getMarketsSpotConfThreshold()
-                    
-                    if (signal.score >= scoreThresh && signal.confidence >= confThresh) {
+
+                    // V5.9.132: V3 IS THE GATE. Any signal with score≥45 is sent
+                    // to UnifiedScorer (41 layers). If V3 passes, it enters even
+                    // if fluid conf gate blocks — the 41-layer AI stack is the
+                    // authoritative signal quality gauge, not a 2-point conf drift.
+                    val fluidPass = signal.score >= scoreThresh && signal.confidence >= confThresh
+                    val prefilterOk = signal.score >= 45  // minimal sanity floor
+
+                    if (fluidPass) {
                         signals.add(signal)
+                    } else if (prefilterOk) {
+                        // V3 decides.
+                        val v3Approves = try {
+                            val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
+                                symbol = market.symbol,
+                                assetClass = "STOCK",
+                                price = signal.price,
+                                technicalScore = signal.score,
+                                technicalConfidence = signal.confidence,
+                                liqUsd = 10_000_000.0,
+                                mcapUsd = 1_000_000_000.0,
+                                priceChangePct = signal.priceChange24h,
+                                direction = signal.direction.name,
+                            )
+                            if (verdict.shouldEnter) {
+                                ErrorLogger.info(TAG, "📈 V3-OVERRIDE: ${market.symbol} (score=${signal.score}/${signal.confidence} vs fluid ${scoreThresh}/${confThresh}) → v3=${verdict.v3Score} blended=${verdict.blendedScore}")
+                                true
+                            } else false
+                        } catch (_: Exception) { false }
+
+                        if (v3Approves) signals.add(signal)
+                        else ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID + V3 VETO (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
                     } else {
-                        // V5.9.130: SCORE-OVERRIDE BYPASS — strong score (≥70) within
-                        // 5 pts of conf threshold lets signal through. Prevents the
-                        // learned conf threshold from drifting past the signal
-                        // generator's output (e.g. TSLA score=65/50 with gate 52).
-                        val strongScoreBypass = signal.score >= 70 && signal.score >= scoreThresh &&
-                            signal.confidence >= (confThresh - 5)
-                        if (strongScoreBypass) {
-                            signals.add(signal)
-                            ErrorLogger.info(TAG, "📈 ${market.symbol}: score-override bypass (score=${signal.score} / conf=${signal.confidence})")
-                        } else {
-                            ErrorLogger.warn(TAG, "📈 ${market.symbol}: BELOW FLUID THRESHOLD (score=${signal.score}<$scoreThresh or conf=${signal.confidence}<$confThresh)")
-                        }
+                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: below prefilter (score=${signal.score}<45)")
                     }
                 } else {
                     ErrorLogger.warn(TAG, "📈 ${market.symbol}: analyzeStock returned NULL")
