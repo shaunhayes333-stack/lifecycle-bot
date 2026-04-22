@@ -290,15 +290,29 @@ object ShitCoinExpress {
         // ═══════════════════════════════════════════════════════════════════
         // EXPRESS REQUIREMENTS - Must have MOMENTUM
         // ═══════════════════════════════════════════════════════════════════
-        
-        // CRITICAL: Must already be pumping
-        if (momentum < MIN_MOMENTUM_PCT) {
-            return noRide("NO_MOMENTUM: ${momentum.fmt(1)}% < ${MIN_MOMENTUM_PCT}%")
+        //
+        // V5.9.117: Fluid bootstrap gates. Fresh-launch tokens (age<3 min) have
+        // zero history-based momentum yet, so the old hard 3% gate blocked every
+        // Express ride during learning. During bootstrap (learning<0.5) we
+        // accept 1.0% momentum OR a strong buy-pressure proxy; mature phase
+        // keeps the original 3% / 50% discipline.
+        val learningProgress = FluidLearningAI.getLearningProgress()
+        val fluidMinMomentum = (1.0 + learningProgress * 2.0).coerceIn(1.0, MIN_MOMENTUM_PCT)
+        val fluidMinBuyPressure = (45.0 + learningProgress * 5.0).coerceIn(45.0, MIN_BUY_PRESSURE_PCT)
+        // If fresh launch with no usable momentum history yet, let strong buys
+        // stand in for momentum (buyPressure >= 65% is itself a pump signal).
+        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 65.0) {
+            (buyPressurePct - 60.0).coerceAtLeast(fluidMinMomentum)
+        } else momentum
+
+        // CRITICAL: Must already be pumping (fluid gate)
+        if (effectiveMomentum < fluidMinMomentum) {
+            return noRide("NO_MOMENTUM: ${effectiveMomentum.fmt(1)}% < ${fluidMinMomentum.fmt(1)}% (learning=${(learningProgress*100).toInt()}%)")
         }
         
-        // CRITICAL: Must have strong buy pressure
-        if (buyPressurePct < MIN_BUY_PRESSURE_PCT) {
-            return noRide("WEAK_BUYS: ${buyPressurePct.toInt()}% < ${MIN_BUY_PRESSURE_PCT.toInt()}%")
+        // CRITICAL: Must have strong buy pressure (fluid gate)
+        if (buyPressurePct < fluidMinBuyPressure) {
+            return noRide("WEAK_BUYS: ${buyPressurePct.toInt()}% < ${fluidMinBuyPressure.toInt()}% (learning=${(learningProgress*100).toInt()}%)")
         }
         
         // ═══════════════════════════════════════════════════════════════════

@@ -5626,9 +5626,18 @@ if (deferredCount > 0) {
                     } else 60.0
                     
                     // V5.6.29d: Lowered pre-filter to match ShitCoinExpress.kt (was 5%/55%, now 3%/50%)
+                    // V5.9.117: Fluid bootstrap gates — mirror ShitCoinExpress's own
+                    // fluid gates so fresh-launch tokens with no momentum history
+                    // but strong buy pressure still reach evaluate().
                     val momentum = ts.momentum ?: 0.0
+                    val expressLearning = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+                    val expressMinMom = (1.0 + expressLearning * 2.0).coerceIn(1.0, 3.0)
+                    val expressMinBuyP = (45.0 + expressLearning * 5.0).coerceIn(45.0, 50.0)
+                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 65.0) {
+                        (ts.lastBuyPressurePct - 60.0).coerceAtLeast(expressMinMom)
+                    } else momentum
                     val passesPreFilter = ts.lastMcap <= 300_000 && ts.lastMcap >= 2_000 &&
-                        momentum >= 3.0 && ts.lastBuyPressurePct >= 50
+                        effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP
                     
                     if (!passesPreFilter) {
                         // V5.9.116: throttled diagnostic so the user can see WHY
@@ -5637,8 +5646,8 @@ if (deferredCount > 0) {
                         val reason = when {
                             ts.lastMcap < 2_000 -> "mcap=\$$mcap < \$2K"
                             ts.lastMcap > 300_000 -> "mcap=\$$mcap > \$300K"
-                            momentum < 3.0 -> "mom=${momentum.fmt(1)}% < 3.0%"
-                            ts.lastBuyPressurePct < 50 -> "buyP=${ts.lastBuyPressurePct.toInt()}% < 50%"
+                            effectiveExpressMom < expressMinMom -> "mom=${effectiveExpressMom.fmt(1)}% < ${expressMinMom.fmt(1)}% (learning=${(expressLearning*100).toInt()}%)"
+                            ts.lastBuyPressurePct < expressMinBuyP -> "buyP=${ts.lastBuyPressurePct.toInt()}% < ${expressMinBuyP.toInt()}%"
                             else -> "unknown"
                         }
                         logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, reason)
@@ -5658,7 +5667,7 @@ if (deferredCount > 0) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            momentum = ts.momentum ?: 0.0,
+                            momentum = effectiveExpressMom,  // V5.9.117: use synthesized bootstrap momentum
                             buyPressurePct = ts.lastBuyPressurePct,
                             volumeChange = 1.5,  // Default estimate
                             priceChange5Min = priceChange5Min,
