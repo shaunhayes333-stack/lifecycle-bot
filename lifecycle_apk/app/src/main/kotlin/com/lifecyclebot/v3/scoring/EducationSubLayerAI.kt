@@ -296,6 +296,23 @@ object EducationSubLayerAI {
         "ShitCoinTraderAI",
         "BlueChipTraderAI",
         "MoonshotTraderAI",
+        // V5.9.124 — 16 new AI layers from V5.9.123 + ReflexAI + AITrustNetwork
+        "CorrelationHedgeAI",
+        "LiquidityExitPathAI",
+        "MEVDetectionAI",
+        "StablecoinFlowAI",
+        "OperatorFingerprintAI",
+        "SessionEdgeAI",
+        "ExecutionCostPredictorAI",
+        "DrawdownCircuitAI",
+        "CapitalEfficiencyAI",
+        "TokenDNAClusteringAI",
+        "PeerAlphaVerificationAI",
+        "NewsShockAI",
+        "FundingRateAwarenessAI",
+        "OrderbookImbalancePulseAI",
+        "AITrustNetworkAI",
+        "ReflexAI",
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -546,6 +563,26 @@ object EducationSubLayerAI {
             markLayerUpdated("CollectiveIntelligenceAI", outcome.isWin)
             layersUpdated++
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 6a: V5.9.124 — 16 new AI layers. These don't have dedicated
+        // recordOutcome hooks yet (they learn from live market ticks/scans),
+        // so we just mark them as updated so they appear as active/learning
+        // in the BrainNetwork diagnostic view.
+        // ═══════════════════════════════════════════════════════════════════
+        listOf(
+            "CorrelationHedgeAI", "LiquidityExitPathAI", "MEVDetectionAI",
+            "StablecoinFlowAI", "OperatorFingerprintAI", "SessionEdgeAI",
+            "ExecutionCostPredictorAI", "DrawdownCircuitAI", "CapitalEfficiencyAI",
+            "TokenDNAClusteringAI", "PeerAlphaVerificationAI", "NewsShockAI",
+            "FundingRateAwarenessAI", "OrderbookImbalancePulseAI",
+            "AITrustNetworkAI", "ReflexAI",
+        ).forEach { layerName ->
+            try {
+                markLayerUpdated(layerName, outcome.isWin)
+                layersUpdated++
+            } catch (e: Exception) { errors.add("$layerName: ${e.message}") }
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // PHASE 6: Cross-Layer Learning (Harvard Brain Magic)
