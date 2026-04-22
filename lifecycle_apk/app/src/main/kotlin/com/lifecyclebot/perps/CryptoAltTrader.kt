@@ -1393,6 +1393,15 @@ object CryptoAltTrader {
         leveragePositions.remove(positionId)
         com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
 
+        // V5.9.134 — delete the OPEN row from Turso so it doesn't linger
+        // as an orphan that wipes paper balance on the next app update.
+        scope.launch {
+            try {
+                com.lifecyclebot.collective.CollectiveLearning.getClient()
+                    ?.deleteMarketsPosition(pos.id)
+            } catch (_: Exception) {}
+        }
+
         val pnlSol = pos.getPnlSol()
         totalPnlSol += pnlSol
 
@@ -1721,6 +1730,17 @@ object CryptoAltTrader {
                     ErrorLogger.info(TAG, "🪙 Loaded state: balance=${paperBalance.fmt(2)} SOL | trades=${state.totalTrades} | WR=${state.winRate.toInt()}%")
                 } else {
                     ErrorLogger.info(TAG, "🪙 No persisted state — using defaults")
+                }
+
+                // V5.9.134 — RECONCILE ORPHANED PAPER POSITIONS.
+                // Positions are debited from status.paperWalletSol at entry
+                // but kept only in memory maps. An app update wipes those
+                // maps, leaving the debit with no way to close → paper
+                // balance "disappears". Refund + purge via the shared
+                // reconciler so the bug can't bleed back in.
+                if (isPaperMode.get()) {
+                    com.lifecyclebot.collective.PaperOrphanReconciler
+                        .reconcile(assetClass = "CRYPTO_ALT", sourceLabel = "CryptoAlt")
                 }
             }
         } catch (e: Exception) {

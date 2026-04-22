@@ -890,6 +890,55 @@ class TursoClient(
         val sql = "DELETE FROM markets_positions WHERE id = ?"
         return execute(sql, listOf(positionId)).success
     }
+
+    /**
+     * V5.9.134 — Load all OPEN Markets positions for a given instance + asset
+     * class. Used at app startup to detect orphaned positions (positions that
+     * debited the paper wallet at entry but were never closed because the app
+     * was restarted / updated mid-trade). Caller is responsible for refunding
+     * paper capital and purging the Turso rows so balance doesn't get wiped
+     * silently across updates.
+     */
+    suspend fun loadOpenMarketsPositions(
+        instanceId: String,
+        assetClass: String,
+        paperOnly: Boolean = true,
+    ): List<MarketsPositionRecord> {
+        val sql = if (paperOnly) {
+            "SELECT * FROM markets_positions WHERE instance_id = ? AND asset_class = ? " +
+                "AND status = 'OPEN' AND paper_mode = 1"
+        } else {
+            "SELECT * FROM markets_positions WHERE instance_id = ? AND asset_class = ? " +
+                "AND status = 'OPEN'"
+        }
+        val result = query(sql, listOf(instanceId, assetClass))
+        if (!result.success) return emptyList()
+        return result.rows.mapNotNull { row ->
+            try {
+                MarketsPositionRecord(
+                    id               = row["id"] as? String ?: return@mapNotNull null,
+                    instanceId       = row["instance_id"] as? String ?: "",
+                    assetClass       = row["asset_class"] as? String ?: "",
+                    market           = row["market"] as? String ?: "",
+                    direction        = row["direction"] as? String ?: "LONG",
+                    tradeType        = row["trade_type"] as? String ?: "SPOT",
+                    entryPrice       = (row["entry_price"] as? Number)?.toDouble() ?: 0.0,
+                    currentPrice     = (row["current_price"] as? Number)?.toDouble() ?: 0.0,
+                    sizeSol          = (row["size_sol"] as? Number)?.toDouble() ?: 0.0,
+                    sizeUsd          = (row["size_usd"] as? Number)?.toDouble() ?: 0.0,
+                    leverage         = (row["leverage"] as? Number)?.toDouble() ?: 1.0,
+                    takeProfitPrice  = (row["take_profit_price"] as? Number)?.toDouble() ?: 0.0,
+                    stopLossPrice    = (row["stop_loss_price"] as? Number)?.toDouble() ?: 0.0,
+                    entryTime        = (row["entry_time"] as? Number)?.toLong() ?: 0L,
+                    aiScore          = (row["ai_score"] as? Number)?.toInt() ?: 0,
+                    aiConfidence     = (row["ai_confidence"] as? Number)?.toInt() ?: 0,
+                    paperMode        = ((row["paper_mode"] as? Number)?.toInt() ?: 1) == 1,
+                    status           = row["status"] as? String ?: "OPEN",
+                    lastUpdate       = (row["last_update"] as? Number)?.toLong() ?: 0L,
+                )
+            } catch (_: Exception) { null }
+        }
+    }
     
     /**
      * Update Markets asset performance

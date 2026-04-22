@@ -386,6 +386,13 @@ object TokenizedStockTrader {
                 } else {
                     ErrorLogger.info(TAG, "📈 No persisted state found - using defaults")
                 }
+
+                // V5.9.134 — refund orphaned paper-mode stock positions
+                // (see PaperOrphanReconciler for the full root-cause writeup).
+                if (isPaperMode.get()) {
+                    com.lifecyclebot.collective.PaperOrphanReconciler
+                        .reconcile(assetClass = "STOCK", sourceLabel = "StockTrader")
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Error loading persisted state: ${e.message}")
