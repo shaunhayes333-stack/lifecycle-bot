@@ -81,6 +81,14 @@ object PerpsUnifiedScorerBridge {
     }
 
     /**
+     * One shared UnifiedScorer instance. Default-constructs every AI module
+     * (EntryAI, MomentumAI, LiquidityAI, …). Each call to score() internally
+     * dispatches to the 41+ layers + AITrustNetwork meta-aggregation +
+     * V5.9.124 veto-cap + V5.9.126 real-accuracy capture.
+     */
+    private val scorer: UnifiedScorer = UnifiedScorer()
+
+    /**
      * Synthesise a CandidateSnapshot from a non-meme trader's signal and run
      * it through the full UnifiedScorer stack. Blends the V3 score with the
      * trader's technical score (60% technical / 40% V3 as the default mix).
@@ -128,7 +136,7 @@ object PerpsUnifiedScorerBridge {
         )
 
         val card: ScoreCard = try {
-            UnifiedScorer.score(snap, defaultCtx)
+            scorer.score(snap, defaultCtx)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "scorer failed for $symbol: ${e.message}")
             return V3Verdict(
