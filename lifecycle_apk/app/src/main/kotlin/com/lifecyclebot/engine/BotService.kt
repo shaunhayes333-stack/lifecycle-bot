@@ -3534,11 +3534,18 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 
 val orderedMints = (openPositionMints + otherMints).distinct()
 
-val maxBatchMillis = 15_000L
+val maxBatchMillis = 25_000L
 val perTokenTimeoutMs = 2_500L
+// V5.9.106: widen concurrency for fat watchlists. User logs showed
+// processed=20 / total=64 (44 deferred per tick) — the existing caps
+// couldn't keep up with the user's 50–100 token universe, so trades
+// were being evaluated once every 2–3 ticks instead of every tick,
+// slowing exits on fast-moving micro-caps.
 val maxParallel = when {
-    orderedMints.size >= 12 -> 4
-    orderedMints.size >= 6 -> 3
+    orderedMints.size >= 40 -> 10
+    orderedMints.size >= 20 -> 8
+    orderedMints.size >= 12 -> 6
+    orderedMints.size >= 6  -> 4
     else -> 2
 }
 

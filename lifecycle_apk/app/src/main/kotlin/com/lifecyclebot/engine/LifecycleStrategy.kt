@@ -2804,9 +2804,38 @@ class LifecycleStrategy(
                     peakGain >= 15.0  -> 25.0   // At +15%, give room (25%)
                     else              -> 40.0   // Below +15%, trail at 40%
                 }
-                
+
                 val drawdownFromPeak = peakGain - paperGainPct
-                
+
+                // V5.9.106: PROFIT-FLOOR MILESTONE LOCK
+                // Problem from the logs: ACTM peak +121% → now +52% (gave
+                // back 69%). The trail logic above would have fired at
+                // 121-12=109%, but price crashed 57pp in one tick. Between
+                // ticks, the trail can't catch a pico-second dump.
+                //
+                // Fix: once peak crosses a milestone, the realised gain is
+                // "locked in" — if price falls below the lock floor, exit
+                // immediately regardless of trail math. Stair-step floors:
+                //   peak≥500% → floor 300% | peak≥300% → floor 180%
+                //   peak≥200% → floor 120% | peak≥100% → floor 60%
+                //   peak≥50%  → floor 25%  | peak≥25%  → floor 12%
+                val profitFloor = when {
+                    peakGain >= 500.0 -> 300.0
+                    peakGain >= 300.0 -> 180.0
+                    peakGain >= 200.0 -> 120.0
+                    peakGain >= 100.0 -> 60.0
+                    peakGain >= 50.0  -> 25.0
+                    peakGain >= 25.0  -> 12.0
+                    else              -> Double.NEGATIVE_INFINITY
+                }
+                if (paperGainPct < profitFloor) {
+                    ErrorLogger.info(
+                        "Strategy",
+                        "🔒 PAPER FLOOR LOCK: ${ts.symbol} peak +${peakGain.toInt()}% → now +${paperGainPct.toInt()}% < floor +${profitFloor.toInt()}% — locking in"
+                    )
+                    return "EXIT"
+                }
+
                 // Exit if we've given back too much from peak
                 if (peakGain >= 10.0 && drawdownFromPeak >= trailPct) {
                     val lockedProfit = (peakGain - drawdownFromPeak).toInt()

@@ -1133,7 +1133,16 @@ object PriceAggregator {
             "AXS" to "axie-infinity", "ENS" to "ethereum-name-service",
             "LDO" to "lido-dao", "RPL" to "rocket-pool", "PYTH" to "pyth-network",
             "RAY" to "raydium", "ORCA" to "orca", "DRIFT" to "drift-protocol",
-            "NEAR" to "near", "ALGO" to "algorand"
+            "NEAR" to "near", "ALGO" to "algorand",
+            // V5.9.106: missing L2 / meme / gaming tokens that were causing
+            // "ALL SOURCES FAILED" in user logs (BLAST/SCROLL/PORTAL).
+            "BLAST" to "blast",
+            "SCROLL" to "scroll",
+            "LINEA" to "linea",
+            "MANTLE" to "mantle",
+            "PORTAL" to "portal-2",
+            "CVX" to "convex-finance",
+            "CVXF" to "convex-finance"
         )[symbol]
     }
     
