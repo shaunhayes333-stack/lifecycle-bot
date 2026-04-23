@@ -63,12 +63,52 @@ class UnifiedScorer(
      */
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
         // V5.9.154 — bootstrap mode decision (see explanation below).
-        val bootstrapBypass = try {
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
-        } catch (_: Exception) { true }
+        val learningProgress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Exception) { 0.0 }
+        val bootstrapBypass = learningProgress < 0.40
+
+        // V5.9.158 — FLUID LAYER MATURATION
+        // "Everything's meant to be fluid from bootstrap thru to 5000+ maturity"
+        // The 6 V3.2 "new" layers (volatility, orderflow, smartmoney, holdtime,
+        // liquiditycycle, insider_tracker) were voting -10 to -20 at full
+        // strength during bootstrap on tokens that literally have no history
+        // for them to analyse. Stacking 3-4 of those negatives was crushing
+        // every bootstrap-era candidate below the execute floor — "hard
+        // scoring everything like it's fully learnt".
+        //
+        // New policy (mirrors the V5.9.123 stack's existing bypass idea but
+        // applies it *smoothly* instead of as an on/off switch at 40%):
+        //   NEGATIVE votes scale with learning progress:
+        //     0% prog → ×0.10 (almost muted; stops veto-stacking)
+        //     40% prog → ×0.46
+        //     80% prog → ×0.82
+        //     100% prog → ×1.00
+        //   POSITIVE votes pass through at full strength — we still want
+        //   the signal, we just don't want these unseasoned layers to
+        //   veto during learning.
+        val newLayerNegScale = (0.10 + learningProgress * 0.90).coerceIn(0.10, 1.0)
+        val newLayerNames = setOf(
+            "volatility", "orderflow", "smartmoney", "holdtime", "liquiditycycle",
+            "insider_tracker",
+            "correlationhedgeai", "liquidityexitpathai", "mevdetectionai",
+            "stablecoinflowai", "operatorfingerprintai", "sessionedgeai",
+            "executioncostpredictorai", "drawdowncircuitai", "capitalefficiencyai",
+            "tokendnaclusteringai", "peeralphaverificationai", "newsshockai",
+            "fundingrateawarenessai", "orderbookimbalancepulseai",
+        )
+        fun fluidScale(c: ScoreComponent): ScoreComponent {
+            if (c.value >= 0) return c
+            if (c.name.lowercase() !in newLayerNames) return c
+            val scaled = (c.value * newLayerNegScale).toInt()
+            return c.copy(
+                value = scaled,
+                reason = "${c.reason} | FLUID×${"%.2f".format(newLayerNegScale)}"
+            )
+        }
 
         // Classic 27-layer roster (matches V5.9.108 build ~#1915 exactly).
-        val classic27 = listOf(
+        val classic27Raw = listOf(
             sourceScoreWithTiming(candidate.source, candidate.mint),
             entryAI.score(candidate, ctx),
             momentumAI.score(candidate, ctx),
@@ -90,9 +130,13 @@ class UnifiedScorer(
             LiquidityCycleAI.score(candidate, ctx),
             insiderTrackerScore(candidate),
         )
+        val classic27 = classic27Raw.map { fluidScale(it) }
 
         // Collect scores from all 19 base AI modules
         // V4.1: Use sourceScoreWithTiming for source timing lag penalty
+        // V5.9.158: the V5.9.123 stack is still bypassed during bootstrap
+        // (<40%), and once it re-engages at mature phase its negative votes
+        // are fluid-scaled by newLayerNegScale (see top of fn).
         val preTrust = if (bootstrapBypass) classic27 else (classic27 + listOf(
             // V5.9.123 — Layers 28-42: correlation + exit-path + meta-trust
             // + macro + DNA + operator + session + drawdown + capital-efficiency
@@ -112,7 +156,7 @@ class UnifiedScorer(
             NewsShockAI.score(candidate, ctx),
             FundingRateAwarenessAI.score(candidate, ctx),
             OrderbookImbalancePulseAI.score(candidate, ctx),
-        ))
+        ).map { fluidScale(it) })
 
         // V5.9.154 — BOOTSTRAP BYPASS: restore the V5.9.108 (build ~#1915)
         // memetrader behaviour the user is asking for. During bootstrap the

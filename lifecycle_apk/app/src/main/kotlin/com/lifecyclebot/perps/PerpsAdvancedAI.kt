@@ -244,8 +244,15 @@ object PerpsAdvancedAI {
         // not 95 — the avgLoss==0 check fired first and pinned all weekend/quiet
         // stocks to "overbought", generating spurious SHORT signals.
         if (avgLoss == 0.0 && avgGain == 0.0) return 50.0
-        if (avgLoss == 0.0) return 95.0
-        if (avgGain == 0.0) return 5.0
+        // V5.9.158: be fluid about the extremes. Only pin to 95/5 when we have
+        // a full 3× period (42 ticks) of one-directional data. For partial
+        // histories, interpolate between neutral (50) and the extreme — this
+        // stops a single handful of red candles on a fresh feed from pinning
+        // RSI to 5.0 and triggering a high-confidence SHORT at a bottom
+        // (prior recurring bug: "RSI=5.0 data-missing default → false SHORT").
+        val confidenceRatio = (prices.size.toDouble() / (period * 3)).coerceIn(0.0, 1.0)
+        if (avgLoss == 0.0) return 50.0 + (95.0 - 50.0) * confidenceRatio
+        if (avgGain == 0.0) return 50.0 - (50.0 - 5.0) * confidenceRatio
 
         val rs = avgGain / avgLoss
         val raw = 100 - (100 / (1 + rs))
