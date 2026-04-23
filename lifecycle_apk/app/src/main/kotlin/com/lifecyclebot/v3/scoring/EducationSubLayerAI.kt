@@ -1024,7 +1024,7 @@ object EducationSubLayerAI {
         //   +5%  expectancy → +3,  +20% → +6,  +50% → +8,  +100% → +10
         //   -5%  → 0,  -20% → -1,  -50% → -3,  worse → -4
         val exp = rec.expectancyPct
-        val nudge = when {
+        val rawNudge = when {
             exp >=  50.0 -> 10
             exp >=  20.0 ->  6 + ((exp - 20.0) / 15.0).toInt().coerceAtMost(2)
             exp >=   5.0 ->  3 + ((exp -  5.0) / 5.0).toInt().coerceAtMost(2)
@@ -1033,6 +1033,13 @@ object EducationSubLayerAI {
             exp >= -50.0 -> -3
             else         -> -4
         }.coerceIn(-4, 10)
+        // V5.9.144 — BOOTSTRAP: soften only the penalty side so the bot
+        // can still take exploratory trades while its approval-memory
+        // is thin. Rewards keep full force.
+        val nudge = if (rawNudge < 0) {
+            val relax = getBootstrapRelaxation()   // 0.3..1.0
+            (rawNudge * relax).toInt()
+        } else rawNudge
         val reason = "APPROVAL:${matched.take(40)} ${rec.wins}W/${rec.losses}L exp=${"%+.1f".format(exp)}%"
         return nudge to reason
     }
@@ -1234,6 +1241,45 @@ object EducationSubLayerAI {
         layerPerformance[layerName]?.sharpe ?: 0.0
 
     /**
+     * V5.9.144 — BOOTSTRAP RELAXATION.
+     *
+     * When total observed trades are low, our mute/boost + approval-memory
+     * penalty stack was starving the bot of exploratory trades — one of
+     * your screens showed 12W / 17L / 269 SKIPS (90% rejection on Day 1
+     * of a Proof Run). With only ~29 real outcomes the bot can't possibly
+     * have learned enough to justify that much filtering, so the filter
+     * becomes the bottleneck on its own learning speed.
+     *
+     * This helper returns a scalar in [0.3, 1.0] that callers multiply
+     * their PENALTY STRENGTH by. Early on, penalties are dialled back
+     * to ~30% of their force; as trade count grows past 500, they
+     * ramp back up to full strength.
+     *
+     *   trades <   50  → 0.30   (total explore mode)
+     *   trades <  100  → 0.40
+     *   trades <  200  → 0.55
+     *   trades <  350  → 0.75
+     *   trades <  500  → 0.90
+     *   trades >= 500  → 1.00   (full gate, learner has enough signal)
+     *
+     * Reward sides (positive boosts / positive approval nudges) are
+     * deliberately NOT scaled — only the drag is softened. So a trusted
+     * pattern still gets full credit, while distrusted patterns are
+     * forgiven during bootstrap.
+     */
+    fun getBootstrapRelaxation(): Double {
+        val n = getTotalTradesAcrossAllLayers()
+        return when {
+            n <  50  -> 0.30
+            n < 100  -> 0.40
+            n < 200  -> 0.55
+            n < 350  -> 0.75
+            n < 500  -> 0.90
+            else     -> 1.00
+        }
+    }
+
+    /**
      * V5.9.140 — AUTO-MUTE / AUTO-BOOST.
      *
      * V5.9.143 — THRESHOLDS LOOSENED + asymmetric multiplier.
@@ -1269,7 +1315,7 @@ object EducationSubLayerAI {
         val trades = m?.totalOutcomesRecorded ?: 0
         if (trades < 20) return Triple(vote, 1.0, "NORMAL")
         val edge = getLayerAccuracy(layerName)
-        val (mult, status) = when {
+        val (rawMult, status) = when {
             edge <= 0.33 -> 0.0  to "MUTE"
             edge <= 0.40 -> 0.6  to "SOFT_PENALTY"
             // Boosts only apply to POSITIVE votes to avoid amplifying vetoes.
@@ -1277,6 +1323,14 @@ object EducationSubLayerAI {
             edge >= 0.62 && vote > 0                 -> 1.20 to "BOOST"
             else -> 1.0 to "NORMAL"
         }
+        // V5.9.144 — soften the penalty side (not the boost side) during
+        // bootstrap. rawMult < 1.0 means a drag; we interpolate it back
+        // toward 1.0 by (1 - relaxation). Boosts (rawMult > 1.0) are
+        // unchanged so good behaviour keeps its full reward.
+        val mult = if (rawMult < 1.0) {
+            val relax = getBootstrapRelaxation()   // 0.3..1.0
+            rawMult + (1.0 - rawMult) * (1.0 - relax)
+        } else rawMult
         val adjusted = (vote * mult).toInt()
         return Triple(adjusted, mult, status)
     }
