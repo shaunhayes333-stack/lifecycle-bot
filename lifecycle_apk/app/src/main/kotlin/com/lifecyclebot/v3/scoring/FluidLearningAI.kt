@@ -943,9 +943,15 @@ object FluidLearningAI {
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 50     // leverage needs higher quality signals
+    // V5.9.147 — bootstrap LEV gates lowered: the base `analyzeMarket` emits
+    // confidence=50 with no boost on quiet tape, which was below the 55 floor
+    // for every single signal → "Generated 0 LEVERAGE signals" every scan
+    // across Commodities/Forex/Metals. Match SPOT_BOOTSTRAP (40/45) so quiet
+    // but valid signals can take a leveraged position during learning; the
+    // mature gate (70/70) still tightens as win-rate proves out.
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 42     // was 50 — left no room above base score=50
     private const val MARKETS_LEV_SCORE_MATURE = 70
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 55      // was 15 — dangerously low for leveraged trades
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 45      // was 55 — above base conf=50, blocked everything
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning

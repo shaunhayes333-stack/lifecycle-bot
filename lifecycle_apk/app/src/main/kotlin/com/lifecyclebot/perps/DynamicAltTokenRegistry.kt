@@ -289,6 +289,43 @@ object DynamicAltTokenRegistry {
         registry[key] = existing.copy(price = price, priceChange24h = change24h, mcap = mcap, volume24h = vol24h, lastUpdatedMs = System.currentTimeMillis())
     }
 
+    /**
+     * V5.9.147 — lazy price fallback for tokens seeded without price.
+     *
+     * Jupiter strict (`fetchJupiterTokenList`) dumps ~200+ verified mints into
+     * the registry with `price=0.0` — they never get scanned downstream
+     * because `runDynamicTokenScan` short-circuits on `price<=0`. The result
+     * was a DynScan "ghost town": universe=201 but scanned=0.
+     *
+     * This helper does a best-effort, cache-first, rate-limited DexScreener
+     * lookup and hydrates the registry entry in place so the next scan cycle
+     * can analyze the token. Returns the resolved price (0 if still unknown).
+     *
+     * Safe to call from the hot scan loop: `DexscreenerApi.getBestPair` is
+     * 45s-cached and RateLimiter-gated, so it will silently return null under
+     * load rather than hammering the API.
+     */
+    fun refreshPriceForMintBlocking(mint: String): Double {
+        val existing = registry[mint] ?: return 0.0
+        if (existing.price > 0.0) return existing.price
+        // CoinGecko-only placeholder keys (cg:xxx) can't be resolved by DexScreener
+        if (mint.startsWith("cg:")) return 0.0
+        val pair = try { dex.getBestPair(mint) } catch (_: Exception) { null } ?: return 0.0
+        val price = pair.candle.priceUsd
+        if (price <= 0.0) return 0.0
+        registry[mint] = existing.copy(
+            price         = price,
+            mcap          = pair.candle.marketCap.takeIf { it > 0.0 } ?: existing.mcap,
+            liquidityUsd  = pair.liquidity.takeIf { it > 0.0 } ?: existing.liquidityUsd,
+            volume24h     = pair.candle.volume24h.takeIf { it > 0.0 } ?: existing.volume24h,
+            buys24h       = pair.candle.buys24h.takeIf { it > 0 } ?: existing.buys24h,
+            sells24h      = pair.candle.sells24h.takeIf { it > 0 } ?: existing.sells24h,
+            pairAddress   = existing.pairAddress.ifBlank { pair.pairAddress },
+            lastUpdatedMs = System.currentTimeMillis(),
+        )
+        return price
+    }
+
     // ─── Discovery implementations ───────────────────────────────────────────
 
     private fun fetchDexScreenerBoosted() {

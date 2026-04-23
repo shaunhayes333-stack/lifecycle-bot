@@ -333,16 +333,28 @@ object CryptoAltTrader {
         for (tok in batch) {
             try {
                 if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) continue
-                val price   = tok.price.takeIf  { it > 0 }       ?: continue
-                val vol     = tok.volume24h
-                val mcap    = tok.mcap
-                val liq     = tok.liquidityUsd
-                val change  = tok.priceChange24h
-                val buys1h  = tok.buys24h  / 24
-                val sells1h = tok.sells24h / 24
+                // V5.9.147 — lazy price hydration. Jupiter-seeded mints arrive
+                // with price=0 and used to be skipped forever, which is why
+                // DynScan was reporting scanned=0 on a 200-token universe.
+                // We try a cache-first DexScreener lookup and only bail if
+                // the token is genuinely unresolvable.
+                var priceNow = tok.price
+                if (priceNow <= 0.0) {
+                    priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.mint)
+                    if (priceNow <= 0.0) continue
+                }
+                val price   = priceNow
+                // Re-read the freshly hydrated row so downstream fields are current.
+                val refreshed = DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
+                val vol     = refreshed.volume24h
+                val mcap    = refreshed.mcap
+                val liq     = refreshed.liquidityUsd
+                val change  = refreshed.priceChange24h
+                val buys1h  = refreshed.buys24h  / 24
+                val sells1h = refreshed.sells24h / 24
                 val buyPct  = if (buys1h + sells1h > 0) (buys1h.toDouble() / (buys1h + sells1h) * 100.0) else 50.0
                 val momentum= change   // use 24h change as momentum proxy
-                val isMeme  = tok.sector.lowercase().let { it.contains("meme") || it.contains("gaming") }
+                val isMeme  = refreshed.sector.lowercase().let { it.contains("meme") || it.contains("gaming") }
 
                 scanned++
 
