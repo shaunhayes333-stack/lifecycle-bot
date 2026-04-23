@@ -515,17 +515,8 @@ object ShitCoinExpress {
         if (pnlPct > ride.peakPnlPct) ride.peakPnlPct = pnlPct
         if (currentPrice > ride.highWaterMark) {
             ride.highWaterMark = currentPrice
-            // V5.9.168 — dynamic trail tightens at mega-runner tiers so
-            // Express rides don't give back massive chunks between ticks.
-            val dynamicTrailPct = when {
-                pnlPct >= 10000 -> 3.0
-                pnlPct >= 3000  -> 4.0
-                pnlPct >= 1000  -> 5.0
-                pnlPct >= 500   -> 6.0
-                pnlPct >= 200   -> 8.0
-                pnlPct >= 100   -> 10.0
-                else            -> TRAILING_STOP_PCT
-            }
+            // V5.9.169 — continuous fluid trail (shared engine).
+            val dynamicTrailPct = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(pnlPct)
             ride.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
 
             // Update ride phase
@@ -540,16 +531,8 @@ object ShitCoinExpress {
 
         // V5.9.168 — profit-floor ladder. Fires a trailing-stop exit if
         // the runner gives back below its locked-in tier. Biggest wins.
-        val profitFloor = when {
-            ride.peakPnlPct >= 10000.0 -> 8000.0
-            ride.peakPnlPct >= 3000.0  -> 2500.0
-            ride.peakPnlPct >= 1000.0  -> 800.0
-            ride.peakPnlPct >= 300.0   -> 200.0
-            ride.peakPnlPct >= 100.0   -> 70.0
-            ride.peakPnlPct >= 50.0    -> 30.0
-            ride.peakPnlPct >= 20.0    -> 10.0
-            else                       -> Double.NEGATIVE_INFINITY
-        }
+        // V5.9.169 — continuous fluid profit floor (shared engine).
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(ride.peakPnlPct)
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: $mint | peak +${ride.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP

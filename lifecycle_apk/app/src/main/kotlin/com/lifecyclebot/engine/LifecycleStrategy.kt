@@ -2807,21 +2807,8 @@ class LifecycleStrategy(
 
                 val drawdownFromPeak = peakGain - paperGainPct
 
-                // V5.9.163 — PROFIT-FLOOR MILESTONE LOCK (user-specified ladder)
-                // User: "+20→+10, +50→+30, +100→+70, +300→+200, +1000→+800".
-                // Once peak crosses a milestone, the realised gain is
-                // "locked in" — if price falls below the lock floor, exit
-                // immediately regardless of trail math. Biggest tier wins.
-                val profitFloor = when {
-                    peakGain >= 10000.0 -> 8000.0
-                    peakGain >= 3000.0  -> 2500.0
-                    peakGain >= 1000.0  -> 800.0
-                    peakGain >= 300.0   -> 200.0
-                    peakGain >= 100.0   -> 70.0
-                    peakGain >= 50.0    -> 30.0
-                    peakGain >= 20.0    -> 10.0
-                    else                -> Double.NEGATIVE_INFINITY
-                }
+                // V5.9.169 — continuous fluid profit floor (shared engine).
+                val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakGain)
                 if (paperGainPct < profitFloor) {
                     ErrorLogger.info(
                         "Strategy",

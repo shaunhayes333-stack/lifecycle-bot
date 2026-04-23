@@ -326,16 +326,8 @@ object ManipulatedTraderAI {
             pos.partialRungsTaken += 1
             return ManipExitSignal.PARTIAL_TAKE
         }
-        val profitFloor = when {
-            pos.peakPnlPct >= 10000.0 -> 8000.0
-            pos.peakPnlPct >= 3000.0  -> 2500.0
-            pos.peakPnlPct >= 1000.0  -> 800.0
-            pos.peakPnlPct >= 300.0   -> 200.0
-            pos.peakPnlPct >= 100.0   -> 70.0
-            pos.peakPnlPct >= 50.0    -> 30.0
-            pos.peakPnlPct >= 20.0    -> 10.0
-            else                      -> Double.NEGATIVE_INFINITY
-        }
+        // V5.9.169 — continuous fluid profit floor (shared engine).
+        val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct)
         if (pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
 
         // 1. Take profit

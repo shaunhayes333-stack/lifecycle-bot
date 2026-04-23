@@ -904,18 +904,8 @@ object ShitCoinTraderAI {
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            // V5.9.163 — DYNAMIC TRAILING aligned with user profit-lock ladder.
-            // Tighter trails at higher gains so mega-runners don't give back
-            // big chunks between ticks. Matches MoonshotTraderAI trail curve.
-            val dynamicTrailPct = when {
-                pnlPct >= 10000 -> 3.0   // 100x+ → razor 3% trail
-                pnlPct >= 3000  -> 4.0   // 30x+  → 4% trail
-                pnlPct >= 1000  -> 5.0   // 10x+  → 5% trail
-                pnlPct >= 500   -> 6.0   // 5x+   → 6% trail
-                pnlPct >= 200   -> 8.0   // 3x+   → 8% trail
-                pnlPct >= 100   -> 10.0  // 2x+   → 10% trail
-                else -> TRAILING_STOP_PCT  // Default 8%
-            }
+            // V5.9.169 — continuous fluid trail (smooth log curve).
+            val dynamicTrailPct = FluidLearningAI.fluidTrailPct(pnlPct)
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
         }
         
@@ -995,18 +985,8 @@ object ShitCoinTraderAI {
             return ExitSignal.PARTIAL_TAKE
         }
 
-        // V5.9.163 — profit-floor ladder (user-spec). Big-runner give-back
-        // exit fires here even if trailing stop hasn't tripped yet.
-        val profitFloor = when {
-            pos.peakPnlPct >= 10000.0 -> 8000.0
-            pos.peakPnlPct >= 3000.0  -> 2500.0
-            pos.peakPnlPct >= 1000.0  -> 800.0
-            pos.peakPnlPct >= 300.0   -> 200.0
-            pos.peakPnlPct >= 100.0   -> 70.0
-            pos.peakPnlPct >= 50.0    -> 30.0
-            pos.peakPnlPct >= 20.0    -> 10.0
-            else                      -> Double.NEGATIVE_INFINITY
-        }
+        // V5.9.169 — continuous fluid profit floor (shared engine).
+        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct)
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP

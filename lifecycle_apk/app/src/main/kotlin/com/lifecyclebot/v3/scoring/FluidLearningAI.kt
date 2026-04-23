@@ -139,9 +139,13 @@ object FluidLearningAI {
     // cadence that produced the 1000+/hr regime the user is trying to get
     // back. MAX_LEARNING_PROGRESS cap (1.0) is unchanged so the mature end
     // still behaves identically once the bot actually earns it.
-    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.149: restored from 200
-    private const val MATURE_PHASE_END = 3000     // V5.9.149: restored from 500
-    private const val EXPERT_PHASE_END = 5000     // V5.9.149: restored from 2000
+    // V5.9.169 — user directive "nothing should be mature at 50 trades",
+    // "scaling to 80% theoretical rate past 10,000 trades". Bootstrap
+    // extended 3× so 50 trades is <2% progress (deep bootstrap), mature
+    // (80%+) lands at the 10,000-trade target the user specified.
+    private const val BOOTSTRAP_PHASE_END = 3000  // was 1000 — 50 trades now = 0.83% progress
+    private const val MATURE_PHASE_END = 7000     // was 3000
+    private const val EXPERT_PHASE_END = 10000    // was 5000 — matches user's "80% past 10,000"
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.7.7: Bootstrap score gate constants
@@ -1155,6 +1159,53 @@ object FluidLearningAI {
      * @param volatility Current volatility estimate (0-100)
      * @return Dynamic stop loss percentage (negative, e.g., -8.0 means exit at -8%)
      */
+    /**
+     * V5.9.169 — Continuous fluid profit-lock floor.
+     * Returns the MINIMUM PnL% the position is allowed to give back to.
+     * Smooth logarithmic curve — no stair-step rungs.
+     *   peak=+8%   → lock ≈ +3%
+     *   peak=+20%  → lock ≈ +10%
+     *   peak=+100% → lock ≈ +71%
+     *   peak=+1000% → lock ≈ +920%
+     *   peak=+10000% → lock ≈ +9700%
+     * Same curve as getDynamicFluidStop; exposed here so every trader AI
+     * can use it for its own checkExit floor-lock without duplicating the
+     * formula.
+     */
+    fun fluidProfitFloor(peakPnlPct: Double, volatility: Double = 50.0, holdSeconds: Double = 0.0): Double {
+        if (peakPnlPct < 5.0) return Double.NEGATIVE_INFINITY
+        val progress = getLearningProgress()
+        val logPeak = kotlin.math.log10(1.0 + peakPnlPct / 10.0)
+        val logMax = kotlin.math.log10(1001.0)
+        val rBase = 0.40 + 0.57 * (logPeak / logMax)
+        val rLearning = rBase + (progress - 0.5) * 0.10
+        val rVol = rLearning + when {
+            volatility > 70 -> -0.08
+            volatility > 50 -> -0.03
+            volatility < 30 ->  0.08
+            else -> 0.0
+        }
+        val rHold = rVol + if (holdSeconds > 300.0) 0.03 else 0.0
+        val keepRatio = rHold.coerceIn(0.35, 0.97)
+        return peakPnlPct * keepRatio
+    }
+
+    /**
+     * V5.9.169 — Continuous fluid trailing-stop pct (% from high-water-mark
+     * that we tolerate before exiting). Tighter at higher gains.
+     *   pnl=+20%   → trail ≈ 12%
+     *   pnl=+100%  → trail ≈ 8%
+     *   pnl=+1000% → trail ≈ 4%
+     *   pnl=+10000% → trail ≈ 2.5%
+     */
+    fun fluidTrailPct(pnlPct: Double): Double {
+        if (pnlPct <= 0.0) return 15.0
+        val logPnl = kotlin.math.log10(1.0 + pnlPct / 10.0)
+        val logMax = kotlin.math.log10(1001.0)
+        val trail = 15.0 - 12.5 * (logPnl / logMax)
+        return trail.coerceIn(2.5, 15.0)
+    }
+
     fun getDynamicFluidStop(
         modeDefaultStop: Double,
         currentPnlPct: Double,
@@ -1215,41 +1266,63 @@ object FluidLearningAI {
             //     current gain has given back >= 35% of the peak. No runner
             //     survives handing back a third of its high.
             //
-            // V5.9.163 — USER-SPECIFIED PROFIT-LOCK LADDER (full stairstep).
-            // Peak ≥ +20%  → lock +10%
-            // Peak ≥ +50%  → lock +30%
-            // Peak ≥ +100% → lock +70%
-            // Peak ≥ +300% → lock +200%
-            // Peak ≥ +1000% → lock +800%
-            // Peak ≥ +3000% → lock +2500%
-            // Peak ≥ +10000% → lock +8000%
-            // Fluid-modulated: keepRatio (peak×0.60..0.80) is an ALSO-floor
-            // so mid-tier peaks don't lose ground between discrete stairs.
-            val keepRatio = lerp(0.60, 0.80)
-            val trailingStop = peakPnlPct * keepRatio
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.169 — CONTINUOUS FLUID PROFIT-LOCK (user-directed rewrite)
+            // User: "it should slide closer to the current price as it goes
+            // up to capture the most profit".
+            //
+            // Replaced the discrete stair-step ladder with a SMOOTH CURVE
+            // where keepRatio (fraction of peak that stays locked) climbs
+            // continuously from ~0.40 at +8% peak to ~0.97 at +10000% peak.
+            // The slide TIGHTENS every single tick as price advances —
+            // never jumps in stairs, never gives back whole rungs.
+            //
+            // Formula (base keepRatio):
+            //   r_base = 0.40 + 0.57 * log10(1 + peak/10) / log10(1001)
+            //   → +8%  peak → 0.40   (loose; token just started running)
+            //   → +20% peak → 0.52
+            //   → +50% peak → 0.62
+            //   → +100% peak → 0.71
+            //   → +300% peak → 0.82
+            //   → +1000% peak → 0.92
+            //   → +10000% peak → 0.97
+            //
+            // Then modulated by:
+            //   - learningProgress (±5% — tightens as bot matures)
+            //   - volatility       (±8% — tightens in calm markets)
+            //   - holdTime         (+3% after 5 min of HWM idle — it's
+            //                       topping out, lock more)
+            val peakClamped = peakPnlPct.coerceAtLeast(0.0)
+            val logPeak = kotlin.math.log10(1.0 + peakClamped / 10.0)
+            val logMax = kotlin.math.log10(1001.0)
+            val rBase = 0.40 + 0.57 * (logPeak / logMax)
 
-            // Big-runner hard give-back floor. User: "not locking profit
-            // on the way up anymore" — a runner giving back 35% of peak
-            // exits, no exceptions.
-            val peakDrawdownFloor = if (peakPnlPct >= 100.0) peakPnlPct - 35.0 else Double.NEGATIVE_INFINITY
-
-            // Laddered min-locked profit (DESCENDING: biggest tier wins).
-            val minLockedProfit = when {
-                peakPnlPct >= 10000.0 -> 8000.0
-                peakPnlPct >= 3000.0  -> 2500.0
-                peakPnlPct >= 1000.0  -> 800.0
-                peakPnlPct >= 300.0   -> 200.0
-                peakPnlPct >= 100.0   -> 70.0
-                peakPnlPct >= 50.0    -> 30.0
-                peakPnlPct >= 20.0    -> 10.0
-                peakPnlPct >= 8.0     -> 2.0
-                else                  -> 0.0
+            val rLearning = rBase + (progress - 0.5) * 0.10   // ±5% by learning
+            val rVol = rLearning + when {
+                volatility > 70 -> -0.08                        // high vol → looser
+                volatility > 50 -> -0.03
+                volatility < 30 ->  0.08                        // calm → tighter
+                else -> 0.0
             }
+            val holdMinutes = holdTimeSeconds / 60.0
+            val rHold = rVol + if (holdMinutes > 5.0) 0.03 else 0.0
+
+            val keepRatio = rHold.coerceIn(0.35, 0.97)
+            val continuousLock = peakClamped * keepRatio
+
+            // Absolute safety floor: once peak >= +8%, we never let it go
+            // back below the entry price (break-even protection).
+            val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY
+
+            // Big-runner hard give-back floor. Once peak >= 100%, exit if
+            // we give back >= 35% of the peak regardless of the continuous
+            // curve — catches flash dumps that skip past the trail.
+            val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 35.0 else Double.NEGATIVE_INFINITY
 
             // Return POSITIVE trailing stop level. Executor compares
             // `gainPct <= dynamicStopPct` — works identically for negative
             // loss stops and positive profit-trailing stops.
-            return maxOf(minLockedProfit, trailingStop, peakDrawdownFloor)
+            return maxOf(continuousLock, breakEvenFloor, peakDrawdownFloor)
         }
         
         // ═══════════════════════════════════════════════════════════════

@@ -865,24 +865,13 @@ object MoonshotTraderAI {
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
 
-            // V5.9.163 — dynamic trailing tightens as we climb the ladder.
-            // Was: 5% trail at 10x+. For a +3500% runner that meant price
-            // could give back 175pp before exit. Match the user profit
-            // ladder: as peak climbs, protected-floor rises to N% back.
-            val dynamicTrailPct = when {
-                pnlPct >= 10000 -> 3.0  // 100x+ → razor 3% trail
-                pnlPct >= 3000  -> 4.0  // 30x+  → 4% trail
-                pnlPct >= 1000  -> 5.0  // 10x+  → 5% trail
-                pnlPct >= 500   -> 6.0  // 5x+   → 6% trail
-                pnlPct >= 200   -> 8.0  // 3x+   → 8% trail
-                pnlPct >= 100   -> 10.0 // 2x+   → 10% trail
-                else -> when (pos.spaceMode) {
-                    SpaceMode.ORBITAL -> TRAILING_STOP_ORBITAL
-                    SpaceMode.LUNAR -> TRAILING_STOP_LUNAR
-                    SpaceMode.MARS -> TRAILING_STOP_MARS
-                    SpaceMode.JUPITER -> TRAILING_STOP_JUPITER
-                }
-            }
+            // V5.9.169 — continuous fluid trail (smooth log curve).
+            val dynamicTrailPct = FluidLearningAI.fluidTrailPct(pnlPct).coerceAtLeast(when (pos.spaceMode) {
+                SpaceMode.ORBITAL -> 2.5
+                SpaceMode.LUNAR -> 2.5
+                SpaceMode.MARS -> 2.5
+                SpaceMode.JUPITER -> 2.5
+            })
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
         }
         
@@ -926,18 +915,8 @@ object MoonshotTraderAI {
             return ExitSignal.PARTIAL_TAKE
         }
 
-        // Also honour the profit-floor ladder: if the current gain has
-        // fallen below the locked-floor for the peak we've seen, exit.
-        val profitFloor = when {
-            pos.peakPnlPct >= 10000.0 -> 8000.0
-            pos.peakPnlPct >= 3000.0  -> 2500.0
-            pos.peakPnlPct >= 1000.0  -> 800.0
-            pos.peakPnlPct >= 300.0   -> 200.0
-            pos.peakPnlPct >= 100.0   -> 70.0
-            pos.peakPnlPct >= 50.0    -> 30.0
-            pos.peakPnlPct >= 20.0    -> 10.0
-            else                      -> Double.NEGATIVE_INFINITY
-        }
+        // V5.9.169 — continuous fluid profit floor (shared engine).
+        val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct)
         if (pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
