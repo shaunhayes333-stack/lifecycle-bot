@@ -1015,11 +1015,11 @@ object ShitCoinTraderAI {
     // Bootstrap needs MORE trades for learning, not fewer
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
-    private const val SC_SCORE_BOOTSTRAP = 20         // V5.2 FIX: Lowered from 35 (killing trades)
+    private const val SC_SCORE_BOOTSTRAP = 15         // V5.9.159: lowered 20→15 — meme volume unlock
     private const val SC_SCORE_MATURE = 40            // Higher bar when mature
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 15          // V5.2 FIX: Lowered from 25 (was strangling)
+    private const val SC_CONF_BOOTSTRAP = 10          // V5.9.159: lowered 15→10 — meme volume unlock
     private const val SC_CONF_MATURE = 50             // Solid confidence when mature
     private const val SC_CONF_BOOST_MAX = 15.0        // Boost back to +15 for bootstrap
     

@@ -164,11 +164,32 @@ object TradeLifecycle {
     )
     
     private val proposalTrackers = mutableMapOf<String, ProposalTracker>()
-    private const val MIN_PROPOSAL_INTERVAL_MS = 15_000L  // 15 seconds between proposals (fast iteration)
+    // V5.9.159 — bootstrap volume boost: tighter cooldowns and 3× higher per-mint
+    // quota while the bot is still learning. Old numbers were tuned for a mature
+    // bot with real memory; at bootstrap they starve the scorer of training data.
+    // After 40% learning progress the tighter mature numbers kick back in via
+    // effectiveMinProposalIntervalMs() / effectiveMaxProposalsPerWindow().
+    private const val MIN_PROPOSAL_INTERVAL_MS = 15_000L       // mature: 15s between proposals per mint
+    private const val MIN_PROPOSAL_INTERVAL_MS_BOOTSTRAP = 5_000L   // bootstrap: 5s
     private const val MIN_APPROVAL_INTERVAL_MS = 15_000L  // 15 seconds between approvals
-    private const val MAX_PROPOSALS_PER_WINDOW = 10       // Max 10 proposals in 2 min window
+    private const val MAX_PROPOSALS_PER_WINDOW = 10            // mature: 10 proposals per 2 min
+    private const val MAX_PROPOSALS_PER_WINDOW_BOOTSTRAP = 30  // bootstrap: 30 proposals per 2 min
     private const val PROPOSAL_WINDOW_MS = 2 * 60_000L    // 2 min window
-    private const val BLOCKED_STATE_EXPIRE_MS = 30_000L   // Blocked state expires after 30 seconds
+    private const val BLOCKED_STATE_EXPIRE_MS = 30_000L              // mature: states expire after 30s
+    private const val BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP = 10_000L    // bootstrap: expire after 10s
+
+    private fun isBootstrap(): Boolean = try {
+        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+    } catch (_: Exception) { false }
+
+    private fun effectiveMinProposalIntervalMs(): Long =
+        if (isBootstrap()) MIN_PROPOSAL_INTERVAL_MS_BOOTSTRAP else MIN_PROPOSAL_INTERVAL_MS
+
+    private fun effectiveMaxProposalsPerWindow(): Int =
+        if (isBootstrap()) MAX_PROPOSALS_PER_WINDOW_BOOTSTRAP else MAX_PROPOSALS_PER_WINDOW
+
+    private fun effectiveBlockedStateExpireMs(): Long =
+        if (isBootstrap()) BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP else BLOCKED_STATE_EXPIRE_MS
     
     /**
      * Check if a proposal should be allowed (dedupe check)
@@ -177,21 +198,24 @@ object TradeLifecycle {
     fun canPropose(mint: String): Pair<Boolean, String?> {
         val now = System.currentTimeMillis()
         val tracker = proposalTrackers.getOrPut(mint) { ProposalTracker() }
-        
+        val minIntervalMs = effectiveMinProposalIntervalMs()
+        val maxPerWindow = effectiveMaxProposalsPerWindow()
+        val blockedExpireMs = effectiveBlockedStateExpireMs()
+
         // Reset counts if window expired
         if (now - tracker.lastProposalMs > PROPOSAL_WINDOW_MS) {
             tracker.proposalCount = 0
         }
-        
+
         // Check 1: Too soon since last proposal?
-        if (now - tracker.lastProposalMs < MIN_PROPOSAL_INTERVAL_MS) {
-            val waitSec = (MIN_PROPOSAL_INTERVAL_MS - (now - tracker.lastProposalMs)) / 1000
+        if (now - tracker.lastProposalMs < minIntervalMs) {
+            val waitSec = (minIntervalMs - (now - tracker.lastProposalMs)) / 1000
             return false to "DEDUPE: Proposal too soon, wait ${waitSec}s"
         }
-        
+
         // Check 2: Too many proposals in window?
-        if (tracker.proposalCount >= MAX_PROPOSALS_PER_WINDOW) {
-            return false to "DEDUPE: Max $MAX_PROPOSALS_PER_WINDOW proposals in ${PROPOSAL_WINDOW_MS/60000}min"
+        if (tracker.proposalCount >= maxPerWindow) {
+            return false to "DEDUPE: Max $maxPerWindow proposals in ${PROPOSAL_WINDOW_MS/60000}min"
         }
         
         // Check 3: Already in active/blocked state? 
@@ -218,12 +242,12 @@ object TradeLifecycle {
                     State.CANDIDATE, State.FDG_BLOCKED, State.FDG_APPROVED, State.SIZED, State.PROPOSED
                 )
                 
-                if (canExpire && stateAge >= BLOCKED_STATE_EXPIRE_MS) {
+                if (canExpire && stateAge >= blockedExpireMs) {
                     // State has expired, allow re-proposal
                     lc.transition(State.EXPIRED, "Blocked state expired after ${stateAge/60000}min")
                     ErrorLogger.debug("Lifecycle", "⏰ State expired: ${lc.symbol} | was ${lc.currentState} for ${stateAge/1000}s")
                 } else {
-                    val remainingSec = if (canExpire) (BLOCKED_STATE_EXPIRE_MS - stateAge) / 1000 else -1
+                    val remainingSec = if (canExpire) (blockedExpireMs - stateAge) / 1000 else -1
                     val reasonSuffix = if (remainingSec > 0) " (expires in ${remainingSec}s)" else ""
                     return false to "DEDUPE: Already in state ${lc.currentState}$reasonSuffix"
                 }

@@ -70,13 +70,26 @@ object MoonshotTraderAI {
     private const val MAX_MARKET_CAP_USD = 100_000_000.0 // $100M maximum (allow Jupiter plays)
     
     // Liquidity requirements - flexible since these are promoted positions
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0   // Lower in learning
+    // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor
+    // was excluding most sub-$50K-mcap fresh pump.fun launches which are
+    // exactly the volume we want the scorer to learn from.
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // was 5_000 — let fresh pump.fun launches through
     private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
     
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08
     private const val MAX_POSITION_SOL = 0.40
     private const val MAX_CONCURRENT_POSITIONS = 10  // V5.2.12: Raised for paper learning
+    // V5.9.159 — bootstrap cap lift. Mature caps (10) are appropriate once the
+    // bot is past 40% learning; during bootstrap we want the trader to hold up
+    // to 30 positions simultaneously so the scorer can accumulate real outcomes
+    // across many mcap bands / modes concurrently instead of waiting for one
+    // of 10 slots to close.
+    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 30
+    private fun effectiveMaxPositions(): Int = try {
+        if (FluidLearningAI.getLearningProgress() < 0.40) MAX_CONCURRENT_POSITIONS_BOOTSTRAP
+        else MAX_CONCURRENT_POSITIONS
+    } catch (_: Exception) { MAX_CONCURRENT_POSITIONS }
     
     // Cross-trade promotion threshold
     private const val CROSS_TRADE_PROMOTION_PCT = 200.0  // 200%+ gain = promote to Moonshot
@@ -383,8 +396,9 @@ object MoonshotTraderAI {
         }
         
         // 3. Position limit
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
-            return MoonshotScore(false, 0, 0.0, "max_${MAX_CONCURRENT_POSITIONS}_positions")
+        val maxPos = effectiveMaxPositions()
+        if (activePositions.size >= maxPos) {
+            return MoonshotScore(false, 0, 0.0, "max_${maxPos}_positions")
         }
         
         // 4. Already have position
@@ -473,11 +487,14 @@ object MoonshotTraderAI {
         score += collectiveBonus
         
         // Minimum threshold — fluid by learning + paper mode
-        // Paper mode has lower floors during bootstrap to generate trades and learning data
+        // V5.9.159: bootstrap floor lowered 28→20 (paper) / 50→42 (live).
+        // At 1% learning the old 28 floor was rejecting any meme with
+        // mcap_bonus(18) + modest liq(12) + no buy-pressure = 30 barely
+        // scraping through. Drop it so the scorer actually gets fed.
         val minScore = when {
-            learningProgress < 0.1 -> if (isPaper) 28 else 50
-            learningProgress < 0.3 -> if (isPaper) 35 else 55
-            learningProgress < 0.5 -> if (isPaper) 43 else 60
+            learningProgress < 0.1 -> if (isPaper) 20 else 42
+            learningProgress < 0.3 -> if (isPaper) 28 else 48
+            learningProgress < 0.5 -> if (isPaper) 38 else 55
             else -> if (isPaper) 52 else 65
         }
         
@@ -546,7 +563,7 @@ object MoonshotTraderAI {
         }
         
         // Check position limits
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        if (activePositions.size >= effectiveMaxPositions()) {
             return false
         }
         
