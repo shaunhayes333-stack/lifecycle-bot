@@ -221,6 +221,8 @@ object ShitCoinTraderAI {
         var highWaterMark: Double = entryPrice,
         var trailingStop: Double = entryPrice * (1 - abs(stopLossPct) / 100),
         var firstTakeDone: Boolean = false,  // V4.1.3: Track if first partial take was done
+        var partialRungsTaken: Int = 0,      // V5.9.163: laddered partial-take index
+        var peakPnlPct: Double = 0.0,        // V5.9.163: track peak for floor-lock
     )
     
     data class ShitCoinSignal(
@@ -902,12 +904,16 @@ object ShitCoinTraderAI {
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            // DYNAMIC TRAILING: Tighter trailing as profits grow
-            // 100% gain → 15% trail, 500% gain → 10% trail, 1000%+ → 8% trail
+            // V5.9.163 — DYNAMIC TRAILING aligned with user profit-lock ladder.
+            // Tighter trails at higher gains so mega-runners don't give back
+            // big chunks between ticks. Matches MoonshotTraderAI trail curve.
             val dynamicTrailPct = when {
-                pnlPct >= 1000 -> 8.0   // 10x+ → tight 8% trail
-                pnlPct >= 500 -> 10.0   // 5x+ → 10% trail
-                pnlPct >= 100 -> 12.0   // 2x+ → 12% trail
+                pnlPct >= 10000 -> 3.0   // 100x+ → razor 3% trail
+                pnlPct >= 3000  -> 4.0   // 30x+  → 4% trail
+                pnlPct >= 1000  -> 5.0   // 10x+  → 5% trail
+                pnlPct >= 500   -> 6.0   // 5x+   → 6% trail
+                pnlPct >= 200   -> 8.0   // 3x+   → 8% trail
+                pnlPct >= 100   -> 10.0  // 2x+   → 10% trail
                 else -> TRAILING_STOP_PCT  // Default 8%
             }
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
@@ -975,14 +981,37 @@ object ShitCoinTraderAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 3. PARTIAL TAKE at first target (25-100% based on fluid learning)
-        // Only triggers once - after this, trailing stop takes over
-        if (!pos.firstTakeDone && pnlPct >= pos.takeProfitPct) {
+        // V5.9.163 — LADDERED PARTIAL TAKES (same engine as Moonshot).
+        // Update peak + walk the ladder. Each rung fires ONE partial sell.
+        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
+
+        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
+            val hitRung = rungs[pos.partialRungsTaken]
+            pos.partialRungsTaken += 1
             pos.firstTakeDone = true
-            ErrorLogger.info(TAG, "💩💰 PARTIAL TP (25%): ${pos.symbol} | +${pnlPct.fmt(1)}% - LETTING REST RIDE!")
-            return ExitSignal.PARTIAL_TAKE  // Executor should sell 25%, keep 75%
+            ErrorLogger.info(TAG, "💩💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | " +
+                "hit +${hitRung.toInt()}% (now +${pnlPct.fmt(1)}%) — locking a slice, rest rides")
+            return ExitSignal.PARTIAL_TAKE
         }
-        
+
+        // V5.9.163 — profit-floor ladder (user-spec). Big-runner give-back
+        // exit fires here even if trailing stop hasn't tripped yet.
+        val profitFloor = when {
+            pos.peakPnlPct >= 10000.0 -> 8000.0
+            pos.peakPnlPct >= 3000.0  -> 2500.0
+            pos.peakPnlPct >= 1000.0  -> 800.0
+            pos.peakPnlPct >= 300.0   -> 200.0
+            pos.peakPnlPct >= 100.0   -> 70.0
+            pos.peakPnlPct >= 50.0    -> 30.0
+            pos.peakPnlPct >= 20.0    -> 10.0
+            else                      -> Double.NEGATIVE_INFINITY
+        }
+        if (pnlPct < profitFloor) {
+            ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
+            return ExitSignal.TRAILING_STOP
+        }
+
         // 4. TRAILING STOP - The moonshot catcher!
         // V5.5: Activate from entry (not after 15% profit) — stop trails from open price.
         // Prevents giving back gains that were never locked. Fires any time price
