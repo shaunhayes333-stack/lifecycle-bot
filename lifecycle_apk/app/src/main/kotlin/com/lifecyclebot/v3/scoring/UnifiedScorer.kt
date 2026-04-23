@@ -62,9 +62,13 @@ class UnifiedScorer(
      * - Adding metacognition component to scorecard
      */
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
-        // Collect scores from all 19 base AI modules
-        // V4.1: Use sourceScoreWithTiming for source timing lag penalty
-        val preTrust = listOf(
+        // V5.9.154 — bootstrap mode decision (see explanation below).
+        val bootstrapBypass = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+        } catch (_: Exception) { true }
+
+        // Classic 27-layer roster (matches V5.9.108 build ~#1915 exactly).
+        val classic27 = listOf(
             sourceScoreWithTiming(candidate.source, candidate.mint),
             entryAI.score(candidate, ctx),
             momentumAI.score(candidate, ctx),
@@ -76,17 +80,20 @@ class UnifiedScorer(
             regimeAI.score(candidate, ctx),
             timeAI.score(candidate, ctx),
             copyTradeAI.score(candidate, ctx),
-            suppressionAI.score(candidate, ctx),  // V3 MIGRATION: Converts legacy blocks to penalties
-            fearGreedAI.score(candidate, ctx),    // V3.1: Fear & Greed Index
-            socialVelocityAI.score(candidate, ctx),  // V3.1: Social velocity detection
-            // V3.2 NEW AI LAYERS
-            VolatilityRegimeAI.score(candidate, ctx),      // Volatility regime & squeeze detection
-            OrderFlowImbalanceAI.score(candidate, ctx),    // Order flow analysis
-            SmartMoneyDivergenceAI.score(candidate, ctx),  // Smart money divergence
-            HoldTimeOptimizerAI.score(candidate, ctx),     // Hold time optimization
-            LiquidityCycleAI.score(candidate, ctx),         // Market-wide liquidity cycles
-            // V5.7.4 INSIDER TRACKER AI - Layer 27
-            insiderTrackerScore(candidate),                     // Insider wallet monitoring
+            suppressionAI.score(candidate, ctx),
+            fearGreedAI.score(candidate, ctx),
+            socialVelocityAI.score(candidate, ctx),
+            VolatilityRegimeAI.score(candidate, ctx),
+            OrderFlowImbalanceAI.score(candidate, ctx),
+            SmartMoneyDivergenceAI.score(candidate, ctx),
+            HoldTimeOptimizerAI.score(candidate, ctx),
+            LiquidityCycleAI.score(candidate, ctx),
+            insiderTrackerScore(candidate),
+        )
+
+        // Collect scores from all 19 base AI modules
+        // V4.1: Use sourceScoreWithTiming for source timing lag penalty
+        val preTrust = if (bootstrapBypass) classic27 else (classic27 + listOf(
             // V5.9.123 — Layers 28-42: correlation + exit-path + meta-trust
             // + macro + DNA + operator + session + drawdown + capital-efficiency
             // + news + funding + orderbook-pulse + peer-alpha + MEV + (ReflexAI
@@ -104,15 +111,30 @@ class UnifiedScorer(
             PeerAlphaVerificationAI.score(candidate, ctx),
             NewsShockAI.score(candidate, ctx),
             FundingRateAwarenessAI.score(candidate, ctx),
-            OrderbookImbalancePulseAI.score(candidate, ctx)
-        )
+            OrderbookImbalancePulseAI.score(candidate, ctx),
+        ))
+
+        // V5.9.154 — BOOTSTRAP BYPASS: restore the V5.9.108 (build ~#1915)
+        // memetrader behaviour the user is asking for. During bootstrap the
+        // scorer summed 27 plain layer votes and that was it; no trust
+        // scaling, no V5.9.123 penalty stack, no approval memory nudge,
+        // no auto-mute. User 04-23: 'look at the old build around 1900-1930
+        // bootstrap settings and compare to the current ones for the main UI
+        // memetrader'. A bootstrap-era token that scored +30 in the old
+        // scorer loses 15-20 points today to trust×0.5 + V5.9.123 -25 cap +
+        // auto-mute on unproven layers = rejected on the same floor that
+        // used to let it through. This isn't learning, it's strangling.
+        //
+        // Below 40% learning progress, bypass every post-V5.9.108 stage.
+        // Above 40%, full V5.9.123/124/139/140 stack re-engages so the
+        // bot matures into the tighter regime on its own schedule.
 
         // V5.9.123 — AITrustNetworkAI meta-weighting. Each layer's positive
         // vote is scaled by its recent precision (0.4×–1.6×). Layers that
         // historically call winners are amplified; layers that fire on
         // losers are muted. Turns the static-50%-everywhere Trust panel
         // into an actual learning meta-layer.
-        val preBaseComponents = run {
+        val preBaseComponents = if (bootstrapBypass) preTrust else run {
             preTrust.map { c ->
                 if (c.value > 0) {
                     val w = AITrustNetworkAI.getTrustWeight(c.name)
@@ -298,9 +320,11 @@ class UnifiedScorer(
             // get a -6..-2 penalty. This is the "learn from good behaviour"
             // channel the bot has been missing — balances the reject-side
             // learning from ShadowLearningEngine.
+            // V5.9.154: bypass during bootstrap — no pattern has earned
+            // its weight yet, we want raw signal only.
             val votesForApproval = (v59123CappedComponents + metaComponent + behaviorComponent)
                 .associate { it.name to it.value }
-            val (approvalNudge, approvalReason) = try {
+            val (approvalNudge, approvalReason) = if (bootstrapBypass) 0 to "BOOTSTRAP" else try {
                 EducationSubLayerAI.approvalBoostFor(votesForApproval)
             } catch (_: Exception) { 0 to "ERR" }
             val approvalComponent = ScoreComponent(
