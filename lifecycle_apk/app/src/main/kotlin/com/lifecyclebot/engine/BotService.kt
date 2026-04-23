@@ -6838,7 +6838,17 @@ if (deferredCount > 0) {
         // TREASURY MODE EXIT CHECK - Quick scalps with tight exits
         // Check FIRST before other exit logic since treasury has strict rules
         // ═══════════════════════════════════════════════════════════════════
-        if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+        // V5.9.151 — the flag-based gate (`isTreasuryPosition` /
+        // `tradingMode=="TREASURY"`) was missing positions where the flag
+        // was never set at buy-confirm OR was cleared by a later layer
+        // transition. Result: Treasury's activePositions still owned the
+        // mint, but processTokenCycle never called checkExit — KAIRU
+        // observed at +52.7% for 20+ min against a +4% TP that
+        // checkExit would have fired immediately. Source of truth is
+        // CashGenerationAI.activePositions; the flag is now only a
+        // supplementary hint.
+        val treasuryOwns = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(ts.mint) != null
+        if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY" || treasuryOwns) {
             // V5.2.12: Debug - entering Treasury exit check
             ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
             
