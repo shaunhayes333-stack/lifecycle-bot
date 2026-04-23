@@ -311,7 +311,13 @@ object EducationSubLayerAI {
             (successfulPredictions.toDouble() / totalOutcomesRecorded) * 100 else 50.0
 
         val isLearning: Boolean get() =
-            totalOutcomesRecorded > 0 &&
+            // V5.9.142 — a layer counts as "learning" if it's been touched
+            // (outcome OR consulted) inside the last 24h. Previously we
+            // required totalOutcomesRecorded > 0, so the 16 V5.9.123 layers
+            // showed dormant until they happened to pick up a real-accuracy
+            // hit (|score| > 2). On tight markets they'd all stay quiet
+            // and 13/41 layers would appear broken on the UI.
+            lastRecordedTimestamp > 0 &&
             System.currentTimeMillis() - lastRecordedTimestamp < 24 * 60 * 60 * 1000L
 
         // V5.9.138 — mean pnlPct per trade. Real economic edge, not hit rate.
@@ -742,14 +748,17 @@ object EducationSubLayerAI {
             "AITrustNetworkAI", "ReflexAI",
         ).forEach { layerName ->
             try {
-                // V5.9.126: touch lastRecordedTimestamp if layer has no metrics
-                // yet (so the node shows as active after first trade); real
-                // accuracy is updated in applyRealAccuracyLearning() below.
-                if (layerPerformance[layerName] == null) {
-                    layerPerformance[layerName] = LayerPerformanceMetrics(layerName).also {
-                        it.lastRecordedTimestamp = System.currentTimeMillis()
-                    }
+                // V5.9.142 — ALWAYS refresh the layer's activity timestamp
+                // on every closed trade, not just on first-time init. This
+                // was the source of the "13 dormant layers" problem — these
+                // 16 layers' metrics existed from creation but their
+                // timestamp was only touched once, so they aged into
+                // dormant after 24h even though the scorer kept consulting
+                // them on every tick.
+                val m = layerPerformance.getOrPut(layerName) {
+                    LayerPerformanceMetrics(layerName)
                 }
+                m.lastRecordedTimestamp = System.currentTimeMillis()
                 layersUpdated++
             } catch (e: Exception) { errors.add("$layerName: ${e.message}") }
         }

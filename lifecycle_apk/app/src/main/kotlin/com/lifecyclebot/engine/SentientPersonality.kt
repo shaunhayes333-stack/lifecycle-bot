@@ -723,7 +723,17 @@ object SentientPersonality {
                 val afterTune = tuned?.cleanedReply ?: llmReply
                 val traded = try {
                     if (!afterTune.isNullOrBlank()) {
-                        com.lifecyclebot.engine.LlmPaperTradeExecutor.extractAndExecute(afterTune)
+                        com.lifecyclebot.engine.LlmPaperTradeExecutor.extractAndExecute(
+                            llmReply = afterTune,
+                            userMessage = clean,  // V5.9.141 — enable intent fallback
+                        )
+                    } else if (clean.isNotBlank()) {
+                        // Even if the LLM replied with nothing usable, the user
+                        // message alone can still fire a paper trade ("buy sol").
+                        com.lifecyclebot.engine.LlmPaperTradeExecutor.extractAndExecute(
+                            llmReply = "",
+                            userMessage = clean,
+                        )
                     } else {
                         null
                     }

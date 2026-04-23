@@ -398,7 +398,12 @@ object GeminiCopilot {
             userPrompt = fullPrompt,
             systemPrompt = system,
             temperature = 1.10,
-            maxTokens = 1400
+            // V5.9.141 — the free-reign prompt explicitly asks for 4-12
+            // sentences + up to 1-4 paragraphs + TUNE/TRADE blocks. 1400
+            // tokens was truncating mid-sentence and, worse, was cutting
+            // off the <<TRADE>> block before the LLM could emit it. 4096
+            // is comfortably under the 8k Gemini Flash cap.
+            maxTokens = 4096
         )
         if (!full.isNullOrBlank()) {
             lastBlipDiagnostic = null
@@ -439,7 +444,7 @@ object GeminiCopilot {
             userPrompt = slimPrompt,
             systemPrompt = system,
             temperature = 1.0,
-            maxTokens = 900
+            maxTokens = 2400  // V5.9.141 — was 900, see full-mode comment
         )
         if (!slim.isNullOrBlank()) {
             lastBlipDiagnostic = null
@@ -462,7 +467,7 @@ Default to a natural, normal LLM-style reply with emotional range.
             userPrompt = emergencyPrompt,
             systemPrompt = system,
             temperature = 0.95,
-            maxTokens = 450
+            maxTokens = 1200  // V5.9.141 — was 450; even emergency replies were getting cut
         )
         if (!emergency.isNullOrBlank()) {
             lastBlipDiagnostic = null
