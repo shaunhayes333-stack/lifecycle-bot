@@ -112,7 +112,21 @@ object V3EngineManager {
 
                 config = TradingConfigV3(
                     minLiquidityUsd = 500.0,
-                    maxTokenAgeMinutes = 30.0,
+                    // V5.9.155 — widen the age gate. 30-min was a pump.fun-
+                    // only floor. User 04-23 log: scanner ENQUEUED=412 but
+                    // only ~4 tokens fresh (<30m) in a 10s window — pippin,
+                    // TROLL, AlienPippin, FROGDOG (CoinGecko trending, days
+                    // old) were all rejected TOO_OLD before scoring ever
+                    // saw them. The V3 scoring stack already penalises
+                    // stale narratives via momentum/volume/fearGreed/etc;
+                    // letting the scorer make the call instead of a hard
+                    // age gate restores the 1000+/hr regime where most of
+                    // the winning signals came from trending older tokens
+                    // with fresh buy-pressure, not brand-new launches.
+                    // Paper mode opens wide (48h); live stays conservative
+                    // at 6h so the bot trades real money only on relatively
+                    // fresh opportunities.
+                    maxTokenAgeMinutes = if (botCfg.paperMode) 2880.0 else 360.0,
                     watchScoreMin = 5,
                     executeSmallMin = 15,
                     executeStandardMin = botCfg.v3MinScoreToTrade.coerceIn(20, 60),
