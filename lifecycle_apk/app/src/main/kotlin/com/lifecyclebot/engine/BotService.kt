@@ -5857,6 +5857,8 @@ if (deferredCount > 0) {
                         val exitSignal = com.lifecyclebot.v3.scoring.ProjectSniperAI.checkExit(
                             ts.mint, ts.ref, ts.lastBuyPressurePct
                         )
+                        // V5.9.170 — firehose learning feedback for sniper.
+                        try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Sniper:${exitSignal.rank.name}") } catch (_: Exception) {}
                         if (exitSignal.shouldExit) {
                             ErrorLogger.info("BotService", "🎯 [SNIPER] ${ts.symbol} | EXIT | " +
                                 "${exitSignal.rank.emoji} ${exitSignal.reason}")
@@ -7134,6 +7136,8 @@ if (deferredCount > 0) {
             }
             
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "ShitCoin:${exitSignal.name}") } catch (_: Exception) {}
 
             if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
@@ -7203,6 +7207,8 @@ if (deferredCount > 0) {
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.checkExit(
                 ts.mint, currentPrice, currentMomentum
             )
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "ShitExpress:${exitSignal.name}") } catch (_: Exception) {}
             
             if (exitSignal != com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
@@ -7267,6 +7273,8 @@ if (deferredCount > 0) {
         if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint)) {
             val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Manipulated:${exitSignal.name}") } catch (_: Exception) {}
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
                 // V5.9.168 — laddered partial sell (20% per rung)
                 if (exitSignal == com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.PARTIAL_TAKE) {
@@ -7314,6 +7322,8 @@ if (deferredCount > 0) {
                 ?: ts.position.entryPrice
             
             val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Moonshot:${exitSignal.name}") } catch (_: Exception) {}
             
             if (exitSignal != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
@@ -7375,6 +7385,8 @@ if (deferredCount > 0) {
             val exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.checkExit(
                 ts.mint, currentPrice, currentMcap
             )
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Quality:${exitSignal.name}") } catch (_: Exception) {}
             
             if (exitSignal != com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
@@ -7482,6 +7494,8 @@ if (deferredCount > 0) {
                 ?: ts.position.entryPrice
             
             val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice)
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "BlueChip:${exitSignal.name}") } catch (_: Exception) {}
             
             if (exitSignal != com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
@@ -7537,6 +7551,8 @@ if (deferredCount > 0) {
             val exitSignal = com.lifecyclebot.v3.scoring.DipHunterAI.checkExit(
                 ts.mint, currentPrice, ts.lastLiquidityUsd
             )
+            // V5.9.170 — firehose learning feedback.
+            try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "DipHunter:${exitSignal.name}") } catch (_: Exception) {}
             
             if (exitSignal != com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {

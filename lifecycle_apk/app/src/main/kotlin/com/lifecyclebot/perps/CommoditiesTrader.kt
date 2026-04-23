@@ -682,11 +682,14 @@ object CommoditiesTrader {
         val isWin = pnl >= 0
 
         // V5.9.130: close V3 learning loop → real accuracy on 41 layers.
+        // V5.9.170: carry real exit reason into education firehose.
         try {
             PerpsUnifiedScorerBridge.recordClose(
                 symbol = position.market.symbol,
                 assetClass = "COMMODITY",
                 pnlPct = pnlPct,
+                exitReason = reason.ifBlank { "commodity_close" },
+                lossReason = if (pnlPct < -2.0) reason else "",
             )
         } catch (_: Exception) {}
 

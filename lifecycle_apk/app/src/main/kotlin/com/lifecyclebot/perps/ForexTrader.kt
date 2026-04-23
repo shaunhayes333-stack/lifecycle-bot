@@ -549,6 +549,7 @@ object ForexTrader {
         ErrorLogger.info(TAG, "💱 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ ${signal.price.fmt(5)} | size=${positionSizeSol}◎ | score=${signal.score}")
 
         // V5.9.130: register V3 entry for real-accuracy close loop.
+        // V5.9.170: feed entry reason chain into the education layer.
         try {
             PerpsUnifiedScorerBridge.registerEntry(
                 symbol = signal.market.symbol,
@@ -557,6 +558,8 @@ object ForexTrader {
                 entryPrice = signal.price,
                 entryLiqUsd = 100_000_000.0,
                 v3Score = signal.score,
+                entryReason = signal.reasons.take(6).joinToString("|").ifBlank { "Forex:${signal.direction.name}" },
+                traderSource = "Forex",
             )
         } catch (_: Exception) {}
         
@@ -666,11 +669,14 @@ object ForexTrader {
         val isWin = pnl >= 0
 
         // V5.9.130: close V3 learning loop → real-accuracy update on 41 layers.
+        // V5.9.170: forward real exit reason for education firehose.
         try {
             PerpsUnifiedScorerBridge.recordClose(
                 symbol = position.market.symbol,
                 assetClass = "FOREX",
                 pnlPct = pnlPct,
+                exitReason = reason.ifBlank { "forex_close" },
+                lossReason = if (pnlPct < -2.0) reason else "",
             )
         } catch (_: Exception) {}
 

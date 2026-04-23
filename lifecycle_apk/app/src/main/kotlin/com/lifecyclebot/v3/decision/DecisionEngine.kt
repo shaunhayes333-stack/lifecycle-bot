@@ -416,7 +416,7 @@ class FinalDecisionEngine(
         // matures, without freezing the learner at bootstrap.
         val aggressiveConfHard  = (40 + learningProgress * 10).toInt()   // 40 → 50
         val aggressiveScoreHard = (30 + learningProgress * 10).toInt()   // 30 → 40
-        val aggressiveConfFloor  = maxOf(effectiveMinConf + 10, aggressiveConfHard.toDouble())
+        val aggressiveConfFloor  = maxOf(effectiveMinConf + 10, aggressiveConfHard)
         val aggressiveScoreFloor = maxOf((effectiveMinScore * 1.3).toInt(), aggressiveScoreHard)
         // V5.9.152: the hard `maxOf(..., 40)` B-grade floor was
         // re-introducing the same bootstrap-freeze the fluid floors are

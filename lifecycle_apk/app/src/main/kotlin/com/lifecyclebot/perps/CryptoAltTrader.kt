@@ -1111,6 +1111,8 @@ object CryptoAltTrader {
 
         // V5.9.130: register entry with the V3 bridge so the real accuracy
         // loop + ReflexAI gate have a record to close against.
+        // V5.9.170: push the real reason chain into the education layer so
+        // it learns why CryptoAltTrader opened, not just that it opened.
         try {
             PerpsUnifiedScorerBridge.registerEntry(
                 symbol = signal.market.symbol,
@@ -1119,6 +1121,8 @@ object CryptoAltTrader {
                 entryPrice = signal.price,
                 entryLiqUsd = 500_000.0,
                 v3Score = signal.score,
+                entryReason = signal.reasons.take(6).joinToString("|").ifBlank { "CryptoAlt:${signal.direction.name}" },
+                traderSource = "CryptoAlt",
             )
         } catch (_: Exception) {}
 
@@ -1433,11 +1437,15 @@ object CryptoAltTrader {
         // V5.9.130: close the V3 bridge learning loop so every one of the 41
         // AI layers gets its real-accuracy update based on how this alt trade
         // played out vs what each layer predicted at entry.
+        // V5.9.170: include the real exit reason + loss cause so the
+        // education firehose learns WHY we closed, not just the magnitude.
         try {
             PerpsUnifiedScorerBridge.recordClose(
                 symbol = pos.market.symbol,
                 assetClass = "ALT",
                 pnlPct = pos.getPnlPct(),
+                exitReason = reason.ifBlank { "crypto_alt_close" },
+                lossReason = if (pos.getPnlPct() < -2.0) reason else "",
             )
         } catch (_: Exception) {}
 

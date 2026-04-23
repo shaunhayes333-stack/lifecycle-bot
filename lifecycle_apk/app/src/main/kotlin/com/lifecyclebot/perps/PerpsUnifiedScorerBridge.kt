@@ -67,6 +67,10 @@ object PerpsUnifiedScorerBridge {
         val entryLiqUsd: Double,
         val v3Score: Int,
         val timestamp: Long,
+        // V5.9.170 — real reason chain so the education layer learns
+        // WHY this trader opened, not just that it opened.
+        val entryReason: String = "",
+        val traderSource: String = "perps",
     )
     private val openEntries = ConcurrentHashMap<String, EntrySnapshot>()
 
@@ -206,8 +210,11 @@ object PerpsUnifiedScorerBridge {
         entryPrice: Double,
         entryLiqUsd: Double,
         v3Score: Int,
+        entryReason: String = "",
+        traderSource: String = "",
     ) {
         val key = makeMintKey(assetClass, symbol)
+        val source = traderSource.ifBlank { assetClass.uppercase() }
         openEntries[key] = EntrySnapshot(
             mintKey = key,
             symbol = symbol,
@@ -216,13 +223,42 @@ object PerpsUnifiedScorerBridge {
             entryLiqUsd = entryLiqUsd,
             v3Score = v3Score,
             timestamp = System.currentTimeMillis(),
+            entryReason = entryReason,
+            traderSource = source,
         )
+        // V5.9.170 — feed entry reason straight into universal firehose.
+        if (entryReason.isNotBlank()) {
+            try {
+                EducationSubLayerAI.recordEntryReason(
+                    mint = key,
+                    traderSource = source,
+                    reason = entryReason,
+                    scoreHint = v3Score.toDouble(),
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * V5.9.170 — trader can append a hold reason mid-position. Safe to call
+     * every tick — dedupes adjacent duplicates internally.
+     */
+    fun recordHold(symbol: String, assetClass: String, holdReason: String) {
+        if (holdReason.isBlank()) return
+        val key = makeMintKey(assetClass, symbol)
+        try { EducationSubLayerAI.recordHoldReason(key, holdReason) } catch (_: Exception) {}
     }
 
     /**
      * Close the learning loop. Drives real per-layer accuracy correlation.
      */
-    fun recordClose(symbol: String, assetClass: String, pnlPct: Double) {
+    fun recordClose(
+        symbol: String,
+        assetClass: String,
+        pnlPct: Double,
+        exitReason: String = "perps_close",
+        lossReason: String = "",
+    ) {
         val key = makeMintKey(assetClass, symbol)
         val snap = openEntries.remove(key) ?: return
         try {
@@ -234,10 +270,10 @@ object PerpsUnifiedScorerBridge {
                 tokenName = snap.symbol,
                 pnlPct = pnlPct,
                 holdTimeMinutes = holdMin,
-                exitReason = "perps_close",
+                exitReason = exitReason.ifBlank { "perps_close" },
                 entryPhase = "perps",
                 tradingMode = assetClass.uppercase(),
-                discoverySource = "PERPS_TRADER",
+                discoverySource = snap.traderSource.ifBlank { "PERPS_TRADER" },
                 setupQuality = if (snap.v3Score > 10) "A" else if (snap.v3Score > 0) "B" else "C",
                 entryMcapUsd = 0.0,
                 exitMcapUsd = 0.0,
@@ -257,6 +293,10 @@ object PerpsUnifiedScorerBridge {
                 maxGainPct = kotlin.math.max(pnlPct, 0.0),
                 maxDrawdownPct = kotlin.math.min(pnlPct, 0.0),
                 timeToPeakMins = holdMin,
+                // V5.9.170 — real reason chain for the education layer.
+                entryReason = snap.entryReason,
+                traderSource = snap.traderSource.ifBlank { "perps" },
+                lossReason   = lossReason,
             )
             EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcome)
         } catch (e: Exception) {

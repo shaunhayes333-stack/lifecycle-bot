@@ -800,6 +800,17 @@ object EducationSubLayerAI {
         if (errors.isNotEmpty()) {
             ErrorLogger.warn(TAG, "⚠️ Some layers failed to learn: ${errors.take(3).joinToString(", ")}")
         }
+
+        // V5.9.170 — fold entry/hold/exit reasons into universal reasonStats
+        // so the bot permanently learns which reasoning strings make money.
+        try {
+            applyOutcomeToReasonStats(outcome)
+            // Also bump per-source outcome counters for quick dashboards.
+            val srcTag = outcome.traderSource.ifBlank { "UNKNOWN" }
+            bumpSignal("close|$srcTag|${if (outcome.isWin) "WIN" else "LOSS"}")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "reasonStats fold failed: ${e.message}")
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -842,6 +853,15 @@ object EducationSubLayerAI {
         val maxGainPct: Double,
         val maxDrawdownPct: Double,
         val timeToPeakMins: Double,
+
+        // V5.9.170 — optional fields (defaulted for backward compat).
+        // Populated by callers that want the full reason chain fed back
+        // into the universal learning firehose. Callers that don't set
+        // these will still get auto-fill from openReasonPackets on close.
+        val entryReason: String = "",
+        val holdReasons: List<String> = emptyList(),
+        val traderSource: String = "",
+        val lossReason: String = "",
     ) {
         val isWin: Boolean get() = pnlPct > 0
         val isRunner: Boolean get() = pnlPct >= 20.0
@@ -1788,6 +1808,277 @@ object EducationSubLayerAI {
         }
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.170 — UNIVERSAL LEARNING FIREHOSE
+    // ─────────────────────────────────────────────────────────────────────────
+    // Any trader / layer / scanner / tool anywhere in the full AATE universe
+    // can dump its observation into this bus. On trade close, we fold the
+    // entry reason + every hold reason accumulated during the position's life
+    // back into reasonStats, so the bot permanently learns "what I bought for,
+    // why I held, why I sold, why I lost" across Meme + Perps + Stocks +
+    // Forex + Metals + Commodities + every single trader class.
+    //
+    //   recordEntryReason(mint, source, reason, scoreHint)
+    //   recordHoldReason(mint, holdReason)
+    //   recordScanDecision(source, mintKey, verdict, reason)
+    //   recordLayerVote(layerName, voteValue, context)
+    //   recordMissedOpportunity(source, mint, missedReason, laterPnlPct)
+    //   recordGeneralSignal(namespace, key, tag)
+    //
+    // On close, recordTradeOutcomeAcrossAllLayers automatically pulls the
+    // packet and updates reasonStats with win/loss + pnl magnitude — so the
+    // LLM / dashboards can ask "which entry reasons actually print money?"
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    data class ReasonPacket(
+        val mint: String,
+        val traderSource: String,
+        val entryReason: String,
+        val holdReasons: java.util.concurrent.ConcurrentLinkedQueue<String> = java.util.concurrent.ConcurrentLinkedQueue(),
+        val entryTs: Long = System.currentTimeMillis(),
+        val scoreHint: Double = 0.0,
+    )
+
+    data class ReasonStat(
+        var count: Int = 0,
+        var wins: Int = 0,
+        var losses: Int = 0,
+        var pnlSumPct: Double = 0.0,
+        var pnlBestPct: Double = 0.0,
+        var pnlWorstPct: Double = 0.0,
+        var lastSeenMs: Long = 0L,
+    ) {
+        val winRate: Double get() = if (count == 0) 0.0 else wins.toDouble() / count
+        val avgPnlPct: Double get() = if (count == 0) 0.0 else pnlSumPct / count
+    }
+
+    data class SignalCounter(
+        var count: Int = 0,
+        var wins: Int = 0,
+        var losses: Int = 0,
+        var totalPnl: Double = 0.0,
+        var lastMs: Long = 0L,
+    )
+
+    private val openReasonPackets = ConcurrentHashMap<String, ReasonPacket>()
+    private val reasonStats       = ConcurrentHashMap<String, ReasonStat>()
+    private val signalStats       = ConcurrentHashMap<String, SignalCounter>()
+    private const val MAX_HOLD_REASONS_PER_PACKET = 64
+
+    /**
+     * Stamp an entry packet the moment a trader fires a buy (or perps open).
+     * `source` is canonical: "Meme", "Moonshot", "ShitCoin", "BlueChip",
+     * "Quality", "Treasury", "Sniper", "CryptoAlt", "Stocks", "Forex",
+     * "Metals", "Commodities", "LLMChat", "Network", etc.
+     */
+    fun recordEntryReason(
+        mint: String,
+        traderSource: String,
+        reason: String,
+        scoreHint: Double = 0.0,
+    ) {
+        if (mint.isBlank()) return
+        val clean = reason.trim().take(512).ifBlank { "UNSPECIFIED" }
+        openReasonPackets[mint] = ReasonPacket(
+            mint = mint,
+            traderSource = traderSource.ifBlank { "UNKNOWN" },
+            entryReason = clean,
+            scoreHint = scoreHint,
+        )
+        // Immediately count the entry as a signal event (no outcome yet).
+        bumpSignal("entry|$traderSource|$clean")
+    }
+
+    /**
+     * Append a hold reason to the open packet (dedupe adjacent duplicates;
+     * bounded to MAX_HOLD_REASONS_PER_PACKET so pathological loops can't
+     * grow unbounded).
+     */
+    fun recordHoldReason(mint: String, holdReason: String) {
+        if (mint.isBlank()) return
+        val packet = openReasonPackets[mint] ?: return
+        val clean = holdReason.trim().take(256).ifBlank { return }
+        val last = packet.holdReasons.lastOrNull()
+        if (last == clean) return  // dedupe
+        packet.holdReasons.add(clean)
+        while (packet.holdReasons.size > MAX_HOLD_REASONS_PER_PACKET) {
+            packet.holdReasons.poll()
+        }
+        bumpSignal("hold|${packet.traderSource}|$clean")
+    }
+
+    /**
+     * Record a scan / candidate decision (pass, fail, veto, approve, skip).
+     * Fed from discovery, scoring gates, veto layers — every pass/fail.
+     */
+    fun recordScanDecision(
+        traderSource: String,
+        mintOrSymbol: String,
+        verdict: String,
+        reason: String,
+    ) {
+        val cleanVerdict = verdict.trim().take(32).ifBlank { "UNKNOWN" }
+        val cleanReason  = reason.trim().take(128).ifBlank { "UNSPECIFIED" }
+        bumpSignal("scan|${traderSource}|$cleanVerdict|$cleanReason")
+    }
+
+    /**
+     * Record a single AI-layer vote. Category is free-form ("entry", "exit",
+     * "hold", "scale"). Fed from UnifiedScorer, trader sub-AIs, symbolic
+     * reasoner, reflex layer, etc.
+     */
+    fun recordLayerVote(layerName: String, voteValue: Int, category: String = "entry") {
+        val bucket = when {
+            voteValue >= 3  -> "BULL"
+            voteValue >= 1  -> "WEAK_BULL"
+            voteValue <= -3 -> "BEAR"
+            voteValue <= -1 -> "WEAK_BEAR"
+            else            -> "NEUTRAL"
+        }
+        bumpSignal("vote|$layerName|$category|$bucket")
+    }
+
+    /**
+     * Regret tracking — record a candidate we passed on that later ripped or
+     * dumped, so we learn to stop skipping similar setups (or to keep
+     * skipping them if they dump).
+     */
+    fun recordMissedOpportunity(
+        traderSource: String,
+        mintOrSymbol: String,
+        missedReason: String,
+        laterPnlPct: Double,
+    ) {
+        val clean = missedReason.trim().take(128).ifBlank { "UNSPECIFIED" }
+        val key = "missed|$traderSource|$clean"
+        val c = signalStats.getOrPut(key) { SignalCounter() }
+        c.count++
+        c.totalPnl += laterPnlPct
+        c.lastMs = System.currentTimeMillis()
+        if (laterPnlPct > 0) c.wins++ else c.losses++
+    }
+
+    /**
+     * Ultra-generic firehose — any code path anywhere in the app can call
+     * this to feed an observation into the education layer. Use sparingly
+     * and with stable namespaces ("whale.spike", "regime.shift", etc).
+     */
+    fun recordGeneralSignal(namespace: String, key: String, tag: String = "") {
+        val composed = buildString {
+            append("gen|"); append(namespace)
+            if (key.isNotBlank()) { append("|"); append(key.take(64)) }
+            if (tag.isNotBlank()) { append("|"); append(tag.take(64)) }
+        }
+        bumpSignal(composed)
+    }
+
+    private fun bumpSignal(key: String) {
+        val c = signalStats.getOrPut(key) { SignalCounter() }
+        c.count++
+        c.lastMs = System.currentTimeMillis()
+        // Prune if it grows out of hand (keep the hottest 5000 keys).
+        if (signalStats.size > 5000) {
+            try {
+                val cutoff = System.currentTimeMillis() - 14L * 24 * 3600_000
+                signalStats.entries.removeIf { it.value.lastMs < cutoff }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Fold an outcome into reasonStats. Called from
+     * recordTradeOutcomeAcrossAllLayers when the trade closes. Merges the
+     * stamped entry reason + every hold reason + the explicit exit reason
+     * into per-reason win/loss accounting.
+     */
+    internal fun applyOutcomeToReasonStats(outcome: TradeOutcomeData) {
+        val packet = openReasonPackets.remove(outcome.mint)
+        val source = outcome.traderSource.ifBlank { packet?.traderSource ?: "UNKNOWN" }
+        val isWin  = outcome.isWin
+        val pnl    = outcome.pnlPct
+
+        // Entry reason
+        val entryReason = outcome.entryReason.ifBlank { packet?.entryReason ?: "" }
+        if (entryReason.isNotBlank()) {
+            tallyReason("entry|$source|$entryReason", isWin, pnl)
+        }
+
+        // Hold reasons
+        val holds: Collection<String> = when {
+            outcome.holdReasons.isNotEmpty() -> outcome.holdReasons
+            packet != null                    -> packet.holdReasons.toList()
+            else                               -> emptyList()
+        }
+        holds.forEach { h ->
+            tallyReason("hold|$source|$h", isWin, pnl)
+        }
+
+        // Exit reason
+        if (outcome.exitReason.isNotBlank()) {
+            tallyReason("exit|$source|${outcome.exitReason}", isWin, pnl)
+        }
+
+        // Loss reason (if populated)
+        if (!isWin && outcome.lossReason.isNotBlank()) {
+            tallyReason("loss|$source|${outcome.lossReason}", isWin, pnl)
+        }
+
+        // Trader-level aggregate
+        tallyReason("trader|$source|TOTAL", isWin, pnl)
+    }
+
+    private fun tallyReason(key: String, isWin: Boolean, pnlPct: Double) {
+        val s = reasonStats.getOrPut(key) { ReasonStat() }
+        s.count++
+        if (isWin) s.wins++ else s.losses++
+        s.pnlSumPct += pnlPct
+        if (pnlPct > s.pnlBestPct)  s.pnlBestPct  = pnlPct
+        if (pnlPct < s.pnlWorstPct) s.pnlWorstPct = pnlPct
+        s.lastSeenMs = System.currentTimeMillis()
+        if (reasonStats.size > 8000) {
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24 * 3600_000
+                reasonStats.entries.removeIf { it.value.lastSeenMs < cutoff }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Top-N winning reasons across a trader source. Null source = everyone.
+     */
+    fun getTopWinningReasons(traderSource: String? = null, limit: Int = 15): List<Pair<String, ReasonStat>> {
+        return reasonStats.entries.asSequence()
+            .filter { it.value.count >= 3 }
+            .filter { traderSource == null || it.key.contains("|$traderSource|") }
+            .sortedByDescending { it.value.winRate * kotlin.math.ln((it.value.count + 1).toDouble()) }
+            .take(limit)
+            .map { it.key to it.value }
+            .toList()
+    }
+
+    fun getTopLosingReasons(traderSource: String? = null, limit: Int = 15): List<Pair<String, ReasonStat>> {
+        return reasonStats.entries.asSequence()
+            .filter { it.value.count >= 3 }
+            .filter { traderSource == null || it.key.contains("|$traderSource|") }
+            .sortedBy { it.value.winRate * kotlin.math.ln((it.value.count + 1).toDouble()) }
+            .take(limit)
+            .map { it.key to it.value }
+            .toList()
+    }
+
+    /** Snapshot for UI / LLM introspection. */
+    fun getReasonLearningSnapshot(): Map<String, Any> = mapOf(
+        "openPackets" to openReasonPackets.size,
+        "reasonKeys"  to reasonStats.size,
+        "signalKeys"  to signalStats.size,
+        "topWinners"  to getTopWinningReasons(limit = 5).map { (k, s) ->
+            mapOf("key" to k, "winRate" to s.winRate, "count" to s.count, "avgPnl" to s.avgPnlPct)
+        },
+        "topLosers"   to getTopLosingReasons(limit = 5).map { (k, s) ->
+            mapOf("key" to k, "winRate" to s.winRate, "count" to s.count, "avgPnl" to s.avgPnlPct)
+        },
+    )
+
     /**
      * V5.7.3: Get stock-specific learning statistics
      */

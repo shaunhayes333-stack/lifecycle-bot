@@ -1009,6 +1009,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         totalTrades.incrementAndGet()
 
         // V5.9.130: register V3 entry for real-accuracy close loop.
+        // V5.9.170: feed entry reason chain into the education layer.
         try {
             PerpsUnifiedScorerBridge.registerEntry(
                 symbol = signal.market.symbol,
@@ -1017,6 +1018,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 entryPrice = signal.price,
                 entryLiqUsd = 10_000_000.0,
                 v3Score = signal.score,
+                entryReason = signal.reasons.take(6).joinToString("|").ifBlank { "Stocks:${signal.direction.name}" },
+                traderSource = "Stocks",
             )
         } catch (_: Exception) {}
         
@@ -1121,11 +1124,15 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // V5.9.130: close V3 learning loop → drives real accuracy update on
         // every one of the 41 AI layers based on how this stock trade resolved
         // vs what each layer predicted.
+        // V5.9.170: include real exit reason so the education firehose
+        // captures WHY the stock exited, not just the pct.
         try {
             PerpsUnifiedScorerBridge.recordClose(
                 symbol = position.market.symbol,
                 assetClass = "STOCK",
                 pnlPct = position.getUnrealizedPnlPct(),
+                exitReason = reason.ifBlank { "stock_close" },
+                lossReason = if (position.getUnrealizedPnlPct() < -2.0) reason else "",
             )
         } catch (_: Exception) {}
         

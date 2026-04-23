@@ -3211,6 +3211,31 @@ class Executor(
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
         TradeAlerts.onBuy(cfg(), tradeId.symbol, actualSol, score, 0.0, ts.position.tradingMode, isPaper = true)
+
+        // V5.9.170 — stamp entry reason into the universal learning firehose
+        // so EducationSubLayerAI can fold "why we bought" into per-reason
+        // win/loss statistics when this position closes.
+        try {
+            val reason = buildString {
+                append(currentMode.name)
+                if (ts.phase.isNotBlank()) { append("|phase="); append(ts.phase) }
+                append("|q=$quality")
+                append("|src=${ts.source.ifBlank { "UNKNOWN" }}")
+                if (ts.meta.emafanAlignment.isNotBlank()) { append("|emafan="); append(ts.meta.emafanAlignment) }
+                val pressBand = when {
+                    ts.meta.pressScore >= 70 -> "HI"
+                    ts.meta.pressScore >= 50 -> "MID"
+                    else -> "LO"
+                }
+                append("|press="); append(pressBand)
+            }
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
+                mint = tradeId.mint,
+                traderSource = "Meme",
+                reason = reason,
+                scoreHint = score,
+            )
+        } catch (_: Exception) {}
     }
     
     fun v3Buy(
@@ -3818,6 +3843,23 @@ class Executor(
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
             TradeAlerts.onBuy(cfg(), tradeId.symbol, sol, score, walletSol, ts.position.tradingMode, isPaper = false)
+
+            // V5.9.170 — stamp entry reason (LIVE mode) into firehose.
+            try {
+                val reason = buildString {
+                    append(ts.position.tradingMode.ifBlank { "LIVE" })
+                    if (ts.phase.isNotBlank()) { append("|phase="); append(ts.phase) }
+                    append("|q=$quality")
+                    append("|src=${ts.source.ifBlank { "UNKNOWN" }}")
+                    if (ts.meta.emafanAlignment.isNotBlank()) { append("|emafan="); append(ts.meta.emafanAlignment) }
+                }
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
+                    mint = tradeId.mint,
+                    traderSource = "Meme",
+                    reason = reason,
+                    scoreHint = score,
+                )
+            } catch (_: Exception) {}
             
             onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
             
@@ -6019,6 +6061,9 @@ class Executor(
                     } else 0.0
                 },
                 timeToPeakMins = holdMinutes * 0.5,
+                // V5.9.170 — traderSource + lossReason for firehose.
+                traderSource = "Meme",
+                lossReason = if (pnlP < -2.0) reason else "",
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -6264,3 +6309,4 @@ class Executor(
     private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
 }
 private fun Double.fmtPct() = "%+.1f%%".format(this)
+
