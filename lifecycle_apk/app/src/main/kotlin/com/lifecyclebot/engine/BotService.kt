@@ -6350,7 +6350,7 @@ if (deferredCount > 0) {
     val learningProgress = try {
         com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
     } catch (_: Exception) { 0.0 }
-    val isBootstrap = learningProgress < 0.50  // Bootstrap phase ends at 0.5 (500 trades)
+    val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
 
     // V5.9.31 FLUID: the bot chooses its own conf floor via FluidLearningAI.
     // Bootstrap (0%): ~15 — wide open, gather data.

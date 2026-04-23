@@ -176,7 +176,7 @@ object TradeLifecycle {
     private const val MAX_PROPOSALS_PER_WINDOW_BOOTSTRAP = 30  // bootstrap: 30 proposals per 2 min
     private const val PROPOSAL_WINDOW_MS = 2 * 60_000L    // 2 min window
     private const val BLOCKED_STATE_EXPIRE_MS = 30_000L              // mature: states expire after 30s
-    private const val BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP = 10_000L    // bootstrap: expire after 10s
+    private const val BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP = 3_000L     // V5.9.165: was 10s — hot tokens shouldn't lock out
 
     private fun isBootstrap(): Boolean = try {
         com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
@@ -222,26 +222,29 @@ object TradeLifecycle {
         // Include FDG_BLOCKED and CANDIDATE to prevent spam re-evaluation
         val lc = lifecycles[mint]
         if (lc != null) {
+            // V5.9.165 — CANDIDATE and PROPOSED are transient pipeline
+            // states, not "already has a position". They should NOT block
+            // re-proposal. Only block on real in-flight states and actual
+            // open positions (EXECUTED / MONITORING). This stops rejected
+            // or evaluated candidates from locking out 10-30s of re-eval.
             val blockingStates = listOf(
-                State.CANDIDATE, State.PROPOSED, State.FDG_BLOCKED, State.FDG_APPROVED, 
-                State.SIZED, State.EXECUTED, State.MONITORING
+                State.FDG_BLOCKED, State.FDG_APPROVED, State.SIZED,
+                State.EXECUTED, State.MONITORING,
             )
-            
+
             if (lc.currentState in blockingStates) {
-                // Check if blocked state has expired (allow retry after BLOCKED_STATE_EXPIRE_MS)
+                // Check if blocked state has expired (allow retry after blockedExpireMs)
                 val lastTransition = lc.transitions.lastOrNull()
                 val stateAge = now - (lastTransition?.timestamp ?: lc.startTime)
-                
+
                 // These states can expire and allow retry:
-                // - CANDIDATE: Strategy generated signal but didn't proceed
                 // - FDG_BLOCKED: FDG blocked but maybe conditions changed
                 // - FDG_APPROVED: Approved but execution might have failed
                 // - SIZED: Size calculated but trade didn't execute
-                // - PROPOSED: Proposed but didn't get evaluated
                 val canExpire = lc.currentState in listOf(
-                    State.CANDIDATE, State.FDG_BLOCKED, State.FDG_APPROVED, State.SIZED, State.PROPOSED
+                    State.FDG_BLOCKED, State.FDG_APPROVED, State.SIZED,
                 )
-                
+
                 if (canExpire && stateAge >= blockedExpireMs) {
                     // State has expired, allow re-proposal
                     lc.transition(State.EXPIRED, "Blocked state expired after ${stateAge/60000}min")

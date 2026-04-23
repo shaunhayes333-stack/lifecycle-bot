@@ -244,7 +244,7 @@ object UnifiedModeOrchestrator {
             val learningProgress = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
             } catch (_: Exception) { 0.0 }
-            val isBootstrapPhase = learningProgress < 0.50
+            val isBootstrapPhase = learningProgress < 0.40  // V5.9.165: aligned
 
             val minTrades = when {
                 isPaperMode && isBootstrapPhase -> Int.MAX_VALUE  // Never deactivate in bootstrap

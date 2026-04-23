@@ -403,7 +403,7 @@ object FinalDecisionGate {
         val adaptive = getAdaptiveConfidence(isPaperMode)
         val diff = adaptive - fluidBase
         val sign = if (diff >= 0) "+" else ""
-        val isBootstrap = learningProgress < 0.1
+        val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
 
         val tierLabel = try {
             val solPrice = WalletManager.lastKnownSolPrice
@@ -444,7 +444,7 @@ object FinalDecisionGate {
             totalTradesLearned = totalTrades,
             paperConfThreshold = paperConf.toInt(),
             liveConfThreshold = liveConf.toInt(),
-            isBootstrap = learningProgress < 0.1,
+            isBootstrap = learningProgress < 0.40,  // V5.9.165: aligned
             fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress).toInt()
         )
     }
@@ -687,7 +687,7 @@ object FinalDecisionGate {
         val learningProgress = FluidLearningAI.getLearningProgress()
         // V5.6.28f: UNIFIED LEARNING - No separate bootstrap for LIVE
         // LIVE inherits all PAPER learning. Both modes use same thresholds.
-        val isBootstrapPhase = learningProgress < 0.25
+        val isBootstrapPhase = learningProgress < 0.40  // V5.9.165: aligned
         val isPaperMode = mode == TradeMode.PAPER
         // V5.6.28f: Allow confidence floor bypass for BOTH modes during learning
         val canBypassConfidenceFloors = isBootstrapPhase

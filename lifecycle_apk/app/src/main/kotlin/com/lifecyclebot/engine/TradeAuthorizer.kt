@@ -342,18 +342,35 @@ object TradeAuthorizer {
             }
 
             "B" -> {
-                if (confidence >= 40.0) {
+                // V5.9.165 — fluid B-grade floor aligned with DecisionEngine.
+                // Was hardcoded 40; DecisionEngine uses 20-40 fluid by
+                // learning progress, so a candidate with conf=22 at 10%
+                // learning would pass DecisionEngine but be silently
+                // downgraded to SHADOW_ONLY here.
+                val learningProg = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+                } catch (_: Exception) { 1.0 }
+                val bFloor = (20 + (learningProg * 20)).toInt().coerceIn(20, 40)
+                if (confidence >= bFloor) {
                     PromotionResult(true, "LIVE_PASS_B_conf_${confidence.toInt()}")
                 } else {
-                    PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_40")
+                    PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_$bFloor")
                 }
             }
 
             "C" -> {
-                if (confidence >= 25.0) {
+                // V5.9.165 — fluid C-grade floor aligned with DecisionEngine.
+                // Was hardcoded 25; mature-mode only. At bootstrap a
+                // candidate with conf=22 would pass BotOrchestrator
+                // (fluidKillFloor=20) and DecisionEngine, but fail here.
+                val learningProg = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+                } catch (_: Exception) { 1.0 }
+                val cFloor = (15 + (learningProg * 20)).toInt().coerceIn(15, 35)
+                if (confidence >= cFloor) {
                     PromotionResult(true, "LIVE_PASS_C_conf_${confidence.toInt()}")
                 } else {
-                    PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_25")
+                    PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_$cFloor")
                 }
             }
 

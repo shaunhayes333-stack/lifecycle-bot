@@ -178,7 +178,7 @@ class BotOrchestrator(
         } catch (_: Exception) {
             0.0
         }
-        val isBootstrap = learningProgress < 0.25
+        val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
 
         val looperResult = checkLooper(
             candidate = candidate,
