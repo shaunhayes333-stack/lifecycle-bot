@@ -5147,8 +5147,14 @@ if (deferredCount > 0) {
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
                     // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
-                    // Moonshot accepts promotions from any layer
-                    if (ts.lastMcap in 10_000.0..100_000_000.0) {
+                    // V5.9.160: fresh pump.fun / DexScreener trending tokens often
+                    // arrive with lastMcap == 0 before the first mcap fetch lands;
+                    // treating "no data" as "out of range" was silently killing
+                    // the entire Moonshot evaluation path for most fresh memes.
+                    // Fall back to a liquidity proxy (>= $3K) when mcap is unknown.
+                    val mcapInZone = ts.lastMcap in 10_000.0..100_000_000.0
+                    val mcapUnknownButLiq = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 3_000.0
+                    if (mcapInZone || mcapUnknownButLiq) {
                         
                         // V5.2: Check execution permit for MOONSHOT book
                         val moonshotPermit = FinalExecutionPermit.canExecute(

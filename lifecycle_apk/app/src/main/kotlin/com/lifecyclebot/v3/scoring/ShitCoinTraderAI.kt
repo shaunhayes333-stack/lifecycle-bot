@@ -109,7 +109,18 @@ object ShitCoinTraderAI {
     private const val MIN_SOCIAL_SCORE = 20           // Minimum social presence (0-100)
     
     // Age requirements - Fresh tokens only
-    private const val MAX_TOKEN_AGE_HOURS = 6.0       // Only tokens <6 hours old
+    private const val MAX_TOKEN_AGE_HOURS = 6.0       // Only tokens <6 hours old (mature)
+    // V5.9.160: tokenAgeMinutes in BotService is counted from addedToWatchlistAt,
+    // i.e. the moment the bot FIRST DISCOVERED the token, not the token's real
+    // on-chain creation time. That means once the bot has been running 6h+,
+    // every single token discovered in the first hour is silently TOO_OLD'd —
+    // a massive hidden volume throttle that grows worse the longer you run.
+    // Bootstrap: lift the ceiling to 3 days so the learner gets full flow.
+    private const val MAX_TOKEN_AGE_HOURS_BOOTSTRAP = 72.0
+    private fun effectiveMaxTokenAgeHours(): Double = try {
+        if (FluidLearningAI.getLearningProgress() < 0.40) MAX_TOKEN_AGE_HOURS_BOOTSTRAP
+        else MAX_TOKEN_AGE_HOURS
+    } catch (_: Exception) { MAX_TOKEN_AGE_HOURS }
     private const val OPTIMAL_AGE_MINUTES = 30.0      // Sweet spot: 30 mins - 2 hours
     
     // Graduation detection (pump.fun specific)
@@ -543,12 +554,16 @@ object ShitCoinTraderAI {
         // SHITCOIN FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be <$5K (this is the shitcoin zone)
+        // 1. MARKET CAP FILTER - Must be in the shitcoin zone
+        // V5.9.160: treat marketCapUsd == 0 as UNKNOWN, not "below floor".
+        // Fresh pump.fun / DexScreener trending entries often arrive without
+        // a populated mcap number and the MCAP_TOO_LOW reject was silently
+        // eating the entire ShitCoin signal for the fresh-meme flow.
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(MAX_MARKET_CAP_USD/1000).toInt()}K", mode, launchPlatform)
         }
-        
-        if (marketCapUsd < MIN_MARKET_CAP_USD) {
+
+        if (marketCapUsd > 0.0 && marketCapUsd < MIN_MARKET_CAP_USD) {
             return rejectSignal("MCAP_TOO_LOW: \$${marketCapUsd.toInt()} < \$${MIN_MARKET_CAP_USD.toInt()}", mode, launchPlatform)
         }
         
@@ -578,8 +593,8 @@ object ShitCoinTraderAI {
             return rejectSignal("COPYCAT_SCAM_DETECTED", mode, launchPlatform)
         }
         
-        // 7. TOKEN AGE CHECK - Only fresh tokens
-        val maxAgeHours = MAX_TOKEN_AGE_HOURS
+        // 7. TOKEN AGE CHECK - Only fresh tokens (fluid during bootstrap)
+        val maxAgeHours = effectiveMaxTokenAgeHours()
         if (tokenAgeMinutes > maxAgeHours * 60) {
             return rejectSignal("TOO_OLD: ${(tokenAgeMinutes/60).toInt()}h > ${maxAgeHours.toInt()}h", mode, launchPlatform)
         }
@@ -1146,8 +1161,16 @@ object ShitCoinTraderAI {
      * Check if this token qualifies as a "shitcoin" (low mcap, fresh)
      */
     fun isShitCoinCandidate(marketCapUsd: Double, tokenAgeMinutes: Double): Boolean {
-        return marketCapUsd in MIN_MARKET_CAP_USD..MAX_MARKET_CAP_USD &&
-               tokenAgeMinutes < MAX_TOKEN_AGE_HOURS * 60
+        // V5.9.160: fresh pump.fun / DexScreener trending tokens often arrive with
+        // marketCapUsd == 0 before the first mcap fetch lands. Treating "no data"
+        // as "not a candidate" was silently killing 40-60% of fresh meme flow.
+        // Allow mcap == 0 through as a candidate; the downstream scorer has its
+        // own MCAP_TOO_HIGH / MCAP_TOO_LOW checks that handle it properly once
+        // the real number arrives.
+        // Also allow age UP TO the full MAX_TOKEN_AGE_HOURS window (strictly <).
+        val mcapOk = marketCapUsd <= 0.0 ||
+                     marketCapUsd in MIN_MARKET_CAP_USD..MAX_MARKET_CAP_USD
+        return mcapOk && tokenAgeMinutes < effectiveMaxTokenAgeHours() * 60
     }
     
     /**
