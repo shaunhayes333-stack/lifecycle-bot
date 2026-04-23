@@ -1343,6 +1343,20 @@ object EducationSubLayerAI {
         val m = layerPerformance[layerName]
         val trades = m?.totalOutcomesRecorded ?: 0
         if (trades < 20) return Triple(vote, 1.0, "NORMAL")
+
+        // V5.9.152 — keep all 41 layers at full weight during bootstrap.
+        // User (Freshman 32%, 37 trades, 19 losses): 'it won't learn if it
+        // can't trade'. At <40% learning, silencing weak layers means the
+        // weighted score collapses below the bootstrap floor for almost
+        // every candidate, which starves those same layers of the trade
+        // outcomes they need to prove themselves. Bypass here and let
+        // volume settle the ranking naturally; the gate kicks back in
+        // above 40% progress.
+        val learningProgress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Exception) { 1.0 }
+        if (learningProgress < 0.40) return Triple(vote, 1.0, "BOOTSTRAP_BYPASS")
+
         val hit = getLayerAccuracy(layerName)
         val exp = m?.expectancyPct ?: 0.0
         val (rawMult, status) = when {

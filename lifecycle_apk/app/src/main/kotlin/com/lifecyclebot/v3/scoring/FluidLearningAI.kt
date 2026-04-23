@@ -887,12 +887,15 @@ object FluidLearningAI {
      * Lerps from 25 (bootstrap) to 30 (mature). Hard cap at 40 prevents drift starvation.
      */
     fun getExecuteFloor(): Int {
-        // V5.9: Score floor scales with learning:
-        //   Bootstrap (0%):  25  — wide open, gather data
+        // V5.9.152: bootstrap = WIDE OPEN so the 41 layers collect data.
+        //   Bootstrap (0%):  15  — take almost every shot, it's the only way to learn
         //   Mature   (80%):  38  — tighter, known patterns only
         //   Expert  (100%):  45  — expert selectivity
-        val lerped = lerp(25.0, 45.0).toInt()
-        return lerped.coerceIn(25, 45)
+        // Old curve (25→45) left the bot at floor=31 at 32% maturity with
+        // 40%+ of scanner tokens still below — not enough volume to move
+        // any layer's accuracy off the default.
+        val lerped = lerp(15.0, 45.0).toInt()
+        return lerped.coerceIn(15, 45)
     }
 
     // Score bonuses are HIGHER in bootstrap to encourage more mode diversity

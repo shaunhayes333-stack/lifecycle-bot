@@ -368,10 +368,12 @@ class FinalDecisionEngine(
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (e: Exception) { 0.0 }
 
-        // Fluid confidence threshold: 25% at bootstrap → 50% at mature
-        // V5.6: Raised — at 75% learning was requiring 34% which lets too many losers through
-        // At 75% learning: 25 + 0.75 * 25 = 44% confidence required for execution
-        val fluidMinConfForExecute = (25 + (learningProgress * 25)).toInt().coerceIn(25, 50)
+        // Fluid confidence threshold: 15% at bootstrap → 50% at mature
+        // V5.9.152: bootstrap start lowered 25→15 so low-conviction shots
+        // can execute during bootstrap (user: 'it won't learn if it can't
+        // trade'). Mature end unchanged. At 32% learning (Freshman) the
+        // floor becomes 15 + 0.32*35 = 26 instead of 33.
+        val fluidMinConfForExecute = (15 + (learningProgress * 35)).toInt().coerceIn(15, 50)
 
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
@@ -381,9 +383,10 @@ class FinalDecisionEngine(
             fluidMinConfForExecute
         }
 
-        // C-grade confidence floor for EXECUTE_SMALL: 20% at bootstrap → 40% at mature
-        // V5.6: Raised — EXECUTE_SMALL was executing at 26% conf which is too low
-        val cGradeMinConf = (20 + (learningProgress * 20)).toInt().coerceIn(20, 40)
+        // C-grade confidence floor for EXECUTE_SMALL: 10% at bootstrap → 40% at mature
+        // V5.9.152: C-grade smallest-size probe should fire freely in
+        // bootstrap. At 32% learning: 10 + 0.32*30 = 20 instead of 26.
+        val cGradeMinConf = (10 + (learningProgress * 30)).toInt().coerceIn(10, 40)
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.5: DIRECTIONAL GATE — block only when BOTH signals are actively
@@ -416,8 +419,15 @@ class FinalDecisionEngine(
         // learn.
         val aggressiveConfFloor  = effectiveMinConf + 10
         val aggressiveScoreFloor = (effectiveMinScore * 1.3).toInt()
-        val standardConfFloor    = maxOf(effectiveMinConf, if (isCGrade) 25 else 40)
-        val smallConfFloor       = maxOf(effectiveCGradeConf, 25)
+        // V5.9.152: the hard `maxOf(..., 40)` B-grade floor was
+        // re-introducing the same bootstrap-freeze the fluid floors are
+        // trying to avoid. User (Freshman 32%): '37 trades, 19 losses —
+        // it won't learn if it can't trade'. Scale the B-grade floor with
+        // learning too: 20 at bootstrap → 40 at mature. C-grade path
+        // keeps its own fluid floor via effectiveCGradeConf.
+        val bGradeConfFloor = (20 + (learningProgress * 20)).toInt().coerceIn(20, 40)
+        val standardConfFloor    = maxOf(effectiveMinConf, if (isCGrade) 25 else bGradeConfFloor)
+        val smallConfFloor       = maxOf(effectiveCGradeConf, 15)
 
         val band = when {
             hasMomentumOrVolume && score >= aggressiveScoreFloor && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
