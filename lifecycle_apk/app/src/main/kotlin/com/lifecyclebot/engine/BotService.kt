@@ -2293,20 +2293,16 @@ class BotService : Service() {
         }
 
         // REMOVED: walletManager.disconnect() 
-        // Wallet should ONLY disconnect when user explicitly requests it
-        // This allows wallet to stay connected when:
-        // - Bot is stopped
-        // - App is minimized
-        // - App crashes and restarts
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-        wakeLock?.let { if (it.isHeld) it.release() }
-        wakeLock = null
-        
-        // V4.0: Reset initialization flags so services can reinit on next start
-        tradingModesInitialized = false
-        allTradingLayersReady = false
-        
+        // V5.9.157 — reorder teardown so every trader.stop() and
+        // closeAllPositions() runs BEFORE stopForeground/stopSelf. Previously
+        // stopSelf() fired first and the remaining coroutine kept running on
+        // the BotService scope; Android then auto-recreated the service via
+        // START_STICKY (user log 00:08:37 'onCreate starting'), and the OLD
+        // coroutine's tail reached trader.stop() 24s later, stopping the
+        // NEW service's traders (user log 00:08:50 'CryptoAltTrader STOPPED'
+        // AFTER the new instance started at 00:08:37). Symptom: bot refused
+        // to restart no matter how many times the user tapped Start.
+        //
         // V5.9.5: Close all Markets positions then stop all traders when main bot stops
         try {
             com.lifecyclebot.perps.TokenizedStockTrader.closeAllPositions()
@@ -2329,6 +2325,20 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Error stopping markets traders: ${e.message}", e)
         }
+
+        // V4.0: Reset initialization flags so services can reinit on next start
+        tradingModesInitialized = false
+        allTradingLayersReady = false
+
+        // Wallet should ONLY disconnect when user explicitly requests it
+        // This allows wallet to stay connected when:
+        // - Bot is stopped
+        // - App is minimized
+        // - App crashes and restarts
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
