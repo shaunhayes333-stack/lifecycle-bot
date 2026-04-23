@@ -291,9 +291,28 @@ class UnifiedScorer(
                     (if (vetoReason != null) " | VETO" else ""))
             }
             
+            // V5.9.139 — APPROVAL MEMORY BOOST
+            // Ask EducationSubLayerAI whether the current bullish vote set
+            // matches a previously-winning approval pattern. Positive
+            // expectancy patterns get a +3..+10 nudge; actively bad ones
+            // get a -6..-2 penalty. This is the "learn from good behaviour"
+            // channel the bot has been missing — balances the reject-side
+            // learning from ShadowLearningEngine.
+            val votesForApproval = (v59123CappedComponents + metaComponent + behaviorComponent)
+                .associate { it.name to it.value }
+            val (approvalNudge, approvalReason) = try {
+                EducationSubLayerAI.approvalBoostFor(votesForApproval)
+            } catch (_: Exception) { 0 to "ERR" }
+            val approvalComponent = ScoreComponent(
+                name = "approval_memory",
+                value = approvalNudge,
+                reason = approvalReason,
+            )
+
             // Return scorecard with all components including behavior
-            // Return scorecard with all components including behavior
-            val finalCard = ScoreCard(v59123CappedComponents + metaComponent + behaviorComponent)
+            val finalCard = ScoreCard(
+                v59123CappedComponents + metaComponent + behaviorComponent + approvalComponent
+            )
             // V5.9.126 — capture entry scores for real per-layer accuracy learning
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
             return finalCard

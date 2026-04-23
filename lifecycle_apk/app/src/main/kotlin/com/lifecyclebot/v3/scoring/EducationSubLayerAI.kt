@@ -757,6 +757,11 @@ object EducationSubLayerAI {
         // (|score| > 2) get their accuracy updated. Runs AFTER legacy hooks
         // so dedicated recordOutcome() paths still execute unchanged.
         // ═══════════════════════════════════════════════════════════════════
+        // V5.9.139 — analyse approval-pattern BEFORE applyRealAccuracy
+        // consumes pendingEntryScores. Otherwise the snapshot is gone and
+        // the approval learner silently sees nothing.
+        analyzeLayerCorrelations(outcome)
+
         val realUpdates = applyRealAccuracyLearning(outcome)
         if (realUpdates > 0) {
             ErrorLogger.info(TAG, "🎯 REAL ACCURACY: ${outcome.symbol} — ${realUpdates} layers updated from entry-score correlation")
@@ -766,8 +771,7 @@ object EducationSubLayerAI {
         // PHASE 6: Cross-Layer Learning (Harvard Brain Magic)
         // ═══════════════════════════════════════════════════════════════════
         
-        // Analyze which layer combinations predicted this outcome correctly
-        analyzeLayerCorrelations(outcome)
+        // (approval-pattern analysis already ran above — see V5.9.139 note)
         
         // Update curriculum progress
         updateCurriculumProgress()
@@ -883,39 +887,160 @@ object EducationSubLayerAI {
     
     // ═══════════════════════════════════════════════════════════════════════════
     // CROSS-LAYER CORRELATION ANALYSIS (The Harvard Brain)
+    // ───────────────────────────────────────────────────────────────────────────
+    // V5.9.139 — APPROVAL DATA UPGRADE
+    // The old analyzer built its "bullish layer" signature from a layer's
+    // HISTORICAL accuracy (> 55%), not its actual vote on this trade. The
+    // signature therefore contained the same good layers on every trade and
+    // told us nothing new — the bot was only learning from the rejection
+    // side (ShadowLearningEngine etc.), exactly as it complained to the
+    // user ("Rejection data is richer than approval data").
+    //
+    // New approach: snapshot the REAL entry vote map (captured by
+    // recordEntryScores() in UnifiedScorer) and build the approval
+    // signature from layers that ACTUALLY voted bullish on THIS trade.
+    // We also track expectancy per signature (pnlSum / count), not just
+    // wins/losses, and expose it as a boost the scorer can lean into.
     // ═══════════════════════════════════════════════════════════════════════════
-    
-    private val winningCombinations = ConcurrentHashMap<String, Int>()
-    private val losingCombinations = ConcurrentHashMap<String, Int>()
-    
-    private fun analyzeLayerCorrelations(outcome: TradeOutcomeData) {
-        // Build a signature of which layers were "bullish" on this trade
-        val bullishLayers = mutableListOf<String>()
-        
-        // Check each layer's current stance (simplified - would need full integration)
-        // For now, track which layers had recent positive signals
-        layerPerformance.forEach { (name, metrics) ->
-            if (metrics.accuracy > 55 && metrics.learningVelocity > 0) {
-                bullishLayers.add(name)
-            }
-        }
-        
-        if (bullishLayers.size >= 2) {
-            val signature = bullishLayers.sorted().joinToString("+")
-            if (outcome.isWin) {
-                winningCombinations.merge(signature, 1) { old, _ -> old + 1 }
-            } else {
-                losingCombinations.merge(signature, 1) { old, _ -> old + 1 }
-            }
-        }
+
+    data class ApprovalRecord(
+        var wins: Int = 0,
+        var losses: Int = 0,
+        var pnlSumPct: Double = 0.0,
+        var pnlBestPct: Double = 0.0,
+        var pnlWorstPct: Double = 0.0,
+        var lastSeen: Long = 0L,
+    ) {
+        val count: Int get() = wins + losses
+        val winRate: Double get() = if (count > 0) wins.toDouble() / count else 0.0
+        val expectancyPct: Double get() = if (count > 0) pnlSumPct / count else 0.0
     }
-    
+
+    private val winningCombinations = ConcurrentHashMap<String, Int>()
+    private val losingCombinations  = ConcurrentHashMap<String, Int>()
+    private val approvalPatterns    = ConcurrentHashMap<String, ApprovalRecord>()
+
+    /** Minimum number of bullish layers required to form a signature. */
+    private const val APPROVAL_MIN_BULLISH = 2
+
+    /** Max layers we'll encode in one signature (keep cardinality sane). */
+    private const val APPROVAL_MAX_LAYERS = 6
+
+    /** Bullish threshold on the raw component score (matches real-accuracy gate). */
+    private const val APPROVAL_BULLISH_THRESHOLD = 3
+
+    private fun buildApprovalSignature(entryScores: Map<String, Int>?): String? {
+        if (entryScores.isNullOrEmpty()) return null
+        val bullish = entryScores
+            .asSequence()
+            .filter { (_, s) -> s >= APPROVAL_BULLISH_THRESHOLD }
+            .sortedByDescending { it.value }
+            .take(APPROVAL_MAX_LAYERS)
+            .map { it.key }
+            .toList()
+        if (bullish.size < APPROVAL_MIN_BULLISH) return null
+        return bullish.sorted().joinToString("+")
+    }
+
+    private fun analyzeLayerCorrelations(outcome: TradeOutcomeData) {
+        // V5.9.139 — use the REAL entry vote map (peek, do not remove —
+        // applyRealAccuracyLearning consumes it a few lines later).
+        val entryScores = pendingEntryScores[outcome.mint]?.scores
+        val signature = buildApprovalSignature(entryScores) ?: return
+
+        // Legacy win/loss counters (kept for backward compatibility with
+        // getWinningLayerCombinations()).
+        if (outcome.isWin) {
+            winningCombinations.merge(signature, 1) { old, _ -> old + 1 }
+        } else {
+            losingCombinations.merge(signature, 1) { old, _ -> old + 1 }
+        }
+
+        // Rich approval record — this is the new good-behaviour memory.
+        val rec = approvalPatterns.getOrPut(signature) { ApprovalRecord() }
+        if (outcome.isWin) rec.wins++ else rec.losses++
+        val pnl = outcome.pnlPct.coerceIn(-95.0, 1000.0)
+        rec.pnlSumPct   += pnl
+        rec.pnlBestPct   = if (pnl > rec.pnlBestPct)  pnl else rec.pnlBestPct
+        rec.pnlWorstPct  = if (pnl < rec.pnlWorstPct) pnl else rec.pnlWorstPct
+        rec.lastSeen     = System.currentTimeMillis()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.9.139 — public APIs for the rest of the brain
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Returns the best-matching approval-pattern boost for a candidate's
+     * entry vote map. Pipeline:
+     *   1. Build the bullish signature the same way as the learner.
+     *   2. Look up in approvalPatterns (exact match).
+     *   3. If no exact match, fall back to the biggest known sub-pattern
+     *      contained within the candidate's bullish set.
+     *   4. Gate by min sample size and non-negative expectancy.
+     *   5. Return a clamped [-6, +10] score nudge.
+     */
+    fun approvalBoostFor(entryScores: Map<String, Int>?): Pair<Int, String> {
+        val signature = buildApprovalSignature(entryScores) ?: return 0 to "NO_SIG"
+
+        // Exact match first.
+        val exact = approvalPatterns[signature]?.takeIf { it.count >= 5 }
+        val (rec, matched) = if (exact != null) {
+            exact to signature
+        } else {
+            // Fallback: largest subset that is also a known winning sig.
+            val bullishSet = signature.split("+").toSet()
+            var best: ApprovalRecord? = null
+            var bestSig: String = ""
+            approvalPatterns.forEach { (sig, r) ->
+                if (r.count < 5) return@forEach
+                val parts = sig.split("+")
+                if (parts.size > bullishSet.size) return@forEach
+                if (!parts.all { it in bullishSet }) return@forEach
+                val isBetter = best == null ||
+                    parts.size > bestSig.split("+").size ||
+                    (parts.size == bestSig.split("+").size && r.expectancyPct > (best?.expectancyPct ?: -1e9))
+                if (isBetter) { best = r; bestSig = sig }
+            }
+            (best ?: return 0 to "NO_MATCH") to bestSig
+        }
+
+        // Convert expectancy → integer score nudge.
+        //   +5% expectancy → +3,  +20% → +6,  +50% → +8,  +100% → +10
+        //   -5% expectancy → -2,  -20% → -4,  -50% → -6
+        val exp = rec.expectancyPct
+        val nudge = when {
+            exp >=  50.0 -> 10
+            exp >=  20.0 ->  6 + ((exp - 20.0) / 15.0).toInt().coerceAtMost(2)
+            exp >=   5.0 ->  3 + ((exp -  5.0) / 5.0).toInt().coerceAtMost(2)
+            exp >  -5.0  ->  0
+            exp >= -20.0 -> -2
+            exp >= -50.0 -> -4
+            else         -> -6
+        }.coerceIn(-6, 10)
+        val reason = "APPROVAL:${matched.take(40)} ${rec.wins}W/${rec.losses}L exp=${"%+.1f".format(exp)}%"
+        return nudge to reason
+    }
+
+    /** Rich approval pattern leaderboard — replaces the thin old helper. */
+    fun getApprovalPatterns(minCount: Int = 5): List<Triple<String, ApprovalRecord, Double>> {
+        return approvalPatterns.entries
+            .filter { it.value.count >= minCount }
+            .map { (sig, r) ->
+                // Sort key: expectancy × sqrt(sample count) — rewards pattern
+                // that both hits often AND prints size.
+                val key = r.expectancyPct * kotlin.math.sqrt(r.count.toDouble())
+                Triple(sig, r, key)
+            }
+            .sortedByDescending { it.third }
+    }
+
     /**
      * Get layer combinations that predict winners.
      */
     fun getWinningLayerCombinations(): List<Pair<String, Double>> {
         return winningCombinations.entries
-            .filter { (sig, wins) -> 
+            .filter { (sig, wins) ->
                 val losses = losingCombinations[sig] ?: 0
                 wins + losses >= 5 // Min sample size
             }
@@ -1201,6 +1326,7 @@ object EducationSubLayerAI {
         layerPerformance.clear()
         winningCombinations.clear()
         losingCombinations.clear()
+        approvalPatterns.clear()
         lastLevel = CurriculumLevel.FRESHMAN
         ErrorLogger.warn(TAG, "🔄 ALL EDUCATION DATA RESET")
     }
@@ -1288,6 +1414,25 @@ object EducationSubLayerAI {
             
             // Save layer names list
             editor.putStringSet("layer_names", layerPerformance.keys.toSet())
+
+            // V5.9.139 — persist approval-pattern memory so good-behaviour
+            // learning isn't lost on restart.
+            try {
+                val arr = org.json.JSONArray()
+                approvalPatterns.forEach { (sig, rec) ->
+                    arr.put(org.json.JSONObject().apply {
+                        put("sig", sig)
+                        put("wins", rec.wins)
+                        put("losses", rec.losses)
+                        put("pnlSumPct", rec.pnlSumPct)
+                        put("pnlBestPct", rec.pnlBestPct)
+                        put("pnlWorstPct", rec.pnlWorstPct)
+                        put("lastSeen", rec.lastSeen)
+                    })
+                }
+                editor.putString("approval_patterns", arr.toString())
+            } catch (_: Exception) {}
+
             editor.apply()
             
             ErrorLogger.debug(TAG, "💾 Saved ${layerPerformance.size} layers to prefs")
@@ -1338,6 +1483,32 @@ object EducationSubLayerAI {
             }
             
             ErrorLogger.info(TAG, "📂 Loaded ${layerPerformance.size} layers from prefs | Total trades: ${getTotalTradesAcrossAllLayers()}")
+
+            // V5.9.139 — restore approval-pattern memory.
+            try {
+                val jsonStr = prefs.getString("approval_patterns", null)
+                if (!jsonStr.isNullOrBlank()) {
+                    val arr = org.json.JSONArray(jsonStr)
+                    var restored = 0
+                    for (i in 0 until arr.length()) {
+                        val o = arr.optJSONObject(i) ?: continue
+                        val sig = o.optString("sig")
+                        if (sig.isBlank()) continue
+                        approvalPatterns[sig] = ApprovalRecord(
+                            wins         = o.optInt("wins", 0),
+                            losses       = o.optInt("losses", 0),
+                            pnlSumPct    = o.optDouble("pnlSumPct",   0.0),
+                            pnlBestPct   = o.optDouble("pnlBestPct",  0.0),
+                            pnlWorstPct  = o.optDouble("pnlWorstPct", 0.0),
+                            lastSeen     = o.optLong("lastSeen", 0L),
+                        )
+                        restored++
+                    }
+                    if (restored > 0) {
+                        ErrorLogger.info(TAG, "📂 Restored $restored approval patterns")
+                    }
+                }
+            } catch (_: Exception) {}
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Load error: ${e.message}")
         }

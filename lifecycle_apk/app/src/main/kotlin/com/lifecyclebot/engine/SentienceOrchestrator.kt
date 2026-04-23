@@ -256,6 +256,28 @@ Use only non-zero fields that reflect what you actually want to shift today.
             appendLine("- Your own last few thoughts:")
             s.recentThoughts.forEach { appendLine("    ↳ $it") }
         }
+
+        // V5.9.139 — feed the LLM rich APPROVAL data so the monologue
+        // stops being dominated by rejection/loss content. This is the
+        // 'good behaviour' channel the bot asked for.
+        try {
+            val topApproval = com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                .getApprovalPatterns(minCount = 5)
+                .take(5)
+            if (topApproval.isNotEmpty()) {
+                appendLine("- APPROVAL PATTERNS that have made you money:")
+                topApproval.forEach { (sig, rec, _) ->
+                    val wr = (rec.winRate * 100).toInt()
+                    val short = sig.split("+").joinToString("+") { it.take(8) }
+                    appendLine(
+                        "    ✓ $short | ${rec.wins}W/${rec.losses}L " +
+                        "| wr=${wr}% | exp=${"%+.1f".format(rec.expectancyPct)}% " +
+                        "| best=${"%+.1f".format(rec.pnlBestPct)}%"
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
         appendLine()
         appendLine("Reflect. Adjust yourself. Speak.")
     }
