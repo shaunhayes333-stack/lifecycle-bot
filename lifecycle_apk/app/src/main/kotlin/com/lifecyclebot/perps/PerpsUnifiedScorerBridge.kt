@@ -144,7 +144,7 @@ object PerpsUnifiedScorerBridge {
                 trustMultiplier = 1.0,
                 blendedScore = technicalScore,
                 topReasons = listOf("v3_failed_fallback_to_technical"),
-                shouldEnter = technicalScore >= 60 && technicalConfidence >= 45,
+                shouldEnter = technicalScore >= 45 && technicalConfidence >= 35,
             )
         }
 
@@ -160,10 +160,26 @@ object PerpsUnifiedScorerBridge {
             .coerceIn(0.0, 120.0)
             .toInt()
 
-        // Gate: trader's technical must pass its own threshold AND blended
-        // must show positive signal. V3 never forces an entry the trader
-        // didn't want, only filters noise.
-        val shouldEnter = technicalScore >= 60 && blended >= 55 && v3Score > -10
+        // V5.9.153 — bootstrap-aware entry gate.
+        //
+        // User 04-23: 'it should be 250+ trades/hr' but log shows ~3000 CryptoAlt
+        // SIGNAL lines/hr (IO/HYPE/MOVE/TNSR/KMNO/PIXEL/RON/MAGIC/ENJ/CHZ/WBTC/PAXG
+        // /MSOL all at score=50-55 conf=54) and only ~12 actually becoming
+        // trades. The hard `technicalScore >= 60` floor vetoed every one of
+        // them — exactly the pattern V5.9.97 created for V3 that V5.9.150
+        // reverted there but was never touched here.
+        //
+        // Scale the floor with learning progress so bootstrap gets the volume
+        // it needs to train the V3 layers, and the floor tightens as the bot
+        // proves itself. At 0% learning: score≥45. At 100%: score≥60.
+        val lp = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Exception) { 1.0 }
+        val techFloor    = (45 + (lp * 15)).toInt().coerceIn(45, 60)
+        val blendedFloor = (40 + (lp * 15)).toInt().coerceIn(40, 55)
+        val shouldEnter  = technicalScore >= techFloor &&
+                           blended        >= blendedFloor &&
+                           v3Score        >  -10
 
         val topReasons = card.components
             .sortedByDescending { kotlin.math.abs(it.value) }
