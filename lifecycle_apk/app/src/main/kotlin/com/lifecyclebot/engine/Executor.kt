@@ -1067,13 +1067,19 @@ class Executor(
         }
         
         // ═══════════════════════════════════════════════════════════════════
-        // HOUSE MONEY MULTIPLIER — After capital recovered, we can be MUCH looser
+        // HOUSE MONEY MULTIPLIER — After capital recovered, we can be a TOUCH
+        // looser, but never enough to give back 25-35pp from a peak. The old
+        // 1.5-1.8× widening plus the old growing baseTrail curve was turning
+        // peak +136% into lock +101% (26% of peak value bled away).
+        // V5.9.145 — capped to 1.15× max. Profit-locked gets the most
+        // breathing room, but not at the expense of giving back a quarter
+        // of peak value.
         // ═══════════════════════════════════════════════════════════════════
         val houseMoneyMultiplier = when {
-            pos.profitLocked -> 1.8
-            pos.isHouseMoney -> 1.5
-            pos.capitalRecovered -> 1.4
-            else -> 1.0
+            pos.profitLocked     -> 1.15
+            pos.isHouseMoney     -> 1.10
+            pos.capitalRecovered -> 1.05
+            else                 -> 1.0
         }
         
         var healthMultiplier = 1.0
@@ -1114,27 +1120,49 @@ class Executor(
             healthMultiplier -= 0.30
         }
         
-        healthMultiplier = healthMultiplier.coerceIn(0.70, 1.6)
+        // V5.9.145 — tightened ceiling. Was 1.6x which could re-inflate a
+        // ×0.35 peak-locked trail back up to ×0.56 (+60% wider) on a strong
+        // BULL_FAN. We want the tight lock to hold; bull-regime conviction
+        // can still buy us modest extra room but not erase the trail
+        // inversion we just installed.
+        healthMultiplier = healthMultiplier.coerceIn(0.70, 1.25)
         
         val learnedTrailInfluence = if (ExitIntelligence.getTotalExits() >= 20) {
             val learnedStop = ExitIntelligence.getLearnedTrailingStopDistance()
             (learnedStop / 5.0).coerceIn(0.8, 2.0)
         } else 1.0
         
+        // V5.9.145 — INVERTED trail curve.
+        // Previous curve WIDENED as gain grew (base×1.5 at 100%, ×3 at 1000%),
+        // which stacked with houseMoneyMultiplier 1.5-1.8× meant the peak
+        // +136% MOG position had an effective trail of ~35pp — giving back
+        // 26% of peak value before exit triggered.
+        //
+        // New curve TIGHTENS as gain grows — the bigger the peak, the less
+        // of it we're willing to bleed:
+        //
+        //   peak   <  15%  → base × 1.00   (normal noise room for early moves)
+        //   peak  15-30%   → base × 0.85
+        //   peak  30-60%   → base × 0.65
+        //   peak  60-120%  → base × 0.50   (moon runner: lock ~90% of peak)
+        //   peak 120-250%  → base × 0.35   (big runner:  lock ~93% of peak)
+        //   peak 250-500%  → base × 0.28
+        //   peak 500-2000% → base × 0.25
+        //   peak > 2000%   → base × 0.22   (legendary: lock ~96% of peak)
+        //
+        // Example on alt mode (base=15): a 136% peak now trails at 15×0.35
+        // = 5.25pp instead of the old ~23pp+houseMult=35pp. We lock at
+        // 130.75% instead of 101%. That's 30pp of profit saved on a single
+        // position.
         val baseTrail = when {
-            gainPct >= 1000000  -> base * 8.0
-            gainPct >= 100000   -> base * 6.0
-            gainPct >= 10000    -> base * 5.0
-            gainPct >= 5000     -> base * 4.0
-            gainPct >= 2000     -> base * 3.5
-            gainPct >= 1000     -> base * 3.0
-            gainPct >= 500      -> base * 2.5
-            gainPct >= 300      -> base * 2.0
-            gainPct >= 200      -> base * 1.7
-            gainPct >= 100      -> base * 1.5
-            gainPct >= 50       -> base * 1.2
-            gainPct >= 30       -> base * 1.0
-            else                -> base * 0.85
+            gainPct >= 2000  -> base * 0.22
+            gainPct >= 500   -> base * 0.25
+            gainPct >= 250   -> base * 0.28
+            gainPct >= 120   -> base * 0.35
+            gainPct >= 60    -> base * 0.50
+            gainPct >= 30    -> base * 0.65
+            gainPct >= 15    -> base * 0.85
+            else             -> base * 1.00
         }
         
         var smartTrail = baseTrail * healthMultiplier * partialFactor * learnedTrailInfluence * houseMoneyMultiplier
