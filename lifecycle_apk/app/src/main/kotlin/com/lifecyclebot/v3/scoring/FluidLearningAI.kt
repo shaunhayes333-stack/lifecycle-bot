@@ -116,9 +116,32 @@ object FluidLearningAI {
     //   - Old: Matured to 1.0 (100%) at 1000 trades → stopped trading
     //   - New: Caps at 0.8 (80%) so thresholds never fully close
     //   - This ensures CONTINUOUS trading even with 10,000+ trades
-    private const val BOOTSTRAP_PHASE_END = 200   // V5.9.8: was 1000
-    private const val MATURE_PHASE_END = 500      // V5.9.8: was 3000
-    private const val EXPERT_PHASE_END = 2000     // V5.9.8: was 5000
+    //
+    // V5.9.149 — PHASE BOUNDARIES RESTORED.
+    //
+    // V5.9.8 had cut these 5× (1000→200, 3000→500, 5000→2000). On paper it
+    // sounded nice ("learn faster"), in reality it starves a meme-coin bot
+    // that needs THOUSANDS of shots to learn a pattern.
+    //
+    // Field evidence (user screenshot, 04-23):
+    //   • 135 session trades, ~200 lifetime → Progress to Live = 52%
+    //   • That 52% mutates every single fluid gate:
+    //       getExecuteFloor       : 25  → 35  (rejects score<35 outright)
+    //       fluidMinConfForExecute: 25  → 38
+    //       cGradeConfFloor       : 20  → 33
+    //       standardConfFloor B   : 35  → 40  (pushed by min-conf+10)
+    //   • Pippin (scanner score=32), TROLL (17) both REJECTED that used to
+    //     buy easily → volume collapsed from 1000+/hr to a trickle.
+    //
+    // Restoring the original 1000/3000/5000 ramp keeps the bot in a
+    // near-bootstrap posture for 1000 trades (roughly a full day of scanning)
+    // and transitions to mature over the subsequent 2000-5000 trades — the
+    // cadence that produced the 1000+/hr regime the user is trying to get
+    // back. MAX_LEARNING_PROGRESS cap (1.0) is unchanged so the mature end
+    // still behaves identically once the bot actually earns it.
+    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.149: restored from 200
+    private const val MATURE_PHASE_END = 3000     // V5.9.149: restored from 500
+    private const val EXPERT_PHASE_END = 5000     // V5.9.149: restored from 2000
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.7.7: Bootstrap score gate constants
