@@ -284,13 +284,49 @@ object EducationSubLayerAI {
         var totalContributions: Int = 0,
         var learningRate: Double = 0.01,
         var lastUpdate: Long = System.currentTimeMillis(),
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.138 — QUALITY-WEIGHTED LEARNING FIELDS
+        // ───────────────────────────────────────────────────────────────────
+        // The binary (successful/total) hit-rate treats a 2% scratch win the
+        // same as a 400% moonshot and a -1% breakeven the same as a -50%
+        // rug. That's why the dashboard was stuck near the raw session
+        // win-rate despite the layers actually having very different edge.
+        //
+        // New fields below store PnL-weighted stats. Each trade contributes
+        // a weight proportional to |pnlPct| (big winners/losers matter more)
+        // and a hit score (1.0 for correct, 0.0 for wrong). The smoothed
+        // "edge score" is then (weightedHits + α·½) / (weightSum + α), which
+        // converges to the true quality-weighted hit rate with a neutral
+        // Bayesian prior at α=5.
+        // ═══════════════════════════════════════════════════════════════════
+        var weightSum: Double = 0.0,       // Σ weight
+        var weightedHits: Double = 0.0,    // Σ weight · hit
+        var pnlSumPct: Double = 0.0,       // Σ pnlPct            (mean = pnlSumPct / n)
+        var pnlSumSqPct: Double = 0.0,     // Σ pnlPct²           (for std / Sharpe)
+        var pnlBestPct: Double = 0.0,      // running max         (best trade)
+        var pnlWorstPct: Double = 0.0,     // running min         (worst trade)
     ) {
-        val accuracy: Double get() = if (totalOutcomesRecorded > 0) 
+        val accuracy: Double get() = if (totalOutcomesRecorded > 0)
             (successfulPredictions.toDouble() / totalOutcomesRecorded) * 100 else 50.0
-        
-        val isLearning: Boolean get() = 
-            totalOutcomesRecorded > 0 && 
+
+        val isLearning: Boolean get() =
+            totalOutcomesRecorded > 0 &&
             System.currentTimeMillis() - lastRecordedTimestamp < 24 * 60 * 60 * 1000L
+
+        // V5.9.138 — mean pnlPct per trade. Real economic edge, not hit rate.
+        val expectancyPct: Double get() = if (totalOutcomesRecorded > 0)
+            pnlSumPct / totalOutcomesRecorded else 0.0
+
+        // V5.9.138 — rough per-trade Sharpe: mean / stddev. Higher is better.
+        val sharpe: Double get() {
+            val n = totalOutcomesRecorded
+            if (n < 2) return 0.0
+            val mean = pnlSumPct / n
+            val variance = (pnlSumSqPct / n) - (mean * mean)
+            val std = if (variance > 1e-9) kotlin.math.sqrt(variance) else 0.0
+            return if (std > 1e-6) mean / std else 0.0
+        }
     }
     
     private val layerPerformance = ConcurrentHashMap<String, LayerPerformanceMetrics>()
@@ -377,7 +413,9 @@ object EducationSubLayerAI {
             val predictedBullish = score > 0
             val wasCorrect = (predictedBullish && outcome.isWin) || (!predictedBullish && !outcome.isWin)
             try {
-                markLayerUpdated(layerName, wasCorrect)
+                // V5.9.138 — feed real pnl magnitude so weighted-edge math
+                // reflects WHICH layers were right on the big moves.
+                markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct)
                 updated++
             } catch (_: Exception) {}
         }
@@ -458,7 +496,7 @@ object EducationSubLayerAI {
                 pnlPct = outcome.pnlPct,
                 setupQuality = outcome.setupQuality
             )
-            markLayerUpdated("HoldTimeOptimizerAI", outcome.isWin)
+            markLayerOutcome("HoldTimeOptimizerAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("HoldTimeAI: ${e.message}") }
         
@@ -471,14 +509,14 @@ object EducationSubLayerAI {
                 holdTimeMs = outcome.holdTimeMinutes.toLong() * 60_000,
                 exitReason = outcome.exitReason
             )
-            markLayerUpdated("MetaCognitionAI", outcome.isWin)
+            markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("MetaCognitionAI: ${e.message}") }
         
         // FluidLearningAI - Update learning progress
         try {
             FluidLearningAI.recordTrade(outcome.isWin)
-            markLayerUpdated("FluidLearningAI", outcome.isWin)
+            markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
         
@@ -508,7 +546,7 @@ object EducationSubLayerAI {
                 entryPhase = outcome.entryPhase,
             )
             AdaptiveLearningEngine.learnFromTrade(features)
-            markLayerUpdated("AdaptiveLearningEngine", outcome.isWin)
+            markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("AdaptiveLearning: ${e.message}") }
         
@@ -519,42 +557,42 @@ object EducationSubLayerAI {
         // MomentumPredictorAI
         try {
             MomentumPredictorAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.maxGainPct)
-            markLayerUpdated("MomentumPredictorAI", outcome.isWin)
+            markLayerOutcome("MomentumPredictorAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("MomentumAI: ${e.message}") }
         
         // NarrativeDetectorAI
         try {
             NarrativeDetectorAI.recordOutcome(outcome.symbol, outcome.tokenName, outcome.pnlPct)
-            markLayerUpdated("NarrativeDetectorAI", outcome.isWin)
+            markLayerOutcome("NarrativeDetectorAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("NarrativeAI: ${e.message}") }
         
         // TimeOptimizationAI
         try {
             TimeOptimizationAI.recordOutcome(outcome.pnlPct)
-            markLayerUpdated("TimeOptimizationAI", outcome.isWin)
+            markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("TimeOptAI: ${e.message}") }
         
         // LiquidityDepthAI
         try {
             LiquidityDepthAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.isWin)
-            markLayerUpdated("LiquidityDepthAI", outcome.isWin)
+            markLayerOutcome("LiquidityDepthAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("LiquidityAI: ${e.message}") }
         
         // WhaleTrackerAI
         try {
             WhaleTrackerAI.recordSignalOutcome(outcome.mint, outcome.isWin, outcome.pnlPct)
-            markLayerUpdated("WhaleTrackerAI", outcome.isWin)
+            markLayerOutcome("WhaleTrackerAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("WhaleAI: ${e.message}") }
         
         // MarketRegimeAI
         try {
             MarketRegimeAI.recordTradeOutcome(outcome.pnlPct)
-            markLayerUpdated("MarketRegimeAI", outcome.isWin)
+            markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("RegimeAI: ${e.message}") }
         
@@ -578,7 +616,7 @@ object EducationSubLayerAI {
                 source = outcome.discoverySource,
                 phase = outcome.entryPhase,
             )
-            markLayerUpdated("TokenWinMemory", outcome.isWin)
+            markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("TokenMemory: ${e.message}") }
         
@@ -586,7 +624,7 @@ object EducationSubLayerAI {
         try {
             // EdgeLearning uses learnFromOutcome with a snapshot
             // For now, skip direct integration - it learns via different pathway
-            markLayerUpdated("EdgeLearning", outcome.isWin)
+            markLayerOutcome("EdgeLearning", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("EdgeLearning: ${e.message}") }
         
@@ -594,7 +632,7 @@ object EducationSubLayerAI {
         try {
             // BehaviorLearning uses recordTrade with a pattern
             // For now, skip direct integration - it learns via different pathway
-            markLayerUpdated("BehaviorLearning", outcome.isWin)
+            markLayerOutcome("BehaviorLearning", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("BehaviorAI: ${e.message}") }
         
@@ -605,25 +643,25 @@ object EducationSubLayerAI {
         // MoonshotTraderAI
         try {
             // MoonshotTraderAI tracks via its own position management
-            markLayerUpdated("MoonshotTraderAI", outcome.isWin)
+            markLayerOutcome("MoonshotTraderAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("MoonshotAI: ${e.message}") }
         
         // ShitCoinTraderAI
         try {
-            markLayerUpdated("ShitCoinTraderAI", outcome.isWin)
+            markLayerOutcome("ShitCoinTraderAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("ShitCoinAI: ${e.message}") }
         
         // CashGenerationAI (Treasury)
         try {
-            markLayerUpdated("CashGenerationAI", outcome.isWin)
+            markLayerOutcome("CashGenerationAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("CashGenAI: ${e.message}") }
         
         // BlueChipTraderAI
         try {
-            markLayerUpdated("BlueChipTraderAI", outcome.isWin)
+            markLayerOutcome("BlueChipTraderAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("BlueChipAI: ${e.message}") }
         
@@ -633,49 +671,49 @@ object EducationSubLayerAI {
         
         // VolatilityRegimeAI
         try {
-            markLayerUpdated("VolatilityRegimeAI", outcome.isWin)
+            markLayerOutcome("VolatilityRegimeAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("VolatilityAI: ${e.message}") }
         
         // OrderFlowImbalanceAI
         try {
-            markLayerUpdated("OrderFlowImbalanceAI", outcome.isWin)
+            markLayerOutcome("OrderFlowImbalanceAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("OrderFlowAI: ${e.message}") }
         
         // SmartMoneyDivergenceAI
         try {
-            markLayerUpdated("SmartMoneyDivergenceAI", outcome.isWin)
+            markLayerOutcome("SmartMoneyDivergenceAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("SmartMoneyAI: ${e.message}") }
         
         // LiquidityCycleAI
         try {
-            markLayerUpdated("LiquidityCycleAI", outcome.isWin)
+            markLayerOutcome("LiquidityCycleAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("LiqCycleAI: ${e.message}") }
         
         // FearGreedAI
         try {
-            markLayerUpdated("FearGreedAI", outcome.isWin)
+            markLayerOutcome("FearGreedAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("FearGreedAI: ${e.message}") }
         
         // DipHunterAI
         try {
-            markLayerUpdated("DipHunterAI", outcome.isWin)
+            markLayerOutcome("DipHunterAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("DipHunterAI: ${e.message}") }
         
         // SellOptimizationAI
         try {
-            markLayerUpdated("SellOptimizationAI", outcome.isWin)
+            markLayerOutcome("SellOptimizationAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("SellOptAI: ${e.message}") }
         
         // CollectiveIntelligenceAI
         try {
-            markLayerUpdated("CollectiveIntelligenceAI", outcome.isWin)
+            markLayerOutcome("CollectiveIntelligenceAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
 
@@ -798,19 +836,48 @@ object EducationSubLayerAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun markLayerUpdated(layerName: String, wasSuccess: Boolean) {
-        val metrics = layerPerformance.getOrPut(layerName) { 
-            LayerPerformanceMetrics(layerName) 
+        markLayerOutcome(layerName, wasSuccess = wasSuccess, pnlPct = if (wasSuccess) 1.0 else -1.0)
+    }
+
+    /**
+     * V5.9.138 — PRIMARY learning entry point. Records per-layer outcome with
+     * REAL pnl magnitude (not just a win/loss bit).
+     *
+     *   weight   = 1 + |pnlPct|/25     → scratch=1, ±25%=2, ±100%=5, ±400%=17
+     *   hitScore = 1.0 if correct, 0.0 if wrong
+     *
+     * `weightedHits / weightSum` converges to the quality-weighted hit rate
+     * — so a layer that gets the big trades right scores high even when it
+     * loses many scratchers, and a layer that only wins on scratches scores
+     * low. Combined with Bayesian smoothing in getLayerAccuracy(), the
+     * dashboard finally reflects real economic edge instead of raw hit rate.
+     *
+     * Backward compat: the legacy `successfulPredictions / totalOutcomesRecorded`
+     * counters are still incremented, so any older code path reading
+     * `metrics.accuracy` directly is unchanged.
+     */
+    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double) {
+        val metrics = layerPerformance.getOrPut(layerName) {
+            LayerPerformanceMetrics(layerName)
         }
+        // Legacy binary counters (unchanged).
         metrics.totalOutcomesRecorded++
         if (wasSuccess) metrics.successfulPredictions++
         metrics.lastRecordedTimestamp = System.currentTimeMillis()
-        
-        // Update learning velocity (exponential moving average of accuracy change)
-        val newAccuracy = metrics.accuracy
-        metrics.learningVelocity = metrics.learningVelocity * 0.9 + 
+        metrics.learningVelocity = metrics.learningVelocity * 0.9 +
             (if (wasSuccess) 0.1 else -0.1)
-        
-        // V5.2: Persist after each update
+
+        // New quality-weighted accumulators.
+        val clipped = pnlPct.coerceIn(-95.0, 1000.0)       // guard absurd feeds
+        val weight  = 1.0 + kotlin.math.abs(clipped) / 25.0
+        val hit     = if (wasSuccess) 1.0 else 0.0
+        metrics.weightSum     += weight
+        metrics.weightedHits  += weight * hit
+        metrics.pnlSumPct     += clipped
+        metrics.pnlSumSqPct   += clipped * clipped
+        if (clipped > metrics.pnlBestPct)  metrics.pnlBestPct  = clipped
+        if (clipped < metrics.pnlWorstPct) metrics.pnlWorstPct = clipped
+
         save()
     }
     
@@ -990,20 +1057,41 @@ object EducationSubLayerAI {
      * to the LLM (the exact source of the "layers at 100% feel like lies"
      * complaint).
      *
-     * New math: Laplace / Beta(α,α) smoothing with α = 5. With zero outcomes
-     * we return 0.5 (prior). A layer with 1 win and 0 losses returns
-     * (1+5)/(1+10) ≈ 0.545, not 1.0. Convergence to true hit-rate takes
-     * dozens of trades — nothing can be "100%" prematurely, and a true
-     * 100%-accurate layer with 500 trades asymptotically approaches ~0.99.
+     * V5.9.138 — QUALITY-WEIGHTED EDGE (the real upgrade):
+     * Hit rate alone is misleading — a layer that bags two 400% runners and
+     * loses fifteen scratchers has a 12% hit rate but a massive positive
+     * edge. We now use the weightSum / weightedHits counters populated by
+     * markLayerOutcome(). Each trade's contribution is scaled by
+     * (1 + |pnlPct|/25), so big winners and big losers dominate scratches.
+     *
+     *   edge = (weightedHits + α·0.5) / (weightSum + α)
+     *   α = 5  → neutral prior of 0.5 until ~5 "unit-weight" trades.
+     *
+     * Falls back to the binary Bayesian formula for any pre-V5.9.138 data
+     * (weightSum == 0) so the upgrade is forward-compat with persisted
+     * state.
      */
     fun getLayerAccuracy(layerName: String): Double {
         val m = layerPerformance[layerName] ?: return 0.5
+        val alpha = 5.0
+        if (m.weightSum > 0.0) {
+            return ((m.weightedHits + alpha * 0.5) / (m.weightSum + alpha))
+                .coerceIn(0.0, 1.0)
+        }
+        // Legacy fallback: unweighted Bayesian hit rate.
         val n = m.totalOutcomesRecorded
         if (n <= 0) return 0.5
-        val alpha = 5.0
         val wins = m.successfulPredictions.toDouble()
         return ((wins + alpha) / (n + 2.0 * alpha)).coerceIn(0.0, 1.0)
     }
+
+    /** V5.9.138 — mean pnlPct per trade for this layer, or 0 if no history. */
+    fun getLayerExpectancyPct(layerName: String): Double =
+        layerPerformance[layerName]?.expectancyPct ?: 0.0
+
+    /** V5.9.138 — rough per-trade Sharpe (mean / std of pnlPct). */
+    fun getLayerSharpe(layerName: String): Double =
+        layerPerformance[layerName]?.sharpe ?: 0.0
 
     /**
      * V5.9.133 — RAW (unsmoothed) accuracy, 0.0–1.0. For internal use only
@@ -1078,18 +1166,27 @@ object EducationSubLayerAI {
         val trades: Int,
         val smoothedAccuracy: Double, // 0.0..1.0, Bayesian
         val isActive: Boolean,
+        // V5.9.138 — REAL EDGE SIGNALS (not just hit-rate)
+        val expectancyPct: Double,    // mean pnl% per trade; negative = bleeding
+        val bestPct: Double,          // best single trade pnl% observed
+        val worstPct: Double,         // worst single trade pnl% observed
+        val sharpe: Double,           // rough per-trade Sharpe
     )
 
     /** Get one layer's maturity snapshot. */
     fun getLayerMaturity(layerName: String): LayerMaturity {
         val m = layerPerformance[layerName]
         return LayerMaturity(
-            layerName = layerName,
-            level = getLayerLevel(layerName),
-            levelProgress = getLayerLevelProgress(layerName),
-            trades = m?.totalOutcomesRecorded ?: 0,
+            layerName        = layerName,
+            level            = getLayerLevel(layerName),
+            levelProgress    = getLayerLevelProgress(layerName),
+            trades           = m?.totalOutcomesRecorded ?: 0,
             smoothedAccuracy = getLayerAccuracy(layerName),
-            isActive = m?.isLearning ?: false,
+            isActive         = m?.isLearning ?: false,
+            expectancyPct    = m?.expectancyPct ?: 0.0,
+            bestPct          = m?.pnlBestPct ?: 0.0,
+            worstPct         = m?.pnlWorstPct ?: 0.0,
+            sharpe           = m?.sharpe ?: 0.0,
         )
     }
 
@@ -1178,6 +1275,13 @@ object EducationSubLayerAI {
                     put("avgConfidenceOnLosses", metrics.avgConfidenceOnLosses)
                     put("learningVelocity", metrics.learningVelocity)
                     put("trustMultiplier", metrics.trustMultiplier)
+                    // V5.9.138 — quality-weighted learning fields
+                    put("weightSum", metrics.weightSum)
+                    put("weightedHits", metrics.weightedHits)
+                    put("pnlSumPct", metrics.pnlSumPct)
+                    put("pnlSumSqPct", metrics.pnlSumSqPct)
+                    put("pnlBestPct", metrics.pnlBestPct)
+                    put("pnlWorstPct", metrics.pnlWorstPct)
                 }
                 editor.putString("layer_$name", json.toString())
             }
@@ -1216,6 +1320,16 @@ object EducationSubLayerAI {
                         avgConfidenceOnLosses = json.optDouble("avgConfidenceOnLosses", 50.0),
                         learningVelocity = json.optDouble("learningVelocity", 1.0),
                         trustMultiplier = json.optDouble("trustMultiplier", 1.0),
+                        // V5.9.138 — restore weighted fields; default to 0 for
+                        // layers persisted before the upgrade, which makes
+                        // getLayerAccuracy fall back to the binary Bayesian
+                        // path until fresh outcomes arrive.
+                        weightSum    = json.optDouble("weightSum",    0.0),
+                        weightedHits = json.optDouble("weightedHits", 0.0),
+                        pnlSumPct    = json.optDouble("pnlSumPct",    0.0),
+                        pnlSumSqPct  = json.optDouble("pnlSumSqPct",  0.0),
+                        pnlBestPct   = json.optDouble("pnlBestPct",   0.0),
+                        pnlWorstPct  = json.optDouble("pnlWorstPct",  0.0),
                     )
                     layerPerformance[name] = metrics
                 } catch (e: Exception) {

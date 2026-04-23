@@ -584,6 +584,9 @@ class BehaviorActivity : AppCompatActivity() {
             // accuracy (was: hardcoded "HoldTimeAI 68%" strings that lied
             // independent of reality). If no layer has any trades yet, show
             // the motivational message for the current curriculum level.
+            // V5.9.138 — the % now reflects QUALITY-WEIGHTED edge (not raw
+            // hit rate), and we tag each leader with its average pnl% so
+            // you can see the real economic contribution, not just a number.
             val motivational = EducationSubLayerAI.getMotivationalMessage()
             val topMaturity = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades >= 3 }
@@ -594,7 +597,12 @@ class BehaviorActivity : AppCompatActivity() {
             } else {
                 topMaturity.joinToString(" • ") { m ->
                     val short = m.layerName.removeSuffix("AI").take(10)
-                    "$short ${(m.smoothedAccuracy * 100).toInt()}%"
+                    val edge = (m.smoothedAccuracy * 100).toInt()
+                    val exp = m.expectancyPct
+                    val expTag = if (kotlin.math.abs(exp) >= 0.1) {
+                        "(${"%+.1f".format(exp)}%)"
+                    } else ""
+                    "$short ${edge}%${expTag}"
                 }
             }
             tvTopLayers.text = topLayers
