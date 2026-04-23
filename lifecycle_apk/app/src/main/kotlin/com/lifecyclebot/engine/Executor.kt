@@ -3086,6 +3086,14 @@ class Executor(
                 mint = ts.mint, symbol = ts.symbol, mcapUsd = ts.lastMcap
             )
         } catch (_: Exception) {}
+        // V5.9.137 — register in SellOptimizationAI with REAL size so chunk
+        // sizing and remainingSizeSol tracking work. Without this the AI
+        // used a dummy 0.1◎ fallback and silently broke chunk selling.
+        try {
+            com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
+                mint = ts.mint, entryPrice = effectivePrice, sizeSol = actualSol
+            )
+        } catch (_: Exception) {}
         val trade = Trade(
             side = "BUY", 
             mode = "paper", 
@@ -3861,6 +3869,14 @@ class Executor(
                             "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"
                         )
                         EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
+                        // V5.9.137 — register in SellOptimizationAI only after
+                        // on-chain tokens are verified (live path), mirroring
+                        // the guardrails pattern above.
+                        try {
+                            com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
+                                mint = verifyTradeMint, entryPrice = price, sizeSol = sol
+                            )
+                        } catch (_: Exception) {}
                         try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
                             ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
                         }
@@ -4896,6 +4912,15 @@ class Executor(
                 emaTrend = marketSentiment
             )
             com.lifecyclebot.v3.V3EngineManager.onPositionClosed(tradeId.mint)
+            // V5.9.137 — mirror the close to SellOptimizationAI so its
+            // activePositions map can't rot with stale peak / chunksSold
+            // between exits. Previously close was only called inside one
+            // branch in BotService (HIGH/CRITICAL urgency), so any exit
+            // via stop-loss, trailing, signal flip, manual, TP/SL, etc.
+            // left the map dirty and broke re-entries on the same mint.
+            try {
+                com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(tradeId.mint, pnlP)
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
         
         try {

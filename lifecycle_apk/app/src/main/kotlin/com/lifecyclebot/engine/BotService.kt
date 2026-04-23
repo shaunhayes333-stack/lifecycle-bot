@@ -7445,6 +7445,7 @@ if (deferredCount > 0) {
                 currentPnlPct = pnlPct,
                 holdTimeMinutes = holdTimeMinutes,
                 entryPrice = ts.position.entryPrice,
+                positionSizeSol = ts.position.costSol,  // V5.9.137 — real size
             )
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "SellOptAI error: ${e.message}")

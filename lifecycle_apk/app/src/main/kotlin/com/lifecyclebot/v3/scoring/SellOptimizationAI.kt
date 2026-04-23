@@ -129,6 +129,12 @@ object SellOptimizationAI {
     
     /**
      * Register a new position for tracking.
+     *
+     * V5.9.137 — SAFE to call more than once for the same mint. If a stale
+     * PositionState from a previously-closed trade is still hanging around
+     * (the bot didn't call closePosition, or it re-entered the same mint
+     * quickly), the old state WOULD cause ghost chunksSold / peakPnlPct
+     * and break every exit decision. We now reset on each open.
      */
     fun registerPosition(mint: String, entryPrice: Double, sizeSol: Double) {
         activePositions[mint] = PositionState(
@@ -184,11 +190,14 @@ object SellOptimizationAI {
     
     /**
      * Evaluate a position for exit optimization.
-     * 
+     *
      * @param ts Current token state
      * @param currentPnlPct Current P&L percentage
      * @param holdTimeMinutes How long position has been held
      * @param entryPrice Original entry price
+     * @param positionSizeSol V5.9.137 — REAL position cost in SOL. Used as a
+     *        last-resort init value if registerPosition was never called for
+     *        this mint (so chunk-sell sizing is not based on a fake 0.1◎).
      * @return SellSignal with recommended action
      */
     fun evaluate(
@@ -196,23 +205,63 @@ object SellOptimizationAI {
         currentPnlPct: Double,
         holdTimeMinutes: Int,
         entryPrice: Double,
+        positionSizeSol: Double = 0.0,
     ): SellSignal {
         val mint = ts.mint
         val signals = mutableListOf<String>()
         var totalUrgency = 0.0
         var recommendedStrategy = ExitStrategy.HOLD
         var sellPct = 0.0
-        
-        // Get or create position state
-        val pos = activePositions.getOrPut(mint) {
-            PositionState(
-                mint = mint,
-                entryPrice = entryPrice,
-                entryTime = System.currentTimeMillis() - (holdTimeMinutes * 60_000L),
-                originalSizeSol = 0.1, // Default, will be updated
-                remainingSizeSol = 0.1,
-            )
-        }
+
+        // Get or create position state.
+        // V5.9.137 — if registerPosition was skipped (or a prior trade rotted
+        // in the map and was never closed) we used to drop in a dummy 0.1◎
+        // PositionState. That meant pos.remainingSizeSol went NEGATIVE after
+        // the first real chunk sell and the chunk-sell branch then got
+        // permanently gated off ("remainingSizeSol > 0" = false). Every real
+        // position silently turned into a HOLD-only monster. Now we use the
+        // real size passed in from BotService, and when a stale entry exists
+        // we compare entryTime vs holdTimeMinutes to detect a re-entry and
+        // reset automatically.
+        val incomingEntryTime = System.currentTimeMillis() - (holdTimeMinutes * 60_000L)
+        val pos = activePositions.compute(mint) { _, existing ->
+            val realSize = if (positionSizeSol > 0.0) positionSizeSol else 0.1
+            if (existing == null) {
+                PositionState(
+                    mint = mint,
+                    entryPrice = entryPrice,
+                    entryTime = incomingEntryTime,
+                    originalSizeSol = realSize,
+                    remainingSizeSol = realSize,
+                )
+            } else {
+                // Detect re-entry: bot's entryTime is newer than ours by > 90s
+                // AND PnL reset (went from large peak back near zero).
+                val looksLikeReentry =
+                    (incomingEntryTime - existing.entryTime) > 90_000L &&
+                    existing.peakPnlPct - currentPnlPct > 30.0
+                if (looksLikeReentry) {
+                    PositionState(
+                        mint = mint,
+                        entryPrice = entryPrice,
+                        entryTime = incomingEntryTime,
+                        originalSizeSol = realSize,
+                        remainingSizeSol = realSize,
+                    )
+                } else {
+                    // Heal silently: if remaining ever went non-positive due to
+                    // the old 0.1◎ fallback bug, reset to true size without
+                    // wiping peakPnlPct / chunksSold.
+                    if (existing.remainingSizeSol <= 0.0 && realSize > 0.0) {
+                        existing.copy(
+                            originalSizeSol = realSize,
+                            remainingSizeSol = (realSize * (1.0 - existing.chunksSold * 0.25))
+                                .coerceAtLeast(realSize * 0.05)
+                        )
+                    } else existing
+                }
+            }
+        }!!
         
         // Update peak P&L
         if (currentPnlPct > pos.peakPnlPct) {
