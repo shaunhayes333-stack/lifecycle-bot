@@ -1019,18 +1019,20 @@ object EducationSubLayerAI {
         }
 
         // Convert expectancy → integer score nudge.
-        //   +5% expectancy → +3,  +20% → +6,  +50% → +8,  +100% → +10
-        //   -5% expectancy → -2,  -20% → -4,  -50% → -6
+        // V5.9.143 — softened negative arm so approval-memory can't
+        // compound-brake with the mute/boost gate into zero-volume.
+        //   +5%  expectancy → +3,  +20% → +6,  +50% → +8,  +100% → +10
+        //   -5%  → 0,  -20% → -1,  -50% → -3,  worse → -4
         val exp = rec.expectancyPct
         val nudge = when {
             exp >=  50.0 -> 10
             exp >=  20.0 ->  6 + ((exp - 20.0) / 15.0).toInt().coerceAtMost(2)
             exp >=   5.0 ->  3 + ((exp -  5.0) / 5.0).toInt().coerceAtMost(2)
             exp >  -5.0  ->  0
-            exp >= -20.0 -> -2
-            exp >= -50.0 -> -4
-            else         -> -6
-        }.coerceIn(-6, 10)
+            exp >= -20.0 -> -1
+            exp >= -50.0 -> -3
+            else         -> -4
+        }.coerceIn(-4, 10)
         val reason = "APPROVAL:${matched.take(40)} ${rec.wins}W/${rec.losses}L exp=${"%+.1f".format(exp)}%"
         return nudge to reason
     }
@@ -1234,41 +1236,46 @@ object EducationSubLayerAI {
     /**
      * V5.9.140 — AUTO-MUTE / AUTO-BOOST.
      *
-     * Given a raw component vote (the int on a ScoreComponent) for a named
-     * layer, return the adjusted vote. Rules:
+     * V5.9.143 — THRESHOLDS LOOSENED + asymmetric multiplier.
+     * Evidence from the field: under these 40/65 gates plus the
+     * approval-memory penalty the bot went from ~1000 trades/hr to
+     * single-digit. Most layers sit at 35-48% smoothed edge on normal
+     * losing tape, so a 40% mute cut the herd in half. The boost side
+     * was ALSO multiplying negative votes (vetoes), so every trusted
+     * layer's "no" got 1.25-1.45×'d on top. Net effect: hard brake.
      *
-     *   edge <= 0.40  and >=10 trades  → vote scaled to 0  (muted)
-     *   edge <= 0.45  and >=10 trades  → vote × 0.5         (soft penalty)
-     *   0.45 < edge < 0.65             → vote × 1.0         (unchanged)
-     *   edge >= 0.65  and >=10 trades  → vote × 1.25        (amplified)
-     *   edge >= 0.75  and >=20 trades  → vote × 1.45        (heavy amplify)
+     * New policy:
      *
-     * Muting / boosting only kicks in after the layer has recorded at
-     * least 10 real outcomes (otherwise the Bayesian prior dominates and
-     * the mute would chop untrained layers). Boost caps at 1.45× to keep
-     * one superstar layer from steamrolling the rest.
+     *   edge <= 0.33  and >=20 trades  → vote × 0.00  (MUTE)
+     *   edge <= 0.40  and >=20 trades  → vote × 0.60  (SOFT_PENALTY)
+     *   0.40 < edge < 0.62             → vote × 1.00  (NORMAL)
+     *   edge >= 0.62 and >=20 trades, positive vote only → × 1.20 (BOOST)
+     *   edge >= 0.70 and >=40 trades, positive vote only → × 1.35 (HEAVY_BOOST)
      *
-     * Negative votes (vetoes, penalties) receive the SAME multiplier —
-     * a mistrusted distrustful layer still loses its veto power, a
-     * trusted distrustful layer gets a louder veto. That's the point.
-     *
-     * Public so UnifiedScorer can wrap each component's value before
-     * aggregating. Returns a Triple<newVote, multiplier, status> where
-     * status is one of: "MUTE", "SOFT_PENALTY", "BOOST", "HEAVY_BOOST",
-     * "NORMAL". Status lets the scorer surface "muted SellOpt" style
-     * reasons so the user can see it happening.
+     * Key changes vs V5.9.140:
+     *  - Mute threshold 0.40 → 0.33 (only truly bleeding layers).
+     *  - Soft penalty 0.45 → 0.40.
+     *  - Boost 0.65 → 0.62, heavy 0.75 → 0.70.
+     *  - Min sample size for any gating 10 → 20 (less premature
+     *    silencing while a layer is still finding its feet).
+     *  - BOOST now only amplifies POSITIVE votes. Trusted layers with
+     *    a negative vote (veto) still get vote×1.0, not ×1.45. This
+     *    stops the implicit "1.45× veto" that was burying candidates.
+     *  - Mute still applies to both signs, so a distrusted layer's
+     *    veto correctly loses its force.
      */
     fun applyMuteBoost(layerName: String, vote: Int): Triple<Int, Double, String> {
         val m = layerPerformance[layerName]
         val trades = m?.totalOutcomesRecorded ?: 0
-        if (trades < 10) return Triple(vote, 1.0, "NORMAL")
-        val edge = getLayerAccuracy(layerName)   // already Bayesian-smoothed
+        if (trades < 20) return Triple(vote, 1.0, "NORMAL")
+        val edge = getLayerAccuracy(layerName)
         val (mult, status) = when {
-            edge <= 0.40 -> 0.0  to "MUTE"
-            edge <= 0.45 -> 0.5  to "SOFT_PENALTY"
-            edge >= 0.75 && trades >= 20 -> 1.45 to "HEAVY_BOOST"
-            edge >= 0.65 -> 1.25 to "BOOST"
-            else          -> 1.0  to "NORMAL"
+            edge <= 0.33 -> 0.0  to "MUTE"
+            edge <= 0.40 -> 0.6  to "SOFT_PENALTY"
+            // Boosts only apply to POSITIVE votes to avoid amplifying vetoes.
+            edge >= 0.70 && trades >= 40 && vote > 0 -> 1.35 to "HEAVY_BOOST"
+            edge >= 0.62 && vote > 0                 -> 1.20 to "BOOST"
+            else -> 1.0 to "NORMAL"
         }
         val adjusted = (vote * mult).toInt()
         return Triple(adjusted, mult, status)
@@ -1293,13 +1300,13 @@ object EducationSubLayerAI {
         val heavy = mutableListOf<String>()
         REGISTERED_LAYERS.forEach { name ->
             val m = layerPerformance[name] ?: return@forEach
-            if (m.totalOutcomesRecorded < 10) return@forEach
+            if (m.totalOutcomesRecorded < 20) return@forEach  // V5.9.143 match gate
             val edge = getLayerAccuracy(name)
             when {
-                edge <= 0.40 -> muted.add(name)
-                edge <= 0.45 -> soft.add(name)
-                edge >= 0.75 && m.totalOutcomesRecorded >= 20 -> heavy.add(name)
-                edge >= 0.65 -> boost.add(name)
+                edge <= 0.33 -> muted.add(name)
+                edge <= 0.40 -> soft.add(name)
+                edge >= 0.70 && m.totalOutcomesRecorded >= 40 -> heavy.add(name)
+                edge >= 0.62 -> boost.add(name)
             }
         }
         return MuteBoostStatus(muted, soft, boost, heavy)
