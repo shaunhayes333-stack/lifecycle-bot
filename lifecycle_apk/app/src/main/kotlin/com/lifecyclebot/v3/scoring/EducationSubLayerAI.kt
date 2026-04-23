@@ -1340,45 +1340,12 @@ object EducationSubLayerAI {
      * side is softened during early trade count.
      */
     fun applyMuteBoost(layerName: String, vote: Int): Triple<Int, Double, String> {
-        val m = layerPerformance[layerName]
-        val trades = m?.totalOutcomesRecorded ?: 0
-        if (trades < 20) return Triple(vote, 1.0, "NORMAL")
-
-        // V5.9.152 — keep all 41 layers at full weight during bootstrap.
-        // User (Freshman 32%, 37 trades, 19 losses): 'it won't learn if it
-        // can't trade'. At <40% learning, silencing weak layers means the
-        // weighted score collapses below the bootstrap floor for almost
-        // every candidate, which starves those same layers of the trade
-        // outcomes they need to prove themselves. Bypass here and let
-        // volume settle the ranking naturally; the gate kicks back in
-        // above 40% progress.
-        val learningProgress = try {
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        } catch (_: Exception) { 1.0 }
-        if (learningProgress < 0.40) return Triple(vote, 1.0, "BOOTSTRAP_BYPASS")
-
-        val hit = getLayerAccuracy(layerName)
-        val exp = m?.expectancyPct ?: 0.0
-        val (rawMult, status) = when {
-            // Both signals terrible → hard mute
-            hit <= 0.33 && exp < -1.0  -> 0.0 to "MUTE"
-            // Strong negative expectancy dominates a mediocre hit rate
-            exp <= -2.0 && hit <  0.55 -> 0.0 to "MUTE"
-            // Medium bad on both sides → soft penalty
-            hit <= 0.40 && exp <  0.0  -> 0.6 to "SOFT_PENALTY"
-            // Both signals strong → heavy boost (positive votes only)
-            exp >= 5.0  && hit >  0.55 && trades >= 40 && vote > 0 -> 1.35 to "HEAVY_BOOST"
-            // Clearly positive expectancy with decent hit → boost
-            exp >= 2.0  && hit >  0.55 && vote > 0                 -> 1.20 to "BOOST"
-            else -> 1.0 to "NORMAL"
-        }
-        // V5.9.144 — bootstrap relaxation on penalties only (preserved).
-        val mult = if (rawMult < 1.0) {
-            val relax = getBootstrapRelaxation()
-            rawMult + (1.0 - rawMult) * (1.0 - relax)
-        } else rawMult
-        val adjusted = (vote * mult).toInt()
-        return Triple(adjusted, mult, status)
+        // V5.9.161 — AUTO-MUTE ENGINE REMOVED per user directive.
+        // "remove the auto mute engine completely". Every layer always
+        // contributes at full weight. No mutes, no soft penalties, no
+        // heavy boosts. Expectancy shaping happens elsewhere (scoring
+        // floors, fluid layer maturation, expectancy-weighted consensus).
+        return Triple(vote, 1.0, "DISABLED")
     }
 
     /**
@@ -1392,24 +1359,9 @@ object EducationSubLayerAI {
     )
 
     fun getMuteBoostStatus(): MuteBoostStatus {
-        val muted = mutableListOf<String>()
-        val soft  = mutableListOf<String>()
-        val boost = mutableListOf<String>()
-        val heavy = mutableListOf<String>()
-        REGISTERED_LAYERS.forEach { name ->
-            val m = layerPerformance[name] ?: return@forEach
-            if (m.totalOutcomesRecorded < 20) return@forEach
-            val hit = getLayerAccuracy(name)
-            val exp = m.expectancyPct
-            when {
-                hit <= 0.33 && exp < -1.0  -> muted.add(name)
-                exp <= -2.0 && hit <  0.55 -> muted.add(name)
-                hit <= 0.40 && exp <  0.0  -> soft.add(name)
-                exp >=  5.0 && hit >  0.55 && m.totalOutcomesRecorded >= 40 -> heavy.add(name)
-                exp >=  2.0 && hit >  0.55 -> boost.add(name)
-            }
-        }
-        return MuteBoostStatus(muted, soft, boost, heavy)
+        // V5.9.161 — auto-mute engine removed. Always return empty lists
+        // so UI / diagnostics reflect "no layer is being throttled".
+        return MuteBoostStatus(emptyList(), emptyList(), emptyList(), emptyList())
     }
 
     /**
