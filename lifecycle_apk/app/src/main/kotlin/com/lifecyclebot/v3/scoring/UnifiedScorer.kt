@@ -309,10 +309,41 @@ class UnifiedScorer(
                 reason = approvalReason,
             )
 
-            // Return scorecard with all components including behavior
-            val finalCard = ScoreCard(
-                v59123CappedComponents + metaComponent + behaviorComponent + approvalComponent
-            )
+            // V5.9.140 — AUTO-MUTE / AUTO-BOOST
+            // Wrap each component's vote through EducationSubLayerAI so
+            // layers that have actually proven their edge get amplified
+            // (×1.25 / ×1.45) and layers below 40% smoothed edge get
+            // muted (×0). The reason is appended so the scorer log line
+            // shows WHY a particular layer's voice was silenced.
+            val mutedNames = mutableListOf<String>()
+            val boostedNames = mutableListOf<String>()
+            val allComponentsRaw = v59123CappedComponents + metaComponent + behaviorComponent + approvalComponent
+            val gatedComponents = allComponentsRaw.map { c ->
+                if (c.value == 0) return@map c
+                val layerName = EducationSubLayerAI.normalizeComponentName(c.name)
+                val (newVote, mult, status) = try {
+                    EducationSubLayerAI.applyMuteBoost(layerName, c.value)
+                } catch (_: Exception) { Triple(c.value, 1.0, "NORMAL") }
+                when (status) {
+                    "MUTE"        -> mutedNames.add(layerName)
+                    "SOFT_PENALTY"-> mutedNames.add("$layerName(soft)")
+                    "BOOST"       -> boostedNames.add(layerName)
+                    "HEAVY_BOOST" -> boostedNames.add("$layerName(hvy)")
+                }
+                if (mult == 1.0) c else c.copy(
+                    value = newVote,
+                    reason = "${c.reason} | GATE=${status} ×${"%.2f".format(mult)}"
+                )
+            }
+            if (mutedNames.isNotEmpty() || boostedNames.isNotEmpty()) {
+                Log.i("UnifiedScorer",
+                    "🛡️ GATE ${candidate.symbol} | muted=${mutedNames.joinToString(",")} | " +
+                    "boosted=${boostedNames.joinToString(",")}"
+                )
+            }
+
+            // Return scorecard with gated components (mute/boost applied).
+            val finalCard = ScoreCard(gatedComponents)
             // V5.9.126 — capture entry scores for real per-layer accuracy learning
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
             return finalCard

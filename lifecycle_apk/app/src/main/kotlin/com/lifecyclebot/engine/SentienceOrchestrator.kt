@@ -278,6 +278,25 @@ Use only non-zero fields that reflect what you actually want to shift today.
             }
         } catch (_: Throwable) {}
 
+        // V5.9.140 — feed the LLM the live auto-mute/auto-boost roster so
+        // it knows which of its own voices have been silenced and which
+        // have been amplified. Closes the self-awareness loop.
+        try {
+            val gate = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getMuteBoostStatus()
+            if (gate.muted.isNotEmpty() || gate.softPenalty.isNotEmpty()
+                || gate.boosted.isNotEmpty() || gate.heavyBoost.isNotEmpty()) {
+                appendLine("- LAYER GATE (auto-mute / auto-boost):")
+                if (gate.muted.isNotEmpty())
+                    appendLine("    🔇 MUTED: ${gate.muted.joinToString(", ")}")
+                if (gate.softPenalty.isNotEmpty())
+                    appendLine("    🔉 soft-penalty: ${gate.softPenalty.joinToString(", ")}")
+                if (gate.boosted.isNotEmpty())
+                    appendLine("    🔊 boosted: ${gate.boosted.joinToString(", ")}")
+                if (gate.heavyBoost.isNotEmpty())
+                    appendLine("    📣 HEAVY BOOST: ${gate.heavyBoost.joinToString(", ")}")
+            }
+        } catch (_: Throwable) {}
+
         appendLine()
         appendLine("Reflect. Adjust yourself. Speak.")
     }

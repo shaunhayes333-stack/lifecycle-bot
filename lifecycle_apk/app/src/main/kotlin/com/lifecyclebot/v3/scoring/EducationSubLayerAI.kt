@@ -361,6 +361,10 @@ object EducationSubLayerAI {
         pendingEntryScores[mint] = EntryScoreSnapshot(map)
     }
 
+    /** V5.9.140 — public wrapper so UnifiedScorer can normalise without making
+     *  the private function public (keeps the when-expression internal). */
+    fun normalizeComponentName(componentName: String): String = normalizeLayerName(componentName)
+
     /**
      * Canonical name used across scoring/diagnostics. Maps a component name
      * (as emitted by UnifiedScorer) to the REGISTERED_LAYERS key.
@@ -1217,6 +1221,80 @@ object EducationSubLayerAI {
     /** V5.9.138 — rough per-trade Sharpe (mean / std of pnlPct). */
     fun getLayerSharpe(layerName: String): Double =
         layerPerformance[layerName]?.sharpe ?: 0.0
+
+    /**
+     * V5.9.140 — AUTO-MUTE / AUTO-BOOST.
+     *
+     * Given a raw component vote (the int on a ScoreComponent) for a named
+     * layer, return the adjusted vote. Rules:
+     *
+     *   edge <= 0.40  and >=10 trades  → vote scaled to 0  (muted)
+     *   edge <= 0.45  and >=10 trades  → vote × 0.5         (soft penalty)
+     *   0.45 < edge < 0.65             → vote × 1.0         (unchanged)
+     *   edge >= 0.65  and >=10 trades  → vote × 1.25        (amplified)
+     *   edge >= 0.75  and >=20 trades  → vote × 1.45        (heavy amplify)
+     *
+     * Muting / boosting only kicks in after the layer has recorded at
+     * least 10 real outcomes (otherwise the Bayesian prior dominates and
+     * the mute would chop untrained layers). Boost caps at 1.45× to keep
+     * one superstar layer from steamrolling the rest.
+     *
+     * Negative votes (vetoes, penalties) receive the SAME multiplier —
+     * a mistrusted distrustful layer still loses its veto power, a
+     * trusted distrustful layer gets a louder veto. That's the point.
+     *
+     * Public so UnifiedScorer can wrap each component's value before
+     * aggregating. Returns a Triple<newVote, multiplier, status> where
+     * status is one of: "MUTE", "SOFT_PENALTY", "BOOST", "HEAVY_BOOST",
+     * "NORMAL". Status lets the scorer surface "muted SellOpt" style
+     * reasons so the user can see it happening.
+     */
+    fun applyMuteBoost(layerName: String, vote: Int): Triple<Int, Double, String> {
+        val m = layerPerformance[layerName]
+        val trades = m?.totalOutcomesRecorded ?: 0
+        if (trades < 10) return Triple(vote, 1.0, "NORMAL")
+        val edge = getLayerAccuracy(layerName)   // already Bayesian-smoothed
+        val (mult, status) = when {
+            edge <= 0.40 -> 0.0  to "MUTE"
+            edge <= 0.45 -> 0.5  to "SOFT_PENALTY"
+            edge >= 0.75 && trades >= 20 -> 1.45 to "HEAVY_BOOST"
+            edge >= 0.65 -> 1.25 to "BOOST"
+            else          -> 1.0  to "NORMAL"
+        }
+        val adjusted = (vote * mult).toInt()
+        return Triple(adjusted, mult, status)
+    }
+
+    /**
+     * V5.9.140 — diagnostic snapshot of currently-muted / -boosted layers.
+     * Used by the UI / SentienceOrchestrator so the user can SEE which
+     * layers the bot has silenced on its own.
+     */
+    data class MuteBoostStatus(
+        val muted:       List<String>,
+        val softPenalty: List<String>,
+        val boosted:     List<String>,
+        val heavyBoost:  List<String>,
+    )
+
+    fun getMuteBoostStatus(): MuteBoostStatus {
+        val muted = mutableListOf<String>()
+        val soft  = mutableListOf<String>()
+        val boost = mutableListOf<String>()
+        val heavy = mutableListOf<String>()
+        REGISTERED_LAYERS.forEach { name ->
+            val m = layerPerformance[name] ?: return@forEach
+            if (m.totalOutcomesRecorded < 10) return@forEach
+            val edge = getLayerAccuracy(name)
+            when {
+                edge <= 0.40 -> muted.add(name)
+                edge <= 0.45 -> soft.add(name)
+                edge >= 0.75 && m.totalOutcomesRecorded >= 20 -> heavy.add(name)
+                edge >= 0.65 -> boost.add(name)
+            }
+        }
+        return MuteBoostStatus(muted, soft, boost, heavy)
+    }
 
     /**
      * V5.9.133 — RAW (unsmoothed) accuracy, 0.0–1.0. For internal use only
