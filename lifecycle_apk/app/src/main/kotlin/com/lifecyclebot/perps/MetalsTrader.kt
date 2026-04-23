@@ -532,6 +532,16 @@ object MetalsTrader {
                 delta = -positionSizeSol,
                 source = "Metals.open[${signal.market.symbol}]"
             )
+            // V5.9.171 — local orphan failsafe (Turso-independent). Refunds
+            // paper capital on next startup if the app is wiped mid-trade.
+            try {
+                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
+                    trader = "Metals",
+                    posId = position.id,
+                    sizeSol = positionSizeSol,
+                    symbol = signal.market.symbol,
+                )
+            } catch (_: Exception) {}
         } else {
             val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
             if (!liveOk) {
@@ -664,6 +674,9 @@ object MetalsTrader {
         val pnl = grossPnl - totalFeeSol
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
+
+        // V5.9.171 — clear local orphan record (paper capital being returned).
+        try { com.lifecyclebot.collective.LocalOrphanStore.clear(position.id) } catch (_: Exception) {}
 
         // V5.9.130: close V3 learning loop → real accuracy on 41 layers.
         // V5.9.170: carry the real exit reason into the education firehose.

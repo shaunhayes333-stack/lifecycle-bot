@@ -537,6 +537,15 @@ object ForexTrader {
                 delta = -positionSizeSol,
                 source = "Forex.open[${signal.market.symbol}]"
             )
+            // V5.9.171 — local orphan failsafe.
+            try {
+                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
+                    trader = "Forex",
+                    posId = position.id,
+                    sizeSol = positionSizeSol,
+                    symbol = signal.market.symbol,
+                )
+            } catch (_: Exception) {}
         } else {
             val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
             if (!liveOk) {
@@ -667,6 +676,9 @@ object ForexTrader {
         val pnl = grossPnl - totalFeeSol
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
+
+        // V5.9.171 — clear local orphan record (paper capital being returned).
+        try { com.lifecyclebot.collective.LocalOrphanStore.clear(position.id) } catch (_: Exception) {}
 
         // V5.9.130: close V3 learning loop → real-accuracy update on 41 layers.
         // V5.9.170: forward real exit reason for education firehose.

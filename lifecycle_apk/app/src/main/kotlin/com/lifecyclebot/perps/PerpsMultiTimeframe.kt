@@ -257,10 +257,11 @@ object PerpsMultiTimeframe {
         val scaleFactor = timeframe.minutes.toDouble() / 1440.0  // Fraction of day
         val baseChange = dailyChange * scaleFactor
         
-        // Add some variance to simulate different timeframe behaviors
-        val variance = (Math.random() - 0.5) * 2 * scaleFactor
-        
-        return baseChange + variance
+        // V5.9.170 — no fabricated randomness. If real MTF OHLC is ever
+        // wired in (candleCache below), use it. Otherwise derive the
+        // timeframe change purely from the real 24h change scaled by
+        // timeframe fraction — no Math.random() producing phantom signals.
+        return baseChange
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

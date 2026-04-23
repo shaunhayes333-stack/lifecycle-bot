@@ -670,14 +670,19 @@ object PerpsMarketDataFetcher {
                 price = price,
                 indexPrice = price,
                 markPrice = price,
-                fundingRate = 0.0001 * (if (change24h > 0) 1 else -1),  // Simulated funding
-                fundingRateAnnualized = 0.0001 * 365 * 3 * 100,
-                nextFundingTime = System.currentTimeMillis() + 8 * 60 * 60 * 1000,  // 8 hours
-                openInterestLong = 50_000_000.0,   // Simulated OI
-                openInterestShort = 45_000_000.0,
+                // V5.9.170 — NO simulated funding/OI/spread. Feeds that
+                // don't supply real values must stay zeroed so the AI
+                // layers (FundingRateAwarenessAI, OrderbookImbalance,
+                // etc.) can't train on fabricated numbers. Display layers
+                // already render "--" for zero.
+                fundingRate = 0.0,
+                fundingRateAnnualized = 0.0,
+                nextFundingTime = 0,
+                openInterestLong = 0.0,
+                openInterestShort = 0.0,
                 volume24h = volume24h,
-                high24h = price * 1.03,
-                low24h = price * 0.97,
+                high24h = price,
+                low24h = price,
                 priceChange24hPct = change24h,
             )
         } catch (e: Exception) {

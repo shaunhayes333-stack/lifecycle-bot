@@ -1109,6 +1109,18 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
 
+        // V5.9.171 — record in LOCAL orphan store (Turso-independent failsafe)
+        // so paper capital is refundable even when the app is updated offline.
+        if (isPaperMode.get()) {
+            try {
+                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
+                    trader = "CryptoAlt",
+                    posId = position.id,
+                    sizeSol = finalSize,
+                    symbol = signal.market.symbol,
+                )
+            } catch (_: Exception) {}
+        }
         // V5.9.130: register entry with the V3 bridge so the real accuracy
         // loop + ReflexAI gate have a record to close against.
         // V5.9.170: push the real reason chain into the education layer so
@@ -1407,6 +1419,9 @@ object CryptoAltTrader {
         val pos = positions.remove(positionId) ?: return
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        // V5.9.171 — clear from local orphan store since capital is being
+        // returned to the paper wallet via creditUnifiedPaperSol below.
+        try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
         com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
 
         // V5.9.134 — delete the OPEN row from Turso so it doesn't linger
@@ -1487,7 +1502,15 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "🪙 Live close failed for ${pos.market.symbol}: ${e.message}")
             }
             if (!closeSuccess) {
-                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${pos.market.symbol} — position kept open for retry")
+                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${pos.market.symbol} — re-inserting position for retry (was orphaned)")
+                // V5.9.171 — the position was removed from maps up at line 1407 BEFORE the
+                // on-chain close attempt. When the close fails we must put it back, otherwise
+                // the bot thinks the trade is closed while the asset is still live on-chain
+                // forever. This is the "says sell then leaves it open" bug the user reported.
+                positions[positionId] = pos
+                if (pos.leverage <= 1.0) spotPositions[positionId]      = pos
+                else                     leveragePositions[positionId] = pos
+                com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
                 return // DON'T remove position if on-chain close failed
             }
             try {

@@ -1826,6 +1826,20 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "EducationSubLayerAI init failed: ${e.message}", e)
         }
+
+        // V5.9.171 — LOCAL paper-orphan reconciler failsafe. Refunds capital
+        // from open paper positions that were wiped by an app update even
+        // when Turso is unreachable. Runs BEFORE bot engine spins up so the
+        // wallet shows the correct balance on the first render.
+        try {
+            com.lifecyclebot.collective.LocalOrphanStore.init(applicationContext)
+            val refunded = com.lifecyclebot.collective.LocalOrphanStore.reconcileAll()
+            if (refunded > 0) {
+                addLog("♻️ Local orphan reconciler refunded ${"%.3f".format(refunded)} SOL to paper wallet (app-update recovery)")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "LocalOrphanStore init failed: ${e.message}", e)
+        }
         
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")

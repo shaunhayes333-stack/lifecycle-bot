@@ -967,20 +967,27 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
         val leverage = if (isSpot) 1.0 else signal.leverage
         
-        // V5.8.0: Apply Hivemind size/TP modifier
+        // V5.9.171 — match the other perps traders: apply the same fluid
+        // score/confidence based size + TP/SL multipliers so stocks get
+        // scaled with signal quality instead of static Hive adjustments only.
+        val fluidSizeMult = PerpsFluidSizing.sizeMultiplier(signal.score, signal.confidence)
+        val (fluidTpMult, fluidSlMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
+
+        // V5.8.0: Apply Hivemind size/TP modifier (stacked with fluid multipliers)
         val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
-        val hiveSizeSol = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.30)
-        val hiveTpPct = (tpPct + hiveTpAdj).coerceAtLeast(1.5)
-        if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0) {
-            ErrorLogger.info(TAG, "📈 ${signal.market.symbol}: Hive adj → size×${"%.2f".format(hiveSizeMult)} tp+${hiveTpAdj}%")
+        val hiveSizeSol = (sizeSol * hiveSizeMult * fluidSizeMult).coerceIn(0.01, balance * 0.30)
+        val hiveTpPct = ((tpPct * fluidTpMult) + hiveTpAdj).coerceAtLeast(1.5)
+        val fluidSlPct = (slPct * fluidSlMult).coerceAtLeast(1.0)
+        if (hiveSizeMult != 1.0 || hiveTpAdj != 0.0 || fluidSizeMult != 1.0) {
+            ErrorLogger.info(TAG, "📈 ${signal.market.symbol}: fluid sz×${"%.2f".format(fluidSizeMult)} tp×${"%.2f".format(fluidTpMult)} sl×${"%.2f".format(fluidSlMult)} | hive sz×${"%.2f".format(hiveSizeMult)} tp+${hiveTpAdj}%")
         }
 
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG -> {
-                signal.price * (1 + hiveTpPct / 100) to signal.price * (1 - slPct / 100)
+                signal.price * (1 + hiveTpPct / 100) to signal.price * (1 - fluidSlPct / 100)
             }
             PerpsDirection.SHORT -> {
-                signal.price * (1 - hiveTpPct / 100) to signal.price * (1 + slPct / 100)
+                signal.price * (1 - hiveTpPct / 100) to signal.price * (1 + fluidSlPct / 100)
             }
         }
         
@@ -1035,6 +1042,16 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 delta = -hiveSizeSol,
                 source = "TokenizedStocks.open[${signal.market.symbol}]"
             )
+            // V5.9.171 — local orphan failsafe. Refunds paper capital on next
+            // startup if the app is wiped mid-trade, even when Turso is offline.
+            try {
+                com.lifecyclebot.collective.LocalOrphanStore.recordOpen(
+                    trader = "Stocks",
+                    posId = position.id,
+                    sizeSol = hiveSizeSol,
+                    symbol = signal.market.symbol,
+                )
+            } catch (_: Exception) {}
         } else {
             val liveOk = executeLiveTradeAtSize(signal, isSpot, hiveSizeSol)
             if (!liveOk) {
@@ -1120,6 +1137,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // V5.7.6b: Remove from Turso
         removePositionFromTurso(positionId)
+
+        // V5.9.171 — clear local orphan record (paper capital is being
+        // returned to the unified wallet at the bottom of this function).
+        try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
 
         // V5.9.130: close V3 learning loop → drives real accuracy update on
         // every one of the 41 AI layers based on how this stock trade resolved

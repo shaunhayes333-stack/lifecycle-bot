@@ -248,7 +248,7 @@ object GlobalTradeRegistry {
         val lastProcessed = recentlyProcessed[mint]
         if (lastProcessed != null) {
             val elapsed = now - lastProcessed
-            if (elapsed < DUPLICATE_COOLDOWN_MS) {
+            if (elapsed < effectiveDuplicateCooldownMs()) {
                 duplicatesBlocked.incrementAndGet()
                 return AddResult(false, "COOLDOWN: processed ${elapsed/1000}s ago")
             }
