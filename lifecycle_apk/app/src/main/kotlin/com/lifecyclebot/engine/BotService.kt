@@ -3612,12 +3612,29 @@ val perTokenTimeoutMs = 2_500L
 // couldn't keep up with the user's 50–100 token universe, so trades
 // were being evaluated once every 2–3 ticks instead of every tick,
 // slowing exits on fast-moving micro-caps.
-val maxParallel = when {
-    orderedMints.size >= 40 -> 10
-    orderedMints.size >= 20 -> 8
-    orderedMints.size >= 12 -> 6
-    orderedMints.size >= 6  -> 4
-    else -> 2
+// V5.9.162 — doubled again during bootstrap because the meme-trader
+// volume test showed ~50% of tokens still deferred per tick at the
+// V5.9.106 caps. On a ~100-token watchlist we want EVERY token
+// evaluated EVERY tick, not every 2-3 ticks.
+val memeBootstrap = try {
+    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+} catch (_: Exception) { false }
+val maxParallel = if (memeBootstrap) {
+    when {
+        orderedMints.size >= 40 -> 24
+        orderedMints.size >= 20 -> 16
+        orderedMints.size >= 12 -> 12
+        orderedMints.size >= 6  -> 8
+        else -> 4
+    }
+} else {
+    when {
+        orderedMints.size >= 40 -> 10
+        orderedMints.size >= 20 -> 8
+        orderedMints.size >= 12 -> 6
+        orderedMints.size >= 6  -> 4
+        else -> 2
+    }
 }
 
 val batchDeadline = System.currentTimeMillis() + maxBatchMillis

@@ -70,9 +70,32 @@ object GlobalTradeRegistry {
     private val probationRejections = AtomicLong(0)
     
     // Timing constants
-    private const val DUPLICATE_COOLDOWN_MS = 20_000L  // 2 minutes - don't re-add same token
-    private const val REJECTION_COOLDOWN_MS = 20_000L  // 2 minutes - rejected tokens can't be re-added
-    private const val PROCESS_COOLDOWN_MS = 5_000L     // 5 seconds - between processing same token
+    // V5.9.162 — aggressive bootstrap volume boost. User: "it was smashing
+    // out hundreds of trades an hour". 20s duplicate/rejection cooldowns on
+    // the same mint were capping re-discovery throughput on a hot watchlist;
+    // 5s per-token processing cooldown was serialising evaluation of the
+    // same mint across rapid scan ticks. All dropped hard for memetrader
+    // volume. Bootstrap-only: tightens back above 40% learning via
+    // effective*() helpers below.
+    private const val DUPLICATE_COOLDOWN_MS = 20_000L   // mature: 20s
+    private const val DUPLICATE_COOLDOWN_MS_BOOTSTRAP = 3_000L
+    private const val REJECTION_COOLDOWN_MS = 20_000L   // mature: 20s
+    private const val REJECTION_COOLDOWN_MS_BOOTSTRAP = 3_000L
+    private const val PROCESS_COOLDOWN_MS = 5_000L      // mature: 5s
+    private const val PROCESS_COOLDOWN_MS_BOOTSTRAP = 1_000L
+
+    private fun isBootstrapPhase(): Boolean = try {
+        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+    } catch (_: Exception) { false }
+
+    private fun effectiveDuplicateCooldownMs(): Long =
+        if (isBootstrapPhase()) DUPLICATE_COOLDOWN_MS_BOOTSTRAP else DUPLICATE_COOLDOWN_MS
+
+    private fun effectiveRejectionCooldownMs(): Long =
+        if (isBootstrapPhase()) REJECTION_COOLDOWN_MS_BOOTSTRAP else REJECTION_COOLDOWN_MS
+
+    private fun effectiveProcessCooldownMs(): Long =
+        if (isBootstrapPhase()) PROCESS_COOLDOWN_MS_BOOTSTRAP else PROCESS_COOLDOWN_MS
     
     // V5.0 Probation constants
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
@@ -212,7 +235,7 @@ object GlobalTradeRegistry {
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
             val elapsed = now - rejection.rejectedAt
-            if (elapsed < REJECTION_COOLDOWN_MS) {
+            if (elapsed < effectiveRejectionCooldownMs()) {
                 duplicatesBlocked.incrementAndGet()
                 return AddResult(false, "REJECTED: ${rejection.reason} (${elapsed/1000}s ago)")
             } else {
@@ -305,7 +328,7 @@ object GlobalTradeRegistry {
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
             val elapsed = now - rejection.rejectedAt
-            if (elapsed < REJECTION_COOLDOWN_MS) {
+            if (elapsed < effectiveRejectionCooldownMs()) {
                 PipelineTracer.registryRejected(symbol, mint, "COOLDOWN: ${rejection.reason}")
                 return AddResult(false, "REJECTED: ${rejection.reason}")
             } else {
@@ -635,7 +658,7 @@ object GlobalTradeRegistry {
      */
     fun canProcess(mint: String): Boolean {
         val lastProcessed = recentlyProcessed[mint] ?: return true
-        return System.currentTimeMillis() - lastProcessed >= PROCESS_COOLDOWN_MS
+        return System.currentTimeMillis() - lastProcessed >= effectiveProcessCooldownMs()
     }
     
     /**
@@ -749,12 +772,18 @@ object GlobalTradeRegistry {
      */
     fun cleanup() {
         val now = System.currentTimeMillis()
-        
+
+        // V5.9.162: cleanup uses effective (bootstrap-aware) cooldowns so
+        // rejection/processed entries flush fast during bootstrap and keep
+        // their 20s persistence after maturity.
+        val rejCd = effectiveRejectionCooldownMs()
+        val dupCd = effectiveDuplicateCooldownMs()
+
         // Clean old rejections
-        rejectedTokens.entries.removeIf { now - it.value.rejectedAt > REJECTION_COOLDOWN_MS }
-        
+        rejectedTokens.entries.removeIf { now - it.value.rejectedAt > rejCd }
+
         // Clean old processed entries
-        recentlyProcessed.entries.removeIf { now - it.value > DUPLICATE_COOLDOWN_MS }
+        recentlyProcessed.entries.removeIf { now - it.value > dupCd }
     }
     
     /**

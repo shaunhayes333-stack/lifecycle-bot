@@ -62,9 +62,26 @@ object TradeStateMachine {
     private val tokenStates = java.util.concurrent.ConcurrentHashMap<String, TokenTradeState>()
     
     // FIX #6: Real cooldown timers - shortened for faster iteration
-    private const val COOLDOWN_MS = 30_000L             // 30 second cooldown after exit
-    private const val MIN_COOLDOWN_MS = 10_000L         // Minimum 10 seconds even for dynamic clear
+    // V5.9.162 — user reports "it was smashing out hundreds of trades an hour".
+    // Post-exit 30s cooldown was the biggest per-mint throttle on fast
+    // meme flips — a token that just closed can't re-enter for 30s even
+    // if it's hot again. Cut hard during bootstrap; full 30s restored at
+    // maturity.
+    private const val COOLDOWN_MS = 30_000L             // 30 second cooldown after exit (mature)
+    private const val COOLDOWN_MS_BOOTSTRAP = 5_000L    // V5.9.162: bootstrap
+    private const val MIN_COOLDOWN_MS = 10_000L         // Minimum 10 seconds even for dynamic clear (mature)
+    private const val MIN_COOLDOWN_MS_BOOTSTRAP = 2_000L
     private const val WATCH_TIMEOUT_MS = 60_000L        // 1 minute max in WATCH state
+
+    private fun isBootstrapPhase(): Boolean = try {
+        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+    } catch (_: Exception) { false }
+
+    private fun effectiveCooldownMs(): Long =
+        if (isBootstrapPhase()) COOLDOWN_MS_BOOTSTRAP else COOLDOWN_MS
+
+    private fun effectiveMinCooldownMs(): Long =
+        if (isBootstrapPhase()) MIN_COOLDOWN_MS_BOOTSTRAP else MIN_COOLDOWN_MS
     
     // Entry pattern thresholds
     private const val SPIKE_THRESHOLD_PCT = 5.0      // 5% rise = spike detected
@@ -100,12 +117,12 @@ object TradeStateMachine {
     fun startCooldown(mint: String) {
         val ts = getState(mint)
         ts.state = TradeState.COOLDOWN
-        ts.cooldownUntil = System.currentTimeMillis() + COOLDOWN_MS
+        val cd = effectiveCooldownMs()
+        ts.cooldownUntil = System.currentTimeMillis() + cd
         ts.entryPattern = EntryPattern.NONE
         ts.spikeHighPrice = 0.0
         ts.pullbackLowPrice = 0.0
-        val minsLeft = COOLDOWN_MS / 60_000
-        ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Cooldown for ${minsLeft}min")
+        ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Cooldown for ${cd/1000}s")
     }
     
     /**
@@ -128,8 +145,9 @@ object TradeStateMachine {
         val timeInCooldown = now - ts.stateEnteredAt
         
         // Enforce minimum cooldown even when dynamically clearing
-        if (timeInCooldown < MIN_COOLDOWN_MS) {
-            val secsLeft = (MIN_COOLDOWN_MS - timeInCooldown) / 1000
+        val minCd = effectiveMinCooldownMs()
+        if (timeInCooldown < minCd) {
+            val secsLeft = (minCd - timeInCooldown) / 1000
             ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Min cooldown enforced - ${secsLeft}s remaining")
             return  // Don't clear yet
         }
