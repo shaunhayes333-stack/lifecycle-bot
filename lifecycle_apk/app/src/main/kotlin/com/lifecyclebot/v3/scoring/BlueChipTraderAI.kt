@@ -185,6 +185,7 @@ object BlueChipTraderAI {
         STOP_LOSS,
         TRAILING_STOP,
         TIME_EXIT,
+        PARTIAL_TAKE,  // V5.9.166: laddered partial-sell signal
         HOLD
     }
     

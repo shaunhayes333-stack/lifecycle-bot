@@ -204,6 +204,7 @@ object QualityTraderAI {
         STOP_LOSS,
         TRAILING_STOP,
         TIME_EXIT,
+        PARTIAL_TAKE,       // V5.9.166: laddered partial-sell signal
         PROMOTE_BLUECHIP,   // Promote to BlueChip if mcap crosses $250k
         PROMOTE_MOONSHOT,   // Promote to Moonshot if gains > 100%
     }

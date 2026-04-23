@@ -7324,9 +7324,23 @@ if (deferredCount > 0) {
                     com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT -> "✅"
                     com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
                     com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS -> "🛑"
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PARTIAL_TAKE -> "💰"
                     com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_BLUECHIP -> "🔵"
                     com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT -> "🚀"
                     else -> "⏱"
+                }
+
+                // V5.9.166 — laddered partial sell (20% per rung)
+                if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.20,
+                        reason = "QUALITY_PARTIAL_TAKE_20PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
+                    return
                 }
                 
                 // Check for promotions - don't sell, just hand off to higher layer
@@ -7417,11 +7431,25 @@ if (deferredCount > 0) {
                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT -> "✅"
                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TRAILING_STOP -> "🎯"
                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS -> "🛑"
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.PARTIAL_TAKE -> "💰"
                     else -> "⏱"
                 }
-                
+
                 ErrorLogger.info("BotService", "🔵 [BLUECHIP EXIT] ${ts.symbol} | signal=$exitSignal | price=$currentPrice")
-                
+
+                // V5.9.166 — laddered partial sell (20% per rung)
+                if (exitSignal == com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.PARTIAL_TAKE) {
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.20,
+                        reason = "BLUECHIP_PARTIAL_TAKE_20PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
+                    return
+                }
+
                 executor.requestSell(
                     ts = ts,
                     reason = "BLUECHIP_${exitSignal.name}",
