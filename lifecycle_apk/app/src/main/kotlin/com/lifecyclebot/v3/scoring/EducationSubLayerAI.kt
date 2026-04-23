@@ -1310,25 +1310,57 @@ object EducationSubLayerAI {
      *  - Mute still applies to both signs, so a distrusted layer's
      *    veto correctly loses its force.
      */
+    /**
+     * V5.9.146 — EXPECTANCY-AWARE GATE.
+     *
+     * V5.9.140-144 gated purely on smoothedAccuracy (hit rate). Field
+     * evidence from the 200-trade screen:
+     *   Correlatio   80% hit / −2.0% exp   ← BOOSTed by old rule, loses money
+     *   HoldTimeOp   30% hit / +1.1% exp   ← MUTED by old rule, makes money
+     *   SessionEdg   48% hit / +1.4% exp   ← grey by old rule, should be GREEN
+     *
+     * Hit rate tells us how often a layer is RIGHT. Expectancy tells us
+     * whether voting with it makes us MONEY. A frequent-but-tiny winner
+     * that occasionally eats a −30% loss has a great hit rate and
+     * negative edge. Listening to it costs you. The new gate uses BOTH
+     * signals and lets positive expectancy override a mediocre hit rate.
+     *
+     *   hit <= 0.33 AND exp <  -1.0  AND >=20 trades   → MUTE (×0.00)
+     *   exp <= -2.0 AND hit < 0.55   AND >=20 trades   → MUTE (×0.00)
+     *   hit <= 0.40 AND exp <   0.0  AND >=20 trades   → SOFT_PENALTY (×0.60)
+     *   exp >= +5.0 AND hit >  0.55  AND >=40 trades  AND vote > 0 → HEAVY_BOOST (×1.35)
+     *   exp >= +2.0 AND hit >  0.55  AND >=20 trades  AND vote > 0 → BOOST (×1.20)
+     *   otherwise                                       → NORMAL
+     *
+     * Note: hit == smoothedAccuracy (Bayesian, already quality-weighted
+     * via V5.9.138 but still primarily reflects win-frequency).
+     * exp == mean pnlPct per trade == the economic truth.
+     *
+     * Bootstrap relaxation (V5.9.144) still applies — the whole penalty
+     * side is softened during early trade count.
+     */
     fun applyMuteBoost(layerName: String, vote: Int): Triple<Int, Double, String> {
         val m = layerPerformance[layerName]
         val trades = m?.totalOutcomesRecorded ?: 0
         if (trades < 20) return Triple(vote, 1.0, "NORMAL")
-        val edge = getLayerAccuracy(layerName)
+        val hit = getLayerAccuracy(layerName)
+        val exp = m?.expectancyPct ?: 0.0
         val (rawMult, status) = when {
-            edge <= 0.33 -> 0.0  to "MUTE"
-            edge <= 0.40 -> 0.6  to "SOFT_PENALTY"
-            // Boosts only apply to POSITIVE votes to avoid amplifying vetoes.
-            edge >= 0.70 && trades >= 40 && vote > 0 -> 1.35 to "HEAVY_BOOST"
-            edge >= 0.62 && vote > 0                 -> 1.20 to "BOOST"
+            // Both signals terrible → hard mute
+            hit <= 0.33 && exp < -1.0  -> 0.0 to "MUTE"
+            // Strong negative expectancy dominates a mediocre hit rate
+            exp <= -2.0 && hit <  0.55 -> 0.0 to "MUTE"
+            // Medium bad on both sides → soft penalty
+            hit <= 0.40 && exp <  0.0  -> 0.6 to "SOFT_PENALTY"
+            // Both signals strong → heavy boost (positive votes only)
+            exp >= 5.0  && hit >  0.55 && trades >= 40 && vote > 0 -> 1.35 to "HEAVY_BOOST"
+            // Clearly positive expectancy with decent hit → boost
+            exp >= 2.0  && hit >  0.55 && vote > 0                 -> 1.20 to "BOOST"
             else -> 1.0 to "NORMAL"
         }
-        // V5.9.144 — soften the penalty side (not the boost side) during
-        // bootstrap. rawMult < 1.0 means a drag; we interpolate it back
-        // toward 1.0 by (1 - relaxation). Boosts (rawMult > 1.0) are
-        // unchanged so good behaviour keeps its full reward.
+        // V5.9.144 — bootstrap relaxation on penalties only (preserved).
         val mult = if (rawMult < 1.0) {
-            val relax = getBootstrapRelaxation()   // 0.3..1.0
+            val relax = getBootstrapRelaxation()
             rawMult + (1.0 - rawMult) * (1.0 - relax)
         } else rawMult
         val adjusted = (vote * mult).toInt()
@@ -1336,9 +1368,7 @@ object EducationSubLayerAI {
     }
 
     /**
-     * V5.9.140 — diagnostic snapshot of currently-muted / -boosted layers.
-     * Used by the UI / SentienceOrchestrator so the user can SEE which
-     * layers the bot has silenced on its own.
+     * V5.9.146 — diagnostic status mirrors the new expectancy-aware gate.
      */
     data class MuteBoostStatus(
         val muted:       List<String>,
@@ -1354,13 +1384,15 @@ object EducationSubLayerAI {
         val heavy = mutableListOf<String>()
         REGISTERED_LAYERS.forEach { name ->
             val m = layerPerformance[name] ?: return@forEach
-            if (m.totalOutcomesRecorded < 20) return@forEach  // V5.9.143 match gate
-            val edge = getLayerAccuracy(name)
+            if (m.totalOutcomesRecorded < 20) return@forEach
+            val hit = getLayerAccuracy(name)
+            val exp = m.expectancyPct
             when {
-                edge <= 0.33 -> muted.add(name)
-                edge <= 0.40 -> soft.add(name)
-                edge >= 0.70 && m.totalOutcomesRecorded >= 40 -> heavy.add(name)
-                edge >= 0.62 -> boost.add(name)
+                hit <= 0.33 && exp < -1.0  -> muted.add(name)
+                exp <= -2.0 && hit <  0.55 -> muted.add(name)
+                hit <= 0.40 && exp <  0.0  -> soft.add(name)
+                exp >=  5.0 && hit >  0.55 && m.totalOutcomesRecorded >= 40 -> heavy.add(name)
+                exp >=  2.0 && hit >  0.55 -> boost.add(name)
             }
         }
         return MuteBoostStatus(muted, soft, boost, heavy)
