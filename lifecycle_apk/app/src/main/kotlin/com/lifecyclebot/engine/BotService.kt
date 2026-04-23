@@ -4673,10 +4673,23 @@ if (deferredCount > 0) {
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
+                        // V5.9.156 — CrossTalk dump veto is volume-killing on
+                        // fresh pump.fun launches that ALWAYS fire LiquidityAI
+                        // COLLAPSE in the first 4-5 minutes (user log 04-23:
+                        // PORINGMAN collapse -7% over 4min on a token 3 min
+                        // old). During bootstrap (<40% learning) we let those
+                        // tokens through — the scorer already has the signal
+                        // as a component, and the bot needs volume to learn
+                        // what's a real dump vs launch noise. Above 40%
+                        // learning the original hard veto re-engages.
+                        val dumpBootstrapBypass = try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+                        } catch (_: Exception) { false }
+                        val dumpBlocks = hasDumpSignal && !dumpBootstrapBypass
                         // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
                         // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
                         // TOO_OLD / INELIGIBLE / ZERO_LIQUIDITY rejections from V3|ELIGIBILITY must block all layers.
-                        val shouldEnter = !v3HardReject && !hasDumpSignal && (treasurySignal.shouldEnter || forceBootstrapEntry)
+                        val shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || forceBootstrapEntry)
 
                         // V5.9: Post-close cooldown — prevent immediate re-entry after a close
                         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
@@ -4696,10 +4709,19 @@ if (deferredCount > 0) {
                         // scoring path that bypassed chart-bias checks — if
                         // the scanner reads >=80% bearish in the last 2 min
                         // we skip regardless of Treasury score.
+                        // V5.9.156 — but during bootstrap (<40% learning)
+                        // let these through: SmartChart's "bearish 80%" on a
+                        // 2-min chart is noise on tokens that haven't had time
+                        // to print a real pattern. Blocking them here denied
+                        // the scorer the volume it needs to learn. Above 40%
+                        // learning the original veto re-engages.
+                        val smartChartBypass = try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+                        } catch (_: Exception) { false }
                         val tsBearish = try {
                             com.lifecyclebot.engine.SmartChartCache.getBearishConfidence(ts.mint)
                         } catch (_: Exception) { null }
-                        if (tsBearish != null && tsBearish >= 80.0) {
+                        if (!smartChartBypass && tsBearish != null && tsBearish >= 80.0) {
                             ErrorLogger.info(
                                 "BotService",
                                 "💰 [TREASURY] ${ts.symbol} | SMARTCHART_BLOCK | bearish=${tsBearish.toInt()}% — skip"
@@ -5392,7 +5414,12 @@ if (deferredCount > 0) {
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
-                        val shouldEnter = !shitCoinV3HardReject && !shitCoinHasDump &&
+                        // V5.9.156 — same bootstrap bypass as Treasury path.
+                        val shitCoinDumpBypass = try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+                        } catch (_: Exception) { false }
+                        val shitCoinDumpBlocks = shitCoinHasDump && !shitCoinDumpBypass
+                        val shouldEnter = !shitCoinV3HardReject && !shitCoinDumpBlocks &&
                             (shitCoinSignal.shouldEnter || forceBootstrapEntry)
 
                         // V5.9.27: explicit log so the block is visible when it fires
