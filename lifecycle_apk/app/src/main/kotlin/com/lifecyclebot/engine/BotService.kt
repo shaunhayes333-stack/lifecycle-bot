@@ -111,6 +111,15 @@ class BotService : Service() {
         // V5.9: Track recently closed positions to prevent immediate re-entry (churn prevention)
         val recentlyClosedMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private const val RE_ENTRY_COOLDOWN_MS = 300_000L  // 5 minutes
+
+        // V5.9.148 — guards the stop → start race. stopBot() flips status.running
+        // to false near its top, but then spends 20-60s closing Markets positions
+        // and calling .stop() on every trader singleton. If the user tapped START
+        // in that window, onStartCommand saw !running and launched startBot(),
+        // which initialized the traders — then the tail of the OLD stopBot stopped
+        // them again. Symptom: "30 button presses, bot won't restart".
+        @Volatile
+        var stopInProgress = false
     }
 
     // Coroutine exception handler - logs errors without crashing
@@ -487,7 +496,23 @@ class BotService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                if (!status.running) {
+                if (stopInProgress) {
+                    // V5.9.148 — queue the start until stopBot() has fully drained.
+                    // Otherwise the tail of stopBot stops the traders we just started.
+                    addLog("⏳ Stop in progress — restart queued (will auto-start when clean)")
+                    ErrorLogger.warn("BotService", "Start requested while stopInProgress — queued")
+                    scope.launch {
+                        val deadline = System.currentTimeMillis() + 60_000L
+                        while (stopInProgress && System.currentTimeMillis() < deadline) {
+                            kotlinx.coroutines.delay(200)
+                        }
+                        if (stopInProgress) {
+                            ErrorLogger.error("BotService", "stopBot() did not complete in 60s — force-clearing flag")
+                            stopInProgress = false
+                        }
+                        if (!status.running) startBot()
+                    }
+                } else if (!status.running) {
                     scope.launch { startBot() }
                 } else {
                     // Bot already running - just reschedule keep-alive
@@ -1919,6 +1944,10 @@ class BotService : Service() {
     }
 
     fun stopBot() {
+        // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
+        // the tail of this method. Cleared in the `finally` block below.
+        stopInProgress = true
+        try {
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
@@ -2318,6 +2347,11 @@ class BotService : Service() {
             "All positions closed. Wallet remains connected.",
             NotificationHistory.NotifEntry.NotifType.INFO
         )
+        } finally {
+            // V5.9.148 — always clear, even on early return/exception, so any
+            // queued restart in onStartCommand can proceed.
+            stopInProgress = false
+        }
     }
     
     // Keep-alive alarm to ensure service restarts if killed
