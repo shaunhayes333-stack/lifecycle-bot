@@ -405,15 +405,17 @@ class FinalDecisionEngine(
         // EXECUTE_AGGRESSIVE at conf ~30 and the gate would then post-hoc
         // downgrade to SHADOW_ONLY. Raise the aggressive floor so the band
         // and the gate agree.
-        // V5.9.97: EXECUTE_AGGRESSIVE is the LARGEST position-size band, so
-        // stop firing it on weak convictions. Require score >= 40 AND conf
-        // >= 50 regardless of bootstrap relief. Previously the bot bet its
-        // BIGGEST sizes on its WEAKEST setups (BEE/CAM both executed at
-        // score=26-27, conf=46 — those should have been EXECUTE_SMALL at
-        // most). STANDARD and SMALL keep their existing fluid floors so
-        // the bot can still learn from smaller probes.
-        val aggressiveConfFloor  = maxOf(effectiveMinConf + 10, 50)
-        val aggressiveScoreFloor = maxOf((effectiveMinScore * 1.3).toInt(), 40)
+        //
+        // V5.9.97 had added a hard `maxOf(..., 40/50)` which killed
+        // bootstrap-era aggressive entries (user complaint 04-23:
+        // '1000+/hr → ghost town'). V5.9.150 reverts to pure fluid floors
+        // so aggressive scales with learning progress the same way STANDARD
+        // and SMALL do. Quality is still enforced — aggressive now demands
+        // 10 points of extra conf over STANDARD — but nothing hard-locks
+        // out the bootstrap phase where the bot actually needs volume to
+        // learn.
+        val aggressiveConfFloor  = effectiveMinConf + 10
+        val aggressiveScoreFloor = (effectiveMinScore * 1.3).toInt()
         val standardConfFloor    = maxOf(effectiveMinConf, if (isCGrade) 25 else 40)
         val smallConfFloor       = maxOf(effectiveCGradeConf, 25)
 

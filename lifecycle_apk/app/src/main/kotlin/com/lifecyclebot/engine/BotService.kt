@@ -6008,29 +6008,13 @@ if (deferredCount > 0) {
                     }
                     
                     if (!cfg.v3ShadowMode) {
-                        // V5.9.97: FRESH-LAUNCH SCORE GATE
-                        // Log showed BEE (3min old) and CAM (4min old) both
-                        // executed at score=26-27. Fresh launches need a
-                        // HIGHER score than established tokens because (a)
-                        // 13 of 22 V3 layers are structurally starved of
-                        // data at this age, and (b) pump.fun meme hit rate
-                        // on 2-4-min-old launches with score<40 is trash.
-                        // If token age < 5 min AND score < 40, skip entry
-                        // regardless of band — let the token prove itself
-                        // a few more minutes and rescore.
-                        run {
-                            val tokenAgeMins = if (ts.addedToWatchlistAt > 0) {
-                                (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-                            } else Double.MAX_VALUE
-                            if (tokenAgeMins < 5.0 && result.score < 40) {
-                                ErrorLogger.info(
-                                    "BotService",
-                                    "[V3|FRESH_LAUNCH_GATE] ${identity.symbol} | SKIP | " +
-                                        "age=${tokenAgeMins.toInt()}m<5m score=${result.score}<40 — too young for this score"
-                                )
-                                return
-                            }
-                        }
+                        // V5.9.97 had a FRESH_LAUNCH_GATE that skipped any entry
+                        // where tokenAgeMins<5 AND score<40. V5.9.150 removed
+                        // it: the bot's volume regime depends on exactly these
+                        // tokens (pump.fun / gecko-trending commonly score
+                        // 17-35), and the fluid score floor already ramps
+                        // stricter as learning progresses. The drawdown gate
+                        // below still protects against brand-new rugs.
 
                         // V5.9.93: FRESH-LAUNCH DRAWDOWN GATE
                         // When SmartChart has < 10 candles, it cannot veto
