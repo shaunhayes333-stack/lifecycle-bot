@@ -1215,20 +1215,35 @@ object FluidLearningAI {
             //     current gain has given back >= 35% of the peak. No runner
             //     survives handing back a third of its high.
             //
-            // Bootstrap: keep 60% of peak. Mature: keep 80% of peak.
+            // V5.9.163 — USER-SPECIFIED PROFIT-LOCK LADDER (full stairstep).
+            // Peak ≥ +20%  → lock +10%
+            // Peak ≥ +50%  → lock +30%
+            // Peak ≥ +100% → lock +70%
+            // Peak ≥ +300% → lock +200%
+            // Peak ≥ +1000% → lock +800%
+            // Peak ≥ +3000% → lock +2500%
+            // Peak ≥ +10000% → lock +8000%
+            // Fluid-modulated: keepRatio (peak×0.60..0.80) is an ALSO-floor
+            // so mid-tier peaks don't lose ground between discrete stairs.
             val keepRatio = lerp(0.60, 0.80)
             val trailingStop = peakPnlPct * keepRatio
 
-            // Peak-drawdown hard floor for big runners (peak >= 100%).
-            // If we've given back >= 35% of peak pnl, fire exit.
+            // Big-runner hard give-back floor. User: "not locking profit
+            // on the way up anymore" — a runner giving back 35% of peak
+            // exits, no exceptions.
             val peakDrawdownFloor = if (peakPnlPct >= 100.0) peakPnlPct - 35.0 else Double.NEGATIVE_INFINITY
 
-            // Minimum locked-profit tiers (DESCENDING so the big ones win).
+            // Laddered min-locked profit (DESCENDING: biggest tier wins).
             val minLockedProfit = when {
-                peakPnlPct > 25.0 -> 10.0   // Seen 25%+ → never exit below +10%
-                peakPnlPct > 15.0 -> 5.0    // Seen 15%+ → never exit below +5%
-                peakPnlPct > 8.0  -> 2.0    // Seen 8%+  → never exit below +2%
-                else              -> 0.0
+                peakPnlPct >= 10000.0 -> 8000.0
+                peakPnlPct >= 3000.0  -> 2500.0
+                peakPnlPct >= 1000.0  -> 800.0
+                peakPnlPct >= 300.0   -> 200.0
+                peakPnlPct >= 100.0   -> 70.0
+                peakPnlPct >= 50.0    -> 30.0
+                peakPnlPct >= 20.0    -> 10.0
+                peakPnlPct >= 8.0     -> 2.0
+                else                  -> 0.0
             }
 
             // Return POSITIVE trailing stop level. Executor compares

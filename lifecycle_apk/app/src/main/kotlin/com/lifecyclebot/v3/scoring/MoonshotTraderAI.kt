@@ -99,6 +99,17 @@ object MoonshotTraderAI {
     private const val TRAILING_STOP_LUNAR = 12.0
     private const val TRAILING_STOP_MARS = 10.0
     private const val TRAILING_STOP_JUPITER = 8.0
+
+    // V5.9.163 — PARTIAL_TAKE_LADDER: each rung fires ONE partial sell when
+    // pnlPct crosses it. Matches user ladder "+20 +50 +100 +300 +1000 +3000"
+    // (we include +20 and +50 as early de-risk rungs — users explicitly
+    // asked for partial sells on the way up starting at the first meaningful
+    // gain). The executor (checkPartialSell path) decides the actual sell
+    // fraction per rung — Moonshot just signals PARTIAL_TAKE so the chain
+    // fires one milestone at a time.
+    private val PARTIAL_TAKE_LADDER = doubleArrayOf(
+        20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0
+    )
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -159,6 +170,11 @@ object MoonshotTraderAI {
         var trailingStop: Double = entryPrice * 0.85,
         var firstTakeDone: Boolean = false,
         var partialSellPct: Double = 0.0,
+        // V5.9.163 — which ladder rungs have already taken a partial.
+        // Each index corresponds to PARTIAL_TAKE_LADDER (see checkExit).
+        // Enables multi-stage partial sells on moonshots instead of
+        // one-and-done firstTakeDone behaviour.
+        var partialRungsTaken: Int = 0,
         var promotedFrom: String? = null,  // Which layer it was promoted from
         var peakPnlPct: Double = 0.0,
         var isCollectiveWinner: Boolean = false,
@@ -848,13 +864,18 @@ object MoonshotTraderAI {
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
-            
-            // Dynamic trailing based on gains and mode
+
+            // V5.9.163 — dynamic trailing tightens as we climb the ladder.
+            // Was: 5% trail at 10x+. For a +3500% runner that meant price
+            // could give back 175pp before exit. Match the user profit
+            // ladder: as peak climbs, protected-floor rises to N% back.
             val dynamicTrailPct = when {
-                pnlPct >= 1000 -> 5.0   // 10x+ → ultra-tight 5% trail
-                pnlPct >= 500 -> 6.0    // 5x+ → tight 6% trail
-                pnlPct >= 200 -> 8.0    // 3x+ → 8% trail
-                pnlPct >= 100 -> 10.0   // 2x+ → 10% trail
+                pnlPct >= 10000 -> 3.0  // 100x+ → razor 3% trail
+                pnlPct >= 3000  -> 4.0  // 30x+  → 4% trail
+                pnlPct >= 1000  -> 5.0  // 10x+  → 5% trail
+                pnlPct >= 500   -> 6.0  // 5x+   → 6% trail
+                pnlPct >= 200   -> 8.0  // 3x+   → 8% trail
+                pnlPct >= 100   -> 10.0 // 2x+   → 10% trail
                 else -> when (pos.spaceMode) {
                     SpaceMode.ORBITAL -> TRAILING_STOP_ORBITAL
                     SpaceMode.LUNAR -> TRAILING_STOP_LUNAR
@@ -889,11 +910,37 @@ object MoonshotTraderAI {
             return ExitSignal.STOP_LOSS
         }
         
-        // 3. PARTIAL TAKE at first target - then let rest ride!
-        if (!pos.firstTakeDone && pnlPct >= min(pos.takeProfitPct / 2, 75.0)) {
-            pos.firstTakeDone = true
-            ErrorLogger.info(TAG, "💰 PARTIAL TP: ${pos.symbol} | +${pnlPct.fmt(1)}% - LETTING REST RIDE!")
+        // 3. LADDERED PARTIAL TAKES (V5.9.163)
+        // User: "not locking profit or partial selling on the way up
+        // anymore". The old firstTakeDone flag fired ONE partial and
+        // never again — a +3499% moonshot never took a single profit
+        // past the initial ~75%. Now we walk a ladder and each rung
+        // fires one partial sell (executor handles the actual sell sizing).
+        val rungs = PARTIAL_TAKE_LADDER
+        if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
+            val hitRung = rungs[pos.partialRungsTaken]
+            pos.partialRungsTaken += 1
+            pos.firstTakeDone = true  // kept for legacy UI / metrics
+            ErrorLogger.info(TAG, "💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | " +
+                "hit +${hitRung.toInt()}% (now +${pnlPct.fmt(1)}%) — locking a slice, rest rides")
             return ExitSignal.PARTIAL_TAKE
+        }
+
+        // Also honour the profit-floor ladder: if the current gain has
+        // fallen below the locked-floor for the peak we've seen, exit.
+        val profitFloor = when {
+            pos.peakPnlPct >= 10000.0 -> 8000.0
+            pos.peakPnlPct >= 3000.0  -> 2500.0
+            pos.peakPnlPct >= 1000.0  -> 800.0
+            pos.peakPnlPct >= 300.0   -> 200.0
+            pos.peakPnlPct >= 100.0   -> 70.0
+            pos.peakPnlPct >= 50.0    -> 30.0
+            pos.peakPnlPct >= 20.0    -> 10.0
+            else                      -> Double.NEGATIVE_INFINITY
+        }
+        if (pnlPct < profitFloor) {
+            ErrorLogger.info(TAG, "🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
+            return ExitSignal.TRAILING_STOP
         }
         
         // 4. TRAILING STOP - locks in gains while letting it run
