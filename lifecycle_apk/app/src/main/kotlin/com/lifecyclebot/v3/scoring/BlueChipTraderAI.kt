@@ -154,7 +154,11 @@ object BlueChipTraderAI {
         val liquidityUsd: Double,
         val isPaper: Boolean,
         val takeProfitPct: Double,
-        val stopLossPct: Double
+        val stopLossPct: Double,
+        // V5.9.166: shared laddered profit-lock — same engine as Moonshot/ShitCoin.
+        var highWaterMark: Double = entryPrice,
+        var peakPnlPct: Double = 0.0,
+        var partialRungsTaken: Int = 0,
     )
     
     // Evaluation result
@@ -375,42 +379,65 @@ object BlueChipTraderAI {
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
-        
+
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
-        
+
+        // V5.9.166: Track peak + high-water for laddered profit-lock.
+        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
+        if (currentPrice > pos.highWaterMark) pos.highWaterMark = currentPrice
+
         // ═══════════════════════════════════════════════════════════════════
-        // EXIT CONDITIONS
+        // V5.9.166 — SHARED LADDERED PROFIT-LOCK
+        // BlueChip runs up to 5x-ish historically, but nothing stops a
+        // quality meme from catching a mega-pump. Give it the same ladder
+        // engine as Moonshot/ShitCoin so profits are locked progressively.
         // ═══════════════════════════════════════════════════════════════════
-        
+        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
+            val hitRung = rungs[pos.partialRungsTaken]
+            pos.partialRungsTaken += 1
+            ErrorLogger.info(TAG, "🔵💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | hit +${hitRung.toInt()}% (now +${pnlPct.toInt()}%)")
+            return ExitSignal.PARTIAL_TAKE
+        }
+
+        val profitFloor = when {
+            pos.peakPnlPct >= 10000.0 -> 8000.0
+            pos.peakPnlPct >= 3000.0  -> 2500.0
+            pos.peakPnlPct >= 1000.0  -> 800.0
+            pos.peakPnlPct >= 300.0   -> 200.0
+            pos.peakPnlPct >= 100.0   -> 70.0
+            pos.peakPnlPct >= 50.0    -> 30.0
+            pos.peakPnlPct >= 20.0    -> 10.0
+            else                      -> Double.NEGATIVE_INFINITY
+        }
+        if (pnlPct < profitFloor) {
+            ErrorLogger.info(TAG, "🔵🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
+            return ExitSignal.TRAILING_STOP
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // STANDARD EXIT CONDITIONS (below the ladder)
+        // ═══════════════════════════════════════════════════════════════════
+
         // 1. TAKE PROFIT - hit target
         if (pnlPct >= pos.takeProfitPct) {
             ErrorLogger.info(TAG, "🔵 TP HIT: ${pos.symbol} | +${pnlPct.toInt()}%")
             return ExitSignal.TAKE_PROFIT
         }
-        
+
         // 2. STOP LOSS - hit limit
         if (pnlPct <= pos.stopLossPct) {
             ErrorLogger.info(TAG, "🔵 SL HIT: ${pos.symbol} | ${pnlPct.toInt()}%")
             return ExitSignal.STOP_LOSS
         }
-        
-        // 3. TRAILING STOP - protect gains above 10%
-        if (pnlPct > 10.0) {
-            // Trail at 60% of peak gains (lock in 60% of profit)
-            val trailStop = pos.entryPrice * (1 + (pnlPct * 0.6) / 100)
-            if (currentPrice <= trailStop) {
-                ErrorLogger.info(TAG, "🔵 TRAIL: ${pos.symbol} | +${pnlPct.toInt()}%")
-                return ExitSignal.TRAILING_STOP
-            }
-        }
-        
-        // 4. TIME EXIT - max hold exceeded and not significantly profitable
+
+        // 3. TIME EXIT - max hold exceeded and not significantly profitable
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 8.0) {
             ErrorLogger.info(TAG, "🔵 TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
-        
+
         return ExitSignal.HOLD
     }
     

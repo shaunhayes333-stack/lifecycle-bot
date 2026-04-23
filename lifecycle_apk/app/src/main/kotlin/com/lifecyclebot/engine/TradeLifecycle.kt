@@ -170,10 +170,10 @@ object TradeLifecycle {
     // After 40% learning progress the tighter mature numbers kick back in via
     // effectiveMinProposalIntervalMs() / effectiveMaxProposalsPerWindow().
     private const val MIN_PROPOSAL_INTERVAL_MS = 15_000L       // mature: 15s between proposals per mint
-    private const val MIN_PROPOSAL_INTERVAL_MS_BOOTSTRAP = 5_000L   // bootstrap: 5s
+    private const val MIN_PROPOSAL_INTERVAL_MS_BOOTSTRAP = 2_000L   // V5.9.166: cut from 5s — hot memes need sub-3s cycles
     private const val MIN_APPROVAL_INTERVAL_MS = 15_000L  // 15 seconds between approvals
     private const val MAX_PROPOSALS_PER_WINDOW = 10            // mature: 10 proposals per 2 min
-    private const val MAX_PROPOSALS_PER_WINDOW_BOOTSTRAP = 30  // bootstrap: 30 proposals per 2 min
+    private const val MAX_PROPOSALS_PER_WINDOW_BOOTSTRAP = 60  // V5.9.166: doubled to 60/2min (30/min) per hot mint
     private const val PROPOSAL_WINDOW_MS = 2 * 60_000L    // 2 min window
     private const val BLOCKED_STATE_EXPIRE_MS = 30_000L              // mature: states expire after 30s
     private const val BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP = 3_000L     // V5.9.165: was 10s — hot tokens shouldn't lock out

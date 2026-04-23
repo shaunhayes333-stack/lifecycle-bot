@@ -14,7 +14,7 @@ import android.content.SharedPreferences
  * This is the SHARED NERVOUS SYSTEM of AATE.
  *
  * Used by: FinalDecisionGate, EntryIntelligence, HoldingLogicLayer,
- *          ExitIntelligence, AdvancedExitManager, BotBrain, EducationAI,
+ *          ExitIntelligence, BotBrain, EducationAI,
  *          LifecycleStrategy, SentientPersonality, and any future module.
  *
  * V5.9.14:

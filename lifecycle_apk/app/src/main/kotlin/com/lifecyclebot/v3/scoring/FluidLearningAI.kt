@@ -1352,7 +1352,7 @@ object FluidLearningAI {
             totalTrades = totalTrades,
             sessionTrades = sessionTrades.get(),
             sessionWinRate = sessionWinRate,
-            isBootstrap = progress < 0.5,  // V5.6: Bootstrap = first 1000 trades (progress < 0.5)
+            isBootstrap = progress < 0.40,  // V5.9.166: aligned to global 0.40 threshold
             watchlistFloor = getWatchlistFloor().toInt(),
             executionFloor = getExecutionFloor().toInt(),
             scannerMinLiq = getScannerMinLiquidity().toInt(),

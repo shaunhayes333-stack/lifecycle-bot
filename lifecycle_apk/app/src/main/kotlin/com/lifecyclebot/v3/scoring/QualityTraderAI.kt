@@ -184,6 +184,9 @@ object QualityTraderAI {
         val stopLossPct: Double,
         var highWaterMark: Double = entryPrice,
         var trailingStop: Double = entryPrice * (1 + stopLossPct / 100),
+        // V5.9.166: shared laddered profit-lock
+        var peakPnlPct: Double = 0.0,
+        var partialRungsTaken: Int = 0,
     )
     
     data class QualitySignal(
@@ -394,6 +397,32 @@ object QualityTraderAI {
             if (pnlPct > 10) {
                 pos.trailingStop = currentPrice * 0.94  // 6% trail from peak
             }
+        }
+
+        // V5.9.166 — SHARED LADDERED PROFIT-LOCK
+        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
+
+        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
+            val hitRung = rungs[pos.partialRungsTaken]
+            pos.partialRungsTaken += 1
+            ErrorLogger.info(TAG, "💎💰 LADDER PARTIAL #${pos.partialRungsTaken}: ${pos.symbol} | hit +${hitRung.toInt()}% (now +${pnlPct.toInt()}%)")
+            return ExitSignal.PARTIAL_TAKE
+        }
+
+        val profitFloor = when {
+            pos.peakPnlPct >= 10000.0 -> 8000.0
+            pos.peakPnlPct >= 3000.0  -> 2500.0
+            pos.peakPnlPct >= 1000.0  -> 800.0
+            pos.peakPnlPct >= 300.0   -> 200.0
+            pos.peakPnlPct >= 100.0   -> 70.0
+            pos.peakPnlPct >= 50.0    -> 30.0
+            pos.peakPnlPct >= 20.0    -> 10.0
+            else                      -> Double.NEGATIVE_INFINITY
+        }
+        if (pnlPct < profitFloor) {
+            ErrorLogger.info(TAG, "💎🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
+            return ExitSignal.TRAILING_STOP
         }
         
         // ═══════════════════════════════════════════════════════════════════
