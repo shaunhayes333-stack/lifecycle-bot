@@ -154,6 +154,9 @@ object ShitCoinExpress {
         var highWaterMark: Double = entryPrice,
         var trailingStop: Double = entryPrice * (1 - abs(STOP_LOSS_PCT) / 100),
         var ridePhase: RidePhase = RidePhase.BOARDING,
+        // V5.9.168 — shared laddered profit-lock
+        var peakPnlPct: Double = 0.0,
+        var partialRungsTaken: Int = 0,
     )
     
     enum class RidePhase(val emoji: String) {
@@ -504,15 +507,27 @@ object ShitCoinExpress {
     
     fun checkExit(mint: String, currentPrice: Double, currentMomentum: Double): ExitSignal {
         val ride = synchronized(activeRides) { activeRides[mint] } ?: return ExitSignal.HOLD
-        
+
         val pnlPct = (currentPrice - ride.entryPrice) / ride.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - ride.entryTime) / 60_000
-        
-        // Update high water mark
+
+        // Update high water mark + peak
+        if (pnlPct > ride.peakPnlPct) ride.peakPnlPct = pnlPct
         if (currentPrice > ride.highWaterMark) {
             ride.highWaterMark = currentPrice
-            ride.trailingStop = currentPrice * (1 - TRAILING_STOP_PCT / 100)
-            
+            // V5.9.168 — dynamic trail tightens at mega-runner tiers so
+            // Express rides don't give back massive chunks between ticks.
+            val dynamicTrailPct = when {
+                pnlPct >= 10000 -> 3.0
+                pnlPct >= 3000  -> 4.0
+                pnlPct >= 1000  -> 5.0
+                pnlPct >= 500   -> 6.0
+                pnlPct >= 200   -> 8.0
+                pnlPct >= 100   -> 10.0
+                else            -> TRAILING_STOP_PCT
+            }
+            ride.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
+
             // Update ride phase
             ride.ridePhase = when {
                 pnlPct >= 50 -> RidePhase.CRUISING
@@ -520,57 +535,69 @@ object ShitCoinExpress {
                 else -> RidePhase.BOARDING
             }
         }
-        
+
         // ─── EXIT CONDITIONS (Priority order) ───
-        
-        // 1. MOONSHOT HIT (100%+)
-        if (pnlPct >= MOONSHOT_TAKE_PROFIT_PCT) {
-            ErrorLogger.info(TAG, "💩🚀 MOONSHOT! $mint | +${pnlPct.fmt(1)}%")
-            return ExitSignal.TAKE_PROFIT_100
+
+        // V5.9.168 — profit-floor ladder. Fires a trailing-stop exit if
+        // the runner gives back below its locked-in tier. Biggest wins.
+        val profitFloor = when {
+            ride.peakPnlPct >= 10000.0 -> 8000.0
+            ride.peakPnlPct >= 3000.0  -> 2500.0
+            ride.peakPnlPct >= 1000.0  -> 800.0
+            ride.peakPnlPct >= 300.0   -> 200.0
+            ride.peakPnlPct >= 100.0   -> 70.0
+            ride.peakPnlPct >= 50.0    -> 30.0
+            ride.peakPnlPct >= 20.0    -> 10.0
+            else                       -> Double.NEGATIVE_INFINITY
         }
-        
-        // 2. STRONG TARGET HIT (50%+) after 3+ mins
-        if (pnlPct >= TARGET_TAKE_PROFIT_PCT && holdMinutes >= 3) {
-            ErrorLogger.info(TAG, "💩🚂 TARGET HIT! $mint | +${pnlPct.fmt(1)}%")
-            return ExitSignal.TAKE_PROFIT_50
+        if (pnlPct < profitFloor) {
+            ErrorLogger.info(TAG, "💩🔒 FLOOR LOCK: $mint | peak +${ride.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
+            return ExitSignal.TRAILING_STOP
         }
-        
-        // 3. MINIMUM TARGET HIT (30%+) after 2+ mins
-        if (pnlPct >= MIN_TAKE_PROFIT_PCT && holdMinutes >= 2) {
-            ErrorLogger.info(TAG, "💩⚡ QUICK WIN! $mint | +${pnlPct.fmt(1)}%")
-            return ExitSignal.TAKE_PROFIT_30
+
+        // V5.9.168 — first partial take at +30% fires ONCE, then we ride
+        // the ladder. Previously +100% closed the WHOLE position; now
+        // +100% is just a milestone on the ride up. Real exit only via
+        // trailing / stop-loss / momentum death / floor-lock.
+        val rungs = doubleArrayOf(30.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        if (ride.partialRungsTaken < rungs.size && pnlPct >= rungs[ride.partialRungsTaken]) {
+            val hit = rungs[ride.partialRungsTaken]
+            ride.partialRungsTaken += 1
+            ErrorLogger.info(TAG, "💩💰 LADDER #${ride.partialRungsTaken}: $mint | hit +${hit.toInt()}% (now +${pnlPct.fmt(1)}%)")
+            return when (ride.partialRungsTaken) {
+                1 -> ExitSignal.TAKE_PROFIT_30
+                2 -> ExitSignal.TAKE_PROFIT_50
+                else -> ExitSignal.TAKE_PROFIT_100
+            }
         }
-        
+
         // 4. STOP LOSS
         if (pnlPct <= STOP_LOSS_PCT) {
             ride.ridePhase = RidePhase.CRASHED
             ErrorLogger.info(TAG, "💩💥 CRASHED! $mint | ${pnlPct.fmt(1)}%")
             return ExitSignal.STOP_LOSS
         }
-        
+
         // 5. TRAILING STOP (if profitable)
         if (pnlPct > 15.0 && currentPrice <= ride.trailingStop) {
             ride.ridePhase = RidePhase.BRAKING
             ErrorLogger.info(TAG, "💩🛑 TRAIL HIT! $mint | +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP
         }
-        
+
         // 6. MOMENTUM DEATH - Momentum collapsed
         if (currentMomentum < 0 && pnlPct > 0) {
             ride.ridePhase = RidePhase.BRAKING
             ErrorLogger.info(TAG, "💩📉 MOM DEATH! $mint | +${pnlPct.fmt(1)}% mom=${currentMomentum.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH
         }
-        
-        // V5.2: REMOVED max hold time - ShitCoins can moon anytime!
-        // Only exit on: stop loss, trailing stop, take profit, or momentum death
-        
+
         // 7. QUICK EXIT if losing momentum and not profitable
         if (holdMinutes >= IDEAL_HOLD_MINUTES && pnlPct < 10 && currentMomentum < ride.entryMomentum * 0.5) {
             ErrorLogger.info(TAG, "💩📉 FADING! $mint | ${pnlPct.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH
         }
-        
+
         return ExitSignal.HOLD
     }
     

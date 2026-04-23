@@ -6068,13 +6068,35 @@ if (deferredCount > 0) {
                     }
                     
                     if (!cfg.v3ShadowMode) {
-                        // V5.9.97 had a FRESH_LAUNCH_GATE that skipped any entry
-                        // where tokenAgeMins<5 AND score<40. V5.9.150 removed
-                        // it: the bot's volume regime depends on exactly these
-                        // tokens (pump.fun / gecko-trending commonly score
-                        // 17-35), and the fluid score floor already ramps
-                        // stricter as learning progresses. The drawdown gate
-                        // below still protects against brand-new rugs.
+                        // V5.9.168 — FLUID FRESH-LAUNCH SCORE GATE
+                        // V5.9.97 had a binary gate (age<5m + score<40 → skip);
+                        // V5.9.150 removed it entirely which restored volume
+                        // but tanked win-rate on fresh pump.fun launches that
+                        // scored 20-30 (coin-flip quality, 13 of 22 V3 layers
+                        // data-starved at <5min age). Replace with a fluid
+                        // minimum that scales with learning progress:
+                        //   bootstrap (0% prog)  → score >= 15 (very lenient)
+                        //   Freshman  (40% prog) → score >= 25
+                        //   mature    (100% prog)→ score >= 40 (V5.9.97 strict)
+                        // Only applies to tokens <5min old; established
+                        // tokens use the standard fluid floors.
+                        run {
+                            val tokenAgeMins = if (ts.addedToWatchlistAt > 0) {
+                                (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                            } else Double.MAX_VALUE
+                            if (tokenAgeMins < 5.0) {
+                                val freshLaunchMinScore = (15 + com.lifecyclebot.v3.scoring.FluidLearningAI
+                                    .getLearningProgress() * 25).toInt().coerceIn(15, 40)
+                                if (result.score < freshLaunchMinScore) {
+                                    ErrorLogger.info(
+                                        "BotService",
+                                        "[V3|FRESH_LAUNCH_GATE] ${identity.symbol} | SKIP | " +
+                                            "age=${tokenAgeMins.toInt()}m<5m score=${result.score}<$freshLaunchMinScore (fluid by learning)"
+                                    )
+                                    return
+                                }
+                            }
+                        }
 
                         // V5.9.93: FRESH-LAUNCH DRAWDOWN GATE
                         // When SmartChart has < 10 candles, it cannot veto
@@ -7190,7 +7212,29 @@ if (deferredCount > 0) {
                     com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS -> "💥"
                     else -> "📉"
                 }
-                
+
+                // V5.9.168 — TAKE_PROFIT_XX are LADDER rungs, not full-close
+                // signals. Previously every rung closed the whole ride at first
+                // hit of +30%. Now: each rung fires 20% partial-sell, full
+                // close only on STOP_LOSS / TRAILING_STOP / MOMENTUM_DEATH /
+                // TIME_EXIT.
+                val isLadderRung = exitSignal in listOf(
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30,
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50,
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100,
+                )
+                if (isLadderRung) {
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.20,
+                        reason = "EXPRESS_${exitSignal.name}_PARTIAL_20PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    addLog("$exitEmoji EXPRESS PARTIAL: ${ts.symbol} | ${exitSignal.name} | sold 20%, riding 80%", ts.mint)
+                    return
+                }
+
                 // V5.6.9g: Only close strategy position if sell was confirmed
                 val sellResult = executor.requestSell(
                     ts = ts,
@@ -7224,6 +7268,19 @@ if (deferredCount > 0) {
             val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
             if (exitSignal != com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.HOLD) {
+                // V5.9.168 — laddered partial sell (20% per rung)
+                if (exitSignal == com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.PARTIAL_TAKE) {
+                    executor.requestPartialSell(
+                        ts = ts,
+                        sellPercentage = 0.20,
+                        reason = "MANIP_PARTIAL_TAKE_20PCT",
+                        wallet = wallet,
+                        walletBalance = effectiveBalance,
+                    )
+                    addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
+                    return
+                }
+
                 // V5.6.9g: Only close strategy position if sell was confirmed
                 val sellResult = executor.requestSell(
                     ts = ts,

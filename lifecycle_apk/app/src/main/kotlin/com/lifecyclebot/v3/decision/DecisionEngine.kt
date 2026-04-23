@@ -403,22 +403,21 @@ class FinalDecisionEngine(
         val effectiveCGradeConf = cGradeMinConf - starvationRelief
 
         // V5.9.93: Tie EXECUTE_AGGRESSIVE confidence floor to the downstream
-        // TradeAuthorizer promotion-gate floor (B-grade needs conf >= 40, C
-        // needs conf >= 25). Previously the band could select
-        // EXECUTE_AGGRESSIVE at conf ~30 and the gate would then post-hoc
-        // downgrade to SHADOW_ONLY. Raise the aggressive floor so the band
-        // and the gate agree.
+        // TradeAuthorizer promotion-gate floor. V5.9.97 added hard maxOf(..., 40/50)
+        // which boosted win-rate but killed bootstrap volume. V5.9.150 removed
+        // it entirely which restored volume but dropped win-rate back below
+        // target.
         //
-        // V5.9.97 had added a hard `maxOf(..., 40/50)` which killed
-        // bootstrap-era aggressive entries (user complaint 04-23:
-        // '1000+/hr → ghost town'). V5.9.150 reverts to pure fluid floors
-        // so aggressive scales with learning progress the same way STANDARD
-        // and SMALL do. Quality is still enforced — aggressive now demands
-        // 10 points of extra conf over STANDARD — but nothing hard-locks
-        // out the bootstrap phase where the bot actually needs volume to
-        // learn.
-        val aggressiveConfFloor  = effectiveMinConf + 10
-        val aggressiveScoreFloor = (effectiveMinScore * 1.3).toInt()
+        // V5.9.168 — FLUID aggressive gate. The hardness of the V5.9.97
+        // floor now *ramps* with learning progress:
+        //   bootstrap (progress=0)   → floor = effectiveMinConf + 10  (lenient)
+        //   mature    (progress=1.0) → floor = max(..., 50)           (V5.9.97 strict)
+        // Same shape for the score floor. Quality enforced as the bot
+        // matures, without freezing the learner at bootstrap.
+        val aggressiveConfHard  = (40 + learningProgress * 10).toInt()   // 40 → 50
+        val aggressiveScoreHard = (30 + learningProgress * 10).toInt()   // 30 → 40
+        val aggressiveConfFloor  = maxOf(effectiveMinConf + 10, aggressiveConfHard.toDouble())
+        val aggressiveScoreFloor = maxOf((effectiveMinScore * 1.3).toInt(), aggressiveScoreHard)
         // V5.9.152: the hard `maxOf(..., 40)` B-grade floor was
         // re-introducing the same bootstrap-freeze the fluid floors are
         // trying to avoid. User (Freshman 32%): '37 trades, 19 losses —
