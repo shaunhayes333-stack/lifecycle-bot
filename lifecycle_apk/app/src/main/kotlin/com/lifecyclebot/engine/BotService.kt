@@ -6258,6 +6258,7 @@ if (deferredCount > 0) {
                     // through to the legacy PROMOTION_GATE path, which was
                     // post-hoc emitting SHADOW_ONLY after the core buy already
                     // fired. Treasury and all other layer evaluations ran above.
+                    } // end trust-allowed else block
                     return
                 }
                 

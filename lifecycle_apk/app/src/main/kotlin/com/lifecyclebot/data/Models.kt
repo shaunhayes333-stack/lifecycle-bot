@@ -74,6 +74,7 @@ data class Position(
     // ═══════════════════════════════════════════════════════════════════
     var treasuryTakeProfit: Double = 0.0,  // Target profit % for treasury scalps
     var treasuryStopLoss: Double = 0.0,    // Stop loss % for treasury scalps
+    var treasuryEntryPrice: Double = 0.0,  // V5.9.200: Raw entry price before slippage, for accurate TP calc
     var isTreasuryPosition: Boolean = false, // True if this is a treasury mode position
     // ═══════════════════════════════════════════════════════════════════
     // BLUE CHIP MODE - Quality plays on >$1M mcap tokens
