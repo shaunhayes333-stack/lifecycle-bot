@@ -801,7 +801,7 @@ class Executor(
                     
                     val mode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Exception) { "UNKNOWN" }
                     val score = ts.trades.lastOrNull { it.side == "BUY" }?.let { 
-                        it.score.coerceIn(0, 100)  // V5.9.186: was price*100 = always 100 (wrong) 
+                        it.score.coerceIn(0.0, 100.0).toInt()  // V5.9.186: was price*100 = always 100 (wrong) 
                     } ?: 50
                     val confidence = (trade.pnlPct ?: 0.0).toInt().coerceIn(0, 100)
                     
