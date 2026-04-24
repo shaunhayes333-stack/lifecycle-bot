@@ -773,7 +773,7 @@ object MoonshotTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
-        val isWin = pnlPct > 0
+        val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0)
         
         // Update daily stats
         dailyPnlSolBps.addAndGet((pnlSol * 10000).toLong())
@@ -1019,6 +1019,7 @@ object MoonshotTraderAI {
      * V5.7: Record learning from perps trades for cross-layer intelligence
      */
     fun recordLearning(isWin: Boolean, pnlPct: Double) {
+        // V5.9.208: isWin now passed as pnlPct >= 1.0 from closePosition
         if (isWin) {
             dailyWins.incrementAndGet()
             if (pnlPct >= 100) dailyHundredXCount.incrementAndGet()
