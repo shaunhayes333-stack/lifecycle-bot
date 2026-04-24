@@ -68,7 +68,7 @@ object CryptoAltTrader {
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
     // saturating at 110+ dead trades.
-    private const val SOFT_CAP_POSITIONS    = 30
+    private const val SOFT_CAP_POSITIONS    = 80   // V5.9.201: scaled with MAX_POSITIONS 100 — replacement kicks in at 80
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
