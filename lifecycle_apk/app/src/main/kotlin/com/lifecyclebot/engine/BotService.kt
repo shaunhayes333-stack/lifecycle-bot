@@ -6372,7 +6372,6 @@ if (deferredCount > 0) {
                     // V3 not ready or error - skip this token
                     ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
                     return
-                    } // end trust-allowed block
                 }
             }
             
