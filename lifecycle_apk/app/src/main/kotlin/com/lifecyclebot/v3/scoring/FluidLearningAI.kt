@@ -645,14 +645,20 @@ object FluidLearningAI {
      * Real money, real consequences - this is the gold standard for learning.
      */
     fun recordLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        // V5.9.187: 1 live trade = 1 win/loss. The 3x WEIGHT is for PROGRESS SPEED only.
+        // Old bug: accumulator looped 3x → sessionWins += 3 per win = 3x win rate inflation.
+        sessionTrades.incrementAndGet()
+        if (isWin) sessionWins.incrementAndGet()
+        // Now drive 2 extra PROGRESS ticks (no win increment — not real trades)
         synchronized(tradeAccumulatorLock) {
-            liveTradeAccumulator += LIVE_LEARNING_WEIGHT
+            liveTradeAccumulator += LIVE_LEARNING_WEIGHT - 1.0  // 2.0 extra progress
             while (liveTradeAccumulator >= 1.0) {
-                sessionTrades.incrementAndGet()
-                if (isWin) sessionWins.incrementAndGet()
+                sessionTrades.incrementAndGet()  // extra progress tick, no win count
                 liveTradeAccumulator -= 1.0
             }
         }
+        lastProgressUpdate.set(0)
+        ErrorLogger.debug(TAG, "📊 LIVE trade: isWin=$isWin | sessions=${sessionTrades.get()} | wins=${sessionWins.get()}")
     }
     
     /**
@@ -661,16 +667,10 @@ object FluidLearningAI {
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
     fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        // V5.9.9: Accumulator gates LEARNING PROGRESS, not win/loss counting.
-        // Win rate must count every trade as exactly 1 — no magnitude skew.
-        synchronized(tradeAccumulatorLock) {
-            paperTradeAccumulator += PAPER_LEARNING_WEIGHT
-            while (paperTradeAccumulator >= 1.0) {
-                sessionTrades.incrementAndGet()
-                if (isWin) sessionWins.incrementAndGet()
-                paperTradeAccumulator -= 1.0
-            }
-        }
+        // V5.9.187: PAPER_WEIGHT=1.0 → exactly 1 trade per close (no loop needed)
+        sessionTrades.incrementAndGet()
+        if (isWin) sessionWins.incrementAndGet()
+        lastProgressUpdate.set(0)
     }
     
     /**

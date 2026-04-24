@@ -351,7 +351,11 @@ object V3EngineManager {
             val learningMetrics = com.lifecyclebot.v3.learning.LearningMetrics(
                 classifiedTrades = recentTradeCount,
                 last20WinRatePct = recentWinRate,
-                payoffRatio = 1.0
+                payoffRatio = run {  // V5.9.187: real payoff from lifetime stats
+                    val ls = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Exception) { null }
+                    val w = ls?.avgWinPct ?: 0.0; val lo = ls?.avgLossPct ?: 0.0
+                    if (w > 0.0 && lo > 0.0) (w / lo).coerceIn(0.5, 5.0) else 1.0
+                },
             )
 
             val opsMetrics = OpsMetrics(

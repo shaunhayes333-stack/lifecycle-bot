@@ -5474,9 +5474,9 @@ if (deferredCount > 0) {
                         val shitCoinV3HardReject = !isRoutingReject && (
                             v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)  // V5.9.187
+                        // V5.9.187: removed duplicate lines — were outside &&-group (always-true on BlockFatal)
+                        @Suppress("UNUSED_EXPRESSION") // previous duplicate removed
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         // V5.9.156 — same bootstrap bypass as Treasury path.
                         val shitCoinDumpBypass = try {
@@ -6626,7 +6626,7 @@ if (deferredCount > 0) {
                         if (v3ControlsExecution) {
                             addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
                             // Don't set useV3Decision - this blocks the trade
-                            return  // V3 says WATCH = exit without executing
+                            useV3Decision = false  // V5.9.187: WATCH skips V3 only; ShitCoin/FDG still runs
                         }
                     }
                     
@@ -6645,7 +6645,7 @@ if (deferredCount > 0) {
                         // V3 REJECT = DO NOT EXECUTE
                         if (v3ControlsExecution) {
                             addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                            return  // V3 says REJECT = exit
+                            useV3Decision = false  // V5.9.187: REJECT skips V3 only; routing-type rejects let ShitCoin run
                         }
                     }
                     
