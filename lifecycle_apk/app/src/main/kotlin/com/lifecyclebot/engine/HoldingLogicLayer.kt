@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.v3.scoring.AdvancedExitManager
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -162,6 +163,56 @@ object HoldingLogicLayer {
             val holdTimeUrgency = FluidLearningAI.getHoldTimeUrgency(layer, holdTimeMinutes.toDouble())
             
             // ─────────────────────────────────────────────────────────────────
+
+            // ─────────────────────────────────────────────────────────────────
+            // V5.9.188: AdvancedExitManager — master exit evaluation
+            // Restored from build #1947 + enhanced. Covers 7 exit scenarios:
+            // liquidity collapse, time pressure, momentum death, progressive
+            // trailing stops, chunk sells, emotional modulation, entry quality.
+            // Runs BEFORE mode-switch/scale-out so critical exits happen fast.
+            // ─────────────────────────────────────────────────────────────────
+            try {
+                val aemCurrentPrice = if (position.entryPrice > 0.0)
+                    position.entryPrice * (1.0 + currentPnlPct / 100.0)
+                    else 0.0
+                val aemHwmPrice = if (position.peakGainPct > 0.0)
+                    position.entryPrice * (1.0 + position.peakGainPct / 100.0)
+                    else aemCurrentPrice
+                val aemProfile  = AdvancedExitManager.profileForMode(position.tradingMode)
+                val aemHoldMins = (holdTimeMs / 60_000L).toInt()
+                val aemDecision = AdvancedExitManager.evaluateExit(
+                    profile            = aemProfile,
+                    entryPrice         = position.entryPrice,
+                    currentPrice       = aemCurrentPrice,
+                    highWaterMarkPrice = aemHwmPrice,
+                    holdMinutes        = aemHoldMins,
+                    entryScore         = position.entryScore.toInt().coerceIn(0, 100),
+                    currentMomentum    = ts.meta.momScore,
+                    currentLiquidity   = ts.lastLiquidityUsd,
+                    entryLiquidity     = position.entryLiquidityUsd,
+                    marketRegime       = ts.meta.emafanAlignment,
+                    volatility         = ts.meta.volScore,
+                    alreadySoldPct     = position.partialSoldPct.toInt(),
+                    symbol             = position.symbol,
+                )
+                if (aemDecision.shouldExit) {
+                    val aemUrgency = when (aemDecision.urgency) {
+                        AdvancedExitManager.ExitUrgency.CRITICAL -> Urgency.CRITICAL
+                        AdvancedExitManager.ExitUrgency.HIGH     -> Urgency.HIGH
+                        else                                     -> Urgency.NORMAL
+                    }
+                    ErrorLogger.info(TAG, "[AEM] ${position.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
+                    return@withLock HoldEvaluation(
+                        action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
+                        reason     = "${aemDecision.exitReason}: ${aemDecision.logMessage}",
+                        confidence = 92.0,
+                        urgency    = aemUrgency,
+                    )
+                }
+            } catch (aemEx: Exception) {
+                ErrorLogger.debug(TAG, "[AEM] ${position.symbol} eval error: ${aemEx.message}")
+            }
+
             // 1. CHECK FOR CRITICAL CONDITIONS (exit immediately)
             // ─────────────────────────────────────────────────────────────────
             
