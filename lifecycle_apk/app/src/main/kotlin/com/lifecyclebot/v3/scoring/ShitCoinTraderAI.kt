@@ -494,6 +494,7 @@ object ShitCoinTraderAI {
         
         // V5.9.211: Sentience wiring — all 41 layers + personality memory
         try {
+            val isWin = pnlPct >= 1.0  // V5.9.215 build-fix: redefine in this try scope
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
                 symbol    = pos.symbol,

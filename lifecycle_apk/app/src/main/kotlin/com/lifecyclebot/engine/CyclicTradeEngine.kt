@@ -178,7 +178,7 @@ object CyclicTradeEngine {
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
             statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
-            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.v3Score.toInt()}")
+            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0}")
             save(context)
         }
     }
@@ -272,7 +272,7 @@ object CyclicTradeEngine {
         "cycles"       to cycleCount,
         "wins"         to winCount,
         "losses"       to lossCount,
-        "total_pnl_sol"to totalPnlSol,
+        "total_pnl_sol" to totalPnlSol,
         "win_rate"     to if (cycleCount > 0) winCount.toDouble() / cycleCount else 0.0,
         "in_position"  to isInPosition,
         "live_mode"    to isLiveMode,
