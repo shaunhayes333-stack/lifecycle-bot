@@ -91,7 +91,7 @@ object ShitCoinTraderAI {
     private const val STOP_LOSS_MATURE = -6.0         // V5.9: Tighter SL as entries improve with patterns
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
-    private const val FLAT_EXIT_MINUTES = 6           // V5.9.192: 8→6 mins — catch idle tokens faster
+    private const val FLAT_EXIT_MINUTES = 8           // V5.9.197: 6→8 mins — allow runs more time to develop
     
     // Compounding - Conservative for shitcoins
     private const val COMPOUNDING_ENABLED = true
@@ -1006,8 +1006,10 @@ object ShitCoinTraderAI {
         
         // 5. V5.9.192: FLAT EXIT — tightened from -5.0% → -3.0% floor
         // At -4.9% we're bleeding capital. Exit sooner and redeploy.
-        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -3.0 && pnlPct < 10.0) {
-            // Token is just sitting flat - wasting time and opportunity cost
+        // V5.9.197: True flat = near zero. +5-9% is BUILDING MOMENTUM, not flat.
+        // Only exit as flat if pnlPct < +5% (ceiling lowered from 10% → 5%).
+        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -3.0 && pnlPct < 5.0) {
+            // Token is genuinely stagnant - wasting slot and opportunity cost
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
             return ExitSignal.TIME_EXIT
         }

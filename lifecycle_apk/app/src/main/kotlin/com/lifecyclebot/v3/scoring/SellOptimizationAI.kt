@@ -274,7 +274,7 @@ object SellOptimizationAI {
         // ─────────────────────────────────────────────────────────────────────
         // SIGNAL 1: STOP LOSS CHECK (Always highest priority)
         // ─────────────────────────────────────────────────────────────────────
-        val stopLossPct = FluidLearningAI.lerp(-8.0, -10.0)  // V5.2.11: Widened from -3%/-5% to -8%/-10%
+        val stopLossPct = FluidLearningAI.lerp(-6.0, -10.0)  // V5.9.197: Bootstrap SL tightened -8%→-6% to protect win rate
         if (currentPnlPct <= stopLossPct) {
             signals.add("🛑 STOP LOSS: ${currentPnlPct.toInt()}% <= ${stopLossPct.toInt()}%")
             return SellSignal(
