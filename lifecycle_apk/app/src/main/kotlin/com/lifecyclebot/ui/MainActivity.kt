@@ -4103,8 +4103,8 @@ This cannot be undone!
             
             // Determine phase based on trade count
             val phase = when {
-                meaningfulTrades < 1000 -> "Bootstrap"
-                meaningfulTrades < 3000 -> "Mature"
+                meaningfulTrades < 400 -> "Bootstrap"  // V5.9.203
+                meaningfulTrades < 1200 -> "Mature"
                 else -> "Continuous"
             }
             
