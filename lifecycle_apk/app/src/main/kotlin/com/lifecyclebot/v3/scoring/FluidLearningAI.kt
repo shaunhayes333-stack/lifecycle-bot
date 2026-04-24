@@ -871,7 +871,14 @@ object FluidLearningAI {
     private const val CONF_BOOTSTRAP = 30.0    // 30% confidence floor at start
     private const val CONF_MATURE = 75.0       // 75% confidence when mature
     
-    private const val CONF_PAPER_BOOTSTRAP = 15.0   // Paper mode even looser
+    private const val CONF_PAPER_BOOTSTRAP = 3.0    // V5.9.174: was 15 — user demand
+    //   "watchlist should process tokens above D+ and trade anything above D+ that passes".
+    //   The old 15% floor was strangling paper — with thousands of fresh launches
+    //   pricing at 5-14% conf in the first minutes, a 15% floor blocked 90%+ of
+    //   candidates. 3% matches FDG's BOOTSTRAP_MIN_CONFIDENCE so the fluid gates
+    //   downstream (learning floor, behavior modifiers) decide who wins — not a
+    //   hardcoded number. Trade rate should return to the thousands/day seen
+    //   previously. Paper mature still tightens back to 45.
     private const val CONF_PAPER_MATURE = 45.0      // Paper mode target
     
     fun getLiveConfidenceFloor(): Double = lerp(CONF_BOOTSTRAP, CONF_MATURE)

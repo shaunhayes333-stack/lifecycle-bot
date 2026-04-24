@@ -2311,10 +2311,21 @@ class Executor(
             val isUnknownPhase = ts.phase.contains("unknown", ignoreCase = true)
             val isLowConfidence = aiConfidence < 30.0
             
-            if (isLowQuality && isUnknownPhase && isLowConfidence) {
-                ErrorLogger.info("Executor", "❌ ${ts.symbol} BLOCKED: C quality + unknown phase + low conf (${aiConfidence.toInt()}%)")
+            // V5.9.174 — the user reported that the meme-trader collapsed from
+            // thousands of trades/day to <200. This trinity block (C + unknown
+            // + low-conf) was killing every fresh-launch candidate even in
+            // paper mode. Paper is for LEARNING — hard-kill is wrong here.
+            // In paper we now let the fluid size multiplier + FDG confidence
+            // floor handle weak setups instead of bailing outright.
+            if (isLowQuality && isUnknownPhase && isLowConfidence && !isPaper) {
+                ErrorLogger.info("Executor", "❌ ${ts.symbol} BLOCKED: C quality + unknown phase + low conf (${aiConfidence.toInt()}%) [LIVE]")
                 onLog("🚫 ${ts.symbol}: Blocked (C + unknown + low conf)", ts.mint)
                 return
+            }
+            if (isLowQuality && isUnknownPhase && isLowConfidence && isPaper) {
+                // Paper: log the warning but LET IT TRADE so the education
+                // layer can actually learn what works from this combo.
+                ErrorLogger.info("Executor", "🎓 ${ts.symbol} probe-buy: C+unknown+conf${aiConfidence.toInt()}% — size clamped via redFlagCount, NOT blocked")
             }
             
             val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
