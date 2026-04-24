@@ -65,7 +65,7 @@ object ShitCoinTraderAI {
     private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 1_000.0   // V5.9.180: was 3_000 — let fresh launches learn
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // V5.9.194: $1K was scraping the barrel — restore $3K
     private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: $5K hard floor when mature
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
@@ -85,9 +85,9 @@ object ShitCoinTraderAI {
     // Bootstrap TP=8% → at 25% progress lerp gives ~10% TP vs -5% SL.
     // That's achievable on momentum entries (break-even ~39% win rate, target 45%).
     // Mature TP=20%: known-good patterns run further. Expert (via FluidLearning 1.0) = 20%.
-    private const val TAKE_PROFIT_BOOTSTRAP = 8.0     // V5.9: 8% — achievable quick win on meme pump
+    private const val TAKE_PROFIT_BOOTSTRAP = 12.0    // V5.9.194: 8% too tight — token must move 12% from entry
     private const val TAKE_PROFIT_MATURE = 20.0       // V5.9: 20% — proven patterns can run further
-    private const val STOP_LOSS_BOOTSTRAP = -5.0      // Slightly wider for wick noise at bootstrap
+    private const val STOP_LOSS_BOOTSTRAP = -8.0      // V5.9.194: -5% was too tight — meme wicks hit SL instantly
     private const val STOP_LOSS_MATURE = -6.0         // V5.9: Tighter SL as entries improve with patterns
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!

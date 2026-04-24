@@ -51,8 +51,8 @@ object ShitCoinExpress {
     private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $2K
 
     // V5.6.8: Lowered momentum requirements to actually trigger during bootstrap
-    private const val MIN_MOMENTUM_PCT = 3.0          // Was 5% - lowered to catch more pumps
-    private const val MIN_BUY_PRESSURE_PCT = 50.0     // Was 55% - lowered for more entries
+    private const val MIN_MOMENTUM_PCT = 8.0          // V5.9.194: 3% is noise — need real momentum to enter
+    private const val MIN_BUY_PRESSURE_PCT = 60.0     // V5.9.194: 50% is coin-flip — need real buying dominance
     
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.05        // Tiny base
@@ -640,7 +640,7 @@ object ShitCoinExpress {
     // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
     // Now correctly starts permissive in bootstrap and tightens as bot learns
     // V5.6.8: LOWERED for bootstrap learning - need to see EXPRESS actually trade!
-    private const val EXPRESS_SCORE_BOOTSTRAP = 5   // V5.9.180: TOTAL floor obliteration — was 12
+    private const val EXPRESS_SCORE_BOOTSTRAP = 12  // V5.9.194: Restore floor — 5 accepted pure garbage entries
     private const val EXPRESS_SCORE_MATURE = 25     // Was 30 - still permissive when experienced
     
     private fun getFluidScoreThreshold(): Int {
