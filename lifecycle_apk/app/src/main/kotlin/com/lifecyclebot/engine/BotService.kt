@@ -4931,7 +4931,7 @@ if (deferredCount > 0) {
             // V5.2 FIX: Must check if Treasury already has a position!
             //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && ts.lastMcap >= 100_000) {  // V5.4 FIX: was 1_000_000 (blocked Quality 100K-1M layer)
+            if (!ts.position.isOpen && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
                 try {
                     // ═══════════════════════════════════════════════════════════════
@@ -4946,11 +4946,11 @@ if (deferredCount > 0) {
                     )
                     
                     // V5.2.12: Log when Quality is checked but mcap out of range
-                    if (qualityPermit.allowed && ts.lastMcap !in 100_000.0..1_000_000.0) {
+                    if (qualityPermit.allowed && ts.lastMcap !in 75_000.0..1_000_000.0) {
                         ErrorLogger.debug("BotService", "⭐ [QUALITY SKIP] ${ts.symbol} | mcap=\$${(ts.lastMcap/1000).toInt()}K not in \$100K-\$1M range")
                     }
                     
-                    if (qualityPermit.allowed && ts.lastMcap in 100_000.0..1_000_000.0) {
+                    if (qualityPermit.allowed && ts.lastMcap in 75_000.0..1_000_000.0) {  // V5.9.191: was 100K, align with QualityTraderAI
                         val (v3Score, v3Confidence) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
                             is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence

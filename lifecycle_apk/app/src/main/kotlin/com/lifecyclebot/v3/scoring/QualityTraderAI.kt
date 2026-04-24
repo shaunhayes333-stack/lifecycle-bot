@@ -59,13 +59,13 @@ object QualityTraderAI {
     private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 10_000.0     // $10K minimum for professional layer
+    private const val MIN_LIQUIDITY_USD = 5_000.0      // V5.9.191: $5K hard floor (was $10K)
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
-    private const val MIN_AGE_MINUTES_BOOTSTRAP = 10     // 10 mins during learning
-    private const val MIN_AGE_MINUTES_MATURE = 30        // 30 mins when experienced
-    private const val IDEAL_AGE_MINUTES = 120            // 2+ hours is ideal
+    private const val MIN_AGE_MINUTES_BOOTSTRAP = 5      // V5.9.191: 5 mins (was 10) — catch early movers
+    private const val MIN_AGE_MINUTES_MATURE = 20        // V5.9.191: 20 mins (was 30)
+    private const val IDEAL_AGE_MINUTES = 60             // V5.9.191: 1+ hour ideal (was 2h — too selective)
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)

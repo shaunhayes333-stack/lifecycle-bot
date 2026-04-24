@@ -25,8 +25,11 @@ object TreasuryOpportunityEngine {
         val maxDeployPct: Double = 20.0,           // Max % of treasury to deploy at once
         val maxConcurrentDeploys: Int = 3,         // Max simultaneous treasury positions
         val minTreasuryToStart: Double = 0.5,      // Min treasury SOL before deploying
-        val minConfidenceScore: Double = 25.0,     // V5.9.186: was 5 — treasury needs quality (25+)
-        val minEntryScore: Double = 30.0,          // V5.9.186: was 5 — treasury quality gate (30+)
+        // V5.9.191: 25/30 was too strict — treasury rarely scored that high at bootstrap.
+        // Real scores at 18 trades: 10-25 range. Set realistic floors: 12/15.
+        // Quality comes from liq/mcap filters and V3 confirmation, not just score threshold.
+        val minConfidenceScore: Double = 12.0,     // V5.9.191: was 25 — achievable at bootstrap
+        val minEntryScore: Double = 15.0,          // V5.9.191: was 30 — realistic floor
         val minLiquidityUsd: Double = 1_000.0,     // V5.9.180: was 5_000 — learn broadly
         val opportunityTtlMs: Long = 60_000L,      // Opportunity becomes stale after 60s
         val targetModes: Set<String> = setOf(
