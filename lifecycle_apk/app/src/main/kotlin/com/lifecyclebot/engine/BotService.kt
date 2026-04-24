@@ -7186,22 +7186,27 @@ if (deferredCount > 0) {
             // After bot restart, ShitCoinTraderAI.activePositions is empty in-memory.
             // checkExit() returns HOLD forever → positions sit idle indefinitely.
             // Re-register from persisted ts.position data so exits work correctly.
-            if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePosition(ts.mint) == null && ts.position.isOpen) {
-                val recTp = if (ts.position.takeProfitPct > 0) ts.position.takeProfitPct else 8.0
-                val recSl = if (ts.position.stopLossPct < 0) ts.position.stopLossPct else -12.0
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.openPosition(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    entryPrice = ts.position.entryPrice,
-                    positionSol = ts.position.costSol,
-                    takeProfitPct = recTp,
-                    stopLossPct = recSl,
-                    liquidityUsd = ts.lastLiquidityUsd,
-                    isPaperMode = cfg.paperMode,
+            if (!com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint) && ts.position.isOpen) {
+                val recTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
+                val recSl = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss()
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        entryPrice = ts.position.entryPrice,
+                        entrySol = ts.position.costSol,
+                        entryTime = System.currentTimeMillis() - (ts.position.holdTimeSeconds * 1000).toLong(),
+                        marketCapUsd = ts.lastMcap,
+                        liquidityUsd = ts.lastLiquidityUsd,
+                        isPaper = cfg.paperMode,
+                        takeProfitPct = recTp,
+                        stopLossPct = recSl,
+                        launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN,
+                    )
                 )
                 ErrorLogger.warn("BotService",
                     "💩 [SHITCOIN RECOVERY] ${ts.symbol} | Re-registered in ShitCoinTraderAI | " +
-                    "entry=${ts.position.entryPrice} tp=$recTp% sl=$recSl%")
+                    "entry=${ts.position.entryPrice} tp=${recTp.toInt()}% sl=${recSl.toInt()}%")
             }
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.170 — firehose learning feedback.
