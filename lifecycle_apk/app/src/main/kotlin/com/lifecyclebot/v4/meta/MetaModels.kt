@@ -125,7 +125,7 @@ data class MarketCap(
 
 data class TradeLesson(
     val id: String,
-    val strategy: String,               // "ShitCoinAI", "DipHunter", "BlueChipAI", etc.
+    val strategy: String,               // e.g. "SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP", "MANIPULATED", "TREASURY", "TokenizedStockAI", "CryptoAltAI"
     val market: String,                 // "MEME", "STOCKS", "PERPS"
     val symbol: String,
     // Context at entry

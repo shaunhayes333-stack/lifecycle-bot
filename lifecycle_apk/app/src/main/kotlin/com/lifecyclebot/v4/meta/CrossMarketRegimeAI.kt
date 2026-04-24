@@ -204,7 +204,9 @@ object CrossMarketRegimeAI {
     fun getRegimeFitMultiplier(strategy: String): Double {
         val regime = currentRegime.get()
         return when (strategy) {
-            "ShitCoinAI" -> when (regime) {
+            // ShitCoin/Meme family — love RISK_ON, die in RISK_OFF
+            "SHITCOIN", "QUALITY", "V3_QUALITY", "EXPRESS", "STANDARD",
+            "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL", "MOONSHOT" -> when (regime) {
                 GlobalRiskMode.RISK_ON -> 1.2
                 GlobalRiskMode.TRENDING -> 1.0
                 GlobalRiskMode.ROTATIONAL -> 0.6
@@ -212,12 +214,15 @@ object CrossMarketRegimeAI {
                 GlobalRiskMode.CHAOTIC -> 0.0
                 GlobalRiskMode.MEAN_REVERT -> 0.3
             }
-            "Treasury", "SolArbAI" -> when (regime) {
+            // Stable/arb family — thrive in RISK_OFF
+            "TREASURY", "SolArbAI" -> when (regime) {
                 GlobalRiskMode.RISK_OFF -> 1.3
                 GlobalRiskMode.CHAOTIC -> 1.1
                 else -> 0.9
             }
-            "BlueChipAI", "TokenizedStockAI" -> when (regime) {
+            // Blue chip / structured — follow trends
+            "BLUE_CHIP", "BLUECHIP", "DIP_HUNTER", "DIPHUNTER",
+            "MANIPULATED", "TokenizedStockAI", "CryptoAltAI" -> when (regime) {
                 GlobalRiskMode.TRENDING -> 1.3
                 GlobalRiskMode.RISK_ON -> 1.1
                 GlobalRiskMode.ROTATIONAL -> 1.0

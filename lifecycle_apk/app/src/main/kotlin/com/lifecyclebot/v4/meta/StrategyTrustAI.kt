@@ -48,7 +48,7 @@ object StrategyTrustAI {
         "SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP", "BLUECHIP",
         "DIP_HUNTER", "DIPHUNTER", "MANIPULATED", "TREASURY",
         "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL", "MOONSHOT",
-        "STANDARD", "EXPRESS", "CryptoAltAI", "SolArbAI", "TokenizedStockAI"
+        "STANDARD", "EXPRESS", "CryptoAltAI", "TokenizedStockAI"
     )
 
     // ═══════════════════════════════════════════════════════════════════════
