@@ -1306,36 +1306,29 @@ object FluidLearningAI {
             //   - volatility       (±8% — tightens in calm markets)
             //   - holdTime         (+3% after 5 min of HWM idle — it's
             //                       topping out, lock more)
+            // V5.9.190: Use same tight allowance formula as fluidProfitFloor.
+            // Old: floor = peak × ratio (gave back HALF the gain at peak=38%)
+            // New: floor = peak − allowance (fixed points, not a ratio)
             val peakClamped = peakPnlPct.coerceAtLeast(0.0)
-            val logPeak = kotlin.math.log10(1.0 + peakClamped / 10.0)
-            val logMax = kotlin.math.log10(1001.0)
-            val rBase = 0.40 + 0.57 * (logPeak / logMax)
-
-            val rLearning = rBase + (progress - 0.5) * 0.10   // ±5% by learning
-            val rVol = rLearning + when {
-                volatility > 70 -> -0.08                        // high vol → looser
-                volatility > 50 -> -0.03
-                volatility < 30 ->  0.08                        // calm → tighter
+            val dynVolAdj = when {
+                volatility > 70 ->  2.0   // high vol → 2 more points grace
+                volatility < 30 -> -1.0   // calm → 1 point tighter
                 else -> 0.0
             }
             val holdMinutes = holdTimeSeconds / 60.0
-            val rHold = rVol + if (holdMinutes > 5.0) 0.03 else 0.0
+            val holdAdj = if (holdMinutes > 5.0) -0.5 else 0.0  // stale HWM → tighter
+            val dynLogFactor = kotlin.math.log10(kotlin.math.max(1.0, peakClamped / 5.0))
+            val dynAllowance = (3.0 + 5.0 * dynLogFactor + dynVolAdj + holdAdj).coerceIn(1.5, 15.0)
+            val continuousLock = kotlin.math.max(peakClamped - dynAllowance, peakClamped * 0.70)
 
-            val keepRatio = rHold.coerceIn(0.35, 0.97)
-            val continuousLock = peakClamped * keepRatio
-
-            // Absolute safety floor: once peak >= +8%, we never let it go
-            // back below the entry price (break-even protection).
+            // Absolute safety floor: once peak >= +8%, never go back to entry
             val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY
 
-            // Big-runner hard give-back floor. Once peak >= 100%, exit if
-            // we give back >= 35% of the peak regardless of the continuous
-            // curve — catches flash dumps that skip past the trail.
-            val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 35.0 else Double.NEGATIVE_INFINITY
+            // Big-runner hard give-back: once peak >= 100%, max 12pts giveaway
+            // (tighter than old 35pts — matches the new allowance formula)
+            val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 12.0 else Double.NEGATIVE_INFINITY
 
-            // Return POSITIVE trailing stop level. Executor compares
-            // `gainPct <= dynamicStopPct` — works identically for negative
-            // loss stops and positive profit-trailing stops.
+            // Return POSITIVE trailing stop level.
             return maxOf(continuousLock, breakEvenFloor, peakDrawdownFloor)
         }
         
