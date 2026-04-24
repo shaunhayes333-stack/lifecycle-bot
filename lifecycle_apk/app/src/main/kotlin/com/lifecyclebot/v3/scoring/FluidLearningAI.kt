@@ -1178,21 +1178,30 @@ object FluidLearningAI {
      * formula.
      */
     fun fluidProfitFloor(peakPnlPct: Double, volatility: Double = 50.0, holdSeconds: Double = 0.0): Double {
+        // V5.9.190: TIGHTER profit floor — give back POINTS not PERCENTAGE.
+        // Old formula: floor = peak * 0.50 → at peak=38%, lock=19%, give_back=19pts. TOO LOOSE.
+        // New formula: floor = peak - allowance, where allowance is a small log-scaled number of POINTS.
+        //
+        // Examples (what gets locked in at each peak):
+        //   peak=+10%  → lock ≈ +7%   (give back max 3pts)
+        //   peak=+20%  → lock ≈ +14%  (give back max 6pts)
+        //   peak=+38%  → lock ≈ +31%  (give back max 7pts)
+        //   peak=+50%  → lock ≈ +42%  (give back max 8pts)
+        //   peak=+100% → lock ≈ +91%  (give back max 9pts)
+        //   peak=+500% → lock ≈ +487% (give back max 13pts)
+        //
+        // High-volatility markets get +2pts extra allowance. Calm markets: tighter.
         if (peakPnlPct < 5.0) return Double.NEGATIVE_INFINITY
-        val progress = getLearningProgress()
-        val logPeak = kotlin.math.log10(1.0 + peakPnlPct / 10.0)
-        val logMax = kotlin.math.log10(1001.0)
-        val rBase = 0.40 + 0.57 * (logPeak / logMax)
-        val rLearning = rBase + (progress - 0.5) * 0.10
-        val rVol = rLearning + when {
-            volatility > 70 -> -0.08
-            volatility > 50 -> -0.03
-            volatility < 30 ->  0.08
+        val volAdjust = when {
+            volatility > 70 ->  2.0   // wild market — allow a little more
+            volatility < 30 -> -1.0   // calm market — lock tighter
             else -> 0.0
         }
-        val rHold = rVol + if (holdSeconds > 300.0) 0.03 else 0.0
-        val keepRatio = rHold.coerceIn(0.35, 0.97)
-        return peakPnlPct * keepRatio
+        val logFactor = kotlin.math.log10(kotlin.math.max(1.0, peakPnlPct / 5.0))
+        val allowance = (3.0 + 5.0 * logFactor + volAdjust).coerceIn(1.5, 15.0)
+        val floor = peakPnlPct - allowance
+        // Safety net: never below 70% of peak (protects against very small peaks)
+        return kotlin.math.max(floor, peakPnlPct * 0.70)
     }
 
     /**
