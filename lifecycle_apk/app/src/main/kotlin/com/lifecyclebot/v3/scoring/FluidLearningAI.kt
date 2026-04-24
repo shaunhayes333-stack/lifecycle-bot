@@ -143,9 +143,9 @@ object FluidLearningAI {
     // "scaling to 80% theoretical rate past 10,000 trades". Bootstrap
     // extended 3× so 50 trades is <2% progress (deep bootstrap), mature
     // (80%+) lands at the 10,000-trade target the user specified.
-    private const val BOOTSTRAP_PHASE_END = 3000  // was 1000 — 50 trades now = 0.83% progress
-    private const val MATURE_PHASE_END = 7000     // was 3000
-    private const val EXPERT_PHASE_END = 10000    // was 5000 — matches user's "80% past 10,000"
+    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.181: restored — 3000 required 30k closes at 0.1 weight
+    private const val MATURE_PHASE_END = 3000     // V5.9.181 restored
+    private const val EXPERT_PHASE_END = 5000    // V5.9.181 restored
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
@@ -630,7 +630,7 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private const val LIVE_LEARNING_WEIGHT = 0.5      // 50% weight - real money matters most
-    private const val PAPER_LEARNING_WEIGHT = 0.1     // 10% weight - real decisions count
+    private const val PAPER_LEARNING_WEIGHT = 0.3     // V5.9.181: 30% weight — 3-4 closes per session trade, ~3x faster learning
     private const val SHADOW_LEARNING_WEIGHT = 0.025  // 2.5% weight - simulations help slowly
     
     // Accumulators for fractional trade progress

@@ -3812,7 +3812,7 @@ if (deferredCount > 0) {
         // Tokens need time to develop patterns and generate trade signals
         val staleThresholdMs = if (isPaperMode) 300_000L else 180_000L   // 5 min in paper, 3 min in real
         val idleThresholdMs = if (isPaperMode) 600_000L else 300_000L    // 10 min idle in paper, 5 min in real
-        val maxWatchlistAge = if (isPaperMode) 1_800_000L else 900_000L  // 30 min max in paper, 15 min in real
+        val maxWatchlistAge = if (isPaperMode) 7_200_000L else 1_800_000L  // V5.9.181: 2hr paper, 30min live — was 30min/15minl
         
         for (mint in registryWatchlist) {
             val ts = status.tokens[mint]
