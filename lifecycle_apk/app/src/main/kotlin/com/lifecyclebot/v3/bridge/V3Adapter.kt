@@ -365,15 +365,15 @@ object V3Adapter {
 
         // V5.9.202: Wire LiquidityCycleAI — feed current token pool data so it can
         // update market-wide state when it hasn't been seeded yet
+        // Signature: updateMarketState(totalLiquidityUsd, poolCount, topPoolLiquidities)
         try {
             val cycleState = com.lifecyclebot.v3.scoring.LiquidityCycleAI.getCurrentState()
             if (cycleState.avgPoolLiquidity <= 0 && ts.lastLiquidityUsd > 0) {
-                // Seed with this token's data so first-ever score isn't always 0
+                // Seed with this token's data so first-ever score isn't 0
                 com.lifecyclebot.v3.scoring.LiquidityCycleAI.updateMarketState(
-                    pools = listOf(ts.lastLiquidityUsd),
-                    totalMarketLiquidity = ts.lastLiquidityUsd * 50.0,  // rough 50-token universe estimate
-                    inflowUsd = if (!meta.breakdown) ts.lastLiquidityUsd * 0.02 else 0.0,
-                    outflowUsd = if (meta.breakdown) ts.lastLiquidityUsd * 0.05 else 0.0,
+                    totalLiquidityUsd = ts.lastLiquidityUsd * 50.0,
+                    poolCount = 50,
+                    topPoolLiquidities = mapOf(ts.mint.orEmpty() to ts.lastLiquidityUsd)
                 )
             }
         } catch (_: Exception) { }
