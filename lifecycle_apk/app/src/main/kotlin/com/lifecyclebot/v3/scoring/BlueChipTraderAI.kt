@@ -695,16 +695,16 @@ object BlueChipTraderAI {
     // V5.4: Fluid thresholds - much lower at bootstrap to allow paper mode to trade
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
     // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
-    private const val BC_SCORE_BOOTSTRAP = 30       // V5.9.83: 22 -> 30 (was bleeding capital)
+    private const val BC_SCORE_BOOTSTRAP = 5        // V5.9.180: TOTAL floor obliteration — was 30
     private const val BC_SCORE_MATURE = 38          // Slight bump with bootstrap
 
     // V5.9.83: Conf floor raised so initial entries are higher-conviction.
-    private const val BC_CONF_BOOTSTRAP = 22        // V5.9.83: 10 -> 22
+    private const val BC_CONF_BOOTSTRAP = 5         // V5.9.180: TOTAL floor obliteration — was 22
     private const val BC_CONF_MATURE = 48
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
-    private const val BC_LIQ_BOOTSTRAP = 15_000.0   // V5.9.83: 5_000 -> 15_000
+    private const val BC_LIQ_BOOTSTRAP = 2_000.0    // V5.9.180: was 15_000 — let bluechip learn broadly
     private const val BC_LIQ_MATURE = 25_000.0      // Tighten at maturity (experienced = selective)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {

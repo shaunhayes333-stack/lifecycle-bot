@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0  // V5.2 FIX: Lowered from 45 - was too strict
-    private const val MIN_SCORE_BOOTSTRAP = 45  // V5.2 FIX: Lowered from 50 - allow more learning
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0  // V5.2 FIX: Lowered from 7500 - was strangling
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.180: was 40 — admit any buy pressure
+    private const val MIN_SCORE_BOOTSTRAP = 5            // V5.9.180: was 45 — total floor obliteration
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 1000.0   // V5.9.180: was 5000 — accept $1K pools
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -947,19 +947,19 @@ object FluidLearningAI {
     // V5.1: SLIGHTLY LOWERED to allow more trading during bootstrap
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 30   // V5.1: Lowered from 35 - allow more trades
+    private const val TREASURY_CONF_BOOTSTRAP = 5    // V5.9.180: was 30 — total floor obliteration
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 3000.0   // V5.1: Lowered from 5000 - allow smaller liq
+    private const val TREASURY_LIQ_BOOTSTRAP = 1000.0   // V5.9.180: was 3000 — accept small treasury pools
     private const val TREASURY_LIQ_MATURE = 10000.0      // Raise threshold as we learn
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 40.0  // V5.1: Raised from 35 - more permissive
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 60.0  // V5.9.180: was 40 — relaxed holder concentration
     private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // V5.1: Lowered from 40 - allow more
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.180: was 35 — any buy pressure ok
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.5b: Reverted — Treasury has own scoring system, don't over-gate
+    private const val TREASURY_SCORE_BOOTSTRAP = 5     // V5.9.180: was 15 — total floor obliteration
     private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()

@@ -871,7 +871,7 @@ object FinalDecisionGate {
 
         val toxicPatternFlags = mutableListOf<String>()
         if (isCGrade) toxicPatternFlags.add("quality_C")
-        if (confidence < 35.0) toxicPatternFlags.add("conf<35")
+        if (confidence < 15.0) toxicPatternFlags.add("conf<15")   // V5.9.180: was 35 — align with 3% floor
         // V5.9.63: was memory<=-8 — combined with quality_C + AI_degraded
         // (which is the default state in paper for any fresh meme) this
         // formed a 3-flag HARD_KILL too easily. Tightened to <=-14 so

@@ -34,7 +34,10 @@ object ReentryGuard {
     private const val GLOBAL_RESET_HOURS = 24                      // Full reset after 24h
     
     // Memory score floor - below this = hard block
-    private const val MEMORY_SCORE_FLOOR = -0.3
+    // V5.9.180: was -0.3 → -5.0. User demanded total floor obliteration during
+    // bootstrap. Tokens with mildly negative memory were being silently blocked
+    // from re-entry which contributed to "memetrader has no volume".
+    private const val MEMORY_SCORE_FLOOR = -5.0
     
     // ═══════════════════════════════════════════════════════════════════
     // LOCKOUT TRACKING

@@ -503,14 +503,12 @@ object MoonshotTraderAI {
         score += collectiveBonus
         
         // Minimum threshold — fluid by learning + paper mode
-        // V5.9.159: bootstrap floor lowered 28→20 (paper) / 50→42 (live).
-        // At 1% learning the old 28 floor was rejecting any meme with
-        // mcap_bonus(18) + modest liq(12) + no buy-pressure = 30 barely
-        // scraping through. Drop it so the scorer actually gets fed.
+        // V5.9.180: TOTAL floor obliteration — paper bootstrap tier dropped to 5.
+        // The user's directive: stop rejecting fresh memes during learning.
         val minScore = when {
-            learningProgress < 0.1 -> if (isPaper) 20 else 42
-            learningProgress < 0.3 -> if (isPaper) 28 else 48
-            learningProgress < 0.5 -> if (isPaper) 38 else 55
+            learningProgress < 0.1 -> if (isPaper) 5 else 42
+            learningProgress < 0.3 -> if (isPaper) 15 else 48
+            learningProgress < 0.5 -> if (isPaper) 30 else 55
             else -> if (isPaper) 52 else 65
         }
         

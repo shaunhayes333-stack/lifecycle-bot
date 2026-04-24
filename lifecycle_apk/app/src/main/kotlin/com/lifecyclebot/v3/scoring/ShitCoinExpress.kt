@@ -640,7 +640,7 @@ object ShitCoinExpress {
     // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
     // Now correctly starts permissive in bootstrap and tightens as bot learns
     // V5.6.8: LOWERED for bootstrap learning - need to see EXPRESS actually trade!
-    private const val EXPRESS_SCORE_BOOTSTRAP = 12  // Was 20 - lowered to trigger more rides
+    private const val EXPRESS_SCORE_BOOTSTRAP = 5   // V5.9.180: TOTAL floor obliteration — was 12
     private const val EXPRESS_SCORE_MATURE = 25     // Was 30 - still permissive when experienced
     
     private fun getFluidScoreThreshold(): Int {
