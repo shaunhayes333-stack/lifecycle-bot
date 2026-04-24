@@ -305,15 +305,25 @@ class UnifiedScorer(
             val vetoReason = MetaCognitionAI.checkVeto(predictions, metaResult.confidence)
             
             // Create meta-cognition component
+            // V5.9.177 — the user reported "new AI layers created a huge block".
+            // MetaCognitionAI's VETO used to fatal-kill every trade where
+            // meta-confidence < 20 — which is exactly what happens in paper
+            // bootstrap when no layer has a calibrated track record yet.
+            // Policy now: VETO stays visible as a scoring penalty, but it is
+            // only FATAL when (a) not in bootstrap paper and (b) meta-conf
+            // is extremely low. Live mode keeps the original guardrail.
+            val paperBootstrap = ctx.mode != com.lifecyclebot.v3.core.V3BotMode.LIVE && learningProgress < 0.40
+            val metaFatal = !paperBootstrap && vetoReason != null && metaResult.confidence < 20
             val metaComponent = ScoreComponent(
                 name = "metacognition",
                 value = metaAdjustment,
                 reason = if (vetoReason != null) {
-                    "VETO: $vetoReason | ${metaResult.summary()}"
+                    val tag = if (metaFatal) "VETO" else "VETO_SOFT"
+                    "$tag: $vetoReason | ${metaResult.summary()}"
                 } else {
                     metaResult.summary()
                 },
-                fatal = vetoReason != null && metaResult.confidence < 20  // Only fatal on extreme distrust
+                fatal = metaFatal,
             )
             
             // ═══════════════════════════════════════════════════════════════════════
