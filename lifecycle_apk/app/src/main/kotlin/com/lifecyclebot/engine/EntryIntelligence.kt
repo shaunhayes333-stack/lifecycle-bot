@@ -301,8 +301,8 @@ object EntryIntelligence {
     fun learnFromOutcome(mint: String, pnlPercent: Double, holdTimeMinutes: Int) {
         val conditions = pendingEntries.remove(mint) ?: return
         
-        val isWin = pnlPercent >= 5.0
-        val isLoss = pnlPercent <= -5.0
+        val isWin = pnlPercent >= 1.0  // V5.9.208: was 5% — far too high for meme tokens, never learned wins
+        val isLoss = pnlPercent <= -2.0  // V5.9.208: was -5% — tightened to match actual stop loss range
         
         weights.totalTrades++
         if (isWin) weights.winningTrades++
