@@ -94,6 +94,26 @@ object TreasuryOpportunityEngine {
         ErrorLogger.info(TAG, "Treasury opportunity engine ${if (enabled) "ENABLED" else "DISABLED"}")
     }
 
+    /**
+     * V5.9.212: MILESTONE HANDOFF
+     * Called by BotService when TreasuryManager crosses a milestone threshold.
+     * Resets cooldown so capital can be re-deployed immediately after a milestone hit,
+     * rather than waiting the full 60-second cooldown window. Also bumps the priority
+     * flag so the next assessOpportunity() call bypasses the usual queue-stale check.
+     */
+    fun onMilestoneHit(milestone: String, walletUsd: Double, treasurySol: Double) {
+        try {
+            synchronized(deployLock) {
+                // Reset deployment cooldown — milestone hit = fresh capital, deploy aggressively
+                lastDeployTimeMs = 0L
+                ErrorLogger.info(TAG,
+                    "🏆 Milestone '$milestone' hit @ \$${walletUsd.toInt()} | treasury=${treasurySol.fmt()}◎ — cooldown reset, seeking re-deployment")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "onMilestoneHit error: ${e.message}")
+        }
+    }
+
     fun isEnabled(): Boolean = enabled.get()
 
     fun updateConfig(newConfig: DeploymentConfig) {

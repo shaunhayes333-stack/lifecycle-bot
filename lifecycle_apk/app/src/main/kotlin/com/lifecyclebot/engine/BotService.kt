@@ -3392,6 +3392,17 @@ class BotService : Service() {
                                         NotificationHistory.NotifEntry.NotifType.INFO)
                                 }
                                 TreasuryManager.save(applicationContext)
+                                // V5.9.212: MILESTONE HANDOFF — signal TreasuryOpportunityEngine to
+                                // actively seek re-deployment of newly locked capital. Previously
+                                // the milestone callback was a no-op for deployment — capital sat idle.
+                                if (TreasuryOpportunityEngine.isEnabled()) {
+                                    TreasuryOpportunityEngine.onMilestoneHit(
+                                        milestone = milestone.label,
+                                        walletUsd = walletUsd,
+                                        treasurySol = TreasuryManager.treasurySol,
+                                    )
+                                    addLog("🏦 Treasury deployment unlocked — seeking high-conviction opportunity post-milestone", "treasury")
+                                }
                             }
                         )
                         

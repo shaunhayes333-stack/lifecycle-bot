@@ -582,18 +582,47 @@ object FinalDecisionGate {
             tags.add("mode:${tradingModeTag.name}")
         }
 
-        // V5.9.10: Symbolic Context — pull live 16-channel symbolic intelligence
-        // Every AI module can tap into this. FDG uses it to bias sizing + log mood.
+        // V5.9.212: Symbolic Context — 24-channel symbolic nervous system
+        // Expanded from 16 channels. getEntryGreenLight() is the new composite gate.
         val symCtx = try {
             SymbolicContext.refresh(ts.symbol, ts.mint)
             SymbolicContext
         } catch (_: Exception) { null }
-        val symEntryAdj = try { symCtx?.getEntryAdjustment() ?: 1.0 } catch (_: Exception) { 1.0 }
-        val symSizeAdj  = try { symCtx?.getSizeAdjustment()  ?: 1.0 } catch (_: Exception) { 1.0 }
-        val symMood     = try { symCtx?.emotionalState ?: "NEUTRAL" } catch (_: Exception) { "NEUTRAL" }
+        val symEntryAdj  = try { symCtx?.getEntryAdjustment() ?: 1.0 } catch (_: Exception) { 1.0 }
+        val symSizeAdj   = try { symCtx?.getSizeAdjustment()  ?: 1.0 } catch (_: Exception) { 1.0 }
+        val symMood      = try { symCtx?.emotionalState ?: "NEUTRAL" } catch (_: Exception) { "NEUTRAL" }
+        val symGreenLight = try { symCtx?.getEntryGreenLight() ?: 0.5 } catch (_: Exception) { 0.5 }
+        val symCircuitBreaking = try { symCtx?.isCircuitBreaking() ?: false } catch (_: Exception) { false }
+        val symRegimeTrans = try { symCtx?.isRegimeTransitioning() ?: false } catch (_: Exception) { false }
+        val symLeadLagWarn = try { symCtx?.isLeadLagWarning() ?: false } catch (_: Exception) { false }
         if (symCtx != null) {
             tags.add("sym:$symMood")
             tags.add("sym_edge:${"%.2f".format(symCtx.edgeStrength)}")
+            tags.add("sym_green:${"%.2f".format(symGreenLight)}")
+            if (symCircuitBreaking) tags.add("sym_circuit_breaking")
+            if (symRegimeTrans) tags.add("sym_regime_trans")
+            if (symLeadLagWarn) tags.add("sym_leadlag_warn")
+        }
+        // V5.9.212: Hard symbolic block — if the universe green-light is extremely low
+        // AND mood is PANIC or FEARFUL, block new entries entirely (paper mode: log + skip).
+        if (symGreenLight < 0.20 && symMood in listOf("PANIC", "FEARFUL") && symCircuitBreaking) {
+            ErrorLogger.info("FDG", "🌌 SYMBOLIC_BLOCK: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true")
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("symbolic_block", "panic_mode"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking",
+                gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
+            )
         }
 
         if (candidate.aiConfidence <= 0.0) {

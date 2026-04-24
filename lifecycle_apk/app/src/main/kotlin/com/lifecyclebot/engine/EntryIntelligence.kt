@@ -216,22 +216,32 @@ object EntryIntelligence {
         // Calculate final score (0-100)
         val rawScore = ((totalScore / maxScore) * 100).toInt().coerceIn(0, 100)
 
-        // V5.9.12: Symbolic pressure on candidate generation
-        // Aggressive + confident → nudge score up; defensive/panic → nudge down.
+        // V5.9.212: Symbolic pressure — now uses full 24-channel composite
+        // Base mood nudge + green-light scaling + circuit/regime/leadlag gates
         val symNudge = try {
             val sc = com.lifecyclebot.engine.SymbolicContext
-            when {
-                sc.emotionalState == "PANIC"    -> -12
-                sc.emotionalState == "FEARFUL"  -> -6
-                sc.emotionalState == "EUPHORIC" -> +6
-                sc.emotionalState == "GREEDY"   -> +3
-                sc.shouldBeAggressive()         -> +4
-                sc.shouldBeDefensive()          -> -4
-                else                             -> 0
+            val moodBase = when {
+                sc.emotionalState == "PANIC"      -> -15
+                sc.emotionalState == "FEARFUL"    -> -8
+                sc.emotionalState == "ANALYTICAL" -> -3   // Picky in analysis mode
+                sc.emotionalState == "EUPHORIC"   -> +8
+                sc.emotionalState == "GREEDY"     -> +4
+                sc.emotionalState == "CURIOUS"    -> +1
+                sc.shouldBeAggressive()           -> +5
+                sc.shouldBeDefensive()            -> -5
+                else                              -> 0
             }
+            // Green-light bonus/penalty: +6 at full green, -8 at near-zero
+            val greenLight = sc.getEntryGreenLight()
+            val greenNudge = ((greenLight - 0.5) * 16.0).toInt().coerceIn(-8, 6)
+            // Hard channel gates: circuit breaking (-5), regime transition (-4), lead-lag warn (-3)
+            val circuitPenalty  = if (sc.isCircuitBreaking()) -5 else 0
+            val transPenalty    = if (sc.isRegimeTransitioning()) -4 else 0
+            val leadPenalty     = if (sc.isLeadLagWarning()) -3 else 0
+            moodBase + greenNudge + circuitPenalty + transPenalty + leadPenalty
         } catch (_: Exception) { 0 }
         val finalScore = (rawScore + symNudge).coerceIn(0, 100)
-        if (symNudge != 0) reasons.add("Symbolic: ${if (symNudge > 0) "+" else ""}$symNudge (mood-aware)")
+        if (symNudge != 0) reasons.add("Symbolic: ${if (symNudge > 0) "+" else ""}$symNudge (24ch universe)")
 
         // Determine recommendation
         // V5.9.83: EntryAI was producing ~11% win rate — thresholds were too loose.
@@ -251,12 +261,27 @@ object EntryIntelligence {
             else -> RiskLevel.LOW
         }
         try {
-            if (com.lifecyclebot.engine.SymbolicContext.emotionalState == "PANIC") {
-                riskLevel = when (riskLevel) {
+            val sc = com.lifecyclebot.engine.SymbolicContext
+            when (sc.emotionalState) {
+                "PANIC" -> riskLevel = when (riskLevel) {
+                    RiskLevel.LOW     -> RiskLevel.HIGH
+                    RiskLevel.MEDIUM  -> RiskLevel.EXTREME
+                    else              -> RiskLevel.EXTREME
+                }
+                "FEARFUL" -> riskLevel = when (riskLevel) {
                     RiskLevel.LOW     -> RiskLevel.MEDIUM
                     RiskLevel.MEDIUM  -> RiskLevel.HIGH
-                    RiskLevel.HIGH    -> RiskLevel.EXTREME
-                    RiskLevel.EXTREME -> RiskLevel.EXTREME
+                    else              -> riskLevel
+                }
+                // ANALYTICAL/CURIOUS: no elevation — trust current calc
+                else -> { /* no elevation */ }
+            }
+            // Additional: circuit breaking = one level up (independent of mood)
+            if (sc.isCircuitBreaking()) {
+                riskLevel = when (riskLevel) {
+                    RiskLevel.LOW    -> RiskLevel.MEDIUM
+                    RiskLevel.MEDIUM -> RiskLevel.HIGH
+                    else             -> riskLevel
                 }
             }
         } catch (_: Exception) {}
