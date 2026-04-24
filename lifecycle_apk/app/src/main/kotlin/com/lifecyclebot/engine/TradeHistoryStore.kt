@@ -33,7 +33,7 @@ object TradeHistoryStore {
     private const val KEY_LIFETIME_STATS = "lifetime_stats_json"
 
     private const val WIN_THRESHOLD_PCT = 0.5
-    private const val LOSS_THRESHOLD_PCT = -2.0
+    private const val LOSS_THRESHOLD_PCT = -0.5  // V5.9.204: was -2.0; -1.5% exits now count as losses
 
     private var prefs: SharedPreferences? = null
     private val trades = mutableListOf<Trade>()
