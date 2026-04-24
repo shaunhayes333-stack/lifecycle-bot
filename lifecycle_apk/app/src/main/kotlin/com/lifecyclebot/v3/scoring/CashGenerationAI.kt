@@ -600,7 +600,9 @@ object CashGenerationAI {
             rejectionReasons.add("reentry_cooldown (${remaining}s)")
         }
 
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        // V5.9.193: bypassed during bootstrap for data gathering
+        val cashBootstrap = FluidLearningAI.getLearningProgress() < 0.40
+        if (!cashBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
             rejectionReasons.add("max_positions_reached ($MAX_CONCURRENT_POSITIONS)")
         }
 

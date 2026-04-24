@@ -575,8 +575,9 @@ object ShitCoinTraderAI {
             return rejectSignal("LIQ_TOO_LOW: \$${liquidityUsd.toInt()} < \$${minLiq.toInt()}", mode, launchPlatform)
         }
         
-        // 3. MAX POSITIONS CHECK
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        // 3. MAX POSITIONS CHECK — V5.9.193: bypassed during bootstrap for data gathering
+        val scBootstrap = FluidLearningAI.getLearningProgress() < 0.40
+        if (!scBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
             return rejectSignal("MAX_POSITIONS: ${activePositions.size}/$MAX_CONCURRENT_POSITIONS", mode, launchPlatform)
         }
         

@@ -236,8 +236,9 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "Already have position")
         }
         
-        // Check max positions
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        // Check max positions — V5.9.193: bypassed during bootstrap for data gathering
+        val qtBootstrap = FluidLearningAI.getLearningProgress() < 0.40
+        if (!qtBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
             return QualitySignal(false, reason = "Max positions reached (${MAX_CONCURRENT_POSITIONS})")
         }
         

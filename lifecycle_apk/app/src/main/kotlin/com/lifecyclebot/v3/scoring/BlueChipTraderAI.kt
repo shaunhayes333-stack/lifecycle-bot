@@ -502,8 +502,9 @@ object BlueChipTraderAI {
             )
         }
         
-        // 3. MAX POSITIONS CHECK
-        if (activePositions.size >= MAX_CONCURRENT_POSITIONS) {
+        // 3. MAX POSITIONS CHECK — V5.9.193: bypassed during bootstrap for data gathering
+        val bcBootstrap = FluidLearningAI.getLearningProgress() < 0.40
+        if (!bcBootstrap && activePositions.size >= MAX_CONCURRENT_POSITIONS) {
             return BlueChipSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
