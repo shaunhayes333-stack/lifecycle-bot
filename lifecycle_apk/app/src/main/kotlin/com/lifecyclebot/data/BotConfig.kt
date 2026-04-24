@@ -241,6 +241,10 @@ data class BotConfig(
     val metalsEnabled: Boolean = true,          // Metals trader (Gold, Silver, Industrial)
     val forexEnabled: Boolean = true,           // Forex trader (Major, Cross, EM pairs)
     val perpsEnabled: Boolean = true,           // SOL Perps trader
+
+    // ═══ Cyclic Trade Ring ($500 USD compound ring) ═══
+    val cyclicTradeEnabled: Boolean = false,        // Enable the $500 USD cyclic ring
+    val cyclicTradeLiveEnabled: Boolean = false,     // Force live execution (overrides treasury threshold)
 )
 
 /** Persists config — private key stored in EncryptedSharedPreferences */
@@ -386,6 +390,9 @@ object ConfigStore {
             putBoolean("metals_enabled",               cfg.metalsEnabled)
             putBoolean("forex_enabled",                cfg.forexEnabled)
             putBoolean("perps_enabled",                cfg.perpsEnabled)
+            // Cyclic Trade Ring
+            putBoolean("cyclic_trade_enabled",       cfg.cyclicTradeEnabled)
+            putBoolean("cyclic_trade_live_enabled",  cfg.cyclicTradeLiveEnabled)
             apply()
         }
     }
@@ -538,6 +545,8 @@ object ConfigStore {
             metalsEnabled               = p.getBoolean("metals_enabled", true),
             forexEnabled                = p.getBoolean("forex_enabled", true),
             perpsEnabled                = p.getBoolean("perps_enabled", true),
+            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", false),
+            cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
         )
     }
 

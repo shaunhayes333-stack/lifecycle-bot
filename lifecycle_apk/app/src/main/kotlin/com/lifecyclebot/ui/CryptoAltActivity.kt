@@ -19,6 +19,7 @@ import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.engine.TreasuryManager
+import com.lifecyclebot.engine.CyclicTradeEngine
 import com.lifecyclebot.engine.AICrossTalk
 import com.lifecyclebot.engine.AdaptiveLearningEngine
 import com.lifecyclebot.engine.BehaviorLearning
@@ -439,6 +440,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 safe("ModuleIconGrid")    { buildModuleIconGrid() }
                 safe("TopStatusBar")      { buildTopStatusBar() }
                 safe("TreasuryTierPanel") { buildTreasuryTierPanel() }
+                safe("CyclicRingPanel")    { buildCyclicRingPanel() }
                 safe("OpenPositions")     { buildOpenPositionsPanel() }
                 safe("TabContent")        { buildTabContent() }
             }
@@ -635,6 +637,61 @@ class CryptoAltActivity : AppCompatActivity() {
         nextCol.addView(tv(nextLabel, 13f, green, bold=true).apply { gravity = Gravity.END })
         row.addView(nextCol)
         tile.addView(row)
+        llContent.addView(tile)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CYCLIC TRADE RING PANEL
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun buildCyclicRingPanel() {
+        val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+        if (!cfg.cyclicTradeEnabled) return
+
+        val stats       = CyclicTradeEngine.getStats()
+        val ringUsd     = stats["ring_usd"] as? Double ?: 500.0
+        val ringPnlSol  = stats["total_pnl_sol"] as? Double ?: 0.0
+        val cycles      = stats["cycles"] as? Int ?: 0
+        val wins        = stats["wins"] as? Int ?: 0
+        val losses      = stats["losses"] as? Int ?: 0
+        val inPos       = stats["in_position"] as? Boolean ?: false
+        val live        = stats["live_mode"] as? Boolean ?: false
+        val status      = stats["status"] as? String ?: "Idle"
+        val wr          = if (cycles > 0) (wins.toDouble() / cycles * 100).toInt() else 0
+        val modeLabel   = if (live) "🔴 LIVE" else "📄 PAPER"
+        val solPx       = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+        val ringGrowth  = ringUsd - 500.0
+        val growthColor = if (ringGrowth >= 0) green else red
+        val tileColor   = if (inPos) amber else blue
+
+        val tile = buildTile(tileColor, "🔄 CYCLIC RING", "${"$"}${ringUsd.toInt()} | $modeLabel", growthColor)
+
+        val row1 = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 8 } }
+        val col1 = vBox(0,0,0).apply { layoutParams = llp(0, wrap, 1f) }
+        col1.addView(tv("RING BALANCE", 9f, muted, bold=true))
+        col1.addView(tv("${"$"}${ringUsd.toInt()}", 18f, white, bold=true))
+        col1.addView(tv("${"%+.0f".format(ringGrowth)} vs \$500", 11f, growthColor, mono=true))
+        row1.addView(col1)
+
+        val col2 = vBox(0,0,0).apply { layoutParams = llp(0, wrap, 1f) }
+        col2.addView(tv("CYCLES", 9f, muted, bold=true))
+        col2.addView(tv("$cycles", 18f, white, bold=true))
+        col2.addView(tv("W:$wins L:$losses", 11f, muted, mono=true))
+        row1.addView(col2)
+
+        val col3 = vBox(0,0,0).apply { gravity = android.view.Gravity.END; layoutParams = llp(0, wrap, 1f) }
+        col3.addView(tv("WIN RATE", 9f, muted, bold=true).apply { gravity = android.view.Gravity.END })
+        col3.addView(tv("$wr%", 18f, if (wr >= 50) green else red, bold=true).apply { gravity = android.view.Gravity.END })
+        col3.addView(tv("PnL: ${"%+.3f".format(ringPnlSol)} SOL", 11f, if (ringPnlSol >= 0) green else red, mono=true).apply { gravity = android.view.Gravity.END })
+        row1.addView(col3)
+        tile.addView(row1)
+
+        if (status.isNotBlank()) {
+            val statusRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 6 } }
+            statusRow.addView(tv(status, 11f, if (inPos) amber else muted, mono=true))
+            tile.addView(statusRow)
+        }
+
         llContent.addView(tile)
     }
 

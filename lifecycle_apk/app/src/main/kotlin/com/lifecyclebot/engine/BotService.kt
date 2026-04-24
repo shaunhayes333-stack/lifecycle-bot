@@ -1294,6 +1294,7 @@ class BotService : Service() {
         val restored = SessionStore.restore(applicationContext, cfg.paperMode)
         if (!restored) SmartSizer.resetSession()
         TreasuryManager.restore(applicationContext)   // load persisted treasury
+            CyclicTradeEngine.init(applicationContext)  // load persisted cyclic ring state
         
         // Safety: if wallet is very low but treasury claims to have locked funds,
         // something is wrong - reset treasury to allow trading
@@ -3790,6 +3791,24 @@ if (deferredCount > 0) {
                 }
             }
             
+            // ═══════════════════════════════════════════════════════════════════
+            // CYCLIC TRADE ENGINE — $500 USD compound ring
+            // ═══════════════════════════════════════════════════════════════════
+            if (cfg.cyclicTradeEnabled && loopCount % 10 == 0) {
+                try {
+                    val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
+                    CyclicTradeEngine.tick(
+                        context   = applicationContext,
+                        tokens    = cyclicTokens,
+                        executor  = executor,
+                        wallet    = wallet,
+                        walletSol = walletManager.state.value.solBalance,
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "CyclicTradeEngine tick error: ${e.message}", e)
+                }
+            }
+
             delay(cfg.pollSeconds * 1000L)
           } catch (e: Exception) {
             // Catch any crash in the main loop and log it
