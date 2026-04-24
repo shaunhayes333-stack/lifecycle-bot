@@ -384,7 +384,7 @@ object MetaCognitionAI {
             mint = mint,
             symbol = symbol,
             pnlPct = pnlPct,
-            isWin = pnlPct > 0.0,
+            isWin = pnlPct >= 1.0,  // V5.9.208: unified 1% threshold (was > 0.0 — counted any profit as win regardless of fees)
             holdTimeMs = holdTimeMs,
             exitReason = exitReason,
             predictions = preds,
