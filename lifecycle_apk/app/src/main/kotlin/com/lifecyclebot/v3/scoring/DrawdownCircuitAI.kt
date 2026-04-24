@@ -65,11 +65,12 @@ object DrawdownCircuitAI {
 
     fun score(@Suppress("UNUSED_PARAMETER") candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
         val agg = getAggression()
+        // V5.9.208: Upgraded penalties — heavier DD should block more aggressively
         val value = when {
-            agg >= 0.95 -> 0
-            agg >= 0.70 -> -2
-            agg >= 0.40 -> -5
-            else        -> -10
+            agg >= 0.95 -> 0    // 0-3% DD: normal
+            agg >= 0.70 -> -4   // 3-6% DD: -4 (was -2)
+            agg >= 0.40 -> -10  // 6-10% DD: -10 (was -5) — should mostly block new entries
+            else        -> -20  // 10%+ DD: -20 (was -10) — near-total halt
         }
         return ScoreComponent("DrawdownCircuitAI", value,
             "📉 aggression=${"%.2f".format(agg)} (gate=$value)")
