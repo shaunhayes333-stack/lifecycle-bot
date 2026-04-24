@@ -63,9 +63,13 @@ object TrailingStopManager {
             // Higher profits = wider stops (let winners run)
             // ═══════════════════════════════════════════════════════════════════
             val profitAdaptation = when {
+                pnlPct >= 2000.0 -> {
+                    reason = "ultra_moonshot_2000%+"
+                    0.30  // V5.9.208: 30% of base (tighter lock on extreme runners — don't give back 70%)
+                }
                 pnlPct >= 500.0 -> {
                     reason = "moonshot_500%+"
-                    0.5  // 50% of base stop (very wide for mega runners)
+                    0.45  // V5.9.208: 45% of base (was 50% — tighten to lock more profit)
                 }
                 pnlPct >= 200.0 -> {
                     reason = "runner_200%+"
