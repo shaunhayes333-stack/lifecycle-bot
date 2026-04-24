@@ -7428,7 +7428,7 @@ if (deferredCount > 0) {
                         entrySol = ts.position.costSol,
                         entryTime = ts.position.entryTime.takeIf { it > 0 } ?: (System.currentTimeMillis() - 30 * 60_000L),
                         marketCapUsd = ts.lastMcap.takeIf { it > 0 } ?: 100_000.0,
-                        liquidityUsd = ts.lastLiq.takeIf { it > 0 } ?: 5_000.0,
+                        liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0 } ?: 5_000.0,
                         entryScore = 50.0,
                         takeProfitPct = spaceMode.baseTP,
                         stopLossPct = spaceMode.baseSL,
