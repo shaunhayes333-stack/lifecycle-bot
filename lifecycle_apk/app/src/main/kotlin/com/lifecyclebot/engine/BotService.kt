@@ -7411,6 +7411,31 @@ if (deferredCount > 0) {
                 ?: ts.history.lastOrNull()?.priceUsd 
                 ?: ts.position.entryPrice
             
+            // V5.9.204: MOONSHOT RECOVERY — after restart activePositions is empty
+            // MoonshotTraderAI.checkExit returns HOLD for unregistered positions.
+            // Re-register from persisted data so exits fire correctly.
+            if (!com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)
+                    && ts.position.isOpen && ts.position.entryPrice > 0) {
+                val rawMode = ts.position.tradingMode ?: "MOONSHOT_ORBITAL"
+                val spaceMode = try {
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.valueOf(
+                        rawMode.removePrefix("MOONSHOT_"))
+                } catch (_: Exception) { com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.ORBITAL }
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
+                        mint = ts.mint, symbol = ts.symbol,
+                        entryPrice = ts.position.entryPrice,
+                        positionSol = ts.position.costSol,
+                        entryTime = ts.position.openedAt,
+                        marketCapUsd = ts.lastMcap.takeIf { it > 0 } ?: 100_000.0,
+                        takeProfitPct = spaceMode.baseTP,
+                        stopLossPct = spaceMode.baseSL,
+                        spaceMode = spaceMode,
+                        isPaper = cfg.paperMode,
+                    )
+                )
+                addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice}", ts.mint)
+            }
             val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Moonshot:${exitSignal.name}") } catch (_: Exception) {}
