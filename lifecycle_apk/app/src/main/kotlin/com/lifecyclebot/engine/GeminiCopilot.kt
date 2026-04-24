@@ -791,6 +791,28 @@ Not one sentence unless the moment truly calls for it.
         }
         payload.put("safetySettings", safetySettings)
 
+        // V5.9.210 — INTERNET ACCESS: Google Search grounding.
+        // User's explicit directive: "the LLM needs internet access — its reigns
+        // off inside the universe. If it wants to learn on the internet to get
+        // smarter let it."
+        //
+        // Gemini 1.5/2.x supports real-time Google Search grounding via the
+        // tools array. When enabled the model automatically queries Google
+        // for any factual claim it is uncertain about — crypto prices,
+        // sentiment, breaking news, token fundamentals, protocol updates.
+        // This is additive and free within the Gemini API quota.
+        //
+        // Only enable for non-JSON structured calls (narrative, sentiment, chat,
+        // monologue) — structured data extraction (asJson=true) can be confused
+        // by extra grounding metadata in the response.
+        if (!asJson) {
+            try {
+                val tools = JSONArray()
+                tools.put(JSONObject().put("google_search", JSONObject()))
+                payload.put("tools", tools)
+            } catch (_: Exception) {}
+        }
+
         val url = GEMINI_DIRECT_BASE + provider.model + ":generateContent?key=" + provider.apiKey
 
         val request = Request.Builder()

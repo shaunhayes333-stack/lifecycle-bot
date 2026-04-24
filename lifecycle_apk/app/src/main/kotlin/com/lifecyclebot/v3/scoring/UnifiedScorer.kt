@@ -107,6 +107,22 @@ class UnifiedScorer(
             )
         }
 
+        // V5.9.210 — READ V4 CROSSTALK SNAPSHOT INTO V3 CONTEXT
+        // V4 FinalDecisionEngine and mode router publish market-wide state here.
+        // V3 layers can now "feel" the global market through this snapshot.
+        // Kill flags from V4 (e.g. NO_MEME, RISK_OFF) add score penalty.
+        val v4KillPenalty: Int = try {
+            val snap = CrossTalkFusionEngine.getSnapshot()
+            when {
+                snap == null -> 0
+                "NO_MEME" in snap.killFlags    -> -15  // V4 says no meme trades right now
+                "NO_NEW_ENTRIES" in snap.killFlags -> -20
+                "RISK_OFF" == snap.globalRiskMode.name -> -8
+                "CHAOTIC" == snap.globalRiskMode.name  -> -5
+                else -> 0
+            }
+        } catch (_: Exception) { 0 }
+
         // Classic 27-layer roster (matches V5.9.108 build ~#1915 exactly).
         val classic27Raw = listOf(
             sourceScoreWithTiming(candidate.source, candidate.mint),
@@ -190,24 +206,35 @@ class UnifiedScorer(
 
         // V5.9.93: record per-layer health so zero-emit layers surface in logs
         try { LayerHealthTracker.record(baseComponents) } catch (_: Exception) {}
+
+        // V5.9.210 — inject V4 CrossTalk kill penalty as a score component
+        val v4Component = if (v4KillPenalty != 0) {
+            val snap = try { CrossTalkFusionEngine.getSnapshot() } catch (_: Exception) { null }
+            val reason = snap?.killFlags?.joinToString(",")?.ifBlank { snap?.globalRiskMode?.name } ?: "V4_SIGNAL"
+            ScoreComponent("v4_crosstalk", v4KillPenalty, "🌐 V4: $reason")
+        } else null
         
         // ═══════════════════════════════════════════════════════════════════════
+        // V5.9.210 — MERGE V4 CROSSTALK KILL PENALTY into baseComponents before caps
+        // v4Component was built just above from CrossTalkFusionEngine.getSnapshot()
+        val baseComponentsWithV4 = if (v4Component != null) baseComponents + v4Component else baseComponents
+
         // V5.8: SOFT PENALTY CAP — cap combined negative from subjective/noisy factors
         // holders + narrative + social + holdtime uncapped = up to -8, drowning valid entries
         // Cap their combined negative at -5 so no single noisy signal can kill a trade alone
         // ═══════════════════════════════════════════════════════════════════════
         val softPenaltyNames = setOf("holders", "narrative", "social", "holdtime")
-        val softPenaltyTotal = baseComponents
+        val softPenaltyTotal = baseComponentsWithV4
             .filter { it.name.lowercase() in softPenaltyNames && it.value < 0 }
             .sumOf { it.value }
         val cappedBaseComponents = if (softPenaltyTotal < -5) {
             val scale = -5.0 / softPenaltyTotal
-            baseComponents.map { comp ->
+            baseComponentsWithV4.map { comp ->
                 if (comp.name.lowercase() in softPenaltyNames && comp.value < 0) {
                     comp.copy(value = (comp.value * scale).toInt())
                 } else comp
             }
-        } else baseComponents
+        } else baseComponentsWithV4
 
         // ═══════════════════════════════════════════════════════════════════════
         // V5.9.124: V5.9.123-LAYER PENALTY CAP
@@ -424,6 +451,31 @@ class UnifiedScorer(
             val finalCard = ScoreCard(gatedComponents)
             // V5.9.126 — capture entry scores for real per-layer accuracy learning
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
+
+            // V5.9.210 — PUBLISH V3 UNIVERSE STATE TO V4 CROSSTALK BUS
+            // Every scored candidate pushes a signal into CrossTalkFusionEngine so
+            // V4 layers (FinalDecisionEngine, ModeRouter) can see what V3 is thinking.
+            // This is the "V3 and V4 need to talk to each other" wire.
+            // Confidence is derived from the normalised total score (0–100 range maps to 0–1).
+            try {
+                val totalScore = finalCard.total
+                val normConf = ((totalScore + 50.0) / 150.0).coerceIn(0.0, 1.0)
+                val direction = if (totalScore > 0) "LONG" else if (totalScore < -10) "SHORT" else null
+                CrossTalkFusionEngine.publish(
+                    AATESignal(
+                        source    = "UnifiedScorerV3",
+                        market    = "MEME",
+                        symbol    = candidate.symbol,
+                        confidence = normConf,
+                        direction  = direction,
+                        horizonSec = 300,
+                        regimeTag  = "V3_SCORED",
+                        narrativeHeat = null,
+                        riskFlags  = if (totalScore < 0) listOf("V3_BEARISH") else emptyList(),
+                    )
+                )
+            } catch (_: Exception) {}
+
             return finalCard
 
         } catch (e: Exception) {
