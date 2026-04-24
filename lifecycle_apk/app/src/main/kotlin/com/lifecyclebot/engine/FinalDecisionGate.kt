@@ -1047,17 +1047,22 @@ object FinalDecisionGate {
             (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 15)
         }
 
-        // V5.6.8 FIX: Paper must learn with realistic thresholds!
+        // V5.9.175 — paper floor lowered from 30 to 10 because the user
+        // directive is "admit everything above D+" — 30% buy-pressure was
+        // blocking fresh launches that often start at 20-28% before their
+        // first wave of buyers arrives. The fluid size multiplier + FDG
+        // confidence floor handle weak setups downstream, so this gate no
+        // longer needs to be the hard cliff.
         val buyPressureThreshold = if (lenient) {
-            // Use 80% of live threshold for more learning data, but not wide open
-            (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(30.0)
+            (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(10.0)
         } else {
             adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
         }
-        
+
         val topHolderThreshold = if (lenient) {
-            // Paper slightly looser but not wide open
-            (adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier * 1.1).coerceAtMost(55.0)
+            // V5.9.175 — paper cap raised from 55 → 75 so we don't block dev
+            // wallets that are about to distribute. Live stays strict.
+            (adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier * 1.1).coerceAtMost(75.0)
         } else {
             adjusted.topHolderMax / modeMultipliers.rugcheckMultiplier
         }

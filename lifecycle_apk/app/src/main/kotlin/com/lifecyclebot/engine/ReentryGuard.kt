@@ -62,7 +62,15 @@ object ReentryGuard {
     
     // Track recent losses per token for multi-loss detection
     private val recentLosses = mutableMapOf<String, MutableList<Long>>()
-    
+
+    // V5.9.175 — second-moon re-entry bypass. When a trade exits as a WIN,
+    // stamp a "hot" mark. For the next SECOND_MOON_WINDOW_MS the discovery
+    // pipeline and ReentryGuard treat this token as eligible for an
+    // immediate re-scan — letting the bot ride continuation runs instead
+    // of being locked out by cooldowns that were written for losers.
+    private const val SECOND_MOON_WINDOW_MS = 10 * 60 * 1000L   // 10 minutes
+    private val secondMoonHot = mutableMapOf<String, Long>()    // mint -> expiresAt
+
     // ═══════════════════════════════════════════════════════════════════
     // MAIN API: Check if token is blocked
     // ═══════════════════════════════════════════════════════════════════
@@ -70,12 +78,40 @@ object ReentryGuard {
     /**
      * Returns true if token is BLOCKED from re-entry.
      * This is a HARD block - no exceptions, no score overrides.
+     *
+     * V5.9.175: if this token is marked "second-moon hot" (just exited a
+     * winning trade inside the 10-min window), the block is bypassed once
+     * so the bot can chase continuation.
      */
     fun isBlocked(mint: String): Boolean {
         cleanupExpired()
+        if (isSecondMoonHot(mint)) return false
         return lockouts[mint]?.let { entry ->
             System.currentTimeMillis() < entry.expiresAt
         } ?: false
+    }
+
+    /**
+     * V5.9.175 — call this from the close path whenever a trade exits with
+     * positive PnL. Opens a short re-entry window that bypasses cooldowns.
+     */
+    fun markSecondMoonCandidate(mint: String, pnlPct: Double) {
+        if (pnlPct <= 0.0 || mint.isBlank()) return
+        secondMoonHot[mint] = System.currentTimeMillis() + SECOND_MOON_WINDOW_MS
+    }
+
+    /**
+     * V5.9.175 — consumed by discovery/scan pipelines to bypass cooldowns.
+     * Side-effect free: checking does NOT burn the window; only isBlocked()
+     * uses it to allow a re-entry attempt.
+     */
+    fun isSecondMoonHot(mint: String): Boolean {
+        val exp = secondMoonHot[mint] ?: return false
+        if (System.currentTimeMillis() > exp) {
+            secondMoonHot.remove(mint)
+            return false
+        }
+        return true
     }
     
     /**

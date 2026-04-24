@@ -811,6 +811,15 @@ object EducationSubLayerAI {
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "reasonStats fold failed: ${e.message}")
         }
+
+        // V5.9.175 — second-moon re-entry bypass. Every winning close opens a
+        // 10-min window where this token skips ReentryGuard cooldowns so the
+        // discovery pipeline can chase continuation runs.
+        try {
+            if (outcome.isWin && outcome.pnlPct > 0.0) {
+                com.lifecyclebot.engine.ReentryGuard.markSecondMoonCandidate(outcome.mint, outcome.pnlPct)
+            }
+        } catch (_: Exception) {}
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -2078,6 +2087,71 @@ object EducationSubLayerAI {
             mapOf("key" to k, "winRate" to s.winRate, "count" to s.count, "avgPnl" to s.avgPnlPct)
         },
     )
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.175 — EDGE LEDGER
+    // ─────────────────────────────────────────────────────────────────────────
+    // Twin of the reasoning firehose that answers the two questions every
+    // trader wants: "which setups did I approve that paid off?" and "which
+    // setups did I veto that I should have taken?". The blocked-wins half
+    // is fed by recordMissedOpportunity; the approval-wins half is the
+    // "trader|<source>|TOTAL" and entry-reason rows already aggregated in
+    // reasonStats. Returns a flat list of {key, count, wins, avgPnl, tag}
+    // so a UI adapter can render either side with one RecyclerView.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    data class EdgeRow(
+        val key: String,
+        val count: Int,
+        val wins: Int,
+        val losses: Int,
+        val winRate: Double,
+        val avgPnl: Double,
+        val tag: String,    // "APPROVED_WIN", "APPROVED_LOSS", "BLOCKED_WIN", "BLOCKED_LOSS"
+    )
+
+    /**
+     * Returns the Edge Ledger split into two ranked lists:
+     *   approvedWinners: entry/exit reasons we took that won most often
+     *   blockedWinners:  misses we regret — setups we vetoed that printed
+     */
+    fun getEdgeLedger(limit: Int = 20): Map<String, List<EdgeRow>> {
+        val approved = reasonStats.entries
+            .filter { it.key.startsWith("entry|") || it.key.startsWith("exit|") }
+            .filter { it.value.count >= 3 }
+            .map {
+                val tag = if (it.value.winRate >= 0.5) "APPROVED_WIN" else "APPROVED_LOSS"
+                EdgeRow(
+                    key = it.key, count = it.value.count,
+                    wins = it.value.wins, losses = it.value.losses,
+                    winRate = it.value.winRate, avgPnl = it.value.avgPnlPct,
+                    tag = tag,
+                )
+            }
+            .sortedByDescending { it.winRate * kotlin.math.ln((it.count + 1).toDouble()) }
+            .take(limit)
+
+        val blocked = signalStats.entries
+            .filter { it.key.startsWith("missed|") }
+            .filter { it.value.count >= 1 }
+            .map {
+                val avg = if (it.value.count > 0) it.value.totalPnl / it.value.count else 0.0
+                val wr = if (it.value.count > 0) it.value.wins.toDouble() / it.value.count else 0.0
+                val tag = if (avg > 0) "BLOCKED_WIN" else "BLOCKED_LOSS"
+                EdgeRow(
+                    key = it.key, count = it.value.count,
+                    wins = it.value.wins, losses = it.value.losses,
+                    winRate = wr, avgPnl = avg, tag = tag,
+                )
+            }
+            .sortedByDescending { it.avgPnl }
+            .take(limit)
+
+        return mapOf(
+            "approvedWinners" to approved,
+            "blockedWinners"  to blocked,
+        )
+    }
 
     /**
      * V5.7.3: Get stock-specific learning statistics
