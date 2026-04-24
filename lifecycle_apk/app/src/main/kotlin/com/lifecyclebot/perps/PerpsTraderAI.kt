@@ -995,6 +995,32 @@ object PerpsTraderAI {
             }
         }
 
+        // V5.9.211: Sentience wiring — all 41 layers + personality memory
+        try {
+            val sentienceHoldMins = (System.currentTimeMillis() - position.entryTime) / 60_000.0
+            val sentienceIsWin = pnlPct >= 1.0
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
+                symbol    = position.market.symbol,
+                mint      = position.market.symbol,
+                pnlPct    = pnlPct,
+                holdMins  = sentienceHoldMins,
+                traderTag = "PERPS_${position.direction.name}",
+                exitReason = exitReason.name,
+            )
+            com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                pnlPct              = pnlPct,
+                gaveBackFromPeakPct = 0.0,
+                heldMinutes         = sentienceHoldMins.toInt().coerceAtLeast(1),
+            )
+            if (sentienceIsWin) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(position.market.symbol, pnlPct, "PERPS", sentienceHoldMins.toLong() * 60)
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(position.market.symbol, pnlPct, "PERPS", exitReason.name)
+            }
+        } catch (e: Exception) {
+            android.util.Log.d("PerpsTraderAI", "Sentience hook error: ${e.message}")
+        }
+
         save()
         return trade
     }

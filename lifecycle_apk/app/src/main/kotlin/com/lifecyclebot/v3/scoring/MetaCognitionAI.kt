@@ -414,15 +414,16 @@ object MetaCognitionAI {
     private fun updateLayerPerformance(pred: Prediction, outcome: TradeOutcome) {
         val current = layerPerformance[pred.layer] ?: LayerPerformance(layer = pred.layer)
 
+        // V5.9.212: Unified 1% isWin threshold — prevents fee-drag counting as win
         val wasCorrect = when (pred.signal) {
-            SignalType.BULLISH -> outcome.pnlPct > 0.0
-            SignalType.BEARISH -> outcome.pnlPct < 0.0
-            SignalType.NEUTRAL -> outcome.pnlPct in -3.0..3.0
+            SignalType.BULLISH -> outcome.pnlPct >= 1.0
+            SignalType.BEARISH -> outcome.pnlPct <= -1.0
+            SignalType.NEUTRAL -> outcome.pnlPct in -1.0..1.0
         }
 
         val realizedProbability = when {
-            outcome.pnlPct > 0.0 -> 1.0
-            outcome.pnlPct < 0.0 -> 0.0
+            outcome.pnlPct >= 1.0  -> 1.0
+            outcome.pnlPct <= -1.0 -> 0.0
             else -> 0.5
         }
 

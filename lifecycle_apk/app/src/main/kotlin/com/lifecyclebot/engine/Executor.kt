@@ -803,7 +803,8 @@ class Executor(
                     val score = ts.trades.lastOrNull { it.side == "BUY" }?.let { 
                         it.score.coerceIn(0.0, 100.0).toInt()  // V5.9.186: was price*100 = always 100 (wrong) 
                     } ?: 50
-                    val confidence = (trade.pnlPct ?: 0.0).toInt().coerceIn(0, 100)
+                    // V5.9.212: use actual entry AI confidence score, not pnlPct (Audit #11)
+                    val confidence = ts.entryScore.toInt().coerceIn(0, 100)
                     
                     RunTracker30D.recordTrade(
                         symbol = ts.symbol,
@@ -2059,6 +2060,17 @@ class Executor(
         if (freshness is GuardResult.Block) {
             onLog("⚠ ${freshness.reason}", ts.mint)
             return
+        }
+
+        // V5.9.212: Update highestPrice/lowestPrice UNCONDITIONALLY before any exit path
+        // (Audit #4 fix: was only updated inside riskCheck — missed when checkProfitLock returned early)
+        if (ts.position.isOpen) {
+            val _unconditionalPrice = getActualPrice(ts)
+            if (_unconditionalPrice > 0.0) {
+                ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)
+                if (ts.position.lowestPrice == 0.0 || _unconditionalPrice < ts.position.lowestPrice)
+                    ts.position.lowestPrice = _unconditionalPrice
+            }
         }
 
         if (ts.position.isOpen) {

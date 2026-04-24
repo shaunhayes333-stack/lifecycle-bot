@@ -5,6 +5,8 @@ import com.lifecyclebot.v3.core.LayerHealthTracker
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.v3.arb.ArbScannerAI
 import com.lifecyclebot.v3.arb.ArbEvaluation
+import com.lifecyclebot.v4.meta.CrossTalkFusionEngine
+import com.lifecyclebot.v4.meta.AATESignal
 import android.util.Log
 
 /**

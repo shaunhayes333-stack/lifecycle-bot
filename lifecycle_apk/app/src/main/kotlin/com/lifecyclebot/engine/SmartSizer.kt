@@ -179,8 +179,9 @@ object SmartSizer {
         // V5.9.61: Lower the "insufficient" floor from 0.005 → 0.002 so
         // small wallets (the $5–$10 starter cohort) can actually trade
         // once the reserve is scaled down. Still blocks truly empty ones.
-        if (tradeable < 0.002) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < 0.002 floor | paper=$isPaperMode")
+        // V5.9.212: raise floor from 0.002 → 0.01 to cover fees on live trades
+        if (tradeable < if (isPaperMode) 0.002 else 0.01) {
+            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < ${if (isPaperMode) 0.002 else 0.01} floor | paper=$isPaperMode")
             return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "reserve",
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
@@ -542,9 +543,9 @@ object SmartSizer {
 
         // Dust floor - lower for paper mode
         size = size.coerceAtLeast(0.0)
-        // V5.9.61: live dust 0.005 → 0.002 so small-wallet starter users
-        // ($5–$10) can actually open a live position. Paper stays 0.001.
-        val dustFloor = if (isPaperMode) 0.001 else 0.002
+        // V5.9.212: live dust 0.002 → 0.01 — Jito+Jupiter+platform fees ~0.004 SOL min
+        // Sub-0.01 positions can NEVER be sold profitably. Paper stays 0.001.
+        val dustFloor = if (isPaperMode) 0.001 else 0.01
         
         // PAPER MODE MINIMUM: Always trade at least 0.01 SOL (or 5% of wallet) to ensure learning
         if (isPaperMode && size < dustFloor) {

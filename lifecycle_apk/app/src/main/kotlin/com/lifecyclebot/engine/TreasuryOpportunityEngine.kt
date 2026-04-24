@@ -28,7 +28,7 @@ object TreasuryOpportunityEngine {
         // V5.9.191: 25/30 was too strict — treasury rarely scored that high at bootstrap.
         // Real scores at 18 trades: 10-25 range. Set realistic floors: 12/15.
         // Quality comes from liq/mcap filters and V3 confirmation, not just score threshold.
-        val minConfidenceScore: Double = 12.0,     // V5.9.191: was 25 — achievable at bootstrap
+        val minConfidenceScore: Double = 20.0,     // V5.9.212: raised 12→20 — treasury money needs cleaner signals
         val minEntryScore: Double = 25.0,          // V5.9.208: restored — 15 was too low, let garbage through
         val minLiquidityUsd: Double = 1_000.0,     // V5.9.180: was 5_000 — learn broadly
         val opportunityTtlMs: Long = 60_000L,      // Opportunity becomes stale after 60s

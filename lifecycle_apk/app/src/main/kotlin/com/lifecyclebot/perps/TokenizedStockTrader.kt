@@ -1385,6 +1385,30 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             try { com.lifecyclebot.engine.LiveSafetyCircuitBreaker.recordTradeResult(netPnlSol) } catch (_: Exception) {}
         }
 
+        // V5.9.211: Sentience wiring — all 41 layers + personality memory
+        try {
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
+                symbol    = position.market.symbol,
+                mint      = position.market.symbol,
+                pnlPct    = netPnlPct,
+                holdMins  = holdMins.toDouble(),
+                traderTag = "STOCKS",
+                exitReason = reason,
+            )
+            com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                pnlPct              = netPnlPct,
+                gaveBackFromPeakPct = 0.0,
+                heldMinutes         = holdMins.toInt().coerceAtLeast(1),
+            )
+            if (netPnlPct >= 1.0) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(position.market.symbol, netPnlPct, "STOCKS", holdMins * 60)
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(position.market.symbol, netPnlPct, "STOCKS", reason)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
+        }
+
         // V5.7.6b: Persist to Turso for learning memory (with net P&L)
         persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)
         

@@ -858,6 +858,32 @@ object ForexTrader {
         }
 
         // V5.7.6b: Persist trade to Turso
+        // V5.9.211: Sentience wiring — all 41 layers + personality memory
+        try {
+            val sentiHoldMins = (System.currentTimeMillis() - position.openTime) / 60_000.0
+            val sentiIsWin = pnlPct >= 1.0
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
+                symbol    = position.market.symbol,
+                mint      = position.market.symbol,
+                pnlPct    = pnlPct,
+                holdMins  = sentiHoldMins,
+                traderTag = "FOREX",
+                exitReason = reason,
+            )
+            com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                pnlPct              = pnlPct,
+                gaveBackFromPeakPct = 0.0,
+                heldMinutes         = sentiHoldMins.toInt().coerceAtLeast(1),
+            )
+            if (sentiIsWin) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(position.market.symbol, pnlPct, "FOREX", sentiHoldMins.toLong() * 60)
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(position.market.symbol, pnlPct, "FOREX", reason)
+            }
+        } catch (e: Exception) {
+            android.util.Log.d("FOREXTrader", "Sentience hook error: ${e.message}")
+        }
+
         persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
     }
     

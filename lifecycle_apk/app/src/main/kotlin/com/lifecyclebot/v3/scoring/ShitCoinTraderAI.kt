@@ -492,6 +492,31 @@ object ShitCoinTraderAI {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
         }
         
+        // V5.9.211: Sentience wiring — all 41 layers + personality memory
+        try {
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
+                symbol    = pos.symbol,
+                mint      = pos.mint,
+                pnlPct    = pnlPct,
+                holdMins  = holdMins,
+                traderTag = "SHITCOIN",
+                exitReason = exitReason.name,
+            )
+            com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                pnlPct              = pnlPct,
+                gaveBackFromPeakPct = (pos.peakPnlPct - pnlPct).coerceAtLeast(0.0),
+                heldMinutes         = holdMins.toInt().coerceAtLeast(1),
+            )
+            if (isWin) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(pos.symbol, pnlPct, "SHITCOIN", holdMins.toLong() * 60)
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "SHITCOIN", exitReason.name)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
+        }
+
         // V5.6.29c: Persist after trade
         save()
         

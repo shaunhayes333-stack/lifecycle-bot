@@ -2728,6 +2728,28 @@ class LifecycleStrategy(
         val maxLosingMins = 8.0 * tfScale
         if (gainPct < 0 && heldMins > maxLosingMins) s += 30.0
 
+        // V5.9.212: MOONSHOT HOLD MODE — >300% positions get widened exit thresholds
+        // Audit #9: between 5x-500x there was no explicit protection — any score combination
+        // could close the position. Now: score is heavily suppressed on strong runners
+        // unless trailing stop is actively firing or we have real exhaust signals.
+        if (gainPct >= 300.0 && !exhaust) {
+            val isStrongTrend = emafan.alignment in listOf(EmaAlignment.BULL_FAN, EmaAlignment.BULL_FLAT)
+            val trailFireing  = gainPct > 50.0 && s >= 50.0  // trail block already added 55+ pts
+            if (!trailFireing) {
+                val moonshotSuppression = when {
+                    gainPct >= 2000.0 -> 0.0   // 20x+ — let trail run things
+                    gainPct >= 1000.0 -> 10.0  // 10x — only small suppression
+                    gainPct >= 500.0  -> 20.0  // 5x — meaningful suppression
+                    gainPct >= 300.0  -> if (isStrongTrend) 30.0 else 15.0  // 3x
+                    else              -> 0.0
+                }
+                s = (s - moonshotSuppression).coerceAtLeast(0.0)
+                if (moonshotSuppression > 0) {
+                    android.util.Log.d("Strategy", "🚀 MOONSHOT HOLD: ${gainPct.toInt()}% gain, suppressed exit by ${moonshotSuppression.toInt()}pt → s=${s.toInt()}")
+                }
+            }
+        }
+
         return s.coerceIn(0.0, 100.0)
     }
 

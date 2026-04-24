@@ -2187,4 +2187,66 @@ object EducationSubLayerAI {
             )
         }
     }
+
+    /**
+     * V5.9.211 — Lightweight sentience hook for traders that lack full UnifiedScorer context
+     * (MoonshotTraderAI, ShitCoinTraderAI, PerpsTraderAI, ForexTrader, MetalsTrader,
+     *  CommoditiesTrader, TokenizedStockTrader).
+     *
+     * Creates a minimal TradeOutcomeData and routes it through the full layer-learning
+     * pipeline so every closed trade — regardless of source — updates all 41 layers.
+     *
+     * @param symbol     Ticker symbol or contract name
+     * @param mint       Token mint / unique ID (symbol if none)
+     * @param pnlPct     Final PnL percentage (signed)
+     * @param holdMins   Hold duration in minutes
+     * @param traderTag  Source tag e.g. "MOONSHOT", "SHITCOIN", "PERPS", "FOREX"
+     * @param exitReason Human-readable exit reason string
+     */
+    fun recordSimpleTradeOutcome(
+        symbol: String,
+        mint: String = symbol,
+        pnlPct: Double,
+        holdMins: Double,
+        traderTag: String,
+        exitReason: String = "CLOSED",
+    ) {
+        try {
+            val outcome = TradeOutcomeData(
+                mint               = mint.ifEmpty { symbol },
+                symbol             = symbol,
+                tokenName          = symbol,
+                pnlPct             = pnlPct,
+                holdTimeMinutes    = holdMins.coerceAtLeast(0.0),
+                exitReason         = exitReason,
+                entryPhase         = "LIVE",
+                tradingMode        = traderTag,
+                discoverySource    = traderTag,
+                setupQuality       = if (pnlPct >= 5.0) "HIGH" else if (pnlPct >= 1.0) "MEDIUM" else "LOW",
+                entryMcapUsd       = 0.0,
+                exitMcapUsd        = 0.0,
+                tokenAgeMinutes    = 0.0,
+                buyRatioPct        = 50.0,
+                volumeUsd          = 0.0,
+                liquidityUsd       = 0.0,
+                holderCount        = 0,
+                topHolderPct       = 0.0,
+                holderGrowthRate   = 0.0,
+                devWalletPct       = 0.0,
+                bondingCurveProgress = 0.0,
+                rugcheckScore      = 0.0,
+                emaFanState        = "UNKNOWN",
+                entryScore         = 50.0,
+                priceFromAth       = 0.0,
+                maxGainPct         = pnlPct.coerceAtLeast(0.0),
+                maxDrawdownPct     = (-pnlPct).coerceAtLeast(0.0),
+                timeToPeakMins     = holdMins * 0.6,
+                traderSource       = traderTag,
+            )
+            recordTradeOutcomeAcrossAllLayers(outcome)
+        } catch (e: Exception) {
+            ErrorLogger.debug("EduSimple", "recordSimpleTradeOutcome error [$traderTag]: ${e.message}")
+        }
+    }
+
 }
