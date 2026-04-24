@@ -7195,7 +7195,7 @@ if (deferredCount > 0) {
                         symbol = ts.symbol,
                         entryPrice = ts.position.entryPrice,
                         entrySol = ts.position.costSol,
-                        entryTime = System.currentTimeMillis() - (ts.position.holdTimeSeconds * 1000).toLong(),
+                        entryTime = System.currentTimeMillis(),  // V5.9.192b: safe fallback (no holdTime field)
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
                         isPaper = cfg.paperMode,
