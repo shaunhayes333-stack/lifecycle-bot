@@ -40,32 +40,61 @@ class EntryAI : ScoringModule {
  */
 class MomentumAI : ScoringModule {
     override val name = "momentum"
-    
+
+    // V5.9.202: Replaced binary on/off thresholds with graded momentum scoring.
+    // Old design: only fired at momScore >55 (up) or <35 (weak) — 35-55 was always 0.
+    // New design: full continuous spectrum from momScore 0-100 → score -12 to +12.
+    // Also uses buyPressurePct directly (already in CandidateSnapshot) + volatility regime.
     override fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreComponent {
-        var score = 0
         val reasons = mutableListOf<String>()
-        
-        if (candidate.extraBoolean("pumpBuilding")) { score += 10; reasons += "Pump building" }
-        if (candidate.extraBoolean("momentumUp")) { score += 4; reasons += "Momentum up" }
-        if (candidate.extraBoolean("momentumWeak")) { score -= 8; reasons += "Momentum weak" }
-        
+
+        // Graded momentum from momScore (inferred from pressScore in candidate since
+        // momScore itself isn't directly on CandidateSnapshot — use buyPressurePct as proxy)
+        val buyPct = candidate.buyPressurePct  // 0-100, already mapped from pressScore
+        val pumpBuilding = candidate.extraBoolean("pumpBuilding")
+        val momentumUp   = candidate.extraBoolean("momentumUp")
+        val momentumWeak = candidate.extraBoolean("momentumWeak")
+        val volRegime    = candidate.extraString("volatilityRegime")
+
+        // Core momentum score — graded across full range
+        val baseScore = when {
+            pumpBuilding -> { reasons += "Pump building"; 12 }
+            buyPct >= 75 -> { reasons += "Strong buy momentum"; 8 }
+            buyPct >= 65 -> { reasons += "Good buy pressure"; 5 }
+            buyPct >= 55 -> { reasons += "Mild upward momentum"; 3 }
+            momentumUp   -> { reasons += "Momentum rising"; 2 }
+            buyPct in 45.0..54.9 -> { reasons += "Neutral momentum"; 0 }
+            buyPct >= 35 -> { reasons += "Weakening momentum"; -3 }
+            momentumWeak -> { reasons += "Momentum weak"; -7 }
+            buyPct < 25  -> { reasons += "Sell-dominated"; -12 }
+            else         -> { reasons += "Mild sell pressure"; -5 }
+        }
+
+        // Volatility regime modifier — extreme vol makes momentum signals less reliable
+        val volAdjust = when (volRegime) {
+            "EXTREME" -> -2
+            "HIGH"    -> -1
+            "CALM"    -> +1  // Clean momentum in calm markets
+            else      -> 0
+        }
+
+        // Context: bear regime dampens positive momentum signals
+        val regimeAdjust = when {
+            ctx.marketRegime.equals("BEAR", true) && baseScore > 0 -> -2
+            ctx.marketRegime.equals("BULL", true) && baseScore > 0 -> +1
+            else -> 0
+        }
+
+        val finalScore = (baseScore + volAdjust + regimeAdjust).coerceIn(-12, 12)
+
         return ScoreComponent(
             name = name,
-            value = score.coerceIn(-15, 15),
-            reason = reasons.ifEmpty { listOf("Neutral momentum") }.joinToString(", ")
+            value = finalScore,
+            reason = reasons.joinToString(", ")
         )
     }
 }
 
-/**
- * V3 Liquidity AI
- * LP health and draining detection
- *
- * V5.9.105: bridged with legacy LiquidityDepthAI so V3 sees on-chain
- * COLLAPSE/DRAIN signals. Previously V3 could score "FAIR" while the
- * legacy module was already screaming -13% drain — the two were running
- * on parallel tracks. Now COLLAPSE = fatal veto, DRAIN = heavy penalty.
- */
 class LiquidityAI : ScoringModule {
     override val name = "liquidity"
 
