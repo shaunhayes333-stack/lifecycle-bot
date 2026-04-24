@@ -114,8 +114,56 @@ object ForexTrader {
     // ENGINE CONTROL
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun initialize() {
+    fun initialize(context: android.content.Context? = null) {
         ErrorLogger.info(TAG, "💱 ForexTrader INITIALIZED")
+        if (context != null) {
+            try {
+                PerpsPositionStore.init(context.applicationContext, "forex")
+                val rehydrated = PerpsPositionStore.loadAll("forex")
+                rehydrated.forEach { j ->
+                    try {
+                        val pos = forexPositionFromJson(j)
+                        if (pos.leverage <= 1.0) spotPositions[pos.id]     = pos
+                        else                     leveragePositions[pos.id] = pos
+                    } catch (_: Exception) {}
+                }
+                if (rehydrated.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "💱 REHYDRATED ${rehydrated.size} forex positions (app-update recovery)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "forex rehydrate failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun forexPositionToJson(p: ForexPosition): org.json.JSONObject =
+        org.json.JSONObject()
+            .put("id", p.id).put("market", p.market.name).put("direction", p.direction.name)
+            .put("entryPrice", p.entryPrice).put("currentPrice", p.currentPrice)
+            .put("size", p.size).put("leverage", p.leverage)
+            .put("takeProfit", p.takeProfit).put("stopLoss", p.stopLoss)
+            .put("openTime", p.openTime).put("aiConfidence", p.aiConfidence)
+            .put("reasons", org.json.JSONArray(p.reasons)).put("peakPnlPct", p.peakPnlPct)
+
+    private fun forexPositionFromJson(j: org.json.JSONObject): ForexPosition {
+        val rArr = j.optJSONArray("reasons")
+        val reasons = if (rArr != null) (0 until rArr.length()).map { rArr.optString(it, "") } else emptyList()
+        return ForexPosition(
+            id = j.getString("id"), market = PerpsMarket.valueOf(j.getString("market")),
+            direction = PerpsDirection.valueOf(j.getString("direction")),
+            entryPrice = j.getDouble("entryPrice"), currentPrice = j.getDouble("currentPrice"),
+            size = j.getDouble("size"), leverage = j.optDouble("leverage", 1.0),
+            takeProfit = j.getDouble("takeProfit"), stopLoss = j.getDouble("stopLoss"),
+            openTime = j.optLong("openTime", System.currentTimeMillis()),
+            reasons = reasons, aiConfidence = j.optInt("aiConfidence", 50),
+        ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
+    }
+
+    private fun persistForexPositions() {
+        try {
+            val all = (spotPositions.values + leveragePositions.values).map { forexPositionToJson(it) }
+            PerpsPositionStore.saveAll("forex", all)
+        } catch (_: Exception) {}
     }
     
     fun start() {
@@ -530,6 +578,8 @@ object ForexTrader {
         )
         
         positionMap[position.id] = position
+        // V5.9.178 — persist open forex positions for app-update recovery.
+        persistForexPositions()
         
         // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
         // Jupiter swap at same positionSizeSol. Live failure rolls back.
@@ -552,6 +602,7 @@ object ForexTrader {
             val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
             if (!liveOk) {
                 positionMap.remove(position.id)
+                persistForexPositions()
                 ErrorLogger.warn(TAG, "🔴 LIVE forex trade failed: ${signal.market.symbol} — rolled back")
                 return
             }
@@ -727,6 +778,8 @@ object ForexTrader {
             saveState()
         }
         positionMap.remove(position.id)
+        // V5.9.178 — persist close.
+        persistForexPositions()
 
         val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"

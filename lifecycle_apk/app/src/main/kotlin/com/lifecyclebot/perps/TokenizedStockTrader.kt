@@ -335,6 +335,66 @@ object TokenizedStockTrader {
             applyMemeKnowledge()
         }
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader INITIALIZED | paper=$isPaperMode | balance=${"%.2f".format(paperBalance)} SOL")
+
+        // V5.9.178 — REAL local position persistence so app updates never
+        // wipe open stock trades. Complements Turso's remote persistence
+        // (loadPersistedState above) and works offline.
+        try {
+            val ctx2 = com.lifecyclebot.engine.BotService.instance?.applicationContext
+            if (ctx2 != null) {
+                PerpsPositionStore.init(ctx2, "stocks")
+                val rehydrated = PerpsPositionStore.loadAll("stocks")
+                rehydrated.forEach { j ->
+                    try {
+                        val pos = stockPositionFromJson(j)
+                        positions[pos.id] = pos
+                        if (pos.leverage <= 1.0) spotPositions[pos.id]     = pos
+                        else                     leveragePositions[pos.id] = pos
+                    } catch (_: Exception) {}
+                }
+                if (rehydrated.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "📈 REHYDRATED ${rehydrated.size} stock positions (app-update recovery)")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "stocks rehydrate failed: ${e.message}")
+        }
+    }
+
+    private fun stockPositionToJson(p: StockPosition): org.json.JSONObject {
+        val j = org.json.JSONObject()
+            .put("id", p.id).put("market", p.market.name).put("direction", p.direction.name)
+            .put("entryPrice", p.entryPrice).put("currentPrice", p.currentPrice)
+            .put("sizeSol", p.sizeSol).put("leverage", p.leverage)
+            .put("entryTime", p.entryTime).put("aiScore", p.aiScore)
+            .put("aiConfidence", p.aiConfidence).put("reasons", org.json.JSONArray(p.reasons))
+            .put("peakPnlPct", p.peakPnlPct)
+        p.takeProfitPrice?.let { j.put("takeProfitPrice", it) }
+        p.stopLossPrice?.let { j.put("stopLossPrice", it) }
+        return j
+    }
+
+    private fun stockPositionFromJson(j: org.json.JSONObject): StockPosition {
+        val rArr = j.optJSONArray("reasons")
+        val reasons = if (rArr != null) (0 until rArr.length()).map { rArr.optString(it, "") } else emptyList()
+        return StockPosition(
+            id = j.getString("id"), market = PerpsMarket.valueOf(j.getString("market")),
+            direction = PerpsDirection.valueOf(j.getString("direction")),
+            entryPrice = j.getDouble("entryPrice"), currentPrice = j.getDouble("currentPrice"),
+            sizeSol = j.getDouble("sizeSol"), leverage = j.optDouble("leverage", 1.0),
+            entryTime = j.optLong("entryTime", System.currentTimeMillis()),
+            takeProfitPrice = if (j.has("takeProfitPrice")) j.getDouble("takeProfitPrice") else null,
+            stopLossPrice   = if (j.has("stopLossPrice"))   j.getDouble("stopLossPrice")   else null,
+            aiScore = j.optInt("aiScore", 50), aiConfidence = j.optInt("aiConfidence", 50),
+            reasons = reasons, peakPnlPct = j.optDouble("peakPnlPct", 0.0),
+        )
+    }
+
+    private fun persistStockPositions() {
+        try {
+            val all = positions.values.map { stockPositionToJson(it) }
+            PerpsPositionStore.saveAll("stocks", all)
+        } catch (_: Exception) {}
     }
     
     /**
@@ -1016,6 +1076,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             leveragePositions[position.id] = position
         }
         totalTrades.incrementAndGet()
+        // V5.9.178 — persist open stock positions locally (app-update recovery).
+        persistStockPositions()
 
         // V5.9.130: register V3 entry for real-accuracy close loop.
         // V5.9.170: feed entry reason chain into the education layer.
@@ -1139,6 +1201,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // V5.7.6b: Remove from Turso
         removePositionFromTurso(positionId)
+
+        // V5.9.178 — persist the close locally so reopening the app doesn't restore a closed trade.
+        persistStockPositions()
 
         // V5.9.171 — clear local orphan record (paper capital is being
         // returned to the unified wallet at the bottom of this function).

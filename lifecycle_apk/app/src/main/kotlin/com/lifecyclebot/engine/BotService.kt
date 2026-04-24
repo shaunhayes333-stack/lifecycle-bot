@@ -389,7 +389,7 @@ class BotService : Service() {
 
         // V5.7.6: Start MetalsTrader - Precious & Industrial metals
         try {
-            com.lifecyclebot.perps.MetalsTrader.initialize()
+            com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
             com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.MetalsTrader.start()
             ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
@@ -399,7 +399,7 @@ class BotService : Service() {
 
         // V5.7.6: Start ForexTrader - Currency pairs
         try {
-            com.lifecyclebot.perps.ForexTrader.initialize()
+            com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
             com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
             com.lifecyclebot.perps.ForexTrader.start()
             ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
@@ -1827,15 +1827,17 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "EducationSubLayerAI init failed: ${e.message}", e)
         }
 
-        // V5.9.171 — LOCAL paper-orphan reconciler failsafe. Refunds capital
-        // from open paper positions that were wiped by an app update even
-        // when Turso is unreachable. Runs BEFORE bot engine spins up so the
-        // wallet shows the correct balance on the first render.
+        // V5.9.178 — LocalOrphanStore.reconcileAll is now DISABLED because the
+        // new PerpsPositionStore rehydrates the actual positions at trader
+        // init (AltPosition/MetalPosition/ForexPosition/CommodityPosition/
+        // StockPosition). Refunding SOL on top of rehydration would
+        // double-credit the paper balance. The orphan store still records
+        // open positions for diagnostics but no longer mutates the wallet.
         try {
             com.lifecyclebot.collective.LocalOrphanStore.init(applicationContext)
-            val refunded = com.lifecyclebot.collective.LocalOrphanStore.reconcileAll()
-            if (refunded > 0) {
-                addLog("♻️ Local orphan reconciler refunded ${"%.3f".format(refunded)} SOL to paper wallet (app-update recovery)")
+            val snap = com.lifecyclebot.collective.LocalOrphanStore.snapshot()
+            if (snap.isNotEmpty()) {
+                addLog("📂 ${snap.size} paper positions tracked by orphan store (diagnostics only; PerpsPositionStore is the source of truth)")
             }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "LocalOrphanStore init failed: ${e.message}", e)

@@ -132,8 +132,57 @@ object CommoditiesTrader {
     // ENGINE CONTROL
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun initialize() {
+    fun initialize(context: android.content.Context? = null) {
         ErrorLogger.info(TAG, "🛢️ CommoditiesTrader INITIALIZED")
+        if (context != null) {
+            try {
+                PerpsPositionStore.init(context.applicationContext, "commodities")
+                val rehydrated = PerpsPositionStore.loadAll("commodities")
+                rehydrated.forEach { j ->
+                    try {
+                        val pos = commodityPositionFromJson(j)
+                        if (pos.isSpot) spotPositions[pos.id]     = pos
+                        else            leveragePositions[pos.id] = pos
+                    } catch (_: Exception) {}
+                }
+                if (rehydrated.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "🛢️ REHYDRATED ${rehydrated.size} commodities positions (app-update recovery)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "commodities rehydrate failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun commodityPositionToJson(p: CommodityPosition): org.json.JSONObject =
+        org.json.JSONObject()
+            .put("id", p.id).put("market", p.market.name).put("direction", p.direction.name)
+            .put("tradeType", p.tradeType.name).put("entryPrice", p.entryPrice)
+            .put("currentPrice", p.currentPrice).put("size", p.size)
+            .put("takeProfit", p.takeProfit).put("stopLoss", p.stopLoss)
+            .put("openTime", p.openTime).put("aiConfidence", p.aiConfidence)
+            .put("reasons", org.json.JSONArray(p.reasons)).put("peakPnlPct", p.peakPnlPct)
+
+    private fun commodityPositionFromJson(j: org.json.JSONObject): CommodityPosition {
+        val rArr = j.optJSONArray("reasons")
+        val reasons = if (rArr != null) (0 until rArr.length()).map { rArr.optString(it, "") } else emptyList()
+        return CommodityPosition(
+            id = j.getString("id"), market = PerpsMarket.valueOf(j.getString("market")),
+            direction = PerpsDirection.valueOf(j.getString("direction")),
+            tradeType = TradeType.valueOf(j.getString("tradeType")),
+            entryPrice = j.getDouble("entryPrice"), currentPrice = j.getDouble("currentPrice"),
+            size = j.getDouble("size"), takeProfit = j.getDouble("takeProfit"),
+            stopLoss = j.getDouble("stopLoss"),
+            openTime = j.optLong("openTime", System.currentTimeMillis()),
+            reasons = reasons, aiConfidence = j.optInt("aiConfidence", 50),
+        ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
+    }
+
+    private fun persistCommodityPositions() {
+        try {
+            val all = (spotPositions.values + leveragePositions.values).map { commodityPositionToJson(it) }
+            PerpsPositionStore.saveAll("commodities", all)
+        } catch (_: Exception) {}
     }
     
     fun start() {
@@ -540,6 +589,8 @@ object CommoditiesTrader {
         } else {
             leveragePositions[position.id] = position
         }
+        // V5.9.178 — persist open commodity positions for app-update recovery.
+        persistCommodityPositions()
         
         // V5.9.114: UNIFIED capital move. Paper debits paper; live fires
         // Jupiter swap at same positionSizeSol. Live failure rolls back.
@@ -563,6 +614,7 @@ object CommoditiesTrader {
             if (!liveOk) {
                 if (signal.tradeType == TradeType.SPOT) spotPositions.remove(position.id)
                 else leveragePositions.remove(position.id)
+                persistCommodityPositions()
                 ErrorLogger.warn(TAG, "🔴 LIVE commodity trade failed: ${signal.market.symbol} — rolled back")
                 return
             }
@@ -741,6 +793,8 @@ object CommoditiesTrader {
             saveState()
         }
         positionMap.remove(position.id)
+        // V5.9.178 — persist close.
+        persistCommodityPositions()
 
         val emoji = if (isWin) "✅" else "❌"
         val typeEmoji = position.tradeType.emoji

@@ -113,8 +113,72 @@ object MetalsTrader {
     // ENGINE CONTROL
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fun initialize() {
+    fun initialize(context: android.content.Context? = null) {
         ErrorLogger.info(TAG, "🥇 MetalsTrader INITIALIZED")
+        // V5.9.178 — rehydrate open positions across app updates so users
+        // never lose a trade on install. Metals didn't persist before;
+        // now we save to SharedPrefs on every open/close and restore here.
+        if (context != null) {
+            try {
+                PerpsPositionStore.init(context.applicationContext, "metals")
+                val rehydrated = PerpsPositionStore.loadAll("metals")
+                rehydrated.forEach { j ->
+                    try {
+                        val pos = metalPositionFromJson(j)
+                        if (pos.leverage <= 1.0) spotPositions[pos.id]     = pos
+                        else                     leveragePositions[pos.id] = pos
+                    } catch (_: Exception) {}
+                }
+                if (rehydrated.isNotEmpty()) {
+                    ErrorLogger.info(TAG, "🥇 REHYDRATED ${rehydrated.size} metals positions (app-update recovery)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "metals rehydrate failed: ${e.message}")
+            }
+        }
+    }
+
+    // V5.9.178 — JSON persistence helpers (symmetric with CryptoAltTrader).
+    private fun metalPositionToJson(p: MetalPosition): org.json.JSONObject =
+        org.json.JSONObject()
+            .put("id",           p.id)
+            .put("market",       p.market.name)
+            .put("direction",    p.direction.name)
+            .put("entryPrice",   p.entryPrice)
+            .put("currentPrice", p.currentPrice)
+            .put("size",         p.size)
+            .put("leverage",     p.leverage)
+            .put("takeProfit",   p.takeProfit)
+            .put("stopLoss",     p.stopLoss)
+            .put("openTime",     p.openTime)
+            .put("reasons",      org.json.JSONArray(p.reasons))
+            .put("aiConfidence", p.aiConfidence)
+            .put("peakPnlPct",   p.peakPnlPct)
+
+    private fun metalPositionFromJson(j: org.json.JSONObject): MetalPosition {
+        val rArr = j.optJSONArray("reasons")
+        val reasons = if (rArr != null) (0 until rArr.length()).map { rArr.optString(it, "") } else emptyList()
+        return MetalPosition(
+            id           = j.getString("id"),
+            market       = PerpsMarket.valueOf(j.getString("market")),
+            direction    = PerpsDirection.valueOf(j.getString("direction")),
+            entryPrice   = j.getDouble("entryPrice"),
+            currentPrice = j.getDouble("currentPrice"),
+            size         = j.getDouble("size"),
+            leverage     = j.optDouble("leverage", 1.0),
+            takeProfit   = j.getDouble("takeProfit"),
+            stopLoss     = j.getDouble("stopLoss"),
+            openTime     = j.optLong("openTime", System.currentTimeMillis()),
+            reasons      = reasons,
+            aiConfidence = j.optInt("aiConfidence", 50),
+        ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
+    }
+
+    private fun persistMetalPositions() {
+        try {
+            val all = (spotPositions.values + leveragePositions.values).map { metalPositionToJson(it) }
+            PerpsPositionStore.saveAll("metals", all)
+        } catch (_: Exception) {}
     }
     
     fun start() {
@@ -523,8 +587,8 @@ object MetalsTrader {
         )
         
         positionMap[position.id] = position
-        
-        // V5.9.114: UNIFIED capital move. Paper debits paper wallet; live
+        // V5.9.178 — persist open positions so app updates don't wipe them.
+        persistMetalPositions()
         // fires Jupiter swap at the same positionSizeSol so sizing learnt
         // in paper carries into live 1:1. Live failure rolls back the position.
         if (isPaperMode.get()) {
@@ -548,6 +612,7 @@ object MetalsTrader {
             val liveOk = executeLiveTradeAtSize(signal, typeLabel, positionSizeSol)
             if (!liveOk) {
                 positionMap.remove(position.id)
+                persistMetalPositions()
                 ErrorLogger.warn(TAG, "🔴 LIVE metal trade failed: ${signal.market.symbol} — rolled back")
                 return
             }
@@ -725,6 +790,8 @@ object MetalsTrader {
             saveState()
         }
         positionMap.remove(position.id)
+        // V5.9.178 — persist the close so reopening app doesn't restore a closed trade.
+        persistMetalPositions()
 
         val typeLabel = if (position.leverage == 1.0) "💰" else "⚡"
         val emoji = if (isWin) "✅" else "❌"

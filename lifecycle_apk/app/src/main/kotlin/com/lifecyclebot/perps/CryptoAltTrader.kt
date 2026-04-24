@@ -169,6 +169,54 @@ object CryptoAltTrader {
         }
     }
 
+    // V5.9.178 — JSON persistence so open positions survive app updates.
+    private fun altPositionToJson(p: AltPosition): org.json.JSONObject {
+        return org.json.JSONObject()
+            .put("id",              p.id)
+            .put("market",          p.market.name)
+            .put("direction",       p.direction.name)
+            .put("isSpot",          p.isSpot)
+            .put("entryPrice",      p.entryPrice)
+            .put("currentPrice",    p.currentPrice)
+            .put("sizeSol",         p.sizeSol)
+            .put("leverage",        p.leverage)
+            .put("takeProfitPrice", p.takeProfitPrice)
+            .put("stopLossPrice",   p.stopLossPrice)
+            .put("aiScore",         p.aiScore)
+            .put("aiConfidence",    p.aiConfidence)
+            .put("reasons",         org.json.JSONArray(p.reasons))
+            .put("openTime",        p.openTime)
+            .put("highestPnlPct",   p.highestPnlPct)
+    }
+    private fun altPositionFromJson(j: org.json.JSONObject): AltPosition {
+        val reasonsArr = j.optJSONArray("reasons")
+        val reasons = if (reasonsArr != null) {
+            (0 until reasonsArr.length()).map { reasonsArr.optString(it, "") }
+        } else emptyList()
+        return AltPosition(
+            id              = j.getString("id"),
+            market          = PerpsMarket.valueOf(j.getString("market")),
+            direction       = PerpsDirection.valueOf(j.getString("direction")),
+            isSpot          = j.optBoolean("isSpot", true),
+            entryPrice      = j.getDouble("entryPrice"),
+            currentPrice    = j.getDouble("currentPrice"),
+            sizeSol         = j.getDouble("sizeSol"),
+            leverage        = j.optDouble("leverage", 1.0),
+            takeProfitPrice = j.optDouble("takeProfitPrice", 0.0),
+            stopLossPrice   = j.optDouble("stopLossPrice", 0.0),
+            aiScore         = j.optInt("aiScore", 50),
+            aiConfidence    = j.optInt("aiConfidence", 50),
+            reasons         = reasons,
+            openTime        = j.optLong("openTime", System.currentTimeMillis()),
+        ).apply { highestPnlPct = j.optDouble("highestPnlPct", 0.0) }
+    }
+    private fun persistAltPositions() {
+        try {
+            val blob = positions.values.map { altPositionToJson(it) }
+            PerpsPositionStore.saveAll("crypto_alt", blob)
+        } catch (_: Exception) {}
+    }
+
     // ─── Alt signal model ─────────────────────────────────────────────────────
     data class AltSignal(
         val market      : PerpsMarket,
@@ -216,6 +264,30 @@ object CryptoAltTrader {
         try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
         try { FluidLearningAI.initMarketsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
+
+        // V5.9.178 — REAL position persistence. Rehydrate every open position
+        // the bot was tracking before this app update / restart so the user
+        // never loses a trade again. LocalOrphanStore was refunding the SOL
+        // which effectively closed the positions — wrong. Now we PRESERVE
+        // them with full PnL state, entry price, TP/SL, leverage, direction.
+        try {
+            PerpsPositionStore.init(context.applicationContext, "crypto_alt")
+            val rehydrated = PerpsPositionStore.loadAll("crypto_alt")
+            rehydrated.forEach { j ->
+                try {
+                    val pos = altPositionFromJson(j)
+                    positions[pos.id] = pos
+                    if (pos.isSpot) spotPositions[pos.id] = pos
+                    else            leveragePositions[pos.id] = pos
+                    com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
+                } catch (_: Exception) {}
+            }
+            if (rehydrated.isNotEmpty()) {
+                ErrorLogger.info(TAG, "🪙 REHYDRATED ${rehydrated.size} CryptoAlt positions from persistence (app-update recovery)")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "position rehydrate failed: ${e.message}")
+        }
         // V5.9.1: Eagerly sync real wallet balance on init (live mode)
         if (!isPaperMode.get()) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1111,6 +1183,9 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
 
+        // V5.9.178 — persist the actual position JSON so it survives app updates.
+        persistAltPositions()
+
         // V5.9.171 — record in LOCAL orphan store (Turso-independent failsafe)
         // so paper capital is refundable even when the app is updated offline.
         if (isPaperMode.get()) {
@@ -1421,6 +1496,8 @@ object CryptoAltTrader {
         val pos = positions.remove(positionId) ?: return
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        // V5.9.178 — persist the map without this position.
+        persistAltPositions()
         // V5.9.171 — clear from local orphan store since capital is being
         // returned to the paper wallet via creditUnifiedPaperSol below.
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
@@ -1505,14 +1582,12 @@ object CryptoAltTrader {
             }
             if (!closeSuccess) {
                 ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${pos.market.symbol} — re-inserting position for retry (was orphaned)")
-                // V5.9.171 — the position was removed from maps up at line 1407 BEFORE the
-                // on-chain close attempt. When the close fails we must put it back, otherwise
-                // the bot thinks the trade is closed while the asset is still live on-chain
-                // forever. This is the "says sell then leaves it open" bug the user reported.
                 positions[positionId] = pos
                 if (pos.leverage <= 1.0) spotPositions[positionId]      = pos
                 else                     leveragePositions[positionId] = pos
                 com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
+                // V5.9.178 — also re-persist so the position survives restart after a failed close.
+                persistAltPositions()
                 return // DON'T remove position if on-chain close failed
             }
             try {
