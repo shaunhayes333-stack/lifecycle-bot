@@ -6785,7 +6785,10 @@ if (deferredCount > 0) {
                     if (isGraduated) " (grad: target=${finalSize.fmt(4)})" else "")
             }
             
-            if (!cbState.isHalted && !cbState.isPaused) {
+            // V5.9.173 — paper mode bypasses the pause guard. Learning
+            // must never stop in paper. Live stays gated for safety.
+            val pauseBlocks = !cfg.paperMode && cbState.isPaused
+            if (!cbState.isHalted && !pauseBlocks) {
                 executor.maybeActWithDecision(
                     ts                 = ts,
                     decision           = decision,

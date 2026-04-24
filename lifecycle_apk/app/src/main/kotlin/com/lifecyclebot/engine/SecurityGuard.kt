@@ -119,7 +119,9 @@ class SecurityGuard(
         }
 
         // ── 2. Circuit breaker paused ─────────────────────────────────
-        if (cbState.isPaused) {
+        // V5.9.173 — paper mode bypasses the pause so learning never stops.
+        // Live mode still respects the pause because real money is at stake.
+        if (cbState.isPaused && !cfg().paperMode) {
             return GuardResult.Block(
                 "Circuit breaker active — ${cbState.pauseRemainingSecs}s remaining"
             )
@@ -289,12 +291,18 @@ class SecurityGuard(
 
         if (trade.side == "SELL") {
             val pnl = trade.pnlSol
+            // V5.9.173 — paper mode must NEVER pause. A circuit breaker that
+            // halts paper trading chokes the entire learning loop and keeps
+            // the bot blind forever. We still track consecutive losses for
+            // telemetry but skip the pause + alert in paper. Live mode keeps
+            // the full protection because real money is at stake.
+            val isPaper = try { cfg().paperMode } catch (_: Exception) { true }
+
             synchronized(this) {
                 if (pnl < 0) {
-                    // Loss
                     val newLosses  = cbState.consecutiveLosses + 1
                     val newDaily   = cbState.dailyLossSol + (-pnl)
-                    val shouldPause = newLosses >= MAX_CONSECUTIVE_LOSSES
+                    val shouldPause = !isPaper && newLosses >= MAX_CONSECUTIVE_LOSSES
 
                     cbState = cbState.copy(
                         consecutiveLosses = newLosses,
@@ -310,7 +318,7 @@ class SecurityGuard(
                         onAlert("Circuit Breaker", msg)
                     }
 
-                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)}")
+                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)} paper=$isPaper")
                 } else {
                     // Win — reset consecutive loss counter
                     cbState = cbState.copy(consecutiveLosses = 0)
