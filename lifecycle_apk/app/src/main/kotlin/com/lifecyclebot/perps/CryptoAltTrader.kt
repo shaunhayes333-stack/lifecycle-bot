@@ -63,12 +63,12 @@ object CryptoAltTrader {
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
     // V5.9.189: was 10,000 — way too many. 3% per pos × 20 = 60% max exposure as designed.
-    private const val MAX_POSITIONS         = 8    // V5.9.198: 20→8 — focus capital, stop noise flooding
+    private const val MAX_POSITIONS         = 20
     // V5.9.91: SOFT cap — once positions exceed this, new entries only open
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
     // saturating at 110+ dead trades.
-    private const val SOFT_CAP_POSITIONS    = 12   // V5.9.198: 30→12
+    private const val SOFT_CAP_POSITIONS    = 30
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
