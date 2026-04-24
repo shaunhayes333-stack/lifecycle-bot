@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.2.12: Raised from 5 for paper learning
+    private const val MAX_CONCURRENT_POSITIONS = 8    // V5.9.192: 12→8 — too many idle positions dilute capital
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
@@ -91,7 +91,7 @@ object ShitCoinTraderAI {
     private const val STOP_LOSS_MATURE = -6.0         // V5.9: Tighter SL as entries improve with patterns
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
-    private const val FLAT_EXIT_MINUTES = 8           // V5.2: Increased to 8 mins (was 5)
+    private const val FLAT_EXIT_MINUTES = 6           // V5.9.192: 8→6 mins — catch idle tokens faster
     
     // Compounding - Conservative for shitcoins
     private const val COMPOUNDING_ENABLED = true
@@ -1003,15 +1003,16 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.2: FLAT EXIT - If nothing happening after 8 mins, get out
-        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -5.0 && pnlPct < 10.0) {
+        // 5. V5.9.192: FLAT EXIT — tightened from -5.0% → -3.0% floor
+        // At -4.9% we're bleeding capital. Exit sooner and redeploy.
+        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -3.0 && pnlPct < 10.0) {
             // Token is just sitting flat - wasting time and opportunity cost
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
             return ExitSignal.TIME_EXIT
         }
-        // V5.9: DEAD TOKEN EXIT - Holding underwater for > 20 mins = token is dead, cut it.
-        // Meme tokens either pump within 15-20 mins or they don't pump at all.
-        if (holdMinutes >= 20 && pnlPct < -1.0) {
+        // V5.9.192: DEAD TOKEN EXIT — 20→12 mins. Meme tokens pump in first 10 mins or not at all.
+        // 20 mins was far too long — tokens sit at -2.9% for 20+ mins accumulating loss.
+        if (holdMinutes >= 12 && pnlPct < -1.0) {
             ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (no pump)")
             return ExitSignal.TIME_EXIT
         }
