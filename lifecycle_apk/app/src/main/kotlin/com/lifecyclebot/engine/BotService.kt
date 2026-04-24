@@ -6364,6 +6364,35 @@ if (deferredCount > 0) {
         // post-hoc SHADOW_ONLY emission we saw in the audit log.
         return
     }
+    } else if (ts.position.isOpen && cfg.v3EngineEnabled) {
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.187e: EXIT MANAGEMENT for V3-opened positions
+        // When V3 is enabled and a position IS open, the early-V3 entry block
+        // is skipped (!ts.position.isOpen guard). Without this else branch,
+        // open positions NEVER get exit management — they sit open forever,
+        // which caused 22 open positions, 0% win rate, and 0 closed trades.
+        // Fix: delegate to maybeActWithDecision which handles TP/SL/hold logic.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val v3ExitIdentity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+            val v3ExitBalance = status.getEffectiveBalance(cfg.paperMode)
+            val v3CbState = securityGuard.getCircuitBreakerState()
+            val v3PauseBlocks = !cfg.paperMode && v3CbState.isPaused
+            if (!v3CbState.isHalted && !v3PauseBlocks) {
+                executor.maybeActWithDecision(
+                    ts                = ts,
+                    decision          = decision,
+                    walletSol         = v3ExitBalance,
+                    wallet            = wallet,
+                    lastPollMs        = lastSuccessfulPollMs,
+                    openPositionCount = status.openPositionCount,
+                    totalExposureSol  = status.totalExposureSol,
+                    tradeIdentity     = v3ExitIdentity,
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "[V3|EXIT] ${ts.symbol} | EXIT_ERROR | ${e.message}")
+        }
     
     // ═══════════════════════════════════════════════════════════════════
     // NOTE: Treasury Mode now runs BEFORE the V3 when block (above)
