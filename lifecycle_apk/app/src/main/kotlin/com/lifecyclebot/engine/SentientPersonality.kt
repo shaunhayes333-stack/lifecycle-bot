@@ -972,11 +972,11 @@ object SentientPersonality {
             } else {
                 val distrusted = trust.filter { (k, _) ->
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(k) ==
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED
+                        com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED
                 }
                 val untested = trust.filter { (k, _) ->
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(k) ==
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.UNTESTED
+                        com.lifecyclebot.v4.meta.TrustLevel.UNTESTED
                 }
                 if (distrusted.isNotEmpty()) issues.add("DISTRUSTED strategies: ${distrusted.keys.joinToString()}")
                 if (untested.isNotEmpty())   warnings.add("UNTESTED strategies: ${untested.keys.joinToString()}")
@@ -984,10 +984,11 @@ object SentientPersonality {
                 trust.entries.sortedBy { it.key }.forEach { (name, rec) ->
                     val level = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(name)
                     val icon  = when (level) {
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.TRUSTED    -> "✅"
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.LEARNING   -> "🟡"
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.UNTESTED   -> "⬜"
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED -> "❌"
+                        com.lifecyclebot.v4.meta.TrustLevel.ELITE      -> "🌟"
+                        com.lifecyclebot.v4.meta.TrustLevel.TRUSTED     -> "✅"
+                        com.lifecyclebot.v4.meta.TrustLevel.NEUTRAL     -> "🟡"
+                        com.lifecyclebot.v4.meta.TrustLevel.UNTESTED    -> "⬜"
+                        com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED  -> "❌"
                     }
                     val wr = if (rec.totalTrades > 0) (rec.wins * 100 / rec.totalTrades) else 0
                     sb.appendLine("  $icon $name: ${rec.totalTrades}t  ${wr}%WR  score=${String.format("%.2f", rec.trustScore)}  [${level.name}]")
