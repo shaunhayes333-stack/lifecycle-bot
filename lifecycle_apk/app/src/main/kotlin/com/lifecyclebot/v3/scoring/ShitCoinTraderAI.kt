@@ -463,6 +463,9 @@ object ShitCoinTraderAI {
             }
         } else {
             dailyLosses.incrementAndGet()
+            // V5.9.208: Deduct loss from internal balance (was missing — balance only ever grew)
+            val lossBps = (pnlSol * 100).toLong()  // pnlSol is negative on loss
+            if (pos.isPaper) paperBalanceBps.addAndGet(lossBps) else liveBalanceBps.addAndGet(lossBps)
             
             // Track rugged dev if massive loss
             if (pnlPct <= -50 && pos.devWallet != null) {
@@ -479,7 +482,7 @@ object ShitCoinTraderAI {
         
         // Record to FluidLearningAI for maturity
         try {
-            val isWin = pnlPct > 0
+            val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0 — counted fee-drag as win)
             if (pos.isPaper) {
                 FluidLearningAI.recordPaperTrade(isWin)
             } else {
