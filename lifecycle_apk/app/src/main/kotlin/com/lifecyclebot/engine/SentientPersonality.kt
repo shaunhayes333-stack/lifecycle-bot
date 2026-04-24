@@ -673,6 +673,16 @@ object SentientPersonality {
         val clean = userMessage.trim()
         if (clean.isBlank()) return
 
+        // V5.9.215: "diagnostic" keyword → instant structured system health report
+        if (clean.equals("diagnostic", ignoreCase = true) ||
+            clean.equals("diagnostics", ignoreCase = true) ||
+            clean.equals("/diagnostic", ignoreCase = true)) {
+            val report = buildDiagnosticReport()
+            addThought(Mood.ANALYTICAL, report, Category.SELF_REFLECTION, 0.5)
+            onResponse?.invoke()
+            return
+        }
+
         addThought(Mood.PHILOSOPHICAL, "[YOU] $clean", Category.SELF_REFLECTION, 0.35)
 
         if (replyJobRunning) {
@@ -903,6 +913,166 @@ object SentientPersonality {
             append("recent thoughts: ")
             append(latestThoughts)
         }
+    }
+
+    // V5.9.215: Full system diagnostic — instant plain-text health report,
+    // no LLM call needed. Lists what's broken, degraded, or untested.
+    private fun buildDiagnosticReport(): String {
+        val issues   = ArrayList<String>()
+        val warnings = ArrayList<String>()
+        val ok       = ArrayList<String>()
+        val sb       = StringBuilder()
+
+        sb.appendLine("🔬 SYSTEM DIAGNOSTIC")
+        sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // ── Bot status ────────────────────────────────────────────────────────
+        try {
+            val s = BotService.status
+            val mode = if (GlobalTradeRegistry.isPaperMode) "PAPER" else "LIVE"
+            if (!s.running) {
+                issues.add("BOT STOPPED")
+                sb.appendLine("BOT: ❌ STOPPED [$mode]")
+            } else {
+                ok.add("bot running")
+                sb.appendLine("BOT: ✅ RUNNING [$mode] | open=${s.openPositionCount} | paper=${fmt1(s.paperWalletSol)} SOL | live=${fmt1(s.walletSol)} SOL")
+            }
+        } catch (e: Exception) { issues.add("BotService error"); sb.appendLine("BOT: ❌ error — ${e.message}") }
+
+        // ── LLM / Gemini ─────────────────────────────────────────────────────
+        try {
+            val configured = GeminiCopilot.isConfigured()
+            val degraded   = configured && GeminiCopilot.isAIDegraded()
+            val rlStatus   = if (configured) GeminiCopilot.getRateLimitStatus() else "no providers"
+            val lastErr    = GeminiCopilot.lastBlipDiagnostic
+            when {
+                !configured -> { issues.add("LLM not configured (no API keys)"); sb.appendLine("LLM: ❌ NOT CONFIGURED — add Gemini/OpenAI API key in Settings") }
+                degraded    -> { warnings.add("LLM degraded/rate-limited"); sb.appendLine("LLM: ⚠️ DEGRADED — $rlStatus") }
+                else        -> { ok.add("llm ok"); sb.appendLine("LLM: ✅ OK — $rlStatus") }
+            }
+            if (!lastErr.isNullOrBlank()) sb.appendLine("  └ last error: $lastErr")
+        } catch (e: Exception) { issues.add("GeminiCopilot error"); sb.appendLine("LLM: ❌ error — ${e.message}") }
+
+        // ── Drawdown Circuit ─────────────────────────────────────────────────
+        try {
+            val aggr = com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()
+            when {
+                aggr <= 0.0 -> { issues.add("Drawdown circuit TRIPPED (aggression=0, no trades)"); sb.appendLine("DRAWDOWN CIRCUIT: 🚫 TRIPPED — aggression=0.00, bot will NOT trade") }
+                aggr < 0.5  -> { warnings.add("Drawdown circuit reduced (aggr=${String.format("%.2f", aggr)})"); sb.appendLine("DRAWDOWN CIRCUIT: ⚠️ REDUCED — aggr=${String.format("%.2f", aggr)}") }
+                else        -> { ok.add("circuit ok"); sb.appendLine("DRAWDOWN CIRCUIT: ✅ NORMAL — aggr=${String.format("%.2f", aggr)}") }
+            }
+        } catch (e: Exception) { issues.add("DrawdownCircuitAI error"); sb.appendLine("DRAWDOWN CIRCUIT: ❌ error — ${e.message}") }
+
+        // ── Strategy Trust ────────────────────────────────────────────────────
+        try {
+            val trust = com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+            if (trust.isEmpty()) {
+                warnings.add("StrategyTrustAI has zero lessons — all strategies UNTESTED")
+                sb.appendLine("STRATEGY TRUST: ⚠️ No lessons recorded yet — trust system blind")
+            } else {
+                val distrusted = trust.filter { (k, _) ->
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(k) ==
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED
+                }
+                val untested = trust.filter { (k, _) ->
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(k) ==
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.UNTESTED
+                }
+                if (distrusted.isNotEmpty()) issues.add("DISTRUSTED strategies: ${distrusted.keys.joinToString()}")
+                if (untested.isNotEmpty())   warnings.add("UNTESTED strategies: ${untested.keys.joinToString()}")
+                sb.appendLine("STRATEGY TRUST (${trust.size} tracked):")
+                trust.entries.sortedBy { it.key }.forEach { (name, rec) ->
+                    val level = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(name)
+                    val icon  = when (level) {
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.TRUSTED    -> "✅"
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.LEARNING   -> "🟡"
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.UNTESTED   -> "⬜"
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED -> "❌"
+                    }
+                    val wr = if (rec.totalTrades > 0) (rec.wins * 100 / rec.totalTrades) else 0
+                    sb.appendLine("  $icon $name: ${rec.totalTrades}t  ${wr}%WR  score=${String.format("%.2f", rec.trustScore)}  [${level.name}]")
+                }
+            }
+        } catch (e: Exception) { issues.add("StrategyTrustAI error"); sb.appendLine("STRATEGY TRUST: ❌ error — ${e.message}") }
+
+        // ── Frozen trading modes ──────────────────────────────────────────────
+        try {
+            val modes = listOf("SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP",
+                               "DIP_HUNTER", "MANIPULATED", "TREASURY",
+                               "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL")
+            val frozen = modes.filter { FinalDecisionGate.isModeFrozen(it) }
+            if (frozen.isEmpty()) {
+                ok.add("no frozen modes")
+                sb.appendLine("FROZEN MODES: ✅ none")
+            } else {
+                issues.add("Frozen modes: ${frozen.joinToString()}")
+                sb.appendLine("FROZEN MODES: ❌ ${frozen.joinToString(", ")} — will refuse entries")
+            }
+        } catch (e: Exception) { issues.add("FinalDecisionGate frozen-mode check error"); sb.appendLine("FROZEN MODES: ❌ error — ${e.message}") }
+
+        // ── FinalDecisionGate ─────────────────────────────────────────────────
+        try {
+            val filter = FinalDecisionGate.getAdaptiveFilterStatus()
+            val loop   = FinalDecisionGate.getClosedLoopState()
+            sb.appendLine("GATE: $filter")
+            sb.appendLine("  └ closed-loop: $loop")
+        } catch (e: Exception) { warnings.add("FinalDecisionGate status unavailable"); sb.appendLine("GATE: ⚠️ error — ${e.message}") }
+
+        // ── Fluid Learning ────────────────────────────────────────────────────
+        try {
+            val prog = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            val icon = when {
+                prog < 0.2  -> "🔴 EARLY"
+                prog < 0.6  -> "🟡 DEVELOPING"
+                else        -> "✅ MATURE"
+            }
+            if (prog < 0.2) warnings.add("Fluid learning very early (${(prog*100).toInt()}%) — loose thresholds active")
+            sb.appendLine("FLUID LEARNING: $icon (${(prog * 100).toInt()}%)")
+        } catch (e: Exception) { warnings.add("FluidLearningAI error"); sb.appendLine("FLUID LEARNING: ⚠️ error — ${e.message}") }
+
+        // ── Global Regime ─────────────────────────────────────────────────────
+        try {
+            val regime = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime()
+            sb.appendLine("MARKET REGIME: ${regime.name}")
+        } catch (e: Exception) { warnings.add("CrossMarketRegimeAI error"); sb.appendLine("MARKET REGIME: ⚠️ error — ${e.message}") }
+
+        // ── Symbolic Context ─────────────────────────────────────────────────
+        try {
+            val green   = SymbolicContext.getEntryGreenLight()
+            val diag    = SymbolicContext.getDiagnostics()
+            val icon    = if (green >= 0.5) "✅" else if (green >= 0.2) "🟡" else "❌"
+            if (green < 0.2) issues.add("Symbolic greenLight=${String.format("%.2f", green)} — entries hard-blocked")
+            else if (green < 0.5) warnings.add("Symbolic greenLight=${String.format("%.2f", green)} — entries suppressed")
+            sb.appendLine("SYMBOLIC: $icon $diag")
+        } catch (e: Exception) { warnings.add("SymbolicContext error"); sb.appendLine("SYMBOLIC: ⚠️ error — ${e.message}") }
+
+        // ── 30d Run Tracker ───────────────────────────────────────────────────
+        try {
+            val active = RunTracker30D.isRunActive()
+            val day    = RunTracker30D.getCurrentDay()
+            val total  = RunTracker30D.totalTrades
+            val start  = RunTracker30D.startBalance
+            val cur    = RunTracker30D.currentBalance
+            val retPct = if (start > 0.0) ((cur - start) / start) * 100.0 else 0.0
+            val icon   = if (active) "✅" else "⬜"
+            sb.appendLine("30D RUN: $icon day $day | ${total}t | ${if (retPct >= 0) "+" else ""}${fmt1(retPct)}%")
+        } catch (e: Exception) { warnings.add("RunTracker30D error"); sb.appendLine("30D RUN: ⚠️ error — ${e.message}") }
+
+        // ── Summary ───────────────────────────────────────────────────────────
+        sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        if (issues.isEmpty() && warnings.isEmpty()) {
+            sb.appendLine("✅ All systems nominal — no issues found.")
+        } else {
+            if (issues.isNotEmpty()) {
+                sb.appendLine("❌ PROBLEMS (${issues.size}):")
+                issues.forEach { sb.appendLine("  • $it") }
+            }
+            if (warnings.isNotEmpty()) {
+                sb.appendLine("⚠️ WARNINGS (${warnings.size}):")
+                warnings.forEach { sb.appendLine("  • $it") }
+            }
+        }
+        return sb.toString().trim()
     }
 
     private fun fallbackReply(userMessage: String): String {
