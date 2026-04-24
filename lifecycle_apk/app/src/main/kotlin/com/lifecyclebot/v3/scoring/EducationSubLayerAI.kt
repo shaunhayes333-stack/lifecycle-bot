@@ -872,7 +872,9 @@ object EducationSubLayerAI {
         val traderSource: String = "",
         val lossReason: String = "",
     ) {
-        val isWin: Boolean get() = pnlPct > 0
+        // V5.9.190: 1% threshold — scratch trades (+0.01%) shouldn't count as wins
+        // Aligns layer learning with economic reality: fee cost alone is ~0.2-0.5%
+        val isWin: Boolean get() = pnlPct >= 1.0
         val isRunner: Boolean get() = pnlPct >= 20.0
         val isRug: Boolean get() = pnlPct <= -30.0
     }
@@ -882,7 +884,9 @@ object EducationSubLayerAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun markLayerUpdated(layerName: String, wasSuccess: Boolean) {
-        markLayerOutcome(layerName, wasSuccess = wasSuccess, pnlPct = if (wasSuccess) 1.0 else -1.0)
+        // V5.9.190: Pass 0.0 pnlPct so fake +1/-1 values don't contaminate expectancyPct
+        // This is only called for non-trade events (signal updates) — pnlPct should be neutral
+        markLayerOutcome(layerName, wasSuccess = wasSuccess, pnlPct = 0.0)
     }
 
     /**

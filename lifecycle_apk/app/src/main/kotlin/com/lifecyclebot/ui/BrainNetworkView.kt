@@ -299,7 +299,11 @@ class BrainNetworkView @JvmOverloads constructor(
                 layer.trades = m.trades
                 // smoothedAccuracy is 0..1 — upscale to 0..100 for the
                 // color-coding `accuracy` field already used by the view.
-                layer.accuracy = m.smoothedAccuracy * 100.0
+                // V5.9.190: Node color reflects economic edge (pnl% per trade)
+                // not direction accuracy. Green = profitable layer, Red = losing layer.
+                // Maps expectancyPct: -5%→0, 0%→50, +5%→100 (clamped)
+                val expMapped = ((m.expectancyPct + 5.0) / 10.0 * 100.0).coerceIn(0.0, 100.0)
+                layer.accuracy = expMapped
                 layer.isActive = m.isActive
             }
         }

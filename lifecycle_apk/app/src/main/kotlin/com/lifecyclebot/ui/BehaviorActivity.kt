@@ -588,21 +588,23 @@ class BehaviorActivity : AppCompatActivity() {
             // hit rate), and we tag each leader with its average pnl% so
             // you can see the real economic contribution, not just a number.
             val motivational = EducationSubLayerAI.getMotivationalMessage()
-            val topMaturity = EducationSubLayerAI.getAllLayerMaturity().values
+            // V5.9.190: Sort by expectancyPct (avg pnl per trade) not direction accuracy.
+            // "Top performing" = layers that actually MAKE MONEY, not just predict direction.
+            // MomentumPr 17%(-3.7%) was showing as "top" despite -3.7% avg loss per trade.
+            val allMaturity = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades >= 3 }
-                .sortedByDescending { it.smoothedAccuracy }
+            val topMaturity = allMaturity
+                .sortedByDescending { it.expectancyPct }  // sort by $ made, not direction %
                 .take(3)
             val topLayers = if (topMaturity.isEmpty()) {
                 motivational
             } else {
                 topMaturity.joinToString(" • ") { m ->
                     val short = m.layerName.removeSuffix("AI").take(10)
-                    val edge = (m.smoothedAccuracy * 100).toInt()
                     val exp = m.expectancyPct
-                    val expTag = if (kotlin.math.abs(exp) >= 0.1) {
-                        "(${"%+.1f".format(exp)}%)"
-                    } else ""
-                    "$short ${edge}%${expTag}"
+                    val expStr = "%+.1f".format(exp) + "%"
+                    val hit = (m.smoothedAccuracy * 100).toInt()
+                    "$short $expStr ($hit% dir)"
                 }
             }
             tvTopLayers.text = topLayers
