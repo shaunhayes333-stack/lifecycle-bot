@@ -4110,27 +4110,27 @@ This cannot be undone!
             
             // Calculate readiness score (0-100%)
             // Trades component: 0-50% (need 1000 meaningful trades for full credit)
-            val tradesScore = minOf(meaningfulTrades.toDouble() / 1000.0, 1.0) * 50.0
+            val tradesScore = minOf(meaningfulTrades.toDouble() / 400.0, 1.0) * 50.0  // V5.9.203: was 1000
             // Win rate component: 0-50% (need 42% win rate for full credit)
-            val winRateScore = minOf(winRate / 42.0, 1.0) * 50.0
+            val winRateScore = minOf(winRate / 35.0, 1.0) * 50.0  // V5.9.203: was 42%
             val readinessScore = (tradesScore + winRateScore).toInt()
             
             // Determine status
-            val isReady = meaningfulTrades >= 1000 && winRate >= 42.0
-            val isAlmostReady = meaningfulTrades >= 500 && winRate >= 38.0
+            val isReady = meaningfulTrades >= 400 && winRate >= 35.0  // V5.9.203: was 1000/42%
+            val isAlmostReady = meaningfulTrades >= 200 && winRate >= 28.0  // V5.9.203: was 500/38%
             
             // Update UI
             tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
             tvReadinessWinRate.setTextColor(when {
-                winRate >= 42.0 -> green
-                winRate >= 35.0 -> amber
+                winRate >= 35.0 -> green  // V5.9.203
+                winRate >= 25.0 -> amber
                 else -> red
             })
             
             tvReadinessTrades.text = totalTrades.toString()
             tvReadinessTrades.setTextColor(when {
-                totalTrades >= 1000 -> green
-                totalTrades >= 500 -> amber
+                totalTrades >= 400 -> green  // V5.9.203
+                totalTrades >= 200 -> amber
                 else -> white
             })
             
@@ -4179,8 +4179,8 @@ This cannot be undone!
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
-                    if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
-                    if (winRate < 42.0 && totalTrades > 0) needed.add("${(42.0 - winRate).toInt()}% more win rate")
+                    if (totalTrades < 400) needed.add("${400 - totalTrades} more trades")  // V5.9.203
+                    if (winRate < 35.0 && totalTrades > 0) needed.add("${(35.0 - winRate).toInt()}% more win rate")
                     tvReadinessRecommendation.text = "📚 Keep learning! Need: ${needed.joinToString(", ")}"
                     tvReadinessRecommendation.setTextColor(Color.parseColor("#9CA3AF"))
                 }
