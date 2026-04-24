@@ -990,8 +990,8 @@ object SentientPersonality {
                         com.lifecyclebot.v4.meta.TrustLevel.UNTESTED    -> "⬜"
                         com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED  -> "❌"
                     }
-                    val wr = if (rec.totalTrades > 0) (rec.wins * 100 / rec.totalTrades) else 0
-                    sb.appendLine("  $icon $name: ${rec.totalTrades}t  ${wr}%WR  score=${String.format("%.2f", rec.trustScore)}  [${level.name}]")
+                    val wr = (rec.recentWinRate * 100).toInt()
+                    sb.appendLine("  $icon $name: ${wr}%WR  score=${String.format("%.2f", rec.trustScore)}  fit=${String.format("%.2f", rec.regimeFit)}  [${level.name}]")
                 }
             }
         } catch (e: Exception) { issues.add("StrategyTrustAI error"); sb.appendLine("STRATEGY TRUST: ❌ error — ${e.message}") }
