@@ -3633,21 +3633,29 @@ val perTokenTimeoutMs = 2_500L
 val memeBootstrap = try {
     com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
 } catch (_: Exception) { false }
+// V5.9.175 — doubled the concurrency caps AGAIN because user logs still showed
+// "processed=24 total=70" (46 deferred). At 70 watchlist tokens the previous
+// 24-parallel cap meant 3 batches × 2.5s ≈ 7.5s, but with per-token timeouts
+// and the 25s deadline a single slow fetch was burning whole batches. The
+// new caps target EVERY token evaluated EVERY tick so fluid exits don't miss
+// intra-tick moves on fast-moving micro-caps.
 val maxParallel = if (memeBootstrap) {
     when {
-        orderedMints.size >= 40 -> 24
-        orderedMints.size >= 20 -> 16
-        orderedMints.size >= 12 -> 12
-        orderedMints.size >= 6  -> 8
-        else -> 4
+        orderedMints.size >= 60 -> 48
+        orderedMints.size >= 40 -> 32
+        orderedMints.size >= 20 -> 20
+        orderedMints.size >= 12 -> 14
+        orderedMints.size >= 6  -> 10
+        else -> 6
     }
 } else {
     when {
-        orderedMints.size >= 40 -> 10
-        orderedMints.size >= 20 -> 8
-        orderedMints.size >= 12 -> 6
-        orderedMints.size >= 6  -> 4
-        else -> 2
+        orderedMints.size >= 60 -> 20
+        orderedMints.size >= 40 -> 16
+        orderedMints.size >= 20 -> 10
+        orderedMints.size >= 12 -> 8
+        orderedMints.size >= 6  -> 6
+        else -> 4
     }
 }
 
