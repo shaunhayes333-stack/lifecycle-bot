@@ -301,7 +301,10 @@ object V3Adapter {
         extras["phase"] = ts.phase
         extras["price"] = ts.lastPrice.coerceAtLeast(0.0)
 
-        extras["memoryScore"] = 0
+        // V5.9.202: Wire memory layer to TokenWinMemory instead of hardcoded 0
+        extras["memoryScore"] = try {
+            com.lifecyclebot.engine.TokenWinMemory.getMemoryScoreForMint(ts.mint.orEmpty())
+        } catch (_: Exception) { 0 }
 
         try {
             val suppressionPenalty =
@@ -320,8 +323,60 @@ object V3Adapter {
             extras["suppressionReason"] = null
         }
 
-        extras["copyTradeStale"] = false
-        extras["copyTradeCrowded"] = false
+        // V5.9.202: Wire copytrade layer to DistributionFadeAvoider suppression data
+        // copyTradeStale = token has been seen & invalidated before (stale pattern)
+        // copyTradeCrowded = token is currently under copy-trade suppression
+        extras["copyTradeStale"] = try {
+            com.lifecyclebot.engine.DistributionFadeAvoider.checkRawStrategySuppression(ts.mint)
+                ?.contains("COPY_TRADE", ignoreCase = true) == true
+        } catch (_: Exception) { false }
+        extras["copyTradeCrowded"] = try {
+            com.lifecyclebot.engine.DistributionFadeAvoider.getSuppressionPenalty(ts.mint) >= 15
+        } catch (_: Exception) { false }
+
+        // V5.9.202: Wire HoldTimeOptimizerAI — pass setupQuality and volatility regime
+        extras["setupQuality"] = meta.setupQuality.ifBlank { "C" }
+        extras["volatilityRegime"] = when {
+            meta.volScore >= 80 -> "EXTREME"
+            meta.volScore >= 65 -> "HIGH"
+            meta.volScore >= 45 -> "NORMAL"
+            meta.volScore >= 25 -> "LOW"
+            else -> "CALM"
+        }
+        extras["totalEntryScore"] = (meta.pressScore + meta.momScore + meta.volScore).toInt().coerceIn(0, 100)
+
+        // V5.9.202: Wire OrderFlowImbalanceAI — build buy/sell volume lists from candle history
+        // Use last 10 candles to compute per-bar buy/sell volumes
+        val candles = ts.history.toList().takeLast(10)
+        if (candles.size >= 3) {
+            val buyVols = candles.map { c ->
+                val total = c.vol.coerceAtLeast(0.0)
+                total * (c.buyRatio.coerceIn(0.0, 1.0))
+            }
+            val sellVols = candles.map { c ->
+                val total = c.vol.coerceAtLeast(0.0)
+                total * (1.0 - c.buyRatio.coerceIn(0.0, 1.0))
+            }
+            val closes = candles.map { it.priceUsd }
+            extras["buyVolumes"]  = buyVols
+            extras["sellVolumes"] = sellVols
+            extras["recentCloses"] = closes
+        }
+
+        // V5.9.202: Wire LiquidityCycleAI — feed current token pool data so it can
+        // update market-wide state when it hasn't been seeded yet
+        try {
+            val cycleState = com.lifecyclebot.v3.scoring.LiquidityCycleAI.getCurrentState()
+            if (cycleState.avgPoolLiquidity <= 0 && ts.lastLiquidityUsd > 0) {
+                // Seed with this token's data so first-ever score isn't always 0
+                com.lifecyclebot.v3.scoring.LiquidityCycleAI.updateMarketState(
+                    pools = listOf(ts.lastLiquidityUsd),
+                    totalMarketLiquidity = ts.lastLiquidityUsd * 50.0,  // rough 50-token universe estimate
+                    inflowUsd = if (!meta.breakdown) ts.lastLiquidityUsd * 0.02 else 0.0,
+                    outflowUsd = if (meta.breakdown) ts.lastLiquidityUsd * 0.05 else 0.0,
+                )
+            }
+        } catch (_: Exception) { }
 
         extras["zeroHolders"] = ts.peakHolderCount <= 0
         extras["pureSellPressure"] = meta.pressScore < 20.0
