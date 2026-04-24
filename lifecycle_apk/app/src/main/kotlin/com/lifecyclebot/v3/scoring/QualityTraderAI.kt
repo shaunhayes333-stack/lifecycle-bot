@@ -352,7 +352,8 @@ object QualityTraderAI {
         // V5.9.189: Lower floor to 20 at bootstrap so fresh install actually trades
         // Score breakdown: mcap(max 25) + liq(max 20) + age(max 15) + buy(max 20) + V3(0-20) = 100
         // At bootstrap: minScore=20 means liq+buy alone can get us in. At mature: 40 requires 3+ signals
-        val minScore = (20 + learningProgress * 20).toInt().coerceIn(20, 40)
+        // V5.9.191: bootstrap 20→15, mature 40→35 — easier entry during learning phase
+        val minScore = (15 + learningProgress * 20).toInt().coerceIn(15, 35)
 
         if (qualityScore < minScore) {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
