@@ -4163,7 +4163,10 @@ if (deferredCount > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
                 val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
 
-                if (priceDropPct >= 50 && liqDropPct >= 70) {  // AND not OR — both required
+                // V5.9.204: Also catch pure price rugs (>80% drop) even without liq collapse
+                val isPriceRug = priceDropPct >= 80.0  // catastrophic price wipe = rug regardless of liq
+                val isDualRug = priceDropPct >= 50 && liqDropPct >= 70
+                if (isPriceRug || isDualRug) {  // was AND-only — missed price-only rugs
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
 
