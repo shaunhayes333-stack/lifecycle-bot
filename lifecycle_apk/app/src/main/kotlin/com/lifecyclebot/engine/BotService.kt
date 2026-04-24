@@ -4960,8 +4960,20 @@ if (deferredCount > 0) {
                         }
                         
                         // Calculate token age from history (first candle timestamp)
-                        val qualityTokenAgeMinutes = if (ts.history.isNotEmpty()) {
-                            (System.currentTimeMillis() - ts.history.first().ts) / 60_000.0
+                        // V5.9.189: Use token's on-chain age (addedToWatchlistAt proxy)
+                        // ts.history.first().ts = when BOT first saw it (wrong on fresh install)
+                        // addedToWatchlistAt is set when token enters scanner — still bot-relative,
+                        // but combined with first-candle ts gives a better floor.
+                        // Quality accepts tokens 10-30 min old so we use max of both signals.
+                        val qualityTokenAgeMinutes = if (ts.history.size >= 2) {
+                            // Use span between first and latest candle as minimum age signal
+                            val historySpanMin = (ts.history.last().ts - ts.history.first().ts) / 60_000.0
+                            // Also use time since added to watchlist
+                            val watchlistAgeMin = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+                            // Take the larger of the two — both are lower bounds on real age
+                            maxOf(historySpanMin, watchlistAgeMin, 0.0)
+                        } else if (ts.history.isNotEmpty()) {
+                            (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                         } else 0.0
                         
                         // Get holder count from last candle
@@ -5005,12 +5017,12 @@ if (deferredCount > 0) {
                                     "score=${qualitySignal.qualityScore} | " +
                                     "size=${qualitySignal.positionSizeSol.fmt(3)} SOL")
                                 
-                                // V5.8: Confidence-tiered TP: weak=4%, standard=6%, strong=8%
-                                val qualityTp = when {
-                                    v3Confidence >= 55 -> 8.0
-                                    v3Confidence >= 40 -> 6.0
-                                    else -> 4.0
-                                }
+                                // V5.9.189: Use QualityTraderAI's own fluid TP (15-50%)
+                                // NOT 4-8% overrides — those make losses > wins structurally
+                                // Risk:reward must be at least 2:1 (TP >= 2x SL)
+                                val qualityTp = qualitySignal.takeProfitPct.coerceAtLeast(
+                                    qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop
+                                )
 
                                 // Execute Quality buy (reuse BlueChip executor pattern)
                                 executor.blueChipBuy(

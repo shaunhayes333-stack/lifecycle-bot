@@ -54,7 +54,8 @@ object QualityTraderAI {
     
     // V5.2.12: Quality layer handles professional mid-cap trading
     // Market cap: $100K - $1M (flows from ShitCoin at $100K, promotes to BlueChip at $1M)
-    private const val MIN_MARKET_CAP_USD = 100_000.0   // $100K minimum (flows from ShitCoin max)
+    // V5.9.189: Lowered to $75K — $100K was too restrictive on Solana, many quality tokens sit 75-100K
+    private const val MIN_MARKET_CAP_USD = 75_000.0    // $75K minimum
     private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
@@ -74,8 +75,11 @@ object QualityTraderAI {
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start
     private const val TAKE_PROFIT_MATURE = 50.0         // 50% when experienced
-    private const val STOP_LOSS_BOOTSTRAP = -8.0        // 8% stop at start
-    private const val STOP_LOSS_MATURE = -12.0          // 12% stop when mature
+    // V5.9.189: Tighter SL for better risk:reward
+    // TP is 15-50%, SL must be < half of TP. -6% bootstrap → -8% mature (not -12%!)
+    // Losses MUST be smaller than wins. -12% SL with 15% TP = terrible R:R
+    private const val STOP_LOSS_BOOTSTRAP = -6.0        // 6% stop at start (tight = small losses)
+    private const val STOP_LOSS_MATURE = -8.0           // 8% stop when mature
     private const val MAX_HOLD_MINUTES = 60             // Up to 1 hour hold
     
     // Quality filters
@@ -293,12 +297,13 @@ object QualityTraderAI {
         
         var qualityScore = 0
         
-        // Market cap in sweet spot
+        // V5.9.189: Market cap scoring fixed — sweet spot now within actual entry range ($100K-$1M)
+        // Old code gave 20pts for $50-100K which is BELOW the $100K minimum entry — unreachable
         val mcapScore = when {
-            marketCapUsd in 50_000.0..100_000.0 -> 20  // Sweet spot
-            marketCapUsd in 10_000.0..50_000.0 -> 10
-            marketCapUsd in 100_000.0..250_000.0 -> 15
-            else -> 0
+            marketCapUsd in 100_000.0..350_000.0 -> 25  // Sweet spot: liquid micro-mid cap
+            marketCapUsd in 350_000.0..600_000.0 -> 20  // Good range
+            marketCapUsd in 600_000.0..1_000_000.0 -> 15 // Upper range — approaching BlueChip
+            else -> 5  // Shouldn't happen given entry filters, but non-zero
         }
         qualityScore += mcapScore
         
@@ -344,9 +349,10 @@ object QualityTraderAI {
         // DECISION
         // ═══════════════════════════════════════════════════════════════════
         
-        // FLUID min quality score: 24 at bootstrap → 40 at mature
-        // V5.4: was hard 40 — unreachable when V3 bonus is 0 (low v3 scores in early learning)
-        val minScore = (24 + learningProgress * 16).toInt().coerceIn(24, 40)
+        // V5.9.189: Lower floor to 20 at bootstrap so fresh install actually trades
+        // Score breakdown: mcap(max 25) + liq(max 20) + age(max 15) + buy(max 20) + V3(0-20) = 100
+        // At bootstrap: minScore=20 means liq+buy alone can get us in. At mature: 40 requires 3+ signals
+        val minScore = (20 + learningProgress * 20).toInt().coerceIn(20, 40)
 
         if (qualityScore < minScore) {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
