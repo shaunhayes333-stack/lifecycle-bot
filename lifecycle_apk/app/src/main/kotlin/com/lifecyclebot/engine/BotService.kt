@@ -4884,6 +4884,10 @@ if (deferredCount > 0) {
                                 ts.position.isTreasuryPosition = true
                                 ts.position.tradingMode = "TREASURY"
                                 ts.position.tradingModeEmoji = "💰"
+                                // V5.9.200: Persist TP/SL + raw entry price for recovery after restart
+                                ts.position.treasuryTakeProfit = effectiveTpPct
+                                ts.position.treasuryStopLoss = effectiveSlPct
+                                ts.position.treasuryEntryPrice = treasuryEntryPrice ?: ts.position.entryPrice
                                 
                                 // V5.2 FIX: Record treasury position with Treasury's OWN entry price!
                                 // Do NOT use ts.position.entryPrice - that has paperBuy slippage applied
@@ -7004,12 +7008,15 @@ if (deferredCount > 0) {
             if (treasuryPos == null && ts.position.isOpen) {
                 // V5.5 RECOVERY: CashGenerationAI's in-memory map is empty after restart.
                 // Re-register the position from persisted ts.position data so checkExit works.
-                val recTpPct = if (ts.position.treasuryTakeProfit > 0) ts.position.treasuryTakeProfit else 3.5
+                val recTpPct = if (ts.position.treasuryTakeProfit > 0) ts.position.treasuryTakeProfit else 4.0
                 val recSlPct = if (ts.position.treasuryStopLoss < 0) ts.position.treasuryStopLoss else -4.0
+                // V5.9.200: Use raw treasuryEntryPrice if saved — not slippage-affected entryPrice
+                val recEntryPrice = if (ts.position.treasuryEntryPrice > 0) ts.position.treasuryEntryPrice
+                                   else ts.position.entryPrice
                 com.lifecyclebot.v3.scoring.CashGenerationAI.openPosition(
                     mint = ts.mint,
                     symbol = ts.symbol,
-                    entryPrice = ts.position.entryPrice,
+                    entryPrice = recEntryPrice,
                     positionSol = ts.position.costSol,
                     takeProfitPct = recTpPct,
                     stopLossPct = recSlPct

@@ -63,7 +63,7 @@ object CashGenerationAI {
     private const val TAKE_PROFIT_PCT_LIVE = 3.0      // V5.6.6: Raised from 2.5
     private const val TAKE_PROFIT_MIN_PCT = 2.5       // V5.6.6: Floor for defensive mode
     private const val TAKE_PROFIT_PCT = 4.0           // V5.6.6: Raised from 3.5 - default target
-    private const val TAKE_PROFIT_MAX_PCT = 8.0       // V5.6.6: Raised from 4.0 - aggressive can go higher
+    private const val TAKE_PROFIT_MAX_PCT = 20.0      // V5.9.200: 8→20 — don't cap genuine runners at 8%
     private const val STOP_LOSS_PCT = -5.0            // V5.6.6: Slightly wider from -4.0
     private const val TRAILING_STOP_PCT = 2.0         // V5.6.6: Wider trailing from 1.5
     private const val MAX_HOLD_MINUTES = 45           // V5.6.6: Extended from 30 - let winners run
