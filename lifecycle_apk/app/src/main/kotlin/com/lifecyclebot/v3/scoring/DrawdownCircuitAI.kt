@@ -49,15 +49,22 @@ object DrawdownCircuitAI {
         val current = samples.last().balance
         if (peak <= 0.0) return
         val ddPct = ((peak - current) / peak * 100.0).coerceAtLeast(0.0)
-        val aggression = when {
+        val rawAggression = when {
             ddPct < 3.0  -> 1.0
             ddPct < 6.0  -> 0.75
             ddPct < 10.0 -> 0.50
             else         -> 0.25
         }
+        // V5.9.213: Bootstrap floor — in early phase (< 60 samples ≈ first hour) never
+        // collapse below 0.50. A fresh bot loses a lot — that's noise, not a crisis.
+        // Without this, 21 consecutive paper losses drive aggression to 0.25, which
+        // feeds FEARFUL mood → SymbolicBlock → only junk gets through → more losses.
+        val bootstrapFloor = if (samples.size < 60) 0.50 else 0.0
+        val aggression = rawAggression.coerceAtLeast(bootstrapFloor)
         val prev = currentAggression.getAndSet(aggression)
         if (kotlin.math.abs(prev - aggression) > 0.01) {
-            ErrorLogger.info(TAG, "📉 4h DD=${"%.1f".format(ddPct)}%% → aggression=${"%.2f".format(aggression)}")
+            ErrorLogger.info(TAG, "📉 4h DD=${"%.1f".format(ddPct)}%% → aggression=${"%.2f".format(aggression)}" +
+                if (bootstrapFloor > 0) " (bootstrap floor ${"%.2f".format(bootstrapFloor)})" else "")
         }
     }
 

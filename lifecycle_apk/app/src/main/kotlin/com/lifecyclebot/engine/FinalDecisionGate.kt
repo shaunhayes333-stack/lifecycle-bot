@@ -230,8 +230,8 @@ object FinalDecisionGate {
     private var consecutiveBlockCount = 0
     private var lastBlockReason: String? = null
     private var adaptiveRelaxationActive = false
-    private const val DANGER_ZONE_BYPASS_THRESHOLD = 8
-    private const val MEMORY_BYPASS_THRESHOLD = 10
+    private const val DANGER_ZONE_BYPASS_THRESHOLD = 20 // V5.9.213: raised from 8 — stops junk entering after losing streak
+    private const val MEMORY_BYPASS_THRESHOLD = 25 // V5.9.213: raised from 10
     private const val MAX_RELAXATION_TRADES = 3
     private var relaxationTradesUsed = 0
 
@@ -603,26 +603,35 @@ object FinalDecisionGate {
             if (symRegimeTrans) tags.add("sym_regime_trans")
             if (symLeadLagWarn) tags.add("sym_leadlag_warn")
         }
-        // V5.9.212: Hard symbolic block — if the universe green-light is extremely low
-        // AND mood is PANIC or FEARFUL, block new entries entirely (paper mode: log + skip).
+        // V5.9.213: Symbolic universe block — LIVE only hard-block.
+        // In paper/bootstrap mode we only log + tag (no block) so the bot can keep
+        // learning even during a losing streak. The score penalty from SymbolicContext
+        // still applies (-8 symNudge), and DrawdownCircuitAI still score-penalises (-20).
+        // Hard block ONLY fires in live-money mode where real losses must be protected.
         if (symGreenLight < 0.20 && symMood in listOf("PANIC", "FEARFUL") && symCircuitBreaking) {
-            ErrorLogger.info("FDG", "🌌 SYMBOLIC_BLOCK: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true")
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
-                blockLevel = BlockLevel.CONFIDENCE,
-                sizeSol = 0.0,
-                tags = tags + listOf("symbolic_block", "panic_mode"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking",
-                gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
-            )
+            ErrorLogger.info("FDG", "🌌 SYMBOLIC_WARN: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true | mode=$mode")
+            if (mode == TradeMode.LIVE) {
+                // LIVE: Hard block — don't risk real money in panic+circuit-tripped state
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
+                    blockLevel = BlockLevel.CONFIDENCE,
+                    sizeSol = 0.0,
+                    tags = tags + listOf("symbolic_block", "panic_mode"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking (LIVE)",
+                    gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
+                )
+            }
+            // PAPER: Tag it but allow through so learning continues. 
+            // EntryIntelligence symNudge + DrawdownCircuit score penalty already apply.
+            tags.add("sym_panic_paper_warn")
         }
 
         if (candidate.aiConfidence <= 0.0) {
