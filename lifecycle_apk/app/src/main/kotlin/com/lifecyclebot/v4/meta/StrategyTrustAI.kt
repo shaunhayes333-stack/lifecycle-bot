@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap
 object StrategyTrustAI {
 
     private const val TAG = "StrategyTrustAI"
-    private const val MIN_TRADES_FOR_TRUST = 20
+    private const val MIN_TRADES_FOR_TRUST = 5   // Lowered: modes get few trades each
     private const val RECENT_WINDOW = 50          // Evaluate last 50 trades
     private const val DECAY_FACTOR = 0.95         // Exponential decay for older trades
 
@@ -38,11 +38,17 @@ object StrategyTrustAI {
     // Per-strategy trade history (ring buffer style)
     private val tradeHistory = ConcurrentHashMap<String, MutableList<TradeLesson>>()
 
-    // Known strategies
+    // Known strategies — must match actual ts.position.tradingMode values set in BotService
+    // Layer transitions set: displayName.uppercase().replace(" ", "_")
+    //   "V3 Quality" → "V3_QUALITY", "BlueChip" → "BLUECHIP", "DipHunter" → "DIPHUNTER"
+    //   "Quality" → "QUALITY", "Treasury" → "TREASURY", "Express" → "EXPRESS"
+    // Direct assignments: "SHITCOIN", "QUALITY", "BLUE_CHIP", "DIP_HUNTER", "MANIPULATED"
+    //   "TREASURY", "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL"
     private val STRATEGIES = listOf(
-        "ShitCoinAI", "DipHunter", "BlueChipAI", "SolArbAI",
-        "Treasury", "TokenizedStockAI", "LeverageTraderAI",
-        "Express", "MoonBag", "Manipulation"
+        "SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP", "BLUECHIP",
+        "DIP_HUNTER", "DIPHUNTER", "MANIPULATED", "TREASURY",
+        "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL", "MOONSHOT",
+        "STANDARD", "EXPRESS", "CryptoAltAI", "SolArbAI", "TokenizedStockAI"
     )
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -62,6 +68,8 @@ object StrategyTrustAI {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun recordTrade(lesson: TradeLesson) {
+        // Auto-register any strategy name we haven't seen before
+        trustRecords.putIfAbsent(lesson.strategy, createDefaultRecord(lesson.strategy))
         val history = tradeHistory.getOrPut(lesson.strategy) { mutableListOf() }
         synchronized(history) {
             history.add(lesson)
@@ -226,11 +234,15 @@ object StrategyTrustAI {
     // QUERY API
     // ═══════════════════════════════════════════════════════════════════════
 
-    fun getTrustScore(strategy: String): Double =
-        trustRecords[strategy]?.trustScore ?: 0.5
+    fun getTrustScore(strategy: String): Double {
+        trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
+        return trustRecords[strategy]?.trustScore ?: 0.5
+    }
 
-    fun getTrustLevel(strategy: String): TrustLevel =
-        trustRecords[strategy]?.trustLevel ?: TrustLevel.UNTESTED
+    fun getTrustLevel(strategy: String): TrustLevel {
+        trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
+        return trustRecords[strategy]?.trustLevel ?: TrustLevel.UNTESTED
+    }
 
     fun getTrustRecord(strategy: String): StrategyTrustRecord? =
         trustRecords[strategy]
