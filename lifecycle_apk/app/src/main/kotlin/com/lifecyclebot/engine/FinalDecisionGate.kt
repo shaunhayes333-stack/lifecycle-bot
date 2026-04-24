@@ -221,10 +221,10 @@ object FinalDecisionGate {
     var kellyFraction = 0.5
     var maxKellySize = 0.10
 
-    private const val CONF_FLOOR_BOOTSTRAP = 10.0
+    private const val CONF_FLOOR_BOOTSTRAP = 3.0
     private const val CONF_FLOOR_MATURE = 60.0
 
-    var paperConfidenceBase = 7.0
+    var paperConfidenceBase = 3.0
     var liveConfidenceBase = 0.0
 
     private var consecutiveBlockCount = 0

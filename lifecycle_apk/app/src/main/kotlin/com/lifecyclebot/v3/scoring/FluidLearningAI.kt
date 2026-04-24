@@ -148,9 +148,12 @@ object FluidLearningAI {
     private const val EXPERT_PHASE_END = 10000    // was 5000 — matches user's "80% past 10,000"
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
-    // V5.7.7: Bootstrap score gate constants
+    // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
+    // unreachable for fresh meme/V3 launches whose scores run 14-40. Combined
+    // with the secondary gate (effectiveFloor below) this was the primary
+    // reason < 200 trades/day during bootstrap. 5 = "anything above dust".
     private const val EARLY_BOOTSTRAP_TRADES = 50
-    private const val EARLY_BOOTSTRAP_MIN_SCORE = 75
+    private const val EARLY_BOOTSTRAP_MIN_SCORE = 5
     
     /**
      * V5.2: Reset all learning progress.
@@ -377,13 +380,11 @@ object FluidLearningAI {
         // After first 50 trades, no blocking
         if (totalTrades >= EARLY_BOOTSTRAP_TRADES) return false
 
-        // V5.9.65: was score >= 75 which NO V3 signal ever reaches
-        // (realistic V3 scores are 14-40 per user log). The caller also
-        // passes treasurySignal.confidence which is often 0, so the gate
-        // blocks 100% of trades during bootstrap. Lowered floor to 25
-        // which matches the bottom of the real V3 score distribution
-        // AND treats score==0 (no treasury signal) as "let V3 decide".
-        val effectiveFloor = 25
+        // V5.9.179 — effectiveFloor dropped 25 → 5 so fresh launches with
+        // V3 scores in the 14-24 band aren't silently shadowed during
+        // bootstrap. Paper must LEARN from these — user explicitly wants
+        // every D+ candidate to get a shot during the first 50 trades.
+        val effectiveFloor = 5
         val shouldBlock = score > 0 && score < effectiveFloor
 
         if (shouldBlock) {
@@ -868,7 +869,7 @@ object FluidLearningAI {
     // CONFIDENCE THRESHOLDS (Used by FDG, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val CONF_BOOTSTRAP = 30.0    // 30% confidence floor at start
+    private const val CONF_BOOTSTRAP = 5.0     // V5.9.179: was 30 — matches paper floor
     private const val CONF_MATURE = 75.0       // 75% confidence when mature
     
     private const val CONF_PAPER_BOOTSTRAP = 3.0    // V5.9.174: was 15 — user demand
@@ -888,8 +889,8 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 20     // V5.5b: Reverted — raising to 30 blocked all early_unknown tokens
-    private const val SCORE_MATURE = 35        // V5.5b: Modest raise from 30; at 63% lerp → ~29 (allows score-21 EXECUTE_SMALL)
+    private const val SCORE_BOOTSTRAP = 5      // V5.9.179: was 20 — admit D+
+    private const val SCORE_MATURE = 35
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
 
@@ -974,21 +975,20 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // SPOT trading thresholds - BROADENED like meme trader
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 40    // min viable signal quality at bootstrap
-    private const val MARKETS_SPOT_SCORE_MATURE = 60       // selective when mature
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 45     // was 10 — far too loose, bled balance
+    // V5.9.179 — bootstrap dropped to 5/5 so the markets trader (metals,
+    // forex, commodities, stocks, crypto alts) admits D+ signals during
+    // learning. Mature values untouched → tightens back up as we learn.
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 5
+    private const val MARKETS_SPOT_SCORE_MATURE = 60
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 5
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
-    // V5.9.147 — bootstrap LEV gates lowered: the base `analyzeMarket` emits
-    // confidence=50 with no boost on quiet tape, which was below the 55 floor
-    // for every single signal → "Generated 0 LEVERAGE signals" every scan
-    // across Commodities/Forex/Metals. Match SPOT_BOOTSTRAP (40/45) so quiet
-    // but valid signals can take a leveraged position during learning; the
-    // mature gate (70/70) still tightens as win-rate proves out.
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 42     // was 50 — left no room above base score=50
+    // V5.9.179 — same philosophy: bootstrap floors drop so leveraged signals
+    // can run during learning (user directive: "admit everything above D+").
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 5
     private const val MARKETS_LEV_SCORE_MATURE = 70
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 45      // was 55 — above base conf=50, blocked everything
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 5
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
