@@ -25,8 +25,8 @@ object TreasuryOpportunityEngine {
         val maxDeployPct: Double = 20.0,           // Max % of treasury to deploy at once
         val maxConcurrentDeploys: Int = 3,         // Max simultaneous treasury positions
         val minTreasuryToStart: Double = 0.5,      // Min treasury SOL before deploying
-        val minConfidenceScore: Double = 5.0,      // V5.9.180: was 35 — total floor obliteration
-        val minEntryScore: Double = 5.0,           // V5.9.180: was 35 — total floor obliteration
+        val minConfidenceScore: Double = 25.0,     // V5.9.186: was 5 — treasury needs quality (25+)
+        val minEntryScore: Double = 30.0,          // V5.9.186: was 5 — treasury quality gate (30+)
         val minLiquidityUsd: Double = 1_000.0,     // V5.9.180: was 5_000 — learn broadly
         val opportunityTtlMs: Long = 60_000L,      // Opportunity becomes stale after 60s
         val targetModes: Set<String> = setOf(

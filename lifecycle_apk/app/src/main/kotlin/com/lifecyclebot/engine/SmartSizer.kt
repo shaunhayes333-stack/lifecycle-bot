@@ -149,7 +149,7 @@ object SmartSizer {
         // floor of 0.002 SOL so the user can never drain to zero.
         val effectiveReserve = if (!isPaperMode) {
             val configuredReserve = cfg.walletReserveSol
-            val smallWalletCap    = (effectiveWallet * 0.10).coerceAtLeast(0.002)
+            val smallWalletCap    = (effectiveWallet * 0.10).coerceAtLeast(0.01)  // V5.9.186: was 0.002 — fees eat sub-0.01
             if (effectiveWallet < configuredReserve * 2.0) {
                 // wallet too small to honour the full reserve — use 10%
                 ErrorLogger.info("SmartSizer", "📏 Small-wallet reserve: configured=${configuredReserve} → effective=${smallWalletCap} (wallet=${effectiveWallet})")

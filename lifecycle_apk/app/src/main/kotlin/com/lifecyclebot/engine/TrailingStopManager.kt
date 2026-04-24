@@ -137,7 +137,20 @@ object TrailingStopManager {
             }
             
             // Ensure stop is within reasonable bounds
-            val finalStopPct = baseStopPct.coerceIn(5.0, 50.0)
+            // V5.9.186: adaptive bounds — tighter on big winners, wider early on
+            val minStop = when {
+                pnlPct >= 200.0 -> 3.5
+                pnlPct >= 100.0 -> 4.5
+                pnlPct >= 50.0  -> 5.5
+                pnlPct >= 20.0  -> 7.0
+                else            -> 8.0
+            }
+            val maxStop = when {
+                pnlPct >= 200.0 -> 12.0
+                pnlPct >= 100.0 -> 18.0
+                else            -> 35.0
+            }
+            val finalStopPct = baseStopPct.coerceIn(minStop, maxStop)
             
             // Calculate actual stop price
             val stopPrice = highPriceUsd * (1.0 - finalStopPct / 100.0)

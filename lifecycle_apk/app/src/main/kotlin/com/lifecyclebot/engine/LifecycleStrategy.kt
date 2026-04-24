@@ -2626,51 +2626,51 @@ class LifecycleStrategy(
 
         val spikeCheck = detectSpikeTop(ts.history.toList(), ts.history.toList().map { it.ref }, gainPct)
 
-        // FIX 2: Unified trail — score proximity to trailingFloor, not duplicate calc
+        // V5.9.186: MODE-AWARE TRAILING STOP — fixed dead else-if branch
+        // BUG: else-if(gainPct>50 && RANGE_TRADE) was unreachable — outer if(gainPct>50) consumed it.
+        // Range trades on big winners never got their tighter stop. Fixed.
         if (gainPct > 50.0) {
-            val base     = cfg().trailingStopBasePct
-            val floorPct = when {
-                spikeCheck.isSpike || spikeCheck.isPostSpike -> base * 0.32
-                spikeCheck.wickRejection                     -> base * 0.35
-                gainPct > 500.0                              -> base * 0.35
-                gainPct > 200.0                              -> base * 0.40
-                gainPct > 100.0                              -> base * 0.45
-                else                                         -> base * 0.50
-            }
-            when {
-                drawdownFromHigh > floorPct ->
-                    s += if (mode == TradingMode.LAUNCH_SNIPE) 60.0 else 45.0
-                drawdownFromHigh > floorPct * 0.70 -> s += 20.0
-                !exhaust && press >= 40.0 && !spikeCheck.isPostSpike -> {
-                    val cap = if (emafan.alignment == EmaAlignment.BULL_FAN) 15.0 else 25.0
-                    s = s.coerceAtMost(cap)
+            val base = cfg().trailingStopBasePct
+            if (mode == TradingMode.RANGE_TRADE) {
+                // RANGE TRADE: TIGHTER stops — protect gains faster
+                val trailPct = when {
+                    spikeCheck.isSpike || spikeCheck.isPostSpike -> 3.5
+                    spikeCheck.wickRejection                     -> 4.0
+                    gainPct > 500.0                              -> 4.0
+                    gainPct > 200.0                              -> 5.5
+                    gainPct > 100.0                              -> 7.0
+                    else                                         -> minOf(base * 0.60, 9.0)
+                }
+                val fanBad = emafan.alignment in listOf(EmaAlignment.BEAR_FAN, EmaAlignment.BEAR_FLAT)
+                s += when {
+                    drawdownFromHigh > trailPct           -> 55.0
+                    drawdownFromHigh > trailPct * 0.70   -> 25.0
+                    gainPct > 80.0 && fanBad             -> 20.0
+                    !exhaust && press >= 40.0 && !spikeCheck.isPostSpike -> {
+                        s = s.coerceAtMost(if (emafan.alignment == EmaAlignment.BULL_FAN) 12.0 else 20.0); 0.0
+                    }
+                    else                                 -> 8.0
+                }
+            } else {
+                // LAUNCH SNIPE / other: wider trail — ride the runner
+                val floorPct = when {
+                    spikeCheck.isSpike || spikeCheck.isPostSpike -> base * 0.32
+                    spikeCheck.wickRejection                     -> base * 0.35
+                    gainPct > 500.0                              -> base * 0.35
+                    gainPct > 200.0                              -> base * 0.40
+                    gainPct > 100.0                              -> base * 0.45
+                    else                                         -> base * 0.50
+                }
+                when {
+                    drawdownFromHigh > floorPct ->
+                        s += if (mode == TradingMode.LAUNCH_SNIPE) 60.0 else 45.0
+                    drawdownFromHigh > floorPct * 0.70 -> s += 20.0
+                    !exhaust && press >= 40.0 && !spikeCheck.isPostSpike -> {
+                        val cap = if (emafan.alignment == EmaAlignment.BULL_FAN) 15.0 else 25.0
+                        s = s.coerceAtMost(cap)
+                    }
                 }
             }
-        } else if (gainPct > 50.0 && mode == TradingMode.RANGE_TRADE) {
-            val fanBad = emafan.alignment in listOf(EmaAlignment.BEAR_FAN, EmaAlignment.BEAR_FLAT)
-            // CHANGE 2b: Range trade trailing stops — tighter
-            val trailPct = when {
-                spikeCheck.isSpike || spikeCheck.isPostSpike -> 3.5
-                spikeCheck.wickRejection                     -> 4.0
-                gainPct > 500                                -> 4.0
-                gainPct > 200                                -> 5.5
-                gainPct > 100                                -> 7.0
-                else                                         -> 9.0  // was 10%
-            }
-            s += when {
-                drawdownFromHigh > trailPct      -> 45.0
-                gainPct > 80 && fanBad           -> 25.0
-                gainPct > 80                     -> 8.0
-                else                             -> 15.0
-            }
-        } else {
-            s += when {
-                gainPct > 30 -> minOf(20.0, (gainPct - 30) * 0.7)
-                gainPct > 15 -> minOf(10.0, (gainPct - 15) * 0.5)
-                else         -> 0.0
-            }
-        }
-
         // Dynamic hold time
         val holdExtension = calcHoldExtension(ts, vol, press)
 
