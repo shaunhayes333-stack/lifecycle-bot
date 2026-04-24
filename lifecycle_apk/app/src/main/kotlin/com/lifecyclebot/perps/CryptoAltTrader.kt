@@ -62,7 +62,8 @@ object CryptoAltTrader {
     // V5.9.70: cap removed — exposure guard + wallet reserve are the real
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
-    private const val MAX_POSITIONS         = 10_000
+    // V5.9.189: was 10,000 — way too many. 3% per pos × 20 = 60% max exposure as designed.
+    private const val MAX_POSITIONS         = 20
     // V5.9.91: SOFT cap — once positions exceed this, new entries only open
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
@@ -265,25 +266,43 @@ object CryptoAltTrader {
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
         try { FluidLearningAI.initMarketsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
 
-        // V5.9.178 — REAL position persistence. Rehydrate every open position
-        // the bot was tracking before this app update / restart so the user
-        // never loses a trade again. LocalOrphanStore was refunding the SOL
-        // which effectively closed the positions — wrong. Now we PRESERVE
-        // them with full PnL state, entry price, TP/SL, leverage, direction.
+        // V5.9.189: Rehydrate persisted positions with staleness guard + cap.
+        // Positions older than 4 hours are expired — close them at entry (no loss/win).
+        // Cap at MAX_POSITIONS so 108-position bloat can never happen again.
         try {
             PerpsPositionStore.init(context.applicationContext, "crypto_alt")
             val rehydrated = PerpsPositionStore.loadAll("crypto_alt")
+            val maxAgeMs = 4 * 60 * 60 * 1_000L  // 4 hours
+            val now = System.currentTimeMillis()
+            var staleCount = 0
+            var rehydratedCount = 0
             rehydrated.forEach { j ->
                 try {
                     val pos = altPositionFromJson(j)
+                    val ageMs = now - pos.openTime
+                    if (ageMs > maxAgeMs) {
+                        // Stale — drop silently (don't add to WalletPositionLock)
+                        staleCount++
+                        return@forEach
+                    }
+                    if (rehydratedCount >= MAX_POSITIONS) {
+                        staleCount++
+                        return@forEach
+                    }
                     positions[pos.id] = pos
                     if (pos.isSpot) spotPositions[pos.id] = pos
                     else            leveragePositions[pos.id] = pos
                     com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", pos.sizeSol)
+                    rehydratedCount++
                 } catch (_: Exception) {}
             }
-            if (rehydrated.isNotEmpty()) {
-                ErrorLogger.info(TAG, "🪙 REHYDRATED ${rehydrated.size} CryptoAlt positions from persistence (app-update recovery)")
+            if (staleCount > 0) {
+                // Clear the full store so stale positions don't come back next restart
+                PerpsPositionStore.saveAll("crypto_alt", emptyList())
+                ErrorLogger.warn(TAG, "🪙 PURGED $staleCount stale CryptoAlt positions (>4h old or over cap)")
+            }
+            if (rehydratedCount > 0) {
+                ErrorLogger.info(TAG, "🪙 REHYDRATED $rehydratedCount CryptoAlt positions from persistence (app-update recovery)")
             }
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "position rehydrate failed: ${e.message}")
