@@ -6966,14 +6966,10 @@ if (deferredCount > 0) {
                     "${transition.fromLayer.emoji} → ${transition.toLayer.emoji} | " +
                     "mcap \$${(ts.lastMcap/1000).toInt()}K", ts.mint)
                 
-                // Record to FluidLearning as a positive signal
-                try {
-                    if (cfg.paperMode) {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(true)
-                    } else {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(true)
-                    }
-                } catch (e: Exception) { ErrorLogger.warn("BotService", "⚠️ Caught: ${e.message}") }
+                // V5.9.208: REMOVED false FluidLearning win on layer transitions.
+                // Layer-up is NOT a trade exit — recording isWin=true here inflated maturity
+                // win rate even when the position later closed at a loss.
+                // FluidLearning win/loss is recorded at actual exit in Executor.
             }
         } catch (transEx: Exception) {
             ErrorLogger.debug("BotService", "Layer transition check failed: ${transEx.message}")
