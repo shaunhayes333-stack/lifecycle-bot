@@ -366,6 +366,13 @@ object CommoditiesTrader {
     }
     
     private suspend fun analyzeMarket(market: PerpsMarket, data: PerpsMarketData, tradeType: TradeType): CommoditySignal? {
+        // V5.9.199: Dead-feed guard — pruned/stale feeds have price=0 or change=0.0
+        // Every dead commodity would score 55 (base 50 + sector +5), flooding signals with noise.
+        if (data.price <= 0) return null
+        if (kotlin.math.abs(data.priceChange24hPct) < 0.05) {
+            ErrorLogger.debug(TAG, "🛢️ ${market.symbol}: SKIPPED stale feed (Δ=${data.priceChange24hPct}%)")
+            return null
+        }
         val reasons = mutableListOf<String>()
         val layerVotes = mutableMapOf<String, PerpsDirection>()
         var score = 50
@@ -477,9 +484,9 @@ object CommoditiesTrader {
             }
         } catch (_: Exception) {}
         
-        // Floor for paper mode learning
-        if (score < 35) score = 35
-        if (confidence < 30) confidence = 30
+        // V5.9.199: Raised floor 35/30 → 50/40 (matches CryptoAlt fix)
+        if (score < 50) score = 50
+        if (confidence < 40) confidence = 40
         reasons.add("📚 ALWAYS_TRADE mode")
         
         return CommoditySignal(

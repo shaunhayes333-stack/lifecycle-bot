@@ -3983,6 +3983,8 @@ class Executor(
                     try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                     val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
                     phantomId.closed(getActualPrice(ts), -100.0, -sol, "PHANTOM_BUY_NO_TOKENS")
+                    // V5.9.199: Mark phantom as scratch — prevents -100% poisoning win rate
+                    try { phantomId.classified("PHANTOM_SCRATCH", null) } catch (_: Exception) {}
                     onNotify(
                         "🚨 Phantom Cleared",
                         "$verifySymbol: tx returned sig but no tokens arrived. Position discarded.",
