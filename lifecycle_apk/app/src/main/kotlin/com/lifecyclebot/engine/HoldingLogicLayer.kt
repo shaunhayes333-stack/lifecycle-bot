@@ -193,7 +193,7 @@ object HoldingLogicLayer {
                     marketRegime       = ts.meta.emafanAlignment,
                     volatility         = ts.meta.volScore,
                     alreadySoldPct     = position.partialSoldPct.toInt(),
-                    symbol             = position.symbol,
+                    symbol             = ts.symbol,
                 )
                 if (aemDecision.shouldExit) {
                     val aemUrgency = when (aemDecision.urgency) {
@@ -201,7 +201,7 @@ object HoldingLogicLayer {
                         AdvancedExitManager.ExitUrgency.HIGH     -> Urgency.HIGH
                         else                                     -> Urgency.NORMAL
                     }
-                    ErrorLogger.info(TAG, "[AEM] ${position.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
+                    ErrorLogger.info(TAG, "[AEM] ${ts.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
                     return@withLock HoldEvaluation(
                         action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
                         reason     = "${aemDecision.exitReason}: ${aemDecision.logMessage}",
@@ -210,7 +210,7 @@ object HoldingLogicLayer {
                     )
                 }
             } catch (aemEx: Exception) {
-                ErrorLogger.debug(TAG, "[AEM] ${position.symbol} eval error: ${aemEx.message}")
+                ErrorLogger.debug(TAG, "[AEM] ${ts.symbol} eval error: ${aemEx.message}")
             }
 
             // 1. CHECK FOR CRITICAL CONDITIONS (exit immediately)
