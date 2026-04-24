@@ -704,6 +704,12 @@ Talk like a real mind, not a settings screen.
 
         return """
 INNER STATE / LIVE CONTEXT:
+Strategy Trust (from StrategyTrustAI — live learned scores per trading mode):
+${try { com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().entries
+  .sortedByDescending { it.value.trustScore }
+  .take(8)
+  .joinToString("\n") { (name, rec) -> "  $name: ${String.format("%.2f", rec.trustScore)} [${rec.trustLevel}] WR=${String.format("%.0f", rec.recentWinRate * 100)}%" }
+} catch (_: Throwable) { "  (not yet initialized)" }}
 $contextSummary
 ${if (memoryBlock.isNotBlank()) "\n$memoryBlock\n" else ""}
 USER TO YOU:

@@ -63,12 +63,12 @@ object CryptoAltTrader {
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
     // V5.9.189: was 10,000 — way too many. 3% per pos × 20 = 60% max exposure as designed.
-    private const val MAX_POSITIONS         = 20
+    private const val MAX_POSITIONS         = 8    // V5.9.198: 20→8 — focus capital, stop noise flooding
     // V5.9.91: SOFT cap — once positions exceed this, new entries only open
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
     // saturating at 110+ dead trades.
-    private const val SOFT_CAP_POSITIONS    = 30
+    private const val SOFT_CAP_POSITIONS    = 12   // V5.9.198: 30→12
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
@@ -1062,8 +1062,11 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         // ── Always-Trade floor (paper learning mode) ─────────────────────────
-        if (score < 35)      score      = 35
-        if (confidence < 30) confidence = 30
+        // V5.9.198: Raised floor from 35/30 → 50/40.
+        // Old floor guaranteed every signal passed bootstrap gate (threshold=5/5),
+        // flooding the desk with 17+ low-conviction positions, WR ~17%.
+        if (score < 50)      score      = 50
+        if (confidence < 40) confidence = 40
         reasons.add("📚 CryptoAlt ALWAYS_TRADE learning mode")
 
         return AltSignal(
@@ -1083,6 +1086,13 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
+        // V5.9.198: Trust gate
+        val tradingMode = signal.reasons.firstOrNull() ?: "CryptoAltAI"
+        if (!com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(tradingMode)) {
+            ErrorLogger.warn(TAG, "🚫 [TRUST GATE] ${signal.market.symbol} | strategy=$tradingMode is DISTRUSTED")
+            return
+        }
+        val trustMult = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustMultiplier(tradingMode)
         // V5.9.114: UNIFIED paper + live pipeline.
         // User policy: "live mode should behave exactly like paper". All
         // sizing, sanity, exposure, hive, TP/SL, AI registrations, and
@@ -1096,7 +1106,7 @@ object CryptoAltTrader {
         // the old flat 3% for every trade. Range: 0.4x..2.0x base size.
         // High-conviction (score≥85, conf≥80) rides 2x; low-conviction <55/40 rides 0.4x.
         val sizeMult = fluidSizeMultiplier(signal.score, signal.confidence)
-        val sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult
+        val sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult * trustMult  // V5.9.198: trust-weighted sizing
 
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${signal.market.symbol} (${sizeSol} SOL)")
