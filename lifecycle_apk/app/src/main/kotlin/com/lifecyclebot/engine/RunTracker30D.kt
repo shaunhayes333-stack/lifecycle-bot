@@ -184,8 +184,8 @@ object RunTracker30D {
      */
     fun classifyTrade(pnlPct: Double): String {
         return when {
-            pnlPct >= 5.0 -> "WIN"
-            pnlPct <= -5.0 -> "LOSS"
+            pnlPct >= 1.0 -> "WIN"  // V5.9.185: was 5% — unified with fee-adjusted floor
+            pnlPct <= -1.0 -> "LOSS"  // V5.9.185: was -5%
             else -> "SCRATCH"
         }
     }

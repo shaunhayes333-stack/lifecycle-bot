@@ -733,13 +733,13 @@ class Executor(
             
             // ═══════════════════════════════════════════════════════════════
             // V4.0: Record trade to FluidLearningAI with TIERED WEIGHTS
-            // - LIVE trades: 0.5 weight (real money, highest value learning)
-            // - PAPER trades: 0.5 weight (real decisions, simulated consequences)
+            // - LIVE trades: 3.0 weight (real money = 3x learning signal) [V5.9.183]
+            // - PAPER trades: 1.0 weight (1 close = 1 session trade) [V5.9.183]
             // Also record to BehaviorAI for pattern analysis
             // ═══════════════════════════════════════════════════════════════
             try {
                 val pnl = trade.pnlPct
-                val isWin = pnl >0.5
+                val isWin = pnl >= 1.0  // V5.9.185: unified win threshold — must beat combined fees (0.5% buy + 0.5% sell)
                 val isPaper = cfg().paperMode
                 
                 // Record to FluidLearningAI with appropriate weight
@@ -5023,7 +5023,7 @@ class Executor(
         
         try {
             val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
-            val isWin = pnlP > 2.0
+            val isWin = pnlP >= 1.0  // V5.9.185: unified 1% floor
             val modeStr = ts.position.tradingMode
             
             val extMode = try {
@@ -5079,7 +5079,7 @@ class Executor(
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
-        ts.lastExitWasWin   = pnlP > 2.0
+        ts.lastExitWasWin   = pnlP >= 1.0  // V5.9.185
         
         try {
             PositionPersistence.savePosition(ts)
@@ -5093,7 +5093,7 @@ class Executor(
                 exitPrice = price,
                 exitReason = reason,
                 livePnlSol = pnl,
-                isWin = pnlP > 2.0,
+                isWin = pnlP >= 1.0  // V5.9.185: unified 1% floor,
             )
         }
         
@@ -5781,7 +5781,7 @@ class Executor(
                 exitPrice = exitPrice,
                 exitReason = reason,
                 livePnlSol = pnl,
-                isWin = pnlP > 2.0,
+                isWin = pnlP >= 1.0  // V5.9.185: unified 1% floor,
             )
         }
         
@@ -5936,7 +5936,7 @@ class Executor(
         
         try {
             val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
-            val isWin = pnlP > 2.0
+            val isWin = pnlP >= 1.0  // V5.9.185: unified 1% floor
             val modeStr = ts.position.tradingMode
             
             val extMode = try {

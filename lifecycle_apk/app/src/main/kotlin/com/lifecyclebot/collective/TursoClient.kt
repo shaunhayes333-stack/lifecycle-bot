@@ -708,7 +708,7 @@ class TursoClient(
             
             val currentAvgHold = row["avg_hold_mins"] as? Double ?: 0.0
             val totalTrades = totalLong + totalShort
-            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades
+            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades.coerceAtLeast(1)  // V5.9.185: guard against zero on first record
             
             val updateSql = """
                 UPDATE perps_market_stats SET
@@ -984,7 +984,7 @@ class TursoClient(
             
             val currentAvgHold = row["avg_hold_mins"] as? Double ?: 0.0
             val totalTrades = totalSpot + totalLev
-            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades
+            val newAvgHold = ((currentAvgHold * (totalTrades - 1)) + holdMins) / totalTrades.coerceAtLeast(1)  // V5.9.185: guard against zero
             
             val updateSql = """
                 UPDATE markets_asset_performance SET

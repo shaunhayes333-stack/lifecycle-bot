@@ -192,7 +192,7 @@ object PatternClassifier {
         if (mint.isBlank()) return
         val x = pending.remove(mint) ?: return
 
-        val isWin = pnlPct >= 0.5
+        val isWin = pnlPct >= 1.0  // V5.9.185: unified 1%
         val isLoss = pnlPct <= -2.0
         if (!isWin && !isLoss) return  // scratch — ignore
 

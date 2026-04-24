@@ -320,7 +320,7 @@ class BotBrain(
             
             totalTradesAnalysed = trades.size
 
-            val wr = trades.count { it.isWin == true }.toDouble() / trades.size
+            val wr = if (trades.isEmpty()) 0.5 else trades.count { it.isWin == true }.toDouble() / trades.size  // V5.9.185: guard
 
             // Restore entry threshold delta from overall win rate
             // WIDE learning scope - don't allow strictness until LOTS of data
@@ -529,7 +529,7 @@ class BotBrain(
 
         // CHANGE 8: Press position sizing on hot streaks
         // When the edge is working, deploy more capital (within SmartSizer caps)
-        val overallWr = trades.count { it.isWin == true }.toDouble() / trades.size * 100
+        val overallWr = if (trades.isEmpty()) 50.0 else trades.count { it.isWin == true }.toDouble() / trades.size * 100  // V5.9.185
         val last10Win = trades.takeLast(10).count { it.isWin == true }
         when {
             overallWr >= 80 && trades.size >= 20 -> {
