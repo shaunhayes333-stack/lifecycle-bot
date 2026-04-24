@@ -629,8 +629,8 @@ object FluidLearningAI {
     // - 4000 shadow trades = full contribution
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val LIVE_LEARNING_WEIGHT = 0.5      // 50% weight - real money matters most
-    private const val PAPER_LEARNING_WEIGHT = 0.3     // V5.9.181: 30% weight — 3-4 closes per session trade, ~3x faster learning
+    private const val LIVE_LEARNING_WEIGHT = 3.0      // V5.9.183: 1 live close = 3 session trades (was 1.0)
+    private const val PAPER_LEARNING_WEIGHT = 1.0     // V5.9.183: 1 paper close = 1 session trade (was 0.3/0.1)
     private const val SHADOW_LEARNING_WEIGHT = 0.025  // 2.5% weight - simulations help slowly
     
     // Accumulators for fractional trade progress
