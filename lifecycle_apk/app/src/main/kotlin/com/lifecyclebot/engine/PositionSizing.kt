@@ -53,7 +53,7 @@ object PositionSizing {
             val kellyFraction = ((b * p) - q) / b
             
             // Half-Kelly for safety (industry standard)
-            val halfKelly = (kellyFraction / 2.0).coerceIn(0.01, 0.25)
+            val halfKelly = (kellyFraction / 2.0).coerceIn(0.01, 0.15)  // V5.9.208: cap 25% → 15% max single position
             
             // Confidence adjustment (higher confidence = closer to full Kelly)
             val confAdjust = 0.5 + (confidence / 200.0)  // 0.5-1.0 range
