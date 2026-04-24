@@ -550,7 +550,7 @@ object V3EngineManager {
                             discoverySource = resolvedSource,
                             liquidityBucket = liquidityBucket,
                             emaTrend = emaTrend,
-                            isWin = pnlPct > 5.0,
+                            isWin = pnlPct >= 1.0,  // V5.9.208: was > 5.0 — far too high, collective never learned wins
                             pnlPct = pnlPct,
                             holdMins = holdTimeMinutes.toDouble()
                         )
