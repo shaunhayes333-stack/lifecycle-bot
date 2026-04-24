@@ -174,16 +174,14 @@ object SymbolicExitReasoner {
         // 9. Trade Lessons (weight: 0.04) — NEW V5.9.212
         // Historical lessons in this strategy + regime = memory-weighted exit pressure.
         val lessonWinRate = try {
-            TradeLessonRecorder.getWinRateForLane(
-                TradeLessonRecorder.getStrategyLessons(tradingMode)
-                    .groupBy { it.strategy }
-                    .mapValues { it.value.toMutableList() },
-                tradingMode
-            )
-        } catch (_: Exception) { 50.0 }
+            val lessons = TradeLessonRecorder.getStrategyLessons(tradingMode)
+            if (lessons.isNotEmpty()) {
+                lessons.count { it.outcomePct > 0 }.toDouble() / lessons.size
+            } else 0.5  // No lessons = neutral (0.5 = 50%)
+        } catch (_: Exception) { 0.5 }
         val lessonSignal = when {
-            lessonWinRate < 30.0 -> 0.5   // Terrible historical record in this mode
-            lessonWinRate < 40.0 -> 0.25
+            lessonWinRate < 0.30 -> 0.5   // Terrible historical record in this mode
+            lessonWinRate < 0.40 -> 0.25
             else                 -> 0.0
         }
         signals["v4_lessons"] = lessonSignal
@@ -433,9 +431,15 @@ object SymbolicExitReasoner {
 
         // V4 Meta — NEW V5.9.212
         try { snap["LeadLagMult"]      = CrossAssetLeadLagAI.getLeadLagMultiplier(symbol.ifEmpty { "SOL" }) } catch (_: Exception) { snap["LeadLagMult"] = 1.0 }
-        try { snap["LevSurvival"]      = if (LeverageSurvivalAI.getVerdict().noLeverageOverride) 0.0 else LeverageSurvivalAI.getVerdict().liquidationDistanceSafety } catch (_: Exception) { snap["LevSurvival"] = 0.7 }
+        try {
+            val levV = LeverageSurvivalAI.getVerdict()
+            snap["LevSurvival"] = if (levV.noLeverageOverride) 0.0 else levV.liquidationDistanceSafety
+        } catch (_: Exception) { snap["LevSurvival"] = 0.7 }
         try { snap["ExecConfidence"]   = ExecutionPathAI.getExecutionConfidenceMultiplier().coerceIn(0.0, 2.0) / 2.0 } catch (_: Exception) { snap["ExecConfidence"] = 0.5 }
-        try { snap["LessonWinRate"]    = (TradeLessonRecorder.getTotalLessons().toDouble().coerceIn(0.0, 100.0)) / 100.0 } catch (_: Exception) { snap["LessonWinRate"] = 0.5 }
+        try {
+            val totalL = TradeLessonRecorder.getTotalLessons()
+            snap["LessonWinRate"] = if (totalL > 0) (totalL.coerceAtMost(100).toDouble() / 100.0) else 0.5
+        } catch (_: Exception) { snap["LessonWinRate"] = 0.5 }
 
         // V3 + Engine — original
         try { snap["BehaviorTilt"]     = if (com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive()) 1.0 else 0.0 } catch (_: Exception) { snap["BehaviorTilt"] = 0.0 }

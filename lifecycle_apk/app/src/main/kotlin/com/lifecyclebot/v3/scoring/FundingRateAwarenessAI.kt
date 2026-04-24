@@ -64,4 +64,16 @@ object FundingRateAwarenessAI {
         return ScoreComponent("FundingRateAwarenessAI", v,
             "💸 fundingAPR=${"%.2f".format(apr)} (long bias=$v)")
     }
+
+    /**
+     * V5.9.212 — Composite aggression multiplier (0.0–1.0) used by SymbolicContext.
+     * Derived from the average funding bias across all tracked symbols.
+     * High positive bias → high aggression. Very negative (crowded shorts) → reduced.
+     */
+    fun getAggression(): Double {
+        if (fundingRatesApr.isEmpty()) return 0.8  // Neutral-ish when no data
+        val avgBias = fundingRatesApr.keys.map { bias(it, side = +1) }.average()
+        // bias() returns -6 to +5 range; map to 0.0–1.0
+        return ((avgBias + 6.0) / 11.0).coerceIn(0.0, 1.0)
+    }
 }
