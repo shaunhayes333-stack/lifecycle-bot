@@ -919,7 +919,8 @@ object CashGenerationAI {
             return ExitSignal.TRAILING_STOP
         }
 
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 0) {
+        // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Now exit if below TP floor too.
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < TAKE_PROFIT_PCT_PAPER) {
             return ExitSignal.TIME_EXIT
         }
 
@@ -1016,7 +1017,8 @@ object CashGenerationAI {
             return ExitSignal.TRAILING_STOP
         }
 
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 0) {
+        // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Exit if below TP floor.
+        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < TAKE_PROFIT_PCT_LIVE) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
