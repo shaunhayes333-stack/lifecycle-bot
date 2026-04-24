@@ -563,21 +563,20 @@ class BehaviorActivity : AppCompatActivity() {
             // independent of actual performance — pure theatre. Now we
             // average getLayerAccuracy() (smoothed, 0..1) across all 41
             // registered layers and report the real number.
+            // V5.9.190: Show avg expectancyPct (mean pnl% per trade) not direction accuracy.
+            // Direction accuracy of 10% is below random and confuses users.
+            // Expectancy tells you what the AI stack earns per trade on average.
             val accSamples = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades > 0 }
-                .map { it.smoothedAccuracy }
-            val avgAccuracy = if (accSamples.isEmpty()) {
-                50
-            } else {
-                (accSamples.average() * 100).toInt().coerceIn(0, 99)
-            }
+                .map { it.expectancyPct }
+            val avgExpectancy = if (accSamples.isEmpty()) 0.0 else accSamples.average()
             
-            tvAvgAccuracy.text = "$avgAccuracy%"
+            tvAvgAccuracy.text = "%+.1f%%".format(avgExpectancy)
             tvAvgAccuracy.setTextColor(when {
-                avgAccuracy >= 75 -> 0xFFFFD700.toInt()  // Gold for high performers
-                avgAccuracy >= 65 -> 0xFF00FF88.toInt()
-                avgAccuracy >= 55 -> 0xFFFFFF00.toInt()
-                else -> 0xFFFFFFFF.toInt()
+                avgExpectancy >= 5.0 -> 0xFFFFD700.toInt()  // Gold: +5%+ avg per trade
+                avgExpectancy >= 1.0 -> 0xFF00FF88.toInt()  // Green: profitable
+                avgExpectancy >= 0.0 -> 0xFFFFFF00.toInt()  // Yellow: breakeven
+                else -> 0xFFFF4444.toInt()                   // Red: losing
             })
             
             // V5.9.133 — REAL top 3 performing layers by Bayesian-smoothed
