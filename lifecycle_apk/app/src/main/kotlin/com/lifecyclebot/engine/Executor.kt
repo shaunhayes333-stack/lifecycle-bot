@@ -5380,7 +5380,8 @@ class Executor(
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
             
             try {
-                val sellValueSol = pos.costSol
+                // V5.9.196: Fee = 0.5% of actual sell proceeds (quoted outAmount), not entry cost
+                val sellValueSol = (quote.outAmount / 1_000_000_000.0).coerceAtLeast(pos.costSol * 0.01)
                 val feeAmountSol = sellValueSol * MEME_TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
