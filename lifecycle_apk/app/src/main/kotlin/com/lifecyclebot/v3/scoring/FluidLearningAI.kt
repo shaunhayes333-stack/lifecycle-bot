@@ -143,9 +143,9 @@ object FluidLearningAI {
     // "scaling to 80% theoretical rate past 10,000 trades". Bootstrap
     // extended 3× so 50 trades is <2% progress (deep bootstrap), mature
     // (80%+) lands at the 10,000-trade target the user specified.
-    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.181: restored — 3000 required 30k closes at 0.1 weight
-    private const val MATURE_PHASE_END = 3000     // V5.9.181 restored
-    private const val EXPERT_PHASE_END = 5000    // V5.9.181 restored
+    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.181: restored — 3000 required 30k closes at 0.1 weight  // target WR: 25-50%
+    private const val MATURE_PHASE_END = 3000     // V5.9.181 restored  // target WR: 50-75%
+    private const val EXPERT_PHASE_END = 5000    // V5.9.181 restored  // target WR: 75-85%+
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
@@ -555,18 +555,18 @@ object FluidLearningAI {
                 // Expert/Master phases (3000-5000+): still adapts but with higher floor.
                 val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.60 else 0.45
                 when {
-                    blendedWinRate > 60 -> baseProgress                                          // Performing well: hold position
-                    blendedWinRate < 30 -> (baseProgress - 0.30).coerceAtLeast(adaptiveFloor)   // Very poor: loosen significantly
-                    blendedWinRate < 40 -> (baseProgress - 0.20).coerceAtLeast(adaptiveFloor + 0.10)
-                    blendedWinRate < 50 -> (baseProgress - 0.10).coerceAtLeast(adaptiveFloor + 0.20)
+                    blendedWinRate >= 50 -> baseProgress                                         // V5.9.184: 50%+ WR = on target in mature: hold position
+                    blendedWinRate < 40 -> (baseProgress - 0.25).coerceAtLeast(adaptiveFloor)   // V5.9.184: <40% in mature = loosen gatesn significantly
+                    blendedWinRate < 50 -> (baseProgress - 0.15).coerceAtLeast(adaptiveFloor + 0.10)  // V5.9.184: <50% in mature = tighten slightly
+                    blendedWinRate < 60 -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.15)  // V5.9.184: <60% in mature = minor penalty
                     else -> baseProgress
                 }
             }
             else -> {
                 // Phase 1-2: Win rate speeds/slows learning progression
                 when {
-                    blendedWinRate > 60 -> (baseProgress * 1.1).coerceAtMost(MAX_LEARNING_PROGRESS)  // +10% faster, capped
-                    blendedWinRate < 40 -> baseProgress * 0.85                       // V5.6: Slower learning when struggling
+                    blendedWinRate > 85 -> (baseProgress * 1.15).coerceAtMost(MAX_LEARNING_PROGRESS) // V5.9.184: >85% WR = elite, accelerate, capped
+                    blendedWinRate < 25 -> baseProgress * 0.80                       // V5.9.184: <25% is bad; slow gates — target 25-50% struggling
                     else -> baseProgress
                 }
             }
@@ -890,7 +890,7 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private const val SCORE_BOOTSTRAP = 5      // V5.9.179: was 20 — admit D+
-    private const val SCORE_MATURE = 35
+    private const val SCORE_MATURE = 40  // V5.9.184: raised to target 50%+ WR in mature phase
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
 

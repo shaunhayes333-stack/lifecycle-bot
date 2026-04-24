@@ -224,7 +224,7 @@ object FinalDecisionGate {
     private const val CONF_FLOOR_BOOTSTRAP = 3.0
     private const val CONF_FLOOR_MATURE = 60.0
 
-    var paperConfidenceBase = 3.0
+    var paperConfidenceBase = 8.0  // V5.9.184: was 3.0 — raises bootstrap WR floor toward 25-50% target
     var liveConfidenceBase = 0.0
 
     private var consecutiveBlockCount = 0
@@ -788,7 +788,7 @@ object FinalDecisionGate {
             rawConfidence
         }
 
-        val BOOTSTRAP_MIN_CONFIDENCE = 3.0
+        val BOOTSTRAP_MIN_CONFIDENCE = 8.0  // V5.9.184: was 3.0 — floor raised to target 25-50% WR
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
             ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
 

@@ -373,7 +373,7 @@ class FinalDecisionEngine(
         // can execute during bootstrap (user: 'it won't learn if it can't
         // trade'). Mature end unchanged. At 32% learning (Freshman) the
         // floor becomes 15 + 0.32*35 = 26 instead of 33.
-        val fluidMinConfForExecute = (15 + (learningProgress * 35)).toInt().coerceIn(15, 50)
+        val fluidMinConfForExecute = (20 + (learningProgress * 30)).toInt().coerceIn(20, 50)  // V5.9.184: bootstrap floor 15→20 → targets 25-50% WR
 
         val minConfForExecute = try {
             val configMinConf = com.lifecyclebot.engine.V3ConfidenceConfig.getMinConfidenceForExecute(35)
@@ -386,7 +386,7 @@ class FinalDecisionEngine(
         // C-grade confidence floor for EXECUTE_SMALL: 10% at bootstrap → 40% at mature
         // V5.9.152: C-grade smallest-size probe should fire freely in
         // bootstrap. At 32% learning: 10 + 0.32*30 = 20 instead of 26.
-        val cGradeMinConf = (10 + (learningProgress * 30)).toInt().coerceIn(10, 40)
+        val cGradeMinConf = (15 + (learningProgress * 25)).toInt().coerceIn(15, 40)  // V5.9.184: C-grade floor 10→15
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.5: DIRECTIONAL GATE — block only when BOTH signals are actively

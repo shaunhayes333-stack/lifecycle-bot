@@ -1518,7 +1518,7 @@ class Executor(
                     ErrorLogger.info("Executor", "💸 LIVE PROFIT-LOCK FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
-                ErrorLogger.warn("Executor", "💸 PROFIT-LOCK FEE failed: ${feeEx.message}")
+                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PROFIT-LOCK fee NOT sent, will retry next trade: ${feeEx.message}")
             }
 
             val solPrice = WalletManager.lastKnownSolPrice
@@ -1667,7 +1667,7 @@ class Executor(
                         ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE: ${feeAmountSol} SOL split to both wallets")
                     }
                 } catch (feeEx: Exception) {
-                    ErrorLogger.warn("Executor", "💸 PARTIAL-SELL FEE failed: ${feeEx.message}")
+                    ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL fee NOT sent, will retry next trade: ${feeEx.message}")
                 }
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
@@ -3809,7 +3809,7 @@ class Executor(
                     ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
-                ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
+                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
             }
             
             tradeId.executed(price, sol, isPaper = false, signature = sig)
@@ -4169,7 +4169,7 @@ class Executor(
                             ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE (v2): ${feeAmountSol} SOL split to both wallets")
                         }
                     } catch (feeEx: Exception) {
-                        ErrorLogger.warn("Executor", "💸 PARTIAL-SELL FEE (v2) failed: ${feeEx.message}")
+                        ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL FEE (v2) failed: ${feeEx.message}")
                     }
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
@@ -5399,7 +5399,7 @@ class Executor(
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
-                ErrorLogger.warn("Executor", "💸 TRADING FEE failed: ${feeEx.message}")
+                ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
             }
             
             try {
