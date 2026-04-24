@@ -129,7 +129,11 @@ object V3EngineManager {
                     maxTokenAgeMinutes = if (botCfg.paperMode) 2880.0 else 360.0,
                     watchScoreMin = 5,
                     executeSmallMin = 15,
-                    executeStandardMin = botCfg.v3MinScoreToTrade.coerceIn(20, 60),
+                    executeStandardMin = run {  // V5.9.187d: fluid bootstrap threshold
+                        val base = botCfg.v3MinScoreToTrade.coerceIn(20, 60)
+                        val prog = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
+                        (15 + (base - 15) * prog).toInt().coerceIn(15, base)  // bootstrap=15, mature=base
+                    },
                     executeAggressiveMin = 45,
                     fatalRugThreshold = 90,
                     candidateTtlMinutes = 20,

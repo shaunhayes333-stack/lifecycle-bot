@@ -138,8 +138,8 @@ object V3Adapter {
             liquidityUsd = liquidityUsd,
             marketCapUsd = marketCapUsd,
             buyPressurePct = buyPressurePct,
-            volume1mUsd = 0.0,
-            volume5mUsd = 0.0,
+            volume1mUsd = meta.volScore * (liquidityUsd / 100.0).coerceAtLeast(50.0),  // V5.9.187d: real vol proxy (was 0.0 — killed hasMomentumOrVolume)
+            volume5mUsd = meta.volScore * (liquidityUsd / 100.0).coerceAtLeast(50.0) * 3.0,  // V5.9.187d: real vol proxy (was 0.0)
             holders = holders,
             topHolderPct = topHolderPct,
             bundledPct = bundledPct,
