@@ -5490,7 +5490,25 @@ class Executor(
             }
             
             val price   = getActualPrice(ts)
-            val solBack = quote.outAmount / 1_000_000_000.0
+            // V5.9.196: Use actual on-chain SOL balance delta for PnL, not the quoted estimate.
+            // Jupiter quote.outAmount is estimated output before MEV/slippage. We read the
+            // live SOL balance (after awaitConfirmation confirmed the tx) and diff against the
+            // pre-sell walletSol to get the actual SOL received into the connected wallet.
+            val solBack: Double = try {
+                val actualBalance = wallet.getSolBalance()
+                val delta = actualBalance - walletSol
+                if (delta > 0.001) {
+                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=${(quote.outAmount / 1_000_000_000.0).fmt(6)} SOL", tradeId.mint)
+                    pos.costSol + delta  // costSol + delta = total back (delta = net SOL gain/loss vs cost)
+                } else {
+                    // RPC lag or fee deduction made delta look tiny — fall back to quote
+                    onLog("📊 SELL PnL (quoted fallback): delta=${delta.fmt(6)} | outAmount=${quote.outAmount}", tradeId.mint)
+                    quote.outAmount / 1_000_000_000.0
+                }
+            } catch (balEx: Exception) {
+                onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}), using quote", tradeId.mint)
+                quote.outAmount / 1_000_000_000.0
+            }
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnl, pos.costSol)
