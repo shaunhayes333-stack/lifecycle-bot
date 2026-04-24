@@ -5881,30 +5881,22 @@ class Executor(
         } catch (_: Exception) {}
         
         try {
-            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
-            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
-            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
+            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)  // V5.9.195: was 3x (inflated stats)
         } catch (_: Exception) {}
         
         try {
-            TimeOptimizationAI.recordOutcome(pnlP)
-            TimeOptimizationAI.recordOutcome(pnlP)
-            TimeOptimizationAI.recordOutcome(pnlP)
+            TimeOptimizationAI.recordOutcome(pnlP)  // V5.9.195: was 3x (inflated stats)
         } catch (_: Exception) {}
         
         try {
-            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
-            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
-            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)
+            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)  // V5.9.195: was 3x (inflated stats)
             LiquidityDepthAI.clearEntryLiquidity(ts.mint)
         } catch (_: Exception) {}
         
         try {
             val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
             if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
-                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
-                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
-                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)
+                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)  // V5.9.195: was 3x
             }
         } catch (_: Exception) {}
         
@@ -5916,7 +5908,7 @@ class Executor(
             val latestBuyPctLive = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
             val approxEntryMcapLive = ts.position.entryLiquidityUsd * 2
             
-            repeat(3) {
+            repeat(1) {  // V5.9.195: was repeat(3) — inflated win memory stats
                 TokenWinMemory.recordTradeOutcome(
                     mint = tradeId.mint,
                     symbol = ts.symbol,
@@ -5945,7 +5937,7 @@ class Executor(
                 UnifiedModeOrchestrator.ExtendedMode.STANDARD
             }
             
-            repeat(3) {
+            repeat(1) {  // V5.9.195: was repeat(3) — inflated mode stats
                 UnifiedModeOrchestrator.recordTrade(
                     mode = extMode,
                     isWin = isWin,
