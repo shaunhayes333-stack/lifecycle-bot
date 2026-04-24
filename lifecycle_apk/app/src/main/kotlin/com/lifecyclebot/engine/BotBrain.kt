@@ -1295,6 +1295,7 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
      * Used by FDG for auto-adjusting thresholds.
      */
     fun getRecentWinRate(): Double {
+        // V5.9.208: recentMemory.isWin is stored from caller — all callers now use >= 1% standard
         val trades = synchronized(recentMemory) { recentMemory.toList() }
         if (trades.isEmpty()) return 50.0
         val wins = trades.count { it.isWin }
