@@ -545,6 +545,17 @@ object FinalDecisionGate {
         edgeVetoes.clear()
     }
 
+    /** V5.9.182: Reset stale in-memory block counts after DB wipe / fresh session. */
+    fun resetLearningState() {
+        consecutiveBlockCount = 0
+        adaptiveRelaxationActive = false
+        relaxationTradesUsed = 0
+        edgeVetoes.clear()
+        distributionCooldowns.clear()
+        ErrorLogger.info("FDG", "🔄 Learning state reset (fresh session)")
+    }
+
+
     fun evaluate(
         ts: TokenState,
         candidate: CandidateDecision,

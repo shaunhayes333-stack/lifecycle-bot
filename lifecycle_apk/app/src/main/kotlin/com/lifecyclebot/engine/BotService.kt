@@ -938,6 +938,7 @@ class BotService : Service() {
                 // Clear state that accumulates during live sessions and blocks paper trades
                 ReentryGuard.clearAll()
                 FinalDecisionGate.clearAllEdgeVetoes()
+                FinalDecisionGate.resetLearningState()  // V5.9.182: reset stale block counts
                 addLog("🔄 Paper mode start: reentry locks + edge vetoes cleared")
             }
 
@@ -5467,7 +5468,13 @@ if (deferredCount > 0) {
                         // meant a V3 FATAL (EXTREME_RUG_RISK_90) on SPIKE was silently bypassed by the
                         // primary ShitCoin path, as seen in prod logs. Treasury already gates globally
                         // (line 4267); ShitCoin now mirrors that structure.
-                        val shitCoinV3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        // V5.9.182: V3 returns Rejected("SHITCOIN_CANDIDATE") by design — routing only.
+                        val v3RejReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.Rejected)?.reason ?: ""
+                        val isRoutingReject = v3RejReason.contains("SHITCOIN_CANDIDATE") || v3RejReason.contains("MCAP_TOO_LOW")
+                        val shitCoinV3HardReject = !isRoutingReject && (
+                            v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
+                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }

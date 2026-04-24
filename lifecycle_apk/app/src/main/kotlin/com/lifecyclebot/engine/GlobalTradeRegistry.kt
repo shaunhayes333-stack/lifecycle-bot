@@ -110,7 +110,7 @@ object GlobalTradeRegistry {
     
     // Maximum watchlist size to prevent memory issues
     // V5.2: Increased for paper mode learning - need more exposure
-    private const val MAX_WATCHLIST_SIZE = 150
+    private const val MAX_WATCHLIST_SIZE = 300  // V5.9.182: doubled for paper bootstrap coverage
     private const val MAX_PROBATION_SIZE = 500
     
     data class WatchlistEntry(

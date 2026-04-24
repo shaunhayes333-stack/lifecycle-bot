@@ -337,10 +337,10 @@ object FluidLearningAI {
         val progress = getLearningProgress()
         
         val baseMult = when {
-            progress < 0.05 -> 0.10  // 10% of normal size (micro-position)
-            progress < 0.15 -> 0.25  // 25% of normal size
-            progress < 0.30 -> 0.50  // 50% of normal size
-            progress < 0.50 -> 0.75  // 75% of normal size
+            progress < 0.05 -> 0.50  // V5.9.182: was 10%
+            progress < 0.15 -> 0.60  // V5.9.182: was 25%
+            progress < 0.30 -> 0.75  // V5.9.182: was 50%
+            progress < 0.50 -> 0.90  // V5.9.182: was 75%
             else -> 1.0               // Full size when mature
         }
 
