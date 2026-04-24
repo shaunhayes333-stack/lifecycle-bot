@@ -2671,6 +2671,7 @@ class LifecycleStrategy(
                     }
                 }
             }
+        }  // end if (gainPct > 50.0)
         // Dynamic hold time
         val holdExtension = calcHoldExtension(ts, vol, press)
 
