@@ -6095,12 +6095,12 @@ if (deferredCount > 0) {
             
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
-                    // V5.9.198: StrategyTrust gate for meme/SOL trades
+                    // V5.9.199: StrategyTrust gate — skip execute if DISTRUSTED, don't return
                     val memeMode = ts.position.tradingMode.ifBlank { identity.phase.ifBlank { "ShitCoinAI" } }
-                    if (!com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)) {
-                        ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED")
-                        return
-                    }
+                    val trustAllowed = com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
+                    if (!trustAllowed) {
+                        ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
+                    } else {
                     // Cache V3 scores on TokenState for Treasury Mode to use
                     ts.lastV3Score = result.score
                     ts.lastV3Confidence = result.confidence.toInt()
@@ -6368,6 +6368,7 @@ if (deferredCount > 0) {
                     // V3 not ready or error - skip this token
                     ErrorLogger.debug("BotService", "[V3] ${identity.symbol} | NOT_READY")
                     return
+                    } // end trust-allowed block
                 }
             }
             

@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 8    // V5.9.192: 12→8 — too many idle positions dilute capital
+    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.9.199: restored 8→12 — learning needs trade throughput
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
