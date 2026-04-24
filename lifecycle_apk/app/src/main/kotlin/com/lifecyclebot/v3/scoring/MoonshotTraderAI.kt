@@ -939,6 +939,12 @@ object MoonshotTraderAI {
             return ExitSignal.TIMEOUT
         }
         
+        // V5.9.204: DEAD POSITION FLUSH — >90min & flat <10% → force exit
+        if (holdMinutes >= 90 && pnlPct < 10.0 && pnlPct > -50.0) {
+            ErrorLogger.warn(TAG, "💀 DEAD POS FLUSH: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+            return ExitSignal.FLAT_EXIT
+        }
+
         // Otherwise, HOLD - let it ride!
         return ExitSignal.HOLD
     }
