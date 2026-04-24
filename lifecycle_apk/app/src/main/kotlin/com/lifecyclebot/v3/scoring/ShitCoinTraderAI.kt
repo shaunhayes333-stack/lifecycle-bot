@@ -1041,13 +1041,13 @@ object ShitCoinTraderAI {
     // Bootstrap needs MORE trades for learning, not fewer
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
-    private const val SC_SCORE_BOOTSTRAP = 5          // V5.9.180: TOTAL floor obliteration — was 15
-    private const val SC_SCORE_MATURE = 40            // Higher bar when mature
+    private const val SC_SCORE_BOOTSTRAP = 30         // V5.9.194: Restore floor — 5 was obliterated, bought everything
+    private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 5           // V5.9.180: TOTAL floor obliteration — was 10
-    private const val SC_CONF_MATURE = 50             // Solid confidence when mature
-    private const val SC_CONF_BOOST_MAX = 15.0        // Boost back to +15 for bootstrap
+    private const val SC_CONF_BOOTSTRAP = 30          // V5.9.194: Need real signal quality even in bootstrap
+    private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
+    private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
