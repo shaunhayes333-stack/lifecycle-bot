@@ -349,6 +349,8 @@ object MetalsTrader {
         
         // 4. Technical analysis via PerpsAdvancedAI (FULL AI INTEGRATION)
         try {
+            // V5.9.172 — seed history from real 24h OHLC so RSI/MACD aren't stuck at 50.
+            PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
             PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
             val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
             

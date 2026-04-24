@@ -2257,22 +2257,55 @@ for legal compliance.
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
             })
-            // TP/SL — pick whichever layer owns this position
-            val tpPct = when {
+            // V5.9.172 — show the FLUID TP/SL the bot is ACTUALLY enforcing
+            // right now, not the stale entry-time static ladder. Pull the
+            // live values from FluidLearningAI so the UI matches the exit
+            // engine. Falls back to the stored static TP/SL if fluid math
+            // can't compute (very early position, no peak yet).
+            val holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
+            val vol = ts.volatility ?: 50.0
+            val fluidStop = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = 20.0,
+                    currentPnlPct = gainPct,
+                    peakPnlPct = kotlin.math.max(pos.peakGainPct, gainPct),
+                    holdTimeSeconds = holdSec,
+                    volatility = vol,
+                )
+            } catch (_: Exception) { Double.NaN }
+            val fluidTrail = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(gainPct)
+            } catch (_: Exception) { Double.NaN }
+
+            val staticTp = when {
                 pos.isTreasuryPosition && pos.treasuryTakeProfit > 0 -> pos.treasuryTakeProfit
-                pos.isBlueChipPosition && pos.blueChipTakeProfit > 0 -> pos.blueChipTakeProfit
-                pos.isShitCoinPosition && pos.shitCoinTakeProfit > 0 -> pos.shitCoinTakeProfit
+                pos.isBlueChipPosition  && pos.blueChipTakeProfit  > 0 -> pos.blueChipTakeProfit
+                pos.isShitCoinPosition  && pos.shitCoinTakeProfit  > 0 -> pos.shitCoinTakeProfit
                 else -> 0.0
             }
-            val slPct = when {
+            val staticSl = when {
                 pos.isTreasuryPosition && pos.treasuryStopLoss != 0.0 -> pos.treasuryStopLoss
-                pos.isBlueChipPosition && pos.blueChipStopLoss != 0.0 -> pos.blueChipStopLoss
-                pos.isShitCoinPosition && pos.shitCoinStopLoss != 0.0 -> pos.shitCoinStopLoss
+                pos.isBlueChipPosition  && pos.blueChipStopLoss  != 0.0 -> pos.blueChipStopLoss
+                pos.isShitCoinPosition  && pos.shitCoinStopLoss  != 0.0 -> pos.shitCoinStopLoss
                 else -> 0.0
             }
-            if (tpPct > 0) {
+
+            // Compose the display: live trail % + live fluid stop %.
+            val tpTxt: String? = when {
+                !fluidTrail.isNaN() && gainPct > 3.0 -> "trail ${fluidTrail.toInt()}%"
+                staticTp > 0                          -> "TP +${staticTp.toInt()}%"
+                else                                  -> null
+            }
+            val slTxt: String? = when {
+                !fluidStop.isNaN() && fluidStop < 0.0 -> "SL ${fluidStop.toInt()}%"
+                !fluidStop.isNaN() && fluidStop > 0.0 -> "lock +${fluidStop.toInt()}%"
+                staticSl != 0.0                       -> "SL ${staticSl.toInt()}%"
+                else                                  -> null
+            }
+            val label = listOfNotNull(tpTxt, slTxt).joinToString("  ")
+            if (label.isNotEmpty()) {
                 right.addView(TextView(this).apply {
-                    text = "TP +${tpPct.toInt()}%  SL ${slPct.toInt()}%"
+                    text = label
                     textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                     setTextColor(muted)
                     typeface = android.graphics.Typeface.MONOSPACE
