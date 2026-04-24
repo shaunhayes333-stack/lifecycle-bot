@@ -2024,7 +2024,7 @@ object CryptoAltTrader {
      * Size is clamped to [0.05, 2.0] SOL for safety.
      */
     fun llmOpenPaperBuy(symbol: String, sizeSol: Double, reason: String): LlmTradeResult {
-        if (!isPaperMode.get()) return LlmTradeResult.Rejected("live mode — chat trading disabled")
+        if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
         val market = try { PerpsMarket.valueOf(ticker) } catch (_: Exception) {
             return LlmTradeResult.Rejected("unknown symbol '$ticker'")
@@ -2069,7 +2069,7 @@ object CryptoAltTrader {
      * Close the latest-opened paper position matching a symbol.
      */
     fun llmClosePaperSell(symbol: String, reason: String): LlmTradeResult {
-        if (!isPaperMode.get()) return LlmTradeResult.Rejected("live mode — chat trading disabled")
+        if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
         val match = positions.values
             .filter { it.market.symbol.equals(ticker, ignoreCase = true) && it.closeTime == null }

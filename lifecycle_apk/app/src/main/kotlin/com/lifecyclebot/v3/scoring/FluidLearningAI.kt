@@ -645,20 +645,18 @@ object FluidLearningAI {
      * Real money, real consequences - this is the gold standard for learning.
      */
     fun recordLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        // V5.9.187: 1 live trade = 1 win/loss. The 3x WEIGHT is for PROGRESS SPEED only.
-        // Old bug: accumulator looped 3x → sessionWins += 3 per win = 3x win rate inflation.
+        // V5.9.187: WEIGHT=3 = progress speed, NOT win multiplier.
+        // Old bug: looped 3x, sessionWins += 3 per real win = 3x WR inflation.
         sessionTrades.incrementAndGet()
         if (isWin) sessionWins.incrementAndGet()
-        // Now drive 2 extra PROGRESS ticks (no win increment — not real trades)
         synchronized(tradeAccumulatorLock) {
-            liveTradeAccumulator += LIVE_LEARNING_WEIGHT - 1.0  // 2.0 extra progress
+            liveTradeAccumulator += LIVE_LEARNING_WEIGHT - 1.0
             while (liveTradeAccumulator >= 1.0) {
-                sessionTrades.incrementAndGet()  // extra progress tick, no win count
+                sessionTrades.incrementAndGet()  // progress tick only — no win count
                 liveTradeAccumulator -= 1.0
             }
         }
         lastProgressUpdate.set(0)
-        ErrorLogger.debug(TAG, "📊 LIVE trade: isWin=$isWin | sessions=${sessionTrades.get()} | wins=${sessionWins.get()}")
     }
     
     /**
@@ -667,7 +665,7 @@ object FluidLearningAI {
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
     fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
-        // V5.9.187: PAPER_WEIGHT=1.0 → exactly 1 trade per close (no loop needed)
+        // V5.9.187: PAPER_WEIGHT=1.0 exactly. 1 trade = 1 count.
         sessionTrades.incrementAndGet()
         if (isWin) sessionWins.incrementAndGet()
         lastProgressUpdate.set(0)

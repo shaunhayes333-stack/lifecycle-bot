@@ -5475,8 +5475,8 @@ if (deferredCount > 0) {
                             v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
                             || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)  // V5.9.187
-                        // V5.9.187: removed duplicate lines — were outside &&-group (always-true on BlockFatal)
-                        @Suppress("UNUSED_EXPRESSION") // previous duplicate removed
+                        // V5.9.187: removed duplicate checks that were outside &&-group (was always-true on BlockFatal)
+                        @Suppress("UNUSED_EXPRESSION")
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         // V5.9.156 — same bootstrap bypass as Treasury path.
                         val shitCoinDumpBypass = try {
