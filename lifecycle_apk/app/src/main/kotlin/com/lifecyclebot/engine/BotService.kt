@@ -4077,10 +4077,14 @@ if (deferredCount > 0) {
                 )
 
                 // V5.2: Update CashGenerationAI (Treasury) with independent price tracking
-                // This ensures Treasury layer has its OWN price reference for TP calculations
+                // V5.9.188c: ALWAYS update so Treasury positions never show stale +0.0%
                 com.lifecyclebot.v3.scoring.CashGenerationAI.updatePrice(
                     ts.mint, pair.candle.priceUsd
                 )
+                // V5.9.188c: Also cache in PriceAggregator so Treasury UI has a 3rd fallback
+                try {
+                    com.lifecyclebot.engine.PriceAggregator.cachePrice(ts.mint, pair.candle.priceUsd)
+                } catch (_: Exception) {}
 
                 // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 3.0
                 // ts.momentum was NEVER assigned anywhere, blocking all Express entries

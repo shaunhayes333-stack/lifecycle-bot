@@ -2359,11 +2359,23 @@ for legal compliance.
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         positions.forEach { pos ->
-            // V5.8: Use BotService.status.tokens for consistent live price across ALL windows
+            // V5.9.188c: 4-tier price lookup for Treasury positions
+            // Tier 1: live scanner token map (mint key)
+            // Tier 2: CashGenerationAI tracked price (fed from BotService scanner loop)
+            // Tier 3: PriceAggregator cached price (independent feed)
+            // Tier 4: entryPrice (ensures +0.0% never shows stale — log it)
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
-                    ?: com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-                    ?: pos.entryPrice
+                val fromScanner   = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                val fromTreasury  = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
+                val fromAggregator = try {
+                    com.lifecyclebot.engine.PriceAggregator.getPrice(pos.mint)
+                        .takeIf { it > 0.0 }
+                } catch (_: Exception) { null }
+                fromScanner ?: fromTreasury ?: fromAggregator ?: run {
+                    com.lifecyclebot.engine.ErrorLogger.debug("MainActivity",
+                        "[Treasury] No live price for ${pos.symbol} (${pos.mint.take(8)}), using entry")
+                    pos.entryPrice
+                }
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
             val gainCol = if (gainPct >= 0) green else red
