@@ -4081,10 +4081,8 @@ if (deferredCount > 0) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.updatePrice(
                     ts.mint, pair.candle.priceUsd
                 )
-                // V5.9.188c: Also cache in PriceAggregator so Treasury UI has a 3rd fallback
-                try {
-                    com.lifecyclebot.engine.PriceAggregator.cachePrice(ts.mint, pair.candle.priceUsd)
-                } catch (_: Exception) {}
+                // V5.9.188c: CashGenerationAI.updatePrice() is the Treasury UI's price source
+                // (PriceAggregator doesn't exist in this codebase)
 
                 // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 3.0
                 // ts.momentum was NEVER assigned anywhere, blocking all Express entries
