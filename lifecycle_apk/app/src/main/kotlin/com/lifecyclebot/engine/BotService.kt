@@ -7051,6 +7051,61 @@ if (deferredCount > 0) {
         
         // V5.2.12: Debug logging for exit check flow
         ErrorLogger.debug("BotService", "🔄 [EXIT CHECK] ${ts.symbol} | isOpen=true | entering exit management")
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.264 — RUG SAFETY NET (ALWAYS-ON)
+        //
+        // The 41 AI layers are useless if the price feed returns 0 (token
+        // rugged) and the per-trader exit-check code masks that 0 by
+        // falling back to the entry price. With pnlPct silently calculated
+        // as 0%, no SL / RUG_DETECTED ever fires — the position sits at
+        // -100% on the UI while the evaluator thinks "still flat, hold".
+        //
+        // This intercepts the rug condition BEFORE any per-layer checkExit
+        // is called and force-exits via the executor immediately.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val pos = ts.position
+            val entryAgeMs = System.currentTimeMillis() - (pos.entryTime.takeIf { it > 0 } ?: System.currentTimeMillis())
+            val rawPrice = ts.lastPrice
+            val histPrice = ts.history.lastOrNull()?.priceUsd ?: 0.0
+            val bestPrice = if (rawPrice > 0.0) rawPrice else histPrice
+
+            // Trigger when price feed has had at least 60s post-entry to update
+            // AND the best price we have is below 0.5% of entry (i.e., effectively 0).
+            // Below 0.5% of entry = 99.5%+ loss = rug.
+            val rugDetected = entryAgeMs >= 60_000L &&
+                    pos.entryPrice > 0.0 &&
+                    bestPrice < pos.entryPrice * 0.005
+
+            if (rugDetected) {
+                ErrorLogger.warn(
+                    "BotService",
+                    "🚨 RUG SAFETY NET: ${ts.symbol} mint=${ts.mint.take(8)} | " +
+                    "entry=${pos.entryPrice} lastPrice=$rawPrice histPrice=$histPrice age=${entryAgeMs / 1000}s — FORCE SELL"
+                )
+                addLog("🚨 RUG SAFETY: ${ts.symbol} price ≈ 0 — forcing exit", ts.mint)
+                try {
+                    executor.requestSell(
+                        ts = ts,
+                        reason = "RUG_SAFETY_NET",
+                        wallet = wallet,
+                        walletSol = effectiveBalance,
+                    )
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "RUG_SAFETY_NET sell error: ${e.message}", e)
+                }
+                // Also wipe layer-store position trackers immediately so the
+                // UI stops displaying the rugged position on next refresh.
+                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, bestPrice,
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
+                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, bestPrice,
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
+                return
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "RugSafetyNet check failed: ${e.message}", e)
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP

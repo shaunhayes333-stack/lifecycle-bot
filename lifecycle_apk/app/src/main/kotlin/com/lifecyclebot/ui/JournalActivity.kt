@@ -50,6 +50,7 @@ class JournalActivity : AppCompatActivity() {
     private var tvFilterLive: TextView? = null
     private var tvFilterPaper: TextView? = null
     private var tvFilterAll: TextView? = null
+    private var tabBarView: android.view.View? = null  // V5.9.264: keep the filter bar across refreshes
 
     companion object {
         private const val WIN_THRESHOLD_PCT = 0.5
@@ -89,11 +90,14 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun setupModeFilterTabs() {
-        // Dynamically inject filter tabs below the stat bar
-        val root = llJournalTrades.parent as? android.view.ViewGroup ?: return
+        // V5.9.264 BUILD-FIX: previous version added the tab bar as a sibling
+        // of llJournalTrades, but llJournalTrades' parent is a ScrollView
+        // which throws "ScrollView can host only one direct child" on addView.
+        // Now we insert the tab bar as the first child of llJournalTrades so
+        // it lives inside the scroll content.
         val tabBar = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
-            setPadding(dp(16), dp(8), dp(16), dp(4))
+            setPadding(0, dp(8), 0, dp(8))
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -128,10 +132,21 @@ class JournalActivity : AppCompatActivity() {
         tabBar.addView(tvFilterLive)
         tabBar.addView(tvFilterPaper)
 
-        // Insert tab bar before llJournalTrades
-        val idx = root.indexOfChild(llJournalTrades)
-        root.addView(tabBar, if (idx > 0) idx else 0)
+        // Inject as first child of llJournalTrades (which IS the ScrollView's
+        // single child). refreshTrades() calls removeAllViews() on
+        // llJournalTrades, so re-inject after each refresh as well.
+        tabBarView = tabBar
+        try { llJournalTrades.addView(tabBar, 0) } catch (_: Exception) {}
         updateTabColors()
+    }
+    
+    /** V5.9.264: re-attach the filter bar after llJournalTrades.removeAllViews(). */
+    private fun reattachTabBar() {
+        val tb = tabBarView ?: return
+        try {
+            (tb.parent as? android.view.ViewGroup)?.removeView(tb)
+            llJournalTrades.addView(tb, 0)
+        } catch (_: Exception) {}
     }
 
     private fun updateTabColors() {
@@ -289,6 +304,7 @@ class JournalActivity : AppCompatActivity() {
         }
 
         llJournalTrades.removeAllViews()
+        reattachTabBar()  // V5.9.264: keep the filter tabs visible across refreshes
 
         if (sellEntries.isEmpty()) {
             showEmptyTradeList()
@@ -540,6 +556,7 @@ class JournalActivity : AppCompatActivity() {
 
     private fun showEmptyTradeList() {
         llJournalTrades.removeAllViews()
+        reattachTabBar()  // V5.9.264: filter tabs stay visible
         llJournalTrades.addView(TextView(this).apply {
             text = "No trades yet"
             textSize = 14f
