@@ -150,6 +150,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvManipDailyPnl: TextView
     private lateinit var tvManipCaught: TextView
 
+    // V5.9.222: Cyclic $500→$1M panel
+    private var cardCyclicPanel: LinearLayout? = null
+
     // V5.2: Moonshot positions panel
     private lateinit var cardMoonshotPositions: android.view.View
     private lateinit var llMoonshotPositions: LinearLayout
@@ -1875,7 +1878,182 @@ for legal compliance.
             }
         } catch (_: Exception) {}
 
-        // ── V5.2: Moonshot positions panel ────────────────────────────
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.222: Cyclic $500→$1M Panel
+    // Shows only when CyclicTradeEngine is running. Inserted above moonshot panel.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun updateCyclicPanel() {
+        try {
+            val engine = com.lifecyclebot.engine.CyclicTradeEngine
+            val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+            val isRunning = cfg.cyclicTradeEnabled && engine.isRunning
+
+            // Find or build the container — it lives in the same scroll as moonshotPositions
+            // We dynamically create it on first call and attach above cardMoonshotPositions
+            if (!isRunning) {
+                cardCyclicPanel?.visibility = android.view.View.GONE
+                return
+            }
+
+            // Build panel on first run
+            if (cardCyclicPanel == null) {
+                val parent = cardMoonshotPositions.parent as? android.view.ViewGroup ?: return
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding((14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), (14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt())
+                    setBackgroundColor(android.graphics.Color.parseColor("#1A1A2E"))
+                    val lp = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins((12 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), (4 * resources.displayMetrics.density).toInt()) }
+                    layoutParams = lp
+                }
+                // Insert BEFORE cardMoonshotPositions
+                val idx = parent.indexOfChild(cardMoonshotPositions)
+                parent.addView(card, if (idx >= 0) idx else parent.childCount)
+                cardCyclicPanel = card
+            }
+
+            val card = cardCyclicPanel ?: return
+            card.visibility = android.view.View.VISIBLE
+            card.removeAllViews()
+
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+            val ringUsd   = engine.ringBalanceUsd
+            val cycles    = engine.cycleCount
+            val wins      = engine.winCount
+            val losses    = engine.lossCount
+            val totalPnlSol = engine.totalPnlSol
+            val isInPos   = engine.isInPosition
+            val symbol    = engine.currentSymbol
+            val entryTime = engine.entryTimeMs
+            val isLive    = engine.isLiveMode
+            val status    = engine.statusMessage
+
+            val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
+            val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
+            val modeColor = if (isLive) android.graphics.Color.parseColor("#FF4444") else amber
+            val modeLabel = if (isLive) "🔴 LIVE" else "📄 PAPER"
+
+            // ── Row 1: Header ─────────────────────────────────────────────────
+            card.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 0, (6 * resources.displayMetrics.density).toInt()) }
+
+                addView(TextView(this@MainActivity).apply {
+                    text = "🔄 Cyclic $500→$1M"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 13f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = modeLabel
+                    setTextColor(modeColor)
+                    textSize = 11f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                })
+            })
+
+            // ── Row 2: Ring balance + growth ─────────────────────────────────
+            card.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 0, (4 * resources.displayMetrics.density).toInt()) }
+
+                addView(TextView(this@MainActivity).apply {
+                    text = "Ring: \$${"%,.0f".format(ringUsd)}"
+                    setTextColor(if (ringUsd >= 500.0) green else red)
+                    textSize = 14f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                val growthColor = if (growthPct >= 0) green else red
+                addView(TextView(this@MainActivity).apply {
+                    text = "${if (growthPct >= 0) "+" else ""}${"%,.1f".format(growthPct)}% growth"
+                    setTextColor(growthColor)
+                    textSize = 12f
+                })
+            })
+
+            // ── Row 3: Cycles | WR | Total PnL ───────────────────────────────
+            card.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 0, (4 * resources.displayMetrics.density).toInt()) }
+
+                fun stat(label: String, value: String, color: Int) = TextView(this@MainActivity).apply {
+                    text = "$label $value"
+                    setTextColor(color)
+                    textSize = 11f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                addView(stat("Cycles:", "$cycles", white))
+                addView(stat("W/L:", "$wins/$losses", if (wins >= losses) green else red))
+                addView(stat("WR:", "$winRate%", if (winRate >= 50) green else if (winRate >= 35) amber else red))
+                addView(stat("PnL:", "${if (totalPnlSol >= 0) "+" else ""}${"%,.4f".format(totalPnlSol)} SOL",
+                    if (totalPnlSol >= 0) green else red))
+            })
+
+            // ── Row 4: Current position (if in one) ───────────────────────────
+            if (isInPos && symbol.isNotBlank()) {
+                val holdSec = (System.currentTimeMillis() - entryTime) / 1000
+                val holdMin = holdSec / 60
+                val holdStr = if (holdMin > 0) "${holdMin}m ${holdSec % 60}s" else "${holdSec}s"
+
+                card.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setBackgroundColor(android.graphics.Color.parseColor("#0D2040"))
+                    setPadding((8 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt())
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, (2 * resources.displayMetrics.density).toInt(), 0, 0) }
+
+                    addView(TextView(this@MainActivity).apply {
+                        text = "⚡ $symbol"
+                        setTextColor(android.graphics.Color.parseColor("#00CFFF"))
+                        textSize = 12f
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = "⏱ $holdStr"
+                        setTextColor(amber)
+                        textSize = 11f
+                    })
+                })
+
+                // Status line
+                card.addView(TextView(this@MainActivity).apply {
+                    text = status
+                    setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                    textSize = 10f
+                    setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
+                })
+            } else {
+                // Scanning
+                card.addView(TextView(this@MainActivity).apply {
+                    text = status
+                    setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                    textSize = 10f
+                    setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
+                })
+            }
+
+        } catch (_: Exception) {}
+    }
+
+        // ── V5.9.222: Cyclic panel — above moonshot ──────────────────────
+        updateCyclicPanel()
+
+    // ── V5.2: Moonshot positions panel ────────────────────────────
         try {
             val moonshotPositions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
             val showMoonshot = moonshotPositions.isNotEmpty()
