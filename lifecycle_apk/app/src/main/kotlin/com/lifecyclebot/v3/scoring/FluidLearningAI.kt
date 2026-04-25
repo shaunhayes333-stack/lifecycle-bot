@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.218: was 5 — restore momentum gate (5% = almost no buyers)
-    private const val MIN_SCORE_BOOTSTRAP = 50           // V5.9.218: was 5 — ≥50 requires real buy pressure+liq (base=40, 10+ points needed)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 3000.0   // V5.9.218: was 1000 — $1K pools = instant rugs
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.241: keep 25% — weeds out dead tokens
+    private const val MIN_SCORE_BOOTSTRAP = 30           // V5.9.241: was 50 (too high) — 30 is real signal, not noise
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 1500.0   // V5.9.241: was 3000 (killed most pump.fun tokens) — $1.5K is safe floor
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.

@@ -453,9 +453,9 @@ object ShitCoinTraderAI {
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)
         
-        if (pnlSol > 0) {
+        if (pnlPct >= 1.0) {
             dailyWins.incrementAndGet()
-            addToBalance(pnlSol * COMPOUNDING_RATIO, pos.isPaper) // Compound portion
+            addToBalance(pnlSol.coerceAtLeast(0.0) * COMPOUNDING_RATIO, pos.isPaper) // Compound portion
             
             // Track successful dev if we know them
             pos.devWallet?.let { dev ->
@@ -805,19 +805,24 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
-        // V5.9.222: HARD GATE — reject genuinely dying tokens before threshold check
-        // Pattern: actively falling price + minority buyers = likely rug/fade
-        // Tightened from (<=0 && <60) → (<-5 && <50): flat momentum is normal
-        // for tokens discovered mid-cycle; don't reject every token that isn't
-        // actively pumping. Require both: clear negative momentum AND sub-50% buys.
-        if (momentum < -5.0 && buyPressurePct < 50.0) {
+        // V5.9.242: HARD GATE — 2-tier reject to fix 6% WR regression from V5.9.222
+        // V5.9.222 relaxed too far (< -5 && < 50) letting in flat/stale tokens → 6% WR
+        // Two conditions: (1) flat or barely-positive momentum with weak buys = stale token
+        //                 (2) clearly negative momentum regardless of buy pressure = fading
+        val hardGateFlatStale   = momentum <= 1.0 && buyPressurePct < 58.0   // flat/stale
+        val hardGateClearlyFade = momentum < -3.0                              // clearly fading
+        if (hardGateFlatStale || hardGateClearlyFade) {
+            val gateReason = if (hardGateClearlyFade)
+                "HARD_GATE_FADE: mom=${"%+.1f".format(momentum)}%"
+            else
+                "HARD_GATE_STALE: mom=${"%+.1f".format(momentum)}% buyP=${buyPressurePct.toInt()}% < 58%"
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = shitConfidence,
-                reason = "HARD_GATE: flat/dead momentum (${"%.1f".format(momentum)}%) with weak buy pressure (${"%.0f".format(buyPressurePct)}%)",
+                reason = gateReason,
                 mode = mode,
                 isPaperMode = isPaperMode,
                 launchPlatform = launchPlatform,
@@ -1137,11 +1142,20 @@ object ShitCoinTraderAI {
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
             return ExitSignal.TIME_EXIT
         }
-        // V5.9.192: DEAD TOKEN EXIT — 20→12 mins. Meme tokens pump in first 10 mins or not at all.
-        // 20 mins was far too long — tokens sit at -2.9% for 20+ mins accumulating loss.
-        // V5.9.218: ANY red after 12 min = dead meme, exit immediately
-        if (holdMinutes >= 12 && pnlPct < 0.0) {
-            ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (no pump)")
+        // V5.9.242: DEAD TOKEN EXIT — 3-tier system
+        //   Tier 0: -2% or below at 8min → early bad signal, cut fast
+        //   Tier 1: -4% or below at 15min → stalled failure
+        //   Tier 2: -8% or below at 10min → probable rug/fade, exit now
+        val deadExitTier0 = holdMinutes >= 8  && pnlPct < -2.0
+        val deadExitTier1 = holdMinutes >= 15 && pnlPct < -4.0
+        val deadExitTier2 = holdMinutes >= 10 && pnlPct < -8.0
+        if (deadExitTier0 || deadExitTier1 || deadExitTier2) {
+            val tier = when {
+                deadExitTier2 -> "T2(-8%@10m)"
+                deadExitTier1 -> "T1(-4%@15m)"
+                else          -> "T0(-2%@8m)"
+            }
+            ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT[$tier]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }
         

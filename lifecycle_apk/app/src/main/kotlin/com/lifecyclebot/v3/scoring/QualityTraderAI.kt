@@ -472,9 +472,11 @@ object QualityTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // V5.9.218: EARLY DEAD EXIT — quality tokens should move within 20 min
-        // If down >2% after 20 min, the thesis is wrong — cut fast
-        if (holdMinutes >= 20 && pnlPct < -2.0) {
+        // V5.9.241: EARLY DEAD EXIT — quality tokens should move within 30 min
+        // -2% at 20min was too tight; quality/bluechip tokens need more time
+        // to establish direction. Relax to -5% at 30 min — if it's still that
+        // deep after 30min the thesis is genuinely wrong.
+        if (holdMinutes >= 30 && pnlPct < -5.0) {
             ErrorLogger.info(TAG, "⏰ QUALITY DEAD: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (thesis failed)")
             return ExitSignal.TIME_EXIT
         }
