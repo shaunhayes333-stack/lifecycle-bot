@@ -89,6 +89,36 @@ object TokenizedAssetRegistry {
         "EUR"    to "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",  // EURC
         "EURUSD" to "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",  // alias
         "EURC"   to "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",  // alias
+
+        // ── Additional xStocks — verified on Solscan Apr 2026 ────────────────
+        // Semiconductors / Hardware
+        "TSM"   to "XsafvsGtzFqqHgTnA3aPC83EAMkacU5mcGtcSayhpVV",  // TSMx (TSMC)
+        "ASML"  to "XshuHQ6o6SVpUNawvnnTMxsZ4tacZsNgVCLorv7TkFq",  // ASMLx
+
+        // Consumer Staples
+        "KO"    to "XsaBXg8dU5cPM6ehmVctMkVqoiRG2ZjMo1cyBJ3AykQ",  // KOx (Coca-Cola)
+        "PEP"   to "Xsv99frTRUeornyvCfvhnDesQDWuvns1M852Pez91vF",  // PEPx (PepsiCo)
+
+        // Healthcare
+        "UNH"   to "XszvaiXGPwvk2nwb3o9C1CX4K6zH8sez11E6uyup6fe",  // UNHx (UnitedHealth)
+
+        // Industrials
+        "HON"   to "XsRbLZthfABAPAfumWNEJhPyiKDW6TvDVeAeW7oKqA2",  // HONx (Honeywell)
+        "IBM"   to "XspwhyYPdWVM8XBHZnpS9hgyag9MKjLRyE3tVfmCbSr",  // IBMx
+
+        // ═══════════════════════════════════════════════════════════════════
+        // METALS — verified on Solscan Apr 2026
+        // ═══════════════════════════════════════════════════════════════════
+        "XAG"   to "XsxAd6okt8y1RRK6gNg7iJaqiWNiq5Md5EDf3ZrF2dm",  // SLVx (iShares Silver)
+        "SLV"   to "XsxAd6okt8y1RRK6gNg7iJaqiWNiq5Md5EDf3ZrF2dm",  // alias
+        "SILVER" to "XsxAd6okt8y1RRK6gNg7iJaqiWNiq5Md5EDf3ZrF2dm", // alias
+
+        "XPT"   to "Xst6eFD4YT6sz9RLMysN9SyvaZWtraSdVJQGu5ZkAme",  // PPLTx (abrdn Platinum)
+        "PPLT"  to "Xst6eFD4YT6sz9RLMysN9SyvaZWtraSdVJQGu5ZkAme",  // alias
+        "PLATINUM" to "Xst6eFD4YT6sz9RLMysN9SyvaZWtraSdVJQGu5ZkAme", // alias
+
+        "PALL"  to "XsTTtPA5V19YwHKDv4xeVXNM6kdsQNJvg3MyWkRUckt",  // PALLx (abrdn Palladium)
+        "XPD"   to "XsTTtPA5V19YwHKDv4xeVXNM6kdsQNJvg3MyWkRUckt",  // alias
     )
 
     /** User-provided additions at runtime (community / future backfills). */
