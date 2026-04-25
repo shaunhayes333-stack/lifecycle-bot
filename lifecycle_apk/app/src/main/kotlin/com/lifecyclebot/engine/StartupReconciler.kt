@@ -100,7 +100,18 @@ class StartupReconciler(
                 if (qty <= 0.0) return@forEach
                 if (mint in trackedMints) return@forEach
                 if (mint == "So11111111111111111111111111111111111111112") return@forEach
-                val ts = status.tokens[mint] ?: return@forEach
+                // V5.9.253 FIX: was "?: return@forEach" — silently dropped tokens whose mint
+                // was never scanned into status.tokens (e.g. tokens from previous sessions, xStock
+                // tokens, or anything the scanner hadn't discovered this run). These would sit in
+                // the wallet forever, invisible to the bot.
+                // Now: if mint is unknown, create a minimal TokenState so adoption can proceed.
+                // The orphan auto-sell path below will handle truly unknown/unwanted mints.
+                val ts = status.tokens[mint]
+                    ?: run {
+                        // Not in scanner memory at all — flag it for the orphan path
+                        onLog("⚠️ UNKNOWN MINT: ${mint.take(12)}… | qty=${"%.4f".format(qty)} — not in scanner, deferring to orphan path")
+                        return@forEach  // Let scanAndSellOrphanedTokens handle it (with Markets/Alt guards)
+                    }
                 // V5.9.251: If position is pendingVerify, the 30s buy-coroutine
                 // window expired but tokens DID arrive on-chain. Promote now.
                 if (ts.position.pendingVerify && qty > 0.0) {
@@ -118,7 +129,12 @@ class StartupReconciler(
                 if (ts.position.isOpen) return@forEach
                 val adoptPrice = ts.history.lastOrNull()?.priceUsd
                     ?: ts.lastPrice.takeIf { it > 0 }
-                    ?: return@forEach
+                    ?: run {
+                        // V5.9.253: token IS in status.tokens but has no price history at all.
+                        // Still log it and let orphan path handle the sell rather than silently dropping.
+                        onLog("⚠️ ADOPT SKIP (no price): ${ts.symbol} | qty=${"%.4f".format(qty)} — falling to orphan path")
+                        return@forEach
+                    }
                 if (adoptPrice <= 0.0) return@forEach
                 synchronized(ts) {
                     ts.position = com.lifecyclebot.data.Position(
@@ -384,3 +400,4 @@ class StartupReconciler(
         } catch (_: Exception) { 0.0 }
     }
 }
+
