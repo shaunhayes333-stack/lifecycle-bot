@@ -703,7 +703,7 @@ object PerpsTraderAI {
         val marginBps = (sizeSol * 10000).toLong()
         balanceRef.addAndGet(-marginBps)
 
-        // V5.9.249: sync debit into the UNIFIED paper wallet so host screen shows correct balance
+        // V5.9.249: sync into wallet on open — paper debits unified wallet, live refreshes on-chain balance
         if (isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperBuy(market.symbol, sizeSol.coerceAtLeast(0.0))
@@ -711,6 +711,13 @@ object PerpsTraderAI {
                     delta = -sizeSol,
                     source = "Perps.open[${market.symbol}]"
                 )
+            } catch (_: Exception) {}
+        } else {
+            // Live: Perps are synthetic — capital is notionally deployed. Refresh real wallet so
+            // the host screen and other traders size off the latest on-chain balance.
+            try {
+                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (fresh > 0.0) setLiveBalance(fresh)
             } catch (_: Exception) {}
         }
 
@@ -854,7 +861,7 @@ object PerpsTraderAI {
         val marginBps = (position.sizeSol * 10000).toLong()
         balanceRef.addAndGet(marginBps + pnlBps)
 
-        // V5.9.249: return capital + P&L to unified paper wallet on close
+        // V5.9.249: return capital + P&L on close — paper to unified wallet, live refresh on-chain
         if (position.isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSol)
@@ -862,6 +869,12 @@ object PerpsTraderAI {
                     delta = position.sizeSol + pnlSol,
                     source = "Perps.close[${position.market.symbol}]"
                 )
+            } catch (_: Exception) {}
+        } else {
+            // Live: refresh real wallet balance so host screen and sizing stay accurate post-close
+            try {
+                val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (fresh > 0.0) setLiveBalance(fresh)
             } catch (_: Exception) {}
         }
 
@@ -1308,9 +1321,10 @@ object PerpsTraderAI {
     fun getDisciplineScore(): Int = disciplineScore.get()
     
     fun getBalance(isPaper: Boolean): Double {
-        // V5.9.249: paper balance now owned by unified paper wallet (BotService.status.paperWalletSol)
+        // V5.9.249: paper → unified wallet; live → real chain balance via BotService.status.walletSol
         return if (isPaper) com.lifecyclebot.engine.BotService.status.paperWalletSol
-               else liveBalanceBps.get() / 10000.0
+               else com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 }
+                    ?: (liveBalanceBps.get() / 10000.0)  // fallback until first refresh
     }
     
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
