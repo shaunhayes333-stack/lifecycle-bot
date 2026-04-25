@@ -1,5 +1,25 @@
 package com.lifecyclebot.engine
 
+/**
+ * ⚠️ V5.9.226 AUDIT — DEAD CODE
+ *
+ * ExitManager.evaluate() is NEVER called anywhere in the codebase.
+ * This file is retained for reference only. All exit logic is handled by:
+ *
+ *   1. ExitIntelligence.evaluateExit()  — stateful AI per-position tracker
+ *   2. PrecisionExitLogic.evaluate()    — V8 exit signal engine  
+ *   3. ProfitabilityLayer               — trailing stop + liquidity drain
+ *   4. LifecycleStrategy.calcExitScore  — feeds exitScore into all systems
+ *   5. TrailingStopManager              — adaptive trailing stop calculations
+ *   6. GeminiCopilot                    — LLM exit advice (gainPct >= 15, live only)
+ *
+ * The distribution-in-profit logic from this file was back-ported to
+ * ExitIntelligence in V5.9.226 (Bug #6 fix).
+ *
+ * DO NOT call ExitManager.evaluate() — it is untested and disconnected
+ * from the mode multiplier / modeConfig system.
+ */
+
 import com.lifecyclebot.data.BotConfig
 import kotlin.math.max
 

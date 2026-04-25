@@ -211,7 +211,14 @@ object ExitIntelligence {
         val holdTimeSecs = holdTimeMs / 1000L
         val isInEarlyPhase = holdTimeSecs < 60L
 
-        if (!isInEarlyPhase && state.isDistribution && state.buyPressure < 20.0 && state.pnlPercent < -5.0) {
+        // V5.9.226: Bug #6 — ExitManager had pnlPct > 0 distribution exit that was NEVER reached
+        // (ExitManager.evaluate() was dead code). Added here to secure gains on distribution.
+        if (!isInEarlyPhase && state.isDistribution && state.buyPressure < 20.0 && state.pnlPercent > 5.0) {
+            // Distribution detected while profitable — secure gains before reversal
+            action = ExitAction.FULL_EXIT
+            urgency = Urgency.HIGH
+            reasons.add("Distribution in profit — securing ${state.pnlPercent.toInt()}% gain (buy%=${state.buyPressure.toInt()}%)")
+        } else if (!isInEarlyPhase && state.isDistribution && state.buyPressure < 20.0 && state.pnlPercent < -5.0) {
             action = ExitAction.EMERGENCY_EXIT
             urgency = Urgency.CRITICAL
             reasons.add("Distribution detected (buy%=${state.buyPressure.toInt()}, pnl=${state.pnlPercent.toInt()}%)")
