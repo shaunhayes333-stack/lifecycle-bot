@@ -3992,6 +3992,10 @@ class Executor(
                         try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
                             ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
                         }
+                        // V5.9.256: Record confirmed buy in persistent wallet memory.
+                        // Survives restarts/updates so bot can resume managing position
+                        // even if the scanner hasn't re-discovered the token yet.
+                        try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
                     }
                 } else if (anyRpcError && ts.position.pendingVerify) {
                     // All polls returned 0 OR errored. If ANY error masked the
@@ -5139,6 +5143,8 @@ class Executor(
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnlP >= 1.0  // V5.9.185
+        // V5.9.256: Mark closed in persistent wallet memory
+        try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}
         
         try {
             PositionPersistence.savePosition(ts)
@@ -6045,6 +6051,8 @@ class Executor(
         ts.lastExitPrice    = exitPrice
         ts.lastExitPnlPct   = pnlP
         ts.lastExitWasWin   = pnl > 0
+        // V5.9.256: Mark closed in persistent wallet memory
+        try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, exitPrice, pnlP, "PAPER_EXIT") } catch (_: Exception) {}
         
         try {
             PositionPersistence.savePosition(ts)
