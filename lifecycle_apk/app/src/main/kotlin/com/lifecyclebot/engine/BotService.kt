@@ -5848,7 +5848,12 @@ if (deferredCount > 0) {
                     val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 65.0) {
                         (ts.lastBuyPressurePct - 60.0).coerceAtLeast(expressMinMom)
                     } else momentum
-                    val passesPreFilter = ts.lastMcap <= 300_000 && ts.lastMcap >= 2_000 &&
+                    // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
+                    // fresh pump.fun tokens arrive with lastMcap==0 before the
+                    // first mcap fetch lands; still allow if liquidity >= $1K.
+                    val expressInMcapRange = ts.lastMcap in 2_000.0..300_000.0
+                    val expressUnknownMcapOk = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 1_000.0
+                    val passesPreFilter = (expressInMcapRange || expressUnknownMcapOk) &&
                         effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP
                     
                     if (!passesPreFilter) {
@@ -5856,8 +5861,10 @@ if (deferredCount > 0) {
                         // Express never qualifies instead of silent skip.
                         val mcap = ts.lastMcap.toInt()
                         val reason = when {
-                            ts.lastMcap < 2_000 -> "mcap=\$$mcap < \$2K"
-                            ts.lastMcap > 300_000 -> "mcap=\$$mcap > \$300K"
+                            !expressInMcapRange && !expressUnknownMcapOk ->
+                                if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
+                                else if (ts.lastMcap < 2_000) "mcap=\$$mcap < \$2K"
+                                else "mcap=\$$mcap > \$300K"
                             effectiveExpressMom < expressMinMom -> "mom=${effectiveExpressMom.fmt(1)}% < ${expressMinMom.fmt(1)}% (learning=${(expressLearning*100).toInt()}%)"
                             ts.lastBuyPressurePct < expressMinBuyP -> "buyP=${ts.lastBuyPressurePct.toInt()}% < ${expressMinBuyP.toInt()}%"
                             else -> "unknown"

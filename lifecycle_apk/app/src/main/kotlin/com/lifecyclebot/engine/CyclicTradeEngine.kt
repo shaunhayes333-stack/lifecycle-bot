@@ -26,6 +26,11 @@ object CyclicTradeEngine {
     private const val DEFAULT_TP_PCT = 15.0
     private const val DEFAULT_SL_PCT = 5.0
     private const val MIN_SCORE_TO_ENTER = 55.0
+    // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
+    // ring engine actually trades while FluidLearningAI is still calibrating.
+    // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
+    // (raw signal) is used as the proxy. 30 is still a real signal, not noise.
+    private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 30.0
     private const val COOLDOWN_MS = 30_000L    // 30s between cycles
     private const val MAX_HOLD_MS = 90 * 60 * 1000L  // 90 min max hold
 
@@ -141,16 +146,24 @@ object CyclicTradeEngine {
         if (sinceLastCycle < COOLDOWN_MS) return
 
         // ── 3. Pick best token ─────────────────────────────────────────────────
+        // V5.9.240: Use a lower score floor during bootstrap because lastV3Score
+        // is rarely populated until FluidLearningAI has enough trade history.
+        // Fall back to entryScore (raw momentum signal) during that phase.
+        val isBootstrapPhase = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+        } catch (_: Exception) { false }
+        val effectiveMinScore = if (isBootstrapPhase) MIN_SCORE_TO_ENTER_BOOTSTRAP else MIN_SCORE_TO_ENTER
         val best = tokens.values
             .filter { ts ->
+                val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                 !ts.position.isOpen
                     && ts.lastPrice > 0.0
-                    && (ts.lastV3Score ?: ts.entryScore.toInt()) >= MIN_SCORE_TO_ENTER.toInt()
+                    && tokenScore >= effectiveMinScore
                     && ts.mint != currentMint   // don't immediately re-enter same token
             }
             .maxByOrNull { (it.lastV3Score ?: 0) + it.entryScore.toInt() }
             ?: run {
-                statusMessage = "Scanning… (need score ≥${MIN_SCORE_TO_ENTER.toInt()})"
+                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (isBootstrapPhase) " [BOOT]" else ""})"
                 return
             }
 

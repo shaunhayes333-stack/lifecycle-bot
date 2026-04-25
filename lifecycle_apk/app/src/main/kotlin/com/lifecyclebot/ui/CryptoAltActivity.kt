@@ -441,6 +441,10 @@ class CryptoAltActivity : AppCompatActivity() {
                 safe("TopStatusBar")      { buildTopStatusBar() }
                 safe("TreasuryTierPanel") { buildTreasuryTierPanel() }
                 safe("CyclicRingPanel")    { buildCyclicRingPanel() }
+                // V5.9.240: Meme trader tiles — were defined but never wired in
+                safe("ShitCoinTile")      { buildShitCoinTile() }
+                safe("ExpressTile")       { buildExpressTile() }
+                safe("MoonshotTile")      { buildMoonshotTile() }
                 safe("OpenPositions")     { buildOpenPositionsPanel() }
                 safe("TabContent")        { buildTabContent() }
             }

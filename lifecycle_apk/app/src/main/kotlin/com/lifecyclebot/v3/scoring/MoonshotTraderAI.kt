@@ -437,15 +437,25 @@ object MoonshotTraderAI {
         }
 
         // V5.9.235 ── HARD ENTRY GATES (prevents 100% loss rugs) ────────────────
+        // V5.9.240: During bootstrap (<40% learning) buy-pressure data is
+        // sparse/un-populated for freshly added tokens. Relax the hard gate
+        // to 45% during that phase so new memes get evaluated rather than
+        // silently rejected before FluidLearningAI builds a track record.
+        val moonshotBootstrap = try {
+            FluidLearningAI.getLearningProgress() < 0.40
+        } catch (_: Exception) { false }
+        val effectiveMinBuyPressure = if (moonshotBootstrap) 45.0 else MIN_BUY_PRESSURE_PCT
+        val effectiveMinVolume = if (moonshotBootstrap) 2 else MIN_VOLUME_SCORE
+
         // Gate 1: buy pressure — moonshots need real demand behind them
-        if (buyPressurePct < MIN_BUY_PRESSURE_PCT) {
+        if (buyPressurePct < effectiveMinBuyPressure) {
             return MoonshotScore(false, 0, 0.0,
-                "moon_hard_reject_buy_pressure_${buyPressurePct.toInt()}_<_${MIN_BUY_PRESSURE_PCT.toInt()}")
+                "moon_hard_reject_buy_pressure_${buyPressurePct.toInt()}_<_${effectiveMinBuyPressure.toInt()}${if (moonshotBootstrap) "_boot" else ""}")
         }
         // Gate 2: volume — dead tokens with no momentum are rug magnets
-        if (volumeScore < MIN_VOLUME_SCORE) {
+        if (volumeScore < effectiveMinVolume) {
             return MoonshotScore(false, 0, 0.0,
-                "moon_hard_reject_volume_${volumeScore}_<_${MIN_VOLUME_SCORE}")
+                "moon_hard_reject_volume_${volumeScore}_<_${effectiveMinVolume}${if (moonshotBootstrap) "_boot" else ""}")
         }
         // Gate 3: BehaviorAI tilt protection — don't YOLO moonshots while tilted
         val isTilted = try { com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive() } catch (_: Exception) { false }
