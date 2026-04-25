@@ -434,6 +434,7 @@ object MoonshotTraderAI {
         val minRcScore = if (isPaper) 10 else 20
         if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
+        }
 
         // V5.9.235 ── HARD ENTRY GATES (prevents 100% loss rugs) ────────────────
         // Gate 1: buy pressure — moonshots need real demand behind them
@@ -452,7 +453,6 @@ object MoonshotTraderAI {
             return MoonshotScore(false, 0, 0.0, "moon_hard_reject_tilt_protection")
         }
         // ── END HARD GATES ────────────────────────────────────────────────────────────
-        }
         
         // ─── DETECT IF COLLECTIVE WINNER ───
         val isCollective = collectiveWinners.containsKey(mint)
