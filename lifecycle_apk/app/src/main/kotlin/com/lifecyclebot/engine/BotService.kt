@@ -2574,14 +2574,15 @@ class BotService : Service() {
             rapidStopLossMonitor()
         }
 
-        // V5.9.103: PERIODIC WALLET RECONCILIATION
-        // Re-run StartupReconciler every 5 min during a live session so
-        // positions that drift mid-session (phantom-wiped buys that actually
-        // settled, silent sell failures leaving orphan tokens, tokens bought
-        // outside the bot in the same wallet) get adopted and managed. Without
-        // this, drift is invisible until the next bot restart.
+        // V5.9.251: PERIODIC WALLET RECONCILIATION
+        // Re-run StartupReconciler every 90s during a live session so
+        // positions that drift mid-session get caught fast:
+        //   - pendingVerify positions whose 30s window expired but tokens landed
+        //   - External sells (manual Phantom/Jupiter sells) — stamps recentlyClosedMs
+        //     to prevent immediate re-buy (was 5 min, too slow for meme tokens)
+        //   - Orphaned tokens from silent buy confirmations
         var lastReconcileAt = System.currentTimeMillis()
-        val reconcileIntervalMs = 5 * 60 * 1000L
+        val reconcileIntervalMs = 90 * 1000L  // V5.9.251: 90s (was 5 min — too slow)
 
         var loopCount = 0
         while (status.running) {

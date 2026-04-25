@@ -101,6 +101,20 @@ class StartupReconciler(
                 if (mint in trackedMints) return@forEach
                 if (mint == "So11111111111111111111111111111111111111112") return@forEach
                 val ts = status.tokens[mint] ?: return@forEach
+                // V5.9.251: If position is pendingVerify, the 30s buy-coroutine
+                // window expired but tokens DID arrive on-chain. Promote now.
+                if (ts.position.pendingVerify && qty > 0.0) {
+                    synchronized(ts) {
+                        ts.position = ts.position.copy(
+                            qtyToken      = qty,
+                            pendingVerify = false,
+                        )
+                    }
+                    adoptedMints += mint
+                    onLog("✅ PENDING→LIVE: ${ts.symbol} | ${"%.4f".format(qty)} tokens confirmed on-chain (was pendingVerify)")
+                    onAlert("Position Confirmed", "${ts.symbol}: buy confirmed on-chain (${"%.4f".format(qty)} tokens). Now actively managed.")
+                    return@forEach
+                }
                 if (ts.position.isOpen) return@forEach
                 val adoptPrice = ts.history.lastOrNull()?.priceUsd
                     ?: ts.lastPrice.takeIf { it > 0 }
@@ -186,6 +200,15 @@ class StartupReconciler(
                         ts.position   = com.lifecyclebot.data.Position()
                         ts.lastExitTs = System.currentTimeMillis()
                     }
+                    // V5.9.251 FIX: Stamp re-entry cooldown so the bot cannot
+                    // immediately re-buy a token that was just manually sold
+                    // externally. Without this, StartupReconciler clears the
+                    // ghost but recentlyClosedMs has no entry → 5-min cooldown
+                    // never fires → instant re-buy on next scan loop.
+                    try {
+                        BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+                        onLog("⏳ RE-ENTRY LOCK: ${ts.symbol} — 5-min cooldown started (external sell detected)")
+                    } catch (_: Exception) { /* non-fatal */ }
                     ghostCleared.add(ts.mint)
 
                 } else {
