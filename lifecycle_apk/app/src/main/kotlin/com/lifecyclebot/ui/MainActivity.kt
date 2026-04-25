@@ -3737,12 +3737,12 @@ for legal compliance.
             val eduHealthStr = try {
                 val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
                 val top = maturity.entries
-                    .filter { it.value.totalTrades >= 10 }
-                    .sortedByDescending { it.value.winRate }
+                    .filter { it.value.trades >= 10 }
+                    .sortedByDescending { it.value.smoothedAccuracy }
                     .take(4)
-                    .joinToString(" · ") { "${it.key.take(6)}(${it.value.winRate.toInt()}%)" }
+                    .joinToString(" · ") { "${it.key.take(6)}(${(it.value.smoothedAccuracy*100).toInt()}%)" }
                 val muted = maturity.entries
-                    .filter { it.value.isMuted }
+                    .filter { !it.value.isActive }
                     .take(2)
                     .joinToString(", ") { "⛔${it.key.take(6)}" }
                 val metaConf = try {
@@ -7950,18 +7950,16 @@ Quick trade or open detailed dialog?
             } catch (_: Exception) { "N/A" }
             val eduTop = try {
                 val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
-                maturity.entries.filter { it.value.totalTrades >= 5 }
-                    .sortedByDescending { it.value.winRate }.take(5)
-                    .joinToString("
-") { "  • ${it.key.padEnd(22)} WR=${it.value.winRate.toInt()}% (${it.value.totalTrades}t)${if (it.value.isMuted) " ⛔MUTED" else ""}" }
+                maturity.entries.filter { it.value.trades >= 5 }
+                    .sortedByDescending { it.value.smoothedAccuracy }.take(5)
+                    .joinToString("\n") { "  • ${it.key.padEnd(22)} WR=${(it.value.smoothedAccuracy*100).toInt()}% (${it.value.trades}t)${if (!it.value.isActive) " ⛔MUTED" else ""}" }
             } catch (_: Exception) { "  (not enough data)" }
 
             // ── MetaCognition ───────────────────────────────────────────────────
             val metaTop = try {
                 val top = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTopPerformingLayers(4)
                 val under = com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().take(3)
-                "  Top: ${top.joinToString(", ") { it.name.take(10) }}
-  Under: ${if (under.isEmpty()) "none" else under.joinToString(", ") { it.name.take(10) }}"
+                "  Top: ${top.joinToString(", ") { it.name.take(10) }}\n  Under: ${if (under.isEmpty()) "none" else under.joinToString(", ") { it.name.take(10) }}"
             } catch (_: Exception) { "  N/A" }
             val totalAnalyzed = try { com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed() } catch (_: Exception) { 0 }
 
@@ -7973,8 +7971,7 @@ Quick trade or open detailed dialog?
                 val snap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot("SOL", "")
                 if (snap.isEmpty()) "  Warming up…" else {
                     snap.entries.sortedByDescending { it.value }.take(6)
-                        .joinToString("
-") { (k, v) ->
+                        .joinToString("\n") { (k, v) ->
                             val pct = (v.coerceIn(0.0,1.0)*100).toInt()
                             val bar = "█".repeat(pct/10) + "░".repeat(10-pct/10)
                             "  ${k.padEnd(18)} $bar $pct%"
@@ -7986,9 +7983,7 @@ Quick trade or open detailed dialog?
             val sentStatus = try { com.lifecyclebot.engine.SentientPersonality.getStatusLine() } catch (_: Exception) { "N/A" }
             val reflections = try {
                 com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(3)
-                    .joinToString("
-
-") { r ->
+                    .joinToString("\n\n") { r ->
                         val ago = (System.currentTimeMillis() - r.timestamp) / 60_000
                         "  [${ago}m ago] ${r.monologue.take(120)}"
                     }

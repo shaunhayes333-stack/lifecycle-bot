@@ -730,45 +730,30 @@ object MarketsLiveExecutor {
                 put("slippageBps", configuredSlippageBps())
             }.toString()
 
+            // V5.9.235 fix: use a local OkHttpClient (no class-level 'client' in this object)
+            val http = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val mediaJson = okhttp3.MediaType.parse("application/json; charset=utf-8")
             val request = okhttp3.Request.Builder()
                 .url(flashApiUrl)
-                .post(okhttp3.RequestBody.create("application/json".toMediaType(), body))
+                .post(okhttp3.RequestBody.create(mediaJson, body))
                 .header("Content-Type", "application/json")
                 .build()
 
-            val response = client.newCall(request).execute()
+            val response = http.newCall(request).execute()
             val responseBody = response.body?.string() ?: ""
 
             if (response.isSuccessful) {
                 val json = org.json.JSONObject(responseBody)
                 val txBase64 = json.optString("transaction", "")
                 if (txBase64.isNotEmpty()) {
-                    // Sign and send the transaction
-                    val txBytes = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
-                    val signedTx = wallet.signTransaction(txBytes)
-                    if (signedTx != null) {
-                        // Submit via Solana RPC
-                        val rpcUrl = "https://mainnet.helius-rpc.com/?api-key=demo"
-                        val rpcBody = org.json.JSONObject().apply {
-                            put("jsonrpc", "2.0")
-                            put("id", 1)
-                            put("method", "sendTransaction")
-                            put("params", org.json.JSONArray().apply {
-                                put(android.util.Base64.encodeToString(signedTx, android.util.Base64.NO_WRAP))
-                                put(org.json.JSONObject().apply { put("encoding", "base64") })
-                            })
-                        }.toString()
-                        val rpcRequest = okhttp3.Request.Builder()
-                            .url(rpcUrl)
-                            .post(okhttp3.RequestBody.create("application/json".toMediaType(), rpcBody))
-                            .build()
-                        val rpcResp = client.newCall(rpcRequest).execute()
-                        val rpcJson = org.json.JSONObject(rpcResp.body?.string() ?: "{}")
-                        val sig = rpcJson.optString("result", null)
-                        if (!sig.isNullOrEmpty() && sig != "null") {
-                            ErrorLogger.info(TAG, "✅ Flash.trade $sideStr $symbol ${leverage.toInt()}x: $sig")
-                            return@withContext sig
-                        }
+                    // Sign and send via SolanaWallet.signAndSend (handles signing + RPC submission)
+                    val sig = try { wallet.signAndSend(txBase64) } catch (_: Exception) { null }
+                    if (!sig.isNullOrEmpty()) {
+                        ErrorLogger.info(TAG, "✅ Flash.trade $sideStr $symbol ${leverage.toInt()}x: $sig")
+                        return@withContext sig
                     }
                 }
                 ErrorLogger.warn(TAG, "⚠️ Flash.trade: got 200 but no tx — check API format")
