@@ -1,7 +1,13 @@
 package com.lifecyclebot.engine
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.SharedPreferences
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Process
 import com.lifecyclebot.data.Trade
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,55 +23,105 @@ import org.json.JSONObject
  *
  * Journal data now persists indefinitely until manually cleared by user.
  *
+ * V5.9.250: Migrated from SharedPreferences JSON blob → SQLite.
+ * SharedPreferences was crashing the Journal screen ("cache issue") because
+ * the entire trade list was serialised into a single JSON string and written
+ * via Binder IPC.  At ~991+ trades (~200 bytes each) this regularly exceeded
+ * Android's 1 MB Binder transaction limit, producing a
+ * TransactionTooLargeException / SharedPreferences corruption that showed
+ * as "cache issue" on Journal open.  SQLite stores each trade as an
+ * individual row and is safe for arbitrarily large trade histories.
+ *
  * Win/loss classification:
- * - WIN  = pnlPct >= 0.5
- * - LOSS = pnlPct <= -2.0
- * - Anything between those is SCRATCH / NEUTRAL and is NOT included in win-rate denominator
+ * - WIN    = pnlPct >= 1.0  (V5.9.218 unified threshold)
+ * - LOSS   = pnlPct <= -0.5 (V5.9.204)
+ * - SCRATCH = between those thresholds
  */
 object TradeHistoryStore {
 
-    private const val PREFS_NAME = "trade_history_store"
-    private const val KEY_TRADES = "trades_json"
-    private const val KEY_LAST_CLEANUP = "last_cleanup"
-    // V5.9.115: Lifetime counters that survive journal clears.
-    // These back-feed FluidLearningAI / ML / behavior layers so clearing
-    // the visual journal never wipes learned progress.
-    private const val KEY_LIFETIME_STATS = "lifetime_stats_json"
+    // ── Legacy SharedPreferences keys (used only for one-time migration) ──
+    private const val PREFS_NAME          = "trade_history_store"
+    private const val KEY_TRADES          = "trades_json"
+    private const val KEY_LIFETIME_STATS  = "lifetime_stats_json"
 
-    private const val WIN_THRESHOLD_PCT = 1.0  // V5.9.218: unified with Executor/RunTracker (fee-adjusted floor)
-    private const val LOSS_THRESHOLD_PCT = -0.5  // V5.9.204: was -2.0; -1.5% exits now count as losses
+    private const val WIN_THRESHOLD_PCT   = 1.0   // V5.9.218
+    private const val LOSS_THRESHOLD_PCT  = -0.5  // V5.9.204
 
-    private var prefs: SharedPreferences? = null
+    // In-memory cache — loaded once at init, mutated synchronously under `lock`
+    private val lock   = Any()
     private val trades = mutableListOf<Trade>()
 
     // V5.9.115: Persistent lifetime totals. NEVER cleared by clearAllTrades().
-    // Only reset by explicit BehaviorActivity "Reset All Learning" action.
-    @Volatile private var lifetimeSells: Int = 0
-    @Volatile private var lifetimeWins: Int = 0
-    @Volatile private var lifetimeLosses: Int = 0
-    @Volatile private var lifetimeScratches: Int = 0
-    @Volatile private var lifetimeWinPnlSum: Double = 0.0
-    @Volatile private var lifetimeRealizedPnlSol: Double = 0.0
+    @Volatile private var lifetimeSells:         Int    = 0
+    @Volatile private var lifetimeWins:          Int    = 0
+    @Volatile private var lifetimeLosses:        Int    = 0
+    @Volatile private var lifetimeScratches:     Int    = 0
+    @Volatile private var lifetimeWinPnlSum:     Double = 0.0
+    @Volatile private var lifetimeRealizedPnlSol:Double = 0.0
 
-    // V5.9.43: Cached "proven edge" flag to avoid re-computing getStats()
-    // thousands of times per second on the hot path (promotion gate, hard
-    // blocks). Refreshed every STATS_CACHE_MS.
-    @Volatile private var cachedHasProvenEdge: Boolean = false
-    @Volatile private var cachedProvenWinRate: Double = 0.0
-    @Volatile private var cachedProvenTradeCount: Int = 0
-    @Volatile private var lastStatsCacheMs: Long = 0L
-    private const val STATS_CACHE_MS = 30_000L  // 30s — proven-edge status changes slowly
+    // V5.9.43: Cached proven-edge flag
+    @Volatile private var cachedHasProvenEdge:   Boolean = false
+    @Volatile private var cachedProvenWinRate:   Double  = 0.0
+    @Volatile private var cachedProvenTradeCount:Int     = 0
+    @Volatile private var lastStatsCacheMs:      Long    = 0L
+    private const val STATS_CACHE_MS = 30_000L
+
+    // SQLite
+    private var db:        SQLiteDatabase? = null
+    private var ioThread:  HandlerThread?  = null
+    private var ioHandler: Handler?        = null
+
+    // SharedPreferences (kept alive only for one-time migration)
+    private var prefs: SharedPreferences? = null
+
+    // ── SQLiteOpenHelper ─────────────────────────────────────────────
+
+    private class TradeDbHelper(ctx: Context) :
+        SQLiteOpenHelper(ctx, "trade_history.db", null, DB_VERSION) {
+
+        companion object {
+            const val DB_VERSION = 1
+            const val TABLE = "trades"
+        }
+
+        override fun onCreate(db: SQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS $TABLE (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts            INTEGER NOT NULL,
+                    side          TEXT    NOT NULL,
+                    sol           REAL    NOT NULL DEFAULT 0,
+                    price         REAL    NOT NULL DEFAULT 0,
+                    pnl_sol       REAL    NOT NULL DEFAULT 0,
+                    pnl_pct       REAL    NOT NULL DEFAULT 0,
+                    reason        TEXT    NOT NULL DEFAULT '',
+                    score         REAL    NOT NULL DEFAULT 0,
+                    mode          TEXT    NOT NULL DEFAULT 'paper',
+                    mint          TEXT    NOT NULL DEFAULT '',
+                    trading_mode  TEXT    NOT NULL DEFAULT '',
+                    trading_emoji TEXT    NOT NULL DEFAULT '',
+                    fee_sol       REAL    NOT NULL DEFAULT 0,
+                    net_pnl_sol   REAL    NOT NULL DEFAULT 0,
+                    dedup_key     TEXT    UNIQUE
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_ts ON $TABLE(ts)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_side ON $TABLE(side)")
+        }
+
+        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            // Future migrations go here
+        }
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────
 
     data class ProvenEdgeSnapshot(
-        val hasProvenEdge: Boolean,
-        val winRate: Double,      // 0-100
-        val meaningfulTrades: Int,
+        val hasProvenEdge:   Boolean,
+        val winRate:         Double,
+        val meaningfulTrades:Int,
     )
 
-    /**
-     * Cheap cached accessor for the hot path. Recomputes via getStats()
-     * at most once every STATS_CACHE_MS. Safe to call from any thread.
-     */
     fun getProvenEdgeCached(): ProvenEdgeSnapshot {
         val now = System.currentTimeMillis()
         if (now - lastStatsCacheMs > STATS_CACHE_MS) {
@@ -73,174 +129,119 @@ object TradeHistoryStore {
                 val s = getStats()
                 val meaningful = s.totalWins + s.totalLosses
                 cachedProvenTradeCount = meaningful
-                cachedProvenWinRate = s.winRate
-                cachedHasProvenEdge = meaningful >= 300 && s.winRate >= 50.0
-                lastStatsCacheMs = now
+                cachedProvenWinRate    = s.winRate
+                cachedHasProvenEdge    = meaningful >= 300 && s.winRate >= 50.0
+                lastStatsCacheMs       = now
             } catch (_: Exception) {}
         }
         return ProvenEdgeSnapshot(cachedHasProvenEdge, cachedProvenWinRate, cachedProvenTradeCount)
     }
 
-    /**
-     * Initialize with context
-     */
     fun init(ctx: Context) {
+        // Start background IO thread
+        if (ioThread == null) {
+            val t = HandlerThread("TradeHistoryIO", Process.THREAD_PRIORITY_BACKGROUND)
+            t.start()
+            ioThread  = t
+            ioHandler = Handler(t.looper)
+        }
+
+        // Open SQLite
+        val helper = TradeDbHelper(ctx)
+        db = helper.writableDatabase
+
+        // Load in-memory list from SQLite
+        loadTradesFromDb()
+
+        // One-time migration from SharedPreferences if needed
         prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadTrades()
+        migrateFromPrefsIfNeeded(ctx)
+
+        // Load lifetime stats (still stored in SharedPreferences — small payload, safe)
         loadLifetimeStats()
-        // V5.9.115: Back-fill lifetime stats from existing trade history the
-        // first time this counter is introduced so users who already have
-        // trade history don't drop to 0 lifetime on upgrade.
-        if (lifetimeSells == 0 && trades.any { it.side == "SELL" }) {
+
+        if (lifetimeSells == 0 && synchronized(lock) { trades.any { it.side == "SELL" } }) {
             backfillLifetimeFromTrades()
         }
-        cleanupOldTrades()
-        ErrorLogger.info("TradeHistoryStore", "📊 Loaded ${trades.size} trades from storage (lifetime sells=$lifetimeSells)")
+
+        ErrorLogger.info("TradeHistoryStore",
+            "📊 Loaded ${synchronized(lock) { trades.size }} trades from SQLite (lifetime sells=$lifetimeSells)")
     }
 
-    /**
-     * Record a new trade
-     */
+    // ── Public API ───────────────────────────────────────────────────
+
     fun recordTrade(trade: Trade) {
-        trades.add(trade)
+        synchronized(lock) { trades.add(trade) }
         bumpLifetimeFor(trade)
-        saveTrades()
-        ErrorLogger.debug("TradeHistoryStore", "💾 Saved trade: ${trade.side} ${trade.sol.fmt(4)} SOL")
+        insertTradeAsync(trade)
     }
 
-    /**
-     * Record multiple trades (e.g., from a token's trade list)
-     */
     fun recordTrades(newTrades: List<Trade>) {
-        // Only add trades we don't already have (dedup by timestamp + mint)
-        val existingKeys = trades.map { "${it.ts}_${it.mint}" }.toSet()
+        val existingKeys = synchronized(lock) {
+            trades.map { "${it.ts}_${it.mint}" }.toSet()
+        }
         val toAdd = newTrades.filter { "${it.ts}_${it.mint}" !in existingKeys }
-
         if (toAdd.isNotEmpty()) {
-            trades.addAll(toAdd)
+            synchronized(lock) { trades.addAll(toAdd) }
             toAdd.forEach { bumpLifetimeFor(it) }
-            saveTrades()
+            toAdd.forEach { insertTradeAsync(it) }
             ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new trades")
         }
     }
 
-    /**
-     * Get all trades
-     */
-    fun getAllTrades(): List<Trade> = trades.toList()
+    fun getAllTrades(): List<Trade> = synchronized(lock) { trades.toList() }
 
-    /**
-     * MANUAL CLEAR - Only callable by user from Journal UI.
-     *
-     * V5.9.115: This ONLY clears the visible trade history (rows/stats used
-     * by the Journal tab). Lifetime learning counters, BehaviorAI state,
-     * FluidLearningAI progress, ML engine weights, and ALL other AI memory
-     * are explicitly preserved. The user must use the Behavior tab's
-     * "Reset All Learning" button to wipe learned intelligence.
-     */
+    /** MANUAL CLEAR — only clears visual journal rows; lifetime counters preserved. */
     fun clearAllTrades() {
-        trades.clear()
-        saveTrades()
-        // DO NOT touch lifetime counters — those back the learned AI progress.
-        ErrorLogger.info(
-            "TradeHistoryStore",
-            "🗑️ MANUAL CLEAR: Journal rows cleared (lifetime=${lifetimeSells} sells preserved — learned AI intact)"
-        )
+        synchronized(lock) { trades.clear() }
+        ioHandler?.post {
+            try {
+                db?.delete(TradeDbHelper.TABLE, null, null)
+            } catch (e: Exception) {
+                ErrorLogger.error("TradeHistoryStore", "SQLite clear failed: ${e.message}")
+            }
+        }
+        ErrorLogger.info("TradeHistoryStore",
+            "🗑️ MANUAL CLEAR: Journal rows cleared (lifetime=${lifetimeSells} sells preserved — learned AI intact)")
     }
 
-    /**
-     * V5.9.115: FULL reset — wipe journal AND lifetime counters.
-     * ONLY called from BehaviorActivity "Reset All Learning" / FluidLearningAI.resetAllLearning().
-     * This is the ONE place that is allowed to wipe learned progress.
-     */
+    /** FULL RESET — wipe journal AND lifetime counters. Only from BehaviorActivity / FluidLearningAI. */
     fun fullResetIncludingLifetime() {
-        trades.clear()
-        lifetimeSells = 0
-        lifetimeWins = 0
-        lifetimeLosses = 0
-        lifetimeScratches = 0
-        lifetimeWinPnlSum = 0.0
+        synchronized(lock) { trades.clear() }
+        lifetimeSells          = 0
+        lifetimeWins           = 0
+        lifetimeLosses         = 0
+        lifetimeScratches      = 0
+        lifetimeWinPnlSum      = 0.0
         lifetimeRealizedPnlSol = 0.0
-        saveTrades()
+        ioHandler?.post {
+            try { db?.delete(TradeDbHelper.TABLE, null, null) } catch (_: Exception) {}
+        }
         saveLifetimeStats()
-        ErrorLogger.warn(
-            "TradeHistoryStore",
-            "🔄 FULL RESET: Trades + lifetime counters wiped (learned AI reset)"
-        )
+        ErrorLogger.warn("TradeHistoryStore", "🔄 FULL RESET: Trades + lifetime counters wiped (learned AI reset)")
     }
 
-    /**
-     * V5.9.115: Lifetime snapshot that persists through journal clears.
-     * Consumed by FluidLearningAI / BehaviorAI / ML layers as the true
-     * basis for learning progress.
-     */
-    data class LifetimeSnapshot(
-        val totalSells: Int,
-        val totalWins: Int,
-        val totalLosses: Int,
-        val totalScratches: Int,
-        val winRate: Double,           // 0-100, among decisive trades
-        val avgWinPct: Double,
-        val realizedPnlSol: Double,
-    )
+    fun getTotalTradeCount(): Int = synchronized(lock) { trades.size }
 
-    fun getLifetimeStats(): LifetimeSnapshot {
-        val decisive = lifetimeWins + lifetimeLosses
-        val winRate = if (decisive > 0) {
-            lifetimeWins.toDouble() * 100.0 / decisive.toDouble()
-        } else 50.0
-        val avgWin = if (lifetimeWins > 0) {
-            lifetimeWinPnlSum / lifetimeWins.toDouble()
-        } else 10.0
-        return LifetimeSnapshot(
-            totalSells = lifetimeSells,
-            totalWins = lifetimeWins,
-            totalLosses = lifetimeLosses,
-            totalScratches = lifetimeScratches,
-            winRate = winRate,
-            avgWinPct = avgWin,
-            realizedPnlSol = lifetimeRealizedPnlSol,
-        )
-    }
-
-    /**
-     * Get total trade count (for display)
-     */
-    fun getTotalTradeCount(): Int = trades.size
-
-    /**
-     * Record a partial profit from chunk selling (SellOptimizationAI).
-     * This doesn't close the position, just records the partial exit.
-     */
     fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
         val partialTrade = Trade(
-            side = "PARTIAL_SELL",
-            mode = "paper",
-            sol = profitSol,
+            side  = "PARTIAL_SELL",
+            mode  = "paper",
+            sol   = profitSol,
             price = 0.0,
-            ts = System.currentTimeMillis(),
-            pnlSol = profitSol,
-            pnlPct = pnlPct,
-            reason = "CHUNK_SELL",
-            mint = mint,
+            ts    = System.currentTimeMillis(),
+            pnlSol= profitSol,
+            pnlPct= pnlPct,
+            reason= "CHUNK_SELL",
+            mint  = mint,
         )
-        trades.add(partialTrade)
-        // Partial profits count toward lifetime realized P&L but NOT toward
-        // win/loss decisive counts (they aren't full exits).
+        synchronized(lock) { trades.add(partialTrade) }
         lifetimeRealizedPnlSol += profitSol
         saveLifetimeStats()
-        saveTrades()
-        ErrorLogger.debug(
-            "TradeHistoryStore",
-            "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}%"
-        )
+        insertTradeAsync(partialTrade)
+        ErrorLogger.debug("TradeHistoryStore", "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}%")
     }
 
-    /**
-     * V5.6: Record completed trade for ML training.
-     * Called when a position is fully closed (SELL side).
-     * Feeds the OnDeviceMLEngine with training data.
-     */
     fun recordTradeForML(
         trade: Trade,
         candlesAtEntry: List<com.lifecyclebot.data.Candle>,
@@ -259,306 +260,319 @@ object TradeHistoryStore {
     ) {
         try {
             com.lifecyclebot.ml.OnDeviceMLEngine.recordTrade(
-                trade = trade,
-                candlesAtEntry = candlesAtEntry,
-                candlesAtExit = candlesAtExit,
-                liquidityAtEntry = liquidityAtEntry,
-                liquidityAtExit = liquidityAtExit,
-                holdersAtEntry = holdersAtEntry,
-                holdersAtExit = holdersAtExit,
-                rugcheckScore = rugcheckScore,
-                mintRevoked = mintRevoked,
-                freezeRevoked = freezeRevoked,
-                topHolderPct = topHolderPct,
-                rsi = rsi,
-                emaAlignment = emaAlignment,
-                wasRug = wasRug,
+                trade              = trade,
+                candlesAtEntry     = candlesAtEntry,
+                candlesAtExit      = candlesAtExit,
+                liquidityAtEntry   = liquidityAtEntry,
+                liquidityAtExit    = liquidityAtExit,
+                holdersAtEntry     = holdersAtEntry,
+                holdersAtExit      = holdersAtExit,
+                rugcheckScore      = rugcheckScore,
+                mintRevoked        = mintRevoked,
+                freezeRevoked      = freezeRevoked,
+                topHolderPct       = topHolderPct,
+                rsi                = rsi,
+                emaAlignment       = emaAlignment,
+                wasRug             = wasRug,
             )
-            ErrorLogger.debug(
-                "TradeHistoryStore",
-                "🧠 ML TRAINING: Recorded trade for ${trade.mint.take(8)}... | pnl=${trade.pnlPct.toInt()}%"
-            )
+            ErrorLogger.debug("TradeHistoryStore",
+                "🧠 ML TRAINING: Recorded trade for ${trade.mint.take(8)}... | pnl=${trade.pnlPct.toInt()}%")
         } catch (e: Exception) {
             ErrorLogger.debug("TradeHistoryStore", "ML record error: ${e.message}")
         }
     }
 
-    /**
-     * Get trades from TODAY (since midnight local time)
-     * V5.6.29d: Changed from rolling 24h to midnight-based
-     * Count only goes UP during the day, resets at midnight
-     */
+    // ── Time-windowed queries ────────────────────────────────────────
+
     fun getTrades24h(): List<Trade> {
-        val calendar = java.util.Calendar.getInstance()
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        val midnightToday = calendar.timeInMillis
-        return trades.filter { it.ts >= midnightToday }
+        val midnight = midnightTs()
+        return synchronized(lock) { trades.filter { it.ts >= midnight } }
     }
 
-    /**
-     * Get fully closed SELL trades from TODAY (since midnight)
-     * V5.6.29d: Changed from rolling 24h to midnight-based
-     */
     fun getSells24h(): List<Trade> {
-        val calendar = java.util.Calendar.getInstance()
-        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        calendar.set(java.util.Calendar.MINUTE, 0)
-        calendar.set(java.util.Calendar.SECOND, 0)
-        calendar.set(java.util.Calendar.MILLISECOND, 0)
-        val midnightToday = calendar.timeInMillis
-        return trades.filter { it.side == "SELL" && it.ts >= midnightToday }
+        val midnight = midnightTs()
+        return synchronized(lock) { trades.filter { it.side == "SELL" && it.ts >= midnight } }
     }
 
-    /** V5.9.56: Snapshot of all SELL trades for consumers that need to
-     *  recompute lifetime realized P&L (e.g. RunTracker30D). Returns a
-     *  defensive copy so concurrent mutation doesn't corrupt iteration. */
-    fun getAllSells(): List<Trade> = trades.filter { it.side == "SELL" }.toList()
+    fun getAllSells(): List<Trade> =
+        synchronized(lock) { trades.filter { it.side == "SELL" }.toList() }
 
-
-    /**
-     * Calculate 24h win rate using decisive trades only:
-     * winRate = wins / (wins + losses)
-     */
     fun getWinRate24h(): Int {
         val sells = getSells24h()
         if (sells.isEmpty()) return 0
-
-        val wins = sells.count { isWin(it) }
+        val wins   = sells.count { isWin(it) }
         val losses = sells.count { isLoss(it) }
-        val decisiveTrades = wins + losses
-
-        return if (decisiveTrades > 0) {
-            ((wins.toDouble() * 100.0) / decisiveTrades).toInt()
-        } else {
-            0
-        }
+        val decisive = wins + losses
+        return if (decisive > 0) ((wins.toDouble() * 100.0) / decisive).toInt() else 0
     }
 
-    /**
-     * Get total trades in last 24h
-     */
     fun getTradeCount24h(): Int = getTrades24h().size
 
-    /**
-     * Get total P&L in last 24h (SOL)
-     */
-    fun getPnl24hSol(): Double {
-        return getSells24h().sumOf { it.pnlSol }
-    }
+    fun getPnl24hSol(): Double = getSells24h().sumOf { it.pnlSol }
 
-    /**
-     * Get summary stats
-     */
-    fun getStats(): StatsSnapshot {
-        val sells24h = getSells24h()
-        val wins24h = sells24h.count { isWin(it) }
-        val losses24h = sells24h.count { isLoss(it) }
-        val decisive24h = wins24h + losses24h
-        val scratches24h = sells24h.size - decisive24h
+    // ── Stats ────────────────────────────────────────────────────────
 
-        val allSells = trades.filter { it.side == "SELL" }
-        val totalWins = allSells.count { isWin(it) }
-        val totalLosses = allSells.count { isLoss(it) }
-        val totalCompleted = totalWins + totalLosses
-        val totalScratches = allSells.size - totalCompleted
+    data class LifetimeSnapshot(
+        val totalSells:     Int,
+        val totalWins:      Int,
+        val totalLosses:    Int,
+        val totalScratches: Int,
+        val winRate:        Double,
+        val avgWinPct:      Double,
+        val realizedPnlSol: Double,
+    )
 
-        val lifetimeWinRate = if (totalCompleted > 0) {
-            totalWins.toDouble() * 100.0 / totalCompleted.toDouble()
-        } else {
-            50.0
-        }
-
-        val winRate24h = if (decisive24h > 0) {
-            ((wins24h.toDouble() * 100.0) / decisive24h.toDouble()).toInt()
-        } else {
-            0
-        }
-
-        val winningTrades = allSells.filter { isWin(it) }
-        val losingTrades  = allSells.filter { isLoss(it) }
-        val avgWinPct = if (winningTrades.isNotEmpty()) {
-            winningTrades.map { it.pnlPct }.average()
-        } else {
-            10.0
-        }
-        // V5.9.220: avg loss and profit factor
-        val avgLossPct = if (losingTrades.isNotEmpty()) {
-            losingTrades.map { it.pnlPct }.average()  // negative value
-        } else {
-            -5.0
-        }
-        val profitFactor = if (losingTrades.isNotEmpty() && avgLossPct < 0.0 && winningTrades.isNotEmpty()) {
-            (avgWinPct * totalWins) / (Math.abs(avgLossPct) * totalLosses)
-        } else if (winningTrades.isNotEmpty()) {
-            2.0  // no losses yet — optimistic default
-        } else {
-            0.0
-        }
-        val totalPnlSol = allSells.sumOf { it.pnlSol }
-
-        // Estimate avg hold time from trade timestamps (if we have buy/sell pairs)
-        val avgHoldMinutes = 10
-
-        return StatsSnapshot(
-            trades24h = getTrades24h().size,
-            winRate24h = winRate24h,
-            pnl24hSol = sells24h.sumOf { it.pnlSol },
-            totalStoredTrades = trades.size,
-            totalTrades = totalCompleted,
-            winRate = lifetimeWinRate,
-            avgWinPct = avgWinPct,
-            avgLossPct = avgLossPct,
-            profitFactor = profitFactor,
-            totalPnlSol = totalPnlSol,
-            avgHoldTimeMinutes = avgHoldMinutes,
-            totalWins = totalWins,
-            totalLosses = totalLosses,
-            totalScratches = totalScratches,
-            wins24h = wins24h,
-            losses24h = losses24h,
-            scratches24h = scratches24h,
+    fun getLifetimeStats(): LifetimeSnapshot {
+        val decisive = lifetimeWins + lifetimeLosses
+        val winRate  = if (decisive > 0) lifetimeWins * 100.0 / decisive else 50.0
+        val avgWin   = if (lifetimeWins > 0) lifetimeWinPnlSum / lifetimeWins else 10.0
+        return LifetimeSnapshot(
+            totalSells     = lifetimeSells,
+            totalWins      = lifetimeWins,
+            totalLosses    = lifetimeLosses,
+            totalScratches = lifetimeScratches,
+            winRate        = winRate,
+            avgWinPct      = avgWin,
+            realizedPnlSol = lifetimeRealizedPnlSol,
         )
     }
 
     data class StatsSnapshot(
-        val trades24h: Int,
-        val winRate24h: Int,
-        val pnl24hSol: Double,
-        val totalStoredTrades: Int,
-        val totalTrades: Int = 0,
-        val winRate: Double = 50.0,
-        val avgWinPct: Double = 10.0,
-        val avgLossPct: Double = -5.0,   // V5.9.220: avg loss % for profit factor calc
-        val profitFactor: Double = 1.0,  // V5.9.220: (avgWin * wins) / (|avgLoss| * losses)
-        val totalPnlSol: Double = 0.0,   // V5.9.220: total realized PnL in SOL
-        val avgHoldTimeMinutes: Int = 10,
-        val totalWins: Int = 0,
-        val totalLosses: Int = 0,
-        val totalScratches: Int = 0,
-        val wins24h: Int = 0,
-        val losses24h: Int = 0,
-        val scratches24h: Int = 0,
+        val trades24h:          Int,
+        val winRate24h:         Int,
+        val pnl24hSol:          Double,
+        val totalStoredTrades:  Int,
+        val totalTrades:        Int    = 0,
+        val winRate:            Double = 50.0,
+        val avgWinPct:          Double = 10.0,
+        val avgLossPct:         Double = -5.0,
+        val profitFactor:       Double = 1.0,
+        val totalPnlSol:        Double = 0.0,
+        val avgHoldTimeMinutes: Int    = 10,
+        val totalWins:          Int    = 0,
+        val totalLosses:        Int    = 0,
+        val totalScratches:     Int    = 0,
+        val wins24h:            Int    = 0,
+        val losses24h:          Int    = 0,
+        val scratches24h:       Int    = 0,
     )
 
-    /**
-     * Get the most frequently used trading mode (for UI display)
-     */
+    fun getStats(): StatsSnapshot {
+        val sells24h      = getSells24h()
+        val wins24h       = sells24h.count { isWin(it) }
+        val losses24h     = sells24h.count { isLoss(it) }
+        val decisive24h   = wins24h + losses24h
+        val scratches24h  = sells24h.size - decisive24h
+
+        val allSells      = synchronized(lock) { trades.filter { it.side == "SELL" } }
+        val totalWins     = allSells.count { isWin(it) }
+        val totalLosses   = allSells.count { isLoss(it) }
+        val totalCompleted= totalWins + totalLosses
+        val totalScratches= allSells.size - totalCompleted
+
+        val lifetimeWR    = if (totalCompleted > 0)
+            totalWins * 100.0 / totalCompleted.toDouble() else 50.0
+
+        val winRate24h    = if (decisive24h > 0)
+            ((wins24h.toDouble() * 100.0) / decisive24h).toInt() else 0
+
+        val winningTrades = allSells.filter { isWin(it) }
+        val losingTrades  = allSells.filter { isLoss(it) }
+        val avgWinPct     = if (winningTrades.isNotEmpty()) winningTrades.map { it.pnlPct }.average() else 10.0
+        val avgLossPct    = if (losingTrades.isNotEmpty())  losingTrades.map  { it.pnlPct }.average() else -5.0
+        val profitFactor  = when {
+            losingTrades.isNotEmpty() && avgLossPct < 0.0 && winningTrades.isNotEmpty() ->
+                (avgWinPct * totalWins) / (Math.abs(avgLossPct) * totalLosses)
+            winningTrades.isNotEmpty() -> 2.0
+            else -> 0.0
+        }
+        val totalPnlSol   = allSells.sumOf { it.pnlSol }
+
+        return StatsSnapshot(
+            trades24h          = getTrades24h().size,
+            winRate24h         = winRate24h,
+            pnl24hSol          = sells24h.sumOf { it.pnlSol },
+            totalStoredTrades  = synchronized(lock) { trades.size },
+            totalTrades        = totalCompleted,
+            winRate            = lifetimeWR,
+            avgWinPct          = avgWinPct,
+            avgLossPct         = avgLossPct,
+            profitFactor       = profitFactor,
+            totalPnlSol        = totalPnlSol,
+            avgHoldTimeMinutes = 10,
+            totalWins          = totalWins,
+            totalLosses        = totalLosses,
+            totalScratches     = totalScratches,
+            wins24h            = wins24h,
+            losses24h          = losses24h,
+            scratches24h       = scratches24h,
+        )
+    }
+
     fun getTopMode(): String? {
-        if (trades.isEmpty()) return null
-        return trades
-            .filter { it.tradingMode.isNotBlank() }
+        val t = synchronized(lock) { trades.toList() }
+        if (t.isEmpty()) return null
+        return t.filter { it.tradingMode.isNotBlank() }
             .groupBy { it.tradingMode }
-            .maxByOrNull { it.value.size }
-            ?.key
+            .maxByOrNull { it.value.size }?.key
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // PERSISTENCE
-    // ═══════════════════════════════════════════════════════════════════
+    // ── SQLite persistence ───────────────────────────────────────────
 
-    private fun saveTrades() {
-        try {
-            val arr = JSONArray()
-            trades.forEach { t ->
-                arr.put(JSONObject().apply {
-                    put("ts", t.ts)
-                    put("side", t.side)
-                    put("sol", t.sol)
-                    put("price", t.price)
-                    put("pnlSol", t.pnlSol)
-                    put("pnlPct", t.pnlPct)
-                    put("reason", t.reason)
-                    put("score", t.score)
-                    put("mode", t.mode)
-                    put("mint", t.mint)
-                    put("tradingMode", t.tradingMode)
-                    put("tradingModeEmoji", t.tradingModeEmoji)
-                    put("feeSol", t.feeSol)
-                    put("netPnlSol", t.netPnlSol)
-                })
+    /** Insert a single trade row asynchronously (off main thread). */
+    private fun insertTradeAsync(trade: Trade) {
+        ioHandler?.post {
+            try {
+                val cv = tradeToContentValues(trade)
+                db?.insertWithOnConflict(
+                    TradeDbHelper.TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+            } catch (e: Exception) {
+                ErrorLogger.error("TradeHistoryStore", "SQLite insert failed: ${e.message}")
             }
-            prefs?.edit()?.putString(KEY_TRADES, arr.toString())?.commit()
-            ErrorLogger.debug("TradeHistoryStore", "💾 Persisted ${trades.size} trades to storage")
-        } catch (e: Exception) {
-            ErrorLogger.error("TradeHistoryStore", "Failed to save trades: ${e.message}")
         }
     }
 
-    private fun loadTrades() {
+    private fun tradeToContentValues(t: Trade): ContentValues = ContentValues().apply {
+        put("ts",            t.ts)
+        put("side",          t.side)
+        put("sol",           t.sol)
+        put("price",         t.price)
+        put("pnl_sol",       t.pnlSol)
+        put("pnl_pct",       t.pnlPct)
+        put("reason",        t.reason)
+        put("score",         t.score)
+        put("mode",          t.mode)
+        put("mint",          t.mint)
+        put("trading_mode",  t.tradingMode)
+        put("trading_emoji", t.tradingModeEmoji)
+        put("fee_sol",       t.feeSol)
+        put("net_pnl_sol",   t.netPnlSol)
+        put("dedup_key",     "${t.ts}_${t.mint}_${t.side}")
+    }
+
+    private fun loadTradesFromDb() {
+        val database = db ?: return
+        val loaded   = mutableListOf<Trade>()
         try {
-            val json = prefs?.getString(KEY_TRADES, null) ?: return
+            val cursor = database.query(
+                TradeDbHelper.TABLE,
+                null, null, null, null, null, "ts ASC"
+            )
+            cursor.use { c ->
+                while (c.moveToNext()) {
+                    loaded.add(Trade(
+                        ts             = c.getLong(c.getColumnIndexOrThrow("ts")),
+                        side           = c.getString(c.getColumnIndexOrThrow("side")),
+                        sol            = c.getDouble(c.getColumnIndexOrThrow("sol")),
+                        price          = c.getDouble(c.getColumnIndexOrThrow("price")),
+                        pnlSol         = c.getDouble(c.getColumnIndexOrThrow("pnl_sol")),
+                        pnlPct         = c.getDouble(c.getColumnIndexOrThrow("pnl_pct")),
+                        reason         = c.getString(c.getColumnIndexOrThrow("reason")),
+                        score          = c.getDouble(c.getColumnIndexOrThrow("score")),
+                        mode           = c.getString(c.getColumnIndexOrThrow("mode")),
+                        mint           = c.getString(c.getColumnIndexOrThrow("mint")),
+                        tradingMode    = c.getString(c.getColumnIndexOrThrow("trading_mode")),
+                        tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
+                        feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
+                        netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
+                    ))
+                }
+            }
+            synchronized(lock) {
+                trades.clear()
+                trades.addAll(loaded)
+            }
+            ErrorLogger.debug("TradeHistoryStore", "SQLite: loaded ${loaded.size} trades")
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "SQLite load failed: ${e.message}")
+        }
+    }
+
+    // ── One-time migration from SharedPreferences ────────────────────
+
+    private fun migrateFromPrefsIfNeeded(ctx: Context) {
+        val p = prefs ?: return
+        val json = p.getString(KEY_TRADES, null) ?: return   // nothing to migrate
+        val database = db ?: return
+
+        // Already migrated if we have rows in SQLite
+        val existing = synchronized(lock) { trades.size }
+        if (existing > 0) {
+            // Wipe the old prefs blob to free memory
+            p.edit().remove(KEY_TRADES).apply()
+            return
+        }
+
+        ErrorLogger.info("TradeHistoryStore", "📦 Migrating trades from SharedPreferences → SQLite…")
+        try {
             val arr = JSONArray(json)
-            trades.clear()
-
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                trades.add(
-                    Trade(
-                        ts = obj.getLong("ts"),
-                        side = obj.getString("side"),
-                        sol = obj.getDouble("sol"),
-                        price = obj.getDouble("price"),
-                        pnlSol = obj.optDouble("pnlSol", 0.0),
-                        pnlPct = obj.optDouble("pnlPct", 0.0),
-                        reason = obj.optString("reason", ""),
-                        score = obj.optDouble("score", 0.0),
-                        mode = obj.optString("mode", "paper"),
-                        mint = obj.optString("mint", ""),
-                        tradingMode = obj.optString("tradingMode", ""),
+            database.beginTransaction()
+            try {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val trade = Trade(
+                        ts             = obj.getLong("ts"),
+                        side           = obj.getString("side"),
+                        sol            = obj.getDouble("sol"),
+                        price          = obj.getDouble("price"),
+                        pnlSol         = obj.optDouble("pnlSol", 0.0),
+                        pnlPct         = obj.optDouble("pnlPct", 0.0),
+                        reason         = obj.optString("reason", ""),
+                        score          = obj.optDouble("score", 0.0),
+                        mode           = obj.optString("mode", "paper"),
+                        mint           = obj.optString("mint", ""),
+                        tradingMode    = obj.optString("tradingMode", ""),
                         tradingModeEmoji = obj.optString("tradingModeEmoji", ""),
-                        feeSol = obj.optDouble("feeSol", 0.0),
-                        netPnlSol = obj.optDouble("netPnlSol", 0.0)
+                        feeSol         = obj.optDouble("feeSol", 0.0),
+                        netPnlSol      = obj.optDouble("netPnlSol", 0.0),
                     )
-                )
+                    database.insertWithOnConflict(
+                        TradeDbHelper.TABLE, null,
+                        tradeToContentValues(trade),
+                        SQLiteDatabase.CONFLICT_IGNORE
+                    )
+                    synchronized(lock) { trades.add(trade) }
+                }
+                database.setTransactionSuccessful()
+                ErrorLogger.info("TradeHistoryStore",
+                    "✅ Migrated ${arr.length()} trades from SharedPreferences → SQLite")
+            } finally {
+                database.endTransaction()
             }
         } catch (e: Exception) {
-            ErrorLogger.error("TradeHistoryStore", "Failed to load trades: ${e.message}")
+            ErrorLogger.error("TradeHistoryStore", "Migration failed: ${e.message}")
         }
+
+        // Wipe old blob regardless — don't risk it being re-read
+        p.edit().remove(KEY_TRADES).apply()
     }
 
-    private fun cleanupOldTrades() {
-        // No auto-cleanup.
-        // Journal data persists until manually cleared by the user.
-        ErrorLogger.debug("TradeHistoryStore", "📊 Journal has ${trades.size} total trades (no auto-cleanup)")
-    }
+    // ── Lifetime stats (tiny payload — SharedPreferences is fine) ────
 
-    private fun isWin(trade: Trade): Boolean = trade.pnlPct >= WIN_THRESHOLD_PCT
-
-    private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT
-
-    private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)
-
-    // ═══════════════════════════════════════════════════════════════════
-    // V5.9.115: Lifetime counters (survive clearAllTrades)
-    // ═══════════════════════════════════════════════════════════════════
-
-    private fun bumpLifetimeFor(trade: Trade) {
-        if (trade.side != "SELL") return
-        lifetimeSells++
-        when {
-            isWin(trade) -> {
-                lifetimeWins++
-                lifetimeWinPnlSum += trade.pnlPct
-            }
-            isLoss(trade) -> lifetimeLosses++
-            else -> lifetimeScratches++
+    private fun loadLifetimeStats() {
+        try {
+            val json = prefs?.getString(KEY_LIFETIME_STATS, null) ?: return
+            val obj  = JSONObject(json)
+            lifetimeSells          = obj.optInt("sells", 0)
+            lifetimeWins           = obj.optInt("wins", 0)
+            lifetimeLosses         = obj.optInt("losses", 0)
+            lifetimeScratches      = obj.optInt("scratches", 0)
+            lifetimeWinPnlSum      = obj.optDouble("winPnlSum", 0.0)
+            lifetimeRealizedPnlSol = obj.optDouble("realizedPnlSol", 0.0)
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "Failed to load lifetime stats: ${e.message}")
         }
-        lifetimeRealizedPnlSol += trade.pnlSol
-        saveLifetimeStats()
     }
 
     private fun saveLifetimeStats() {
         try {
             val obj = JSONObject().apply {
-                put("sells", lifetimeSells)
-                put("wins", lifetimeWins)
-                put("losses", lifetimeLosses)
-                put("scratches", lifetimeScratches)
-                put("winPnlSum", lifetimeWinPnlSum)
-                put("realizedPnlSol", lifetimeRealizedPnlSol)
+                put("sells",         lifetimeSells)
+                put("wins",          lifetimeWins)
+                put("losses",        lifetimeLosses)
+                put("scratches",     lifetimeScratches)
+                put("winPnlSum",     lifetimeWinPnlSum)
+                put("realizedPnlSol",lifetimeRealizedPnlSol)
             }
             prefs?.edit()?.putString(KEY_LIFETIME_STATS, obj.toString())?.apply()
         } catch (e: Exception) {
@@ -566,38 +580,45 @@ object TradeHistoryStore {
         }
     }
 
-    private fun loadLifetimeStats() {
-        try {
-            val json = prefs?.getString(KEY_LIFETIME_STATS, null) ?: return
-            val obj = JSONObject(json)
-            lifetimeSells = obj.optInt("sells", 0)
-            lifetimeWins = obj.optInt("wins", 0)
-            lifetimeLosses = obj.optInt("losses", 0)
-            lifetimeScratches = obj.optInt("scratches", 0)
-            lifetimeWinPnlSum = obj.optDouble("winPnlSum", 0.0)
-            lifetimeRealizedPnlSol = obj.optDouble("realizedPnlSol", 0.0)
-        } catch (e: Exception) {
-            ErrorLogger.error("TradeHistoryStore", "Failed to load lifetime stats: ${e.message}")
+    private fun bumpLifetimeFor(trade: Trade) {
+        if (trade.side != "SELL") return
+        lifetimeSells++
+        when {
+            isWin(trade)  -> { lifetimeWins++;    lifetimeWinPnlSum += trade.pnlPct }
+            isLoss(trade) ->   lifetimeLosses++
+            else          ->   lifetimeScratches++
         }
+        lifetimeRealizedPnlSol += trade.pnlSol
+        saveLifetimeStats()
     }
 
-    /**
-     * One-time migration: when the lifetime counter is first introduced,
-     * seed it from the existing trade history so users don't drop to 0.
-     */
     private fun backfillLifetimeFromTrades() {
-        val sells = trades.filter { it.side == "SELL" }
+        val sells = synchronized(lock) { trades.filter { it.side == "SELL" } }
         if (sells.isEmpty()) return
-        lifetimeSells = sells.size
-        lifetimeWins = sells.count { isWin(it) }
-        lifetimeLosses = sells.count { isLoss(it) }
-        lifetimeScratches = sells.size - lifetimeWins - lifetimeLosses
-        lifetimeWinPnlSum = sells.filter { isWin(it) }.sumOf { it.pnlPct }
+        lifetimeSells          = sells.size
+        lifetimeWins           = sells.count { isWin(it) }
+        lifetimeLosses         = sells.count { isLoss(it) }
+        lifetimeScratches      = sells.size - lifetimeWins - lifetimeLosses
+        lifetimeWinPnlSum      = sells.filter { isWin(it) }.sumOf { it.pnlPct }
         lifetimeRealizedPnlSol = sells.sumOf { it.pnlSol }
         saveLifetimeStats()
-        ErrorLogger.info(
-            "TradeHistoryStore",
-            "📊 Back-filled lifetime stats from ${sells.size} existing SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)"
-        )
+        ErrorLogger.info("TradeHistoryStore",
+            "📊 Back-filled lifetime stats from ${sells.size} existing SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
     }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private fun isWin(trade: Trade): Boolean  = trade.pnlPct >= WIN_THRESHOLD_PCT
+    private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT
+
+    private fun midnightTs(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    private fun Double.fmt(d: Int = 4) = "%.${d}f".format(this)
 }
