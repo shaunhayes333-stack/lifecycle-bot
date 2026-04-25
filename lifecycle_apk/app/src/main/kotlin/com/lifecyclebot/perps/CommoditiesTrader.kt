@@ -299,9 +299,16 @@ object CommoditiesTrader {
         ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
         ErrorLogger.info(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
-        // Get all commodity markets
+        // Get all commodity markets — in LIVE mode, commodities (CORN/WHEAT/HOGS/OIL/etc.)
+        // have NO verified tokenized Solana route. Scanning them in live mode wastes cycles
+        // and generates signal logs that can never execute. Live mode returns immediately.
+        // Paper mode continues normally for learning/stats purposes.
+        if (!isPaperMode.get()) {
+            ErrorLogger.info(TAG, "🛢️ LIVE mode: no on-chain routes for commodities — skipping scan (paper-only universe)")
+            return
+        }
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
-        ErrorLogger.info(TAG, "🛢️ Found ${commodityMarkets.size} commodities: ${commodityMarkets.map { it.symbol }}")
+        ErrorLogger.info(TAG, "🛢️ Found ${commodityMarkets.size} commodities [PAPER]: ${commodityMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<CommoditySignal>()
         val leverageSignals = mutableListOf<CommoditySignal>()

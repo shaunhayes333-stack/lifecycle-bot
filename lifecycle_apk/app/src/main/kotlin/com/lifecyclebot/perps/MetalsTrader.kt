@@ -295,8 +295,12 @@ object MetalsTrader {
         ErrorLogger.info(TAG, "🥇 ═══════════════════════════════════════════════")
         ErrorLogger.info(TAG, "🥇 METALS SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
-        // Get all metal markets
-        val metalMarkets = PerpsMarket.values().filter { it.isMetal }
+        // Get all metal markets — in live mode, only those with a real on-chain route
+        // (TokenizedAssetRegistry). Base/industrial metals have no tokenized Solana mint
+        // and will NEVER execute live. Filter them out rather than spamming "LIVE skipped".
+        val metalMarkets = PerpsMarket.values().filter {
+            it.isMetal && (isPaperMode.get() || TokenizedAssetRegistry.hasRealRoute(it.symbol))
+        }
         ErrorLogger.info(TAG, "🥇 Found ${metalMarkets.size} metals: ${metalMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<MetalSignal>()

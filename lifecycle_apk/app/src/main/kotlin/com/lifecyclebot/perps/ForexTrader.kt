@@ -280,9 +280,13 @@ object ForexTrader {
         ErrorLogger.info(TAG, "💱 ═══════════════════════════════════════════════")
         ErrorLogger.info(TAG, "💱 FOREX SCAN #$scanNum | spot=${spotPositions.size} | lev=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
-        // Get all forex markets
-        val forexMarkets = PerpsMarket.values().filter { it.isForex }
-        ErrorLogger.info(TAG, "💱 Found ${forexMarkets.size} forex pairs: ${forexMarkets.map { it.symbol }}")
+        // Get all forex markets — in live mode, only EURUSD/EUR has a real on-chain route
+        // via EURC (Circle-native EUR stablecoin). All other pairs have no tokenized Solana
+        // mint and will never execute live. Filter them out in live mode.
+        val forexMarkets = PerpsMarket.values().filter {
+            it.isForex && (isPaperMode.get() || TokenizedAssetRegistry.hasRealRoute(it.symbol))
+        }
+        ErrorLogger.info(TAG, "💱 Found ${forexMarkets.size} forex pairs${if (!isPaperMode.get()) " [LIVE-ROUTED]" else " [PAPER]"}: ${forexMarkets.map { it.symbol }}")
         
         val spotSignals = mutableListOf<ForexSignal>()
         val leverageSignals = mutableListOf<ForexSignal>()

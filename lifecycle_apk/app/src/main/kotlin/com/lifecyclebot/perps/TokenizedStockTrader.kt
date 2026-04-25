@@ -613,8 +613,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // V5.7.7: PRIORITIZE Pyth-supported stocks for reliable price feeds
         val pythSupported = PythOracle.getSupportedSymbols()
-        val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) }
-        val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) }
+        // V5.9.252: In LIVE mode, only scan stocks that have a verified on-chain
+        // route (TokenizedAssetRegistry). Paper-only symbols generate SIGNAL logs
+        // that can never execute — skip them early to save CPU and avoid confusion.
+        val hasRoute: (PerpsMarket) -> Boolean = { m ->
+            isPaperMode.get() || TokenizedAssetRegistry.hasRealRoute(m.symbol)
+        }
+        val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) && hasRoute(it) }
+        val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) && hasRoute(it) }
         
         // V5.9.91: Crypto is fully owned by CryptoAltTrader now — TST
         // scanning them too produced duplicate low-conviction signals on the
