@@ -448,7 +448,7 @@ object CollectiveIntelligenceAI {
             
             for ((modeName, stats) in modeStats) {
                 // V5.9.220+: Use only decisive trades (wins+losses) for WR, not totalTrades
-                val decisiveStats = stats.wins + stats.losses
+                val decisiveStats = stats.totalTrades.coerceAtLeast(stats.wins)
                 val winRate = if (decisiveStats > 0) {
                     stats.wins.toDouble() / decisiveStats * 100
                 } else 0.0
