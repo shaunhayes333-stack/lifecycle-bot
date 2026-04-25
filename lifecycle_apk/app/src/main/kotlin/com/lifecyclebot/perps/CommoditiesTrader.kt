@@ -324,8 +324,8 @@ object CommoditiesTrader {
                     }
                 }
                 
-                // Generate LEVERAGE signal if no leverage position
-                if (!hasLeveragePosition(market)) {
+                // Generate LEVERAGE signal if no leverage position (only if UI toggle allows)
+                if (preferLeverage.get() && !hasLeveragePosition(market)) {
                     val leverageSignal = analyzeMarket(market, data, TradeType.LEVERAGE)
                     if (leverageSignal != null && leverageSignal.score >= levScoreThresh && leverageSignal.confidence >= levConfThresh) {
                         leverageSignals.add(leverageSignal)
@@ -354,14 +354,16 @@ object CommoditiesTrader {
         
         ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
         
-        // Execute signals
+        // Execute signals — respect UI SPOT/LEVERAGE toggle
         for (signal in topSpotSignals) {
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
             executeSignal(signal)
         }
-        for (signal in topLeverageSignals) {
-            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
-            executeSignal(signal)
+        if (preferLeverage.get()) {
+            for (signal in topLeverageSignals) {
+                if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+                executeSignal(signal)
+            }
         }
     }
     

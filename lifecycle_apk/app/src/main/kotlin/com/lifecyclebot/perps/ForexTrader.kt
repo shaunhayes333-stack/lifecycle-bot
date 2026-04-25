@@ -302,8 +302,8 @@ object ForexTrader {
                     if (!spotPositions.values.any { it.market == market }) {
                         spotSignals.add(signal.copy(leverage = 1.0))
                     }
-                    // LEVERAGE signal - uses fluid threshold
-                    if (signal.score >= levScoreThresh && !leveragePositions.values.any { it.market == market }) {
+                    // LEVERAGE signal - uses fluid threshold (only if UI toggle allows)
+                    if (preferLeverage.get() && signal.score >= levScoreThresh && !leveragePositions.values.any { it.market == market }) {
                         leverageSignals.add(signal.copy(leverage = 10.0))
                     }
                 }
@@ -331,9 +331,11 @@ object ForexTrader {
             if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
             executeSignal(signal, spotPositions, "💰 SPOT")
         }
-        for (signal in topLeverageSignals) {
-            if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
-            executeSignal(signal, leveragePositions, "⚡ 10x")
+        if (preferLeverage.get()) {
+            for (signal in topLeverageSignals) {
+                if (spotPositions.size + leveragePositions.size >= MAX_POSITIONS) break
+                executeSignal(signal, leveragePositions, "⚡ 10x")
+            }
         }
     }
     
