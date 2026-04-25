@@ -383,11 +383,14 @@ object SymbolicExitReasoner {
         totalConviction += momentumSignal * 0.05
 
         // 24. Time Pressure (weight: 0.04) — mode-aware hold window
-        val maxHoldSec = when (tradingMode) {
-            "LAUNCH_SNIPE" -> 900L
-            "RANGE_TRADE"  -> 3600L
-            "MOONSHOT"     -> 7200L
-            else           -> 1800L
+        val maxHoldSec = when {
+            tradingMode == "LAUNCH_SNIPE" -> 900L
+            tradingMode == "RANGE_TRADE"  -> 3600L
+            tradingMode == "MOONSHOT"     -> 7200L
+            // V5.9.229: CryptoAlt trades need 60 min window — alts move slower than memes
+            tradingMode.startsWith("DynScan") || tradingMode.startsWith("CryptoAlt") ||
+                tradingMode.contains("learning mode") -> 3600L
+            else -> 1800L
         }
         val timePressure = when {
             holdTimeSec > maxHoldSec * 1.5 -> 0.7

@@ -75,11 +75,11 @@ object CryptoAltTrader {
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
 
     // V5.9.221: Stagnant + loser eviction thresholds
-    private const val STAGNANT_MIN_HOLD_MS  = 5  * 60 * 1000L  // 5 min — cut stagnant slots fast
-    private const val STAGNANT_MAX_PNL_PCT  = 1.0               // ±1% = stagnant (going nowhere)
+    private const val STAGNANT_MIN_HOLD_MS  = 15 * 60 * 1000L  // V5.9.229: 5→15 min — alts need time to develop
+    private const val STAGNANT_MAX_PNL_PCT  = 0.5               // V5.9.229: ±0.5% = truly stagnant (was ±1% — evicted too many flat→pump setups)
     private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
     private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
-    private const val DEADWEIGHT_HOLD_MS    = 12 * 60 * 1000L  // 12 min hard cap — exit regardless
+    private const val DEADWEIGHT_HOLD_MS    = 30 * 60 * 1000L  // V5.9.229: 12→30 min — alts routinely need 20-40 min to move
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -1473,8 +1473,10 @@ object CryptoAltTrader {
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
-            // Don't evict big winners — let them run
-            if (pnlPct >= 5.0) continue
+            // V5.9.229: protect ANY winning position — even small gains deserve to run
+            if (pnlPct >= 1.0) continue
+
+
 
             when {
                 holdMs >= DEADWEIGHT_HOLD_MS -> {

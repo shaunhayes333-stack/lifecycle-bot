@@ -990,7 +990,7 @@ object FluidLearningAI {
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
-    private const val MARKETS_TP_BOOTSTRAP = 4.0    // V5.9.8: start conservative
+    private const val MARKETS_TP_BOOTSTRAP = 8.0    // V5.9.229: 4→8% — tiny wins were killing net PnL; alts need room to breathe
     private const val MARKETS_TP_MATURE = 25.0   // V5.9.8: was 8% — was capping legitimate big moves
     
     // Stop Loss targets - WIDER at bootstrap for learning
