@@ -492,12 +492,22 @@ object CryptoAltTrader {
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
                                 // V5.9.2: Convert to tradeable AltSignal
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
-                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
-                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
-                                    score = sig.confidence, confidence = sig.confidence, price = price,
-                                    priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence}"),
-                                    layerVotes = emptyMap()
-                                ))
+                                if (dynMarket != null) {
+                                    // V5.9.230: direction from buyPressure + momentum, not just price sign
+                                    val scDir = when {
+                                        buyPct >= 60 && momentum > 0 -> PerpsDirection.LONG
+                                        buyPct < 40 && momentum < 0  -> PerpsDirection.SHORT
+                                        momentum > 3.0               -> PerpsDirection.LONG
+                                        momentum < -3.0              -> PerpsDirection.SHORT
+                                        else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+                                    }
+                                    dynExecutableSignals.add(AltSignal(
+                                        market = dynMarket, direction = scDir,
+                                        score = sig.confidence, confidence = sig.confidence, price = price,
+                                        priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence} ${scDir.name}"),
+                                        layerVotes = emptyMap()
+                                    ))
+                                }
                             }
                         } catch (_: Exception) {}
                     }
@@ -525,12 +535,19 @@ object CryptoAltTrader {
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
-                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
-                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
-                                    score = sig.confidence + 5, confidence = sig.confidence, price = price,
-                                    priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M"),
-                                    layerVotes = emptyMap()
-                                ))
+                                if (dynMarket != null) {
+                                    val bcDir = when {
+                                        buyPct >= 55 && momentum > 1.0 -> PerpsDirection.LONG
+                                        buyPct < 45 && momentum < -1.0 -> PerpsDirection.SHORT
+                                        else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+                                    }
+                                    dynExecutableSignals.add(AltSignal(
+                                        market = dynMarket, direction = bcDir,
+                                        score = sig.confidence + 5, confidence = sig.confidence, price = price,
+                                        priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M ${bcDir.name}"),
+                                        layerVotes = emptyMap()
+                                    ))
+                                }
                             }
                         } catch (_: Exception) {}
                     }
@@ -586,7 +603,8 @@ object CryptoAltTrader {
                                 try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
-                                    market = dynMarket, direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT,
+                                    // V5.9.230: Moonshot is always LONG (looking for explosive upside)
+                                    market = dynMarket, direction = PerpsDirection.LONG,
                                     score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}"),
                                     layerVotes = emptyMap()
@@ -861,7 +879,29 @@ object CryptoAltTrader {
         var confidence = 50
 
         val change    = data.priceChange24hPct
-        val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+        // V5.9.230: INDEPENDENT DIRECTION — evaluate LONG and SHORT separately.
+        // Old code always picked LONG when change >= 0, meaning in flat/sideways markets
+        // (most alts sitting at +0.01% to +0.83%) EVERY signal was LONG.
+        // Now: pick direction based on strongest technical signal, not just price sign.
+        val technicalDirection = run {
+            // Prefer RSI/MACD direction when available (seeded from OHLC)
+            try {
+                PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
+                PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
+                val tech = PerpsAdvancedAI.analyzeTechnicals(market)
+                // RSI<40 → strong SHORT signal; RSI>60 → strong LONG signal; else use price
+                when {
+                    tech.rsi < 35.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH -> PerpsDirection.SHORT
+                    tech.rsi < 35.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH_CROSS -> PerpsDirection.SHORT
+                    tech.rsi > 65.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH -> PerpsDirection.LONG
+                    tech.rsi > 65.0 && tech.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH_CROSS -> PerpsDirection.LONG
+                    tech.isOversold  -> PerpsDirection.LONG
+                    tech.isOverbought -> PerpsDirection.SHORT
+                    else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+                }
+            } catch (_: Exception) { if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT }
+        }
+        val direction = technicalDirection
 
         // ── Layer 1: Price Momentum ───────────────────────────────────────────
         when {
@@ -873,14 +913,18 @@ object CryptoAltTrader {
         layerVotes["Momentum"] = direction
 
         // ── Layer 2: Alt Category / Sector Bonus ─────────────────────────────
+        // V5.9.230: Direction-aware sector bonus — SHORT gets same treatment as LONG
+        val sectorBoostDir = direction
         when {
             // Layer 1 DeFi blue-chips
             market.symbol in listOf("AAVE", "MKR", "CRV", "SNX", "LDO", "RPL") -> {
-                score += 8; confidence += 10; reasons.add("🏛️ DeFi blue-chip")
+                score += 8; confidence += 10
+                reasons.add(if (sectorBoostDir == PerpsDirection.LONG) "🏛️ DeFi blue-chip" else "🏛️ DeFi blue-chip SHORT")
             }
             // Meme / narrative
             market.symbol in listOf("SHIB", "FLOKI", "TRUMP", "POPCAT", "NOT") -> {
-                score += 12; confidence += 5; reasons.add("🐸 Meme narrative play")
+                score += 12; confidence += 5
+                reasons.add(if (sectorBoostDir == PerpsDirection.LONG) "🐸 Meme narrative play" else "🐸 Meme SHORT")
             }
             // Gaming / metaverse
             market.symbol in listOf("AXS", "SAND", "MANA", "IMX") -> {
@@ -939,10 +983,8 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         // ── Layer 4: Technical Analysis (PerpsAdvancedAI) ────────────────────
+        // V5.9.230: History already seeded in direction block above — just analyze
         try {
-            // V5.9.172 — seed history from real 24h OHLC so RSI/MACD aren't stuck at 50.
-            PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
-            PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
             val technicals = PerpsAdvancedAI.analyzeTechnicals(market)
 
             if (technicals.recommendation == direction) {
@@ -1090,14 +1132,22 @@ object CryptoAltTrader {
             }
         } catch (_: Exception) {}
 
-        // ── Always-Trade floor (paper learning mode) ─────────────────────────
-        // V5.9.219: Lowered floor from 50/40 → 35/25.
-        // Floor of 50 was overriding technical vetoes (-18 pts) and MACD-bearish signals.
-        // e.g. GALA RSI=42 MACD=BEARISH scored 100 because floor+sector heat overwhelmed vetoes.
-        // At 35, a vetoed token (50 base - 18 veto = 32) will actually fall below threshold.
-        if (score < 35)      score      = 35
-        if (confidence < 25) confidence = 25
+        // V5.9.230: Remove score floor — it was overriding technical vetoes.
+        // A vetoed token (50 base - 18 veto = 32) must actually score below
+        // the entry threshold and be REJECTED. Floor of 35 was handing out free passes.
+        // Only guard against negatives (score can go negative from multiple vetoes).
+        if (score < 0)      score      = 0
+        if (confidence < 0) confidence = 0
         reasons.add("📚 CryptoAlt learning mode")
+
+        // V5.9.230: Hard garbage gate — if both score AND confidence are below floor,
+        // return null. This prevents the FluidLearning threshold (currently ~5 at bootstrap)
+        // from letting every single signal through in early learning. The gate scales:
+        // below 20/20 means even the combined weight of all layers couldn't build conviction.
+        if (score < 20 && confidence < 20) {
+            ErrorLogger.debug(TAG, "🗑️ GARBAGE GATE: ${market.symbol} score=$score conf=$confidence — rejected")
+            return null
+        }
 
         return AltSignal(
             market         = market,
@@ -1613,8 +1663,8 @@ object CryptoAltTrader {
                                 closePosition(id, "FLUID_LOCK: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% lock=+${dynamicLock.toInt()}%")
                             peakDrawdownFired ->
                                 closePosition(id, "PEAK_DRAWDOWN: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% (gave back ${(peakPnl - currentPnl).toInt()}%)")
-                            updated.shouldTakeProfit(tpPct * 1.5) ->
-                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 1.5}%")
+                            updated.shouldTakeProfit(tpPct * 2.5) ->  // V5.9.230: 1.5→2.5x TP ceiling (bootstrap 8%×2.5=20%)
+                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 2.5}%")  // V5.9.230: was 1.5x — too tight at bootstrap
                         }
                     }
                 }

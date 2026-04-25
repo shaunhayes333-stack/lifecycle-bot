@@ -55,8 +55,11 @@ object JupiterPerps {
     // API Endpoints
     private val networkRetry = com.lifecyclebot.network.NetworkRetry("JupiterPerps", maxRetries = 3, baseDelayMs = 800L)
 
-    // V5.9: Real Jupiter Perpetuals API (v2 production endpoint)
-    private const val JUPITER_PERPS_API = "https://api.jup.ag/perps/v2"
+    // V5.9.230: Jupiter Perps v2 is retired (returns 404). Replaced with Flash.trade.
+    // JupiterPerps.kt is now a thin wrapper — execution routes via MarketsLiveExecutor.executeFlashTradePerps()
+    @Deprecated("Jupiter Perps v2 retired — use MarketsLiveExecutor.executeFlashTradePerps()")
+    private const val JUPITER_PERPS_API = "https://api.jup.ag/perps/v2"  // DEAD — 404
+    private const val FLASH_TRADE_API   = "https://api.flash.trade/v1"   // ACTIVE replacement
     private const val JUPITER_PRICE_API = "https://price.jup.ag/v4"
     
     // Pool addresses (mainnet)
