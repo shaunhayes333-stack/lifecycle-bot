@@ -122,13 +122,14 @@ class StartupReconciler(
                 if (adoptPrice <= 0.0) return@forEach
                 synchronized(ts) {
                     ts.position = com.lifecyclebot.data.Position(
-                        entryPrice = adoptPrice,
-                        entryTime  = System.currentTimeMillis() - 60_000L,
-                        qtyToken   = qty,
-                        costSol    = 0.0,
-                        entryScore = 50.0,
-                        entryPhase = "adopted_from_wallet",
-                        highestPrice = adoptPrice,
+                        entryPrice      = adoptPrice,
+                        entryTime       = System.currentTimeMillis() - 60_000L,
+                        qtyToken        = qty,
+                        costSol         = 0.0,
+                        entryScore      = 50.0,
+                        entryPhase      = "adopted_from_wallet",
+                        highestPrice    = adoptPrice,
+                        isPaperPosition = false,  // V5.9.252 FIX: adopted tokens are LIVE — must execute real sells
                     )
                 }
                 adoptedMints += mint

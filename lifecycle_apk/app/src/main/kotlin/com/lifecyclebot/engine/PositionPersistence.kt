@@ -464,7 +464,7 @@ object PositionPersistence {
                     entryScore = obj.optDouble("entryScore", 0.0),
                     entryLiquidityUsd = obj.optDouble("entryLiquidityUsd", 0.0),
                     entryMcap = obj.optDouble("entryMcap", 0.0),
-                    isPaperPosition = obj.optBoolean("isPaperPosition", true),
+                    isPaperPosition = obj.optBoolean("isPaperPosition", false),  // V5.9.252 FIX: default LIVE not paper — old saved positions without this field are on-chain positions
                     tradingMode = obj.optString("tradingMode", "STANDARD"),
                     tradingModeEmoji = obj.optString("tradingModeEmoji", "📈"),
                     modeHistory = obj.optString("modeHistory", ""),
