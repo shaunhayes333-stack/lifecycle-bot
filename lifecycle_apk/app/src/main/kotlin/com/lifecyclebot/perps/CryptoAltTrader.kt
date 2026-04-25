@@ -63,12 +63,15 @@ object CryptoAltTrader {
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
     // V5.9.189: was 10,000 — way too many. 3% per pos × 20 = 60% max exposure as designed.
-    private const val MAX_POSITIONS         = 100  // V5.9.201: User request — match Forex/Metals/Commodities cap
+    private const val MAX_POSITIONS         = 20   // V5.9.219: 100 → 20 — at 11 SOL balance, 100 positions = 0.11 SOL each (meaningless)
+
+    // V5.9.219: Tokens with no active price feeds on any source — skip to avoid spam
+    private val NO_FEED_SYMBOLS = setOf("BLAST", "SCROLL", "CVXF", "PORTAL")
     // V5.9.91: SOFT cap — once positions exceed this, new entries only open
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
     // saturating at 110+ dead trades.
-    private const val SOFT_CAP_POSITIONS    = 80   // V5.9.201: scaled with MAX_POSITIONS 100 — replacement kicks in at 80
+    private const val SOFT_CAP_POSITIONS    = 15   // V5.9.219: trigger replacement at 15 positions
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
@@ -675,7 +678,11 @@ object CryptoAltTrader {
 
                 if (data.price <= 0) {
                     skippedPrice++
+                    if (market.symbol in NO_FEED_SYMBOLS) {
+                    ErrorLogger.debug(TAG, "🪙 ${market.symbol}: no feed configured — silenced")
+                } else {
                     ErrorLogger.warn(TAG, "🪙 ${market.symbol}: price=0 — skipped")
+                }
                     continue
                 }
 
@@ -936,6 +943,18 @@ object CryptoAltTrader {
             }
             if (technicals.isOversold  && direction == PerpsDirection.LONG)  { score += 15; reasons.add("📉 Oversold bounce") }
             if (technicals.isOverbought && direction == PerpsDirection.SHORT) { score += 15; reasons.add("📈 Overbought short") }
+
+            // V5.9.219: TECHNICAL VETO — if indicators strongly contradict direction, penalise
+            // Prevents GALA-style LONG on RSI=42 MACD=BEARISH (was score=100 due to floor+sector heat)
+            val macdStr = technicals.macdSignal ?: ""
+            if (direction == PerpsDirection.LONG && macdStr.contains("BEARISH", ignoreCase = true) && technicals.rsi < 50) {
+                score -= 18; confidence -= 15
+                reasons.add("⚠️ Tech veto: MACD bearish + RSI<50 on LONG")
+            }
+            if (direction == PerpsDirection.SHORT && macdStr.contains("BULLISH", ignoreCase = true) && technicals.rsi > 50) {
+                score -= 15; confidence -= 12
+                reasons.add("⚠️ Tech veto: MACD bullish + RSI>50 on SHORT")
+            }
         } catch (_: Exception) {}
 
         // ── Layer 5: Volume Spike ─────────────────────────────────────────────
@@ -1062,12 +1081,13 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         // ── Always-Trade floor (paper learning mode) ─────────────────────────
-        // V5.9.198: Raised floor from 35/30 → 50/40.
-        // Old floor guaranteed every signal passed bootstrap gate (threshold=5/5),
-        // flooding the desk with 17+ low-conviction positions, WR ~17%.
-        if (score < 50)      score      = 50
-        if (confidence < 40) confidence = 40
-        reasons.add("📚 CryptoAlt ALWAYS_TRADE learning mode")
+        // V5.9.219: Lowered floor from 50/40 → 35/25.
+        // Floor of 50 was overriding technical vetoes (-18 pts) and MACD-bearish signals.
+        // e.g. GALA RSI=42 MACD=BEARISH scored 100 because floor+sector heat overwhelmed vetoes.
+        // At 35, a vetoed token (50 base - 18 veto = 32) will actually fall below threshold.
+        if (score < 35)      score      = 35
+        if (confidence < 25) confidence = 25
+        reasons.add("📚 CryptoAlt learning mode")
 
         return AltSignal(
             market         = market,
