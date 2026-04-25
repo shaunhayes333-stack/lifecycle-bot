@@ -1,5 +1,9 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.data.Trade
+
+import com.lifecyclebot.engine.TradeHistoryStore
+
 import com.lifecyclebot.collective.CollectiveSchema
 import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.collective.MarketsTradeRecord
@@ -1424,6 +1428,26 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
         }
+
+
+        // V5.9.248: Log stocks trades to shared TradeHistoryStore (live journal)
+        try {
+            val modeStr248 = if (isPaperMode.get()) "paper" else "live"
+            TradeHistoryStore.recordTrade(Trade(
+                side             = "SELL",
+                mode             = modeStr248,
+                sol              = position.sizeSol,
+                price            = position.currentPrice,
+                ts               = System.currentTimeMillis(),
+                reason           = "Stocks:$reason",
+                pnlSol           = netPnlSol,
+                pnlPct           = netPnlPct,
+                score            = 50.0,
+                tradingMode      = "Stocks",
+                tradingModeEmoji = "📈",
+                mint             = position.market.symbol,
+            ))
+        } catch (_: Exception) {}
 
         // V5.7.6b: Persist to Turso for learning memory (with net P&L)
         persistTradeToTurso(position, reason, netPnlSol, netPnlPct, isWin, holdMins)

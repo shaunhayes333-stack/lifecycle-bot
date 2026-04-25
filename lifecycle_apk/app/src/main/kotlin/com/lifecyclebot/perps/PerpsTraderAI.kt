@@ -1,5 +1,9 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.data.Trade
+
+import com.lifecyclebot.engine.TradeHistoryStore
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.collective.PerpsTradeRecord
 import com.lifecyclebot.collective.PerpsPositionRecord
@@ -1020,6 +1024,26 @@ object PerpsTraderAI {
         } catch (e: Exception) {
             android.util.Log.d("PerpsTraderAI", "Sentience hook error: ${e.message}")
         }
+
+        // V5.9.248: Wire perps trades into shared journal (live + paper tabs)
+        try {
+            val modeStr248 = if (position.isPaper) "paper" else "live"
+            val dirEmoji = if (position.direction.name == "LONG") "📈" else "📉"
+            TradeHistoryStore.recordTrade(Trade(
+                side             = "SELL",
+                mode             = modeStr248,
+                sol              = position.sizeSol,
+                price            = exitPrice,
+                ts               = System.currentTimeMillis(),
+                reason           = "Perps:${exitReason.displayName}",
+                pnlSol           = pnlSol,
+                pnlPct           = pnlPct,
+                score            = position.entryScore.toDouble(),
+                tradingMode      = "Perps_${position.leverage.toInt()}x",
+                tradingModeEmoji = dirEmoji,
+                mint             = position.market.symbol,
+            ))
+        } catch (_: Exception) {}
 
         save()
         return trade

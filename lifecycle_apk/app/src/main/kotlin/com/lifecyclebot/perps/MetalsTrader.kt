@@ -1,5 +1,9 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.data.Trade
+
+import com.lifecyclebot.engine.TradeHistoryStore
+
 import com.lifecyclebot.collective.CollectiveSchema
 import com.lifecyclebot.collective.CollectiveLearning
 import com.lifecyclebot.collective.MarketsTradeRecord
@@ -898,7 +902,27 @@ object MetalsTrader {
             android.util.Log.d("METALSTrader", "Sentience hook error: ${e.message}")
         }
 
-        persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
+
+        // V5.9.248: Log ALL universe trades to shared TradeHistoryStore so they appear in Live/Paper journal
+        try {
+            val modeStr248 = if (isPaperMode.get()) "paper" else "live"
+            TradeHistoryStore.recordTrade(Trade(
+                side             = "SELL",
+                mode             = modeStr248,
+                sol              = position.size,
+                price            = position.currentPrice,
+                ts               = System.currentTimeMillis(),
+                reason           = "Metals:$reason",
+                pnlSol           = pnl,
+                pnlPct           = pnlPct,
+                score            = 50.0,
+                tradingMode      = "Metals",
+                tradingModeEmoji = "🥇",
+                mint             = position.market.symbol,
+            ))
+        } catch (_: Exception) {}
+
+                persistTradeToTurso(position, reason, pnl, pnlPct, isWin)
     }
     
     /**
