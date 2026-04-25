@@ -254,8 +254,11 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // V5.3: Apply throughout entire bootstrap phase (learning < 50% = first 500 trades)
-        if (getLearningProgress() >= 0.50) return false
+        // V5.9.222: Extended bootstrap assist through 70% progress.
+        // At 50% (991 trades) the bot is still in the learning curve;
+        // completely disabling force-entry here starves the meme scanner
+        // of volume. Quality bars (score>=50, buy%>=25) prevent trash entries.
+        if (getLearningProgress() >= 0.70) return false
         
         // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {

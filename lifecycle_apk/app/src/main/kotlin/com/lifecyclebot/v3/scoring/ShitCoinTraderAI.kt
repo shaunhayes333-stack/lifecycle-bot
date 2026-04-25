@@ -805,9 +805,12 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
-        // V5.9.218: HARD GATE — reject dead/fading tokens before threshold check
-        // Pattern: flat price + mediocre buy pressure = almost always a rug
-        if (momentum <= 0.0 && buyPressurePct < 60.0) {
+        // V5.9.222: HARD GATE — reject genuinely dying tokens before threshold check
+        // Pattern: actively falling price + minority buyers = likely rug/fade
+        // Tightened from (<=0 && <60) → (<-5 && <50): flat momentum is normal
+        // for tokens discovered mid-cycle; don't reject every token that isn't
+        // actively pumping. Require both: clear negative momentum AND sub-50% buys.
+        if (momentum < -5.0 && buyPressurePct < 50.0) {
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
