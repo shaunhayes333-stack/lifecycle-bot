@@ -6274,8 +6274,8 @@ if (deferredCount > 0) {
                                 (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
                             } else Double.MAX_VALUE
                             if (tokenAgeMins < 5.0) {
-                                val freshLaunchMinScore = (15 + com.lifecyclebot.v3.scoring.FluidLearningAI
-                                    .getLearningProgress() * 25).toInt().coerceIn(15, 40)
+                                val freshLaunchMinScore = (10 + com.lifecyclebot.v3.scoring.FluidLearningAI
+                                    .getLearningProgress() * 30).toInt().coerceIn(10, 40)
                                 if (result.score < freshLaunchMinScore) {
                                     ErrorLogger.info(
                                         "BotService",

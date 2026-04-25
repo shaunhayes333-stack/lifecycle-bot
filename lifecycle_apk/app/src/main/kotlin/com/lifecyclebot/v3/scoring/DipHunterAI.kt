@@ -611,7 +611,7 @@ object DipHunterAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // V4.1.2: Lowered bootstrap conf from 65% to 25% + boost system
-    private const val DIP_CONF_BOOTSTRAP = 25   // V5.9.260: restored to 59% WR baseline (was 5 at V5.9.180)
+    private const val DIP_CONF_BOOTSTRAP = 15   // V5.9.263: balanced (was 25 at V5.9.260)
     private const val DIP_CONF_MATURE = 50      // Build up to 50% as we scale
     private const val DIP_CONF_BOOST_MAX = 10.0 // 10% bootstrap boost (decays as we learn)
     
