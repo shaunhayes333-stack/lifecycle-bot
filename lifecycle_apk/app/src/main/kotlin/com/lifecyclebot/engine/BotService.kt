@@ -3816,7 +3816,9 @@ if (deferredCount > 0) {
             // ═══════════════════════════════════════════════════════════════════
             // CYCLIC TRADE ENGINE — $500 USD compound ring
             // ═══════════════════════════════════════════════════════════════════
-            if (cfg.cyclicTradeEnabled && loopCount % 10 == 0) {
+            // V5.9.222: Always tick CyclicTradeEngine — it runs paper permanently.
+            // Live mode is gated internally by cfg.cyclicTradeLiveEnabled / treasury threshold.
+            if (loopCount % 10 == 0) {
                 try {
                     val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
                     CyclicTradeEngine.tick(

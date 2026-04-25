@@ -243,7 +243,7 @@ data class BotConfig(
     val perpsEnabled: Boolean = true,           // SOL Perps trader
 
     // ═══ Cyclic Trade Ring ($500 USD compound ring) ═══
-    val cyclicTradeEnabled: Boolean = false,        // Enable the $500 USD cyclic ring
+    val cyclicTradeEnabled: Boolean = true,         // V5.9.222: Always on by default — paper runs permanently
     val cyclicTradeLiveEnabled: Boolean = false,     // Force live execution (overrides treasury threshold)
 )
 
@@ -545,7 +545,7 @@ object ConfigStore {
             metalsEnabled               = p.getBoolean("metals_enabled", true),
             forexEnabled                = p.getBoolean("forex_enabled", true),
             perpsEnabled                = p.getBoolean("perps_enabled", true),
-            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", false),
+            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", true),  // V5.9.222: default on
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
         )
     }

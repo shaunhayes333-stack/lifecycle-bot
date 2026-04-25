@@ -90,13 +90,18 @@ object CyclicTradeEngine {
         walletSol: Double
     ) {
         val cfg = ConfigStore.load(context)
-        if (!cfg.cyclicTradeEnabled) return
+        // V5.9.222: Always run in paper mode — paper needs no user opt-in.
+        // Live execution still requires cyclicTradeLiveEnabled or treasury >= $5K.
+        // The old hard-return on !cyclicTradeEnabled was silently killing the engine
+        // because the flag defaulted to false and had no UI toggle.
         if (!enabled.get()) { enabled.set(true) }
 
         // Determine live vs paper
         val treasuryUsd = TreasuryManager.treasuryUsd
         val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        isLiveMode = cfg.cyclicTradeLiveEnabled || treasuryUsd >= 5_000.0
+        // Paper is always allowed; live requires explicit opt-in or $5K treasury
+        isLiveMode = (cfg.cyclicTradeEnabled && cfg.cyclicTradeLiveEnabled) ||
+                     (cfg.cyclicTradeEnabled && treasuryUsd >= 5_000.0)
 
         // Compute ring size in SOL
         if (ringBalanceSol <= 0.0) {
