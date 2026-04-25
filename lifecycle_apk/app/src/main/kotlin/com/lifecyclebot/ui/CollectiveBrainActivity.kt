@@ -151,10 +151,10 @@ class CollectiveBrainActivity : AppCompatActivity() {
         tvAvgHold = try { findViewById(R.id.tvBrainAvgHold) } catch (_: Exception) { TextView(this) }
         btnForceSync = findViewById(R.id.btnForceSync)
         // V5.9.230: Sentience panel — create dynamically (no layout change needed)
-        llSentiencePanel = try {
-            findViewById(R.id.llSentiencePanel)
-        } catch (_: Exception) {
-            android.widget.LinearLayout(this).also { ll -> ll.orientation = android.widget.LinearLayout.VERTICAL }
+        // V5.9.236 build-fix: R.id.llSentiencePanel does not exist in any layout,
+        // so synthesize the panel programmatically instead of resolving by ID.
+        llSentiencePanel = android.widget.LinearLayout(this).also { ll ->
+            ll.orientation = android.widget.LinearLayout.VERTICAL
         }
 
         // V4.20: Force sync button

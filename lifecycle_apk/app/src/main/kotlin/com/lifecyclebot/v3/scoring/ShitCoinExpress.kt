@@ -385,6 +385,13 @@ object ShitCoinExpress {
         }
         expressScore += ageScore
         
+        // V5.9.236 build-fix: compute metaTrustMult BEFORE using it in confidence
+        val metaTrustMult: Double = try {
+            val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+            val layer = metaPerf[com.lifecyclebot.v3.scoring.MetaCognitionAI.AILayer.SHITCOIN_EXPRESS]
+            (layer?.trustMultiplier ?: 1.0).coerceIn(0.75, 1.30)
+        } catch (_: Exception) { 1.0 }
+        
         // Calculate confidence
         val confidence = ((expressScore / 110.0) * 100 * metaTrustMult).toInt().coerceIn(0, 100)
         
@@ -413,12 +420,7 @@ object ShitCoinExpress {
             }
         } catch (_: Exception) {}
 
-        // 3. MetaCognitionAI — trust multiplier stored; applied to confidence below
-        val metaTrustMult: Double = try {
-            val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
-            val layer = metaPerf[com.lifecyclebot.v3.scoring.MetaCognitionAI.AILayer.SHITCOIN_EXPRESS]
-            (layer?.trustMultiplier ?: 1.0).coerceIn(0.75, 1.30)
-        } catch (_: Exception) { 1.0 }
+        // 3. MetaCognitionAI — trust multiplier already applied to confidence above (V5.9.236)
 
         // 4. EducationSubLayerAI — mute/boost on score
         try {
