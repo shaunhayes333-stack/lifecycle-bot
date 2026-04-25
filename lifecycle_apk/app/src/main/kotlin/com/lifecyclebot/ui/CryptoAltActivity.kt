@@ -608,6 +608,32 @@ class CryptoAltActivity : AppCompatActivity() {
                 }
                 row.addView(rightCol)
                 tile.addView(row)
+
+                // ── Manual Close button ───────────────────────────────────────
+                val posId = pos.id
+                val closePosBtn = tv("🔴 Close", 10f, white, bold = true).apply {
+                    setPadding(12, 6, 12, 6)
+                    setBackgroundColor(0xFFEF4444.toInt())
+                    layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
+                    gravity = Gravity.CENTER
+                }
+                closePosBtn.setOnClickListener {
+                    AlertDialog.Builder(this@CryptoAltActivity)
+                        .setTitle("Close Position?")
+                        .setMessage("Manually close ${pos.market.symbol}?\nCurrent P&L: ${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%")
+                        .setPositiveButton("Yes, Close") { _, _ ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                CryptoAltTrader.requestClose(posId)
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closing ${pos.market.symbol}…", android.widget.Toast.LENGTH_SHORT).show()
+                                    buildFullDashboard()
+                                }
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+                tile.addView(closePosBtn)
                 tile.addView(thinDivider())
             }
         }
@@ -945,6 +971,40 @@ class CryptoAltActivity : AppCompatActivity() {
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
                 right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
                 right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
+                // Manual close chip
+                val closeMemeBtn = tv("✕", 11f, white, bold = true).apply {
+                    setPadding(10, 4, 10, 4)
+                    setBackgroundColor(0xFFDC2626.toInt())
+                    layoutParams = llp(wrap, wrap).apply { marginStart = 8 }
+                }
+                val posMint = pos.mint
+                val posSymbol = pos.symbol
+                val posEntryPriceCopy = pos.entryPrice
+                closeMemeBtn.setOnClickListener {
+                    AlertDialog.Builder(this@CryptoAltActivity)
+                        .setTitle("Close Meme Position?")
+                        .setMessage("Manually close $posSymbol now?\nP&L: ${"%.1f".format(gainPct)}%")
+                        .setPositiveButton("Yes, Sell") { _, _ ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                try {
+                                    ShitCoinTraderAI.closePosition(
+                                        posMint,
+                                        currentPrice.takeIf { it > 0 } ?: posEntryPriceCopy,
+                                        ShitCoinTraderAI.ExitSignal.EXTERNAL_SELL
+                                    )
+                                } catch (e: Exception) {
+                                    com.lifecyclebot.engine.ErrorLogger.warn("CryptoAltActivity", "Manual meme close error: \${e.message}")
+                                }
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closed $posSymbol", android.widget.Toast.LENGTH_SHORT).show()
+                                    buildFullDashboard()
+                                }
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+                row.addView(closeMemeBtn)
                 row.addView(right)
                 tile.addView(row)
                 tile.addView(thinDivider())
@@ -2995,6 +3055,33 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // ── Tap to open detail dialog with mini chart ─────────────────────────
         if (isOpen) {
+            // Visible close chip above the progress bar
+            val closePosChip = tv("🔴 Close", 10f, white, bold = true).apply {
+                setPadding(14, 6, 14, 6)
+                setBackgroundColor(0xFFEF4444.toInt())
+                layoutParams = llp(match, wrap).apply { setMargins(13, 0, 13, 6) }
+                gravity = Gravity.CENTER
+            }
+            val posIdCompact = pos.id
+            val posSymCompact = pos.market.symbol
+            closePosChip.setOnClickListener {
+                AlertDialog.Builder(this@CryptoAltActivity)
+                    .setTitle("Close Position?")
+                    .setMessage("Manually close $posSymCompact?")
+                    .setPositiveButton("Yes, Close") { _, _ ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            CryptoAltTrader.requestClose(posIdCompact)
+                            withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closing $posSymCompact…", android.widget.Toast.LENGTH_SHORT).show()
+                                selectTab(2)
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            outer.addView(closePosChip)
+
             outer.setOnClickListener {
                 showAltPositionDetailDialog(pos, dynTok, solPrice)
             }
