@@ -5306,7 +5306,7 @@ if (deferredCount > 0) {
                             
                             if (!moonshotScore.eligible) {
                                 // V5.9.244: Log moonshot rejections at INFO so we can diagnose silence
-                                ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | REJECTED | ${moonshotScore.reason} | mcap=${(ts.lastMcap/1000).toInt()}K liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()}% v3=${ts.lastV3Score ?: "null"}")
+                                ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | REJECTED | ${moonshotScore.rejectReason} | mcap=${(ts.lastMcap/1000).toInt()}K liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()}% v3=${ts.lastV3Score ?: "null"}")
                             }
                             if (moonshotScore.eligible) {
                                 // V5.2.8 FIX: Ensure Moonshot never uses 0% TP/SL
