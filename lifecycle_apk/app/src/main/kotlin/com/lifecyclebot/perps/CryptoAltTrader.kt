@@ -73,6 +73,13 @@ object CryptoAltTrader {
     // saturating at 110+ dead trades.
     private const val SOFT_CAP_POSITIONS    = 40   // V5.9.219b: trigger replacement at 40 positions
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
+
+    // V5.9.221: Stagnant + loser eviction thresholds
+    private const val STAGNANT_MIN_HOLD_MS  = 5  * 60 * 1000L  // 5 min — cut stagnant slots fast
+    private const val STAGNANT_MAX_PNL_PCT  = 1.0               // ±1% = stagnant (going nowhere)
+    private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
+    private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
+    private const val DEADWEIGHT_HOLD_MS    = 12 * 60 * 1000L  // 12 min hard cap — exit regardless
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -795,16 +802,18 @@ object CryptoAltTrader {
 
         for ((signal, verdict) in v3Filtered) {
             if (positions.size >= MAX_POSITIONS) {
-                ErrorLogger.debug(TAG, "Max positions reached")
+                ErrorLogger.debug(TAG, "Max positions reached (hard cap)")
                 break
             }
-            // V5.9.98: Soft cap + priority-replace removed per user — it was
-            // blocking genuine top-5 signals (SHIB 76, MNGO 74, XLM 74,
-            // ALPHA 74, AUDIO 74) because the current book of 39 held
-            // positions all had score >= 84. Let every qualifying signal
-            // open; MAX_POSITIONS (10_000) remains as the hard sanity
-            // bound. Fluid position size already shrinks low-conviction
-            // entries so over-cap risk is naturally bounded.
+            // V5.9.221: At soft cap, try to evict a weak/losing position to make room.
+            // If nothing can be evicted (all winners), skip this signal.
+            if (positions.size >= SOFT_CAP_POSITIONS) {
+                val freed = evictWeakestForReplacement(signal.score)
+                if (!freed) {
+                    ErrorLogger.debug(TAG, "🪙 Soft cap: no weak slot to replace for ${signal.market.symbol} (score=${signal.score}) — all winners, skipping")
+                    continue
+                }
+            }
 
             // V5.9.3: Respect the UI SPOT/LEVERAGE toggle instead of alternating by parity
             val useSpotDefault = !preferLeverage.get()
@@ -1448,11 +1457,81 @@ object CryptoAltTrader {
         }
     }
 
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.221: STAGNANT / LOSER EVICTION
+    // Runs every monitor cycle. Closes positions that are:
+    //   a) Deadweight:   held >12 min regardless of PnL
+    //   b) Stagnant:     held >5 min and PnL within ±1% (not moving)
+    //   c) Early loser:  held >3 min and PnL < -3%
+    // Also evicts the weakest slot when at SOFT_CAP to make room for better signals.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun evictStagnantAndLosers() {
+        val now = System.currentTimeMillis()
+        for ((id, pos) in positions.toMap()) {
+            val holdMs = now - pos.openTime
+            val pnlPct = pos.getPnlPct()
+
+            // Don't evict big winners — let them run
+            if (pnlPct >= 5.0) continue
+
+            when {
+                holdMs >= DEADWEIGHT_HOLD_MS -> {
+                    val label = if (pnlPct >= 0) "+${pnlPct.toInt()}%" else "${pnlPct.toInt()}%"
+                    closePosition(id, "DEADWEIGHT: $label after ${holdMs/60000}min — freeing slot")
+                    ErrorLogger.info(TAG, "🪙 ⏰ DEADWEIGHT evicted ${pos.market.symbol} ($label)")
+                }
+                holdMs >= STAGNANT_MIN_HOLD_MS && Math.abs(pnlPct) <= STAGNANT_MAX_PNL_PCT -> {
+                    closePosition(id, "STAGNANT: ${pnlPct.toInt()}% after ${holdMs/60000}min — no momentum")
+                    ErrorLogger.info(TAG, "🪙 😴 STAGNANT evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
+                }
+                holdMs >= LOSER_MIN_HOLD_MS && pnlPct <= LOSER_FAST_EXIT_PCT -> {
+                    closePosition(id, "FAST_LOSER: ${pnlPct.toInt()}% after ${holdMs/60000}min — cut early")
+                    ErrorLogger.info(TAG, "🪙 ✂️ FAST_LOSER evicted ${pos.market.symbol} (${pnlPct.toInt()}%)")
+                }
+            }
+        }
+    }
+
+    /**
+     * V5.9.221: At SOFT_CAP, evict the weakest position to make room for an
+     * incoming signal. Only evicts if the weakest is losing OR the incoming
+     * signal significantly outscores it.
+     */
+    private fun evictWeakestForReplacement(incomingScore: Int): Boolean {
+        if (positions.size < SOFT_CAP_POSITIONS) return true
+
+        val now = System.currentTimeMillis()
+        val candidate = positions.values
+            .filter { (now - it.openTime) >= 3 * 60 * 1000L }  // held at least 3 min
+            .minByOrNull { it.getPnlPct() + (it.aiScore / 10.0) }
+
+        if (candidate == null) return false
+
+        val pnlPct = candidate.getPnlPct()
+        val incomingBeats = incomingScore >= (candidate.aiScore + REPLACE_SCORE_MARGIN)
+        val weakestLosing = pnlPct <= -1.5
+
+        return if (incomingBeats || weakestLosing) {
+            val reason = if (weakestLosing)
+                "REPLACED_LOSER: ${pnlPct.toInt()}% score=${candidate.aiScore} → incoming=$incomingScore"
+            else
+                "REPLACED_WEAK: score=${candidate.aiScore} → incoming=$incomingScore"
+            ErrorLogger.info(TAG, "🪙 🔄 ${candidate.market.symbol} $reason")
+            closePosition(candidate.id, reason)
+            true
+        } else false
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // POSITION MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun monitorPositions() {
+        // V5.9.221: Evict stagnant/losing positions before checking each one
+        evictStagnantAndLosers()
+
         for ((id, position) in positions.toMap()) {
             try {
                 val data = PerpsMarketDataFetcher.getMarketData(position.market)
