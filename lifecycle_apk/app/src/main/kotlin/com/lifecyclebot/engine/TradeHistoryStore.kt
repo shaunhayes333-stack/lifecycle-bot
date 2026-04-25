@@ -378,11 +378,26 @@ object TradeHistoryStore {
         }
 
         val winningTrades = allSells.filter { isWin(it) }
+        val losingTrades  = allSells.filter { isLoss(it) }
         val avgWinPct = if (winningTrades.isNotEmpty()) {
             winningTrades.map { it.pnlPct }.average()
         } else {
             10.0
         }
+        // V5.9.220: avg loss and profit factor
+        val avgLossPct = if (losingTrades.isNotEmpty()) {
+            losingTrades.map { it.pnlPct }.average()  // negative value
+        } else {
+            -5.0
+        }
+        val profitFactor = if (losingTrades.isNotEmpty() && avgLossPct < 0.0 && winningTrades.isNotEmpty()) {
+            (avgWinPct * totalWins) / (Math.abs(avgLossPct) * totalLosses)
+        } else if (winningTrades.isNotEmpty()) {
+            2.0  // no losses yet — optimistic default
+        } else {
+            0.0
+        }
+        val totalPnlSol = allSells.sumOf { it.pnlSol }
 
         // Estimate avg hold time from trade timestamps (if we have buy/sell pairs)
         val avgHoldMinutes = 10
@@ -395,6 +410,9 @@ object TradeHistoryStore {
             totalTrades = totalCompleted,
             winRate = lifetimeWinRate,
             avgWinPct = avgWinPct,
+            avgLossPct = avgLossPct,
+            profitFactor = profitFactor,
+            totalPnlSol = totalPnlSol,
             avgHoldTimeMinutes = avgHoldMinutes,
             totalWins = totalWins,
             totalLosses = totalLosses,
@@ -413,6 +431,9 @@ object TradeHistoryStore {
         val totalTrades: Int = 0,
         val winRate: Double = 50.0,
         val avgWinPct: Double = 10.0,
+        val avgLossPct: Double = -5.0,   // V5.9.220: avg loss % for profit factor calc
+        val profitFactor: Double = 1.0,  // V5.9.220: (avgWin * wins) / (|avgLoss| * losses)
+        val totalPnlSol: Double = 0.0,   // V5.9.220: total realized PnL in SOL
         val avgHoldTimeMinutes: Int = 10,
         val totalWins: Int = 0,
         val totalLosses: Int = 0,

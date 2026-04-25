@@ -4093,58 +4093,82 @@ This cannot be undone!
      */
     private fun updateLiveReadiness() {
         try {
-            // Get trade history stats
+            // V5.9.220: Profitability-gated live readiness.
+            // READY requires ALL of:
+            //   1. >= 500 meaningful trades (W+L)
+            //   2. Win rate >= 50% (breakeven threshold at typical ~1:1 R:R)
+            //   3. Profit factor >= 1.3 (total gross wins / total gross losses)
+            //   4. Total realized PnL > 0 (actually made money, not just high WR)
+            //
+            // Rationale: 33% WR is deeply unprofitable at any normal R:R ratio.
+            // A bot needs >50% WR at 1:1, or >40% at 1.5:1 to be consistently profitable.
+            // We use 50% as the floor because avg win (~+8%) ≈ avg loss (~-6%) in practice.
+
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-            // V5.6.28f: Use totalStoredTrades to match Journal display
-            // (totalTrades only counts W+L, excluding scratches)
             val totalTrades = stats.totalStoredTrades
             val meaningfulTrades = stats.totalWins + stats.totalLosses
-            val winRate = stats.winRate  // Already a percentage 0-100
-            
-            // Determine phase based on trade count
+            val winRate = stats.winRate
+            val profitFactor = stats.profitFactor
+            val totalPnlSol = stats.totalPnlSol
+
+            // Profitability gates
+            val WR_READY      = 50.0   // minimum win rate to go live
+            val WR_ALMOST     = 45.0   // almost-there zone
+            val PF_READY      = 1.3    // profit factor (gross wins / gross losses)
+            val PF_ALMOST     = 1.1
+            val TRADES_READY  = 500    // enough sample for statistical confidence
+            val TRADES_ALMOST = 300
+
+            val isProfitable   = totalPnlSol > 0.0
+            val wrOk           = winRate >= WR_READY
+            val pfOk           = profitFactor >= PF_READY
+            val tradesOk       = meaningfulTrades >= TRADES_READY
+
+            val isReady      = wrOk && pfOk && tradesOk && isProfitable
+            val isAlmostReady = winRate >= WR_ALMOST && profitFactor >= PF_ALMOST && meaningfulTrades >= TRADES_ALMOST
+
+            // Determine phase
             val phase = when {
-                meaningfulTrades < 400 -> "Bootstrap"  // V5.9.203
+                meaningfulTrades < 400  -> "Bootstrap"
                 meaningfulTrades < 1200 -> "Mature"
-                else -> "Continuous"
+                else                    -> "Continuous"
             }
-            
-            // Calculate readiness score (0-100%)
-            // Trades component: 0-50% (need 1000 meaningful trades for full credit)
-            val tradesScore = minOf(meaningfulTrades.toDouble() / 400.0, 1.0) * 50.0  // V5.9.203: was 1000
-            // Win rate component: 0-50% (need 42% win rate for full credit)
-            val winRateScore = minOf(winRate / 35.0, 1.0) * 50.0  // V5.9.203: was 42%
-            val readinessScore = (tradesScore + winRateScore).toInt()
-            
-            // Determine status
-            val isReady = meaningfulTrades >= 400 && winRate >= 35.0  // V5.9.203: was 1000/42%
-            val isAlmostReady = meaningfulTrades >= 200 && winRate >= 28.0  // V5.9.203: was 500/38%
-            
-            // Update UI
+
+            // Readiness score (0-100%):
+            //   40% from trades (need 500 decisive)
+            //   35% from win rate (need 50%)
+            //   25% from profit factor (need 1.3)
+            val tradesScore   = minOf(meaningfulTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 40.0
+            val winRateScore  = minOf(winRate / WR_READY, 1.0) * 35.0
+            val pfScore       = minOf(profitFactor / PF_READY, 1.0) * 25.0
+            val readinessScore = (tradesScore + winRateScore + pfScore).toInt().coerceIn(0, 100)
+
+            // Win rate colour
             tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
             tvReadinessWinRate.setTextColor(when {
-                winRate >= 35.0 -> green  // V5.9.203
-                winRate >= 25.0 -> amber
-                else -> red
+                winRate >= WR_READY  -> green
+                winRate >= WR_ALMOST -> amber
+                else                 -> red
             })
-            
+
             tvReadinessTrades.text = totalTrades.toString()
             tvReadinessTrades.setTextColor(when {
-                totalTrades >= 400 -> green  // V5.9.203
-                totalTrades >= 200 -> amber
-                else -> white
+                totalTrades >= TRADES_READY  -> green
+                totalTrades >= TRADES_ALMOST -> amber
+                else                         -> white
             })
-            
+
             tvReadinessPhase.text = phase
             tvReadinessPhase.setTextColor(when (phase) {
-                "Bootstrap" -> amber
-                "Mature" -> Color.parseColor("#00BFFF")  // Light blue
+                "Bootstrap"  -> amber
+                "Mature"     -> Color.parseColor("#00BFFF")
                 "Continuous" -> green
-                else -> white
+                else         -> white
             })
-            
+
             tvReadinessProgress.text = "$readinessScore%"
-            
-            // Update progress bar width
+
+            // Progress bar
             val params = viewReadinessProgressBar.layoutParams
             val parent = viewReadinessProgressBar.parent as? FrameLayout
             if (parent != null) {
@@ -4154,14 +4178,14 @@ This cannot be undone!
                     viewReadinessProgressBar.layoutParams = params
                 }
             }
-            
-            // Update badge and recommendation
+
+            // Badge + recommendation
             when {
                 isReady -> {
                     tvLiveReadinessBadge.text = "READY"
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
-                    tvReadinessRecommendation.text = "✅ Performance looks good! Consider switching to live mode."
+                    tvReadinessRecommendation.text = "✅ Bot is profitable in paper mode. Safe to switch to live."
                     tvReadinessRecommendation.setTextColor(green)
                 }
                 isAlmostReady -> {
@@ -4169,20 +4193,24 @@ This cannot be undone!
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
-                    if (totalTrades < 400) needed.add("${400 - totalTrades} more trades")
-                    if (winRate < 35.0) needed.add("${(35.0 - winRate).toInt()}% more win rate")
-                    tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(", ")}"
+                    if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                    if (winRate < WR_READY)               needed.add("${String.format("%.1f", WR_READY - winRate)}% more WR (need $WR_READY%)")
+                    if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
+                    if (!isProfitable)                    needed.add("positive total PnL")
+                    tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(" · ")}"
                     tvReadinessRecommendation.setTextColor(amber)
                 }
                 else -> {
-                    tvLiveReadinessBadge.text = "LEARNING"
-                    tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                    tvLiveReadinessBadge.text = "NOT READY"
+                    tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
                     val needed = mutableListOf<String>()
-                    if (totalTrades < 400) needed.add("${400 - totalTrades} more trades")  // V5.9.203
-                    if (winRate < 35.0 && totalTrades > 0) needed.add("${(35.0 - winRate).toInt()}% more win rate")
-                    tvReadinessRecommendation.text = "📚 Keep learning! Need: ${needed.joinToString(", ")}"
-                    tvReadinessRecommendation.setTextColor(Color.parseColor("#9CA3AF"))
+                    if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                    if (winRate < WR_READY)               needed.add("WR ${winRate.toInt()}% → need $WR_READY%")
+                    if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
+                    if (!isProfitable)                    needed.add("positive total PnL")
+                    tvReadinessRecommendation.text = "🚫 Not profitable yet. ${needed.joinToString(" · ")}"
+                    tvReadinessRecommendation.setTextColor(red)
                 }
             }
             
