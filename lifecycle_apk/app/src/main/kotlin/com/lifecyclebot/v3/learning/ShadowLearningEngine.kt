@@ -483,8 +483,8 @@ object ShadowLearningEngine {
     }
     
     private fun feedToMetaCognition(trade: ShadowTrade) {
+        // ── MetaCognitionAI (unchanged) ───────────────────────────────────
         try {
-            // Convert AI predictions to MetaCognition format and record
             com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
                 mint = trade.mint,
                 symbol = trade.symbol,
@@ -492,9 +492,71 @@ object ShadowLearningEngine {
                 holdTimeMs = trade.exitTime - trade.entryTime,
                 exitReason = "shadow_${trade.type.name.lowercase()}"
             )
-        } catch (e: Exception) {
-            // Silently ignore
-        }
+        } catch (_: Exception) {}
+
+        // V5.9.223: Feed rejection/block outcomes into EducationSubLayerAI.
+        //
+        // ROOT CAUSE of "rejection data is richer": blocked trades were
+        // opened as shadow trades in BotOrchestrator but when they closed,
+        // only MetaCognitionAI was notified. EducationSubLayerAI — the
+        // master 41-layer learning system — never saw block/reject outcomes.
+        // Approved trades DO go through recordTradeOutcomeAcrossAllLayers(),
+        // so the approval side was learning but the rejection side wasn't.
+        //
+        // FIX:
+        //   1. recordMissedOpportunity() — tags the block reason so the
+        //      Edge Ledger knows which block reasons produced winners vs losers.
+        //   2. recordTradeOutcomeAcrossAllLayers() — all 41 layers update their
+        //      accuracy metrics based on the shadow trade outcome, treating
+        //      blocked trades as real training signal.
+        try {
+            val holdMins = (trade.exitTime - trade.entryTime) / 60_000.0
+            val blockReason = trade.mode.ifBlank { trade.type.name }
+
+            // 1. Tag the missed opportunity with the reason and what happened
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordMissedOpportunity(
+                traderSource  = "ShadowEngine",
+                mintOrSymbol  = trade.symbol.ifBlank { trade.mint.take(12) },
+                missedReason  = blockReason,
+                laterPnlPct   = trade.pnlPct
+            )
+
+            // 2. Feed full outcome to all 41 layers
+            val outcome = com.lifecyclebot.v3.scoring.EducationSubLayerAI.TradeOutcomeData(
+                mint                 = trade.mint,
+                symbol               = trade.symbol,
+                tokenName            = trade.symbol,
+                pnlPct               = trade.pnlPct,
+                holdTimeMinutes      = holdMins,
+                exitReason           = "shadow_${trade.type.name.lowercase()}",
+                entryPhase           = trade.regime,
+                tradingMode          = trade.mode,
+                discoverySource      = "ShadowLearningEngine",
+                setupQuality         = trade.setupQuality,
+                entryMcapUsd         = 0.0,
+                exitMcapUsd          = 0.0,
+                tokenAgeMinutes      = 0.0,
+                buyRatioPct          = 0.0,
+                volumeUsd            = 0.0,
+                liquidityUsd         = 0.0,
+                holderCount          = 0,
+                topHolderPct         = 0.0,
+                holderGrowthRate     = 0.0,
+                devWalletPct         = 0.0,
+                bondingCurveProgress = 0.0,
+                rugcheckScore        = 0.0,
+                emaFanState          = "UNKNOWN",
+                entryScore           = trade.aiConfidence.toDouble(),
+                priceFromAth         = 0.0,
+                maxGainPct           = if (trade.pnlPct > 0) trade.pnlPct else 0.0,
+                maxDrawdownPct       = if (trade.pnlPct < 0) trade.pnlPct else 0.0,
+                timeToPeakMins       = holdMins,
+                entryReason          = blockReason,
+            )
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                .recordTradeOutcomeAcrossAllLayers(outcome)
+
+        } catch (_: Exception) {}
     }
     
     private fun processOpenTrades() {
