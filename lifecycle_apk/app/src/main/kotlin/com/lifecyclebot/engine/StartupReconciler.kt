@@ -96,6 +96,31 @@ class StartupReconciler(
         try {
             val tokenAccounts = wallet.getTokenAccounts()
             val trackedMints = openPositions.map { it.mint }.toSet()
+
+            // V5.9.256: WALLET TOKEN MEMORY RECOVERY
+            // Before the standard adoption path runs, ask WalletTokenMemory if it knows
+            // about any tokens in the wallet that aren't yet in status.tokens.
+            // This handles the case where the bot restarted and the scanner hasn't had
+            // time to re-discover tokens — we reconstruct full TokenState entries from
+            // the persistent buy journal so the bot can manage exits immediately.
+            try {
+                val statusTokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
+                val recovered = WalletTokenMemory.reconstructMissingPositions(
+                    walletTokens  = tokenAccounts,
+                    statusTokens  = statusTokensCopy,
+                    onLog         = onLog,
+                )
+                if (recovered.isNotEmpty()) {
+                    synchronized(status.tokens) {
+                        for (ts in recovered) {
+                            status.tokens[ts.mint] = ts
+                        }
+                    }
+                    onLog("📥 WalletTokenMemory: injected ${recovered.size} recovered position(s) into scanner state")
+                }
+            } catch (e: Exception) {
+                onLog("⚠️ WalletTokenMemory recovery error: ${e.message}")
+            }
             tokenAccounts.forEach { (mint, qty) ->
                 if (qty <= 0.0) return@forEach
                 if (mint in trackedMints) return@forEach
