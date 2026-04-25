@@ -351,7 +351,7 @@ class TradeJournal(private val ctx: Context) {
         return getStatsFiltered(buildLiveJournal(tokens))
     }
 
-    private fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
+    fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
         val sells = entries.filter { it.side == "SELL" }
         val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }
         val scratchTrades = sells.filter { isScratch(it.pnlPct) }

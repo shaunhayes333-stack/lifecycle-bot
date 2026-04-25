@@ -45,6 +45,12 @@ class JournalActivity : AppCompatActivity() {
 
     private val sdf = SimpleDateFormat("MMM dd HH:mm", Locale.US)
 
+    // V5.9.248: mode filter — LIVE / PAPER / ALL
+    private var currentModeFilter: String? = null  // null = ALL, "live", "paper"
+    private var tvFilterLive: TextView? = null
+    private var tvFilterPaper: TextView? = null
+    private var tvFilterAll: TextView? = null
+
     companion object {
         private const val WIN_THRESHOLD_PCT = 0.5
         private const val LOSS_THRESHOLD_PCT = -2.0
@@ -79,6 +85,61 @@ class JournalActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnRestoreStats).setOnClickListener { showRestoreStatsDialog() }
 
         startPolling()
+        setupModeFilterTabs()
+    }
+
+    private fun setupModeFilterTabs() {
+        // Dynamically inject filter tabs below the stat bar
+        val root = llJournalTrades.parent as? android.view.ViewGroup ?: return
+        val tabBar = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(dp(16), dp(8), dp(16), dp(4))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        fun makeTab(label: String, filter: String?): TextView {
+            return TextView(this).apply {
+                text = label
+                textSize = 12f
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).also { it.marginEnd = dp(4) }
+                gravity = android.view.Gravity.CENTER
+                setBackgroundColor(0xFF1F2937.toInt())
+                setTextColor(if (filter == currentModeFilter) 0xFF10B981.toInt() else 0xFF9CA3AF.toInt())
+                setOnClickListener {
+                    currentModeFilter = filter
+                    updateTabColors()
+                    refreshTrades()
+                }
+            }
+        }
+
+        tvFilterAll   = makeTab("ALL",   null)
+        tvFilterLive  = makeTab("💰 LIVE",  "live")
+        tvFilterPaper = makeTab("📝 PAPER", "paper")
+
+        tabBar.addView(tvFilterAll)
+        tabBar.addView(tvFilterLive)
+        tabBar.addView(tvFilterPaper)
+
+        // Insert tab bar before llJournalTrades
+        val idx = root.indexOfChild(llJournalTrades)
+        root.addView(tabBar, if (idx > 0) idx else 0)
+        updateTabColors()
+    }
+
+    private fun updateTabColors() {
+        val active = 0xFF10B981.toInt()
+        val inactive = 0xFF9CA3AF.toInt()
+        tvFilterAll?.setTextColor(if (currentModeFilter == null) active else inactive)
+        tvFilterLive?.setTextColor(if (currentModeFilter == "live") active else inactive)
+        tvFilterPaper?.setTextColor(if (currentModeFilter == "paper") active else inactive)
     }
 
     override fun onDestroy() {
@@ -205,8 +266,15 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun buildJournal(tokens: Map<String, TokenState>) {
-        val stats = journal.getStats(tokens)
-        val entries = journal.buildJournal(tokens)
+        // V5.9.248: apply mode filter — live / paper / all
+        val allEntries = journal.buildJournal(tokens)
+        val filtered = when (currentModeFilter) {
+            "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
+            "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
+            else    -> allEntries
+        }
+        val stats = journal.getStatsFiltered(filtered)
+        val entries = filtered
         val sellEntries = entries.filter { it.side == "SELL" }
 
         tvJournalPnl.text = currency.format(stats.totalPnlSol, showPlus = true)

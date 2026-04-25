@@ -5199,6 +5199,9 @@ class Executor(
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
         
+        // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
+        com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+
         return SellResult.PAPER_CONFIRMED
     }
 
@@ -6142,6 +6145,9 @@ class Executor(
         
         onLog("✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%", tradeId.mint)
         ErrorLogger.info("Executor", "✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%")
+
+        // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
+        com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
         
         return SellResult.CONFIRMED
     }
