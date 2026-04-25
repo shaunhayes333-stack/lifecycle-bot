@@ -32,7 +32,7 @@ object TradeHistoryStore {
     // the visual journal never wipes learned progress.
     private const val KEY_LIFETIME_STATS = "lifetime_stats_json"
 
-    private const val WIN_THRESHOLD_PCT = 0.5
+    private const val WIN_THRESHOLD_PCT = 1.0  // V5.9.218: unified with Executor/RunTracker (fee-adjusted floor)
     private const val LOSS_THRESHOLD_PCT = -0.5  // V5.9.204: was -2.0; -1.5% exits now count as losses
 
     private var prefs: SharedPreferences? = null

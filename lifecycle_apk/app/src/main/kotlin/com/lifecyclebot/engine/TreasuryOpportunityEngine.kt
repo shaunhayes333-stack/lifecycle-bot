@@ -22,7 +22,7 @@ object TreasuryOpportunityEngine {
     private const val TAG = "TreasuryOpp"
 
     data class DeploymentConfig(
-        val maxDeployPct: Double = 20.0,           // Max % of treasury to deploy at once
+        val maxDeployPct: Double = 10.0,           // V5.9.218: 20→10% — treasury is profit protection, not gambling
         val maxConcurrentDeploys: Int = 3,         // Max simultaneous treasury positions
         val minTreasuryToStart: Double = 0.5,      // Min treasury SOL before deploying
         // V5.9.191: 25/30 was too strict — treasury rarely scored that high at bootstrap.

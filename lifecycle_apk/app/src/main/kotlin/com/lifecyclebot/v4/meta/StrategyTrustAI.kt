@@ -39,17 +39,24 @@ object StrategyTrustAI {
     private val tradeHistory = ConcurrentHashMap<String, MutableList<TradeLesson>>()
 
     // Known strategies — must match actual ts.position.tradingMode values set in BotService
-    // Layer transitions set: displayName.uppercase().replace(" ", "_")
-    //   "V3 Quality" → "V3_QUALITY", "BlueChip" → "BLUECHIP", "DipHunter" → "DIPHUNTER"
-    //   "Quality" → "QUALITY", "Treasury" → "TREASURY", "Express" → "EXPRESS"
-    // Direct assignments: "SHITCOIN", "QUALITY", "BLUE_CHIP", "DIP_HUNTER", "MANIPULATED"
-    //   "TREASURY", "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL"
+    // V5.9.217: All tradingMode values now use TradingLayer.name (enum name) — canonical.
+    //   BLUE_CHIP, DIP_HUNTER, V3_QUALITY, SHITCOIN, EXPRESS, QUALITY, TREASURY, MOONSHOT, etc.
+    //   normalizeStrategy() merges any legacy "BLUECHIP"/"DIPHUNTER" aliases into canonical names.
     private val STRATEGIES = listOf(
-        "SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP", "BLUECHIP",
-        "DIP_HUNTER", "DIPHUNTER", "MANIPULATED", "TREASURY",
+        "SHITCOIN", "QUALITY", "V3_QUALITY", "BLUE_CHIP",
+        "DIP_HUNTER", "MANIPULATED", "TREASURY",
         "MOONSHOT_LUNAR", "MOONSHOT_ORBITAL", "MOONSHOT",
         "STANDARD", "EXPRESS", "CryptoAltAI", "TokenizedStockAI"
     )
+
+    // V5.9.217: Normalize legacy strategy name aliases to canonical enum names
+    private fun normalizeStrategy(name: String): String = when (name) {
+        "BLUECHIP"   -> "BLUE_CHIP"   // old displayName.uppercase() path
+        "DIPHUNTER"  -> "DIP_HUNTER"  // old displayName.uppercase() path
+        "DIP HUNTER" -> "DIP_HUNTER"
+        "BLUE CHIP"  -> "BLUE_CHIP"
+        else         -> name
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -68,18 +75,21 @@ object StrategyTrustAI {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun recordTrade(lesson: TradeLesson) {
+        // V5.9.217: normalize strategy name before recording
+        val normalizedLesson = lesson.copy(strategy = normalizeStrategy(lesson.strategy))
+        val strategy = normalizedLesson.strategy
         // Auto-register any strategy name we haven't seen before
-        trustRecords.putIfAbsent(lesson.strategy, createDefaultRecord(lesson.strategy))
-        val history = tradeHistory.getOrPut(lesson.strategy) { mutableListOf() }
+        trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
+        val history = tradeHistory.getOrPut(strategy) { mutableListOf() }
         synchronized(history) {
-            history.add(lesson)
+            history.add(normalizedLesson)
             // Keep only recent window
             if (history.size > RECENT_WINDOW * 2) {
                 val excess = history.size - RECENT_WINDOW * 2
                 repeat(excess) { history.removeAt(0) }
             }
         }
-        recalculateTrust(lesson.strategy)
+        recalculateTrust(strategy)
 
         // Publish to CrossTalk
         val record = trustRecords[lesson.strategy] ?: return

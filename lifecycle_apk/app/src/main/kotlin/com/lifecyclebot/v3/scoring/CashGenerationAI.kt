@@ -73,7 +73,7 @@ object CashGenerationAI {
 
     // Trade frequency - V5.2.12: Raised max positions for more learning volume
     private const val MIN_TRADES_PER_DAY = 100
-    private const val MAX_CONCURRENT_POSITIONS = 15  // V5.2.12: Was 6, raised for paper learning
+    private const val MAX_CONCURRENT_POSITIONS = 6   // V5.9.218: 15→6 — disciplined sizing
 
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPOUNDING & IMMEDIATE TRADING

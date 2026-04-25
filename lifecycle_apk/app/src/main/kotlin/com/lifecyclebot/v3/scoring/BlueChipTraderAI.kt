@@ -275,6 +275,18 @@ object BlueChipTraderAI {
         get() = if (isPaperMode) paperPositions else livePositions
     
     fun getActivePositions(): List<BlueChipPosition> {
+        // V5.9.218: Auto-purge zombie positions (held > 2x MAX_HOLD_MINUTES with no monitor)
+        val now = System.currentTimeMillis()
+        val staleThresholdMs = MAX_HOLD_MINUTES * 2 * 60_000L
+        synchronized(activePositions) {
+            val stale = activePositions.values.filter { (now - it.entryTime) > staleThresholdMs }
+            if (stale.isNotEmpty()) {
+                stale.forEach { pos ->
+                    activePositions.remove(pos.mint)
+                    ErrorLogger.warn(TAG, "🔵🧹 ZOMBIE PURGE: ${pos.symbol} | held ${(now - pos.entryTime)/60000}min, no monitor")
+                }
+            }
+        }
         return synchronized(activePositions) {
             activePositions.values.toList()
         }

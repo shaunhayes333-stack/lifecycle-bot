@@ -3602,18 +3602,18 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun llp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
     private fun getPhaseLabel(): String {
-        // Use Markets-specific trade counter so progress is independent of meme bot
+        // V5.9.217: phases now match FluidLearningAI constants
+        // BOOTSTRAP 0-1000 | LEARNING 1000-3000 | VALIDATING 3000-5000 | MATURITY 5000+ | READY = WR>=55%
         val trades = FluidLearningAI.getMarketsTradeCount()
         val wr     = CryptoAltTrader.getWinRate()
         return when {
-            trades == 0   -> "INIT — tap ▶ Run"
-            trades < 50   -> "SEEDING ($trades/50)"
-            trades < 500  -> "BOOTSTRAP ($trades/500)"
-            trades < 1500 -> "LEARNING ($trades/1500)"
-            trades < 3000 -> "VALIDATING ($trades/3000)"
-            trades < 5000 -> "MATURING ($trades/5000)"
-            wr >= 55.0    -> "READY ✅"
-            else          -> "MATURING ($trades)"
+            trades == 0    -> "INIT — tap ▶ Run"
+            trades < 50    -> "SEEDING ($trades/50)"
+            trades < 1000  -> "BOOTSTRAP ($trades/1000)"
+            trades < 3000  -> "LEARNING ($trades/3000)"
+            trades < 5000  -> "VALIDATING ($trades/5000)"
+            wr >= 55.0     -> "READY ✅"
+            else           -> "MATURITY ($trades)"
         }
     }
     private fun phaseColor(phase: String) = when (phase) {

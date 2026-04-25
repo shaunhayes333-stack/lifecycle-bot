@@ -4169,8 +4169,8 @@ This cannot be undone!
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
                     tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
-                    if (totalTrades < 1000) needed.add("${1000 - totalTrades} more trades")
-                    if (winRate < 42.0) needed.add("${(42.0 - winRate).toInt()}% more win rate")
+                    if (totalTrades < 400) needed.add("${400 - totalTrades} more trades")
+                    if (winRate < 35.0) needed.add("${(35.0 - winRate).toInt()}% more win rate")
                     tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(", ")}"
                     tvReadinessRecommendation.setTextColor(amber)
                 }

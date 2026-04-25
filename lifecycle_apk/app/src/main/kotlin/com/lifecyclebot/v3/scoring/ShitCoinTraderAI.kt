@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.9.199: restored 8→12 — learning needs trade throughput
+    private const val MAX_CONCURRENT_POSITIONS = 6    // V5.9.218: 12→6 — concentrated quality
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
@@ -666,13 +666,14 @@ object ShitCoinTraderAI {
         scoreReasons.add("buy+$buyScore")
         
         // 3. MOMENTUM SCORE (-15 to +20 pts)
+        // V5.9.218: flat momentum (0%) no longer contributes to score — must show real price move
         val momentumScore = when {
             momentum >= 20 -> 20   // Parabolic!
             momentum >= 10 -> 15
             momentum >= 5 -> 10
             momentum >= 2 -> 7
-            momentum >= 0 -> 3
-            momentum >= -5 -> 0
+            momentum >= 0 -> 0     // V5.9.218: flat=0 (was 3) — no score for flat tokens
+            momentum >= -5 -> -5   // V5.9.218: slight negative for fading momentum
             else -> -15
         }
         shitScore += momentumScore
@@ -804,6 +805,26 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
+        // V5.9.218: HARD GATE — reject dead/fading tokens before threshold check
+        // Pattern: flat price + mediocre buy pressure = almost always a rug
+        if (momentum <= 0.0 && buyPressurePct < 60.0) {
+            return ShitCoinSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = shitConfidence,
+                reason = "HARD_GATE: flat/dead momentum (${"%.1f".format(momentum)}%) with weak buy pressure (${"%.0f".format(buyPressurePct)}%)",
+                mode = mode,
+                isPaperMode = isPaperMode,
+                launchPlatform = launchPlatform,
+                riskLevel = riskLevel,
+                socialScore = socialBonus,
+                bundleWarning = bundleWarning,
+                graduationImminent = graduationImminent,
+            )
+        }
+
         // Check thresholds
         val passesScore = shitScore >= minScore
         val passesConf = shitConfidence >= minConf
@@ -982,7 +1003,7 @@ object ShitCoinTraderAI {
         
         // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS
         // This should NEVER be exceeded, regardless of other conditions
-        val HARD_FLOOR_STOP_PCT = -20.0  // Absolute max loss for ShitCoin layer
+        val HARD_FLOOR_STOP_PCT = -12.0  // V5.9.218: -20→-12% — meme at -20% is dead anyway
         if (pnlPct <= HARD_FLOOR_STOP_PCT) {
             ErrorLogger.warn(TAG, "💩🛑 HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
             return ExitSignal.STOP_LOSS
@@ -1044,7 +1065,8 @@ object ShitCoinTraderAI {
         }
         // V5.9.192: DEAD TOKEN EXIT — 20→12 mins. Meme tokens pump in first 10 mins or not at all.
         // 20 mins was far too long — tokens sit at -2.9% for 20+ mins accumulating loss.
-        if (holdMinutes >= 12 && pnlPct < -1.0) {
+        // V5.9.218: ANY red after 12 min = dead meme, exit immediately
+        if (holdMinutes >= 12 && pnlPct < 0.0) {
             ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (no pump)")
             return ExitSignal.TIME_EXIT
         }

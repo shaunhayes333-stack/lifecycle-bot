@@ -85,7 +85,7 @@ object MoonshotTraderAI {
     // to 30 positions simultaneously so the scorer can accumulate real outcomes
     // across many mcap bands / modes concurrently instead of waiting for one
     // of 10 slots to close.
-    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 30
+    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 8  // V5.9.218: 30→8 — moonshot quality gate
     private fun effectiveMaxPositions(): Int = try {
         if (FluidLearningAI.getLearningProgress() < 0.40) MAX_CONCURRENT_POSITIONS_BOOTSTRAP
         else MAX_CONCURRENT_POSITIONS

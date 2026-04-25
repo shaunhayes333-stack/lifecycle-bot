@@ -6970,7 +6970,7 @@ if (deferredCount > 0) {
             
             if (transition.shouldTransition) {
                 // Update position's trading mode to new layer
-                ts.position.tradingMode = transition.toLayer.displayName.uppercase().replace(" ", "_")
+                ts.position.tradingMode = transition.toLayer.name  // V5.9.217: use enum.name not displayName — prevents BLUECHIP/BLUE_CHIP split
                 ts.position.tradingModeEmoji = transition.toLayer.emoji
                 
                 // Update targets for new layer

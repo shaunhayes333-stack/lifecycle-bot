@@ -143,9 +143,9 @@ object FluidLearningAI {
     // "scaling to 80% theoretical rate past 10,000 trades". Bootstrap
     // extended 3× so 50 trades is <2% progress (deep bootstrap), mature
     // (80%+) lands at the 10,000-trade target the user specified.
-    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.217: restored — bootstrap is 0-1000 trades
-    private const val MATURE_PHASE_END = 3000   // V5.9.217: restored — learning is 1000-3000 trades
-    private const val EXPERT_PHASE_END = 5000   // V5.9.217: restored — maturity at 5000+ trades
+    private const val BOOTSTRAP_PHASE_END = 400   // V5.9.203: was 1000 — compressed for faster learning
+    private const val MATURE_PHASE_END = 1200     // V5.9.203: was 3000
+    private const val EXPERT_PHASE_END = 2500     // V5.9.203: was 5000
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.218: was 5 — restore momentum gate (5% = almost no buyers)
-    private const val MIN_SCORE_BOOTSTRAP = 50           // V5.9.218: was 5 — ≥50 requires real buy pressure+liq (base=40, 10+ points needed)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 3000.0   // V5.9.218: was 1000 — $1K pools = instant rugs
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.180: was 40 — admit any buy pressure
+    private const val MIN_SCORE_BOOTSTRAP = 5            // V5.9.180: was 45 — total floor obliteration
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 1000.0   // V5.9.180: was 5000 — accept $1K pools
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
