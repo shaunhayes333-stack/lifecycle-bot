@@ -101,7 +101,7 @@ object GlobalTradeRegistry {
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
     private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
-    private const val PROBATION_CONF_THRESHOLD_PAPER = 5    // V5.9.180: was 30 — total floor obliteration
+    private const val PROBATION_CONF_THRESHOLD_PAPER = 30   // V5.9.260: restored to 59% WR baseline (was 5 at V5.9.180)
     private const val PROBATION_MULTI_SOURCE_EXEMPT = true  // Multi-source tokens skip probation
     
     // V5.2: Paper mode flag for more aggressive token acceptance

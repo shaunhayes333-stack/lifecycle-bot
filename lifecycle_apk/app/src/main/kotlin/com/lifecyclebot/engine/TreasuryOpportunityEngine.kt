@@ -30,7 +30,7 @@ object TreasuryOpportunityEngine {
         // Quality comes from liq/mcap filters and V3 confirmation, not just score threshold.
         val minConfidenceScore: Double = 25.0,     // V5.9.226: raised 20→25 — treasury money needs clean signals
         val minEntryScore: Double = 25.0,          // V5.9.208: restored — 15 was too low, let garbage through
-        val minLiquidityUsd: Double = 1_000.0,     // V5.9.180: was 5_000 — learn broadly
+        val minLiquidityUsd: Double = 5_000.0,     // V5.9.260: restored to 59% WR baseline (was 1_000 at V5.9.180)
         val opportunityTtlMs: Long = 60_000L,      // Opportunity becomes stale after 60s
         val targetModes: Set<String> = setOf(
             "MOONSHOT", "PUMP_SNIPER", "MICRO_CAP", "REVIVAL"

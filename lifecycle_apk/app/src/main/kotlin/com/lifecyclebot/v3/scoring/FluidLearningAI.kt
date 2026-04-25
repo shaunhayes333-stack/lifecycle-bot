@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.241: keep 25% — weeds out dead tokens
-    private const val MIN_SCORE_BOOTSTRAP = 30           // V5.9.241: was 50 (too high) — 30 is real signal, not noise
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 1500.0   // V5.9.241: was 3000 (killed most pump.fun tokens) — $1.5K is safe floor
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 40.0  // V5.9.260: restored to 59% WR baseline
+    private const val MIN_SCORE_BOOTSTRAP = 45           // V5.9.260: restored to 59% WR baseline
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 5000.0   // V5.9.260: restored to 59% WR baseline
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -870,7 +870,7 @@ object FluidLearningAI {
     // CONFIDENCE THRESHOLDS (Used by FDG, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val CONF_BOOTSTRAP = 5.0     // V5.9.179: was 30 — matches paper floor
+    private const val CONF_BOOTSTRAP = 30.0    // V5.9.260: restored to 59% WR baseline (was 5 at V5.9.179)
     private const val CONF_MATURE = 75.0       // 75% confidence when mature
     
     private const val CONF_PAPER_BOOTSTRAP = 3.0    // V5.9.174: was 15 — user demand
@@ -890,7 +890,7 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 5      // V5.9.179: was 20 — admit D+
+    private const val SCORE_BOOTSTRAP = 20     // V5.9.260: restored to 59% WR baseline (was 5 at V5.9.179)
     private const val SCORE_MATURE = 40  // V5.9.184: raised to target 50%+ WR in mature phase
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
@@ -948,19 +948,19 @@ object FluidLearningAI {
     // V5.1: SLIGHTLY LOWERED to allow more trading during bootstrap
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 5    // V5.9.180: was 30 — total floor obliteration
+    private const val TREASURY_CONF_BOOTSTRAP = 30   // V5.9.260: restored to 59% WR baseline (was 5 at V5.9.180)
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 1000.0   // V5.9.180: was 3000 — accept small treasury pools
+    private const val TREASURY_LIQ_BOOTSTRAP = 3000.0    // V5.9.260: restored to 59% WR baseline
     private const val TREASURY_LIQ_MATURE = 10000.0      // Raise threshold as we learn
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 60.0  // V5.9.180: was 40 — relaxed holder concentration
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 40.0  // V5.9.260: restored to 59% WR baseline
     private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.180: was 35 — any buy pressure ok
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 35.0  // V5.9.260: restored to 59% WR baseline
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 5     // V5.9.180: was 15 — total floor obliteration
+    private const val TREASURY_SCORE_BOOTSTRAP = 15    // V5.9.260: restored to 59% WR baseline
     private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
@@ -975,21 +975,17 @@ object FluidLearningAI {
     // V5.7.6b: BROADENED to match Meme trader philosophy - loose bootstrap, tight mature
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // SPOT trading thresholds - BROADENED like meme trader
-    // V5.9.179 — bootstrap dropped to 5/5 so the markets trader (metals,
-    // forex, commodities, stocks, crypto alts) admits D+ signals during
-    // learning. Mature values untouched → tightens back up as we learn.
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 5
+    // SPOT trading thresholds — V5.9.260: restored to 59% WR baseline
+    // Mature values untouched → tightens back up as we learn.
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 40
     private const val MARKETS_SPOT_SCORE_MATURE = 60
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 5
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 45
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
-    // LEVERAGE trading thresholds - BROADENED but slightly stricter than SPOT
-    // V5.9.179 — same philosophy: bootstrap floors drop so leveraged signals
-    // can run during learning (user directive: "admit everything above D+").
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 5
+    // LEVERAGE trading thresholds — V5.9.260: restored to 59% WR baseline
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 42
     private const val MARKETS_LEV_SCORE_MATURE = 70
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 5
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 45
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning
