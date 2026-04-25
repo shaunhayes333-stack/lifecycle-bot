@@ -4562,17 +4562,25 @@ if (deferredCount > 0) {
     }
     
     // ═══════════════════════════════════════════════════════════════════
-    // V5.9.247: UNIVERSAL VOLUME GATE — hard rule, applies to ALL layers
-    // No volume = dead token = don't buy. We don't buy things that haven't
-    // moved in an hour. Checked here so no layer can bypass it.
+    // V5.9.248: UNIVERSAL ENTRY GATES — apply to ALL layers, no exceptions
+    //   1. Re-entry cooldown  — don't rebuy the same token we just sold
+    //   2. Volume gate        — don't buy dead tokens with no activity
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen) {
+        // 1. RE-ENTRY COOLDOWN — 5 min for all layers, not just Treasury
+        val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
+        if (closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+            ErrorLogger.debug("BotService", "⏳ [COOLDOWN] ${identity.symbol} | SKIP | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
+            return
+        }
+
+        // 2. VOLUME GATE — no volume = dead token, don't buy
         val lastVolumeH1 = ts.history.lastOrNull()?.volumeH1 ?: 0.0
         val learningPct  = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
-        val minVolumeH1  = if (learningPct < 0.40) 500.0 else 2_000.0  // relaxed during bootstrap data-gather
+        val minVolumeH1  = if (learningPct < 0.40) 500.0 else 2_000.0
         if (lastVolumeH1 < minVolumeH1) {
             ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
-            return  // skip ALL layers — no volume, no entry
+            return
         }
     }
 
