@@ -334,7 +334,7 @@ object QualityTraderAI {
             buyPressure >= 70 -> 20
             buyPressure >= 60 -> 15
             buyPressure >= 50 -> 10
-            else -> 5
+            else -> 0  // V5.9.218: was 5 — no free points for weak buy pressure (hard gate already blocks <50%)
         }
         qualityScore += buyScore
         
@@ -355,6 +355,11 @@ object QualityTraderAI {
         // At bootstrap: minScore=20 means liq+buy alone can get us in. At mature: 40 requires 3+ signals
         // V5.9.191: bootstrap 20→15, mature 40→35 — easier entry during learning phase
         val minScore = (15 + learningProgress * 20).toInt().coerceIn(15, 35)
+
+        // V5.9.218: HARD GATE — reject tokens where majority is selling
+        if (buyPressure < 50) {
+            return QualitySignal(false, reason = "HARD_GATE: Quality needs ≥50% buy pressure, got $buyPressure%", qualityScore = qualityScore)
+        }
 
         if (qualityScore < minScore) {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
@@ -467,6 +472,13 @@ object QualityTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
+        // V5.9.218: EARLY DEAD EXIT — quality tokens should move within 20 min
+        // If down >2% after 20 min, the thesis is wrong — cut fast
+        if (holdMinutes >= 20 && pnlPct < -2.0) {
+            ErrorLogger.info(TAG, "⏰ QUALITY DEAD: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (thesis failed)")
+            return ExitSignal.TIME_EXIT
+        }
+
         // Max hold time - only exit if not profitable
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 5) {
             ErrorLogger.info(TAG, "⏰ QUALITY TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min")
