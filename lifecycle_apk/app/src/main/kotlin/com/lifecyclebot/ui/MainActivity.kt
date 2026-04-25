@@ -505,6 +505,40 @@ class MainActivity : AppCompatActivity() {
             requestStoragePermission()
             checkBatteryOptimisation()
             
+            // V5.9.262: floating "Live Trade Forensics" tile — opens the
+            // end-to-end live-trade timeline UI. Implemented programmatically
+            // so it doesn't depend on layout XML resource IDs.
+            try {
+                val fab = android.widget.TextView(this).apply {
+                    text = "🔬 Live Forensics"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                    setBackgroundColor(android.graphics.Color.parseColor("#A78BFA"))
+                    val pad = (10 * resources.displayMetrics.density).toInt()
+                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
+                    elevation = 12f * resources.displayMetrics.density
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        startActivity(android.content.Intent(this@MainActivity, LiveTradeLogActivity::class.java))
+                    }
+                }
+                val flp = android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                    val mPx = (16 * resources.displayMetrics.density).toInt()
+                    rightMargin = mPx
+                    bottomMargin = (84 * resources.displayMetrics.density).toInt()
+                }
+                val rootDecor = window.decorView as? android.view.ViewGroup
+                rootDecor?.addView(fab, flp)
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
+            }
+            
             // Show first-time disclaimer if not yet agreed
             showFirstTimeDisclaimer()
 

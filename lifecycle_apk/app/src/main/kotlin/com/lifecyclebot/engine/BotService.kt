@@ -322,6 +322,9 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "WalletTokenMemory init error: ${e.message}", e)
         }
+
+        // V5.9.262: Initialize live-trade end-to-end log store
+        try { LiveTradeLogStore.init(applicationContext) } catch (_: Exception) {}
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {

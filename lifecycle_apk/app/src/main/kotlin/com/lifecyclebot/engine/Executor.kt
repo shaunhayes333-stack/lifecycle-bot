@@ -3707,6 +3707,14 @@ class Executor(
         }
 
         val lamports = (effectiveSol * 1_000_000_000L).toLong()
+        val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
+        LiveTradeLogStore.log(
+            tradeKey, ts.mint, ts.symbol, "BUY",
+            LiveTradeLogStore.Phase.INFO,
+            "🟢 LIVE BUY START | size=${sol.fmt(4)} SOL | wallet=${walletSol.fmt(4)}",
+            solAmount = sol,
+            traderTag = "MEME",
+        )
         try {
             // V5.9.261 — slippage escalation for buys (was: single c.slippageBps call).
             // Memes/low-liq launches phantom out at the default 1% slippage —
@@ -3718,6 +3726,12 @@ class Executor(
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastQuoteError: Exception? = null
             for (slip in slippageLadder) {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                    "Quote attempt @ ${slip}bps",
+                    slippageBps = slip, solAmount = sol, traderTag = "MEME",
+                )
                 try {
                     quote = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, lamports,
@@ -3725,16 +3739,34 @@ class Executor(
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
+                        LiveTradeLogStore.log(
+                            tradeKey, ts.mint, ts.symbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_QUOTE_OK,
+                            "Quote OK @ ${slip}bps | impact=${quote.priceImpactPct.fmt(2)}% | router=${quote.router.ifBlank { "?" }}",
+                            slippageBps = slip, traderTag = "MEME",
+                        )
                         break
                     }
                 } catch (e: Exception) {
                     lastQuoteError = e
                     onLog("BUY: quote ${slip}bps failed — ${e.message?.take(50)}", ts.mint)
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_QUOTE_FAIL,
+                        "Quote ${slip}bps FAILED: ${e.message?.take(80)}",
+                        slippageBps = slip, traderTag = "MEME",
+                    )
                     Thread.sleep(250)
                 }
             }
             if (quote == null) {
                 onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "ABORTED — all ${slippageLadder.size} slippage attempts failed",
+                    traderTag = "MEME",
+                )
                 PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "QUOTE_EXHAUSTED")
                 return
             }
@@ -3742,10 +3774,22 @@ class Executor(
             val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
             if (qGuard is GuardResult.Block) {
                 onLog("🚫 Quote rejected: ${qGuard.reason}", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "Quote rejected by SecurityGuard: ${qGuard.reason}",
+                    traderTag = "MEME",
+                )
                 return
             }
 
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_TX_BUILT,
+                "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute}",
+                traderTag = "MEME",
+            )
 
             val simErr = jupiter.simulateSwap(txResult.txBase64, wallet.rpcUrl)
             if (simErr != null) {
@@ -3754,11 +3798,30 @@ class Executor(
                     // Log and proceed: the actual on-chain send will reject with a clear error if invalid.
                     onLog("⚠️ Simulation RPC unavailable: $simErr — proceeding without preflight", ts.mint)
                     ErrorLogger.warn("Executor", "⚠️ Sim RPC skipped for ${ts.symbol}: $simErr")
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                        "Sim RPC unavailable: ${simErr.take(80)} — proceeding",
+                        traderTag = "MEME",
+                    )
                 } else {
                     // Actual swap simulation failure (bad accounts, insufficient funds, etc.)
                     onLog("Swap simulation failed: $simErr", ts.mint)
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                        "Sim FAILED: ${simErr.take(120)}",
+                        traderTag = "MEME",
+                    )
                     throw Exception(simErr)
                 }
+            } else {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_SIM_OK,
+                    "Sim OK",
+                    traderTag = "MEME",
+                )
             }
 
             security.enforceSignDelay()
@@ -3773,9 +3836,21 @@ class Executor(
             } else {
                 onLog("Broadcasting buy tx…", ts.mint)
             }
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_BROADCAST,
+                "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                traderTag = "MEME",
+            )
             
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_CONFIRMED,
+                "✅ Tx confirmed on-chain — awaiting token-arrival verification",
+                sig = sig, traderTag = "MEME",
+            )
 
             val price = getActualPrice(ts)
             if (price <= 0.0) {
@@ -3974,6 +4049,7 @@ class Executor(
             val verifyCurrentLayer = currentLayer
             val verifyTradeMint = tradeId.mint
             val verifyTradeSymbol = tradeId.symbol
+            val verifyTradeKey = tradeKey
             GlobalScope.launch(Dispatchers.IO) {
                 var verifiedQty = 0.0
                 var anyRpcError = false
@@ -3985,6 +4061,12 @@ class Executor(
                         val balances = verifyWallet.getTokenAccountsWithDecimals()
                         val tokenData = balances[verifyMint]
                         val qty = tokenData?.first ?: 0.0
+                        LiveTradeLogStore.log(
+                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                            "Poll $pollNum/$maxPolls — wallet qty=${qty.fmt(4)}",
+                            tokenAmount = qty, traderTag = "MEME",
+                        )
                         if (qty > 0.0) {
                             verifiedQty = qty
                             break
@@ -3994,6 +4076,12 @@ class Executor(
                         ErrorLogger.warn(
                             "Executor",
                             "⚠️ POST-BUY RPC poll $pollNum/$maxPolls failed for $verifySymbol: ${e.message} — will retry"
+                        )
+                        LiveTradeLogStore.log(
+                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                            "Poll $pollNum/$maxPolls — RPC error: ${e.message?.take(80)}",
+                            traderTag = "MEME",
                         )
                     }
                 }
@@ -4007,6 +4095,12 @@ class Executor(
                         ErrorLogger.info(
                             "Executor",
                             "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"
+                        )
+                        LiveTradeLogStore.log(
+                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                            "✅ Tokens landed in host wallet | qty=${verifiedQty.fmt(4)}",
+                            tokenAmount = verifiedQty, traderTag = "MEME",
                         )
                         EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
                         // V5.9.137 — register in SellOptimizationAI only after
@@ -4035,6 +4129,12 @@ class Executor(
                         "⚠️ POST-BUY INCONCLUSIVE: $verifySymbol — RPC errors during verify; leaving pendingVerify " +
                             "so StartupReconciler can adopt from wallet later"
                     )
+                    LiveTradeLogStore.log(
+                        verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "⚠️ Verification inconclusive — RPC errors during all polls. Will reconcile on next startup.",
+                        traderTag = "MEME",
+                    )
                 } else if (ts.position.pendingVerify) {
                     // All polls OK and all returned 0 → true phantom
                     ErrorLogger.warn(
@@ -4042,6 +4142,12 @@ class Executor(
                         "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s. Discarding pending position."
                     )
                     onLog("🚨 PHANTOM: $verifySymbol — tx landed but no tokens. Position discarded.", verifyMint)
+                    LiveTradeLogStore.log(
+                        verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_PHANTOM,
+                        "🚨 PHANTOM — tx confirmed but 0 tokens after ${maxPolls * pollIntervalMs / 1000}s. SOL spent on fees, no tokens received.",
+                        traderTag = "MEME",
+                    )
                     ts.position = Position()
                     // V5.9.255 FIX: Set lastExitTs so BotService's 300s re-buy cooldown fires.
                     // Without this, the cooldown was never set for phantom cases — only real
@@ -4080,6 +4186,12 @@ class Executor(
             val safe = security.sanitiseForLog(e.message ?: "unknown")
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
             onLog("Live buy FAILED: $safe", tradeId.mint)
+            LiveTradeLogStore.log(
+                tradeKey, tradeId.mint, tradeId.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_FAILED,
+                "❌ Buy threw: ${safe.take(160)}",
+                traderTag = "MEME",
+            )
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
         }
@@ -5266,11 +5378,26 @@ class Executor(
         
         val c   = cfg()
         val pos = ts.position
+        // V5.9.262 — group all SELL events with the BUY events for the same trade
+        // by reusing the entryTime as the keystone.
+        val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
         
         onLog("🔄 SELL START: ${ts.symbol} | reason=$reason | pos.isOpen=${pos.isOpen} | pos.qtyToken=${pos.qtyToken} | pos.costSol=${pos.costSol}", tradeId.mint)
+        LiveTradeLogStore.log(
+            sellTradeKey, ts.mint, ts.symbol, "SELL",
+            LiveTradeLogStore.Phase.SELL_START,
+            "🔴 LIVE SELL START | reason=$reason | qty=${pos.qtyToken.fmt(4)} | wallet=${walletSol.fmt(4)} SOL",
+            tokenAmount = pos.qtyToken, traderTag = "MEME",
+        )
         
         if (!pos.isOpen) {
             onLog("🛑 SELL ABORTED: Position not open", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_FAILED,
+                "ABORTED — pos.isOpen=false",
+                traderTag = "MEME",
+            )
             return SellResult.ALREADY_CLOSED
         }
 
@@ -5457,6 +5584,12 @@ class Executor(
             onLog("📊 SELL DEBUG: Building transaction...", tradeId.mint)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
             onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute}",
+                traderTag = "MEME",
+            )
             security.enforceSignDelay()
             
             val useJito = c.jitoEnabled && !quote.isUltra
@@ -5469,11 +5602,23 @@ class Executor(
             } else {
                 onLog("Broadcasting sell tx…", ts.mint)
             }
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_BROADCAST,
+                "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                traderTag = "MEME",
+            )
             
             onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             val sig     = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
             onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                "✅ Sell tx confirmed on-chain",
+                sig = sig, traderTag = "MEME",
+            )
             
             try {
                 // V5.9.196: Fee = 0.5% of actual sell proceeds (quoted outAmount), not entry cost
@@ -5515,6 +5660,12 @@ class Executor(
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
                     onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
                     onLog("   Original: $originalTokens | Remaining: $remainingTokens", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "🚨 Sell incomplete — ${remainingPct}% (${remainingTokens.fmt(4)}) still in wallet",
+                        tokenAmount = remainingTokens, traderTag = "MEME",
+                    )
                     
                     if (remainingTokens > 0.01) {
                         onLog("🧹 DUST-BUSTER: Attempting to sell remaining $remainingTokens tokens...", tradeId.mint)
@@ -5543,6 +5694,23 @@ class Executor(
                     }
                 } else {
                     onLog("✅ SELL VERIFIED: Token balance is now ${remainingTokens} (was $originalTokens)", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_VERIFY_TOKEN_GONE,
+                        "✅ Token left host wallet | remaining=${remainingTokens.fmt(4)} (was ${originalTokens.fmt(4)})",
+                        tokenAmount = remainingTokens, traderTag = "MEME",
+                    )
+                    // Verify SOL returned by checking balance bump
+                    try {
+                        Thread.sleep(800)
+                        val newSol = wallet.getSolBalance()
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
+                            "💰 SOL balance after sell: ${newSol.fmt(4)} (was ${walletSol.fmt(4)})",
+                            solAmount = newSol, traderTag = "MEME",
+                        )
+                    } catch (_: Exception) {}
                 }
             } catch (verifyEx: RuntimeException) {
                 throw verifyEx
@@ -6329,10 +6497,23 @@ class Executor(
 
         if (sellable.isEmpty()) {
             onLog("✅ SHUTDOWN SWEEP: 0 non-stablecoin holdings — wallet is clean", "shutdown")
+            LiveTradeLogStore.log(
+                "sweep:${System.currentTimeMillis()}", "wallet", "sweep", "SWEEP",
+                LiveTradeLogStore.Phase.SWEEP_DONE,
+                "Wallet already clean (0 sellable holdings)",
+                traderTag = "SWEEP",
+            )
             return 0
         }
 
+        val sweepKey = "sweep:${System.currentTimeMillis()}"
         onLog("🛑 SHUTDOWN SWEEP: liquidating ${sellable.size} on-chain holding(s) to SOL…", "shutdown")
+        LiveTradeLogStore.log(
+            sweepKey, "wallet", "sweep", "SWEEP",
+            LiveTradeLogStore.Phase.SWEEP_START,
+            "Sweep started — ${sellable.size} non-stablecoin holdings",
+            traderTag = "SWEEP",
+        )
         onNotify(
             "🛑 Sweeping wallet",
             "Selling ${sellable.size} token(s) back to SOL before shutdown",
@@ -6345,6 +6526,13 @@ class Executor(
             val symbol     = try {
                 TradeIdentityManager.getOrCreate(mint, mint.take(6), "shutdown_sweep").symbol
             } catch (_: Exception) { mint.take(6) }
+            val tokenSweepKey = "$sweepKey:$mint"
+            LiveTradeLogStore.log(
+                tokenSweepKey, mint, symbol, "SWEEP",
+                LiveTradeLogStore.Phase.SWEEP_TOKEN_TRY,
+                "Trying $symbol | qty=${balanceUi.fmt(4)} | dec=$decimals",
+                tokenAmount = balanceUi, traderTag = "SWEEP",
+            )
 
             try {
                 val multiplier = 10.0.pow(decimals.toDouble())
@@ -6383,14 +6571,32 @@ class Executor(
                     ultraReqId, c.jupiterApiKey, txResult.isRfqRoute,
                 )
                 onLog("✅ SWEEP SOLD $symbol: ${balanceUi.fmt(4)} → SOL | sig=${sig.take(16)}…", mint)
+                LiveTradeLogStore.log(
+                    tokenSweepKey, mint, symbol, "SWEEP",
+                    LiveTradeLogStore.Phase.SWEEP_TOKEN_DONE,
+                    "✅ Sold ${balanceUi.fmt(4)} → SOL",
+                    sig = sig, tokenAmount = balanceUi, traderTag = "SWEEP",
+                )
                 soldCount++
             } catch (e: Exception) {
                 onLog("🚨 SWEEP $symbol FAILED: ${e.message?.take(80)} — token remains in wallet", mint)
+                LiveTradeLogStore.log(
+                    tokenSweepKey, mint, symbol, "SWEEP",
+                    LiveTradeLogStore.Phase.SWEEP_TOKEN_FAILED,
+                    "🚨 Sweep failed: ${e.message?.take(120)} — token remains in wallet",
+                    traderTag = "SWEEP",
+                )
                 ErrorLogger.error("Executor", "Shutdown sweep failed for $mint: ${e.message}", e)
             }
         }
 
         onLog("✅ SHUTDOWN SWEEP COMPLETE: sold $soldCount/${sellable.size} holdings to SOL", "shutdown")
+        LiveTradeLogStore.log(
+            sweepKey, "wallet", "sweep", "SWEEP",
+            LiveTradeLogStore.Phase.SWEEP_DONE,
+            "Sweep complete — $soldCount/${sellable.size} sold to SOL",
+            traderTag = "SWEEP",
+        )
         onNotify(
             "✅ Wallet swept",
             "Sold $soldCount of ${sellable.size} holdings back to SOL",
