@@ -53,7 +53,7 @@ object TimeModeScheduler {
         var totalPnl: Double = 0.0,
     ) {
         val winRate: Double
-            get() = if (totalTrades > 0) (wins.toDouble() / totalTrades * 100) else 0.0
+            get() = if (wins + losses > 0) (wins.toDouble() / (wins + losses) * 100) else 0.0
         
         val avgPnl: Double
             get() = if (totalTrades > 0) totalPnl / totalTrades else 0.0
@@ -69,7 +69,7 @@ object TimeModeScheduler {
         var totalPnl: Double = 0.0,
     ) {
         val winRate: Double
-            get() = if (totalTrades > 0) (wins.toDouble() / totalTrades * 100) else 0.0
+            get() = if (wins + losses > 0) (wins.toDouble() / (wins + losses) * 100) else 0.0
         
         val avgPnl: Double
             get() = if (totalTrades > 0) totalPnl / totalTrades else 0.0

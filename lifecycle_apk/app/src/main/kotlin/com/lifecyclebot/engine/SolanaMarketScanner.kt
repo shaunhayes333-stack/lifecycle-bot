@@ -222,7 +222,7 @@ object ModeLearning {
         val hourWins: MutableMap<Int, Int> = mutableMapOf(),
         val hourLosses: MutableMap<Int, Int> = mutableMapOf(),
     ) {
-        val winRate: Double get() = if (totalTrades > 0) wins.toDouble() / totalTrades * 100 else 50.0
+        val winRate: Double get() = if (wins + losses > 0) wins.toDouble() / (wins + losses) * 100 else 50.0
         val avgPnl: Double get() = if (totalTrades > 0) totalPnlPct / totalTrades else 0.0
         val lossRate: Double get() = 100.0 - winRate
         val isReliable: Boolean get() = totalTrades >= MIN_TRADES_FOR_CONFIDENCE

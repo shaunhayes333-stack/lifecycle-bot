@@ -120,6 +120,7 @@ object ShadowLearningEngine {
     private var liveTotalPnl = 0.0
     private var liveTrades = 0
     private var liveWins = 0
+    private var liveLosses = 0
     
     // ══════════════════════════════════════════════════════════════════
     // FDG-BLOCKED TRADE SHADOW TRACKING (Paper Mode Learning)
@@ -379,7 +380,7 @@ object ShadowLearningEngine {
         // Update live baseline
         liveTotalPnl += livePnlSol
         liveTrades++
-        if (isWin) liveWins++
+        if (isWin) liveWins++ else liveLosses++
 
         // Close all shadow trades for this mint
         variants.values.forEach { variant ->
@@ -1001,8 +1002,10 @@ object ShadowLearningEngine {
     fun getStats(): ShadowStats {
         val totalTrades = liveTrades
         val wins = liveWins
-        val losses = totalTrades - wins
-        val winRate = if (totalTrades > 0) (wins.toDouble() / totalTrades) * 100.0 else 0.0
+        val losses = liveLosses
+        // V5.9.220+: WR uses only decisive trades (wins+losses), scratches excluded
+        val decisiveTrades = wins + losses
+        val winRate = if (decisiveTrades > 0) (wins.toDouble() / decisiveTrades) * 100.0 else 0.0
         val avgPnl = if (totalTrades > 0) liveTotalPnl / totalTrades else 0.0
         
         return ShadowStats(

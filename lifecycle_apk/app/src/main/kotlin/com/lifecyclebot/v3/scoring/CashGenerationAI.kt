@@ -1090,8 +1090,8 @@ object CashGenerationAI {
         }
 
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        val winRate = if (dailyTradeCount.get() > 0) {
-            dailyWins.get().toDouble() / dailyTradeCount.get() * 100
+        val winRate = if (dailyWins.get() + dailyLosses.get() > 0) {
+            dailyWins.get().toDouble() / (dailyWins.get() + dailyLosses.get()) * 100
         } else {
             0.0
         }
@@ -1135,8 +1135,8 @@ object CashGenerationAI {
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
             dailyTradeCount = dailyTradeCount.get(),
-            winRate = if (dailyTradeCount.get() > 0) {
-                dailyWins.get().toDouble() / dailyTradeCount.get() * 100
+            winRate = if (dailyWins.get() + dailyLosses.get() > 0) {
+                dailyWins.get().toDouble() / (dailyWins.get() + dailyLosses.get()) * 100
             } else {
                 0.0
             },

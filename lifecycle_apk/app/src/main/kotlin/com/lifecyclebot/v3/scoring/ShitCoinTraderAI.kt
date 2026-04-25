@@ -1274,8 +1274,8 @@ object ShitCoinTraderAI {
             dailyWins = dailyWins.get(),
             dailyLosses = dailyLosses.get(),
             dailyTradeCount = dailyTradeCount.get(),
-            winRate = if (dailyTradeCount.get() > 0) {
-                dailyWins.get().toDouble() / dailyTradeCount.get() * 100
+            winRate = if (dailyWins.get() + dailyLosses.get() > 0) {
+                dailyWins.get().toDouble() / (dailyWins.get() + dailyLosses.get()) * 100
             } else 0.0,
             activePositions = activePositions.size,
             mode = getCurrentMode(),

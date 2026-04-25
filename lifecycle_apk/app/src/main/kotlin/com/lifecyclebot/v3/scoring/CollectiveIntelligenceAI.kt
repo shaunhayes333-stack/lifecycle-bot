@@ -447,8 +447,10 @@ object CollectiveIntelligenceAI {
             val modeList = mutableListOf<ModePerformance>()
             
             for ((modeName, stats) in modeStats) {
-                val winRate = if (stats.totalTrades > 0) {
-                    stats.wins.toDouble() / stats.totalTrades * 100
+                // V5.9.220+: Use only decisive trades (wins+losses) for WR, not totalTrades
+                val decisiveStats = stats.wins + stats.losses
+                val winRate = if (decisiveStats > 0) {
+                    stats.wins.toDouble() / decisiveStats * 100
                 } else 0.0
                 
                 modeList.add(ModePerformance(

@@ -73,9 +73,9 @@ object UnifiedModeOrchestrator {
         var isActive: Boolean = true,
         var deactivationReason: String = "",
     ) {
-        val winRate: Double get() = if (trades > 0) wins.toDouble() / trades * 100 else 0.0
+        val winRate: Double get() = if (wins + losses > 0) wins.toDouble() / (wins + losses) * 100 else 0.0
         val avgPnlPct: Double get() = if (trades > 0) totalPnlPct / trades else 0.0
-        val isHealthy: Boolean get() = winRate >= 40.0 || trades < 10  // Need 10+ trades to judge
+        val isHealthy: Boolean get() = winRate >= 40.0 || (wins + losses) < 10  // Need 10+ decisive trades to judge
     }
     
     /**
@@ -224,18 +224,24 @@ object UnifiedModeOrchestrator {
     ) {
         ensureInitialized()
         
+        // V5.9.220+: Skip scratches — only decisive trades count for mode stats/WR
+        val isScratch = pnlPct in -1.0..1.0 && !isWin
+        if (isScratch) return
+        
         try {
             val stats = modeStats.getOrPut(mode) { ModeStats(mode) }
+            val decisiveBefore = stats.wins + stats.losses
             stats.trades++
             if (isWin) stats.wins++ else stats.losses++
             stats.totalPnlPct += pnlPct
             stats.lastTradeMs = System.currentTimeMillis()
             
-            // Update rolling average hold time
-            stats.avgHoldTimeMs = if (stats.trades == 1) {
+            // Update rolling average hold time (use decisive count)
+            val decisiveCount = stats.wins + stats.losses
+            stats.avgHoldTimeMs = if (decisiveCount == 1) {
                 holdTimeMs
             } else {
-                ((stats.avgHoldTimeMs * (stats.trades - 1)) + holdTimeMs) / stats.trades
+                ((stats.avgHoldTimeMs * (decisiveCount - 1)) + holdTimeMs) / decisiveCount
             }
             
             // Auto-deactivate poorly performing modes.
@@ -253,9 +259,10 @@ object UnifiedModeOrchestrator {
             }
             val minWinRate = if (isPaperMode) 8.0 else 30.0
 
-            if (stats.trades >= minTrades && stats.winRate < minWinRate) {
+            // Guard uses decisive trades (wins+losses), not raw trade count
+            if (decisiveCount >= minTrades && stats.winRate < minWinRate) {
                 stats.isActive = false
-                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% after ${stats.trades} trades"
+                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% after $decisiveCount decisive trades"
                 ErrorLogger.warn(TAG, "Deactivated ${mode.label}: ${stats.deactivationReason}")
             }
             
