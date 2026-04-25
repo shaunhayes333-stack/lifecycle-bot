@@ -848,6 +848,77 @@ object ShitCoinTraderAI {
         }
         
         // ═══════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.230 — INTELLIGENCE GATE: MetaCognition + Education + Symbolic + BehaviorAI
+        // All four sentient layers now guard ShitCoin entries, matching V3 quality path.
+        // ═══════════════════════════════════════════════════════════════════
+
+        // 1. BehaviorAI tilt protection
+        try {
+            if (com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive()) {
+                return ShitCoinSignal(
+                    shouldEnter = false, positionSizeSol = 0.0,
+                    takeProfitPct = 0.0, stopLossPct = 0.0,
+                    confidence = shitConfidence,
+                    reason = "TILT_BLOCK: BehaviorAI tilt protection active — skipping entry",
+                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
+                    riskLevel = riskLevel, socialScore = socialBonus,
+                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
+                )
+            }
+        } catch (_: Exception) {}
+
+        // 2. SymbolicExitReasoner — pre-entry market health check
+        try {
+            val symSnap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
+            val urgencySignals = listOfNotNull(
+                symSnap["BehaviorTilt"], symSnap["CrossRegime"],
+                symSnap["Fragility"], symSnap["PortfolioHeat"],
+            )
+            val avgUrgency = if (urgencySignals.isNotEmpty()) urgencySignals.average() else 0.0
+            if (avgUrgency > 0.78) {
+                return ShitCoinSignal(
+                    shouldEnter = false, positionSizeSol = 0.0,
+                    takeProfitPct = 0.0, stopLossPct = 0.0,
+                    confidence = shitConfidence,
+                    reason = "SYMBOLIC_VETO: exit urgency %.2f > 0.78 — market conditions unfavourable".format(avgUrgency),
+                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
+                    riskLevel = riskLevel, socialScore = socialBonus,
+                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
+                )
+            }
+        } catch (_: Exception) {}
+
+        // 3. MetaCognitionAI — trust multiplier on confidence
+        try {
+            val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+            val shitLayer = metaPerf[com.lifecyclebot.v3.scoring.MetaCognitionAI.AILayer.SHITCOIN_TRADER]
+            val metaTrust = shitLayer?.trustMultiplier ?: 1.0
+            val clampedTrust = metaTrust.coerceIn(0.75, 1.30)
+            shitConfidence = (shitConfidence * clampedTrust).toInt().coerceIn(0, 100)
+            ErrorLogger.debug(TAG, "💩 META trust=${clampedTrust.fmt(2)}x → conf=$shitConfidence%")
+        } catch (_: Exception) {}
+
+        // 4. EducationSubLayerAI — mute/boost on score
+        try {
+            val (boostedScore, mult, status) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_TRADER", shitScore)
+            when (status) {
+                "MUTE", "SOFT_PENALTY" -> return ShitCoinSignal(
+                    shouldEnter = false, positionSizeSol = 0.0,
+                    takeProfitPct = 0.0, stopLossPct = 0.0,
+                    confidence = shitConfidence,
+                    reason = "EDU_MUTED: layer muted ($status ×${"%.2f".format(mult)}) — edge not proven",
+                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
+                    riskLevel = riskLevel, socialScore = socialBonus,
+                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
+                )
+                else -> {
+                    shitScore = boostedScore.coerceAtLeast(0)
+                    ErrorLogger.debug(TAG, "💩 EDU gate=$status ×${mult.fmt(2)} → score=$shitScore")
+                }
+            }
+        } catch (_: Exception) {}
+
         // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
         // 
         // Problem: User had 12 SOL but shitcoin was taking tiny 0.05 SOL entries

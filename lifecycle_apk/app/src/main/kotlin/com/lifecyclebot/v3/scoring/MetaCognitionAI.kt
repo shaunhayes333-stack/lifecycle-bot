@@ -83,6 +83,7 @@ object MetaCognitionAI {
         REFLEX_AI("ReflexAI", "execution"),
         // ── Trader-class ──────────────────────────────────────────────────────
         SHITCOIN_TRADER("ShitCoinTraderAI", "trader"),
+        SHITCOIN_EXPRESS("ShitCoinExpress", "trader"),  // V5.9.230
         QUALITY_TRADER("QualityTraderAI", "trader"),
         MOONSHOT_TRADER("MoonshotTraderAI", "trader"),
         BLUECHIP_TRADER("BlueChipTraderAI", "trader"),

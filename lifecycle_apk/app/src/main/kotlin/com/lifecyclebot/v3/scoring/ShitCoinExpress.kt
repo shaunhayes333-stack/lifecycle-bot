@@ -386,9 +386,49 @@ object ShitCoinExpress {
         expressScore += ageScore
         
         // Calculate confidence
-        val confidence = ((expressScore / 110.0) * 100).toInt().coerceIn(0, 100)
+        val confidence = ((expressScore / 110.0) * 100 * metaTrustMult).toInt().coerceIn(0, 100)
         
         // ═══════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.230 — INTELLIGENCE GATE: MetaCognition + Education + BehaviorAI
+        // ═══════════════════════════════════════════════════════════════════
+
+        // 1. BehaviorAI tilt protection
+        try {
+            if (com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive()) {
+                return noRide("TILT_BLOCK: BehaviorAI tilt protection active")
+            }
+        } catch (_: Exception) {}
+
+        // 2. SymbolicExitReasoner — high exit urgency = don't board
+        try {
+            val symSnap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
+            val urgencySignals = listOfNotNull(
+                symSnap["BehaviorTilt"], symSnap["CrossRegime"],
+                symSnap["Fragility"], symSnap["PortfolioHeat"],
+            )
+            val avgUrgency = if (urgencySignals.isNotEmpty()) urgencySignals.average() else 0.0
+            if (avgUrgency > 0.80) {
+                return noRide("SYMBOLIC_VETO: exit urgency %.2f > 0.80 — market not ready".format(avgUrgency))
+            }
+        } catch (_: Exception) {}
+
+        // 3. MetaCognitionAI — trust multiplier stored; applied to confidence below
+        val metaTrustMult: Double = try {
+            val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+            val layer = metaPerf[com.lifecyclebot.v3.scoring.MetaCognitionAI.AILayer.SHITCOIN_EXPRESS]
+            (layer?.trustMultiplier ?: 1.0).coerceIn(0.75, 1.30)
+        } catch (_: Exception) { 1.0 }
+
+        // 4. EducationSubLayerAI — mute/boost on score
+        try {
+            val (educScore, educMult, educStatus) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_EXPRESS", expressScore)
+            if (educStatus == "MUTE" || educStatus == "SOFT_PENALTY") {
+                return noRide("EDU_MUTED: EXPRESS layer muted ($educStatus x${"%.2f".format(educMult)})")
+            }
+            expressScore = educScore.coerceAtLeast(0)
+        } catch (_: Exception) {}
+
         // FLUID THRESHOLD CHECK
         // ═══════════════════════════════════════════════════════════════════
         
@@ -612,6 +652,30 @@ object ShitCoinExpress {
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
         }
+
+        // V5.9.230 — Sentience wiring: Education + PersonalityMemory + SentientPersonality
+        try {
+            val isWin = pnlPct >= 1.0
+            val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000.0
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
+                symbol     = ride.symbol,
+                mint       = ride.mint,
+                pnlPct     = pnlPct,
+                holdMins   = holdMins,
+                traderTag  = "EXPRESS",
+                exitReason = exitSignal.name,
+            )
+            com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                pnlPct              = pnlPct,
+                gaveBackFromPeakPct = (ride.peakPnlPct - pnlPct).coerceAtLeast(0.0),
+                heldMinutes         = holdMins.toInt().coerceAtLeast(1),
+            )
+            if (isWin) {
+                com.lifecyclebot.engine.SentientPersonality.onTradeWin(ride.symbol, pnlPct, "EXPRESS", holdMins.toLong() * 60)
+            } else {
+                com.lifecyclebot.engine.SentientPersonality.onTradeLoss(ride.symbol, pnlPct, "EXPRESS", exitSignal.name)
+            }
+        } catch (_: Exception) {}
         
         // V5.6.29c: Persist after trade
         save()

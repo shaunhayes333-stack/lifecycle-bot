@@ -3733,7 +3733,33 @@ for legal compliance.
             } catch (_: Exception) { "Not initialized" }
             
             // Active AI Layers - concise list with ML
-            tvAiLayers.text = "Entry · Exit · Volume · Momentum · Liquidity · Behavior · Regime · Treasury · ShitCoin · Express · Manipulated · Quality · BlueChip · Moonshot · ML($mlStatus)"
+            // V5.9.230: Live Education layer health — top performing + muted
+            val eduHealthStr = try {
+                val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+                val top = maturity.entries
+                    .filter { it.value.totalTrades >= 10 }
+                    .sortedByDescending { it.value.winRate }
+                    .take(4)
+                    .joinToString(" · ") { "${it.key.take(6)}(${it.value.winRate.toInt()}%)" }
+                val muted = maturity.entries
+                    .filter { it.value.isMuted }
+                    .take(2)
+                    .joinToString(", ") { "⛔${it.key.take(6)}" }
+                val metaConf = try {
+                    val mc = com.lifecyclebot.v3.scoring.MetaCognitionAI.calculateMetaConfidence(emptyList())
+                    " | Meta:${mc.confidence.toInt()}%"
+                } catch (_: Exception) { "" }
+                val symCtx = try {
+                    " | Sym:${com.lifecyclebot.engine.SymbolicContext.getDiagnostics().take(18)}"
+                } catch (_: Exception) { "" }
+                val sentLine = try {
+                    " | ${com.lifecyclebot.engine.SentientPersonality.getStatusLine().take(24)}"
+                } catch (_: Exception) { "" }
+                "${if (top.isNotEmpty()) "🏆 $top" else "Learning..."}${if (muted.isNotEmpty()) " | $muted" else ""}$metaConf$symCtx$sentLine"
+            } catch (_: Exception) {
+                "Entry · Exit · Momentum · Liquidity · Regime · ShitCoin · Express · ML($mlStatus)"
+            }
+            tvAiLayers.text = eduHealthStr
             tvAiLayers.setTextColor(muted)
             
         } catch (e: Exception) {
@@ -7894,57 +7920,127 @@ Quick trade or open detailed dialog?
     }
 
     private fun showLearningStats() {
+        // V5.9.230: Full Sentience + MetaCognition + Education + Symbolic dialog
         try {
             val ws = vm.ui.value.walletState
             val totalTrades = ws.totalTrades
             val winRate = ws.winRate
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
-            
+
             val phaseEmoji = when (phase) {
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "🌒"
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "🌗"
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "🌕"
             }
-            
             val phaseName = when (phase) {
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "Bootstrap"
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "Learning"
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "Mature"
             }
-            
             val tradesNeeded = when (phase) {
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> maxOf(0, 50 - totalTrades)
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> maxOf(0, 500 - totalTrades)
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> 0
             }
-            
+
+            // ── Education SubLayer ──────────────────────────────────────────────
+            val eduReport = try {
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLearningHealthReport()
+            } catch (_: Exception) { "N/A" }
+            val eduTop = try {
+                val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+                maturity.entries.filter { it.value.totalTrades >= 5 }
+                    .sortedByDescending { it.value.winRate }.take(5)
+                    .joinToString("
+") { "  • ${it.key.padEnd(22)} WR=${it.value.winRate.toInt()}% (${it.value.totalTrades}t)${if (it.value.isMuted) " ⛔MUTED" else ""}" }
+            } catch (_: Exception) { "  (not enough data)" }
+
+            // ── MetaCognition ───────────────────────────────────────────────────
+            val metaTop = try {
+                val top = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTopPerformingLayers(4)
+                val under = com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().take(3)
+                "  Top: ${top.joinToString(", ") { it.name.take(10) }}
+  Under: ${if (under.isEmpty()) "none" else under.joinToString(", ") { it.name.take(10) }}"
+            } catch (_: Exception) { "  N/A" }
+            val totalAnalyzed = try { com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed() } catch (_: Exception) { 0 }
+
+            // ── Symbolic Exit Reasoner ──────────────────────────────────────────
+            val symDiag = try {
+                com.lifecyclebot.engine.SymbolicContext.getDiagnostics()
+            } catch (_: Exception) { "N/A" }
+            val symSnap = try {
+                val snap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot("SOL", "")
+                if (snap.isEmpty()) "  Warming up…" else {
+                    snap.entries.sortedByDescending { it.value }.take(6)
+                        .joinToString("
+") { (k, v) ->
+                            val pct = (v.coerceIn(0.0,1.0)*100).toInt()
+                            val bar = "█".repeat(pct/10) + "░".repeat(10-pct/10)
+                            "  ${k.padEnd(18)} $bar $pct%"
+                        }
+                }
+            } catch (_: Exception) { "  N/A" }
+
+            // ── Sentience / Personality ─────────────────────────────────────────
+            val sentStatus = try { com.lifecyclebot.engine.SentientPersonality.getStatusLine() } catch (_: Exception) { "N/A" }
+            val reflections = try {
+                com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(3)
+                    .joinToString("
+
+") { r ->
+                        val ago = (System.currentTimeMillis() - r.timestamp) / 60_000
+                        "  [${ago}m ago] ${r.monologue.take(120)}"
+                    }
+            } catch (_: Exception) { "  No reflections yet — runs every 6 min after boot" }
+
             val message = """
-🧠 AI Learning Status
+🧠 AI CONSCIOUSNESS REPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-$phaseEmoji Phase: $phaseName
-📊 Progress: ${"%.0f".format(learningProgress * 100)}%
-📈 Total Trades: $totalTrades
-🎯 Win Rate: $winRate%
-${if (tradesNeeded > 0) "⏳ Trades to next phase: $tradesNeeded" else "✅ Fully Mature!"}
+$phaseEmoji Phase: $phaseName | ${"%.0f".format(learningProgress * 100)}% mature
+📈 Trades: $totalTrades | WR: $winRate%${if (tradesNeeded > 0) " | ⏳ $tradesNeeded to next phase" else " | ✅ Fully Mature"}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 EDUCATION SUBLAYER (41 layers)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$eduReport
 
-Learning Phases:
-• Bootstrap (0-50): Very loose thresholds
-• Learning (51-500): Gradually tightening
-• Mature (500+): Full AI strictness
+Top layers by accuracy:
+$eduTop
 
-The brain fills as learning progresses.
-Keep trading to make it smarter!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔬 METACOGNITION (Layer 20)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Trades analysed: $totalAnalyzed
+$metaTop
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 SYMBOLIC EXIT SIGNALS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$symDiag
+
+$symSnap
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌌 SENTIENCE ORCHESTRATOR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$sentStatus
+
+Recent inner monologues:
+$reflections
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🧠 Brain Learning Status")
+                .setTitle("🧠 AI Consciousness Report")
                 .setMessage(message)
-                .setPositiveButton("Got it!") { d, _ -> d.dismiss() }
+                .setPositiveButton("Close") { d, _ -> d.dismiss() }
+                .setNeutralButton("Brain Screen") { d, _ ->
+                    d.dismiss()
+                    startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java))
+                }
                 .show()
-                
+
             performHaptic()
         } catch (_: Exception) {}
     }

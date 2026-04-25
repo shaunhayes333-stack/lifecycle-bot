@@ -47,6 +47,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private lateinit var llBrainSignals: LinearLayout
     private lateinit var tvDataSource: TextView
     private lateinit var tvSyncStatus: TextView
+    // V5.9.230 — Sentience / MetaCognition / Education panel (dynamically built)
+    private lateinit var llSentiencePanel: android.widget.LinearLayout
     private lateinit var btnForceSync: TextView
     
     private val purple = 0xFF9945FF.toInt()
@@ -148,7 +150,13 @@ class CollectiveBrainActivity : AppCompatActivity() {
         tvWinRate = try { findViewById(R.id.tvBrainWinRate) } catch (_: Exception) { TextView(this) }
         tvAvgHold = try { findViewById(R.id.tvBrainAvgHold) } catch (_: Exception) { TextView(this) }
         btnForceSync = findViewById(R.id.btnForceSync)
-        
+        // V5.9.230: Sentience panel — create dynamically (no layout change needed)
+        llSentiencePanel = try {
+            findViewById(R.id.llSentiencePanel)
+        } catch (_: Exception) {
+            android.widget.LinearLayout(this).also { it.orientation = android.widget.LinearLayout.VERTICAL }
+        }
+
         // V4.20: Force sync button
         btnForceSync.setOnClickListener {
             lifecycleScope.launch {
@@ -526,6 +534,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // V5.9.26: Populate the two standalone sections at the bottom
         updateTopPatternsSection()
         updateNetworkSignalsSection(networkSignals, hotTokens)
+        updateSentiencePanel()   // V5.9.230
     }
 
     /**
@@ -684,6 +693,118 @@ class CollectiveBrainActivity : AppCompatActivity() {
         }
     }
     
+    // ════════════════════════════════════════════════════════════════════════
+    // V5.9.230 — SENTIENCE / METACOGNITION / EDUCATION PANEL
+    // Builds a live read-out directly into llSentiencePanel (or logs if no view)
+    // ════════════════════════════════════════════════════════════════════════
+    private fun updateSentiencePanel() {
+        try {
+            llSentiencePanel.removeAllViews()
+        } catch (_: Exception) { return }  // no layout slot → skip
+
+        fun addRow(label: String, value: String, color: Int = 0xFFCBD5E1.toInt()) {
+            val row = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                setPadding(0, dp(2), 0, dp(2))
+            }
+            row.addView(android.widget.TextView(this).apply {
+                text = label
+                textSize = 10f
+                setTextColor(0xFF6B7280.toInt())
+                typeface = android.graphics.Typeface.MONOSPACE
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(android.widget.TextView(this).apply {
+                text = value
+                textSize = 10f
+                setTextColor(color)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            llSentiencePanel.addView(row)
+        }
+
+        fun addHeader(text: String) {
+            llSentiencePanel.addView(android.widget.TextView(this).apply {
+                this.text = text
+                textSize = 10f
+                setTextColor(0xFF9CA3AF.toInt())
+                typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(0, dp(6), 0, dp(2))
+            })
+        }
+
+        // ── Sentient Personality ──────────────────────────────────────────────
+        addHeader("🌌 SENTIENCE")
+        try {
+            val status = com.lifecyclebot.engine.SentientPersonality.getStatusLine()
+            addRow("  Status", status)
+            val reflections = com.lifecyclebot.engine.SentienceOrchestrator.recentReflections(2)
+            if (reflections.isNotEmpty()) {
+                val r = reflections.first()
+                val ago = (System.currentTimeMillis() - r.timestamp) / 60_000
+                addRow("  Last thought", "[${ago}m ago] ${r.monologue.take(80)}")
+            }
+        } catch (_: Exception) {
+            addRow("  Status", "Warming up…", 0xFF4B5563.toInt())
+        }
+
+        // ── MetaCognition ─────────────────────────────────────────────────────
+        addHeader("🔬 META-COGNITION")
+        try {
+            val top = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTopPerformingLayers(3)
+            val under = com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().take(2)
+            val total = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()
+            addRow("  Analysed", "$total trades")
+            addRow("  Top layers", top.joinToString(", ") { it.name.take(10) }, 0xFF22C55E.toInt())
+            if (under.isNotEmpty()) {
+                addRow("  Under-perf", under.joinToString(", ") { it.name.take(10) }, 0xFFEF4444.toInt())
+            }
+        } catch (_: Exception) {
+            addRow("  Status", "N/A", 0xFF4B5563.toInt())
+        }
+
+        // ── Education SubLayer ────────────────────────────────────────────────
+        addHeader("📚 EDUCATION (41 layers)")
+        try {
+            val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+            val trained = maturity.values.count { it.totalTrades >= 10 }
+            val muted = maturity.values.count { it.isMuted }
+            val overallWr = maturity.values.filter { it.totalTrades >= 5 }
+                .map { it.winRate }.average().takeIf { !it.isNaN() }?.toInt() ?: 0
+            addRow("  Trained layers", "$trained / ${maturity.size}", if (trained > 20) 0xFF22C55E.toInt() else 0xFFF59E0B.toInt())
+            addRow("  Muted layers", "$muted", if (muted > 0) 0xFFEF4444.toInt() else 0xFF22C55E.toInt())
+            addRow("  Avg layer WR", "$overallWr%", if (overallWr >= 50) 0xFF22C55E.toInt() else 0xFFF59E0B.toInt())
+            // Top 3
+            val top3 = maturity.entries.filter { it.value.totalTrades >= 5 }
+                .sortedByDescending { it.value.winRate }.take(3)
+            top3.forEach { (k, v) ->
+                addRow("  ★ ${k.take(20)}", "${v.winRate.toInt()}% (${v.totalTrades}t)", 0xFF22C55E.toInt())
+            }
+        } catch (_: Exception) {
+            addRow("  Status", "N/A", 0xFF4B5563.toInt())
+        }
+
+        // ── Symbolic Exit Reasoner ────────────────────────────────────────────
+        addHeader("🎯 SYMBOLIC SIGNALS")
+        try {
+            val symDiag = com.lifecyclebot.engine.SymbolicContext.getDiagnostics()
+            addRow("  Context", symDiag.take(60))
+            val snap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot("SOL", "")
+            if (snap.isNotEmpty()) {
+                snap.entries.sortedByDescending { it.value }.take(4).forEach { (k, v) ->
+                    val pct = (v.coerceIn(0.0, 1.0) * 100).toInt()
+                    addRow("  $k", "$pct%", when {
+                        pct >= 70 -> 0xFFEF4444.toInt()
+                        pct >= 40 -> 0xFFF59E0B.toInt()
+                        else -> 0xFF22C55E.toInt()
+                    })
+                }
+            }
+        } catch (_: Exception) {
+            addRow("  Status", "N/A", 0xFF4B5563.toInt())
+        }
+    }
+
     private fun addSectionHeader(title: String) {
         llModeStats.addView(android.widget.TextView(this).apply {
             text = title
