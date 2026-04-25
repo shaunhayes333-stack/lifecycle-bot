@@ -2752,8 +2752,13 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
         positions.forEach { pos ->
+            // V5.9.251: Guard against dead price feed (ref=0 when token rugs/dies).
+            // Without this guard: gainPct = (0 - entryPrice)/entryPrice*100 = -100%
+            // even though the position hasn't been closed yet. Use entryPrice fallback
+            // when ref is zero so the display shows ~0% while the bot forces an exit.
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                if (ref > 0.0) ref else pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red

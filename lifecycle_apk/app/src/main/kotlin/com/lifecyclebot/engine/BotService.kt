@@ -7586,6 +7586,28 @@ if (deferredCount > 0) {
                 ?: ts.position.entryPrice
             val currentMcap = ts.lastMcap.takeIf { it > 0 } ?: 0.0
             
+            // V5.9.251: DEAD PRICE EXIT — if the price feed has gone completely
+            // silent (ref=0, lastPrice=0, no history) the token has likely rugged.
+            // Rather than showing -100% on UI indefinitely, force a STOP_LOSS exit
+            // after 5 minutes of dead price so the position is cleaned up.
+            val qualityHoldMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000
+            val isPriceDead = ts.ref <= 0.0 && ts.lastPrice <= 0.0 && (ts.history.lastOrNull()?.priceUsd ?: 0.0) <= 0.0
+            if (isPriceDead && qualityHoldMins >= 5) {
+                ErrorLogger.warn("BotService",
+                    "⭐💀 QUALITY DEAD-PRICE EXIT: ${ts.symbol} | ref=0 lastPrice=0 held=${qualityHoldMins}min → forcing SL")
+                val deadExitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
+                executor.requestSell(
+                    ts = ts,
+                    reason = "QUALITY_DEAD_PRICE",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, ts.position.entryPrice, deadExitSignal)
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("💀 QUALITY DEAD-PRICE: ${ts.symbol} | price feed gone >5min, forced SL", ts.mint)
+                return
+            }
+            
             val exitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.checkExit(
                 ts.mint, currentPrice, currentMcap
             )
