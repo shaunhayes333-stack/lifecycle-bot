@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * V5.7.6b: MARKETS LIVE EXECUTOR
@@ -735,10 +737,10 @@ object MarketsLiveExecutor {
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
-            val mediaJson = okhttp3.MediaType.parse("application/json; charset=utf-8")
+            val mediaJson = "application/json; charset=utf-8".toMediaType()
             val request = okhttp3.Request.Builder()
                 .url(flashApiUrl)
-                .post(okhttp3.RequestBody.create(mediaJson, body))
+                .post(body.toRequestBody(mediaJson))
                 .header("Content-Type", "application/json")
                 .build()
 
