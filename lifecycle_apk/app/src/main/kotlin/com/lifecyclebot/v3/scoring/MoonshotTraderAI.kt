@@ -94,6 +94,13 @@ object MoonshotTraderAI {
     // Cross-trade promotion threshold
     private const val CROSS_TRADE_PROMOTION_PCT = 200.0  // 200%+ gain = promote to Moonshot
     
+    // V5.9.235 — Hard entry gates (mirrors ShitCoin/Quality pattern)
+    private const val MIN_BUY_PRESSURE_PCT = 55.0   // Hard reject if buying <55%
+    private const val MIN_VOLUME_SCORE = 5           // Hard reject if zero momentum
+    private const val HARD_FLOOR_STOP = -15.0        // Absolute floor SL regardless of mode (was -20%)
+    private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
+    private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
+
     // Trailing stop configuration per mode
     private const val TRAILING_STOP_ORBITAL = 15.0
     private const val TRAILING_STOP_LUNAR = 12.0
@@ -427,6 +434,24 @@ object MoonshotTraderAI {
         val minRcScore = if (isPaper) 10 else 20
         if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
+
+        // V5.9.235 ── HARD ENTRY GATES (prevents 100% loss rugs) ────────────────
+        // Gate 1: buy pressure — moonshots need real demand behind them
+        if (buyPressurePct < MIN_BUY_PRESSURE_PCT) {
+            return MoonshotScore(false, 0, 0.0,
+                "moon_hard_reject_buy_pressure_${buyPressurePct.toInt()}_<_${MIN_BUY_PRESSURE_PCT.toInt()}")
+        }
+        // Gate 2: volume — dead tokens with no momentum are rug magnets
+        if (volumeScore < MIN_VOLUME_SCORE) {
+            return MoonshotScore(false, 0, 0.0,
+                "moon_hard_reject_volume_${volumeScore}_<_${MIN_VOLUME_SCORE}")
+        }
+        // Gate 3: BehaviorAI tilt protection — don't YOLO moonshots while tilted
+        val isTilted = try { com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive() } catch (_: Exception) { false }
+        if (isTilted) {
+            return MoonshotScore(false, 0, 0.0, "moon_hard_reject_tilt_protection")
+        }
+        // ── END HARD GATES ────────────────────────────────────────────────────────────
         }
         
         // ─── DETECT IF COLLECTIVE WINNER ───
@@ -505,11 +530,13 @@ object MoonshotTraderAI {
         // Minimum threshold — fluid by learning + paper mode
         // V5.9.180: TOTAL floor obliteration — paper bootstrap tier dropped to 5.
         // The user's directive: stop rejecting fresh memes during learning.
+        // V5.9.235: Raised bootstrap score floors — was letting score-5 garbage through.
+        // Even paper moonshots need real momentum signals to avoid 100% loss outcomes.
         val minScore = when {
-            learningProgress < 0.1 -> if (isPaper) 5 else 42
-            learningProgress < 0.3 -> if (isPaper) 15 else 48
-            learningProgress < 0.5 -> if (isPaper) 30 else 55
-            else -> if (isPaper) 52 else 65
+            learningProgress < 0.1 -> if (isPaper) 30 else 42  // was 5 — too low
+            learningProgress < 0.3 -> if (isPaper) 42 else 50  // was 15
+            learningProgress < 0.5 -> if (isPaper) 50 else 58  // was 30
+            else -> if (isPaper) 58 else 68                     // was 52/65
         }
         
         if (score < minScore) {
@@ -538,13 +565,17 @@ object MoonshotTraderAI {
         val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
         val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
         
+        // V5.9.235: Absolute SL floor — FluidLearningAI can widen stops on paper;
+        // cap at HARD_FLOOR_STOP so a thin ORBITAL token can't bleed to -20%+
+        val clampedSl = maxOf(-fluidSl, HARD_FLOOR_STOP)  // e.g. max(-4, -15) = -4; max(-22, -15) = -15
+
         return MoonshotScore(
             eligible = true,
             score = score,
             confidence = confidence,
             suggestedSizeSol = sizeSol,
             takeProfitPct = fluidTp,
-            stopLossPct = -fluidSl,  // FluidLearningAI returns positive, we need negative
+            stopLossPct = clampedSl,  // V5.9.235: hard floor applied
             spaceMode = mode,
             isCollectiveBoost = isCollective,
         )
@@ -628,7 +659,7 @@ object MoonshotTraderAI {
             entrySol = positionSol,
             entryTime = System.currentTimeMillis(),
             takeProfitPct = mode.baseTP,
-            stopLossPct = tightSL,  // V5.2: Tight SL for promotions
+            stopLossPct = tightSL.coerceAtLeast(HARD_FLOOR_STOP),  // V5.9.235: floor applied
             marketCapUsd = marketCapUsd,
             liquidityUsd = liquidityUsd,
             entryScore = 100.0,  // Already proven winner
@@ -915,7 +946,15 @@ object MoonshotTraderAI {
             ErrorLogger.warn(TAG, "⚠️ RUG DETECTED: ${pos.symbol} | ${pnlPct.toInt()}% in ${holdMinutes}min")
             return ExitSignal.RUG_DETECTED
         }
-        
+
+        // V5.9.235 — EARLY DEAD EXIT: position losing >6% within first 20min → cut it.
+        // Mirrors ShitCoin's 12min/-0% dead exit but allows a little more room since
+        // moonshots legitimately dip before launching. -6% over 20min = it's not launching.
+        if (holdMinutes <= EARLY_DEAD_EXIT_MINUTES && pnlPct < EARLY_DEAD_EXIT_THRESHOLD) {
+            ErrorLogger.warn(TAG, "💀 MOON DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% at ${holdMinutes}min — cutting early")
+            return ExitSignal.STOP_LOSS
+        }
+
         // 2. STOP LOSS HIT
         if (pnlPct <= pos.stopLossPct) {
             ErrorLogger.info(TAG, "🛑 SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
