@@ -252,13 +252,26 @@ object SymbolicExitReasoner {
         signals["v3_education"] = eduSignal
         totalConviction += eduSignal * 0.03
 
-        // 15. MetaCognitionAI — Layer Underperformance (weight: 0.03)
+        // 15. MetaCognitionAI — Layer Trust Health (weight: 0.06, was 0.03 weak noise)
+        // V5.9.224: Now uses trust multiplier health + calibration, not just underperforming count
         val metaSignal = try {
             val underperf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers()
-            if (underperf.size > 3) 0.4 else if (underperf.size > 1) 0.2 else 0.0
+            val allPerf   = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+            val overconf  = allPerf.values.count { it.overconfidenceScore > 0.3 && it.totalPredictions >= 15 }
+            val lowTrust  = allPerf.values.count { it.trustMultiplier <= 0.85 && it.totalPredictions >= 15 }
+            // Exit conviction increases when many layers are overconfident/low-trust
+            val underperfSignal = when {
+                underperf.size > 5 -> 0.5
+                underperf.size > 3 -> 0.35
+                underperf.size > 1 -> 0.2
+                else               -> 0.0
+            }
+            val overconfSignal = (overconf.toDouble() / allPerf.size.coerceAtLeast(1) * 0.5).coerceIn(0.0, 0.5)
+            val lowTrustSignal = (lowTrust.toDouble()  / allPerf.size.coerceAtLeast(1) * 0.4).coerceIn(0.0, 0.4)
+            ((underperfSignal + overconfSignal + lowTrustSignal) / 1.4).coerceIn(0.0, 0.6)
         } catch (_: Exception) { 0.1 }
         signals["v3_metacognition"] = metaSignal
-        totalConviction += metaSignal * 0.03
+        totalConviction += metaSignal * 0.06
 
         // 16. CollectiveIntelligenceAI — Network Consensus (weight: 0.04) — NEW V5.9.212
         val collectiveSignal = try {
@@ -448,7 +461,24 @@ object SymbolicExitReasoner {
         try { snap["LocalRegime"]      = MarketRegimeAI.getRegimeConfidence() } catch (_: Exception) { snap["LocalRegime"] = 0.5 }
         try { snap["ShadowWR"]         = (ShadowLearningEngine.getModePerformance().values.map { it.winRate }.average().takeIf { !it.isNaN() } ?: 50.0) / 100.0 } catch (_: Exception) { snap["ShadowWR"] = 0.5 }
         try { snap["EducationLevel"]   = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getCurrentLearningWeight() } catch (_: Exception) { snap["EducationLevel"] = 0.5 }
-        try { snap["MetaCognition"]    = (1.0 - com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().size / 10.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["MetaCognition"] = 0.5 }
+        try {
+            // V5.9.224: Rich MetaCognitionAI → SymbolicSnapshot signal.
+            // Old signal: (1 - underperforming.size/10) → almost always ~0.8, no signal.
+            // New signal: weighted composite of trust health + calibration quality + top-layer boost.
+            val metaPerf = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+            val wellCalibrated = metaPerf.values.count { it.calibrationError < 0.18 && it.totalPredictions >= 15 }
+            val overconfident  = metaPerf.values.count { it.overconfidenceScore > 0.3 }
+            val highTrust      = metaPerf.values.count { it.trustMultiplier >= 1.10 }
+            val lowTrust       = metaPerf.values.count { it.trustMultiplier <= 0.85 }
+            val total          = metaPerf.size.coerceAtLeast(1)
+            // calibration ratio, trust health, overconfidence drag
+            val calibRatio     = (wellCalibrated.toDouble() / total).coerceIn(0.0, 1.0)
+            val trustHealth    = ((highTrust - lowTrust).toDouble() / total + 0.5).coerceIn(0.0, 1.0)
+            val confPenalty    = (overconfident.toDouble() / total * 0.4).coerceIn(0.0, 0.4)
+            snap["MetaCognition"] = (calibRatio * 0.45 + trustHealth * 0.40 - confPenalty + 0.15).coerceIn(0.0, 1.0)
+            // Also expose raw trust health as separate key for SymbolicContext weighting
+            snap["MetaTrustHealth"] = trustHealth
+        } catch (_: Exception) { snap["MetaCognition"] = 0.5; snap["MetaTrustHealth"] = 0.5 }
         try { snap["FearGreed"]        = (com.lifecyclebot.v3.scoring.InsiderTrackerAI.getRecentSignals(50).size / 50.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["FearGreed"] = 0.5 }
         try { snap["InsiderSignals"]   = (com.lifecyclebot.v3.scoring.InsiderTrackerAI.getRecentSignals(10).size / 10.0).coerceIn(0.0, 1.0) } catch (_: Exception) { snap["InsiderSignals"] = 0.0 }
         try { snap["AdaptiveEdge"]     = MarketRegimeAI.getCurrentRegimeWinRate() / 100.0 } catch (_: Exception) { snap["AdaptiveEdge"] = 0.5 }

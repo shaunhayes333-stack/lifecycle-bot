@@ -491,27 +491,59 @@ class UnifiedScorer(
     /**
      * Map score component names to MetaCognition AI layers
      */
+    // V5.9.224 — EXPANDED: all 41 scoring layers now mapped.
+    // Previously the 16 V5.9.123 layers (CorrelationHedgeAI, MEVDetectionAI, etc.)
+    // returned null here → MetaCognitionAI was completely blind to their accuracy,
+    // trust calibration, and contribution to veto/consensus decisions.
     private fun mapComponentNameToLayer(name: String): MetaCognitionAI.AILayer? = when (name.lowercase()) {
-        "source" -> null  // Source is not an AI layer
+        // Legacy V3 core layers
+        "source" -> null
         "entry" -> MetaCognitionAI.AILayer.ENTRY_INTELLIGENCE
         "momentum" -> MetaCognitionAI.AILayer.MOMENTUM_PREDICTOR
         "liquidity" -> MetaCognitionAI.AILayer.LIQUIDITY_DEPTH
         "volume" -> MetaCognitionAI.AILayer.ORDER_FLOW_IMBALANCE
-        "holders" -> null  // HolderSafetyAI maps to nothing directly
+        "holders" -> null
         "narrative" -> MetaCognitionAI.AILayer.NARRATIVE_DETECTOR
         "memory" -> MetaCognitionAI.AILayer.TOKEN_WIN_MEMORY
         "regime" -> MetaCognitionAI.AILayer.MARKET_REGIME
         "time" -> MetaCognitionAI.AILayer.TIME_OPTIMIZATION
-        "copytrade" -> null  // CopyTrade is disabled
-        "suppression" -> null  // Not a predictive AI
-        "feargreed" -> null  // External data, not our AI
-        "social" -> null  // External data
+        "copytrade" -> null
+        "suppression" -> null
+        "feargreed" -> MetaCognitionAI.AILayer.FEAR_GREED
+        "social" -> MetaCognitionAI.AILayer.SOCIAL_VELOCITY
         "volatility" -> MetaCognitionAI.AILayer.VOLATILITY_REGIME
         "orderflow" -> MetaCognitionAI.AILayer.ORDER_FLOW_IMBALANCE
         "smartmoney" -> MetaCognitionAI.AILayer.SMART_MONEY_DIVERGENCE
         "holdtime" -> MetaCognitionAI.AILayer.HOLD_TIME_OPTIMIZER
         "liquiditycycle" -> MetaCognitionAI.AILayer.LIQUIDITY_CYCLE
         "collective_ai" -> MetaCognitionAI.AILayer.COLLECTIVE_INTELLIGENCE
+        // V5.9.123 — 16 new layers (previously ALL returned null = invisible to MetaCog)
+        "correlationhedgeai" -> MetaCognitionAI.AILayer.CORRELATION_HEDGE
+        "liquidityexitpathai" -> MetaCognitionAI.AILayer.LIQUIDITY_EXIT_PATH
+        "mevdetectionai" -> MetaCognitionAI.AILayer.MEV_DETECTION
+        "stablecoinflowai" -> MetaCognitionAI.AILayer.STABLECOIN_FLOW
+        "operatorfingerprintai" -> MetaCognitionAI.AILayer.OPERATOR_FINGERPRINT
+        "sessionedgeai" -> MetaCognitionAI.AILayer.SESSION_EDGE
+        "executioncostpredictorai" -> MetaCognitionAI.AILayer.EXECUTION_COST_PREDICTOR
+        "drawdowncircuitai" -> MetaCognitionAI.AILayer.DRAWDOWN_CIRCUIT
+        "capitalefficiencyai" -> MetaCognitionAI.AILayer.CAPITAL_EFFICIENCY
+        "tokendnaclusteringai" -> MetaCognitionAI.AILayer.TOKEN_DNA_CLUSTERING
+        "peeralphaverficationai", "peeralphaverificationai" -> MetaCognitionAI.AILayer.PEER_ALPHA_VERIFICATION
+        "newsshockai" -> MetaCognitionAI.AILayer.NEWS_SHOCK
+        "fundingrateawarenessai" -> MetaCognitionAI.AILayer.FUNDING_RATE_AWARENESS
+        "orderbookimbalancepulseai" -> MetaCognitionAI.AILayer.ORDERBOOK_IMBALANCE_PULSE
+        "aitrustnetworkai" -> MetaCognitionAI.AILayer.AI_TRUST_NETWORK
+        "reflexai" -> MetaCognitionAI.AILayer.REFLEX_AI
+        // Trader-class layers
+        "shitcoin", "shitcointraderai" -> MetaCognitionAI.AILayer.SHITCOIN_TRADER
+        "quality", "qualitytraderai" -> MetaCognitionAI.AILayer.QUALITY_TRADER
+        "moonshot", "moonshottraderai" -> MetaCognitionAI.AILayer.MOONSHOT_TRADER
+        "bluechip", "bluechiptraderai" -> MetaCognitionAI.AILayer.BLUECHIP_TRADER
+        "diphunter", "diphunterai" -> MetaCognitionAI.AILayer.DIP_HUNTER
+        "metacognition" -> null  // Don't self-reference
+        "behavior" -> MetaCognitionAI.AILayer.BEHAVIOR_AI
+        "approval_memory" -> null
+        "insider_tracker" -> MetaCognitionAI.AILayer.INSIDER_TRACKER
         else -> null
     }
     

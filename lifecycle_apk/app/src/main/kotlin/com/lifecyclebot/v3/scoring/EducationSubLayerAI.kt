@@ -445,7 +445,7 @@ object EducationSubLayerAI {
                     val predictedBullish = score > 0
                     val wasCorrect = (predictedBullish && outcome.isWin) ||
                                      (!predictedBullish && !outcome.isWin)
-                    markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct)
+                    markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct, isShadowTrade = outcome.isShadowTrade)
                     updated++
                 } else {
                     // Layer was neutral/absent — keep it alive without poisoning expectancy.
@@ -870,6 +870,8 @@ object EducationSubLayerAI {
         val holdReasons: List<String> = emptyList(),
         val traderSource: String = "",
         val lossReason: String = "",
+        // V5.9.224: shadow trades (blocked/rejected) get reduced learning weight
+        val isShadowTrade: Boolean = false,
     ) {
         // V5.9.190: 1% threshold — scratch trades (+0.01%) shouldn't count as wins
         // Aligns layer learning with economic reality: fee cost alone is ~0.2-0.5%
@@ -905,7 +907,10 @@ object EducationSubLayerAI {
      * counters are still incremented, so any older code path reading
      * `metrics.accuracy` directly is unchanged.
      */
-    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double) {
+    // V5.9.224: isShadowTrade flag — shadow/rejected trade outcomes get 0.4x weight
+    // vs real executed trades (1.0x). Fixes "rejection data more weight" where large
+    // negative shadow PnL (weight 1.8-3.0) was drowning out smaller real wins (weight 1.2).
+    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean = false) {
         val metrics = layerPerformance.getOrPut(layerName) {
             LayerPerformanceMetrics(layerName)
         }
@@ -916,16 +921,23 @@ object EducationSubLayerAI {
         metrics.learningVelocity = metrics.learningVelocity * 0.9 +
             (if (wasSuccess) 0.1 else -0.1)
 
-        // New quality-weighted accumulators.
-        val clipped = pnlPct.coerceIn(-95.0, 1000.0)       // guard absurd feeds
-        val weight  = 1.0 + kotlin.math.abs(clipped) / 25.0
+        // Quality-weighted accumulators.
+        // Shadow trades (blocked/rejected) get 0.4x weight so real trade signal
+        // dominates. Without this, a -30% shadow PnL (weight 2.2) at 10x frequency
+        // completely drowns +8% real wins (weight 1.3).
+        val clipped = pnlPct.coerceIn(-95.0, 1000.0)
+        val shadowMultiplier = if (isShadowTrade) 0.4 else 1.0
+        val weight  = (1.0 + kotlin.math.abs(clipped) / 25.0) * shadowMultiplier
         val hit     = if (wasSuccess) 1.0 else 0.0
         metrics.weightSum     += weight
         metrics.weightedHits  += weight * hit
-        metrics.pnlSumPct     += clipped
-        metrics.pnlSumSqPct   += clipped * clipped
-        if (clipped > metrics.pnlBestPct)  metrics.pnlBestPct  = clipped
-        if (clipped < metrics.pnlWorstPct) metrics.pnlWorstPct = clipped
+        // pnlSum/pnlSqSum: only accumulate real trades to keep expectancy clean
+        if (!isShadowTrade) {
+            metrics.pnlSumPct     += clipped
+            metrics.pnlSumSqPct   += clipped * clipped
+            if (clipped > metrics.pnlBestPct)  metrics.pnlBestPct  = clipped
+            if (clipped < metrics.pnlWorstPct) metrics.pnlWorstPct = clipped
+        }
 
         save()
     }

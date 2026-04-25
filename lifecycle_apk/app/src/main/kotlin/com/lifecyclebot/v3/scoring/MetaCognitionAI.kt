@@ -39,32 +39,59 @@ object MetaCognitionAI {
     // LAYER REGISTRY
     // -------------------------------------------------------------------------
 
+    // V5.9.224 — Expanded to all 41 scoring layers.
+    // The 16 V5.9.123 layers + trader-class layers were missing, meaning
+    // MetaCognitionAI never tracked their accuracy or adjusted their trust.
     enum class AILayer(val displayName: String, val category: String) {
+        // ── V3 Core ──────────────────────────────────────────────────────────
         VOLATILITY_REGIME("VolatilityRegimeAI", "market"),
         ORDER_FLOW_IMBALANCE("OrderFlowImbalanceAI", "flow"),
         SMART_MONEY_DIVERGENCE("SmartMoneyDivergenceAI", "whale"),
         HOLD_TIME_OPTIMIZER("HoldTimeOptimizerAI", "timing"),
         LIQUIDITY_CYCLE("LiquidityCycleAI", "liquidity"),
-
         MARKET_REGIME("MarketRegimeAI", "market"),
         WHALE_TRACKER("WhaleTrackerAI", "whale"),
         MOMENTUM_PREDICTOR("MomentumPredictorAI", "momentum"),
         NARRATIVE_DETECTOR("NarrativeDetectorAI", "narrative"),
         TIME_OPTIMIZATION("TimeOptimizationAI", "timing"),
         LIQUIDITY_DEPTH("LiquidityDepthAI", "liquidity"),
-
         ENTRY_INTELLIGENCE("EntryIntelligence", "learning"),
         EXIT_INTELLIGENCE("ExitIntelligence", "learning"),
         EDGE_LEARNING("EdgeLearning", "learning"),
         TOKEN_WIN_MEMORY("TokenWinMemory", "memory"),
-
         COLLECTIVE_INTELLIGENCE("CollectiveIntelligenceAI", "collective"),
-
         GEMINI_COPILOT("GeminiCopilot", "llm"),
         GROQ_NARRATIVE("GroqNarrativeAI", "llm"),
-
         ORTHOGONAL_SIGNALS("OrthogonalSignals", "coordination"),
         AI_CROSSTALK("AICrossTalk", "coordination"),
+        // ── V5.9.123 — 16 new layers (previously invisible to MetaCognition) ──
+        CORRELATION_HEDGE("CorrelationHedgeAI", "risk"),
+        LIQUIDITY_EXIT_PATH("LiquidityExitPathAI", "liquidity"),
+        MEV_DETECTION("MEVDetectionAI", "risk"),
+        STABLECOIN_FLOW("StablecoinFlowAI", "flow"),
+        OPERATOR_FINGERPRINT("OperatorFingerprintAI", "risk"),
+        SESSION_EDGE("SessionEdgeAI", "timing"),
+        EXECUTION_COST_PREDICTOR("ExecutionCostPredictorAI", "execution"),
+        DRAWDOWN_CIRCUIT("DrawdownCircuitAI", "risk"),
+        CAPITAL_EFFICIENCY("CapitalEfficiencyAI", "risk"),
+        TOKEN_DNA_CLUSTERING("TokenDNAClusteringAI", "pattern"),
+        PEER_ALPHA_VERIFICATION("PeerAlphaVerificationAI", "collective"),
+        NEWS_SHOCK("NewsShockAI", "narrative"),
+        FUNDING_RATE_AWARENESS("FundingRateAwarenessAI", "market"),
+        ORDERBOOK_IMBALANCE_PULSE("OrderbookImbalancePulseAI", "flow"),
+        AI_TRUST_NETWORK("AITrustNetworkAI", "meta"),
+        REFLEX_AI("ReflexAI", "execution"),
+        // ── Trader-class ──────────────────────────────────────────────────────
+        SHITCOIN_TRADER("ShitCoinTraderAI", "trader"),
+        QUALITY_TRADER("QualityTraderAI", "trader"),
+        MOONSHOT_TRADER("MoonshotTraderAI", "trader"),
+        BLUECHIP_TRADER("BlueChipTraderAI", "trader"),
+        DIP_HUNTER("DipHunterAI", "trader"),
+        // ── Behaviour / Meta / Insider ────────────────────────────────────────
+        BEHAVIOR_AI("BehaviorAI", "behavior"),
+        INSIDER_TRACKER("InsiderTrackerAI", "insider"),
+        FEAR_GREED("FearGreedAI", "market"),
+        SOCIAL_VELOCITY("SocialVelocityAI", "narrative"),
     }
 
     enum class SignalType {
@@ -749,6 +776,9 @@ object MetaCognitionAI {
     fun getAllLayerPerformance(): Map<AILayer, LayerPerformance> {
         return layerPerformance.toMap()
     }
+
+    // V5.9.224 — exposed for SentienceOrchestrator harvest
+    fun getTotalTradesAnalyzed(): Int = totalTradesAnalyzed
 
     fun getTopPerformingLayers(n: Int = 5): List<AILayer> {
         return layerPerformance.values

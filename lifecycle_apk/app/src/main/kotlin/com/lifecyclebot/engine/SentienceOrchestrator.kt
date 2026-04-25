@@ -261,6 +261,38 @@ object SentienceOrchestrator {
             leadLagMult = leadLag,
             fundingAgg = fundAgg,
             execConf = execC,
+            // V5.9.224 — MetaCognitionAI trust intelligence
+            metaTopTrust = run {
+                try {
+                    com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+                        .entries
+                        .filter { it.value.totalPredictions >= 15 }
+                        .sortedByDescending { it.value.trustMultiplier }
+                        .take(5)
+                        .map { it.value.layer.displayName to it.value.trustMultiplier }
+                } catch (_: Exception) { emptyList() }
+            },
+            metaLowTrust = run {
+                try {
+                    com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+                        .entries
+                        .filter { it.value.totalPredictions >= 15 }
+                        .sortedBy { it.value.trustMultiplier }
+                        .take(5)
+                        .map { it.value.layer.displayName to it.value.trustMultiplier }
+                } catch (_: Exception) { emptyList() }
+            },
+            metaOverconfident = run {
+                try {
+                    com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
+                        .entries
+                        .filter { it.value.overconfidenceScore > 0.3 && it.value.totalPredictions >= 15 }
+                        .map { it.value.layer.displayName }
+                } catch (_: Exception) { emptyList() }
+            },
+            metaTradesAnalyzed = try {
+                com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()
+            } catch (_: Exception) { 0 },
         )
     }
 
@@ -388,6 +420,28 @@ Omit zero fields. Only emit what you actually want to change.
         if (s.recentThoughts.isNotEmpty()) {
             appendLine("Your recent inner monologue:")
             s.recentThoughts.forEach { appendLine("  > $it") }
+            appendLine()
+        }
+
+        // V5.9.224 — MetaCognitionAI trust intelligence in LLM prompt
+        if (s.metaTradesAnalyzed >= 20) {
+            appendLine("MetaCognition trust analysis (${s.metaTradesAnalyzed} trades tracked):")
+            if (s.metaTopTrust.isNotEmpty()) {
+                appendLine("  🎯 Highest trust multipliers (most reliable layers):")
+                s.metaTopTrust.forEach { (name, mult) ->
+                    appendLine("    • $name: x${"%.2f".format(mult)}")
+                }
+            }
+            if (s.metaLowTrust.isNotEmpty()) {
+                appendLine("  ⚠️ Lowest trust multipliers (least reliable layers):")
+                s.metaLowTrust.forEach { (name, mult) ->
+                    appendLine("    • $name: x${"%.2f".format(mult)}")
+                }
+            }
+            if (s.metaOverconfident.isNotEmpty()) {
+                appendLine("  🔴 Overconfident layers (high confidence on wrong calls):")
+                appendLine("    ${s.metaOverconfident.joinToString(", ")}")
+            }
             appendLine()
         }
 

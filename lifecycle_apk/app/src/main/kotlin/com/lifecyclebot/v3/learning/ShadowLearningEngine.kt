@@ -552,6 +552,8 @@ object ShadowLearningEngine {
                 maxDrawdownPct       = if (trade.pnlPct < 0) trade.pnlPct else 0.0,
                 timeToPeakMins       = holdMins,
                 entryReason          = blockReason,
+                // V5.9.224: Shadow/rejected trades get 0.4x weight so real trade signal dominates
+                isShadowTrade        = true,
             )
             com.lifecyclebot.v3.scoring.EducationSubLayerAI
                 .recordTradeOutcomeAcrossAllLayers(outcome)
