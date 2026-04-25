@@ -503,7 +503,7 @@ object QualityTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
-        val isWin = pnlPct > 0
+        val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
         
         dailyPnlSol += pnlSol
         totalTrades++

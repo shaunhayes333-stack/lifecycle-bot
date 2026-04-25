@@ -364,7 +364,7 @@ object BlueChipTraderAI {
         
         // V4.0: Blue Chip trades contribute to FluidLearningAI maturity
         try {
-            val isWin = pnlPct > 0
+            val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold (was > 0 — counted fee-drag as win)
             if (pos.isPaper) {
                 FluidLearningAI.recordPaperTrade(isWin)
             } else {

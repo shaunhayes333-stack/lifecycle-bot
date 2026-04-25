@@ -119,7 +119,7 @@ object PerpsPerformanceAttribution {
     ) {
         val attribution = tradeAttributions[tradeId] ?: return
         
-        val isWin = pnlPct > 0
+        val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
         
         // Update attribution record
         tradeAttributions[tradeId] = attribution.copy(

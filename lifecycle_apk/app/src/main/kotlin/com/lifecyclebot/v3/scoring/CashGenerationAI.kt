@@ -1079,7 +1079,7 @@ object CashGenerationAI {
         }
 
         try {
-            val isWin = pnlPct > 0
+            val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
             if (pos.isPaper) {
                 FluidLearningAI.recordPaperTrade(isWin)
             } else {

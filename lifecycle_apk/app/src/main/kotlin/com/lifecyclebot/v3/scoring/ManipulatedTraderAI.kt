@@ -358,7 +358,7 @@ object ManipulatedTraderAI {
         val pnlSol = pos.entrySol * (pnlPct / 100.0)
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
-        val _isWin = pnlPct >= 0
+        val _isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold (was >= 0 — flat trades counted as wins)
         try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (_: Exception) {}
         if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (_: Exception) {}
         // V5.9.8: Sync paper P&L to shared wallet
@@ -367,7 +367,7 @@ object ManipulatedTraderAI {
                 (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
         }
 
-        if (pnlPct >= 0) _dailyWins.incrementAndGet() else _dailyLosses.incrementAndGet()
+        if (pnlPct >= 1.0) _dailyWins.incrementAndGet() else _dailyLosses.incrementAndGet()  // V5.9.225: 1% win floor
 
         ErrorLogger.info(TAG, "☠️ POSITION CLOSED: ${pos.symbol} | " +
             "reason=${reason.name} | " +

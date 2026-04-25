@@ -218,9 +218,9 @@ object FluidLearning {
     fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double, exitReason: String = "UNKNOWN", regime: String = "NEUT") {
         val pnlPct = if (originalSol > 0.0) (pnlSol / originalSol) * 100.0 else 0.0
 
-        val isWin = pnlSol > 0   // V5.9.8: any positive return = win, no threshold
-        val isLoss = pnlSol < 0   // V5.9.8: any negative return = loss
-        val isScratch = pnlSol == 0.0   // V5.9.8: only exact zero is scratch
+        val isWin = pnlPct >= 1.0   // V5.9.225: unified 1% threshold (was > 0 — counted fee-drag as win)
+        val isLoss = pnlPct < 0.0
+        val isScratch = !isWin && !isLoss
 
         simulatedBalanceSol += pnlSol
         // V5.9.18 CRITICAL FIX: DO NOT overwrite BotService.status.paperWalletSol here.

@@ -674,7 +674,7 @@ object HistoricalChartScanner {
             // Update mode win rates
             tokenResults.forEach { result ->
                 val currentRate = pattern.modeWinRates[result.tradingMode] ?: 50.0
-                val isWin = result.pnlPct > 0
+                val isWin = result.pnlPct >= 1.0  // V5.9.225: unified 1% threshold
                 val newRate = (currentRate * 0.9) + (if (isWin) 10.0 else 0.0)
                 pattern.modeWinRates[result.tradingMode] = newRate
             }

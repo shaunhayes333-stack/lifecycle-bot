@@ -764,7 +764,7 @@ object ShadowLearningEngine {
         // ═══════════════════════════════════════════════════════════════════
         if (!trade.dispatchedToFluidLearning) {
             try {
-                val isWin = trade.pnlSol > 0
+                val isWin = trade.pnlPct >= 1.0  // V5.9.225: unified 1% threshold (was > 0)
                 // V4.0: Use discounted shadow learning weight (0.025 per trade)
                 com.lifecyclebot.v3.scoring.FluidLearningAI.recordShadowTrade(isWin)
                 trade.dispatchedToFluidLearning = true  // Mark as dispatched
@@ -782,8 +782,8 @@ object ShadowLearningEngine {
         val trades = shadowTrades[variantId]?.filter { !it.isOpen } ?: return
         if (trades.isEmpty()) return
         
-        val wins = trades.count { it.pnlSol > 0 }
-        val losses = trades.count { it.pnlSol <= 0 }
+        val wins = trades.count { it.pnlPct >= 1.0 }  // V5.9.225: 1% win floor
+        val losses = trades.count { it.pnlPct < 0.0 }
         val totalPnl = trades.sumOf { it.pnlSol }
         val avgPnl = if (trades.isNotEmpty()) trades.sumOf { it.pnlPct } / trades.size else 0.0
         val winRate = if (trades.isNotEmpty()) wins.toDouble() / trades.size * 100 else 0.0

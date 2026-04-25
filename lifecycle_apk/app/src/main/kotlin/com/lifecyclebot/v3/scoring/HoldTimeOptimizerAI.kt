@@ -289,7 +289,7 @@ object HoldTimeOptimizerAI {
         
         // Track win rate by hold category
         val category = categorizeHoldTimeSeconds(actualHoldSeconds)
-        val isWin = pnlPct > 0
+        val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
         val currentRate = pattern.winRateByHold[category] ?: 50.0
         val trades = pattern.totalTrades
         pattern.winRateByHold[category] = currentRate + (if (isWin) 100.0 - currentRate else -currentRate) / trades

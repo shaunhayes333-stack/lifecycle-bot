@@ -186,6 +186,11 @@ object SentienceOrchestrator {
         val leadLagMult: Double,
         val fundingAgg: Double,
         val execConf: Double,
+        // V5.9.224 — MetaCognitionAI trust intelligence
+        val metaTopTrust: List<Pair<String, Double>> = emptyList(),
+        val metaLowTrust: List<Pair<String, Double>> = emptyList(),
+        val metaOverconfident: List<String> = emptyList(),
+        val metaTradesAnalyzed: Int = 0,
     )
 
     private fun harvestState(): State {

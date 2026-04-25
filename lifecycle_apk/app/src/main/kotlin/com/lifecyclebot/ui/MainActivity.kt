@@ -1884,7 +1884,7 @@ for legal compliance.
     // Shows only when CyclicTradeEngine is running. Inserted above moonshot panel.
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private fun updateCyclicPanel() {
+    fun updateCyclicPanel() {  // V5.9.225: removed 'private' — local functions can't use access modifiers
         try {
             val engine = com.lifecyclebot.engine.CyclicTradeEngine
             val cfg = com.lifecyclebot.data.ConfigStore.load(this)

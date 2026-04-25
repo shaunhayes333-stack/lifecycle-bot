@@ -2978,7 +2978,7 @@ class Executor(
             }
             
             if (shouldExit != null) {
-                val isWin = pnlPct > 0
+                val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
                 val pnlSol = pnlPct * shadow.entrySol / 100
                 val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0
                 
@@ -5578,7 +5578,8 @@ class Executor(
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "AutoCompound error (live): ${e.message}")
                     val solPrice = WalletManager.lastKnownSolPrice
-                    TreasuryManager.lockRealizedProfit(pnl, solPrice)
+                    // V5.9.225: Use conservative 20% treasury fraction on AutoCompound failure (was full pnl — over-counted)
+                    TreasuryManager.lockRealizedProfit(pnl * 0.20, solPrice)
                 }
             }
 
