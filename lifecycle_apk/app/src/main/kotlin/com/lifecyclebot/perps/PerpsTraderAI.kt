@@ -807,7 +807,7 @@ object PerpsTraderAI {
         val pnlUsd = position.getUnrealizedPnlUsd()
         val pnlSol = position.sizeSol * (pnlPct / 100)
         
-        val isWin = pnlPct > 0
+        val isWin = pnlPct >= 1.0  // V5.9.225: 1% floor — fee washes not counted as wins
         
         // Update daily stats
         if (isWin) dailyWins.incrementAndGet() else dailyLosses.incrementAndGet()

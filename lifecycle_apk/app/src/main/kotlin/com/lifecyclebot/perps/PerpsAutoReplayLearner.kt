@@ -377,7 +377,7 @@ object PerpsAutoReplayLearner {
                     aiScore = trade.aiScore,
                     aiConfidence = trade.aiConfidence,
                     paperMode = trade.isPaper,
-                    isWin = trade.pnlPct > 0,
+                    isWin = trade.pnlPct >= 1.0,  // V5.9.225: 1% floor
                     holdMins = ((trade.closeTime - trade.openTime) / 60_000.0),
                 )
                 client.savePerpsTradeRecord(record)
@@ -451,7 +451,7 @@ object PerpsAutoReplayLearner {
      */
     private fun analyzeAndLearn(replayable: ReplayableTrade) {
         val trade = replayable.trade
-        val isWin = trade.pnlPct > 0
+        val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
         val prediction = replayable.aiPrediction
         
         // 1. Check which layers were correct

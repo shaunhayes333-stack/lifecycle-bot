@@ -717,7 +717,7 @@ object PerpsLearningBridge {
     ) {
         totalPerpsLearningEvents.incrementAndGet()
         
-        val isWin = trade.pnlPct > 0
+        val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
         val directionCorrect = (trade.direction == predictedDirection) == isWin
         
         contributingLayers.forEach { layerName ->
@@ -750,7 +750,7 @@ object PerpsLearningBridge {
                         layerName = layerName,
                         market = trade.market.symbol,
                         direction = trade.direction.name,
-                        isWin = trade.pnlPct > 0,
+                        isWin = trade.pnlPct >= 1.0,  // V5.9.225: 1% floor
                         pnlPct = trade.pnlPct
                     )
                 }
@@ -867,7 +867,7 @@ object PerpsLearningBridge {
     ) {
         totalPerpsLearningEvents.incrementAndGet()
         
-        val isWin = trade.pnlPct > 0
+        val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
         
         // Stock-specific layer learning
         val stockLayers = listOf(

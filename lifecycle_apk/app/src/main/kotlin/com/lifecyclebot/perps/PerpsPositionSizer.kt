@@ -259,7 +259,7 @@ object PerpsPositionSizer {
     fun recordTrade(market: PerpsMarket, pnlPct: Double) {
         val record = TradeRecord(
             pnlPct = pnlPct,
-            isWin = pnlPct > 0,
+            isWin = pnlPct >= 1.0,  // V5.9.225: 1% floor
             market = market,
             timestamp = System.currentTimeMillis(),
         )

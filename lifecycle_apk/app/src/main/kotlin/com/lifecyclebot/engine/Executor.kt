@@ -1520,6 +1520,13 @@ class Executor(
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PROFIT-LOCK fee NOT sent, will retry next trade: ${feeEx.message}")
+                // V5.9.226: Bug #7 — enqueue for retry instead of silently dropping
+                val sellBasisSol2 = pos.costSol * sellFraction
+                val feeAmt2 = sellBasisSol2 * MEME_TRADING_FEE_PERCENT
+                if (feeAmt2 >= 0.0001) {
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt2 * FEE_SPLIT_RATIO, "profit_lock_w1")
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt2 * (1.0 - FEE_SPLIT_RATIO), "profit_lock_w2")
+                }
             }
 
             val solPrice = WalletManager.lastKnownSolPrice
@@ -1669,6 +1676,12 @@ class Executor(
                     }
                 } catch (feeEx: Exception) {
                     ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL fee NOT sent, will retry next trade: ${feeEx.message}")
+                    // V5.9.226: Bug #7 — enqueue for retry
+                    val feeAmt3 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+                    if (feeAmt3 >= 0.0001) {
+                        FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt3 * FEE_SPLIT_RATIO, "partial_sell_w1")
+                        FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt3 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_w2")
+                    }
                 }
                 partialSellInFlight.remove(ts.mint)
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
@@ -3822,6 +3835,12 @@ class Executor(
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
+                // V5.9.226: Bug #7 — enqueue for retry
+                val feeAmt4 = sol * MEME_TRADING_FEE_PERCENT
+                if (feeAmt4 >= 0.0001) {
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt4 * FEE_SPLIT_RATIO, "buy_fee_w1")
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt4 * (1.0 - FEE_SPLIT_RATIO), "buy_fee_w2")
+                }
             }
             
             tradeId.executed(price, sol, isPaper = false, signature = sig)
@@ -4184,6 +4203,12 @@ class Executor(
                         }
                     } catch (feeEx: Exception) {
                         ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL FEE (v2) failed: ${feeEx.message}")
+                        // V5.9.226: Bug #7 — enqueue for retry
+                        val feeAmt5 = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
+                        if (feeAmt5 >= 0.0001) {
+                            FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt5 * FEE_SPLIT_RATIO, "partial_sell_v2_w1")
+                            FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt5 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_v2_w2")
+                        }
                     }
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
@@ -4371,7 +4396,7 @@ class Executor(
         }
 
         try {
-            val isWin = pnl > 0
+            val isWin = pnlP >= 1.0  // V5.9.226: 1% floor — pnl>0 includes fee-wash near-zeros
             
             val treasurySignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT
@@ -5415,6 +5440,12 @@ class Executor(
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
+                // V5.9.226: Bug #7 — enqueue for retry (recalculate — feeAmountSol not in catch scope)
+                val feeAmtSellRetry = (pos.costSol * MEME_TRADING_FEE_PERCENT).coerceAtLeast(0.0)
+                if (feeAmtSellRetry >= 0.0001) {
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmtSellRetry * FEE_SPLIT_RATIO, "sell_fee_w1")
+                    FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmtSellRetry * (1.0 - FEE_SPLIT_RATIO), "sell_fee_w2")
+                }
             }
             
             try {
@@ -6000,7 +6031,7 @@ class Executor(
         }
         
         try {
-            val isWin = pnl > 0
+            val isWin = pnlP >= 1.0  // V5.9.226: 1% floor — pnl>0 includes fee-wash near-zeros
             
             val treasurySignal = if (isWin) {
                 com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT

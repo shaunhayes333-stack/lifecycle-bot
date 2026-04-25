@@ -113,7 +113,7 @@ object PerpsTradeHeatmap {
      * Record a completed trade to all heatmaps
      */
     fun recordTrade(trade: PerpsTrade, scanner: String? = null) {
-        val isWin = trade.pnlPct > 0
+        val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
         val holdMinutes = ((trade.closeTime - trade.openTime) / 60_000).toDouble()
         
         // Market x Direction

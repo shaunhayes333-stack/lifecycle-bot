@@ -175,6 +175,7 @@ class BotService : Service() {
         try {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
+            FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             ErrorLogger.info("BotService", "onCreate starting")
 
 
@@ -2593,6 +2594,15 @@ class BotService : Service() {
             // V5.2 FIX: Use correct balance based on paper/live mode
             // ═══════════════════════════════════════════════════════════════════
             val cfg = ConfigStore.load(applicationContext)
+
+            // V5.9.226: Bug #7 — Drain failed fee retry queue at cycle start (live mode only)
+            if (!cfg.paperMode) {
+                val liveWallet = wallet
+                if (liveWallet != null) {
+                    try { FeeRetryQueue.drainFeeQueue(liveWallet) }
+                    catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
+                }
+            }
 
             // V5.9.103: periodic reconcile (live mode only)
             if (!cfg.paperMode && System.currentTimeMillis() - lastReconcileAt > reconcileIntervalMs) {
