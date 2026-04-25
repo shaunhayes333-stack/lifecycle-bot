@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.lifecyclebot.network.SolanaWallet
 import org.json.JSONArray
 import org.json.JSONObject
 

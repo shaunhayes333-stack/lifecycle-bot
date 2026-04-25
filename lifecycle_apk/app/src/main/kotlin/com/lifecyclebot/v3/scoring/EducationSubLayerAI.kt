@@ -815,7 +815,7 @@ object EducationSubLayerAI {
         // 10-min window where this token skips ReentryGuard cooldowns so the
         // discovery pipeline can chase continuation runs.
         try {
-            if (outcome.isWin && outcome.pnlPct >= 1.0  // V5.9.225: 1% threshold) {
+            if (outcome.isWin && outcome.pnlPct >= 1.0) { // V5.9.225: 1% threshold
                 com.lifecyclebot.engine.ReentryGuard.markSecondMoonCandidate(outcome.mint, outcome.pnlPct)
             }
         } catch (_: Exception) {}
