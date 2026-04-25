@@ -307,6 +307,21 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Position Persistence init error: ${e.message}", e)
         }
+
+        // V5.9.256: Initialize wallet token memory — persistent journal of all buys
+        // Survives restarts/updates; used by StartupReconciler to recover positions
+        // that the scanner hasn't re-discovered yet.
+        try {
+            WalletTokenMemory.init(applicationContext)
+            val openMemory = WalletTokenMemory.getOpenEntries()
+            if (openMemory.isNotEmpty()) {
+                ErrorLogger.info("BotService", "💾 WalletTokenMemory: ${openMemory.size} open position(s) in journal: ${openMemory.joinToString(", ") { it.symbol }}")
+            } else {
+                ErrorLogger.info("BotService", "💾 WalletTokenMemory: no open positions in journal")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "WalletTokenMemory init error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {
