@@ -1165,6 +1165,21 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 val peakPnl = position.peakPnlPct.coerceAtLeast(pnlPct)
                 position.peakPnlPct = peakPnl
 
+                // V5.9.221: HARD TIME EXITS for stocks — prevents universe saturation.
+                // Stock universe is only 51 markets; if positions never die the scanner
+                // stalls at analyzed=0 indefinitely.
+                //  - 2h hard cap: always exit (take whatever P&L we have)
+                //  - 45min + negative: cut losers early, recycle capital
+                //  - 30min + <1% gain: stale flat position, flush it
+                when {
+                    holdSec > 7200 ->
+                        return@forEach closePosition(id, "TIME_CAP_2H: pnl=${"%.2f".format(pnlPct)}%")
+                    holdSec > 2700 && pnlPct < 0.0 ->
+                        return@forEach closePosition(id, "TIME_CUT_45MIN_LOSS: pnl=${"%.2f".format(pnlPct)}%")
+                    holdSec > 1800 && pnlPct < 1.0 ->
+                        return@forEach closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%")
+                }
+
                 val priceVel = if (holdSec > 30) pnlPct / (holdSec / 60.0) else 0.0
                 val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(
                     currentPnlPct   = pnlPct,
@@ -1184,6 +1199,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     else -> {
                         // Safety net: extreme TP only
                         if (position.shouldTakeProfit()) closePosition(id, "TP_SAFETY")
+                        if (position.shouldStopLoss()) closePosition(id, "SL_SAFETY")
                     }
                 }
             } catch (e: Exception) {
