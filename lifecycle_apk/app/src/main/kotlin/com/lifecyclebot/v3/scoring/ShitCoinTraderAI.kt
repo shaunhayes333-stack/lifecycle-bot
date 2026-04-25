@@ -1135,28 +1135,25 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.9.245: FLAT EXIT — widened window to 15min (was 8min — too short for meme development)
-        // Memes need time to find buyers. 8min flat exit was causing mass TIME_EXIT losses.
-        // Also tightened upper bound to 3% (was 5%) — if token is at +3-5% it's going somewhere.
-        if (holdMinutes >= 15 && pnlPct > -3.0 && pnlPct < 3.0) {
-            // Token is genuinely stagnant - wasting slot and opportunity cost
-            ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
-            return ExitSignal.TIME_EXIT
-        }
-        // V5.9.245: DEAD TOKEN EXIT — relaxed tiers (was killing WR by cutting normal meme wicks)
-        //   Tier 0: -4% or below at 12min → was -2%@8m — too tight, normal wick zone
-        //   Tier 1: -6% or below at 20min → was -4%@15m — give more time
-        //   Tier 2: -10% or below at 12min → was -8%@10m — approaching hard floor anyway
-        val deadExitTier0 = holdMinutes >= 12 && pnlPct < -4.0
-        val deadExitTier1 = holdMinutes >= 20 && pnlPct < -6.0
-        val deadExitTier2 = holdMinutes >= 12 && pnlPct < -10.0
-        if (deadExitTier0 || deadExitTier1 || deadExitTier2) {
+        // 5. V5.9.246: TIME-BASED EXIT SYSTEM — unified, no gaps
+        // Previous versions had a gap between -3% and -4% where positions sat forever.
+        // Rule: if a position isn't green (+1%) within N minutes → cut it. Simple.
+        //
+        //   Any loss < -1% at 10min → token failed to hold entry, cut it
+        //   Near-flat (-3% to +1%) at 12min → stagnant, wasting the slot
+        //   Clearly negative (< -3%) at 15min → it's not coming back, exit
+        //   Deep negative (< -6%) at any point past 10min → structural failure
+        //
+        val timeExitStagnant  = holdMinutes >= 12 && pnlPct in -8.0..1.0   // covers the entire losing range
+        val timeExitDeepLoss  = holdMinutes >= 10 && pnlPct < -6.0          // accelerated cut on deep losses
+        val timeExitEarlyBad  = holdMinutes >= 8  && pnlPct < -3.0          // cut clear losers fast
+        if (timeExitDeepLoss || timeExitEarlyBad || timeExitStagnant) {
             val tier = when {
-                deadExitTier2 -> "T2(-8%@10m)"
-                deadExitTier1 -> "T1(-4%@15m)"
-                else          -> "T0(-2%@8m)"
+                timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
+                timeExitEarlyBad -> "EARLY(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
+                else             -> "STAGNANT(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
             }
-            ErrorLogger.info(TAG, "💩⏱️ DEAD EXIT[$tier]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+            ErrorLogger.info(TAG, "💩⏱️ TIME_EXIT[$tier]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes.toInt()}min")
             return ExitSignal.TIME_EXIT
         }
         

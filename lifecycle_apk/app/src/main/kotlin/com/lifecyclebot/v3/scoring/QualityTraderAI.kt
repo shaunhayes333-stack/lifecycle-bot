@@ -472,18 +472,28 @@ object QualityTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // V5.9.241: EARLY DEAD EXIT — quality tokens should move within 30 min
-        // -2% at 20min was too tight; quality/bluechip tokens need more time
-        // to establish direction. Relax to -5% at 30 min — if it's still that
-        // deep after 30min the thesis is genuinely wrong.
+        // V5.9.246: QUALITY DEAD EXIT — tiered, no gap, no 53-min zombies
+        // If it hasn't moved positive by these checkpoints, the thesis is wrong.
+        //   < -2% at 15min → early failure, cut
+        //   < -4% at 25min → not recovering, cut
+        //   < -5% at 30min → confirmed dead thesis, cut
+        //   < 5%  at 60min → didn't deliver, cut (existing max-hold)
+        if (holdMinutes >= 15 && pnlPct < -2.0) {
+            ErrorLogger.info(TAG, "⏰ QUALITY DEAD[-2%@15m]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes.toInt()}min")
+            return ExitSignal.TIME_EXIT
+        }
+        if (holdMinutes >= 25 && pnlPct < -4.0) {
+            ErrorLogger.info(TAG, "⏰ QUALITY DEAD[-4%@25m]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes.toInt()}min")
+            return ExitSignal.TIME_EXIT
+        }
         if (holdMinutes >= 30 && pnlPct < -5.0) {
-            ErrorLogger.info(TAG, "⏰ QUALITY DEAD: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (thesis failed)")
+            ErrorLogger.info(TAG, "⏰ QUALITY DEAD[-5%@30m]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes.toInt()}min (thesis failed)")
             return ExitSignal.TIME_EXIT
         }
 
         // Max hold time - only exit if not profitable
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 5) {
-            ErrorLogger.info(TAG, "⏰ QUALITY TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min")
+            ErrorLogger.info(TAG, "⏰ QUALITY TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes.toInt()}min")
             return ExitSignal.TIME_EXIT
         }
         
