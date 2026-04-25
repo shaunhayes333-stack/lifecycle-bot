@@ -946,12 +946,13 @@ object CryptoAltTrader {
 
             // V5.9.219: TECHNICAL VETO — if indicators strongly contradict direction, penalise
             // Prevents GALA-style LONG on RSI=42 MACD=BEARISH (was score=100 due to floor+sector heat)
-            val macdStr = technicals.macdSignal ?: ""
-            if (direction == PerpsDirection.LONG && macdStr.contains("BEARISH", ignoreCase = true) && technicals.rsi < 50) {
+            val macdBearish = technicals.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH || technicals.macdSignal == PerpsAdvancedAI.MacdSignal.BEARISH_CROSS
+            val macdBullish = technicals.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH || technicals.macdSignal == PerpsAdvancedAI.MacdSignal.BULLISH_CROSS
+            if (direction == PerpsDirection.LONG && macdBearish && technicals.rsi < 50) {
                 score -= 18; confidence -= 15
                 reasons.add("⚠️ Tech veto: MACD bearish + RSI<50 on LONG")
             }
-            if (direction == PerpsDirection.SHORT && macdStr.contains("BULLISH", ignoreCase = true) && technicals.rsi > 50) {
+            if (direction == PerpsDirection.SHORT && macdBullish && technicals.rsi > 50) {
                 score -= 15; confidence -= 12
                 reasons.add("⚠️ Tech veto: MACD bullish + RSI>50 on SHORT")
             }
