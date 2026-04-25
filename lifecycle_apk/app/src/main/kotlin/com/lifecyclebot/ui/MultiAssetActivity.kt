@@ -1402,23 +1402,35 @@ class MultiAssetActivity : AppCompatActivity() {
         tvCategoryTitle.text = currentTab.title
         
         val count = when (currentTab) {
-            AssetTab.PERPS -> "SOL perpetuals"
-            AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks"
-            AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets"
-            AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals"
-            AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs"
-                AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts".also {
-                    showSpotOnly = !CryptoAltTrader.isPreferLeverage()
-                    updateModeToggle()
-                }
-                AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks".also {
-                    // V5.9.3: Sync toggle for STOCKS tab
-                    showSpotOnly = !TokenizedStockTrader.isPreferLeverage()
-                    updateModeToggle()
-                }
+            AssetTab.PERPS -> "SOL perpetuals".also {
+                // PERPS always uses leverage — sync toggle accordingly
+                showSpotOnly = false
+                updateModeToggle()
+            }
+            AssetTab.STOCKS -> "${PerpsMarket.values().count { it.isStock }} stocks".also {
+                showSpotOnly = !TokenizedStockTrader.isPreferLeverage()
+                updateModeToggle()
+            }
+            AssetTab.COMMODITIES -> "${PerpsMarket.values().count { it.isCommodity }} assets".also {
+                showSpotOnly = !CommoditiesTrader.isPreferLeverage()
+                updateModeToggle()
+            }
+            AssetTab.METALS -> "${PerpsMarket.values().count { it.isMetal }} metals".also {
+                showSpotOnly = !MetalsTrader.isPreferLeverage()
+                updateModeToggle()
+            }
+            AssetTab.FOREX -> "${PerpsMarket.values().count { it.isForex }} pairs".also {
+                showSpotOnly = !ForexTrader.isPreferLeverage()
+                updateModeToggle()
+            }
+            AssetTab.CRYPTO -> "${PerpsMarket.values().count { it.isCrypto && !it.isSolPerp }} alts".also {
+                showSpotOnly = !CryptoAltTrader.isPreferLeverage()
+                updateModeToggle()
+            }
         }
         tvCategoryCount.text = count
     }
+
     
     private fun updateModeToggle() {
         if (showSpotOnly) {

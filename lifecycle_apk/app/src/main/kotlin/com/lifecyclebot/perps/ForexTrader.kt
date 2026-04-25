@@ -1006,8 +1006,9 @@ object ForexTrader {
     /** V5.9.3: Receive paper balance broadcast from BotService */
 
     /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
-    fun setPreferLeverage(lev: Boolean) {}
-    fun isPreferLeverage(): Boolean = false
+    private val preferLeverage = AtomicBoolean(false)
+    fun setPreferLeverage(lev: Boolean) { preferLeverage.set(lev) }
+    fun isPreferLeverage(): Boolean = preferLeverage.get()
 
     /** Returns true only if running AND engine/monitor coroutines are actually alive. */
     fun isHealthy(): Boolean {
