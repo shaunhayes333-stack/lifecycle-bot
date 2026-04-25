@@ -2041,6 +2041,26 @@ class BotService : Service() {
                 if (closedCount > 0) {
                     addLog("✅ Closed $closedCount position(s) before shutdown")
                 }
+
+                // ═══════════════════════════════════════════════════════════════════
+                // V5.9.261 — LIVE WALLET SWEEP (chronic 1-month sell bug fix)
+                // Layer traders (ShitCoin/Moonshot/BlueChip/Manip/Express/Quality)
+                // do only in-memory accounting in their closePosition() paths —
+                // they never broadcast a Jupiter sell. Sweep the wallet now so
+                // every meme/altcoin actually returns to SOL before shutdown.
+                // Stablecoins + SOL are preserved.
+                // ═══════════════════════════════════════════════════════════════════
+                if (!cfg.paperMode && wallet != null) {
+                    try {
+                        val swept = executor.liveSweepWalletTokens(wallet!!, effectiveBalance)
+                        if (swept > 0) {
+                            addLog("💰 Wallet sweep: liquidated $swept on-chain holding(s) to SOL")
+                        }
+                    } catch (sweepEx: Exception) {
+                        ErrorLogger.error("BotService", "Wallet sweep failed: ${sweepEx.message}", sweepEx)
+                        addLog("⚠️ Wallet sweep error: ${sweepEx.message?.take(80)}")
+                    }
+                }
                 
                 // ═══════════════════════════════════════════════════════════════════
                 // V4.0 FIX: Also close Treasury Mode positions

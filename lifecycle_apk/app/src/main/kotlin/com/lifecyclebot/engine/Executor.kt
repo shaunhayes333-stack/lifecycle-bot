@@ -3708,8 +3708,36 @@ class Executor(
 
         val lamports = (effectiveSol * 1_000_000_000L).toLong()
         try {
-            val quote = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
-                                                   lamports, c.slippageBps, sol)
+            // V5.9.261 — slippage escalation for buys (was: single c.slippageBps call).
+            // Memes/low-liq launches phantom out at the default 1% slippage —
+            // Jupiter swap reverts internally on price impact, SOL leaves the wallet
+            // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
+            // like liveSell does, so memes actually fill instead of phantoming.
+            val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
+            val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
+            var quote: com.lifecyclebot.network.SwapQuote? = null
+            var lastQuoteError: Exception? = null
+            for (slip in slippageLadder) {
+                try {
+                    quote = getQuoteWithSlippageGuard(
+                        JupiterApi.SOL_MINT, ts.mint, lamports,
+                        slip.coerceAtMost(500), sol,
+                    )
+                    if (quote != null) {
+                        if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
+                        break
+                    }
+                } catch (e: Exception) {
+                    lastQuoteError = e
+                    onLog("BUY: quote ${slip}bps failed — ${e.message?.take(50)}", ts.mint)
+                    Thread.sleep(250)
+                }
+            }
+            if (quote == null) {
+                onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
+                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "QUOTE_EXHAUSTED")
+                return
+            }
 
             val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
             if (qGuard is GuardResult.Block) {
@@ -6251,6 +6279,124 @@ class Executor(
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
         return closedCount
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.261 — LIVE WALLET SWEEP (the 1-month chronic bug fix)
+    //
+    // Layer traders (ShitCoin/Moonshot/BlueChip/Manip/Express/Quality) only
+    // do in-memory PnL accounting in their `closePosition()` paths. They
+    // NEVER broadcast a Jupiter sell. Result: when the user hit STOP BOT,
+    // every meme/altcoin the bot bought stayed on-chain in the wallet
+    // forever and had to be cleared manually via Phantom.
+    //
+    // This sweep enumerates EVERY non-stablecoin SPL holding in the
+    // wallet, gets a fresh Jupiter quote, and broadcasts a real
+    // swap-to-SOL with the same slippage-escalation logic liveSell uses.
+    // Stablecoins (USDC/USDT) and SOL are preserved.
+    //
+    // Called by BotService.stopBot() in live mode. Idempotent — running
+    // it twice has no effect once the wallet is empty of trade tokens.
+    // ═══════════════════════════════════════════════════════════════════════════
+    fun liveSweepWalletTokens(
+        wallet: SolanaWallet,
+        walletSol: Double,
+    ): Int {
+        // Stablecoins / SOL we never auto-sell on shutdown
+        val PRESERVED_MINTS = setOf(
+            JupiterApi.SOL_MINT,                                              // wSOL
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",                  // USDC
+            "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",                  // USDT
+            "So11111111111111111111111111111111111111112",                    // wSOL alt
+        )
+        var soldCount = 0
+        val c = cfg()
+
+        val onChain = try {
+            wallet.getTokenAccountsWithDecimals()
+        } catch (e: Exception) {
+            onLog("⚠️ SHUTDOWN SWEEP: failed to enumerate wallet — ${e.message?.take(80)}", "shutdown")
+            return 0
+        }
+
+        if (onChain.isEmpty()) {
+            onLog("✅ SHUTDOWN SWEEP: wallet empty — nothing to liquidate", "shutdown")
+            return 0
+        }
+
+        val sellable = onChain
+            .filter { (mint, data) -> mint !in PRESERVED_MINTS && data.first > 0.0 }
+
+        if (sellable.isEmpty()) {
+            onLog("✅ SHUTDOWN SWEEP: 0 non-stablecoin holdings — wallet is clean", "shutdown")
+            return 0
+        }
+
+        onLog("🛑 SHUTDOWN SWEEP: liquidating ${sellable.size} on-chain holding(s) to SOL…", "shutdown")
+        onNotify(
+            "🛑 Sweeping wallet",
+            "Selling ${sellable.size} token(s) back to SOL before shutdown",
+            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO,
+        )
+
+        for ((mint, data) in sellable) {
+            val balanceUi  = data.first
+            val decimals   = data.second
+            val symbol     = try {
+                TradeIdentityManager.getOrCreate(mint, mint.take(6), "shutdown_sweep").symbol
+            } catch (_: Exception) { mint.take(6) }
+
+            try {
+                val multiplier = 10.0.pow(decimals.toDouble())
+                val rawUnits = (balanceUi * multiplier).toLong().coerceAtLeast(1L)
+
+                // Skip dust that Jupiter cannot route (< ~0.001 SOL of value).
+                // We don't have a live price for arbitrary mints here, so
+                // use a conservative raw-units floor.
+                if (rawUnits < 1L) {
+                    onLog("⏭️ SWEEP SKIP $symbol: dust qty", mint); continue
+                }
+
+                // Slippage escalation: 200, 350, 500 bps (5% hard cap).
+                val slippageLevels = listOf(200, 350, 500)
+                var quote: com.lifecyclebot.network.SwapQuote? = null
+                for (slip in slippageLevels) {
+                    try {
+                        quote = jupiter.getQuote(mint, JupiterApi.SOL_MINT, rawUnits, slip)
+                        if (quote != null) break
+                    } catch (e: Exception) {
+                        onLog("⚠️ SWEEP $symbol: quote ${slip}bps failed — ${e.message?.take(50)}", mint)
+                        Thread.sleep(250)
+                    }
+                }
+                if (quote == null) {
+                    onLog("🚨 SWEEP $symbol: Jupiter has no route. Token left in wallet.", mint)
+                    continue
+                }
+
+                val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+                security.enforceSignDelay()
+                val useJito = c.jitoEnabled && !quote.isUltra
+                val ultraReqId = if (quote.isUltra) txResult.requestId else null
+                val sig = wallet.signSendAndConfirm(
+                    txResult.txBase64, useJito, c.jitoTipLamports,
+                    ultraReqId, c.jupiterApiKey, txResult.isRfqRoute,
+                )
+                onLog("✅ SWEEP SOLD $symbol: ${balanceUi.fmt(4)} → SOL | sig=${sig.take(16)}…", mint)
+                soldCount++
+            } catch (e: Exception) {
+                onLog("🚨 SWEEP $symbol FAILED: ${e.message?.take(80)} — token remains in wallet", mint)
+                ErrorLogger.error("Executor", "Shutdown sweep failed for $mint: ${e.message}", e)
+            }
+        }
+
+        onLog("✅ SHUTDOWN SWEEP COMPLETE: sold $soldCount/${sellable.size} holdings to SOL", "shutdown")
+        onNotify(
+            "✅ Wallet swept",
+            "Sold $soldCount of ${sellable.size} holdings back to SOL",
+            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO,
+        )
+        return soldCount
     }
 
     // ── Jupiter helpers ───────────────────────────────────────────────
