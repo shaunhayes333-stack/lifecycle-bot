@@ -4011,11 +4011,31 @@ class Executor(
                     )
                     onLog("🚨 PHANTOM: $verifySymbol — tx landed but no tokens. Position discarded.", verifyMint)
                     ts.position = Position()
+                    // V5.9.255 FIX: Set lastExitTs so BotService's 300s re-buy cooldown fires.
+                    // Without this, the cooldown was never set for phantom cases — only real
+                    // sells set lastExitTs. This lets the scanner re-buy instantly.
+                    ts.lastExitTs = System.currentTimeMillis()
                     try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                     val phantomId = TradeIdentityManager.getOrCreate(verifyMint, verifySymbol, "")
                     phantomId.closed(getActualPrice(ts), -100.0, -sol, "PHANTOM_BUY_NO_TOKENS")
                     // V5.9.199: Mark phantom as scratch — prevents -100% poisoning win rate
                     try { phantomId.classified("PHANTOM_SCRATCH", null) } catch (_: Exception) {}
+                    // V5.9.255 FIX: Register a long-lived rejection so the scanner can't
+                    // re-discover and re-buy this token immediately after the phantom wipe.
+                    // Previously: position wiped → token stays on watchlist → cooldown expires
+                    // in 20s → scanner re-finds it → bot buys again → same phantom loop.
+                    // Now: token is banned for 10 minutes after a confirmed phantom.
+                    // The SOL actually DID leave the wallet (tx landed on-chain) — this is
+                    // a real loss, not a failed tx. We must not compound it.
+                    try {
+                        GlobalTradeRegistry.registerRejection(
+                            mint = verifyMint,
+                            symbol = verifySymbol,
+                            reason = "PHANTOM_BUY: SOL spent but 0 tokens received — banned 10min",
+                            rejectedBy = "PHANTOM_GUARD",
+                        )
+                        ErrorLogger.warn("Executor", "🚫 PHANTOM BAN: $verifySymbol registered in rejection list (10min cooldown)")
+                    } catch (_: Exception) {}
                     onNotify(
                         "🚨 Phantom Cleared",
                         "$verifySymbol: tx returned sig but no tokens arrived. Position discarded.",
