@@ -444,56 +444,83 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Returns Map<mint, Pair<uiAmount, decimals>>
      */
     fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> {
-        repeat(3) { attempt ->
+        // V5.9.254 FIX: Two root causes patched here:
+        //
+        // 1. dataSize=165 filter — this is the standard SPL Token account size, but
+        //    Token-2022 program accounts are a DIFFERENT size (varies by extension,
+        //    typically 170+ bytes). Many new meme tokens on Pump.fun/Raydium use
+        //    Token-2022. The filter was silently dropping all Token-2022 holdings,
+        //    making the phantom guard see qty=0 and wipe real positions.
+        //    Fix: query BOTH token programs explicitly without a dataSize filter.
+        //
+        // 2. No commitment level — defaults to "finalized" which is 32+ slots behind
+        //    "confirmed". With a 30s verify window, a brand-new buy might not be
+        //    finalized yet even though it's confirmed and the tokens are real.
+        //    Fix: use commitment="confirmed" for all token account reads.
+        val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val out = mutableMapOf<String, Pair<Double, Int>>()
+        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
+            repeat(3) { attempt ->
+                try {
+                    val params = JSONArray()
+                        .put(publicKeyB58)
+                        .put(JSONObject()
+                            .put("encoding", "jsonParsed")
+                            .put("commitment", "confirmed")
+                            .put("programId", programId))
+                    val resp = rpc("getTokenAccountsByOwner", params)
+                    resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
+                        for (i in 0 until arr.length()) {
+                            val info = arr.optJSONObject(i)
+                                ?.optJSONObject("account")?.optJSONObject("data")
+                                ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                            val mint = info.optString("mint", "")
+                            val tokenAmount = info.optJSONObject("tokenAmount")
+                            val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
+                            val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
+                            if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+                        }
+                    }
+                    return@repeat  // success for this program
+                } catch (e: Exception) {
+                    android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals [$programId] attempt ${attempt+1}/3 failed: ${e.message}")
+                    if (attempt < 2) Thread.sleep((300L shl attempt))
+                }
+            }
+        }
+        return out
+    }
+
+    fun getTokenAccounts(): Map<String, Double> {
+        // V5.9.254 FIX: Same as getTokenAccountsWithDecimals — query both token programs
+        // with commitment=confirmed and no dataSize filter.
+        val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val out = mutableMapOf<String, Double>()
+        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
             try {
                 val params = JSONArray()
                     .put(publicKeyB58)
-                    .put(JSONObject().put("encoding","jsonParsed")
-                        .put("filters", JSONArray().put(JSONObject().put("dataSize",165))))
+                    .put(JSONObject()
+                        .put("encoding", "jsonParsed")
+                        .put("commitment", "confirmed")
+                        .put("programId", programId))
                 val resp = rpc("getTokenAccountsByOwner", params)
-                val out  = mutableMapOf<String, Pair<Double, Int>>()
                 resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
                     for (i in 0 until arr.length()) {
                         val info = arr.optJSONObject(i)
                             ?.optJSONObject("account")?.optJSONObject("data")
                             ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                        val mint = info.optString("mint","")
-                        val tokenAmount = info.optJSONObject("tokenAmount")
-                        val qty = tokenAmount?.optString("uiAmountString","0")?.toDoubleOrNull() ?: 0.0
-                        val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
-                        if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
+                        val mint = info.optString("mint", "")
+                        val qty  = info.optJSONObject("tokenAmount")
+                            ?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
+                        if (mint.isNotBlank() && qty > 0) out[mint] = qty
                     }
                 }
-                return out
-            } catch (e: Exception) {
-                android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals attempt ${attempt+1}/3 failed: ${e.message}")
-                if (attempt < 2) Thread.sleep((300L shl attempt))
-            }
+            } catch (_: Exception) { /* continue to next program */ }
         }
-        return emptyMap()
-    }
-
-    fun getTokenAccounts(): Map<String, Double> {
-        return try {
-            val params = JSONArray()
-                .put(publicKeyB58)
-                .put(JSONObject().put("encoding","jsonParsed")
-                    .put("filters", JSONArray().put(JSONObject().put("dataSize",165))))
-            val resp = rpc("getTokenAccountsByOwner", params)
-            val out  = mutableMapOf<String, Double>()
-            resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val info = arr.optJSONObject(i)
-                        ?.optJSONObject("account")?.optJSONObject("data")
-                        ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                    val mint = info.optString("mint","")
-                    val qty  = info.optJSONObject("tokenAmount")
-                        ?.optString("uiAmountString","0")?.toDoubleOrNull() ?: 0.0
-                    if (mint.isNotBlank() && qty > 0) out[mint] = qty
-                }
-            }
-            out
-        } catch (_: Exception) { emptyMap() }
+        return out
     }
 
     /**
