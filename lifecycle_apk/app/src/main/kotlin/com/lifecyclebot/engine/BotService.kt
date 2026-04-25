@@ -4562,6 +4562,21 @@ if (deferredCount > 0) {
     }
     
     // ═══════════════════════════════════════════════════════════════════
+    // V5.9.247: UNIVERSAL VOLUME GATE — hard rule, applies to ALL layers
+    // No volume = dead token = don't buy. We don't buy things that haven't
+    // moved in an hour. Checked here so no layer can bypass it.
+    // ═══════════════════════════════════════════════════════════════════
+    if (!ts.position.isOpen) {
+        val lastVolumeH1 = ts.history.lastOrNull()?.volumeH1 ?: 0.0
+        val learningPct  = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
+        val minVolumeH1  = if (learningPct < 0.40) 500.0 else 2_000.0  // relaxed during bootstrap data-gather
+        if (lastVolumeH1 < minVolumeH1) {
+            ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
+            return  // skip ALL layers — no volume, no entry
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // V3 ENGINE: Process token through unified scoring
     // Strategy output (phase, entry/exit scores, quality) feeds into V3
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT

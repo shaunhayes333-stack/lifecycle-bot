@@ -491,6 +491,11 @@ object QualityTraderAI {
             return ExitSignal.TIME_EXIT
         }
 
+        // V5.9.247: hard 30min cap if still negative — quality tokens need time but not infinite time
+        if (holdMinutes >= 30 && pnlPct < 0.0) {
+            ErrorLogger.info(TAG, "⏰ QUALITY MAXHOLD[-30m]: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes.toInt()}min")
+            return ExitSignal.TIME_EXIT
+        }
         // Max hold time - only exit if not profitable
         if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 5) {
             ErrorLogger.info(TAG, "⏰ QUALITY TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes.toInt()}min")

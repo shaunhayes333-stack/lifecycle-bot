@@ -1135,23 +1135,22 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.9.246: TIME-BASED EXIT SYSTEM — unified, no gaps
-        // Previous versions had a gap between -3% and -4% where positions sat forever.
-        // Rule: if a position isn't green (+1%) within N minutes → cut it. Simple.
+        // 5. V5.9.247: TIME-BASED EXIT — hard 20min rule. No zombie positions.
+        // If you haven't moved to green (+1%) within 20 minutes, you're dead.
+        // Cut early on clear losers, cut fast on deep losses.
         //
-        //   Any loss < -1% at 10min → token failed to hold entry, cut it
-        //   Near-flat (-3% to +1%) at 12min → stagnant, wasting the slot
-        //   Clearly negative (< -3%) at 15min → it's not coming back, exit
-        //   Deep negative (< -6%) at any point past 10min → structural failure
+        //   < -3%  at  6min → clear loser, not coming back
+        //   < -6%  at  5min → deep loss, emergency cut
+        //   < +1%  at 20min → hard cap — no token gets 43 minutes of our capital
         //
-        val timeExitStagnant  = holdMinutes >= 12 && pnlPct in -8.0..1.0   // covers the entire losing range
-        val timeExitDeepLoss  = holdMinutes >= 10 && pnlPct < -6.0          // accelerated cut on deep losses
-        val timeExitEarlyBad  = holdMinutes >= 8  && pnlPct < -3.0          // cut clear losers fast
-        if (timeExitDeepLoss || timeExitEarlyBad || timeExitStagnant) {
+        val timeExitEarlyBad  = holdMinutes >= 6  && pnlPct < -3.0   // clear loser
+        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0   // deep loss emergency
+        val timeExitMaxHold   = holdMinutes >= 20 && pnlPct < 1.0    // hard 20min cap if not green
+        if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
                 timeExitEarlyBad -> "EARLY(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
-                else             -> "STAGNANT(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
+                else             -> "MAXHOLD(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
             }
             ErrorLogger.info(TAG, "💩⏱️ TIME_EXIT[$tier]: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes.toInt()}min")
             return ExitSignal.TIME_EXIT
