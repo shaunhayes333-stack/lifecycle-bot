@@ -990,7 +990,7 @@ class CryptoAltActivity : AppCompatActivity() {
                                     ShitCoinTraderAI.closePosition(
                                         posMint,
                                         currentPrice.takeIf { it > 0 } ?: posEntryPriceCopy,
-                                        ShitCoinTraderAI.ExitSignal.EXTERNAL_SELL
+                                        ShitCoinTraderAI.ExitSignal.TIME_EXIT
                                     )
                                 } catch (e: Exception) {
                                     com.lifecyclebot.engine.ErrorLogger.warn("CryptoAltActivity", "Manual meme close error: \${e.message}")
