@@ -702,7 +702,18 @@ object PerpsTraderAI {
         val balanceRef = if (isPaper) paperBalanceBps else liveBalanceBps
         val marginBps = (sizeSol * 10000).toLong()
         balanceRef.addAndGet(-marginBps)
-        
+
+        // V5.9.249: sync debit into the UNIFIED paper wallet so host screen shows correct balance
+        if (isPaper) {
+            try {
+                com.lifecyclebot.engine.FluidLearning.recordPaperBuy(market.symbol, sizeSol.coerceAtLeast(0.0))
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = -sizeSol,
+                    source = "Perps.open[${market.symbol}]"
+                )
+            } catch (_: Exception) {}
+        }
+
         // PerpsTraderAI positions are synthetic (in-memory only, no DEX execution).
         // Fee collection is skipped here — MarketsLiveExecutor handles fees for real on-chain trades.
 
@@ -842,7 +853,18 @@ object PerpsTraderAI {
         val balanceRef = if (position.isPaper) paperBalanceBps else liveBalanceBps
         val marginBps = (position.sizeSol * 10000).toLong()
         balanceRef.addAndGet(marginBps + pnlBps)
-        
+
+        // V5.9.249: return capital + P&L to unified paper wallet on close
+        if (position.isPaper) {
+            try {
+                com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSol)
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = position.sizeSol + pnlSol,
+                    source = "Perps.close[${position.market.symbol}]"
+                )
+            } catch (_: Exception) {}
+        }
+
         // Positions are synthetic — no close fee charged (no real DEX execution).
 
         // Update learning
@@ -1286,7 +1308,9 @@ object PerpsTraderAI {
     fun getDisciplineScore(): Int = disciplineScore.get()
     
     fun getBalance(isPaper: Boolean): Double {
-        return (if (isPaper) paperBalanceBps.get() else liveBalanceBps.get()) / 10000.0
+        // V5.9.249: paper balance now owned by unified paper wallet (BotService.status.paperWalletSol)
+        return if (isPaper) com.lifecyclebot.engine.BotService.status.paperWalletSol
+               else liveBalanceBps.get() / 10000.0
     }
     
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
