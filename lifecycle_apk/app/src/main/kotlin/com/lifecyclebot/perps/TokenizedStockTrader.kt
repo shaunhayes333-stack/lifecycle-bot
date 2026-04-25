@@ -1171,14 +1171,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 //  - 2h hard cap: always exit (take whatever P&L we have)
                 //  - 45min + negative: cut losers early, recycle capital
                 //  - 30min + <1% gain: stale flat position, flush it
+                // V5.9.221 time exits — call closePosition then continue to next position
+                var timeExited = false
                 when {
-                    holdSec > 7200 ->
-                        return@forEach closePosition(id, "TIME_CAP_2H: pnl=${"%.2f".format(pnlPct)}%")
-                    holdSec > 2700 && pnlPct < 0.0 ->
-                        return@forEach closePosition(id, "TIME_CUT_45MIN_LOSS: pnl=${"%.2f".format(pnlPct)}%")
-                    holdSec > 1800 && pnlPct < 1.0 ->
-                        return@forEach closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%")
+                    holdSec > 7200 -> { closePosition(id, "TIME_CAP_2H: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
+                    holdSec > 2700 && pnlPct < 0.0 -> { closePosition(id, "TIME_CUT_45MIN_LOSS: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
+                    holdSec > 1800 && pnlPct < 1.0 -> { closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
                 }
+                if (timeExited) continue
 
                 val priceVel = if (holdSec > 30) pnlPct / (holdSec / 60.0) else 0.0
                 val assessment = com.lifecyclebot.engine.SymbolicExitReasoner.assess(

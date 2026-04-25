@@ -1415,7 +1415,7 @@ class CryptoAltActivity : AppCompatActivity() {
             .show()
     }
 
-        private fun buildIconTile(emoji: String, label: String, stat: String, color: Int, onClick: (() -> Unit)? = null): LinearLayout {
+    private fun buildIconTile(emoji: String, label: String, stat: String, color: Int, onClick: (() -> Unit)? = null): LinearLayout {
         return vBox(card, 10, 8).apply {
             layoutParams = llp(0, wrap, 1f).apply { marginEnd = 6 }
             gravity = android.view.Gravity.CENTER
