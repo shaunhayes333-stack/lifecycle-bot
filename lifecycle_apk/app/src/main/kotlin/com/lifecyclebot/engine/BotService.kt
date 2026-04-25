@@ -5293,7 +5293,8 @@ if (deferredCount > 0) {
                             if (moonshotScore.eligible) {
                                 // V5.2.8 FIX: Ensure Moonshot never uses 0% TP/SL
                                 val moonshotEffectiveTpPct = if (moonshotScore.takeProfitPct <= 0.0) 50.0 else moonshotScore.takeProfitPct
-                                val moonshotEffectiveSlPct = if (moonshotScore.stopLossPct >= 0.0) -20.0 else moonshotScore.stopLossPct
+                                // V5.9.235: fallback floor raised to -15% (matches HARD_FLOOR_STOP); clamp also applied
+                                val moonshotEffectiveSlPct = (if (moonshotScore.stopLossPct >= 0.0) -15.0 else moonshotScore.stopLossPct).coerceAtLeast(-15.0)
                                 
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(
