@@ -59,7 +59,12 @@ object DrawdownCircuitAI {
         // collapse below 0.50. A fresh bot loses a lot — that's noise, not a crisis.
         // Without this, 21 consecutive paper losses drive aggression to 0.25, which
         // feeds FEARFUL mood → SymbolicBlock → only junk gets through → more losses.
-        val bootstrapFloor = if (samples.size < 60) 0.50 else 0.0
+        // V5.9.220: Extended bootstrap — 120 samples (≈2h) in paper, 60 in live.
+        //           Paper floor raised to 0.60 to prevent proof-run stalling.
+        val isPaper = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Exception) { true }
+        val bootstrapWindow = if (isPaper) 120 else 60
+        val bootstrapFloorVal = if (isPaper) 0.60 else 0.50
+        val bootstrapFloor = if (samples.size < bootstrapWindow) bootstrapFloorVal else 0.0
         val aggression = rawAggression.coerceAtLeast(bootstrapFloor)
         val prev = currentAggression.getAndSet(aggression)
         if (kotlin.math.abs(prev - aggression) > 0.01) {

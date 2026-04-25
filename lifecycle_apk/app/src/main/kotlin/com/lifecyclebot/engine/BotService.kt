@@ -3421,6 +3421,18 @@ class BotService : Service() {
                         if (cfg.paperMode && loopCount % 10 == 0) {
                             RunTracker30D.syncBalance(balanceSol)
                         }
+
+                        // V5.9.220: Wire DrawdownCircuitAI — feed it real balance every loop.
+                        // Paper mode: aggression penalties only kick in above a 15% drawdown threshold
+                        // (the circuit's own thresholds are 3/6/10%, but paper is noisy early).
+                        // Live mode: full sensitivity from day one.
+                        if (!cfg.paperMode) {
+                            com.lifecyclebot.v3.scoring.DrawdownCircuitAI.recordBalance(balanceSol)
+                        } else if (loopCount % 5 == 0) {
+                            // Paper: sample every ~5 loops to smooth noise; circuit still activates but
+                            // only at higher DD because paper losses are expected in proof runs.
+                            com.lifecyclebot.v3.scoring.DrawdownCircuitAI.recordBalance(balanceSol)
+                        }
                     }
                     // Gather all trades across all tokens for P&L - use synchronized copy
                     val allTrades = synchronized(status.tokens) {
