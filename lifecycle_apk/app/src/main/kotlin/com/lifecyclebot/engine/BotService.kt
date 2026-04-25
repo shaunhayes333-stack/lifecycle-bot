@@ -5855,7 +5855,8 @@ if (deferredCount > 0) {
                     // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
                     // fresh pump.fun tokens arrive with lastMcap==0 before the
                     // first mcap fetch lands; still allow if liquidity >= $1K.
-                    val expressInMcapRange = ts.lastMcap in 2_000.0..300_000.0
+                    // V5.9.245: Raised Express mcap ceiling $300K → $5M — trending memes often 500K-3M
+                    val expressInMcapRange = ts.lastMcap in 2_000.0..5_000_000.0
                     val expressUnknownMcapOk = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 1_000.0
                     val passesPreFilter = (expressInMcapRange || expressUnknownMcapOk) &&
                         effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP

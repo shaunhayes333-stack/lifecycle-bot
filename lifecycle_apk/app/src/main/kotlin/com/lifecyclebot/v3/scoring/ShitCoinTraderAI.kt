@@ -809,8 +809,10 @@ object ShitCoinTraderAI {
         // V5.9.222 relaxed too far (< -5 && < 50) letting in flat/stale tokens → 6% WR
         // Two conditions: (1) flat or barely-positive momentum with weak buys = stale token
         //                 (2) clearly negative momentum regardless of buy pressure = fading
-        val hardGateFlatStale   = momentum <= 1.0 && buyPressurePct < 58.0   // flat/stale
-        val hardGateClearlyFade = momentum < -3.0                              // clearly fading
+        // V5.9.245: Tightened — momentum<=1 was letting stale tokens through into losses
+        // Require actual momentum (>2%) OR very strong buy pressure (>=65%) to enter
+        val hardGateFlatStale   = momentum <= 2.0 && buyPressurePct < 62.0   // flat/stale (was <=1.0 & <58)
+        val hardGateClearlyFade = momentum < -2.0                              // clearly fading (was <-3.0)
         if (hardGateFlatStale || hardGateClearlyFade) {
             val gateReason = if (hardGateClearlyFade)
                 "HARD_GATE_FADE: mom=${"%+.1f".format(momentum)}%"
@@ -1133,22 +1135,21 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.9.192: FLAT EXIT — tightened from -5.0% → -3.0% floor
-        // At -4.9% we're bleeding capital. Exit sooner and redeploy.
-        // V5.9.197: True flat = near zero. +5-9% is BUILDING MOMENTUM, not flat.
-        // Only exit as flat if pnlPct < +5% (ceiling lowered from 10% → 5%).
-        if (holdMinutes >= FLAT_EXIT_MINUTES && pnlPct > -3.0 && pnlPct < 5.0) {
+        // 5. V5.9.245: FLAT EXIT — widened window to 15min (was 8min — too short for meme development)
+        // Memes need time to find buyers. 8min flat exit was causing mass TIME_EXIT losses.
+        // Also tightened upper bound to 3% (was 5%) — if token is at +3-5% it's going somewhere.
+        if (holdMinutes >= 15 && pnlPct > -3.0 && pnlPct < 3.0) {
             // Token is genuinely stagnant - wasting slot and opportunity cost
             ErrorLogger.info(TAG, "💩😴 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (stagnant)")
             return ExitSignal.TIME_EXIT
         }
-        // V5.9.242: DEAD TOKEN EXIT — 3-tier system
-        //   Tier 0: -2% or below at 8min → early bad signal, cut fast
-        //   Tier 1: -4% or below at 15min → stalled failure
-        //   Tier 2: -8% or below at 10min → probable rug/fade, exit now
-        val deadExitTier0 = holdMinutes >= 8  && pnlPct < -2.0
-        val deadExitTier1 = holdMinutes >= 15 && pnlPct < -4.0
-        val deadExitTier2 = holdMinutes >= 10 && pnlPct < -8.0
+        // V5.9.245: DEAD TOKEN EXIT — relaxed tiers (was killing WR by cutting normal meme wicks)
+        //   Tier 0: -4% or below at 12min → was -2%@8m — too tight, normal wick zone
+        //   Tier 1: -6% or below at 20min → was -4%@15m — give more time
+        //   Tier 2: -10% or below at 12min → was -8%@10m — approaching hard floor anyway
+        val deadExitTier0 = holdMinutes >= 12 && pnlPct < -4.0
+        val deadExitTier1 = holdMinutes >= 20 && pnlPct < -6.0
+        val deadExitTier2 = holdMinutes >= 12 && pnlPct < -10.0
         if (deadExitTier0 || deadExitTier1 || deadExitTier2) {
             val tier = when {
                 deadExitTier2 -> "T2(-8%@10m)"
