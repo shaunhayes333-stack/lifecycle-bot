@@ -7632,8 +7632,20 @@ if (deferredCount > 0) {
                         )
                         ts.position.tradingMode = "MOONSHOT_ORBITAL"
                         ts.position.tradingModeEmoji = "🚀"
+                        addLog("$exitEmoji QUALITY→MOONSHOT: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
+                    } else {
+                        // V5.9.243 BUG FIX: Moonshot rejected promotion (full/capped) — MUST sell now.
+                        // Previously: position was removed from Quality but NOT sold and NOT in Moonshot = orphaned with no stop loss.
+                        // Fix: if Moonshot won't take it, sell immediately to bank the profit safely.
+                        ErrorLogger.info("BotService", "⭐ QUALITY→MOONSHOT REJECTED — selling to bank profit: ${ts.symbol} | price=$currentPrice")
+                        executor.requestSell(
+                            ts = ts,
+                            reason = "QUALITY_MOONSHOT_REJECTED_SELL",
+                            wallet = wallet,
+                            walletSol = effectiveBalance
+                        )
+                        addLog("💰 QUALITY→MOONSHOT REJECTED: ${ts.symbol} sold to bank +100% profit", ts.mint)
                     }
-                    addLog("$exitEmoji QUALITY→MOONSHOT: ${ts.symbol} | mcap=\$${(currentMcap/1000).toInt()}K", ts.mint)
                     return
                 }
                 
