@@ -133,9 +133,59 @@ class StartupReconciler(
                 // The orphan auto-sell path below will handle truly unknown/unwanted mints.
                 val ts = status.tokens[mint]
                     ?: run {
-                        // Not in scanner memory at all — flag it for the orphan path
-                        onLog("⚠️ UNKNOWN MINT: ${mint.take(12)}… | qty=${"%.4f".format(qty)} — not in scanner, deferring to orphan path")
-                        return@forEach  // Let scanAndSellOrphanedTokens handle it (with Markets/Alt guards)
+                        // V5.9.257 FIX: Previously this just deferred to the orphan path
+                        // (which does nothing when autoSellOrphans=false). Tokens from
+                        // previous sessions, bot restarts, or phantom-wiped positions
+                        // that later confirmed were silently abandoned here forever.
+                        //
+                        // Now: call DexScreener for live price/symbol, build a real
+                        // TokenState, adopt it, and let the bot manage exits.
+                        // This covers ABC, any meme the bot bought before WalletTokenMemory
+                        // was introduced, and any future restart scenario.
+                        onLog("🔍 UNKNOWN MINT: ${mint.take(12)}… | qty=${"%.4f".format(qty)} — looking up on DexScreener for adoption")
+                        try {
+                            val dex = com.lifecyclebot.network.DexscreenerApi()
+                            val pair = dex.getBestPair(mint)
+                            if (pair != null && pair.candle.priceUsd > 0) {
+                                val livePrice = pair.candle.priceUsd
+                                val adoptTs = com.lifecyclebot.data.TokenState(
+                                    mint        = mint,
+                                    symbol      = pair.baseSymbol.ifBlank { mint.take(8) },
+                                    name        = pair.baseName.ifBlank { pair.baseSymbol },
+                                    pairAddress = pair.pairAddress,
+                                    pairUrl     = pair.url,
+                                    source      = "WALLET_RECOVERY",
+                                    lastPrice   = livePrice,
+                                    lastMcap    = pair.candle.marketCap,
+                                    lastLiquidityUsd = pair.liquidity,
+                                    phase       = "hold",
+                                    position    = com.lifecyclebot.data.Position(
+                                        qtyToken        = qty,
+                                        entryPrice      = livePrice,  // best guess: current price
+                                        entryTime       = System.currentTimeMillis() - 300_000L, // assume 5min ago
+                                        costSol         = 0.0,        // unknown — no memory of buy
+                                        entryScore      = 50.0,
+                                        entryPhase      = "wallet_recovery",
+                                        highestPrice    = livePrice,
+                                        isPaperPosition = false,       // real wallet = live position
+                                    ),
+                                )
+                                synchronized(status.tokens) { status.tokens[mint] = adoptTs }
+                                adoptedMints += mint
+                                onLog("📥 WALLET RECOVERY (DexScreener): ${adoptTs.symbol} | ${"%.4f".format(qty)} tokens @ \$${livePrice} | mcap=\$${pair.candle.marketCap.toLong()}")
+                                onAlert(
+                                    "Wallet Recovery",
+                                    "${adoptTs.symbol}: found in wallet, not in bot memory — adopted at current price \$${livePrice}. Bot will manage TP/SL."
+                                )
+                                adoptTs  // return the new TokenState
+                            } else {
+                                onLog("⚠️ UNKNOWN MINT (no DexScreener data): ${mint.take(12)}… | qty=${"%.4f".format(qty)} — will appear in orphan path")
+                                null
+                            }
+                        } catch (e: Exception) {
+                            onLog("⚠️ UNKNOWN MINT lookup failed: ${mint.take(12)}… | ${e.message}")
+                            null
+                        } ?: return@forEach
                     }
                 // V5.9.251: If position is pendingVerify, the 30s buy-coroutine
                 // window expired but tokens DID arrive on-chain. Promote now.
