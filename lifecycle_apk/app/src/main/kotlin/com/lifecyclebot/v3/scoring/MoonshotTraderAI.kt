@@ -337,13 +337,12 @@ object MoonshotTraderAI {
         val wasInPaper = isPaperMode
         isPaperMode = isPaper
         
-        // Transfer paper balance to live when switching modes
+        // V5.9.306: BUG FIX — DO NOT TRANSFER PAPER BALANCE TO LIVE.
+        // Phantom paper SOL would inflate the live balance counter without any
+        // corresponding on-chain SOL. Live balance must ONLY grow from real trades.
         if (!isPaper && wasInPaper) {
-            val paperBal = paperBalanceBps.get()
-            if (paperBal > liveBalanceBps.get()) {
-                liveBalanceBps.set(paperBal)
-                ErrorLogger.info(TAG, "🚀 TRANSFER: Balance ${paperBal/10000.0} SOL from PAPER to LIVE")
-            }
+            val paperBal = paperBalanceBps.get() / 10000.0
+            ErrorLogger.info(TAG, "🚀 PAPER→LIVE: paper balance ${paperBal.fmt(4)} SOL retained in PAPER only (NOT copied to LIVE)")
         }
     }
     

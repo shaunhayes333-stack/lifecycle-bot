@@ -229,14 +229,19 @@ object CashGenerationAI {
                 ErrorLogger.info(TAG, "💰 TRANSFER: Daily stats W=${paperDailyWins.get()} L=${paperDailyLosses.get()} from PAPER to LIVE")
             }
             
-            // Transfer treasury balance learning (the compounded gains)
-            val paperBalance = paperTreasuryBalanceBps.get()
-            if (paperBalance > liveTreasuryBalanceBps.get()) {
-                liveTreasuryBalanceBps.set(paperBalance)
-                ErrorLogger.info(TAG, "💰 TRANSFER: Treasury balance ${paperBalance/100.0} SOL from PAPER to LIVE")
-            }
+            // V5.9.306: BUG FIX — DO NOT TRANSFER TREASURY BALANCE FROM PAPER → LIVE.
+            // Treasury balance represents REAL locked SOL; copying paper balance into
+            // live made the UI show 14,107 SOL (~$1.2M) phantom balance the moment a
+            // user switched modes. Live treasury must ONLY grow from real on-chain
+            // trade profits via addToTreasury(isPaper=false).
+            //
+            // We DO transfer the LEARNED stats above (daily wins/losses/trade counts),
+            // because those are knowledge metrics, not real money. The compounded
+            // balance is real money and stays separate.
+            val paperBalanceForLog = paperTreasuryBalanceBps.get() / 100.0
+            ErrorLogger.info(TAG, "💰 TRANSFER: paper treasury ${paperBalanceForLog.fmt(4)} SOL retained in PAPER only (NOT copied to LIVE)")
             
-            ErrorLogger.info(TAG, "💰 PAPER→LIVE TRANSFER COMPLETE: All learned patterns will apply to LIVE trades")
+            ErrorLogger.info(TAG, "💰 PAPER→LIVE TRANSFER COMPLETE: stats transferred, live balance untouched")
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "💰 TRANSFER ERROR: ${e.message}")
         }
