@@ -98,6 +98,17 @@ object CryptoAltTrader {
         "WLD", "JTO", "W", "STRK", "TAO", "GMX", "DYDX", "ENA", "PENDLE"
     )
 
+    // V5.9.303: Flash.trade-supported perps symbols. When SPOT mint is missing
+    // for an alt but the symbol is on Flash, the trader still routes the trade
+    // via leveraged perps so the alt universe is reachable end-to-end.
+    // Mirrors the FLASH_SUPPORTED set in MarketsLiveExecutor.executeFlashTradePerps.
+    private val FLASH_TRADE_PERPS_SYMBOLS = setOf(
+        "SOL", "BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "AVAX",
+        "LINK", "DOT", "MATIC", "LTC", "ATOM", "UNI", "ARB", "OP",
+        "APT", "SUI", "INJ", "JUP", "NEAR", "TIA", "WLD", "ENA",
+        "BONK", "WIF", "PEPE", "TRUMP", "SHIB"
+    )
+
     // ─── State ────────────────────────────────────────────────────────────────
     private val positions        = ConcurrentHashMap<String, AltPosition>()
     private val spotPositions    = ConcurrentHashMap<String, AltPosition>()
@@ -700,11 +711,17 @@ object CryptoAltTrader {
                 if (hasPosition(market)) { skippedPos++; continue }
 
                 // V5.9.292: LIVE mode — skip markets that cannot actually execute.
-                // SPOT path requires a Solana mint. If no mint exists for this alt, the
-                // trade will generate a signal but silently fail in executeLiveTradeAtSize
-                // (returning false every time). This causes zero live trades and wastes
-                // the signal pipeline. Skip early so only tradeable markets are analyzed.
-                // Leverage path uses Flash.trade (no mint needed) and is always allowed.
+                // V5.9.303: Audit fix — the alt trader is meant to trade the ENTIRE crypto market.
+                // The previous logic skipped any LIVE SPOT signal lacking a Solana mint, which
+                // killed >80% of the alt universe (SAND, IMX, STX, RUNE, CRV, SNX, MKR, AAVE,
+                // GRT, RENDER, FIL, VET, ICP, HBAR, ALGO, FTM, SEI, SHIB, etc. — all skipped).
+                //
+                // NEW POLICY:
+                //   • PAPER mode: no mint check — paper sims everything, learning gets full universe.
+                //   • LIVE mode + Flash.trade-supported symbol: allow signal, executor will route
+                //     via Flash perps (no Solana mint needed).
+                //   • LIVE mode + has Solana mint: allow signal (SPOT swap path).
+                //   • LIVE mode + no mint + not on Flash: skip (truly unreachable).
                 val isLiveScan = !isPaperMode.get()
                 if (isLiveScan && !preferLeverage.get()) {
                     val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
@@ -712,9 +729,13 @@ object CryptoAltTrader {
                         ?.mint
                         ?.let { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
                         ?: false
-                    if (!hasMint) {
-                        ErrorLogger.debug(TAG, "🪙 LIVE SPOT SKIP: ${market.symbol} — no Solana mint in registry")
+                    val flashSupported = market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS
+                    if (!hasMint && !flashSupported) {
+                        ErrorLogger.debug(TAG, "🪙 LIVE SKIP: ${market.symbol} — no Solana mint AND not on Flash perps")
                         continue
+                    }
+                    if (!hasMint && flashSupported) {
+                        ErrorLogger.debug(TAG, "🪙 LIVE → LEVERAGE: ${market.symbol} — no SPOT mint, routing via Flash perps")
                     }
                 }
 
@@ -856,6 +877,21 @@ object CryptoAltTrader {
             val useSpotDefault = !preferLeverage.get()
             var useSpot  = useSpotDefault
             var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
+
+            // V5.9.303: AUTO-ROUTE TO LEVERAGE when SPOT lacks a Solana mint but Flash supports the symbol.
+            // This is the "currency bridge" the user expects — alt trader actually trades the whole market.
+            if (!isPaperMode.get() && useSpot) {
+                val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+                    .getTokenBySymbol(signal.market.symbol)
+                    ?.mint
+                    ?.let { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                    ?: false
+                if (!hasMint && signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS) {
+                    useSpot = false
+                    leverage = DEFAULT_LEVERAGE
+                    ErrorLogger.info(TAG, "🪙 AUTO-ROUTE LEVERAGE: ${signal.market.symbol} — no SPOT mint, using Flash perps ${leverage.toInt()}x")
+                }
+            }
 
             try {
                 CrossMarketRegimeAI.updateMarketState(signal.market.symbol, signal.price, signal.price * 0.01)
