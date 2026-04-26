@@ -158,6 +158,8 @@ object CashGenerationAI {
         var highWaterMark: Double,
         var trailingStop: Double,
         val isPaper: Boolean,
+        // V5.9.270: expose current price for LLM context PnL computation
+        var currentPrice: Double = 0.0,
     )
 
     data class TreasurySignal(
@@ -849,6 +851,8 @@ object CashGenerationAI {
         if (price > 0) {
             currentPrices[mint] = price
             lastPriceUpdate[mint] = System.currentTimeMillis()
+            // V5.9.270: stamp onto position object so getActivePositions() returns live PnL
+            synchronized(activePositions) { activePositions[mint]?.currentPrice = price }
         }
     }
 
