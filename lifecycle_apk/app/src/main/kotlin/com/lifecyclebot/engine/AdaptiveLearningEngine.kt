@@ -19,8 +19,13 @@ object AdaptiveLearningEngine {
     private const val KEY_TRADE_COUNT = "trade_count"
     private const val KEY_LEARNING_RATE = "learning_rate"
     private const val KEY_LAST_RETRAIN = "last_retrain_ts"
+    // V5.9.301: Persisted rolling feature buffer — fuel for pattern extraction.
+    // Without this, every trade's features were discarded after weight adjustment.
+    private const val KEY_FEATURE_BUFFER = "feature_buffer_v2"
+    private const val FEATURE_BUFFER_MAX = 300
 
-    private const val MIN_TRADES_FOR_PATTERN_EXTRACTION = 50
+    // V5.9.301: Lowered from 50 → 25 so patterns get extracted earlier in bootstrap.
+    private const val MIN_TRADES_FOR_PATTERN_EXTRACTION = 25
     private const val PATTERN_RETRAIN_INTERVAL = 25
 
     private var prefs: SharedPreferences? = null
@@ -254,7 +259,12 @@ object AdaptiveLearningEngine {
         var rugcheckWeight: Double = 1.1,
         var emaFanWeight: Double = 1.5,
         var volLiqRatioWeight: Double = 1.2,
-        var athDistanceWeight: Double = 0.8
+        var athDistanceWeight: Double = 0.8,
+        // V5.9.301: New learned signals — hold-time, max-gain follow-through, exit-reason quality.
+        // These were captured but never weighted; the bot couldn't tell a "good runner" from a "lucky chop".
+        var holdTimeWeight: Double = 1.0,        // longer profitable holds → up; quick losers → down
+        var maxGainFollowWeight: Double = 1.2,   // captured-vs-peak ratio drives this
+        var exitQualityWeight: Double = 1.0      // exits via TP/runner > stop > rug
     ) {
         fun toJson(): JSONObject {
             return JSONObject().apply {
@@ -272,6 +282,9 @@ object AdaptiveLearningEngine {
                 put("emaFan", sanitizeDouble(emaFanWeight))
                 put("volLiqRatio", sanitizeDouble(volLiqRatioWeight))
                 put("athDistance", sanitizeDouble(athDistanceWeight))
+                put("holdTime", sanitizeDouble(holdTimeWeight))
+                put("maxGainFollow", sanitizeDouble(maxGainFollowWeight))
+                put("exitQuality", sanitizeDouble(exitQualityWeight))
             }
         }
 
@@ -291,7 +304,10 @@ object AdaptiveLearningEngine {
                     rugcheckWeight = sanitizeDouble(json.optDouble("rugcheck", 1.1), 1.1),
                     emaFanWeight = sanitizeDouble(json.optDouble("emaFan", 1.5), 1.5),
                     volLiqRatioWeight = sanitizeDouble(json.optDouble("volLiqRatio", 1.2), 1.2),
-                    athDistanceWeight = sanitizeDouble(json.optDouble("athDistance", 0.8), 0.8)
+                    athDistanceWeight = sanitizeDouble(json.optDouble("athDistance", 0.8), 0.8),
+                    holdTimeWeight = sanitizeDouble(json.optDouble("holdTime", 1.0), 1.0),
+                    maxGainFollowWeight = sanitizeDouble(json.optDouble("maxGainFollow", 1.2), 1.2),
+                    exitQualityWeight = sanitizeDouble(json.optDouble("exitQuality", 1.0), 1.0)
                 )
             }
         }
@@ -362,8 +378,68 @@ object AdaptiveLearningEngine {
     private var featureWeights = FeatureWeights()
     private val goodPatterns = mutableListOf<LearnedPattern>()
     private val badPatterns = mutableListOf<LearnedPattern>()
+    // V5.9.301: Rolling feature buffer — last 300 trades' features for pattern extraction.
+    // Persisted to SharedPreferences on every trade so it survives bot restarts.
+    private val featureBuffer = mutableListOf<TradeFeatures>()
     private var tradeCount = 0
     private var learningRate = 0.1
+
+    // V5.9.301: TradeFeatures ↔ JSON for the rolling buffer.
+    private fun featuresToJson(f: TradeFeatures): JSONObject = JSONObject().apply {
+        put("mc", sanitizeDouble(f.entryMcapUsd))
+        put("ag", sanitizeDouble(f.tokenAgeMinutes))
+        put("br", sanitizeDouble(f.buyRatioPct))
+        put("vol", sanitizeDouble(f.volumeUsd))
+        put("liq", sanitizeDouble(f.liquidityUsd))
+        put("hc", f.holderCount)
+        put("th", sanitizeDouble(f.topHolderPct))
+        put("hg", sanitizeDouble(f.holderGrowthRate))
+        put("dw", sanitizeDouble(f.devWalletPct))
+        put("bc", sanitizeDouble(f.bondingCurveProgress))
+        put("rc", sanitizeDouble(f.rugcheckScore))
+        put("ema", f.emaFanState)
+        put("es", sanitizeDouble(f.entryScore))
+        put("vlr", sanitizeDouble(f.volumeLiquidityRatio))
+        put("ath", sanitizeDouble(f.priceFromAth))
+        put("pnl", sanitizeDouble(f.pnlPct))
+        put("mg", sanitizeDouble(f.maxGainPct))
+        put("md", sanitizeDouble(f.maxDrawdownPct))
+        put("ttp", sanitizeDouble(f.timeToPeakMins))
+        put("ht", sanitizeDouble(f.holdTimeMins))
+        put("ex", f.exitReason)
+        put("os", f.outcomeScore)
+        put("lbl", f.label.name)
+    }
+
+    private fun featuresFromJson(j: JSONObject): TradeFeatures? = try {
+        val labelName = j.optString("lbl", TradeLabel.MID_FLAT_CHOP.name)
+        val label = try { TradeLabel.valueOf(labelName) } catch (_: Exception) { TradeLabel.MID_FLAT_CHOP }
+        TradeFeatures(
+            entryMcapUsd = sanitizeDouble(j.optDouble("mc", 0.0)),
+            tokenAgeMinutes = sanitizeDouble(j.optDouble("ag", 0.0)),
+            buyRatioPct = sanitizeDouble(j.optDouble("br", 0.0)),
+            volumeUsd = sanitizeDouble(j.optDouble("vol", 0.0)),
+            liquidityUsd = sanitizeDouble(j.optDouble("liq", 0.0)),
+            holderCount = j.optInt("hc", 0).coerceAtLeast(0),
+            topHolderPct = sanitizeDouble(j.optDouble("th", 0.0)),
+            holderGrowthRate = sanitizeDouble(j.optDouble("hg", 0.0)),
+            devWalletPct = sanitizeDouble(j.optDouble("dw", 0.0)),
+            bondingCurveProgress = sanitizeDouble(j.optDouble("bc", 0.0)),
+            rugcheckScore = sanitizeDouble(j.optDouble("rc", 0.0)),
+            emaFanState = j.optString("ema", ""),
+            entryScore = sanitizeDouble(j.optDouble("es", 0.0)),
+            volumeLiquidityRatio = sanitizeDouble(j.optDouble("vlr", 0.0)),
+            priceFromAth = sanitizeDouble(j.optDouble("ath", 0.0)),
+            pnlPct = sanitizeDouble(j.optDouble("pnl", 0.0)),
+            maxGainPct = sanitizeDouble(j.optDouble("mg", 0.0)),
+            maxDrawdownPct = sanitizeDouble(j.optDouble("md", 0.0)),
+            timeToPeakMins = sanitizeDouble(j.optDouble("ttp", 0.0)),
+            holdTimeMins = sanitizeDouble(j.optDouble("ht", 0.0)),
+            exitReason = j.optString("ex", ""),
+            outcomeScore = j.optInt("os", 0),
+            label = label
+        )
+    } catch (_: Exception) { null }
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -415,6 +491,21 @@ object AdaptiveLearningEngine {
             ErrorLogger.error("AdaptiveLearning", "Failed to load bad patterns: ${e.message}")
             badPatterns.clear()
         }
+
+        // V5.9.301: Load rolling feature buffer for pattern extraction
+        try {
+            val json = p.getString(KEY_FEATURE_BUFFER, "[]") ?: "[]"
+            val arr = JSONArray(json)
+            featureBuffer.clear()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                featuresFromJson(obj)?.let { featureBuffer.add(it) }
+            }
+            ErrorLogger.info("AdaptiveLearning", "📚 Loaded ${featureBuffer.size} buffered features for pattern extraction")
+        } catch (e: Exception) {
+            ErrorLogger.error("AdaptiveLearning", "Failed to load feature buffer: ${e.message}")
+            featureBuffer.clear()
+        }
     }
 
     private fun saveState() {
@@ -430,12 +521,19 @@ object AdaptiveLearningEngine {
             badArr.put(pattern.toJson())
         }
 
+        // V5.9.301: Persist rolling feature buffer (capped at FEATURE_BUFFER_MAX)
+        val bufArr = JSONArray()
+        for (f in featureBuffer) {
+            bufArr.put(featuresToJson(f))
+        }
+
         p.edit()
             .putInt(KEY_TRADE_COUNT, tradeCount)
             .putFloat(KEY_LEARNING_RATE, learningRate.toFloat())
             .putString(KEY_FEATURE_WEIGHTS, featureWeights.toJson().toString())
             .putString(KEY_GOOD_PATTERNS, goodArr.toString())
             .putString(KEY_BAD_PATTERNS, badArr.toString())
+            .putString(KEY_FEATURE_BUFFER, bufArr.toString())
             .putLong(KEY_LAST_RETRAIN, System.currentTimeMillis())
             .apply()
     }
@@ -443,6 +541,13 @@ object AdaptiveLearningEngine {
     fun learnFromTrade(features: TradeFeatures) {
         tradeCount += 1
         adjustWeights(features)
+
+        // V5.9.301: Push features into rolling buffer (was previously discarded after weight nudge).
+        // This is the fuel for pattern extraction — the bot now remembers WHAT it traded, not just IF it won.
+        featureBuffer.add(features)
+        while (featureBuffer.size > FEATURE_BUFFER_MAX) {
+            featureBuffer.removeAt(0)
+        }
 
         val labelEmoji = when (features.label) {
             TradeLabel.GOOD_RUNNER -> "🚀"
@@ -463,16 +568,20 @@ object AdaptiveLearningEngine {
 
         ErrorLogger.info(
             "AdaptiveLearning",
-            "$labelEmoji Trade #$tradeCount: ${features.label.name} (score=${features.outcomeScore}, pnl=${features.pnlPct.fmt()}%)"
+            "$labelEmoji Trade #$tradeCount: ${features.label.name} (score=${features.outcomeScore}, pnl=${features.pnlPct.fmt()}%, hold=${features.holdTimeMins.fmt()}m, peak=${features.maxGainPct.fmt()}%)"
         )
 
-        if (tradeCount >= MIN_TRADES_FOR_PATTERN_EXTRACTION &&
+        // V5.9.301: AUTO-TRIGGER pattern extraction every 25 trades.
+        // PRIOR BUG: extractPatterns() was never called from anywhere — patterns stayed empty forever.
+        // Now the bot actually builds good/bad pattern libraries from real trade history.
+        if (featureBuffer.size >= MIN_TRADES_FOR_PATTERN_EXTRACTION &&
             tradeCount % PATTERN_RETRAIN_INTERVAL == 0
         ) {
             ErrorLogger.info(
                 "AdaptiveLearning",
-                "🧠 Pattern extraction threshold hit at $tradeCount trades"
+                "🧠 Auto-extracting patterns from ${featureBuffer.size} buffered trades (retrain #${tradeCount / PATTERN_RETRAIN_INTERVAL})"
             )
+            extractPatterns(featureBuffer.toList())
         }
 
         saveState()
@@ -524,12 +633,51 @@ object AdaptiveLearningEngine {
         featureWeights.volLiqRatioWeight =
             (featureWeights.volLiqRatioWeight + volLiqSignal * adjustmentFactor).coerceIn(0.3, 2.5)
 
+        // V5.9.301: HOLD-TIME LEARNING — distinguish profitable runners from chopped quick-stops.
+        // Long winning hold = trust trend continuation. Short losing hold = bad entry. Long losing hold = should have cut.
+        val holdSignal = when {
+            features.holdTimeMins >= 8.0 && features.pnlPct >= 10.0 -> 1.2   // ran a winner
+            features.holdTimeMins >= 8.0 && features.pnlPct <= -10.0 -> -1.5 // held loser too long
+            features.holdTimeMins < 2.0 && features.pnlPct <= -5.0 -> -0.8   // quick rug/stop = bad entry
+            features.holdTimeMins in 3.0..8.0 && features.pnlPct >= 5.0 -> 0.7  // disciplined exit
+            else -> 0.0
+        }
+        featureWeights.holdTimeWeight =
+            (featureWeights.holdTimeWeight + holdSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+
+        // V5.9.301: MAX-GAIN FOLLOW-THROUGH — captured PnL vs peak. Tells us about exit timing & scratch traps.
+        val captureRatio = if (features.maxGainPct > 0.0) features.pnlPct / features.maxGainPct else 0.0
+        val followSignal = when {
+            captureRatio >= 0.7 && features.maxGainPct >= 10.0 -> 1.5    // captured most of a real move
+            captureRatio in 0.0..0.3 && features.maxGainPct >= 15.0 -> -1.8  // SCRATCH from a real winner — exits broken
+            features.maxGainPct < 3.0 && features.pnlPct < -5.0 -> -1.0  // never had a chance
+            else -> 0.0
+        }
+        featureWeights.maxGainFollowWeight =
+            (featureWeights.maxGainFollowWeight + followSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+
+        // V5.9.301: EXIT-REASON QUALITY — TP/runner/trail > stop > rug/dump.
+        val exitLower = features.exitReason.lowercase(Locale.US)
+        val exitSignal = when {
+            (exitLower.contains("tp") || exitLower.contains("take_profit") || exitLower.contains("runner") || exitLower.contains("trail"))
+                && features.pnlPct >= 5.0 -> 1.2
+            exitLower.contains("rug") || exitLower.contains("liquidity_collapse") || exitLower.contains("dump") -> -1.5
+            exitLower.contains("stop") && features.pnlPct <= -5.0 -> -0.4   // stops are unavoidable; small penalty
+            exitLower.contains("flat") || exitLower.contains("chop") -> -0.6  // flat exit = wasted slot
+            else -> 0.0
+        }
+        featureWeights.exitQualityWeight =
+            (featureWeights.exitQualityWeight + exitSignal * adjustmentFactor).coerceIn(0.4, 2.5)
+
         if (abs(adjustmentFactor) > 0.15) {
             ErrorLogger.debug(
                 "AdaptiveLearning",
                 "Weight adjustment: buyRatio=${featureWeights.buyRatioWeight.fmt()} " +
                     "holderConc=${featureWeights.holderConcWeight.fmt()} " +
-                    "emaFan=${featureWeights.emaFanWeight.fmt()}"
+                    "emaFan=${featureWeights.emaFanWeight.fmt()} " +
+                    "hold=${featureWeights.holdTimeWeight.fmt()} " +
+                    "follow=${featureWeights.maxGainFollowWeight.fmt()} " +
+                    "exit=${featureWeights.exitQualityWeight.fmt()}"
             )
         }
     }
@@ -644,6 +792,42 @@ object AdaptiveLearningEngine {
 
         score = score.coerceIn(0.0, 100.0)
 
+        // V5.9.301: PATTERN MATCHING — actually USE the learned good/bad pattern libraries.
+        // PRIOR BUG: matchedGoodPatterns/matchedBadPatterns returned emptyList() — patterns existed but didn't influence scoring.
+        // Now: every pattern whose feature ranges contain this candidate adds bonus (good) / penalty (bad).
+        val candidateFeatures = mapOf(
+            "buyRatio" to safeBuyRatio,
+            "holderConc" to safeTopHolder,
+            "holderGrowth" to safeHolderGrowth,
+            "tokenAge" to safeAge,
+            "devWallet" to safeDevWallet,
+            "liquidity" to safeLiquidity,
+            "mcap" to safeMcap,
+            "volLiqRatio" to (if (safeLiquidity > 0.0) sanitizeDouble(volumeUsd) / safeLiquidity else 0.0)
+        )
+        val matchedGood = mutableListOf<String>()
+        val matchedBad = mutableListOf<String>()
+        var patternBonus = 0.0
+        for (pat in goodPatterns) {
+            if (matchesPattern(candidateFeatures, pat)) {
+                matchedGood.add(pat.name)
+                // Bonus scales with confidence × outcome strength. Cap per-match to avoid runaway.
+                val gain = (8.0 * pat.confidence * (1.0 + pat.avgOutcomeScore.coerceAtLeast(0.0))).coerceAtMost(15.0)
+                patternBonus += gain
+                explanations.add("✅${pat.name}:+${gain.toInt()}")
+            }
+        }
+        for (pat in badPatterns) {
+            if (matchesPattern(candidateFeatures, pat)) {
+                matchedBad.add(pat.name)
+                // Bad-pattern penalty is harsher — bot must AVOID re-stepping in known traps.
+                val penalty = (12.0 * pat.confidence * (1.0 + abs(pat.avgOutcomeScore))).coerceAtMost(20.0)
+                patternBonus -= penalty
+                explanations.add("❌${pat.name}:-${penalty.toInt()}")
+            }
+        }
+        score = (score + patternBonus).coerceIn(0.0, 100.0)
+
         val recommendation: String
         val sizeMult: Double
 
@@ -670,10 +854,27 @@ object AdaptiveLearningEngine {
             score = score,
             recommendation = recommendation,
             sizeMultiplier = sizeMult,
-            matchedGoodPatterns = emptyList(),
-            matchedBadPatterns = emptyList(),
+            matchedGoodPatterns = matchedGood,
+            matchedBadPatterns = matchedBad,
             explanation = explanations.joinToString(" | ")
         )
+    }
+
+    /**
+     * V5.9.301: Pattern matcher — does the candidate's features fall within the pattern's learned ranges?
+     * Requires at least 60% of the pattern's tracked features to match (so a 1-feature edge case doesn't trigger).
+     */
+    private fun matchesPattern(features: Map<String, Double>, pattern: LearnedPattern): Boolean {
+        if (pattern.featureRanges.isEmpty()) return false
+        var checked = 0
+        var matched = 0
+        for ((key, range) in pattern.featureRanges) {
+            val v = features[key] ?: continue
+            checked++
+            if (v in range.first..range.second) matched++
+        }
+        if (checked == 0) return false
+        return (matched.toDouble() / checked.toDouble()) >= 0.6
     }
 
     fun extractPatterns(trades: List<TradeFeatures>) {
@@ -687,99 +888,186 @@ object AdaptiveLearningEngine {
 
         val goodTrades = trades.filter { it.outcomeScore >= 1 }
         val badTrades = trades.filter { it.outcomeScore <= -1 }
+        val midTrades = trades.filter { it.outcomeScore == 0 }
 
         ErrorLogger.info(
             "AdaptiveLearning",
-            "Extracting patterns from ${trades.size} trades (${goodTrades.size} good, ${badTrades.size} bad)"
+            "🧠 Extracting per-label patterns from ${trades.size} trades " +
+                "(${goodTrades.size} good, ${badTrades.size} bad, ${midTrades.size} mid)"
         )
 
         goodPatterns.clear()
-        if (goodTrades.size >= 10) {
-            val goodPattern = LearnedPattern(
-                name = "GOOD_SETUP",
-                featureRanges = mapOf(
-                    "buyRatio" to Pair(
-                        goodTrades.map { it.buyRatioPct }.percentile(25),
-                        goodTrades.map { it.buyRatioPct }.percentile(75)
-                    ),
-                    "holderConc" to Pair(
-                        goodTrades.map { it.topHolderPct }.percentile(10),
-                        goodTrades.map { it.topHolderPct }.percentile(75)
-                    ),
-                    "holderGrowth" to Pair(
-                        goodTrades.map { it.holderGrowthRate }.percentile(25),
-                        100.0
-                    ),
-                    "tokenAge" to Pair(
-                        0.0,
-                        goodTrades.map { it.tokenAgeMinutes }.percentile(75)
-                    )
-                ),
-                avgOutcomeScore = goodTrades.map { it.outcomeScore.toDouble() }.average(),
-                sampleCount = goodTrades.size,
-                confidence = (goodTrades.size.toDouble() / trades.size.toDouble()).coerceIn(0.0, 1.0)
-            )
-            goodPatterns.add(goodPattern)
-
-            ErrorLogger.info(
-                "AdaptiveLearning",
-                "✅ GOOD pattern: buyRatio=${goodPattern.featureRanges["buyRatio"].fmt()} " +
-                    "holderConc=${goodPattern.featureRanges["holderConc"].fmt()}"
-            )
-        }
-
         badPatterns.clear()
-        val severeLabels = listOf(
+
+        // V5.9.301: PER-LABEL PATTERN BUCKETS — instead of one collapsed GOOD/RUG bucket,
+        // build a separate pattern for EACH TradeLabel that has enough samples.
+        // Each pattern tracks 11 feature dimensions so the matcher can find tight signature overlap.
+        // This lets the bot answer: "Is THIS candidate shaped like a GOOD_RUNNER, a BAD_DEAD_CAT, or a MID_FLAT_CHOP?"
+        val goodLabels = listOf(
+            TradeLabel.GOOD_RUNNER,
+            TradeLabel.GOOD_CONTINUATION,
+            TradeLabel.GOOD_SECOND_LEG,
+            TradeLabel.MID_SMALL_WIN
+        )
+        val badLabels = listOf(
             TradeLabel.BAD_RUG,
             TradeLabel.BAD_DUMP,
-            TradeLabel.BAD_DISTRIBUTION,
             TradeLabel.BAD_DEAD_CAT,
             TradeLabel.BAD_CHASING_TOP,
+            TradeLabel.BAD_DISTRIBUTION,
             TradeLabel.BAD_FAKE_PRESSURE
         )
+        val chopLabels = listOf(
+            TradeLabel.MID_FLAT_CHOP,
+            TradeLabel.MID_CHOP,
+            TradeLabel.MID_WEAK_FOLLOW,
+            TradeLabel.MID_STOPPED_OUT
+        )
 
-        val rugTrades = badTrades.filter { it.label in severeLabels }
-        if (rugTrades.size >= 5) {
-            val badPattern = LearnedPattern(
-                name = "RUG_PATTERN",
-                featureRanges = mapOf(
-                    "holderConc" to Pair(
-                        rugTrades.map { it.topHolderPct }.percentile(25),
-                        100.0
-                    ),
-                    "devWallet" to Pair(
-                        rugTrades.map { it.devWalletPct }.percentile(25),
-                        100.0
-                    )
-                ),
-                avgOutcomeScore = rugTrades.map { it.outcomeScore.toDouble() }.average(),
-                sampleCount = rugTrades.size,
-                confidence = if (badTrades.isNotEmpty()) {
-                    (rugTrades.size.toDouble() / badTrades.size.toDouble()).coerceIn(0.0, 1.0)
-                } else {
-                    0.0
-                }
-            )
-            badPatterns.add(badPattern)
-
-            ErrorLogger.info(
-                "AdaptiveLearning",
-                "❌ BAD pattern: holderConc=${badPattern.featureRanges["holderConc"].fmt()} " +
-                    "devWallet=${badPattern.featureRanges["devWallet"].fmt()}"
-            )
+        // GOOD pattern buckets — extract a detailed signature for each winning label.
+        for (label in goodLabels) {
+            val cohort = trades.filter { it.label == label }
+            if (cohort.size < 5) continue  // need enough samples for a meaningful pattern
+            val pattern = buildDetailedPattern(label.name, cohort, trades.size, isGood = true)
+            goodPatterns.add(pattern)
+            logPatternDetail("✅ ${label.name}", pattern, cohort)
         }
 
+        // BAD pattern buckets — separate signature per failure mode.
+        for (label in badLabels) {
+            val cohort = trades.filter { it.label == label }
+            if (cohort.size < 3) continue  // bad patterns are rarer; learn from smaller samples
+            val pattern = buildDetailedPattern(label.name, cohort, trades.size, isGood = false)
+            badPatterns.add(pattern)
+            logPatternDetail("❌ ${label.name}", pattern, cohort)
+        }
+
+        // CHOP/FLAT bucket — wasted slots. Treat as soft-bad (avoid but don't reject).
+        for (label in chopLabels) {
+            val cohort = trades.filter { it.label == label }
+            if (cohort.size < 5) continue
+            val pattern = buildDetailedPattern(label.name, cohort, trades.size, isGood = false)
+            badPatterns.add(pattern)
+            logPatternDetail("〰️ ${label.name}", pattern, cohort)
+        }
+
+        ErrorLogger.info(
+            "AdaptiveLearning",
+            "🧠 Extracted ${goodPatterns.size} good + ${badPatterns.size} bad/chop patterns. " +
+                "Total weight signal: hold=${featureWeights.holdTimeWeight.fmt()} " +
+                "follow=${featureWeights.maxGainFollowWeight.fmt()} " +
+                "exit=${featureWeights.exitQualityWeight.fmt()}"
+        )
+
         saveState()
+    }
+
+    /**
+     * V5.9.301: Build a detailed 11-feature signature for a label cohort.
+     * Each feature range is bounded by 10th/90th percentiles (good) or 25th/100th (bad — wider tail).
+     * Includes hold-time, max-gain, max-drawdown, time-to-peak, and tracks dominant exit reasons.
+     */
+    private fun buildDetailedPattern(
+        name: String,
+        cohort: List<TradeFeatures>,
+        totalTrades: Int,
+        isGood: Boolean
+    ): LearnedPattern {
+        val loP = if (isGood) 10 else 25
+        val hiP = if (isGood) 90 else 90
+        val avgOutcome = cohort.map { it.outcomeScore.toDouble() }.average()
+        val confidence = (cohort.size.toDouble() / totalTrades.toDouble()).coerceIn(0.0, 1.0)
+
+        val ranges = mutableMapOf<String, Pair<Double, Double>>()
+        // Entry-side features
+        ranges["mcap"] = Pair(
+            cohort.map { it.entryMcapUsd }.percentile(loP),
+            cohort.map { it.entryMcapUsd }.percentile(hiP)
+        )
+        ranges["tokenAge"] = Pair(
+            cohort.map { it.tokenAgeMinutes }.percentile(loP),
+            cohort.map { it.tokenAgeMinutes }.percentile(hiP)
+        )
+        ranges["buyRatio"] = Pair(
+            cohort.map { it.buyRatioPct }.percentile(loP),
+            cohort.map { it.buyRatioPct }.percentile(hiP)
+        )
+        ranges["liquidity"] = Pair(
+            cohort.map { it.liquidityUsd }.percentile(loP),
+            cohort.map { it.liquidityUsd }.percentile(hiP)
+        )
+        ranges["holderConc"] = Pair(
+            cohort.map { it.topHolderPct }.percentile(loP),
+            cohort.map { it.topHolderPct }.percentile(hiP)
+        )
+        ranges["holderGrowth"] = Pair(
+            cohort.map { it.holderGrowthRate }.percentile(loP),
+            cohort.map { it.holderGrowthRate }.percentile(hiP)
+        )
+        ranges["devWallet"] = Pair(
+            cohort.map { it.devWalletPct }.percentile(loP),
+            cohort.map { it.devWalletPct }.percentile(hiP)
+        )
+        ranges["volLiqRatio"] = Pair(
+            cohort.map { it.volumeLiquidityRatio }.percentile(loP),
+            cohort.map { it.volumeLiquidityRatio }.percentile(hiP)
+        )
+        // Outcome-side features (used for size sizing & exit-quality cross-checks)
+        ranges["holdTime"] = Pair(
+            cohort.map { it.holdTimeMins }.percentile(loP),
+            cohort.map { it.holdTimeMins }.percentile(hiP)
+        )
+        ranges["maxGain"] = Pair(
+            cohort.map { it.maxGainPct }.percentile(loP),
+            cohort.map { it.maxGainPct }.percentile(hiP)
+        )
+        ranges["maxDrawdown"] = Pair(
+            cohort.map { it.maxDrawdownPct }.percentile(loP),
+            cohort.map { it.maxDrawdownPct }.percentile(hiP)
+        )
+
+        return LearnedPattern(
+            name = name,
+            featureRanges = ranges,
+            avgOutcomeScore = avgOutcome,
+            sampleCount = cohort.size,
+            confidence = confidence
+        )
+    }
+
+    private fun logPatternDetail(prefix: String, pattern: LearnedPattern, cohort: List<TradeFeatures>) {
+        // Summarise the dominant exit reason in the cohort — crucial signal we previously ignored.
+        val topExit = cohort.groupingBy { it.exitReason.lowercase(Locale.US).take(20) }
+            .eachCount()
+            .maxByOrNull { it.value }
+        val avgPnl = cohort.map { it.pnlPct }.average()
+        val avgPeak = cohort.map { it.maxGainPct }.average()
+        val avgHold = cohort.map { it.holdTimeMins }.average()
+        ErrorLogger.info(
+            "AdaptiveLearning",
+            "$prefix [n=${pattern.sampleCount} conf=${(pattern.confidence * 100).toInt()}% avgOut=${pattern.avgOutcomeScore.fmt()}] " +
+                "pnl=${avgPnl.fmt()}% peak=${avgPeak.fmt()}% hold=${avgHold.fmt()}m " +
+                "buy=${pattern.featureRanges["buyRatio"].fmt()} " +
+                "conc=${pattern.featureRanges["holderConc"].fmt()} " +
+                "liq=${pattern.featureRanges["liquidity"].fmt()} " +
+                "topExit=${topExit?.key ?: "n/a"}(${topExit?.value ?: 0})"
+        )
     }
 
     fun getTradeCount(): Int = tradeCount
 
     fun getStatus(): String {
-        return "AdaptiveLearning: $tradeCount trades | " +
+        // V5.9.301: Richer status — surface every learned signal at a glance.
+        val goodNames = goodPatterns.joinToString(",") { "${it.name}(${it.sampleCount})" }
+        val badNames = badPatterns.joinToString(",") { "${it.name}(${it.sampleCount})" }
+        return "AdaptiveLearning: $tradeCount trades | buf=${featureBuffer.size} | " +
             "Weights: buy=${featureWeights.buyRatioWeight.fmt()} " +
             "conc=${featureWeights.holderConcWeight.fmt()} " +
-            "ema=${featureWeights.emaFanWeight.fmt()} | " +
-            "Patterns: ${goodPatterns.size}G/${badPatterns.size}B"
+            "ema=${featureWeights.emaFanWeight.fmt()} " +
+            "hold=${featureWeights.holdTimeWeight.fmt()} " +
+            "follow=${featureWeights.maxGainFollowWeight.fmt()} " +
+            "exit=${featureWeights.exitQualityWeight.fmt()} | " +
+            "Patterns: ${goodPatterns.size}G[$goodNames] / ${badPatterns.size}B[$badNames]"
     }
 
     fun getDetailedWeights(): Map<String, Double> {
@@ -797,8 +1085,42 @@ object AdaptiveLearningEngine {
             "rugcheck" to featureWeights.rugcheckWeight,
             "emaFan" to featureWeights.emaFanWeight,
             "volLiqRatio" to featureWeights.volLiqRatioWeight,
-            "athDistance" to featureWeights.athDistanceWeight
+            "athDistance" to featureWeights.athDistanceWeight,
+            // V5.9.301: New learned dimensions surfaced in cloud sync + UI.
+            "holdTime" to featureWeights.holdTimeWeight,
+            "maxGainFollow" to featureWeights.maxGainFollowWeight,
+            "exitQuality" to featureWeights.exitQualityWeight
         )
+    }
+
+    /**
+     * V5.9.301: Detailed pattern report — used by UI to show what the bot has actually learned.
+     * Each line gives the per-label signature: sample count, win-rate-ish confidence, dominant exit reason.
+     */
+    fun getPatternReport(): String {
+        if (goodPatterns.isEmpty() && badPatterns.isEmpty()) {
+            return "No patterns learned yet (need $MIN_TRADES_FOR_PATTERN_EXTRACTION+ trades; have ${featureBuffer.size})"
+        }
+        val sb = StringBuilder()
+        sb.appendLine("✅ GOOD PATTERNS (${goodPatterns.size}):")
+        for (p in goodPatterns) {
+            sb.appendLine("  • ${p.name}: n=${p.sampleCount} conf=${(p.confidence * 100).toInt()}% avgOutcome=${p.avgOutcomeScore.fmt()}")
+            sb.appendLine("     buy=${p.featureRanges["buyRatio"].fmt()} conc=${p.featureRanges["holderConc"].fmt()} liq=${p.featureRanges["liquidity"].fmt()} hold=${p.featureRanges["holdTime"].fmt()}m peak=${p.featureRanges["maxGain"].fmt()}%")
+        }
+        sb.appendLine()
+        sb.appendLine("❌ BAD/CHOP PATTERNS (${badPatterns.size}):")
+        for (p in badPatterns) {
+            sb.appendLine("  • ${p.name}: n=${p.sampleCount} conf=${(p.confidence * 100).toInt()}% avgOutcome=${p.avgOutcomeScore.fmt()}")
+            sb.appendLine("     buy=${p.featureRanges["buyRatio"].fmt()} conc=${p.featureRanges["holderConc"].fmt()} dev=${p.featureRanges["devWallet"].fmt()} drawdown=${p.featureRanges["maxDrawdown"].fmt()}%")
+        }
+        return sb.toString()
+    }
+
+    /**
+     * V5.9.301: Get count of trades by label — exposes the bot's actual learning distribution.
+     */
+    fun getLabelDistribution(): Map<String, Int> {
+        return featureBuffer.groupingBy { it.label.name }.eachCount()
     }
 
     fun applyCommunityWeights(
@@ -871,6 +1193,7 @@ object AdaptiveLearningEngine {
         featureWeights = FeatureWeights()
         goodPatterns.clear()
         badPatterns.clear()
+        featureBuffer.clear()  // V5.9.301: also wipe the buffer on reset
         tradeCount = 0
         learningRate = 0.1
         saveState()
