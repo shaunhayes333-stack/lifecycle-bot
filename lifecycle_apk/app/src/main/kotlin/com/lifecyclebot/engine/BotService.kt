@@ -3420,6 +3420,8 @@ class BotService : Service() {
                         try { com.lifecyclebot.perps.CryptoAltTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
                         try { com.lifecyclebot.perps.TokenizedStockTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
                         try { com.lifecyclebot.perps.PerpsTraderAI.setLiveBalance(freshSol) } catch (_: Exception) {}
+                        // V5.9.283: Auto-untrip STARTUP_FLOOR CB if wallet grew above minimum
+                        if (!cfg.paperMode) LiveSafetyCircuitBreaker.updateBalance(freshSol)
                     }
                     
 
