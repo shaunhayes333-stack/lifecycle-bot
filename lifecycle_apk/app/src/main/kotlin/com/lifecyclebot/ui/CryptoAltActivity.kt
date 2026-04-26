@@ -609,31 +609,6 @@ class CryptoAltActivity : AppCompatActivity() {
                 row.addView(rightCol)
                 tile.addView(row)
 
-                // ── Manual Close button ───────────────────────────────────────
-                val posId = pos.id
-                val closePosBtn = tv("🔴 Close", 10f, white, bold = true).apply {
-                    setPadding(12, 6, 12, 6)
-                    setBackgroundColor(0xFFEF4444.toInt())
-                    layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
-                    gravity = Gravity.CENTER
-                }
-                closePosBtn.setOnClickListener {
-                    AlertDialog.Builder(this@CryptoAltActivity)
-                        .setTitle("Close Position?")
-                        .setMessage("Manually close ${pos.market.symbol}?\nCurrent P&L: ${if (pnlPct >= 0) "+" else ""}${"%.2f".format(pnlPct)}%")
-                        .setPositiveButton("Yes, Close") { _, _ ->
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                CryptoAltTrader.requestClose(posId)
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closing ${pos.market.symbol}…", android.widget.Toast.LENGTH_SHORT).show()
-                                    buildFullDashboard()
-                                }
-                            }
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                }
-                tile.addView(closePosBtn)
                 tile.addView(thinDivider())
             }
         }
