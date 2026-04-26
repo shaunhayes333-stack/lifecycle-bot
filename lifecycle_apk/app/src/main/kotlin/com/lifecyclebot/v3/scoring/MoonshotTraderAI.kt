@@ -889,6 +889,74 @@ object MoonshotTraderAI {
             } else {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "MOONSHOT", exitReason.name)
             }
+
+            // V5.9.305: WIRE STRATEGY TRUST + ADAPTIVE LEARNING — was missing from closePosition.
+            // Without this, 46/47 strategies showed [UNTESTED] because Moonshot/ShitCoin closes
+            // never reached TradeLessonRecorder.recordTrade → StrategyTrustAI.recordTrade.
+            try {
+                val strategyName = "MOONSHOT_${pos.spaceMode.name}"
+                val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
+                val maePct = pnlPct.coerceAtMost(0.0)
+                val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+                    strategy = strategyName,
+                    market = "MEME",
+                    symbol = pos.symbol,
+                    entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
+                    trustScore = 0.5, fragilityScore = 0.3,
+                    narrativeHeat = 0.5, portfolioHeat = 0.3,
+                    leverageUsed = 1.0, executionConfidence = 0.6,
+                    leadSource = null, expectedDelaySec = null,
+                    expectedFillPrice = pos.entryPrice,
+                    executionRoute = "JUPITER_V6",
+                    captureTime = pos.entryTime
+                )
+                com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
+                    context = lessonCtx,
+                    outcomePct = pnlPct,
+                    mfePct = mfePct,
+                    maePct = maePct,
+                    holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000).toInt(),
+                    exitReason = exitReason.name,
+                    actualFillPrice = exitPrice
+                )
+
+                // V5.9.305: Feed AdaptiveLearningEngine for pattern matching (V5.9.301 patterns)
+                val label = when {
+                    pnlPct >= 100.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_RUNNER
+                    pnlPct >= 30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_CONTINUATION
+                    pnlPct >= 10.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.GOOD_SECOND_LEG
+                    pnlPct >= 1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_SMALL_WIN
+                    pnlPct in -0.5..1.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_FLAT_CHOP
+                    pnlPct in -5.0..-0.5 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_WEAK_FOLLOW
+                    pnlPct in -15.0..-5.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_STOPPED_OUT
+                    pnlPct <= -50.0 && exitReason == ExitSignal.RUG_DETECTED -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_RUG
+                    pnlPct <= -30.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DUMP
+                    pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
+                    else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
+                }
+                val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
+                    entryMcapUsd = 0.0, tokenAgeMinutes = 0.0,
+                    buyRatioPct = 0.0, volumeUsd = 0.0,
+                    liquidityUsd = 0.0, holderCount = 0,
+                    topHolderPct = 0.0, holderGrowthRate = 0.0,
+                    devWalletPct = 0.0, bondingCurveProgress = 0.0,
+                    rugcheckScore = 0.0, emaFanState = "",
+                    entryScore = 0.0, volumeLiquidityRatio = 0.0,
+                    priceFromAth = 0.0,
+                    pnlPct = pnlPct,
+                    maxGainPct = mfePct,
+                    maxDrawdownPct = maePct,
+                    timeToPeakMins = 0.0,
+                    holdTimeMins = holdMins,
+                    exitReason = exitReason.name,
+                    outcomeScore = if (isWin) 1 else if (pnlPct <= -1.0) -1 else 0,
+                    label = label
+                )
+                com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features)
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "Lesson/Trust wiring error: ${e.message}")
+            }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Sentience hook error: ${e.message}")
         }
