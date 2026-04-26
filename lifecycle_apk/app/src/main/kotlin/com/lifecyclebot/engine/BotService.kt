@@ -1193,20 +1193,19 @@ class BotService : Service() {
                             
                             // Define dual eligibility thresholds
 
-                            // V5.9.63: User log showed UET ($893) and JOB
-                            // ($974) fresh launches bouncing off the $2K
-                            // floor on their first bootstrap poll, then
-                            // rebuilding past $5–6K seconds later —
-                            // which is typical pump.fun behaviour. Paper
-                            // should see them to LEARN; live still holds
-                            // the $2K safety net.
-                            val paperMinLiquidity = 500.0     // was 2000 — let paper see fresh launches
-                            val liveMinLiquidity = 2000.0     // unchanged safety floor for real SOL
-                            val paperMinScore = 1.0           // Let everything through; watchlist scoring filters quality
-                            val liveMinScore = 1.0            // Same as paper - FDG gates execution
+                            // V5.9.291 FIX: Scanner liquidity floor unified via ModeLeniency.
+                            // Previously live had a $2K hard floor which blocked fresh pump.fun
+                            // launches (typically $500-$1500 at first poll, rebuild to $5K+).
+                            // The scanner is supposed to be WIDE OPEN — FDG/V3 gate execution.
+                            // Proven-edge live now uses the same $500 floor as paper.
+                            val lenientScan = com.lifecyclebot.engine.ModeLeniency.useLenientGates(c.paperMode)
+                            val paperMinLiquidity = 500.0
+                            val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
+                            val paperMinScore = 1.0
+                            val liveMinScore = 1.0
                             
-                            // Check 2a: MINIMUM LIQUIDITY (now unified)
-                            val minLiquidity = if (c.paperMode) paperMinLiquidity else liveMinLiquidity
+                            // Check 2a: MINIMUM LIQUIDITY
+                            val minLiquidity = if (lenientScan) paperMinLiquidity else liveStrictMinLiquidity
                             if (liquidityUsd < minLiquidity) {
                                 TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
@@ -3268,12 +3267,16 @@ class BotService : Service() {
                     // FluidLearning.getTradeCount() is PERSISTED and accurate.
                     // ═══════════════════════════════════════════════════════════════════
                     val sessionTradeCount = tokenList.flatMap { it.trades }.size  // In-memory trades (for session stats)
-                    val persistedTradeCount = if (cfg.paperMode) {
-                        FluidLearning.getTradeCount()  // Persisted paper trade count
-                    } else {
-                        // For live mode, use wallet state total trades
-                        sessionTradeCount
-                    }
+                    // V5.9.291 FIX: Live mode must also use the PERSISTED trade count.
+                    // Previously live fell back to sessionTradeCount (in-memory only) which
+                    // resets to 0 on every bot restart. This made learningProgress = 0 in
+                    // live → FDG thought it was a brand-new virgin bot → confidence floors
+                    // bottomed out and barely any trade passed through.
+                    // FluidLearning.getTradeCount() is persisted across restarts and shared
+                    // between paper and live — all paper knowledge carries over seamlessly.
+                    val persistedTradeCount = try {
+                        FluidLearning.getTradeCount()
+                    } catch (_: Exception) { sessionTradeCount }
                     
                     // Use the HIGHER of the two counts - this ensures FDG progresses correctly
                     val effectiveTradeCount = maxOf(sessionTradeCount, persistedTradeCount)
@@ -3768,8 +3771,18 @@ val perTokenTimeoutMs = 2_500L
 // volume test showed ~50% of tokens still deferred per tick at the
 // V5.9.106 caps. On a ~100-token watchlist we want EVERY token
 // evaluated EVERY tick, not every 2-3 ticks.
+// V5.9.291 FIX: memeBootstrap must reflect the PERSISTED learning state, not just
+// in-memory. In live mode after paper learning, getLearningProgress() uses the
+// persisted trade count so this is now accurate. We also use ModeLeniency: if we
+// have a proven edge we treat live the same as paper (wide-open concurrency) so
+// the scanner doesn't get starved to a single token per cycle.
 val memeBootstrap = try {
-    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+    val progress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+    val lenient = com.lifecyclebot.engine.ModeLeniency.useLenientGates(cfg.paperMode)
+    // Use bootstrap-level concurrency whenever:
+    //   a) We are in bootstrap phase (< 40% progress), OR
+    //   b) We have a proven edge (lenient=true) — treat like paper, use wider parallelism
+    progress < 0.40 || lenient
 } catch (_: Exception) { false }
 // V5.9.175 — doubled the concurrency caps AGAIN because user logs still showed
 // "processed=24 total=70" (46 deferred). At 70 watchlist tokens the previous
@@ -6687,15 +6700,18 @@ if (deferredCount > 0) {
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        if (cfg.paperMode) {
-            // V5.2.12: Paper mode - very low floor to maximize learning volume
-            // Allow C/D grade through if confidence > 0
+        // V5.9.291 FIX: Route through ModeLeniency — proven-edge live runs get same
+        // leniency as paper. Previously live was hard-coded to 12->25 which made the
+        // bot behave like a virgin the moment the switch was flipped to live.
+        val lenient = com.lifecyclebot.engine.ModeLeniency.useLenientGates(cfg.paperMode)
+        if (lenient) {
+            // Paper OR proven-edge live: very low floor to maximise trading volume
             (1 + (learningProgress * 5.0)).toInt().coerceIn(1, 10)
         } else {
-            // Live mode - higher floor for capital protection
-            (12 + (learningProgress * 13.0)).toInt().coerceIn(12, 25)
+            // Strict-live only (no proven edge yet): moderate floor
+            (5 + (learningProgress * 8.0)).toInt().coerceIn(5, 13)
         }
-    } catch (_: Exception) { if (cfg.paperMode) 1 else 12 }
+    } catch (_: Exception) { if (cfg.paperMode) 1 else 5 }
     
     // V5.9: If bootstrap SKIP override was used at gate 1, don't re-block at gate 2.
     // These tokens are deliberately let through for learning even with conf=0.

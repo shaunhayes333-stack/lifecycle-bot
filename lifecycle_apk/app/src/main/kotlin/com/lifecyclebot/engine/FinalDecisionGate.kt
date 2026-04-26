@@ -1230,10 +1230,13 @@ object FinalDecisionGate {
             checks.add(GateCheck("safety_block", true, null))
         }
 
+        // SAFETY BLOCK: Freeze authority = dev can freeze your tokens and drain your position.
+        // This is a genuine rug vector. ALWAYS hard block in live mode regardless of edge.
+        // V5.9.291: restored to unconditional live hard block.
         if (blockReason == null && !config.paperMode && ts.safety.freezeAuthorityDisabled == false) {
             blockReason = "HARD_BLOCK_FREEZE_AUTHORITY"
             blockLevel = BlockLevel.HARD
-            checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode)"))
+            checks.add(GateCheck("freeze_auth", false, "freezeAuth=enabled (live mode — rug vector)"))
             tags.add("freeze_auth")
         } else if (blockReason == null) {
             checks.add(GateCheck("freeze_auth", true, null))
@@ -1261,20 +1264,21 @@ object FinalDecisionGate {
         // This prevents chasing pumps at the very top of their run.
         // ═══════════════════════════════════════════════════════════════════════════
         val currentRsi = ts.meta.rsi
+        val rsiLenient = ModeLeniency.useLenientGates(config.paperMode)
         if (blockReason == null && currentRsi > 90.0) {
-            if (!config.paperMode) {
-                // LIVE MODE: Hard block RSI > 90 (extreme overbought = almost certain dump)
+            if (!config.paperMode && !rsiLenient) {
+                // STRICT LIVE ONLY: Hard block RSI > 90
+                // V5.9.291: Proven-edge live uses paper behaviour (penalty + tiny size, not block)
                 blockReason = "RSI_OVERBOUGHT_${currentRsi.toInt()}"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("rsi_overbought", false, "RSI=${currentRsi.toInt()} > 90 (extreme overbought, near-certain dump)"))
+                checks.add(GateCheck("rsi_overbought", false, "RSI=${currentRsi.toInt()} > 90 (extreme overbought, strict-live block)"))
                 tags.add("rsi_overbought_block")
                 ErrorLogger.warn("FDG", "🚫 RSI HARD BLOCK: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | EXTREME OVERBOUGHT → BLOCK")
             } else {
-                // PAPER MODE: Allow but with severe penalty and tiny size for learning
-                // This lets the bot learn that RSI > 90 entries are bad
-                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → PAPER LEARNING with penalty"))
+                // PAPER or PROVEN-EDGE LIVE: Allow with severe penalty and tiny size for learning
+                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → LEARNING with penalty"))
                 tags.add("rsi_overbought_learn")
-                ErrorLogger.info("FDG", "🎓 RSI PAPER LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
+                ErrorLogger.info("FDG", "🎓 RSI LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
             }
         } else if (blockReason == null && currentRsi > 85.0) {
             // RSI 85-90: Heavy penalty in both modes
@@ -1652,30 +1656,38 @@ object FinalDecisionGate {
                 checks.add(GateCheck("phase_filter", true, "PAPER: unknown phase allowed for learning"))
                 tags.add("phase_unknown_allowed")
             } else {
-                val minScore = lerp(20.0, 45.0, currentAdjusted.progress)
-                val minBuyPressure = lerp(35.0, 52.0, currentAdjusted.progress)
-                val isHighScore = candidate.entryScore >= minScore
-                val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
-
-                if (!isHighScore && !isHighBuyPressure) {
-                    blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
-                    blockLevel = BlockLevel.CONFIDENCE
-                    checks.add(
-                        GateCheck(
-                            "phase_filter",
-                            false,
-                            "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()} [phase:${currentAdjusted.learningPhase}]"
-                        )
-                    )
-                    tags.add("phase_unknown_weak")
+                // V5.9.291: Route unknown-phase gate through ModeLeniency so proven-edge
+                // live behaves like paper (allowed with tag, no hard block).
+                val phaseLenient = ModeLeniency.useLenientGates(config.paperMode)
+                if (phaseLenient) {
+                    checks.add(GateCheck("phase_filter", true, "LENIENT: unknown phase allowed [${currentAdjusted.learningPhase}]"))
+                    tags.add("phase_unknown_allowed")
                 } else {
-                    checks.add(
-                        GateCheck(
-                            "phase_filter",
-                            true,
-                            "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}) [${currentAdjusted.learningPhase}]"
+                    val minScore = lerp(20.0, 45.0, currentAdjusted.progress)
+                    val minBuyPressure = lerp(35.0, 52.0, currentAdjusted.progress)
+                    val isHighScore = candidate.entryScore >= minScore
+                    val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
+
+                    if (!isHighScore && !isHighBuyPressure) {
+                        blockReason = "UNKNOWN_PHASE_LOW_CONVICTION"
+                        blockLevel = BlockLevel.CONFIDENCE
+                        checks.add(
+                            GateCheck(
+                                "phase_filter",
+                                false,
+                                "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()} [phase:${currentAdjusted.learningPhase}]"
+                            )
                         )
-                    )
+                        tags.add("phase_unknown_weak")
+                    } else {
+                        checks.add(
+                            GateCheck(
+                                "phase_filter",
+                                true,
+                                "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}) [${currentAdjusted.learningPhase}]"
+                            )
+                        )
+                    }
                 }
             }
         } else if (blockReason == null) {
