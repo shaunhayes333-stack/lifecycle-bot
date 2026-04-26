@@ -2764,7 +2764,10 @@ class MultiAssetActivity : AppCompatActivity() {
         } catch (_: Exception) { emptyList() }
     }
     
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
+    // V5.9.322: Removed private Double.fmt — class imports com.lifecyclebot.perps.*
+    // which already brings in the public Double.fmt(Int). Having both in scope
+    // produced the SAME 'overload resolution ambiguity' that V5.9.320 fixed in
+    // TokenizedStockTrader. Single source of truth = PerpsModels.fmt.
     
     // ═══════════════════════════════════════════════════════════════════════════
     // QUICK ACTION HANDLERS
