@@ -1128,21 +1128,40 @@ class LifecycleStrategy(
         // still allowing 5–10x the pre-V5.9.311 volume for layer learning.
         val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 15.0
         val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 10.0
-        
+
+        // V5.9.318: TradingCopilot life-coach overlay. Read-only consume of the
+        // current coaching directive. Drives 4 dynamic effects:
+        //   • EMERGENCY_BRAKE → hard-block any new entry (paper or live).
+        //   • Confidence floor → respect Copilot's recommendedMinConfidence.
+        //   • Conviction boost → applied ONLY for downstream sizing/scoring;
+        //     does NOT bypass safety gates here.
+        //   • Logged in blockReason so the user can SEE the coach reasoning.
+        val copilot = com.lifecyclebot.engine.TradingCopilot.current()
+        val copilotBrake = copilot.mood == com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE
+        val copilotConfFloor = copilot.recommendedMinConfidence
+        val belowCopilotFloor = isPaperMode && edgeConfidence < copilotConfFloor
+
         val shouldTradeBase = when {
+            // V5.9.318: Copilot emergency brake — bot is in catastrophic state, halt new entries
+            copilotBrake -> false
+
             // HARD BLOCK: Zero confidence in LIVE mode only (paper still learns)
             isZeroConfidence && !isPaperMode -> false
-            
+
             // HARD BLOCK: Edge SKIP + very low confidence — LIVE only.
             // V5.9.311: Paper mode allows these for learning (matches V5.9.198 era
             // 1000+ trades/day target). Quality penalty + smart sizing keep loss
             // exposure tiny on weak setups, while feeding the AI training funnel.
             edgeVeto && isVeryLowConfidence && !isPaperMode -> false
-            
+
             // V5.9.314: Paper-mode soft floors — block obvious garbage but keep volume up.
             paperEdgeSkipFloor -> false
             paperLowQualityFloor -> false
-            
+
+            // V5.9.318: Copilot-set dynamic floor — overrides V5.9.314 floors when the
+            // life coach wants tighter discipline (PROTECT mood pushes floor to 15%).
+            belowCopilotFloor -> false
+
             // Paper mode: Allow edge vetoed trades if confidence is reasonable (learning)
             isPaperMode -> rawSignal == "BUY" && !ts.position.isOpen
             
@@ -1151,10 +1170,12 @@ class LifecycleStrategy(
         }
         
         val blockReason = when {
+            copilotBrake -> "🛑 Copilot EMERGENCY_BRAKE: ${copilot.advice.take(80)}"
             isZeroConfidence && !isPaperMode -> "Zero confidence (0%) = no trade [LIVE]"
             edgeVeto && isVeryLowConfidence && !isPaperMode -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%) [LIVE]"
             paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<15% (${edgeConfidence.toInt()}%)"
             paperLowQualityFloor -> "Paper floor: quality=C + conf<10% (${edgeConfidence.toInt()}%)"
+            belowCopilotFloor -> "🧭 Copilot floor: conf=${edgeConfidence.toInt()}% < ${copilotConfFloor.toInt()}% (${copilot.mood.name})"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"

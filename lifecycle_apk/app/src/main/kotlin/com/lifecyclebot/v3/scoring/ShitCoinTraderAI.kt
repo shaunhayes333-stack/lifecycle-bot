@@ -449,6 +449,9 @@ object ShitCoinTraderAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         
+        // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
+        try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, pos.isPaper) } catch (_: Exception) {}
+        
         // Record to daily P&L
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)

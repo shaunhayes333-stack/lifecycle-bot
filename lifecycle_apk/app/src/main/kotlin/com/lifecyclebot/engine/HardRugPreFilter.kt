@@ -62,9 +62,17 @@ object HardRugPreFilter {
         val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
         val hasNoLiquidity = ts.lastLiquidityUsd <= 0
         val isVeryNew = tokenAgeMs < 60_000  // < 60 seconds since watchlist add
+        // V5.9.318: Treat 'no API poll yet returned' as awaiting-data regardless of
+        // watchlist age. Previously a token whose addedToWatchlistAt was 0 (legacy
+        // / migrated state) computed tokenAgeMs as the full epoch, so isVeryNew was
+        // always false → ZERO_LIQUIDITY hard-fail fired even though we'd never even
+        // tried to fetch the token's data. The history.isNotEmpty() check makes this
+        // robust: if there's NO history yet, the API hasn't responded and we cannot
+        // possibly know the real liquidity.
+        val hasNoHistoryYet = ts.history.isEmpty()
         
-        // Grace period: no liquidity + added recently = let API poll have time to fetch data
-        if (hasNoLiquidity && isVeryNew) {
+        // Grace period: no liquidity + (added recently OR no API data yet) = let API poll have time to fetch data
+        if (hasNoLiquidity && (isVeryNew || hasNoHistoryYet)) {
             ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - no liquidity yet (age=${tokenAgeMs/1000}s, hist=${ts.history.size})")
             return PreFilterResult(
                 pass = true,

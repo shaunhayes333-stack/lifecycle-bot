@@ -3293,7 +3293,7 @@ class BotService : Service() {
                     }
                 }
 
-                // V5.9.311: InsiderWalletTracker delta scan (~every 5 min).
+                // V5.9.318: InsiderWalletTracker delta scan (~every 5 min).
                 // Detects NEW_POSITION/ACCUMULATION/DISTRIBUTION/SELL events on
                 // tracked Trump/whale wallets and forwards them to the signal
                 // callback wired in onCreate (notifications + log).
@@ -3305,6 +3305,66 @@ class BotService : Service() {
                         }
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "InsiderWalletTracker scan error: ${e.message}")
+                    }
+                }
+
+                // V5.9.318: TRADING COPILOT update — refresh the life-coach
+                // directive from recent trade outcomes + layer health. Cheap
+                // (O(window=30)). The coaching state then steers entries via
+                // LifecycleStrategy.shouldTradeBase / FinalDecisionGate.
+                try { com.lifecyclebot.engine.TradingCopilot.update() } catch (_: Exception) {}
+
+                // V5.9.318: LIVE WALLET RECONCILE SWEEP (~every 5 min, LIVE only).
+                // ROOT CAUSE: Sub-traders (ShitCoin/Moonshot/Quality/BlueChip
+                // /Manip) closePosition() paths only update in-memory PnL —
+                // they NEVER broadcast a Jupiter sell. Result: every V3 exit
+                // leaks tokens into the wallet during normal operation. STOP
+                // BOT sweep was the only fallback, and it was too late.
+                // This periodic reconcile sweep liquidates ANY non-stable SPL
+                // holdings the bot is no longer tracking as an open position.
+                // Active V3 positions are passed as additionalPreservedMints so
+                // currently-held trades are NOT prematurely liquidated.
+                scope.launch {
+                    try {
+                        val cfgNow = ConfigStore.load(applicationContext)
+                        val w = wallet
+                        if (!cfgNow.paperMode && w != null && ::executor.isInitialized) {
+                            // Collect active mint set across the V3 stack so the
+                            // sweep doesn't liquidate live positions.
+                            val activeMints = mutableSetOf<String>()
+                            try {
+                                synchronized(status.tokens) {
+                                    status.tokens.values.forEach { ts ->
+                                        if (ts.position.isOpen) activeMints.add(ts.mint)
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                            // Add V3 trader active positions as well — defensive belt
+                            try {
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+                                    .forEach { activeMints.add(it.mint) }
+                            } catch (_: Exception) {}
+                            try {
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+                                    .forEach { activeMints.add(it.mint) }
+                            } catch (_: Exception) {}
+                            try {
+                                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+                                    .forEach { activeMints.add(it.mint) }
+                            } catch (_: Exception) {}
+                            try {
+                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+                                    .forEach { activeMints.add(it.mint) }
+                            } catch (_: Exception) {}
+                            val swept = executor.liveSweepWalletTokens(w, w.getSolBalance(), activeMints)
+                            if (swept > 0) {
+                                ErrorLogger.warn("BotService",
+                                    "🔄 RECONCILE SWEEP: liquidated $swept orphan token(s) leaked from V3 exits")
+                                addLog("🔄 Reconcile: cleared $swept orphan position(s) from wallet")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "Reconcile sweep error: ${e.message}")
                     }
                 }
             }

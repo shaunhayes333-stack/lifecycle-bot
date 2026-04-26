@@ -795,6 +795,9 @@ object MoonshotTraderAI {
         val pnlSol = pos.entrySol * (pnlPct / 100)
         val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0)
         
+        // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
+        try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, pos.isPaperMode) } catch (_: Exception) {}
+        
         // Update daily stats
         dailyPnlSolBps.addAndGet((pnlSol * 10000).toLong())
         if (isWin) dailyWins.incrementAndGet() else dailyLosses.incrementAndGet()

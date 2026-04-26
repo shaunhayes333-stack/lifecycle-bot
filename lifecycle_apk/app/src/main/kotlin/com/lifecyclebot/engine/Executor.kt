@@ -6580,6 +6580,7 @@ class Executor(
     fun liveSweepWalletTokens(
         wallet: SolanaWallet,
         walletSol: Double,
+        additionalPreservedMints: Set<String> = emptySet(),
     ): Int {
         // Stablecoins / SOL we never auto-sell on shutdown
         val PRESERVED_MINTS = setOf(
@@ -6587,12 +6588,31 @@ class Executor(
             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",                  // USDC
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",                  // USDT
             "So11111111111111111111111111111111111111112",                    // wSOL alt
-        )
+        ) + additionalPreservedMints  // V5.9.318: preserve active V3 positions during periodic reconcile
         var soldCount = 0
         val c = cfg()
 
         val onChain = try {
-            wallet.getTokenAccountsWithDecimals()
+            // V5.9.318: Retry RPC up to 3 times with backoff. The 1-month
+            // chronic 'STOP BOT not clearing live tokens' bug had this as a
+            // root cause: a single failing RPC call would silently abort the
+            // entire sweep, leaving every leaked token stranded on-chain.
+            var lastErr: Exception? = null
+            var result: Map<String, Pair<Double, Int>>? = null
+            for (attempt in 1..3) {
+                try {
+                    result = wallet.getTokenAccountsWithDecimals()
+                    break
+                } catch (e: Exception) {
+                    lastErr = e
+                    onLog("⚠️ SHUTDOWN SWEEP: RPC attempt $attempt/3 failed — ${e.message?.take(60)}", "shutdown")
+                    if (attempt < 3) try { Thread.sleep((attempt * 1500L).coerceAtLeast(500L)) } catch (_: Exception) {}
+                }
+            }
+            result ?: run {
+                onLog("⚠️ SHUTDOWN SWEEP: all 3 RPC attempts failed — ${lastErr?.message?.take(80)}", "shutdown")
+                return 0
+            }
         } catch (e: Exception) {
             onLog("⚠️ SHUTDOWN SWEEP: failed to enumerate wallet — ${e.message?.take(80)}", "shutdown")
             return 0
