@@ -245,13 +245,30 @@ object MarketsLiveExecutor {
                 return@withContext Pair(false, null)
             }
             
-            // Check wallet balance (include fee in requirement)
+            // V5.9.310: Balance check — UniversalBridgeEngine can use USDC/other tokens as capital,
+            // so we only need enough SOL to cover tx fees + rent + fee collection (not full sizeSol).
+            // Full capital check happens inside UniversalBridgeEngine.prepareCapital().
             val balance = wallet.getSolBalance()
-            val requiredSol = sizeSol + feeAmountSol + 0.01  // Size + fee + gas
-            if (balance < requiredSol) {
-                ErrorLogger.warn(TAG, "Insufficient balance: have ${balance.fmt(4)} SOL, need ${requiredSol.fmt(4)} SOL (incl. fee)")
-                failedExecutions.incrementAndGet()
-                return@withContext Pair(false, null)
+            val minSolRequired = feeAmountSol + 0.015  // tx fees + ATA rent + fee send buffer
+            if (balance < minSolRequired) {
+                // Check if wallet has enough total value via UniversalBridgeEngine scan
+                // If SOL is critically low even for fees, we can't proceed
+                val totalUsdValue = try {
+                    com.lifecyclebot.engine.UniversalBridgeEngine.scanWalletCapacity(wallet).totalUsdValue
+                } catch (_: Exception) { 0.0 }
+                val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+                val totalSolEquiv = totalUsdValue / solPriceUsd
+                if (totalSolEquiv < sizeSol * 0.5) {
+                    ErrorLogger.warn(TAG, "Insufficient capital: ${balance.fmt(4)} SOL (total wallet ~${totalSolEquiv.fmt(3)} SOL equiv) for ${sizeSol.fmt(4)} SOL trade")
+                    failedExecutions.incrementAndGet()
+                    return@withContext Pair(false, null)
+                }
+                if (balance < 0.005) {
+                    ErrorLogger.warn(TAG, "SOL critically low (${balance.fmt(4)}) — cannot cover tx fees")
+                    failedExecutions.incrementAndGet()
+                    return@withContext Pair(false, null)
+                }
+                ErrorLogger.info(TAG, "  Low SOL (${balance.fmt(4)}) but wallet has ~\$${totalUsdValue.fmt(2)} — proceeding via UniversalBridge")
             }
             
             ErrorLogger.info(TAG, "  Wallet: ${walletAddress.take(8)}... | Balance: ${balance.fmt(4)} SOL")
@@ -947,15 +964,19 @@ object MarketsLiveExecutor {
                 val units = (tokenData.first * Math.pow(10.0, decimals.toDouble())).toLong()
                 Pair(targetMint, units)
             } else {
-                // Legacy / fallback: USDC-parked position → USDC → SOL
+                // V5.9.310: USDC-parked or no-mint position close.
+                // Use UniversalBridgeEngine.releaseCapital to swap back to SOL.
+                // Cap USDC sell at the position's proportional value — not the whole wallet USDC.
                 val usdcData = balances[USDC_MINT]
                 if (usdcData == null || usdcData.first <= 0) {
-                    ErrorLogger.warn(TAG, "No USDC balance to close legacy position — skipping.")
+                    ErrorLogger.warn(TAG, "No USDC balance to close position ${market.symbol} — skipping.")
                     return@withContext Pair(false, null)
                 }
                 val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
                 val positionUsdcValue = sizeSol * solPrice
-                val usdcToSell = minOf(positionUsdcValue, usdcData.first)
+                // Cap at actual USDC balance but never over-sell (protects other concurrent USDC positions)
+                val usdcToSell = minOf(positionUsdcValue, usdcData.first * 0.95)  // 5% safety margin
+                ErrorLogger.info(TAG, "  🌉 ${market.symbol}: USDC-parked close | \$${usdcToSell.fmt(2)} USDC → SOL")
                 Pair(USDC_MINT, (usdcToSell * 1_000_000).toLong())
             }
         } catch (e: Exception) {
