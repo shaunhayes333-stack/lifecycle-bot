@@ -946,40 +946,6 @@ class CryptoAltActivity : AppCompatActivity() {
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
                 right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
                 right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
-                // Manual close chip
-                val closeMemeBtn = tv("✕", 11f, white, bold = true).apply {
-                    setPadding(10, 4, 10, 4)
-                    setBackgroundColor(0xFFDC2626.toInt())
-                    layoutParams = llp(wrap, wrap).apply { marginStart = 8 }
-                }
-                val posMint = pos.mint
-                val posSymbol = pos.symbol
-                val posEntryPriceCopy = pos.entryPrice
-                closeMemeBtn.setOnClickListener {
-                    AlertDialog.Builder(this@CryptoAltActivity)
-                        .setTitle("Close Meme Position?")
-                        .setMessage("Manually close $posSymbol now?\nP&L: ${"%.1f".format(gainPct)}%")
-                        .setPositiveButton("Yes, Sell") { _, _ ->
-                            lifecycleScope.launch(Dispatchers.IO) {
-                                try {
-                                    ShitCoinTraderAI.closePosition(
-                                        posMint,
-                                        currentPrice.takeIf { it > 0 } ?: posEntryPriceCopy,
-                                        ShitCoinTraderAI.ExitSignal.TIME_EXIT
-                                    )
-                                } catch (e: Exception) {
-                                    com.lifecyclebot.engine.ErrorLogger.warn("CryptoAltActivity", "Manual meme close error: \${e.message}")
-                                }
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closed $posSymbol", android.widget.Toast.LENGTH_SHORT).show()
-                                    buildFullDashboard()
-                                }
-                            }
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                }
-                row.addView(closeMemeBtn)
                 row.addView(right)
                 tile.addView(row)
                 tile.addView(thinDivider())
