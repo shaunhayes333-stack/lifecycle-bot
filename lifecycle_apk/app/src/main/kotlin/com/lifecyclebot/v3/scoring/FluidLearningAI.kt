@@ -979,25 +979,16 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // SPOT trading thresholds — V5.9.300: floor inversion — per-trader gates strict (was 28/30 at V5.9.266)
-    // V5.9.308: V5.9.198 DEEP-BOOTSTRAP RESTORE — first 500 trades use loosened floors so the
-    // crypto-alt trader has real volume to bootstrap; ramp to 30/30 after 500, lerp to mature.
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP_DEEP = 17
     private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 30
     private const val MARKETS_SPOT_SCORE_MATURE = 60
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP_DEEP = 17
     private const val MARKETS_SPOT_CONF_BOOTSTRAP = 30
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds — V5.9.300: floor inversion — leverage demands tighter gate (was 30/32)
-    // V5.9.308: deep-bootstrap relief for leverage too (still gated 2 above SPOT for risk)
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP_DEEP = 19
     private const val MARKETS_LEV_SCORE_BOOTSTRAP = 32
     private const val MARKETS_LEV_SCORE_MATURE = 70
-    private const val MARKETS_LEV_CONF_BOOTSTRAP_DEEP = 19
     private const val MARKETS_LEV_CONF_BOOTSTRAP = 32
     private const val MARKETS_LEV_CONF_MATURE = 70
-    
-    private const val MARKETS_DEEP_BOOTSTRAP_TRADES = 500  // V5.9.308: V5.9.198 era window length
     
     // Take Profit targets - WIDER range for learning
     private const val MARKETS_TP_BOOTSTRAP = 8.0    // V5.9.229: 4→8% — tiny wins were killing net PnL; alts need room to breathe
@@ -1011,33 +1002,17 @@ object FluidLearningAI {
     private const val MARKETS_SIZE_BOOTSTRAP = 2.0  // V5.7.6b: Was 3%, start smaller for safety
     private const val MARKETS_SIZE_MATURE = 8.0     // V5.7.6b: Was 5%, scale up with confidence
     
-    /** Get fluid score threshold for SPOT trades — V5.9.308: deep-bootstrap (first 500 trades = 17 floor) */
-    fun getMarketsSpotScoreThreshold(): Int {
-        val totalTrades = try { getTotalTradeCount() } catch (_: Exception) { 9999 }
-        val bootstrapVal = if (totalTrades < MARKETS_DEEP_BOOTSTRAP_TRADES) MARKETS_SPOT_SCORE_BOOTSTRAP_DEEP else MARKETS_SPOT_SCORE_BOOTSTRAP
-        return lerpMarkets(bootstrapVal.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
-    }
+    /** Get fluid score threshold for SPOT trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsSpotScoreThreshold(): Int = lerpMarkets(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
     
-    /** Get fluid confidence threshold for SPOT trades — V5.9.308: deep-bootstrap relief */
-    fun getMarketsSpotConfThreshold(): Int {
-        val totalTrades = try { getTotalTradeCount() } catch (_: Exception) { 9999 }
-        val bootstrapVal = if (totalTrades < MARKETS_DEEP_BOOTSTRAP_TRADES) MARKETS_SPOT_CONF_BOOTSTRAP_DEEP else MARKETS_SPOT_CONF_BOOTSTRAP
-        return lerpMarkets(bootstrapVal.toDouble(), MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
-    }
+    /** Get fluid confidence threshold for SPOT trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsSpotConfThreshold(): Int = lerpMarkets(MARKETS_SPOT_CONF_BOOTSTRAP.toDouble(), MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
     
-    /** Get fluid score threshold for LEVERAGE trades — V5.9.308: deep-bootstrap relief (still 2 above SPOT) */
-    fun getMarketsLeverageScoreThreshold(): Int {
-        val totalTrades = try { getTotalTradeCount() } catch (_: Exception) { 9999 }
-        val bootstrapVal = if (totalTrades < MARKETS_DEEP_BOOTSTRAP_TRADES) MARKETS_LEV_SCORE_BOOTSTRAP_DEEP else MARKETS_LEV_SCORE_BOOTSTRAP
-        return lerpMarkets(bootstrapVal.toDouble(), MARKETS_LEV_SCORE_MATURE.toDouble()).toInt()
-    }
+    /** Get fluid score threshold for LEVERAGE trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsLeverageScoreThreshold(): Int = lerpMarkets(MARKETS_LEV_SCORE_BOOTSTRAP.toDouble(), MARKETS_LEV_SCORE_MATURE.toDouble()).toInt()
     
-    /** Get fluid confidence threshold for LEVERAGE trades — V5.9.308: deep-bootstrap relief */
-    fun getMarketsLeverageConfThreshold(): Int {
-        val totalTrades = try { getTotalTradeCount() } catch (_: Exception) { 9999 }
-        val bootstrapVal = if (totalTrades < MARKETS_DEEP_BOOTSTRAP_TRADES) MARKETS_LEV_CONF_BOOTSTRAP_DEEP else MARKETS_LEV_CONF_BOOTSTRAP
-        return lerpMarkets(bootstrapVal.toDouble(), MARKETS_LEV_CONF_MATURE.toDouble()).toInt()
-    }
+    /** Get fluid confidence threshold for LEVERAGE trades - V5.7.6b: Uses Markets-specific progress */
+    fun getMarketsLeverageConfThreshold(): Int = lerpMarkets(MARKETS_LEV_CONF_BOOTSTRAP.toDouble(), MARKETS_LEV_CONF_MATURE.toDouble()).toInt()
     
     /** Get fluid take profit target for Markets trading - V5.7.6b: Uses Markets-specific progress */
     fun getMarketsTakeProfitPct(): Double = lerpMarkets(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
