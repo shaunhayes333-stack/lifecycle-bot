@@ -29,8 +29,8 @@ object TreasuryOpportunityEngine {
         // Real scores at 18 trades: 10-25 range. Set realistic floors: 12/15.
         // Quality comes from liq/mcap filters and V3 confirmation, not just score threshold.
         val minConfidenceScore: Double = 22.0,     // V5.9.266: moderate (was 18 at V5.9.263)
-        val minEntryScore: Double = 22.0,          // V5.9.266: moderate (was 18 at V5.9.263)
-        val minLiquidityUsd: Double = 3_500.0,     // V5.9.266: moderate (was 2_500 at V5.9.263)
+        val minEntryScore: Double = 18.0,          // V5.9.275: restored 22→18 (V5.9.266 over-tightened)
+        val minLiquidityUsd: Double = 2_500.0,     // V5.9.275: restored 3500→2500
         val opportunityTtlMs: Long = 60_000L,      // Opportunity becomes stale after 60s
         val targetModes: Set<String> = setOf(
             "MOONSHOT", "PUMP_SNIPER", "MICRO_CAP", "REVIVAL"

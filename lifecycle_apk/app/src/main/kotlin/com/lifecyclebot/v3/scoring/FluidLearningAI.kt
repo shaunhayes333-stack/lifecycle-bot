@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 28.0  // V5.9.266: moderate (was 22 at V5.9.263)
-    private const val MIN_SCORE_BOOTSTRAP = 32           // V5.9.266: moderate (was 25 at V5.9.263)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 3500.0   // V5.9.266: moderate (was 2500 at V5.9.263)
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 22.0  // V5.9.275: restored 28→22 (V5.9.266 over-tightened)
+    private const val MIN_SCORE_BOOTSTRAP = 25           // V5.9.275: restored 32→25 (matches SC_SCORE_BOOTSTRAP=18)
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 2500.0   // V5.9.275: restored 3500→2500
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.

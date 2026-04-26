@@ -805,14 +805,12 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
-        // V5.9.242: HARD GATE — 2-tier reject to fix 6% WR regression from V5.9.222
-        // V5.9.222 relaxed too far (< -5 && < 50) letting in flat/stale tokens → 6% WR
-        // Two conditions: (1) flat or barely-positive momentum with weak buys = stale token
-        //                 (2) clearly negative momentum regardless of buy pressure = fading
-        // V5.9.245: Tightened — momentum<=1 was letting stale tokens through into losses
-        // Require actual momentum (>2%) OR very strong buy pressure (>=65%) to enter
-        val hardGateFlatStale   = momentum <= 2.0 && buyPressurePct < 62.0   // flat/stale (was <=1.0 & <58)
-        val hardGateClearlyFade = momentum < -2.0                              // clearly fading (was <-3.0)
+        // V5.9.275: HARD GATE — restored to balanced thresholds
+        // V5.9.242/245 over-tightened (<=2 && <62) → collapsed trade volume without improving WR
+        // Root cause of 6% WR was not the momentum floor but dead exit timing (see TIME_EXIT fix)
+        // New thresholds: block FLAT (<=0%) unless buyPressure strong, block CLEAR FADE (<-3%)
+        val hardGateFlatStale   = momentum <= 0.0 && buyPressurePct < 58.0   // V5.9.275: <=2→<=0, 62→58
+        val hardGateClearlyFade = momentum < -3.0                              // V5.9.275: <-2→<-3
         if (hardGateFlatStale || hardGateClearlyFade) {
             val gateReason = if (hardGateClearlyFade)
                 "HARD_GATE_FADE: mom=${"%+.1f".format(momentum)}%"
@@ -1135,17 +1133,16 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.9.247: TIME-BASED EXIT — hard 20min rule. No zombie positions.
-        // If you haven't moved to green (+1%) within 20 minutes, you're dead.
-        // Cut early on clear losers, cut fast on deep losses.
+        // 5. V5.9.275: TIME-BASED EXIT — tiered time exits, increased patience for flat positions
+        // Flat tokens that haven't gone negative deserve more time on meme chains (30-60s pump windows)
         //
         //   < -3%  at  6min → clear loser, not coming back
         //   < -6%  at  5min → deep loss, emergency cut
-        //   < +1%  at 20min → hard cap — no token gets 43 minutes of our capital
+        //   < -0.5% at 35min → extended flat/small-loss cap (was <+1% at 20min — too aggressive)
         //
-        val timeExitEarlyBad  = holdMinutes >= 6  && pnlPct < -3.0   // clear loser
-        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0   // deep loss emergency
-        val timeExitMaxHold   = holdMinutes >= 20 && pnlPct < 1.0    // hard 20min cap if not green
+        val timeExitEarlyBad  = holdMinutes >= 6  && pnlPct < -3.0    // clear loser
+        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // deep loss emergency
+        val timeExitMaxHold   = holdMinutes >= 35 && pnlPct < -0.5    // V5.9.275: 20min→35min, +1%→-0.5%
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
@@ -1179,11 +1176,11 @@ object ShitCoinTraderAI {
     // Bootstrap needs MORE trades for learning, not fewer
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
-    private const val SC_SCORE_BOOTSTRAP = 22         // V5.9.266: moderate (was 18 at V5.9.263)
+    private const val SC_SCORE_BOOTSTRAP = 18         // V5.9.275: restored 22→18; HARD_GATE already quality-filters
     private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 20          // V5.9.266: moderate (was 15 at V5.9.263)
+    private const val SC_CONF_BOOTSTRAP = 18          // V5.9.275: restored 20→18 to match score floor
     private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     
