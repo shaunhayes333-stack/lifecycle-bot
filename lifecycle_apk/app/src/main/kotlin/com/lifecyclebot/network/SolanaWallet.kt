@@ -411,13 +411,31 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     val code = resp.code
                     lastBody = resp.body?.string() ?: "{}"
 
+                    // V5.9.267 — fail over on auth failures (HTTP 401/403)
+                    // The user's primary RPC API key was rejected with
+                    // 'invalid api key provided' but rpc() was returning that
+                    // error verbatim instead of trying fallbacks. Result: every
+                    // sendTransaction failed and trading fees got dropped.
+                    if (code == 401 || code == 403) {
+                        android.util.Log.w("SolanaWallet", "🚨 RPC AUTH REJECTED on $endpoint (HTTP $code) — trying next fallback")
+                        break
+                    }
+
                     if (code != 429 && code < 500) {
                         val json = JSONObject(lastBody)
                         // Check for RPC-level errors
                         if (json.has("error")) {
                             val errMsg = json.optJSONObject("error")?.optString("message", "") ?: ""
-                            if (errMsg.contains("rate") || errMsg.contains("limit")) {
+                            val low = errMsg.lowercase()
+                            if (low.contains("rate") || low.contains("limit")) {
                                 // Rate limited — try next endpoint
+                                break
+                            }
+                            // V5.9.267 — auth errors must also trigger fallback,
+                            // not be returned to the caller as fatal RPC error.
+                            if (low.contains("api key") || low.contains("unauthorized") ||
+                                low.contains("forbidden") || low.contains("invalid key")) {
+                                android.util.Log.w("SolanaWallet", "🚨 RPC AUTH error on $endpoint: '$errMsg' — failing over")
                                 break
                             }
                         }
