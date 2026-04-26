@@ -2622,6 +2622,13 @@ class BotService : Service() {
         var lastReconcileAt = System.currentTimeMillis()
         val reconcileIntervalMs = 90 * 1000L  // V5.9.251: 90s (was 5 min — too slow)
 
+        // V5.9.290: PendingVerify Watchdog — sweeps every 60s for any position stuck in
+        // pendingVerify for > 120s and force-clears it so exit management can fire.
+        // This is an additional proactive layer on top of the per-tick check in the
+        // exit management block. Belt AND suspenders.
+        var lastPendingVerifyWatchdogAt = 0L
+        val pendingVerifyWatchdogIntervalMs = 60_000L
+
         var loopCount = 0
         while (status.running) {
           try {
@@ -2640,6 +2647,41 @@ class BotService : Service() {
                 if (liveWallet != null) {
                     try { FeeRetryQueue.drainFeeQueue(liveWallet) }
                     catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
+                }
+            }
+
+            // V5.9.290: PendingVerify Watchdog — proactively sweep for stuck pendingVerify positions.
+            // Runs every 60s. Clears any position where qtyToken>0 && pendingVerify=true && age>120s.
+            // This runs BEFORE the per-token loop so that stuck positions are already cleared when
+            // the exit management block evaluates them, rather than relying on the per-tick check alone.
+            if (System.currentTimeMillis() - lastPendingVerifyWatchdogAt > pendingVerifyWatchdogIntervalMs) {
+                lastPendingVerifyWatchdogAt = System.currentTimeMillis()
+                try {
+                    val now = System.currentTimeMillis()
+                    var clearedCount = 0
+                    status.tokens.values.forEach { ts ->
+                        val pos = ts.position
+                        if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
+                            val ageMs = now - pos.entryTime
+                            if (ageMs >= 120_000L) {
+                                ErrorLogger.warn("BotService",
+                                    "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s stuck in pendingVerify — force-clearing. " +
+                                    "qty=${pos.qtyToken} entry=${pos.entryTime}")
+                                synchronized(ts) {
+                                    ts.position = pos.copy(pendingVerify = false)
+                                }
+                                try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                clearedCount++
+                            }
+                        }
+                    }
+                    if (clearedCount > 0) {
+                        ErrorLogger.warn("BotService",
+                            "🔧 [VERIFY_WATCHDOG] Cleared $clearedCount stuck pendingVerify position(s) — now actively managed")
+                        addLog("🔧 Watchdog: cleared $clearedCount stuck pending-verify position(s) — exit management restored")
+                    }
+                } catch (wdEx: Exception) {
+                    ErrorLogger.warn("BotService", "PendingVerify watchdog error: ${wdEx.message}")
                 }
             }
 
@@ -7060,10 +7102,47 @@ if (deferredCount > 0) {
                 )
             }
         }
-    } else if (ts.position.isOpen) {
+    } else if (ts.position.isOpen || (ts.position.qtyToken > 0.0 && ts.position.pendingVerify)) {
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.290 FIX: CRITICAL — exit management fires for ANY position
+        // that has tokens (qtyToken > 0), regardless of pendingVerify state.
+        //
+        // BEFORE this fix: isOpen = qtyToken > 0 && !pendingVerify.
+        // If the verify coroutine stalled (RPC lag, indexing lag), pendingVerify
+        // stayed true indefinitely — the position was permanently invisible to
+        // ALL exit checks (TP, SL, rug detection, treasury exits, everything).
+        // The bot bought but could NEVER sell. This was the root cause of
+        // live sells never executing.
+        //
+        // Now: we enter exit management if tokens exist at all. We then let
+        // each layer's checkExit() and the rug safety net run as normal.
+        //
+        // SAFETY: if pendingVerify is STILL true but < 120s old (verify
+        // coroutine is still running), we skip executing the actual sell to
+        // avoid racing with the verify. After 120s we force-clear
+        // pendingVerify so the position becomes fully managed.
+        // ═══════════════════════════════════════════════════════════════════
+        if (ts.position.pendingVerify) {
+            val pendingAgeMs = System.currentTimeMillis() - ts.position.entryTime
+            if (pendingAgeMs < 120_000L) {
+                // Verify coroutine still has time — skip this tick but log
+                ErrorLogger.debug("BotService",
+                    "⏳ [PENDING_VERIFY] ${ts.symbol} | ${pendingAgeMs / 1000}s old — verify window active, skip exit tick")
+                return
+            }
+            // 120s elapsed — verify coroutine is definitely done (it runs for ≤30s).
+            // Force-clear pendingVerify so isOpen becomes true and exits work.
+            ErrorLogger.warn("BotService",
+                "⚠️ [PENDING_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify. " +
+                "Verify coroutine should have resolved within 30s. Position now actively managed.")
+            synchronized(ts) {
+                ts.position = ts.position.copy(pendingVerify = false)
+            }
+            try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+        }
         // Position management (exits) - ALWAYS monitor open positions
         // Even when paused, we need to manage risk on existing positions
-        
+
         // V5.2.12: Debug logging for exit check flow
         ErrorLogger.debug("BotService", "🔄 [EXIT CHECK] ${ts.symbol} | isOpen=true | entering exit management")
 

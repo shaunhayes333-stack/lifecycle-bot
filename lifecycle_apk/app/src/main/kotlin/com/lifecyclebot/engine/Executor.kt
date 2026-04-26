@@ -4451,8 +4451,21 @@ class Executor(
         val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
 
+        // V5.9.290 FIX: doSell guard — same pendingVerify force-clear as BotService + liveSell.
+        // If qtyToken > 0 but pendingVerify=true for > 120s, clear it so isOpen becomes true
+        // and the sell is not incorrectly rejected here.
+        if (ts.position.pendingVerify && ts.position.qtyToken > 0.0) {
+            val pendingAgeMs = System.currentTimeMillis() - ts.position.entryTime
+            if (pendingAgeMs >= 120_000L) {
+                ErrorLogger.warn("Executor",
+                    "⚠️ [DOSELL_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify in doSell.")
+                synchronized(ts) {
+                    ts.position = ts.position.copy(pendingVerify = false)
+                }
+            }
+        }
         if (!ts.position.isOpen) {
-            onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol}", tradeId.mint)
+            onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol} (qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})", tradeId.mint)
             return SellResult.ALREADY_CLOSED
         }
         
@@ -5433,12 +5446,32 @@ class Executor(
             tokenAmount = pos.qtyToken, traderTag = "MEME",
         )
         
-        if (!pos.isOpen) {
-            onLog("🛑 SELL ABORTED: Position not open", tradeId.mint)
+        // V5.9.290 FIX: If pendingVerify is still true but tokens exist (qtyToken > 0)
+        // AND it's been > 120s since entry, force-clear pendingVerify here before the
+        // isOpen guard. This mirrors the BotService fix: the verify coroutine runs for
+        // ≤30s — if we're still pending at 120s it's definitively stuck, and we must
+        // not abort an urgent sell (rug, stop-loss) just because verification stalled.
+        // This is the LAST LINE OF DEFENCE — BotService should have already cleared it.
+        if (pos.pendingVerify && pos.qtyToken > 0.0) {
+            val pendingAgeMs = System.currentTimeMillis() - pos.entryTime
+            if (pendingAgeMs >= 120_000L) {
+                ErrorLogger.warn("Executor",
+                    "⚠️ [LIVESELL_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify in liveSell. " +
+                    "Proceeding with sell to protect position.")
+                synchronized(ts) {
+                    ts.position = ts.position.copy(pendingVerify = false)
+                }
+            }
+        }
+        // Re-read pos after potential pendingVerify clear above
+        val posAfterVerifyCheck = ts.position
+        if (!posAfterVerifyCheck.isOpen) {
+            // Also handles qtyToken == 0 (genuinely nothing to sell)
+            onLog("🛑 SELL ABORTED: Position not open (qtyToken=${posAfterVerifyCheck.qtyToken}, pendingVerify=${posAfterVerifyCheck.pendingVerify})", tradeId.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,
-                "ABORTED — pos.isOpen=false",
+                "ABORTED — pos.isOpen=false (qty=${posAfterVerifyCheck.qtyToken} pendingVerify=${posAfterVerifyCheck.pendingVerify})",
                 traderTag = "MEME",
             )
             return SellResult.ALREADY_CLOSED
