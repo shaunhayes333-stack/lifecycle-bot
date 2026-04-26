@@ -2676,31 +2676,73 @@ class BotService : Service() {
             // Runs every 60s. Clears any position where qtyToken>0 && pendingVerify=true && age>120s.
             // This runs BEFORE the per-token loop so that stuck positions are already cleared when
             // the exit management block evaluates them, rather than relying on the per-tick check alone.
+            // V5.9.315: Watchdog now does on-chain RE-CHECK before deciding (live mode only).
+            //   - Tokens present on-chain → adopt real qty + clear pendingVerify (becomes open).
+            //   - Tokens NOT present (RPC succeeded with 0) → wipe position as confirmed phantom.
+            //   - RPC failed → leave pendingVerify=true; retry next watchdog tick.
+            // This eliminates GHOST POSITIONS (Models.kt isOpen no longer auto-promotes after 120s).
             if (System.currentTimeMillis() - lastPendingVerifyWatchdogAt > pendingVerifyWatchdogIntervalMs) {
                 lastPendingVerifyWatchdogAt = System.currentTimeMillis()
                 try {
                     val now = System.currentTimeMillis()
                     var clearedCount = 0
+                    var phantomCount = 0
+                    val isLive = !cfg.paperMode
+                    val w = wallet
+                    // For live mode, fetch on-chain balances once for all stuck positions.
+                    val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {
+                        try { w.getTokenAccountsWithDecimals() } catch (e: Exception) {
+                            ErrorLogger.warn("BotService", "🔧 [VERIFY_WATCHDOG] RPC failed; will retry next tick: ${e.message}")
+                            null
+                        }
+                    } else null
                     status.tokens.values.forEach { ts ->
                         val pos = ts.position
                         if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
                             val ageMs = now - pos.entryTime
                             if (ageMs >= 120_000L) {
-                                ErrorLogger.warn("BotService",
-                                    "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s stuck in pendingVerify — force-clearing. " +
-                                    "qty=${pos.qtyToken} entry=${pos.entryTime}")
-                                synchronized(ts) {
-                                    ts.position = pos.copy(pendingVerify = false)
+                                if (isLive) {
+                                    if (onChainBalances == null) {
+                                        // RPC failed this tick — leave pendingVerify=true, retry later
+                                        return@forEach
+                                    }
+                                    val onChainQty = onChainBalances[ts.mint]?.first ?: 0.0
+                                    if (onChainQty > 0.0) {
+                                        // Tokens really did land — adopt real qty and promote
+                                        ErrorLogger.warn("BotService",
+                                            "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED on-chain (qty=$onChainQty). Promoting to open.")
+                                        synchronized(ts) {
+                                            ts.position = pos.copy(qtyToken = onChainQty, pendingVerify = false)
+                                        }
+                                        try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                        clearedCount++
+                                    } else {
+                                        // RPC succeeded, no tokens → confirmed phantom. Wipe.
+                                        ErrorLogger.warn("BotService",
+                                            "👻 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — GHOST POSITION confirmed (0 tokens on-chain). Wiping.")
+                                        synchronized(ts) {
+                                            ts.position = com.lifecyclebot.data.Position()
+                                            ts.lastExitTs = now
+                                        }
+                                        try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                        phantomCount++
+                                    }
+                                } else {
+                                    // Paper mode never sets pendingVerify=true normally, but if it
+                                    // somehow did, just clear it — paper has no on-chain truth.
+                                    synchronized(ts) {
+                                        ts.position = pos.copy(pendingVerify = false)
+                                    }
+                                    clearedCount++
                                 }
-                                try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                                clearedCount++
                             }
                         }
                     }
-                    if (clearedCount > 0) {
+                    if (clearedCount > 0 || phantomCount > 0) {
                         ErrorLogger.warn("BotService",
-                            "🔧 [VERIFY_WATCHDOG] Cleared $clearedCount stuck pendingVerify position(s) — now actively managed")
-                        addLog("🔧 Watchdog: cleared $clearedCount stuck pending-verify position(s) — exit management restored")
+                            "🔧 [VERIFY_WATCHDOG] Promoted=$clearedCount, Wiped(ghosts)=$phantomCount")
+                        if (clearedCount > 0) addLog("🔧 Watchdog: promoted $clearedCount verified position(s)")
+                        if (phantomCount > 0) addLog("👻 Watchdog: wiped $phantomCount ghost position(s) — no tokens on-chain")
                     }
                 } catch (wdEx: Exception) {
                     ErrorLogger.warn("BotService", "PendingVerify watchdog error: ${wdEx.message}")

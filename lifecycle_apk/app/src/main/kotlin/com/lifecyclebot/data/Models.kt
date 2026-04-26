@@ -118,16 +118,17 @@ data class Position(
     var profitFloorRegressionLogged: Boolean = false,
 ) {
     // V5.9.290: isOpen — tokens exist AND not in the short verify window.
-    // pendingVerify is only respected for the first 120s after entryTime.
-    // After that, the verify coroutine is definitively done — if pendingVerify
-    // is still true it's a stuck state and we treat the position as open so
-    // exit management can fire (BotService + doSell both also force-clear it).
+    // V5.9.315: REMOVED 120s auto-promote. Previously, if pendingVerify stayed
+    // true past 120s (RPC failure or tx-indexing lag during verify coroutine),
+    // isOpen would silently return true with the EXPECTED qtyToken from buy
+    // submission — even though no tokens may have landed on-chain. This was
+    // the GHOST POSITION root cause: bot tried to manage/sell tokens that
+    // didn't exist, jamming the live meme trader. Now pendingVerify is the
+    // single source of truth: only false when the verify coroutine OR the
+    // BotService watchdog has confirmed real on-chain state.
     val isOpen get(): Boolean {
         if (qtyToken <= 0.0) return false
-        if (!pendingVerify) return true
-        // pendingVerify=true: only block if within the 30s verify window (with 90s buffer)
-        val pendingAgeMs = if (entryTime > 0L) System.currentTimeMillis() - entryTime else Long.MAX_VALUE
-        return pendingAgeMs >= 120_000L  // treat as open after 120s regardless
+        return !pendingVerify
     }
     // True when tokens exist on-chain regardless of verify state — used for
     // fee accounting and capital exposure calculations.
