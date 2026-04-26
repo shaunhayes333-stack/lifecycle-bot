@@ -1043,14 +1043,18 @@ object FluidLearningAI {
 
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.9.31: FLUID FLAT-TRADE CAP
-    // Was hard-coded: 5 min hold + |pnl|<1.5% → cap at 20min. Now learned.
-    // Bot's flat-trade tolerance shrinks as it gets better at reading momentum.
-    //   Bootstrap (0%):   10 min tolerance, |pnl|<2.5% — patient, still learning
-    //   Mature   (80%):    4 min tolerance, |pnl|<1.0% — impatient, high conviction
-    //   Expert  (100%):    3 min tolerance, |pnl|<0.75% — expert cuts noise fast
+    // V5.9.304: V5.9.190-198 ERA RESTORATION — band 2.5%→1.0% tolerance 10→15 min.
+    // Old config was force-exiting ANY trade hovering in ±2.5% after 10 min as a
+    // "flat" scratch. Real moves frequently spend 10-15 min in ±1.5% before
+    // breaking out — 47% of trades in V5.9.303 were getting killed right here
+    // in this band. Tightening the band to ±1.0% lets normal price action
+    // breathe; the genuinely dead trades (within ±1%) still get evicted.
+    //   Bootstrap (0%):   15 min tolerance, |pnl|<1.0% — patient, real moves develop
+    //   Mature   (80%):    5 min tolerance, |pnl|<0.6% — sharper, faster cuts
+    //   Expert  (100%):    3 min tolerance, |pnl|<0.4% — expert cuts noise fast
     // ═══════════════════════════════════════════════════════════════════════════
-    fun getFlatTradeToleranceMin(): Double = lerp(10.0, 3.0)
-    fun getFlatTradeBandPct(): Double = lerp(2.5, 0.75)
+    fun getFlatTradeToleranceMin(): Double = lerp(15.0, 3.0)
+    fun getFlatTradeBandPct(): Double = lerp(1.0, 0.4)
     fun getFlatTradeMaxHoldMin(): Double = lerp(30.0, 15.0)
     
     /** Get fluid stop loss target for Markets trading - V5.7.6b: Uses Markets-specific progress */

@@ -75,8 +75,12 @@ object CryptoAltTrader {
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
 
     // V5.9.221: Stagnant + loser eviction thresholds
-    private const val STAGNANT_MIN_HOLD_MS  = 10 * 60 * 1000L  // V5.9.272: 15→10 min — flat tokens proven dead in 10min
-    private const val STAGNANT_MAX_PNL_PCT  = 0.5               // V5.9.229: ±0.5% = truly stagnant (was ±1% — evicted too many flat→pump setups)
+    // V5.9.221: STAGNANT/LOSER eviction — DEEP REVISION
+    // V5.9.304: V5.9.190-198 ERA RESTORATION — only TRULY DEAD positions evicted.
+    // 10min/±0.5% was scratch-killing live setups that were quietly building.
+    // Now: 15min hold AND ±0.3% band — only stone-dead positions get evicted.
+    private const val STAGNANT_MIN_HOLD_MS  = 15 * 60 * 1000L  // V5.9.304: 10→15 min — let setups develop
+    private const val STAGNANT_MAX_PNL_PCT  = 0.3              // V5.9.304: 0.5→0.3 — only TRULY flat = stagnant
     private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
     private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
     private const val DEADWEIGHT_HOLD_MS    = 20 * 60 * 1000L  // V5.9.272: 30→20 min — cap max hold for stale alts
