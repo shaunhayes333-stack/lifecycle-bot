@@ -221,7 +221,7 @@ object FinalDecisionGate {
     var kellyFraction = 0.5
     var maxKellySize = 0.10
 
-    private const val CONF_FLOOR_BOOTSTRAP = 6.0   // V5.9.263: balanced (was 10 at V5.9.260)
+    private const val CONF_FLOOR_BOOTSTRAP = 8.0   // V5.9.266: moderate (was 6 at V5.9.263)
     private const val CONF_FLOOR_MATURE = 60.0
 
     var paperConfidenceBase = 8.0  // V5.9.184: was 3.0 — raises bootstrap WR floor toward 25-50% target
@@ -920,7 +920,7 @@ object FinalDecisionGate {
 
         val toxicPatternFlags = mutableListOf<String>()
         if (isCGrade) toxicPatternFlags.add("quality_C")
-        if (confidence < 25.0) toxicPatternFlags.add("conf<25")  // V5.9.263: balanced (was conf<35 at V5.9.260)
+        if (confidence < 28.0) toxicPatternFlags.add("conf<28")  // V5.9.266: moderate (was conf<25 at V5.9.263)
         // V5.9.63: was memory<=-8 — combined with quality_C + AI_degraded
         // (which is the default state in paper for any fresh meme) this
         // formed a 3-flag HARD_KILL too easily. Tightened to <=-14 so

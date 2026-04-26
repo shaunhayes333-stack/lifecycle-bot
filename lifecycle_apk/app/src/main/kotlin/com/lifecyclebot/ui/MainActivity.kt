@@ -1724,6 +1724,44 @@ for legal compliance.
                 winRate > 0 -> red
                 else -> muted  // Show muted for 0% (no data)
             })
+
+            // V5.9.266 — W/L/S 3-bucket pill below the WR tile.
+            // The WR % alone hides the scratch-bleed (53% of trades land
+            // between -2% and +0.5% — pure fee bleed). This sub-line gives
+            // the user the full truth at a glance.
+            try {
+                val parent = tvStatsWinRate.parent as? android.widget.LinearLayout
+                if (parent != null) {
+                    val tag = "wls_subline"
+                    var sub = parent.findViewWithTag<TextView>(tag)
+                    if (sub == null) {
+                        sub = TextView(this).apply {
+                            this.tag = tag
+                            textSize = 9f
+                            setPadding(0, (2 * resources.displayMetrics.density).toInt(), 0, 0)
+                        }
+                        parent.addView(sub)
+                    }
+                    val w = persistedStats.totalWins
+                    val l = persistedStats.totalLosses
+                    val s = persistedStats.totalScratches
+                    val totalNonScratch = w + l
+                    val rawWr = if (totalNonScratch > 0) w * 100.0 / totalNonScratch else 0.0
+                    val totalAll = w + l + s
+                    val effectiveWr = if (totalAll > 0) w * 100.0 / totalAll else 0.0
+                    sub.text = "${w}W ${l}L ${s}S"
+                    sub.setTextColor(when {
+                        // Scratch share warning — paint the sub-line amber when
+                        // > 40% of trades are scratches (fee bleed dominant).
+                        s > 0 && totalAll > 0 && s.toDouble() / totalAll > 0.40 -> amber
+                        rawWr >= 50 -> green
+                        rawWr >= 30 -> amber
+                        else -> muted
+                    })
+                    sub.contentDescription =
+                        "Pure WR ${"%.1f".format(rawWr)}% • Effective ${"%.1f".format(effectiveWr)}% (incl scratches)"
+                }
+            } catch (_: Exception) { /* never crash on UI sub-injection */ }
             
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT

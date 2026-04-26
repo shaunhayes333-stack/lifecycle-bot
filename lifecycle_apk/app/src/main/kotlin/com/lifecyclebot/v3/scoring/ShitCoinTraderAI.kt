@@ -65,7 +65,7 @@ object ShitCoinTraderAI {
     private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 1_500.0   // V5.9.263: balanced (was 3_000 at V5.9.194/260)
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0   // V5.9.266: moderate (was 1_500 at V5.9.263)
     private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: $5K hard floor when mature
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
@@ -1179,11 +1179,11 @@ object ShitCoinTraderAI {
     // Bootstrap needs MORE trades for learning, not fewer
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
-    private const val SC_SCORE_BOOTSTRAP = 18         // V5.9.263: balanced (V5.9.260=30 too tight, V5.9.180=5 too loose)
+    private const val SC_SCORE_BOOTSTRAP = 22         // V5.9.266: moderate (was 18 at V5.9.263)
     private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 15          // V5.9.263: balanced (was 30 at V5.9.260)
+    private const val SC_CONF_BOOTSTRAP = 20          // V5.9.266: moderate (was 15 at V5.9.263)
     private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     

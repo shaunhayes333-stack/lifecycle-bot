@@ -239,9 +239,9 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 22.0  // V5.9.263: balanced (was 40 at V5.9.260)
-    private const val MIN_SCORE_BOOTSTRAP = 25           // V5.9.263: balanced (was 45 at V5.9.260)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 2500.0   // V5.9.263: balanced (was 5000 at V5.9.260)
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 28.0  // V5.9.266: moderate (was 22 at V5.9.263)
+    private const val MIN_SCORE_BOOTSTRAP = 32           // V5.9.266: moderate (was 25 at V5.9.263)
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 3500.0   // V5.9.266: moderate (was 2500 at V5.9.263)
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -870,7 +870,7 @@ object FluidLearningAI {
     // CONFIDENCE THRESHOLDS (Used by FDG, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val CONF_BOOTSTRAP = 18.0    // V5.9.263: balanced (was 30 at V5.9.260)
+    private const val CONF_BOOTSTRAP = 22.0    // V5.9.266: moderate (was 18 at V5.9.263)
     private const val CONF_MATURE = 75.0       // 75% confidence when mature
     
     private const val CONF_PAPER_BOOTSTRAP = 3.0    // V5.9.174: was 15 — user demand
@@ -890,7 +890,7 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 12     // V5.9.263: balanced (was 20 at V5.9.260)
+    private const val SCORE_BOOTSTRAP = 15     // V5.9.266: moderate (was 12 at V5.9.263)
     private const val SCORE_MATURE = 40  // V5.9.184: raised to target 50%+ WR in mature phase
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
@@ -948,19 +948,19 @@ object FluidLearningAI {
     // V5.1: SLIGHTLY LOWERED to allow more trading during bootstrap
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 18   // V5.9.263: balanced (was 30 at V5.9.260)
+    private const val TREASURY_CONF_BOOTSTRAP = 22   // V5.9.266: moderate (was 18 at V5.9.263)
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
-    private const val TREASURY_LIQ_BOOTSTRAP = 1500.0    // V5.9.263: balanced (was 3000 at V5.9.260)
+    private const val TREASURY_LIQ_BOOTSTRAP = 2000.0    // V5.9.266: moderate (was 1500 at V5.9.263)
     private const val TREASURY_LIQ_MATURE = 10000.0      // Raise threshold as we learn
     
-    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 50.0  // V5.9.263: balanced (was 40 at V5.9.260)
+    private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 45.0  // V5.9.266: moderate (was 50 at V5.9.263)
     private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn
     
-    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 20.0  // V5.9.263: balanced (was 35 at V5.9.260)
+    private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.266: moderate (was 20 at V5.9.263)
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 9     // V5.9.263: balanced (was 15 at V5.9.260)
+    private const val TREASURY_SCORE_BOOTSTRAP = 11    // V5.9.266: moderate (was 9 at V5.9.263)
     private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
@@ -975,16 +975,16 @@ object FluidLearningAI {
     // V5.7.6b: BROADENED to match Meme trader philosophy - loose bootstrap, tight mature
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // SPOT trading thresholds — V5.9.263: balanced midpoint (was 40/45 at V5.9.260)
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 22
+    // SPOT trading thresholds — V5.9.266: moderate (was 22/24 at V5.9.263)
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 28
     private const val MARKETS_SPOT_SCORE_MATURE = 60
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 24
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 30
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
-    // LEVERAGE trading thresholds — V5.9.263: balanced midpoint (was 42/45 at V5.9.260)
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 24
+    // LEVERAGE trading thresholds — V5.9.266: moderate (was 24/26 at V5.9.263)
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 30
     private const val MARKETS_LEV_SCORE_MATURE = 70
-    private const val MARKETS_LEV_CONF_BOOTSTRAP = 26
+    private const val MARKETS_LEV_CONF_BOOTSTRAP = 32
     private const val MARKETS_LEV_CONF_MATURE = 70
     
     // Take Profit targets - WIDER range for learning

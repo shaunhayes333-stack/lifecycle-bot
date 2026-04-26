@@ -34,8 +34,8 @@ object ReentryGuard {
     private const val GLOBAL_RESET_HOURS = 24                      // Full reset after 24h
     
     // Memory score floor - below this = hard block
-    // V5.9.263: balanced (was -0.3 at V5.9.260, -5.0 at V5.9.180) — let mildly bad tokens retry
-    private const val MEMORY_SCORE_FLOOR = -2.0
+    // V5.9.266: moderate (was -2.0 at V5.9.263)
+    private const val MEMORY_SCORE_FLOOR = -1.0
     
     // ═══════════════════════════════════════════════════════════════════
     // LOCKOUT TRACKING

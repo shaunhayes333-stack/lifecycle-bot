@@ -488,7 +488,7 @@ object SolanaArbAI {
     // FLUID THRESHOLDS
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val ARB_CONF_BOOTSTRAP = 50   // V5.9.263: balanced (was 90 at V5.9.260)
+    private const val ARB_CONF_BOOTSTRAP = 65   // V5.9.266: moderate (was 50 at V5.9.263)
     private const val ARB_CONF_MATURE = 75      // Can be more aggressive when experienced
     
     private fun getFluidConfidenceThreshold(): Int {
