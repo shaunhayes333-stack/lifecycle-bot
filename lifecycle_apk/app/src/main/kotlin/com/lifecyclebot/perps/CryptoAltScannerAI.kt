@@ -363,5 +363,5 @@ object CryptoAltScannerAI {
         return sectorHeatCache.toMap()
     }
 
-    private fun Double.fmt(d: Int): String = "%.${d}f".format(this)
+    // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }

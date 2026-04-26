@@ -181,7 +181,7 @@ object SwitchboardOracle {
         priceCache.clear()
     }
     
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
+    // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
 
 /**
@@ -384,7 +384,7 @@ object JupiterPriceOracle {
     fun isSupported(symbol: String): Boolean = TOKEN_MINTS.containsKey(symbol)
     fun getSupportedSymbols(): List<String> = TOKEN_MINTS.keys.toList()
     
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
+    // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
 
 /**

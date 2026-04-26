@@ -702,5 +702,5 @@ object PerpsAutoReplayLearner {
         val lastReplayTime: Long,
     )
     
-    private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
+    // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }

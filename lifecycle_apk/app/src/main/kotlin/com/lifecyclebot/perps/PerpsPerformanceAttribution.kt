@@ -333,5 +333,5 @@ object PerpsPerformanceAttribution {
         ErrorLogger.info(TAG, "📊 Attribution data reset")
     }
     
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
+    // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
