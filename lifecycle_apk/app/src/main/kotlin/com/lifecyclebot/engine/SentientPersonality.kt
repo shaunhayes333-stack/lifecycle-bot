@@ -943,9 +943,10 @@ object SentientPersonality {
         val botLine = try {
             val s = BotService.status
             val runTag = if (s.running) "RUNNING" else "STOPPED"
-            val isPaper = try { com.lifecyclebot.data.ConfigStore.load(
-                BotService.instance?.applicationContext ?: return@try "bot: ctx_null"
-            ).paperMode } catch (_: Throwable) { true }
+            val ctx = BotService.instance?.applicationContext
+            val isPaper = if (ctx == null) true else {
+                try { com.lifecyclebot.data.ConfigStore.load(ctx).paperMode } catch (_: Throwable) { true }
+            }
             val modeTag = if (isPaper) "PAPER" else "LIVE"
             "bot: $runTag[$modeTag] · meme_open=${s.openPositionCount} · all_open=$totalOpen · paperSol=${fmt1(s.paperWalletSol)} · liveSol=${fmt1(s.walletSol)}"
         } catch (_: Throwable) {
