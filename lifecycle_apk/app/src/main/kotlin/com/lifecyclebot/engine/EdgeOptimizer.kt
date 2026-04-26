@@ -465,7 +465,11 @@ object EdgeOptimizer {
             confidence += ((phase.buyPressure - 55) / 45.0) * 20.0
         }
         
-        return confidence.coerceIn(0.0, 100.0)
+        // V5.9.311: Floor at 8.0 to prevent mass-collapse to 0% on DEAD/DISTRIBUTION
+        // phase signals. True 0% is reserved for malformed/null candidates only,
+        // restoring V5.9.198-era trade volume (1000+/day) without breaking safety
+        // gates downstream (qualityPenalty + sizing + edgeVeto still apply).
+        return confidence.coerceIn(8.0, 100.0)
     }
     
     // ═══════════════════════════════════════════════════════════════════

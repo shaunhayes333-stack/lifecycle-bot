@@ -1124,11 +1124,14 @@ class LifecycleStrategy(
         val isVeryLowConfidence = edgeConfidence < 25.0
         
         val shouldTradeBase = when {
-            // HARD BLOCK: Zero confidence = NEVER trade (paper or live)
-            isZeroConfidence -> false
+            // HARD BLOCK: Zero confidence in LIVE mode only (paper still learns)
+            isZeroConfidence && !isPaperMode -> false
             
-            // HARD BLOCK: Edge SKIP + very low confidence = don't trade even in paper
-            edgeVeto && isVeryLowConfidence -> false
+            // HARD BLOCK: Edge SKIP + very low confidence — LIVE only.
+            // V5.9.311: Paper mode allows these for learning (matches V5.9.198 era
+            // 1000+ trades/day target). Quality penalty + smart sizing keep loss
+            // exposure tiny on weak setups, while feeding the AI training funnel.
+            edgeVeto && isVeryLowConfidence && !isPaperMode -> false
             
             // Paper mode: Allow edge vetoed trades if confidence is reasonable (learning)
             isPaperMode -> rawSignal == "BUY" && !ts.position.isOpen
@@ -1138,8 +1141,8 @@ class LifecycleStrategy(
         }
         
         val blockReason = when {
-            isZeroConfidence -> "Zero confidence (0%) = no trade"
-            edgeVeto && isVeryLowConfidence -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%)"
+            isZeroConfidence && !isPaperMode -> "Zero confidence (0%) = no trade [LIVE]"
+            edgeVeto && isVeryLowConfidence && !isPaperMode -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%) [LIVE]"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"
