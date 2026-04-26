@@ -709,12 +709,18 @@ object BlueChipTraderAI {
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
     // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
-    private const val BC_SCORE_BOOTSTRAP = 28       // V5.9.300: 22→28 (per-trader strict gate)
+    // V5.9.308: V5.9.198 DEEP-BOOTSTRAP RESTORE — first 500 trades use original 17 floor
+    // so the bot has real volume to bootstrap; ramps to 28 after 500, lerps to mature.
+    private const val BC_SCORE_BOOTSTRAP_DEEP = 17  // V5.9.308: V5.9.198 era value (sessionTrades<500)
+    private const val BC_SCORE_BOOTSTRAP = 28       // V5.9.300: per-trader strict gate after 500 trades
     private const val BC_SCORE_MATURE = 38
 
     // V5.9.83: Conf floor raised so initial entries are higher-conviction.
-    private const val BC_CONF_BOOTSTRAP = 28        // V5.9.300: 17→28 (per-trader strict gate)
+    private const val BC_CONF_BOOTSTRAP_DEEP = 17   // V5.9.308: V5.9.198 era value (sessionTrades<500)
+    private const val BC_CONF_BOOTSTRAP = 28        // V5.9.300: per-trader strict gate after 500 trades
     private const val BC_CONF_MATURE = 48
+    
+    private const val BC_DEEP_BOOTSTRAP_TRADES = 500  // V5.9.308: V5.9.198 era window length
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
@@ -736,10 +742,17 @@ object BlueChipTraderAI {
         return BC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
     }
     
-    fun getFluidScoreThreshold(): Int = lerp(BC_SCORE_BOOTSTRAP.toDouble(), BC_SCORE_MATURE.toDouble()).toInt()
+    fun getFluidScoreThreshold(): Int {
+        // V5.9.308: V5.9.198 deep-bootstrap relief (first 500 trades = 17 floor)
+        val totalTrades = try { FluidLearningAI.getTotalTradeCount() } catch (_: Exception) { 9999 }
+        val bootstrapVal = if (totalTrades < BC_DEEP_BOOTSTRAP_TRADES) BC_SCORE_BOOTSTRAP_DEEP else BC_SCORE_BOOTSTRAP
+        return lerp(bootstrapVal.toDouble(), BC_SCORE_MATURE.toDouble()).toInt()
+    }
     
     fun getFluidConfidenceThreshold(): Int {
-        val baseConf = lerp(BC_CONF_BOOTSTRAP.toDouble(), BC_CONF_MATURE.toDouble())
+        val totalTrades = try { FluidLearningAI.getTotalTradeCount() } catch (_: Exception) { 9999 }
+        val bootstrapVal = if (totalTrades < BC_DEEP_BOOTSTRAP_TRADES) BC_CONF_BOOTSTRAP_DEEP else BC_CONF_BOOTSTRAP
+        val baseConf = lerp(bootstrapVal.toDouble(), BC_CONF_MATURE.toDouble())
         val boost = getBootstrapConfBoost()
         // During bootstrap: 25% base + 10% boost = 35% effective
         // At maturity: 50% base + 0% boost = 50% effective

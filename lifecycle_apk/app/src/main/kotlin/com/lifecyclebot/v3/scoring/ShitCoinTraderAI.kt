@@ -1254,13 +1254,19 @@ object ShitCoinTraderAI {
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
-    // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
-    private const val SC_SCORE_BOOTSTRAP = 30         // V5.9.300: 18→30 (per-trader strict gate)
+    // V5.9.308: V5.9.198 DEEP-BOOTSTRAP RESTORE — first 500 closed trades use the original
+    // floor of 17/17 so the bot has real volume to bootstrap layer learning.
+    // After 500 trades, ramp to 30/30, lerp to 50/55 at full maturity.
+    private const val SC_SCORE_BOOTSTRAP_DEEP = 17    // V5.9.308: V5.9.198 era value (sessionTrades<500)
+    private const val SC_SCORE_BOOTSTRAP = 30         // V5.9.300: per-trader strict gate after 500 trades
     private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 30          // V5.9.300: 18→30 (per-trader strict gate)
+    private const val SC_CONF_BOOTSTRAP_DEEP = 17     // V5.9.308: V5.9.198 era value (sessionTrades<500)
+    private const val SC_CONF_BOOTSTRAP = 30          // V5.9.300: per-trader strict gate after 500 trades
     private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
+    
+    private const val SC_DEEP_BOOTSTRAP_TRADES = 500  // V5.9.308: V5.9.198 era window length
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
@@ -1278,10 +1284,17 @@ object ShitCoinTraderAI {
         return SC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
     }
     
-    fun getFluidScoreThreshold(): Int = lerp(SC_SCORE_BOOTSTRAP.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
+    fun getFluidScoreThreshold(): Int {
+        // V5.9.308: V5.9.198 deep-bootstrap relief (first 500 closed trades = 17 floor)
+        val totalTrades = try { FluidLearningAI.getTotalTradeCount() } catch (_: Exception) { 9999 }
+        val bootstrapVal = if (totalTrades < SC_DEEP_BOOTSTRAP_TRADES) SC_SCORE_BOOTSTRAP_DEEP else SC_SCORE_BOOTSTRAP
+        return lerp(bootstrapVal.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
+    }
     
     fun getFluidConfidenceThreshold(): Int {
-        val baseConf = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble())
+        val totalTrades = try { FluidLearningAI.getTotalTradeCount() } catch (_: Exception) { 9999 }
+        val bootstrapVal = if (totalTrades < SC_DEEP_BOOTSTRAP_TRADES) SC_CONF_BOOTSTRAP_DEEP else SC_CONF_BOOTSTRAP
+        val baseConf = lerp(bootstrapVal.toDouble(), SC_CONF_MATURE.toDouble())
         val boost = getBootstrapConfBoost()
         // During bootstrap: 25% base + 10% boost = 35% effective
         // At maturity: 50% base + 0% boost = 50% effective
