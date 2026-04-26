@@ -261,25 +261,29 @@ object CashGenerationAI {
 
     fun addToTreasury(profitSol: Double, isPaper: Boolean) {
         if (profitSol <= 0) return
-        // V5.9.53: removed 100 SOL per-trade cap — legitimate big wins were truncated.
-        // The 100 SOL/trade limit was meant for oracle-spike protection but excluded real gains.
-        val bps = (profitSol * 100).toLong()
+        // V5.9.284: Per-call sanity guard — single trade profit cannot exceed 50 SOL for live.
+        // Prevents oracle spikes or fee miscalculations from pumping the live treasury counter.
+        val sanitizedProfit = if (!isPaper) profitSol.coerceAtMost(50.0) else profitSol
+        if (sanitizedProfit != profitSol) {
+            ErrorLogger.warn(TAG, "💰 TREASURY addToTreasury CLAMPED: ${profitSol.fmt(4)} → ${sanitizedProfit.fmt(4)} SOL (live 50 SOL/call cap)")
+        }
+        val bps = (sanitizedProfit * 100).toLong()
 
-        // Treasury total cap raised to 100,000 SOL — previous 1000 SOL cap excluded large profits
-        val MAX_TREASURY_BPS = 10_000_000_00L  // 100,000 SOL max
+        // Treasury total cap: live=1000 SOL max, paper=100k SOL max
+        val MAX_TREASURY_BPS = if (!isPaper) 100_000L else 10_000_000_00L
         
         if (isPaper) {
             val newBalance = paperTreasuryBalanceBps.addAndGet(bps)
-            // Cap total balance
             if (newBalance > MAX_TREASURY_BPS) {
                 paperTreasuryBalanceBps.set(MAX_TREASURY_BPS)
-                ErrorLogger.warn(TAG, "💰 TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0})")
+                ErrorLogger.warn(TAG, "💰 PAPER TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0})")
             }
         } else {
             val newBalance = liveTreasuryBalanceBps.addAndGet(bps)
             if (newBalance > MAX_TREASURY_BPS) {
                 liveTreasuryBalanceBps.set(MAX_TREASURY_BPS)
-                ErrorLogger.warn(TAG, "💰 TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0})")
+                // V5.9.284: Hard cap at 1000 SOL for live treasury to prevent phantom inflation
+                ErrorLogger.warn(TAG, "💰 LIVE TREASURY CAPPED at ${MAX_TREASURY_BPS/100.0} SOL (was ${newBalance/100.0}) — possible accumulation artifact")
             }
         }
         ErrorLogger.info(
@@ -373,11 +377,17 @@ object CashGenerationAI {
             }
 
             // Restore live treasury balance
+            // V5.9.284: Hard sanity cap at 1000 SOL on restore — values above this are
+            // accumulation artifacts (auto-compound routing errors, fee tracking overflow,
+            // etc). A real live session starting from <1 SOL wallet cannot legitimately
+            // accumulate >1000 SOL in treasury. This prevents the 14107 SOL phantom balance
+            // from inflating position sizing via SIZE CALC.
+            val LIVE_TREASURY_SANITY_CAP_BPS = 100_000L  // 1000 SOL
             val savedLiveBps = obj.optLong("live_treasury_bps", 0L)
             if (savedLiveBps > 0) {
-                val cappedLiveBps = savedLiveBps.coerceAtMost(10_000_000L)
+                val cappedLiveBps = savedLiveBps.coerceAtMost(LIVE_TREASURY_SANITY_CAP_BPS)
                 if (savedLiveBps != cappedLiveBps) {
-                    ErrorLogger.warn(TAG, "💾 TREASURY CORRUPTED: live=${savedLiveBps/100.0} SOL — clamped to ${cappedLiveBps/100.0} SOL")
+                    ErrorLogger.warn(TAG, "💾 TREASURY CORRUPTED: live=${savedLiveBps/100.0} SOL > 1000 SOL sanity cap — reset to ${cappedLiveBps/100.0} SOL")
                 }
                 liveTreasuryBalanceBps.set(cappedLiveBps)
             }

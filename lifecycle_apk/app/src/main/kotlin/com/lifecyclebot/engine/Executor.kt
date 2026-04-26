@@ -6410,6 +6410,12 @@ class Executor(
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
         
+        // V5.9.284: Clear any pending sell queue entry on confirmed exit — prevents
+        // duplicate SELL_START on the next BotService loop when the sell succeeded
+        // but a stale entry was still sitting in PendingSellQueue (enqueued by an
+        // earlier FAILED_RETRYABLE attempt that preceded the successful sell).
+        try { PendingSellQueue.remove(ts.mint) } catch (_: Exception) {}
+
         onLog("✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%", tradeId.mint)
         ErrorLogger.info("Executor", "✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%")
 
