@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 6    // V5.9.218: 12→6 — concentrated quality
+    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.9.316: REVERT V5.9.218 6→12 — restore build #1941 fan-out
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
@@ -747,8 +747,8 @@ object ShitCoinTraderAI {
             momentum >= 10 -> 15
             momentum >= 5 -> 10
             momentum >= 2 -> 7
-            momentum >= 0 -> 0     // V5.9.218: flat=0 (was 3) — no score for flat tokens
-            momentum >= -5 -> -5   // V5.9.218: slight negative for fading momentum
+            momentum >= 0 -> 3     // V5.9.316: REVERT V5.9.218 — flat=3 (build #1941)
+            momentum >= -5 -> 0    // V5.9.316: REVERT V5.9.218 — slight fade=0 (build #1941)
             else -> -15
         }
         shitScore += momentumScore
@@ -880,33 +880,11 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
-        // V5.9.275: HARD GATE — restored to balanced thresholds
-        // V5.9.242/245 over-tightened (<=2 && <62) → collapsed trade volume without improving WR
-        // Root cause of 6% WR was not the momentum floor but dead exit timing (see TIME_EXIT fix)
-        // New thresholds: block FLAT (<=0%) unless buyPressure strong, block CLEAR FADE (<-3%)
-        val hardGateFlatStale   = momentum <= 0.0 && buyPressurePct < 58.0   // V5.9.275: <=2→<=0, 62→58
-        val hardGateClearlyFade = momentum < -3.0                              // V5.9.275: <-2→<-3
-        if (hardGateFlatStale || hardGateClearlyFade) {
-            val gateReason = if (hardGateClearlyFade)
-                "HARD_GATE_FADE: mom=${"%+.1f".format(momentum)}%"
-            else
-                "HARD_GATE_STALE: mom=${"%+.1f".format(momentum)}% buyP=${buyPressurePct.toInt()}% < 58%"
-            return ShitCoinSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = shitConfidence,
-                reason = gateReason,
-                mode = mode,
-                isPaperMode = isPaperMode,
-                launchPlatform = launchPlatform,
-                riskLevel = riskLevel,
-                socialScore = socialBonus,
-                bundleWarning = bundleWarning,
-                graduationImminent = graduationImminent,
-            )
-        }
+        // V5.9.316: REMOVED V5.9.218/V5.9.275 HARD GATES — they over-filtered
+        // entries that produced 500%+ trades in build #1941. Soft scoring
+        // already reflects momentum/buyPressure; threshold check below is
+        // the proper filter, not a hard cut. The user explicitly requested
+        // restoration of pre-V5.9.218 fan-out behavior.
 
         // Check thresholds
         val passesScore = shitScore >= minScore
@@ -1157,7 +1135,7 @@ object ShitCoinTraderAI {
         
         // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS
         // This should NEVER be exceeded, regardless of other conditions
-        val HARD_FLOOR_STOP_PCT = -12.0  // V5.9.218: -20→-12% — meme at -20% is dead anyway
+        val HARD_FLOOR_STOP_PCT = -20.0  // V5.9.316: REVERT V5.9.218 -12→-20 — meme wicks need room (build #1941)
         if (pnlPct <= HARD_FLOOR_STOP_PCT) {
             ErrorLogger.warn(TAG, "💩🛑 HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
             return ExitSignal.STOP_LOSS

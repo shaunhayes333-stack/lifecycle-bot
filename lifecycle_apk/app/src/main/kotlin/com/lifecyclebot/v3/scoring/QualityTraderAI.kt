@@ -70,7 +70,7 @@ object QualityTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
     private const val MAX_POSITION_SOL = 0.25           // Up to 0.25 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 5      // V5.9.218: 10→5 — quality filter
+    private const val MAX_CONCURRENT_POSITIONS = 10     // V5.9.316: REVERT V5.9.218 5→10 — restore build #1941 fan-out
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start
@@ -78,8 +78,8 @@ object QualityTraderAI {
     // V5.9.189: Tighter SL for better risk:reward
     // TP is 15-50%, SL must be < half of TP. -6% bootstrap → -8% mature (not -12%!)
     // Losses MUST be smaller than wins. -12% SL with 15% TP = terrible R:R
-    private const val STOP_LOSS_BOOTSTRAP = -6.0        // 6% stop at start (tight = small losses)
-    private const val STOP_LOSS_MATURE = -8.0           // 8% stop when mature
+    private const val STOP_LOSS_BOOTSTRAP = -8.0         // V5.9.316: REVERT V5.9.218 -6→-8 (build #1941)
+    private const val STOP_LOSS_MATURE = -12.0           // V5.9.316: REVERT V5.9.218 -8→-12 (build #1941)
     private const val MAX_HOLD_MINUTES = 60             // Up to 1 hour hold
     
     // Quality filters
@@ -356,10 +356,10 @@ object QualityTraderAI {
         // V5.9.191: bootstrap 20→15, mature 40→35 — easier entry during learning phase
         val minScore = (15 + learningProgress * 20).toInt().coerceIn(15, 35)
 
-        // V5.9.218: HARD GATE — reject tokens where majority is selling
-        if (buyPressure < 50) {
-            return QualitySignal(false, reason = "HARD_GATE: Quality needs ≥50% buy pressure, got $buyPressure%", qualityScore = qualityScore)
-        }
+        // V5.9.316: REMOVED V5.9.218 HARD_GATE for buy pressure < 50%.
+        // Build #1941 era used soft scoring — qualityScore already includes
+        // buyPressure as a factor. The hard gate was over-filtering valid
+        // entries with sparse/lagging buy-pressure data.
 
         if (qualityScore < minScore) {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)

@@ -80,12 +80,11 @@ object MoonshotTraderAI {
     private const val BASE_POSITION_SOL = 0.08
     private const val MAX_POSITION_SOL = 0.40
     private const val MAX_CONCURRENT_POSITIONS = 10  // V5.2.12: Raised for paper learning
-    // V5.9.159 — bootstrap cap lift. Mature caps (10) are appropriate once the
-    // bot is past 40% learning; during bootstrap we want the trader to hold up
-    // to 30 positions simultaneously so the scorer can accumulate real outcomes
-    // across many mcap bands / modes concurrently instead of waiting for one
-    // of 10 slots to close.
-    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 8  // V5.9.218: 30→8 — moonshot quality gate
+    // V5.9.316: REVERT V5.9.218 cap reduction. Restored bootstrap cap of 30
+    // (build #1941 era) so the trader can fan out across many mcap bands /
+    // modes concurrently during bootstrap learning. The 8-slot V5.9.218
+    // "quality gate" was strangling the moonshot discovery surface.
+    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 30
     private fun effectiveMaxPositions(): Int = try {
         if (FluidLearningAI.getLearningProgress() < 0.40) MAX_CONCURRENT_POSITIONS_BOOTSTRAP
         else MAX_CONCURRENT_POSITIONS
@@ -94,10 +93,12 @@ object MoonshotTraderAI {
     // Cross-trade promotion threshold
     private const val CROSS_TRADE_PROMOTION_PCT = 200.0  // 200%+ gain = promote to Moonshot
     
-    // V5.9.235 — Hard entry gates (mirrors ShitCoin/Quality pattern)
-    private const val MIN_BUY_PRESSURE_PCT = 55.0   // Hard reject if buying <55%
-    private const val MIN_VOLUME_SCORE = 5           // Hard reject if zero momentum
-    private const val HARD_FLOOR_STOP = -15.0        // Absolute floor SL regardless of mode (was -20%)
+    // V5.9.316: REMOVED V5.9.235 base44 hard gates. The 55% buy-pressure /
+    // 5 volume / tilt-protection rejects were filtering out the very tokens
+    // that produced 500%+ trades in build #1941 — early pump.fun launches
+    // with sparse buy-pressure data and lopsided volume profiles. Soft
+    // scoring still penalises weak signals; FluidLearningAI gates per-trader.
+    private const val HARD_FLOOR_STOP = -20.0        // V5.9.316: -15→-20 (build #1941 era)
     private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
     private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
 
@@ -435,33 +436,12 @@ object MoonshotTraderAI {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
 
-        // V5.9.235 ── HARD ENTRY GATES (prevents 100% loss rugs) ────────────────
-        // V5.9.240: During bootstrap (<40% learning) buy-pressure data is
-        // sparse/un-populated for freshly added tokens. Relax the hard gate
-        // to 45% during that phase so new memes get evaluated rather than
-        // silently rejected before FluidLearningAI builds a track record.
-        val moonshotBootstrap = try {
-            FluidLearningAI.getLearningProgress() < 0.40
-        } catch (_: Exception) { false }
-        val effectiveMinBuyPressure = if (moonshotBootstrap) 45.0 else MIN_BUY_PRESSURE_PCT
-        val effectiveMinVolume = if (moonshotBootstrap) 2 else MIN_VOLUME_SCORE
-
-        // Gate 1: buy pressure — moonshots need real demand behind them
-        if (buyPressurePct < effectiveMinBuyPressure) {
-            return MoonshotScore(false, 0, 0.0,
-                "moon_hard_reject_buy_pressure_${buyPressurePct.toInt()}_<_${effectiveMinBuyPressure.toInt()}${if (moonshotBootstrap) "_boot" else ""}")
-        }
-        // Gate 2: volume — dead tokens with no momentum are rug magnets
-        if (volumeScore < effectiveMinVolume) {
-            return MoonshotScore(false, 0, 0.0,
-                "moon_hard_reject_volume_${volumeScore}_<_${effectiveMinVolume}${if (moonshotBootstrap) "_boot" else ""}")
-        }
-        // Gate 3: BehaviorAI tilt protection — don't YOLO moonshots while tilted
-        val isTilted = try { com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive() } catch (_: Exception) { false }
-        if (isTilted) {
-            return MoonshotScore(false, 0, 0.0, "moon_hard_reject_tilt_protection")
-        }
-        // ── END HARD GATES ────────────────────────────────────────────────────────────
+        // V5.9.316: REVERTED V5.9.235 base44 HARD ENTRY GATES — they were
+        // strangling moonshot entries. Build #1941 era found 500% trades by
+        // letting fresh launches with sparse data through to the scorer,
+        // which weighs buy pressure / volume as SOFT signals (not hard cuts).
+        // Soft-scoring branches downstream still penalise weak setups.
+        // ── END HARD GATES (NOW REMOVED) ────────────────────────────────────────
         
         // ─── DETECT IF COLLECTIVE WINNER ───
         val isCollective = collectiveWinners.containsKey(mint)
