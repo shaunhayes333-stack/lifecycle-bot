@@ -350,6 +350,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         // ── 2. Mint authority
+        // V5.9.310: UNKNOWN ≠ SAFE in LIVE. Bernard's bot bought a token whose mint
+        // status was unknown; turned out to have a freeze that locked his tokens.
+        // Hard rule: any uncertainty about mint/freeze authority → BLOCK live.
         when (mintDisabled) {
             false -> {
                 if (isPaperMode) {
@@ -360,13 +363,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             null -> {
-                soft.add("Mint authority status unknown" to 5)
-                penalty += 5
+                if (isPaperMode) {
+                    soft.add("Mint authority status unknown" to 5)
+                    penalty += 5
+                } else {
+                    hard.add("Mint authority status UNKNOWN — refusing live buy until verified")
+                    ErrorLogger.error(TAG, "🚫 MINT-AUTH UNKNOWN HARD BLOCK (live): $symbol")
+                }
             }
             true -> Unit
         }
 
-        // ── 3. Freeze authority
+        // ── 3. Freeze authority — V5.9.310: same UNKNOWN→BLOCK hardening
         when (freezeDisabled) {
             false -> {
                 if (isPaperMode) {
@@ -377,46 +385,68 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             null -> {
-                soft.add("Freeze authority status unknown" to 5)
-                penalty += 5
+                if (isPaperMode) {
+                    soft.add("Freeze authority status unknown" to 5)
+                    penalty += 5
+                } else {
+                    hard.add("Freeze authority status UNKNOWN — refusing live buy until verified")
+                    ErrorLogger.error(TAG, "🚫 FREEZE-AUTH UNKNOWN HARD BLOCK (live): $symbol")
+                }
             }
             true -> Unit
         }
 
-        // ── 4. LP lock
+        // ── 4. LP lock — V5.9.310: HARDEN to 70% threshold in LIVE + UNKNOWN→BLOCK
         // V5.6.8 CRITICAL FIX: Unlocked liquidity should be HARD BLOCK in live mode!
-        // User lost $200 to tokens with unlocked LP - they can rug at any time
         when {
-            lpLockPct < 0 -> Unit  // Unknown, can't penalize
-            lpLockPct < 30.0 -> {
-                // EXTREMELY DANGEROUS: Almost no liquidity locked
+            lpLockPct < 0 -> {
+                // V5.9.310: unknown LP lock = BLOCK live. Bernard report — locked-against-sell honeypot.
                 if (isPaperMode) {
-                    // Paper: Learn this is dangerous but don't hard block
+                    soft.add("LP lock status unknown" to 8)
+                    penalty += 8
+                } else {
+                    hard.add("LP lock status UNKNOWN — refusing live buy")
+                    ErrorLogger.error(TAG, "🚫 LP-UNKNOWN HARD BLOCK (live): $symbol")
+                }
+            }
+            lpLockPct < 30.0 -> {
+                if (isPaperMode) {
                     soft.add("LP only ${lpLockPct.toInt()}% locked (EXTREME RUG RISK)" to 40)
                     penalty += 40
                     ErrorLogger.warn(TAG, "⚠️ LP PAPER WARN: $symbol only ${lpLockPct.toInt()}% locked — high rug risk")
                 } else {
-                    // LIVE: HARD BLOCK - this is how rugs happen
                     hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity")
                     ErrorLogger.error(TAG, "🚫 LP HARD BLOCK: $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
                 }
             }
-            lpLockPct < 50.0 -> {
+            lpLockPct < 70.0 -> {
+                // V5.9.310: was <50% live block, now <70% live block (Bernard's loss was at ~60% locked)
                 if (isPaperMode) {
                     soft.add("LP only ${lpLockPct.toInt()}% locked (HIGH rug risk)" to 25)
                     penalty += 25
                 } else {
-                    // LIVE: Block low-lock tokens
-                    hard.add("LP only ${lpLockPct.toInt()}% locked — HIGH RUG RISK")
+                    hard.add("LP only ${lpLockPct.toInt()}% locked — needs ≥70% locked for live buy")
+                    ErrorLogger.error(TAG, "🚫 LP HARD BLOCK (live): $symbol ${lpLockPct.toInt()}% < 70% threshold")
                 }
-            }
-            lpLockPct < 70.0 -> {
-                soft.add("LP ${lpLockPct.toInt()}% locked (moderate)" to 12)
-                penalty += 12
             }
             lpLockPct < 90.0 -> {
                 soft.add("LP ${lpLockPct.toInt()}% locked" to 5)
                 penalty += 5
+            }
+        }
+
+        // ── 4b. V5.9.310: NEW — Liquidity hard floor for LIVE mode.
+        // Bernard report: 'Its buying low volume rugs. They just vanish'. Adding hard
+        // floor so live mode CANNOT buy a microcap that can rug or get sandwiched.
+        if (!isPaperMode) {
+            if (currentLiquidityUsd in 0.0..4_999.0) {
+                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$5,000 live floor — too thin to exit safely")
+                ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()}")
+            }
+            // Volume floor: if we couldn't get current liquidity, treat as unknown→block
+            if (currentLiquidityUsd < 0) {
+                hard.add("Liquidity UNKNOWN — refusing live buy until verified")
+                ErrorLogger.error(TAG, "🚫 LIQ-UNKNOWN HARD BLOCK (live): $symbol")
             }
         }
 

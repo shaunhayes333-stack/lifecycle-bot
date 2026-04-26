@@ -4365,6 +4365,7 @@ if (deferredCount > 0) {
                     symbol          = ts.symbol,
                     name            = ts.name,
                     pairCreatedAtMs = pairCreatedAt,
+                    currentLiquidityUsd = pair.liquidity,  // V5.9.310: feed live liquidity for $5k floor enforcement
                 )
                 synchronized(ts) {
                     ts.safety       = report
