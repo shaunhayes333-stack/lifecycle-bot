@@ -3021,35 +3021,53 @@ class BotService : Service() {
                                     }
                                     
                                     if (ts != null && ts.position.isOpen) {
-                                        // V5.7.8: If already retried 3+ times, force close the position
-                                        // Jupiter can't sell this token (dead pool, broken contract, etc.)
-                                        if (sell.retryCount >= 3) {
-                                            addLog("FORCE CLOSE: ${sell.symbol} — ${sell.retryCount} sell attempts failed. Closing as loss.")
-                                            val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                                            tradeId.closed(executor.getActualPricePublic(ts), -100.0, -(ts.position.costSol), "SELL_EXHAUSTED_${sell.retryCount}_ATTEMPTS")
-                                            PendingSellQueue.remove(sell.mint)
-                                        } else {
-                                            addLog("Retrying sell: ${sell.symbol} (attempt ${sell.retryCount})")
-                                            executor.requestSell(ts, "PENDING_RETRY: ${sell.reason}", wallet, wallet!!.getSolBalance())
+                                        // V5.9.291 FIX: CRITICAL — never fake-close a position.
+                                        // Old code called tradeId.closed(-100%) after 3 retries
+                                        // WITHOUT clearing ts.position or executing any swap.
+                                        // Result: bot "forgot" the position, tokens stayed in
+                                        // wallet forever, -100% PnL wrongly booked.
+                                        //
+                                        // New behaviour:
+                                        //   retryCount < 20 → keep retrying (Jupiter lag is real)
+                                        //   retryCount >= 20 → LOUD notification to user, keep
+                                        //     retrying anyway, NEVER fake-close without a real sig.
+                                        //     StartupReconciler will adopt the position on restart.
+                                        if (sell.retryCount >= 20 && sell.retryCount % 5 == 0) {
+                                            // Escalating alert every 5 attempts after threshold
+                                            addLog("🚨 STUCK SELL (${sell.retryCount} attempts): ${sell.symbol} — still retrying. Tokens in wallet.")
+                                            onNotify(
+                                                "🚨 Stuck Sell — Action Required",
+                                                "${sell.symbol}: ${sell.retryCount} sell attempts failed. " +
+                                                "Tokens are still in your wallet. Bot will keep retrying. " +
+                                                "If persistent, use the positions panel to force-release.",
+                                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO
+                                            )
+                                            ErrorLogger.error("BotService",
+                                                "🚨 STUCK_SELL: ${sell.symbol} | retryCount=${sell.retryCount} | " +
+                                                "reason=${sell.reason} | tokens STILL in wallet, NOT fake-closed")
                                         }
+                                        addLog("Retrying sell: ${sell.symbol} (attempt ${sell.retryCount + 1})")
+                                        executor.requestSell(ts, "PENDING_RETRY_${sell.retryCount}: ${sell.reason}", wallet, wallet!!.getSolBalance())
                                     } else {
-                                        // Token no longer tracked - might be orphaned
-                                        addLog("Pending sell for untracked token: ${sell.symbol} - checking wallet...")
-                                        // The orphan scanner will catch it
+                                        // Token no longer tracked — might be orphaned or already sold
+                                        addLog("Pending sell for untracked/closed token: ${sell.symbol} — removing from queue")
+                                        PendingSellQueue.remove(sell.mint)
                                     }
                                 } catch (e: Exception) {
-                                    addLog("Pending sell retry failed: ${sell.symbol} - ${e.message}")
-                                    // V5.7.8: Only requeue if under retry limit
-                                    if (sell.retryCount < 3) {
+                                    addLog("Pending sell retry failed: ${sell.symbol} — ${e.message}")
+                                    // V5.9.291 FIX: requeue unconditionally — never fake-close.
+                                    // requestSell internally handles FAILED_RETRYABLE → requeue,
+                                    // so this outer catch is belt-and-suspenders for unexpected
+                                    // exceptions thrown before requestSell is reached.
+                                    val tsForRequeue = synchronized(status.tokens) { status.tokens[sell.mint] }
+                                    if (tsForRequeue != null && tsForRequeue.position.isOpen) {
                                         PendingSellQueue.requeue(sell)
+                                        ErrorLogger.warn("BotService",
+                                            "🔄 SELL_EXCEPTION_REQUEUE: ${sell.symbol} | attempt=${sell.retryCount} | ${e.message?.take(60)}")
                                     } else {
-                                        // Force close — we've tried enough
-                                        val ts = synchronized(status.tokens) { status.tokens[sell.mint] }
-                                        if (ts != null && ts.position.isOpen) {
-                                            addLog("FORCE CLOSE after exception: ${sell.symbol}")
-                                            val tradeId = com.lifecyclebot.engine.TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                                            tradeId.closed(executor.getActualPricePublic(ts), -100.0, -(ts.position.costSol), "SELL_EXCEPTION_FORCE_CLOSE")
-                                        }
+                                        // Token is gone / already sold — drop from queue cleanly
+                                        PendingSellQueue.remove(sell.mint)
+                                        addLog("Pending sell dropped (position closed): ${sell.symbol}")
                                     }
                                 }
                                 // Small delay between retries to avoid rate limits

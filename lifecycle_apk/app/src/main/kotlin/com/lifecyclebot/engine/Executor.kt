@@ -6449,10 +6449,27 @@ class Executor(
         // earlier FAILED_RETRYABLE attempt that preceded the successful sell).
         try { PendingSellQueue.remove(ts.mint) } catch (_: Exception) {}
 
+        // V5.9.291 FIX: CRITICAL — liveSell never cleared ts.position.
+        // Without this, ts.position.isOpen stayed true after a confirmed swap,
+        // so BotService re-entered the exit block on the NEXT tick and called
+        // requestSell again on a position that was already sold on-chain.
+        // paperSell always had this clear; liveSell was missing it entirely.
+        synchronized(ts) {
+            ts.position      = Position()
+            ts.lastExitTs    = System.currentTimeMillis()
+            ts.lastExitPrice = exitPrice
+            ts.lastExitPnlPct = pnlP
+            ts.lastExitWasWin = pnl > 0
+        }
+        // V5.9.256: Mark closed in persistent wallet memory
+        try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, exitPrice, pnlP, reason) } catch (_: Exception) {}
+        try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+
         onLog("✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%", tradeId.mint)
         ErrorLogger.info("Executor", "✅ LIVE_EXIT_CONFIRMED: ${ts.symbol} | reason=$reason | PnL=${pnlP.toInt()}%")
 
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
+        // NOTE: also stamped above in synchronized block via lastExitTs, this is belt-and-suspenders.
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
         
         return SellResult.CONFIRMED
