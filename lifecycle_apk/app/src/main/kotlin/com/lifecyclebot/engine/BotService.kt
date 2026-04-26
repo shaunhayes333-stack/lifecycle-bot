@@ -495,6 +495,29 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "InsiderTrackerAI start error: ${e.message}")
         }
+
+        // V5.9.311: Initialize InsiderWalletTracker (powers Insider Tracker UI +
+        // delta-based on-chain signal detection). Periodic scanForSignals() is
+        // wired in the main loop below to forward NEW_POSITION/ACCUMULATION
+        // /DISTRIBUTION/SELL events into the notification + AI scoring pipeline.
+        try {
+            com.lifecyclebot.perps.InsiderWalletTracker.init(applicationContext)
+            com.lifecyclebot.perps.InsiderWalletTracker.setSignalCallback { signal ->
+                ErrorLogger.info("BotService", "🔍 INSIDER WALLET SIGNAL: ${signal.walletLabel} | ${signal.action} | ${signal.tokenSymbol} | \$${signal.usdValue.toInt()} | conf=${signal.confidence}%")
+                try {
+                    com.lifecyclebot.perps.PerpsNotificationManager.notifyInsiderSignal(
+                        walletLabel = signal.walletLabel,
+                        signalType = signal.action,
+                        tokenSymbol = signal.tokenSymbol,
+                        confidence = signal.confidence,
+                    )
+                } catch (_: Exception) {}
+            }
+            val stats = com.lifecyclebot.perps.InsiderWalletTracker.getStats()
+            ErrorLogger.info("BotService", "🔍 InsiderWalletTracker INITIALIZED — ${stats["total_wallets"]} wallets (POL=${stats["political"]}, SMART=${stats["smart_money"]}, CUSTOM=${stats["custom"]})")
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "InsiderWalletTracker init error: ${e.message}")
+        }
         
         // V5.6.28f: Sync RunTracker30D stats with TradeHistoryStore
         try {
@@ -3120,6 +3143,21 @@ class BotService : Service() {
                         }
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "BehaviorLearning maintenance error: ${e.message}")
+                    }
+                }
+
+                // V5.9.311: InsiderWalletTracker delta scan (~every 5 min).
+                // Detects NEW_POSITION/ACCUMULATION/DISTRIBUTION/SELL events on
+                // tracked Trump/whale wallets and forwards them to the signal
+                // callback wired in onCreate (notifications + log).
+                scope.launch {
+                    try {
+                        val signals = com.lifecyclebot.perps.InsiderWalletTracker.scanForSignals()
+                        if (signals.isNotEmpty()) {
+                            ErrorLogger.info("BotService", "🔍 InsiderWalletTracker scan: ${signals.size} signal(s) detected")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "InsiderWalletTracker scan error: ${e.message}")
                     }
                 }
             }
