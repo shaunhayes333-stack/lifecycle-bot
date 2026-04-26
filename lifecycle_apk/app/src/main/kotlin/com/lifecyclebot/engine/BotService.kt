@@ -6586,23 +6586,29 @@ if (deferredCount > 0) {
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
 
     if ((edgeVerdictStr == "SKIP" && !allowSkipForLearning) || confValue < minBootstrapConf) {
-        ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-            "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} (floor=$minBootstrapConf) → SHADOW_ONLY")
-        
-        // Shadow track for learning
-        com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
-            mint = ts.mint,
-            symbol = ts.symbol,
-            blockReason = "PROMOTION_GATE_edge_${edgeVerdictStr}_conf_$confValue",
-            blockLevel = "LEGACY_GATE",
-            currentPrice = ts.ref,
-            proposedSizeSol = 0.1,
-            quality = decision.finalQuality,
-            confidence = confValue,
-            phase = decision.phase,
-        )
-        
-        return  // Exit before CANDIDATE/PROPOSED
+        // V5.9.270 FIX: CRITICAL — ONLY skip ENTRY if score is too low.
+        // NEVER return here if position is already OPEN — that would kill the exit path
+        // and leave live positions completely unmonitored (no TP/SL/treasury exit checks).
+        if (!ts.position.isOpen) {
+            ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+                "reason=edge_${edgeVerdictStr.lowercase()}_conf_${confValue.toInt()} (floor=$minBootstrapConf) → SHADOW_ONLY")
+            
+            // Shadow track for learning
+            com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                blockReason = "PROMOTION_GATE_edge_${edgeVerdictStr}_conf_$confValue",
+                blockLevel = "LEGACY_GATE",
+                currentPrice = ts.ref,
+                proposedSizeSol = 0.1,
+                quality = decision.finalQuality,
+                confidence = confValue,
+                phase = decision.phase,
+            )
+            
+            return  // Exit before CANDIDATE/PROPOSED (entry only — position is not open)
+        }
+        // If position IS open: fall through to exit management (L7051) so SL/TP fire correctly
     }
     
     // Log when skip override is used
@@ -6632,22 +6638,26 @@ if (deferredCount > 0) {
     // V5.9: If bootstrap SKIP override was used at gate 1, don't re-block at gate 2.
     // These tokens are deliberately let through for learning even with conf=0.
     if (isCGrade && confValue < fluidCGradeConfFloor && !allowSkipForLearning) {
-        ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
-            "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
-        
-        com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
-            mint = ts.mint,
-            symbol = ts.symbol,
-            blockReason = "PROMOTION_GATE_C_GRADE_CONF_FLOOR",
-            blockLevel = "LEGACY_GATE",
-            currentPrice = ts.ref,
-            proposedSizeSol = 0.1,
-            quality = decision.finalQuality,
-            confidence = confValue,
-            phase = decision.phase,
-        )
-        
-        return  // Exit before CANDIDATE/PROPOSED
+        // V5.9.270 FIX: Same as gate 1 — ONLY block ENTRY, never kill exit path for open positions
+        if (!ts.position.isOpen) {
+            ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
+                "reason=C_grade_conf_${confValue.toInt()}_below_$fluidCGradeConfFloor → SHADOW_ONLY")
+            
+            com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                blockReason = "PROMOTION_GATE_C_GRADE_CONF_FLOOR",
+                blockLevel = "LEGACY_GATE",
+                currentPrice = ts.ref,
+                proposedSizeSol = 0.1,
+                quality = decision.finalQuality,
+                confidence = confValue,
+                phase = decision.phase,
+            )
+            
+            return  // Exit before CANDIDATE/PROPOSED (entry only — position is not open)
+        }
+        // If position IS open: fall through to exit management
     }
     
     if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly) {
