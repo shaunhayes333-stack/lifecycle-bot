@@ -851,6 +851,13 @@ for legal compliance.
             findViewById<android.view.View>(R.id.rowSymTelemetry)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
         } catch (_: Exception) {}
+
+        // V5.9.320: Copilot ribbon click → open Behavior screen for full
+        // life-coach state (mood, learning health, regime, layer adjustments).
+        try {
+            findViewById<android.view.View>(R.id.tvCopilotRibbon)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+        } catch (_: Exception) {}
         
         // Collective Brain button
         try {
@@ -1521,6 +1528,41 @@ for legal compliance.
                 "edge ${(sc.edgeStrength * 100).toInt()}%  " +
                 "risk ${(sc.overallRisk * 100).toInt()}%  " +
                 "health ${(sc.marketHealth * 100).toInt()}%"
+        } catch (_: Exception) {}
+
+        // V5.9.320: COPILOT COACHING RIBBON — surface the live life-coach
+        // directive on the home screen so the user can SEE the AI thinking.
+        // Hidden when no trades observed yet OR mood is plain NORMAL with
+        // no advisory; shown whenever Copilot is actively steering.
+        try {
+            val ribbon = findViewById<TextView>(R.id.tvCopilotRibbon)
+            val d = com.lifecyclebot.engine.TradingCopilot.current()
+            val ageMs = System.currentTimeMillis() - com.lifecyclebot.engine.TradingCopilot.lastUpdated()
+            val moodIcon = when (d.mood) {
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE -> "🛑"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.PROTECT          -> "🟠"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.AGGRESSIVE_HUNT  -> "🟢"
+                else -> "🧭"
+            }
+            val show = ageMs in 0..(15 * 60_000L) &&
+                       (d.mood != com.lifecyclebot.engine.TradingCopilot.TradeMood.NORMAL ||
+                        d.regime == "RUNNER_MARKET" ||
+                        d.learningHealth == com.lifecyclebot.engine.TradingCopilot.LearningHealth.POISONED)
+            if (ribbon != null) {
+                if (show) {
+                    val moodColor = when (d.mood) {
+                        com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE -> 0xFF7F1D1D.toInt() // dark red
+                        com.lifecyclebot.engine.TradingCopilot.TradeMood.PROTECT          -> 0xFF78350F.toInt() // dark amber
+                        com.lifecyclebot.engine.TradingCopilot.TradeMood.AGGRESSIVE_HUNT  -> 0xFF064E3B.toInt() // dark green
+                        else -> 0xFF3730A3.toInt() // indigo
+                    }
+                    ribbon.setBackgroundColor(moodColor)
+                    ribbon.text = "$moodIcon Copilot · ${d.mood.name.replace('_', ' ')} · ${d.regime} · ${d.advice}"
+                    ribbon.visibility = android.view.View.VISIBLE
+                } else {
+                    ribbon.visibility = android.view.View.GONE
+                }
+            }
         } catch (_: Exception) {}
 
         // ── Treasury + ScalingMode tier ──────────────────────────────

@@ -1868,8 +1868,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
     }
     
-    // Helper extension
-    private fun Double.fmt(decimals: Int): String = "%.${decimals}f".format(this)
+    // V5.9.320: Removed private `Double.fmt` — caused overload resolution
+    // ambiguity with the public `Double.fmt` in PerpsModels.kt. The public
+    // one is functionally identical (uses String.format) and is already
+    // imported by sibling perps files.
 }
 
 

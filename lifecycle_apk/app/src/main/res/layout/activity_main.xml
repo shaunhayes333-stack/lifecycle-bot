@@ -348,6 +348,25 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- V5.9.320: COPILOT COACHING RIBBON — live AI life-coach state.
+                 Surfaces TradingCopilot.current().advice + mood color so the
+                 user can SEE what the bot's thinking in real time. Hidden by
+                 default until the Copilot has emitted its first directive. -->
+            <TextView
+                android:id="@+id/tvCopilotRibbon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:layout_marginTop="6dp"
+                android:padding="8dp"
+                android:background="@drawable/chip_neutral_bg"
+                android:text=""
+                android:textColor="#E5E7EB"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:visibility="gone"/>
+
             <!-- V5.9.14: SYMBOLIC TELEMETRY ROW — live mood + edge + risk -->
             <LinearLayout
                 android:id="@+id/rowSymTelemetry"
