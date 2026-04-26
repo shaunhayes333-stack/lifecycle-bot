@@ -418,11 +418,18 @@ object GeminiCopilot {
             if (
                 line.startsWith("mood:") ||
                 line.startsWith("streak:") ||
+                line.startsWith("fluid learning:") ||
                 line.startsWith("learning progress:") ||
                 line.startsWith("bot:") ||
                 line.startsWith("meme:") ||
                 line.startsWith("meme opens:") ||
+                line.startsWith("open positions") ||
                 line.startsWith("global regime:") ||
+                line.startsWith("local regime:") ||
+                line.startsWith("symbolic:") ||
+                line.startsWith("drawdown circuit:") ||
+                line.startsWith("behavior:") ||
+                line.startsWith("V4 universe:") ||
                 line.startsWith("recent thoughts:")
             ) {
                 slimContextLines.add(line)
@@ -695,30 +702,103 @@ Talk like a real mind, not a settings screen.
             else -> "Respond naturally."
         }
 
-        // V5.9.120: memory block from the new persistent store. Injects trait
-        // vector, persona bio, top milestones, and recent chat turns so the
-        // LLM actually has continuity across sessions instead of prompt theatre.
         val memoryBlock = try {
             PersonalityMemoryStore.promptMemoryBlock(personaId ?: "aate")
         } catch (_: Exception) { "" }
 
-        return """
-INNER STATE / LIVE CONTEXT:
-Strategy Trust (from StrategyTrustAI — live learned scores per trading mode):
-${try { com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().entries
-  .sortedByDescending { it.value.trustScore }
-  .take(8)
-  .joinToString("\n") { (name, rec) -> "  $name: ${String.format("%.2f", rec.trustScore)} [${rec.trustLevel}] WR=${String.format("%.0f", rec.recentWinRate * 100)}%" }
-} catch (_: Throwable) { "  (not yet initialized)" }}
-$contextSummary
-${if (memoryBlock.isNotBlank()) "\n$memoryBlock\n" else ""}
-USER TO YOU:
-"$userMessage"
+        // ── STRATEGY TRUST (V4) ──────────────────────────────────────────────────
+        val strategyTrustBlock = try {
+            com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().entries
+                .sortedByDescending { it.value.trustScore }
+                .take(8)
+                .joinToString("\n") { (name, rec) ->
+                    "  $name: ${"%.2f".format(rec.trustScore)} [${rec.trustLevel}] WR=${"%.0f".format(rec.recentWinRate * 100)}%"
+                }
+        } catch (_: Throwable) { "  (not yet initialized)" }
 
-$modeLine
-Do not collapse into a one-line answer unless the user clearly wants that.
-Talk like a real mind, not a settings screen.
-        """.trimIndent()
+        // ── INSIDER TRACKER ──────────────────────────────────────────────────────
+        val insiderBlock = try {
+            val stats = com.lifecyclebot.v3.scoring.InsiderTrackerAI.getStats()
+            val alphaSignals = com.lifecyclebot.v3.scoring.InsiderTrackerAI.getAlphaSignals(3)
+            buildString {
+                append("  wallets=${stats.walletsTracked}(${stats.alphaWallets} ALPHA) signals=${stats.recentSignalCount}")
+                if (alphaSignals.isNotEmpty()) {
+                    append(" · recent alpha: ")
+                    append(alphaSignals.take(3).joinToString(", ") { sig ->
+                        val ageMin = (System.currentTimeMillis() - sig.timestamp) / 60000
+                        "${sig.wallet.label}:${sig.signalType.name}(${ageMin}m)"
+                    })
+                }
+            }
+        } catch (_: Throwable) { "  (unavailable)" }
+
+        // ── NARRATIVE FLOW (V4) ──────────────────────────────────────────────────
+        val narrativeBlock = try {
+            val hot = com.lifecyclebot.v4.meta.NarrativeFlowAI.getHotNarratives().take(4)
+            if (hot.isEmpty()) "  no hot narratives"
+            else hot.joinToString(", ") { n -> "${n.theme}(heat=${"%.2f".format(n.heat)} phase=${n.phase.name})" }
+        } catch (_: Throwable) { "  (unavailable)" }
+
+        // ── COLLECTIVE INTELLIGENCE ──────────────────────────────────────────────
+        val collectiveBlock = try {
+            com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getStats().summary()
+        } catch (_: Throwable) { "  (unavailable)" }
+
+        // ── REGIME TRANSITION AI ─────────────────────────────────────────────────
+        val regimeTransBlock = try {
+            com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus()
+        } catch (_: Throwable) { "" }
+
+        // ── SESSION EDGE ─────────────────────────────────────────────────────────
+        val sessionBlock = try {
+            val sess = com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession()
+            "  current session: $sess"
+        } catch (_: Throwable) { "" }
+
+        // ── TRADE LESSONS (V4) ───────────────────────────────────────────────────
+        val lessonBlock = try {
+            val total = com.lifecyclebot.v4.meta.TradeLessonRecorder.getTotalLessons()
+            if (total > 0) "  $total lessons recorded across strategies/regimes/narratives" else ""
+        } catch (_: Throwable) { "" }
+
+        // ── CROSSTALK SNAPSHOT extras (narrative map, fragility hotspots) ────────
+        val crossTalkExtras = try {
+            val snap = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSnapshot()
+            if (snap != null) {
+                val narr = snap.narrativeMap.entries.sortedByDescending { it.value }.take(3)
+                val frag = snap.fragilityMap.entries.filter { it.value > 0.5 }.sortedByDescending { it.value }.take(3)
+                val ll = snap.leadLagLinks.take(3).joinToString(", ") { "${it.leader}→${it.follower}(${it.lagSecs}s)" }
+                buildString {
+                    if (narr.isNotEmpty()) append("  narrative heat: ${narr.joinToString(", ") { "${it.key}=${"%.2f".format(it.value)}" }}\n")
+                    if (frag.isNotEmpty()) append("  fragility hotspots: ${frag.joinToString(", ") { "${it.key}=${"%.2f".format(it.value)}" }}\n")
+                    if (ll.isNotBlank()) append("  lead-lag links: $ll\n")
+                    append("  leverage cap: ${"%.1f".format(snap.leverageCap)}x")
+                }.trim()
+            } else ""
+        } catch (_: Throwable) { "" }
+
+        return buildString {
+            appendLine("INNER STATE / LIVE CONTEXT:")
+            appendLine("Strategy Trust (live learned scores per trading mode):")
+            appendLine(strategyTrustBlock)
+            appendLine()
+            appendLine(contextSummary)
+            appendLine()
+            appendLine("Insider Tracker:"); appendLine(insiderBlock)
+            appendLine("Hot Narratives (V4 NarrativeFlowAI):"); appendLine(narrativeBlock)
+            if (collectiveBlock.isNotBlank()) { appendLine("Collective Intelligence:"); appendLine(collectiveBlock) }
+            if (regimeTransBlock.isNotBlank()) { appendLine("Regime Transition:"); appendLine("  $regimeTransBlock") }
+            if (sessionBlock.isNotBlank()) appendLine(sessionBlock)
+            if (lessonBlock.isNotBlank()) { appendLine("Trade Lessons:"); appendLine(lessonBlock) }
+            if (crossTalkExtras.isNotBlank()) { appendLine("CrossTalk Extras:"); appendLine(crossTalkExtras.prependIndent("  ")) }
+            if (memoryBlock.isNotBlank()) { appendLine(); appendLine(memoryBlock) }
+            appendLine()
+            appendLine("USER TO YOU:")
+            appendLine("\"$userMessage\"")
+            appendLine()
+            appendLine(modeLine)
+            append("Do not collapse into a one-line answer unless the user clearly wants that.\nTalk like a real mind, not a settings screen.")
+        }.trimEnd()
     }
 
     private fun buildSentientSlimPrompt(
