@@ -19,8 +19,9 @@ object FeeRetryQueue {
 
     private const val PREFS_NAME  = "fee_retry_queue"
     private const val KEY_ENTRIES  = "pending_fees"
-    private const val MAX_RETRIES  = 5
+    private const val MAX_RETRIES  = 20  // V5.9.309: 5→20 — drained fees were being lost in seconds
     private const val MAX_AGE_MS   = 24 * 60 * 60 * 1000L  // 24 hours — drop stale fees
+    private const val MIN_BALANCE_FOR_FEE = 0.005  // V5.9.309: skip retry if wallet too low; defer rather than retry-fail
 
     data class FeeEntry(
         val toAddress: String,
@@ -74,6 +75,17 @@ object FeeRetryQueue {
             // Drop entries that have exceeded retry limit
             if (entry.retryCount >= MAX_RETRIES) {
                 ErrorLogger.error("FeeRetryQueue", "🗑 Dropping fee (${MAX_RETRIES} retries exhausted): ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}")
+                continue
+            }
+
+            // V5.9.309: WALLET BALANCE GATE — defer retry rather than burn one if wallet too low.
+            // Otherwise transient mid-swap states drained the retry counter to 0 in seconds and
+            // the fee was permanently lost. Now we keep the retry slot until the wallet
+            // can actually afford the fee + tx fee.
+            val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            if (walletSol < (entry.amountSol + MIN_BALANCE_FOR_FEE)) {
+                ErrorLogger.debug("FeeRetryQueue", "⏸ Deferring fee (wallet=${walletSol.fmt(5)}<need=${(entry.amountSol+MIN_BALANCE_FOR_FEE).fmt(5)}): ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}")
+                remaining.put(entryToJson(entry))  // keep in queue with same retry count
                 continue
             }
 

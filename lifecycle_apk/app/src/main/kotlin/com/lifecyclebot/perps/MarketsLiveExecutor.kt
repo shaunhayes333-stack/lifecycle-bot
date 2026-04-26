@@ -349,7 +349,22 @@ object MarketsLiveExecutor {
         try {
             val feeWallet1 = feeAmountSol * 0.5
             val feeWallet2 = feeAmountSol * 0.5
-            
+
+            // V5.9.309: Pre-check wallet has SOL for the fee transfer + tx fee.
+            // Without this, FeeRetryQueue exhaustion (22+ dropped fees observed)
+            // because a fee send right after a swap can race the swap's own SOL
+            // settlement and find the wallet temporarily empty.
+            val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            val FEE_TX_RESERVE_SOL = 0.005  // tx fee + small buffer
+            if (walletSol < (feeAmountSol + FEE_TX_RESERVE_SOL)) {
+                ErrorLogger.warn(TAG, "  Fee deferred ($symbol): wallet=${walletSol.fmt(6)} SOL < need=${(feeAmountSol + FEE_TX_RESERVE_SOL).fmt(6)} SOL — enqueuing for retry")
+                try {
+                    com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1")
+                    com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2")
+                } catch (_: Exception) {}
+                return
+            }
+
             // Send to wallet 1
             if (feeWallet1 >= MIN_FEE_SOL) {
                 try {
@@ -357,9 +372,10 @@ object MarketsLiveExecutor {
                     ErrorLogger.debug(TAG, "  Fee sent to wallet 1: ${feeWallet1.fmt(6)} SOL")
                 } catch (e: Exception) {
                     ErrorLogger.warn(TAG, "  Fee wallet 1 send failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1") } catch (_: Exception) {}
                 }
             }
-            
+
             // Send to wallet 2
             if (feeWallet2 >= MIN_FEE_SOL) {
                 try {
@@ -367,6 +383,7 @@ object MarketsLiveExecutor {
                     ErrorLogger.debug(TAG, "  Fee sent to wallet 2: ${feeWallet2.fmt(6)} SOL")
                 } catch (e: Exception) {
                     ErrorLogger.warn(TAG, "  Fee wallet 2 send failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2") } catch (_: Exception) {}
                 }
             }
             
@@ -518,8 +535,23 @@ object MarketsLiveExecutor {
                 "⚠️ SHORT not supported on SPOT crypto swap for ${market.symbol} — perps retired, skipping live.")
             return null
         }
-        ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG via Jupiter v1 | ${sizeSol.fmt(4)} SOL → ${targetMint.take(8)}...")
-        val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        // V5.9.309: WALLET BALANCE PRE-CHECK with RENT_RESERVE.
+        // Without this, the alt trader was sizing trades to the full SOL balance and
+        // Jupiter rejected with "Insufficient funds" because there was no SOL left for
+        // tx fee + ATA rent + priority fee. User wallet drained, no tokens delivered.
+        val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+        val RENT_RESERVE_SOL = 0.012  // covers tx fee + ATA rent + priority fee + buffer
+        val effectiveSizeSol = minOf(sizeSol, walletSol - RENT_RESERVE_SOL)
+        if (effectiveSizeSol < 0.005) {
+            ErrorLogger.warn(TAG,
+                "⛔ ${market.symbol} SPOT skipped: wallet=${walletSol.fmt(4)} SOL, reserve=${RENT_RESERVE_SOL} SOL — not enough for swap+fees")
+            return null
+        }
+        if (effectiveSizeSol < sizeSol) {
+            ErrorLogger.info(TAG, "  ✂️ ${market.symbol}: trimmed sizeSol ${sizeSol.fmt(4)} → ${effectiveSizeSol.fmt(4)} (rent reserve)")
+        }
+        ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG via Jupiter v1 | ${effectiveSizeSol.fmt(4)} SOL → ${targetMint.take(8)}...")
+        val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
         // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
         val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
         val sig = executeJupiterSwap(
@@ -528,7 +560,7 @@ object MarketsLiveExecutor {
             inputMint      = SOL_MINT,
             outputMint     = targetMint,
             amountLamports = amountLamports,
-            slippageBps    = configuredSlippageBps(),  // V5.9.104: user-config capped at 5%
+            slippageBps    = configuredSlippageBps(),
         ) ?: return null
         // V5.9.105: verify tokens actually arrived — otherwise phantom
         return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
@@ -554,8 +586,20 @@ object MarketsLiveExecutor {
             return null
         }
         val label = TokenizedAssetRegistry.routeLabel(market.symbol)
-        ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${sizeSol.fmt(4)} SOL")
-        val amountLamports = (sizeSol * 1_000_000_000L).toLong()
+        // V5.9.309: WALLET BALANCE PRE-CHECK with RENT_RESERVE (same fix as crypto SPOT path)
+        val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+        val RENT_RESERVE_SOL = 0.012
+        val effectiveSizeSol = minOf(sizeSol, walletSol - RENT_RESERVE_SOL)
+        if (effectiveSizeSol < 0.005) {
+            ErrorLogger.warn(TAG,
+                "⛔ ${market.symbol} ${label} skipped: wallet=${walletSol.fmt(4)} SOL, reserve=${RENT_RESERVE_SOL} SOL — not enough for swap+fees")
+            return null
+        }
+        if (effectiveSizeSol < sizeSol) {
+            ErrorLogger.info(TAG, "  ✂️ ${market.symbol}: trimmed sizeSol ${sizeSol.fmt(4)} → ${effectiveSizeSol.fmt(4)} (rent reserve)")
+        }
+        ErrorLogger.info(TAG, "  🧾 REAL tokenized trade: ${market.symbol} LONG via $label | ${effectiveSizeSol.fmt(4)} SOL")
+        val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
         // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
         val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
         // Tokenized-asset pools (xStocks/PAXG/EURC) are thinner than SOL/USDC —

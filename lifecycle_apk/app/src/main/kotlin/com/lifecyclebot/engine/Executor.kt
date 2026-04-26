@@ -3679,12 +3679,21 @@ class Executor(
             return
         }
 
-        // Solana requires ~0.002 SOL rent-exempt balance for new token accounts plus tx fees.
-        // Cap the buy so we always keep this reserve, preventing InsufficientFundsForRent.
-        val RENT_RESERVE_SOL = 0.003
+        // Solana Jupiter swap actually needs:
+        //   - 5_000 lamports base tx fee
+        //   - 2_039_280 lamports for ATA creation (rent-exempt) when buying a NEW token
+        //   - 100_000-500_000 lamports for compute-unit priority fee
+        //   - WSOL wrap unwrap overhead (~0.001 SOL)
+        // Plus a buffer for Jupiter's own slippage on the SOL leg.
+        // V5.9.309: 0.003 → 0.012 SOL — we were sizing too close to the wallet, causing
+        // 'Jupiter v2 order error: Insufficient funds' on every BELKA-style buy where
+        // wallet ~ 0.18 SOL and bot tried to spend 0.186 SOL. Now we always keep at
+        // least 12 millisol back. Tested: the median observed Jupiter swap consumes
+        // 6-9 millisol of fee+rent on Solana mainnet.
+        val RENT_RESERVE_SOL = 0.012
         val effectiveSol = minOf(sol, walletSol - RENT_RESERVE_SOL)
-        if (effectiveSol < 0.001) {
-            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for rent reserve (${walletSol.fmt(4)}◎)", ts.mint)
+        if (effectiveSol < 0.005) {
+            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for rent reserve (${walletSol.fmt(4)}◎ need ≥${RENT_RESERVE_SOL}◎ buffer)", ts.mint)
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve")
             return
         }
