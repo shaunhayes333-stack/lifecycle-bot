@@ -563,47 +563,44 @@ class BehaviorActivity : AppCompatActivity() {
             // independent of actual performance — pure theatre. Now we
             // average getLayerAccuracy() (smoothed, 0..1) across all 41
             // registered layers and report the real number.
-            // V5.9.190: Show avg expectancyPct (mean pnl% per trade) not direction accuracy.
-            // Direction accuracy of 10% is below random and confuses users.
-            // Expectancy tells you what the AI stack earns per trade on average.
+            // V5.9.313: REVERT V5.9.190 — ACCURACY tile shows EDUCATION
+            // PROGRESSION (avg direction-prediction accuracy), not trade
+            // P&L. Profitability is reported in the LLM/Sentient Mind chat.
             val accSamples = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades > 0 }
-                .map { it.expectancyPct }
-            val avgExpectancy = if (accSamples.isEmpty()) 0.0 else accSamples.average()
+                .map { it.smoothedAccuracy }
+            val avgAccuracyPct = if (accSamples.isEmpty()) 50.0 else (accSamples.average() * 100.0)
             
-            tvAvgAccuracy.text = "%+.1f%%".format(avgExpectancy)
+            tvAvgAccuracy.text = "%d%%".format(avgAccuracyPct.toInt().coerceIn(0, 99))
             tvAvgAccuracy.setTextColor(when {
-                avgExpectancy >= 5.0 -> 0xFFFFD700.toInt()  // Gold: +5%+ avg per trade
-                avgExpectancy >= 1.0 -> 0xFF00FF88.toInt()  // Green: profitable
-                avgExpectancy >= 0.0 -> 0xFFFFFF00.toInt()  // Yellow: breakeven
-                else -> 0xFFFF4444.toInt()                   // Red: losing
+                avgAccuracyPct >= 70 -> 0xFFFFD700.toInt()  // Gold: well-learned
+                avgAccuracyPct >= 60 -> 0xFF00FF88.toInt()  // Green: learning
+                avgAccuracyPct >= 45 -> 0xFFFFFF00.toInt()  // Yellow: forming
+                else -> 0xFFFF8800.toInt()                   // Orange: early/noisy
             })
             
             // V5.9.133 — REAL top 3 performing layers by Bayesian-smoothed
             // accuracy (was: hardcoded "HoldTimeAI 68%" strings that lied
             // independent of reality). If no layer has any trades yet, show
             // the motivational message for the current curriculum level.
-            // V5.9.138 — the % now reflects QUALITY-WEIGHTED edge (not raw
-            // hit rate), and we tag each leader with its average pnl% so
-            // you can see the real economic contribution, not just a number.
+            // V5.9.313: REVERT V5.9.190 — TOP LAYERS = best-LEARNED (direction
+            // accuracy), with PnL shown as secondary context. Profitability
+            // ranking lives in the LLM/Sentient Mind chat.
             val motivational = EducationSubLayerAI.getMotivationalMessage()
-            // V5.9.190: Sort by expectancyPct (avg pnl per trade) not direction accuracy.
-            // "Top performing" = layers that actually MAKE MONEY, not just predict direction.
-            // MomentumPr 17%(-3.7%) was showing as "top" despite -3.7% avg loss per trade.
             val allMaturity = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades >= 3 }
             val topMaturity = allMaturity
-                .sortedByDescending { it.expectancyPct }  // sort by $ made, not direction %
+                .sortedByDescending { it.smoothedAccuracy }  // sort by learning progression
                 .take(3)
             val topLayers = if (topMaturity.isEmpty()) {
                 motivational
             } else {
                 topMaturity.joinToString(" • ") { m ->
                     val short = m.layerName.removeSuffix("AI").take(10)
+                    val hit = (m.smoothedAccuracy * 100).toInt()
                     val exp = m.expectancyPct
                     val expStr = "%+.1f".format(exp) + "%"
-                    val hit = (m.smoothedAccuracy * 100).toInt()
-                    "$short $expStr ($hit% dir)"
+                    "$short $hit% dir ($expStr)"
                 }
             }
             tvTopLayers.text = topLayers

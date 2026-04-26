@@ -297,13 +297,14 @@ class BrainNetworkView @JvmOverloads constructor(
                 layer.levelIcon = m.level.icon
                 layer.levelProgress = m.levelProgress
                 layer.trades = m.trades
+                // V5.9.313: REVERT V5.9.190 — node color = LEARNING progression
+                // (direction accuracy), NOT trade P&L. A layer that calls
+                // direction 70% right but only earns +0.2% per trade after fees
+                // is still a well-LEARNED layer; its profitability is shown
+                // separately in the LLM/Sentient Mind chat's expectancy stats.
                 // smoothedAccuracy is 0..1 — upscale to 0..100 for the
                 // color-coding `accuracy` field already used by the view.
-                // V5.9.190: Node color reflects economic edge (pnl% per trade)
-                // not direction accuracy. Green = profitable layer, Red = losing layer.
-                // Maps expectancyPct: -5%→0, 0%→50, +5%→100 (clamped)
-                val expMapped = ((m.expectancyPct + 5.0) / 10.0 * 100.0).coerceIn(0.0, 100.0)
-                layer.accuracy = expMapped
+                layer.accuracy = m.smoothedAccuracy * 100.0
                 layer.isActive = m.isActive
             }
         }

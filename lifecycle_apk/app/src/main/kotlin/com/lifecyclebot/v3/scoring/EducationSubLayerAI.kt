@@ -883,9 +883,16 @@ object EducationSubLayerAI {
         // V5.9.224: shadow trades (blocked/rejected) get reduced learning weight
         val isShadowTrade: Boolean = false,
     ) {
-        // V5.9.190: 1% threshold — scratch trades (+0.01%) shouldn't count as wins
-        // Aligns layer learning with economic reality: fee cost alone is ~0.2-0.5%
-        val isWin: Boolean get() = pnlPct >= 1.0
+        // V5.9.313: REVERT V5.9.190 isWin contract.
+        // Layer LEARNING is direction accuracy ("did the AI correctly call the
+        // move?"), NOT trade profitability after fees. A +0.5% correctly-
+        // predicted move was being marked as a LOSS, dragging every layer's
+        // smoothedAccuracy below random and corrupting the learning signal.
+        // Profitability is reported separately in the LLM/Sentient Mind chat
+        // via expectancyPct — this lives in scoring layer purely for direction.
+        // (Scratch-skip in recordOutcome at line 449 still protects the fan-out
+        // path against pure noise.)
+        val isWin: Boolean get() = pnlPct > 0
         val isRunner: Boolean get() = pnlPct >= 20.0
         val isRug: Boolean get() = pnlPct <= -30.0
     }
