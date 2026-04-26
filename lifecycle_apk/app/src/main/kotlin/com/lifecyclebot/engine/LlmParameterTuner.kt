@@ -169,6 +169,16 @@ object LlmParameterTuner {
      * Extract the TUNE block (if any), strip it from the reply, apply the
      * whitelisted adjustments, return cleaned reply + change log.
      */
+    // ── Phase thresholds matching FluidLearningAI ──────────────────────────────
+    // Bootstrap (0-999 trades): LLM TUNE is completely locked.
+    //   The bot is still learning the market — self-adjustments this early cause
+    //   premature gate tightening before any real data exists.
+    // Learning (1000-2999 trades): 1 adjustment allowed, step cap halved.
+    //   Slight nudges are OK but keep them gentle.
+    // Mature/Expert (3000+ trades): Full autonomy (up to 3 adjustments, full step).
+    private const val TUNE_BOOTSTRAP_END = 1000
+    private const val TUNE_LEARNING_END  = 3000
+
     fun extractAndApply(ctx: Context?, llmReply: String): Applied {
         if (llmReply.isBlank()) {
             return Applied(cleanedReply = llmReply, changes = emptyList(), rejected = emptyList())
@@ -184,13 +194,29 @@ object LlmParameterTuner {
             return Applied(cleanedReply = cleaned, changes = emptyList(), rejected = emptyList())
         }
 
-        val (changes, rejected) = parseAndApply(ctx, jsonPayload)
+        // ── Phase gate ─────────────────────────────────────────────────────────
+        val totalTrades = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getTotalTradeCount()
+        } catch (_: Throwable) { 0 }
+
+        if (totalTrades < TUNE_BOOTSTRAP_END) {
+            // Bootstrap phase — reject ALL tune blocks silently (strip from reply but apply nothing)
+            ErrorLogger.info(TAG, "🔒 TUNE block rejected — bootstrap phase ($totalTrades/$TUNE_BOOTSTRAP_END trades). LLM cannot self-adjust until learning phase.")
+            return Applied(cleanedReply = cleaned, changes = emptyList(), rejected = listOf("locked: bootstrap phase ($totalTrades/$TUNE_BOOTSTRAP_END trades)"))
+        }
+
+        val phaseMaxAdj  = if (totalTrades < TUNE_LEARNING_END) 1 else MAX_ADJUSTMENTS_PER_CALL
+        val phaseStepCap = if (totalTrades < TUNE_LEARNING_END) 0.5 else 1.0  // 0.5 = half-steps in learning phase
+
+        val (changes, rejected) = parseAndApply(ctx, jsonPayload, phaseMaxAdj, phaseStepCap)
         return Applied(cleanedReply = cleaned, changes = changes, rejected = rejected)
     }
 
     private fun parseAndApply(
         ctx: Context,
-        jsonPayload: String
+        jsonPayload: String,
+        maxAdjustments: Int = MAX_ADJUSTMENTS_PER_CALL,
+        stepCapMultiplier: Double = 1.0
     ): Pair<List<Change>, List<String>> {
         val obj = try {
             JSONObject(jsonPayload)
@@ -208,7 +234,7 @@ object LlmParameterTuner {
         val applied = mutableListOf<Change>()
         val rejected = mutableListOf<String>()
 
-        val limit = minOf(arr.length(), MAX_ADJUSTMENTS_PER_CALL)
+        val limit = minOf(arr.length(), maxAdjustments)
         for (i in 0 until limit) {
             val entry = arr.optJSONObject(i) ?: continue
             val key = entry.optString("key").trim()
@@ -246,7 +272,7 @@ object LlmParameterTuner {
                 continue
             }
 
-            val clampedStep = delta.coerceIn(-spec.maxStep, spec.maxStep)
+            val clampedStep = delta.coerceIn(-spec.maxStep * stepCapMultiplier, spec.maxStep * stepCapMultiplier)
             val oldValue = spec.get(working)
             val newValue = (oldValue + clampedStep).coerceIn(spec.min, spec.max)
 
