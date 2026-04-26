@@ -658,6 +658,23 @@ object SmartSizer {
     @Volatile private var lossStreakLive = 0
 
     fun recordTrade(isWin: Boolean, isPaperMode: Boolean = true) {
+        recordTrade(isWin = isWin, isPaperMode = isPaperMode, pnlPct = if (isWin) 2.0 else -2.0)
+    }
+
+    /**
+     * V5.9.307: Scratch-aware overload — pnlPct in (-1%, +1%) is NEUTRAL.
+     * Scratches don't update the rolling W/L window or reset streaks. This
+     * prevents fee-bleed near-flat trades from inflating loss streaks and
+     * triggering size-down circuit breakers that throttle recovery.
+     * Callers that don't have pnlPct can keep using the boolean overload above.
+     */
+    fun recordTrade(isWin: Boolean, isPaperMode: Boolean = true, pnlPct: Double) {
+        val isScratch = pnlPct > -1.0 && pnlPct < 1.0
+        if (isScratch) {
+            // Scratch — neutral for streaks. Save anyway so timestamps update.
+            save()
+            return
+        }
         if (isPaperMode) {
             if (recentTradesPaper.size >= 10) recentTradesPaper.removeFirst()
             recentTradesPaper.addLast(isWin)
@@ -669,7 +686,6 @@ object SmartSizer {
             if (isWin) { winStreakLive++; lossStreakLive = 0 }
             else       { lossStreakLive++; winStreakLive = 0 }
         }
-        // V5.6.28d: Auto-save after streak update
         save()
     }
 

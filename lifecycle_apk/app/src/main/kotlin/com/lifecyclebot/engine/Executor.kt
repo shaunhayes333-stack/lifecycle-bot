@@ -5115,7 +5115,9 @@ class Executor(
             }
         }
         
-        if (pnlP < 0) {
+        // V5.9.307: Only meaningful losses trigger ReentryGuard. Scratch trades
+        // (-1%..0%) are noise and shouldn't lock out future re-entries.
+        if (pnlP <= -1.0) {
             ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         
@@ -6211,7 +6213,8 @@ class Executor(
             }
         }
         
-        if (pnlP < 0) {
+        // V5.9.307: Only meaningful losses trigger ReentryGuard (live close path)
+        if (pnlP <= -1.0) {
             ReentryGuard.onTradeLoss(tradeId.mint, pnlP)
         }
         

@@ -885,7 +885,8 @@ object MoonshotTraderAI {
             )
             if (isWin) {
                 com.lifecyclebot.engine.SentientPersonality.onTradeWin(pos.symbol, pnlPct, "MOONSHOT", holdMins.toLong() * 60)
-            } else {
+            } else if (pnlPct <= -1.0) {
+                // V5.9.307: scratch trades (-1%..+1%) are NEUTRAL — don't reset win streak / inflate loss streak
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "MOONSHOT", exitReason.name)
             }
 

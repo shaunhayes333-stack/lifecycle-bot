@@ -511,7 +511,8 @@ object ShitCoinTraderAI {
             )
             if (isWin) {
                 com.lifecyclebot.engine.SentientPersonality.onTradeWin(pos.symbol, pnlPct, "SHITCOIN", holdMins.toLong() * 60)
-            } else {
+            } else if (pnlPct <= -1.0) {
+                // V5.9.307: scratch trades (-1%..+1%) are NEUTRAL for personality streaks
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(pos.symbol, pnlPct, "SHITCOIN", exitReason.name)
             }
 
