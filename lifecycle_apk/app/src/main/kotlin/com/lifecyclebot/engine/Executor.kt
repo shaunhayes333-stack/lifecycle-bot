@@ -4050,21 +4050,46 @@ class Executor(
             val verifyTradeMint = tradeId.mint
             val verifyTradeSymbol = tradeId.symbol
             val verifyTradeKey = tradeKey
+            val verifySig = sig  // V5.9.265: capture sig for authoritative tx-based verification
             GlobalScope.launch(Dispatchers.IO) {
                 var verifiedQty = 0.0
                 var anyRpcError = false
+                var sigParseConfirmedZero = false  // V5.9.265: only TRUE phantom if tx parse explicitly says 0
                 val pollIntervalMs = 6_000L
                 val maxPolls = 5
                 for (pollNum in 1..maxPolls) {
                     try {
                         Thread.sleep(pollIntervalMs)
+
+                        // V5.9.265 — AUTHORITATIVE sig-based verification first.
+                        // Jupiter Ultra/RFQ swaps deliver tokens but
+                        // getTokenAccountsByOwner is often stale for 30+s after
+                        // confirmation. The forensics tile proved real tokens
+                        // were landing while the ATA poll returned 0. We now
+                        // parse postTokenBalances from the tx itself — that's
+                        // the on-chain ground truth, no indexer lag.
+                        val sigQty = try { verifyWallet.getTokenAmountFromSig(verifySig, verifyMint) } catch (_: Exception) { null }
+                        if (sigQty != null && sigQty > 0.0) {
+                            verifiedQty = sigQty
+                            LiveTradeLogStore.log(
+                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                                "Poll $pollNum/$maxPolls — TX-PARSE qty=${sigQty} (authoritative)",
+                                tokenAmount = sigQty, traderTag = "MEME",
+                            )
+                            break
+                        }
+                        if (sigQty != null && sigQty == 0.0) sigParseConfirmedZero = true
+
+                        // Fallback: legacy ATA poll
                         val balances = verifyWallet.getTokenAccountsWithDecimals()
                         val tokenData = balances[verifyMint]
                         val qty = tokenData?.first ?: 0.0
                         LiveTradeLogStore.log(
                             verifyTradeKey, verifyMint, verifySymbol, "BUY",
                             LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
-                            "Poll $pollNum/$maxPolls — wallet qty=${qty.fmt(4)}",
+                            "Poll $pollNum/$maxPolls — wallet qty=${qty.fmt(4)}" +
+                                if (sigQty == null) " (tx-parse not ready yet)" else "",
                             tokenAmount = qty, traderTag = "MEME",
                         )
                         if (qty > 0.0) {
@@ -4133,6 +4158,24 @@ class Executor(
                         verifyTradeKey, verifyMint, verifySymbol, "BUY",
                         LiveTradeLogStore.Phase.WARNING,
                         "⚠️ Verification inconclusive — RPC errors during all polls. Will reconcile on next startup.",
+                        traderTag = "MEME",
+                    )
+                } else if (!sigParseConfirmedZero && ts.position.pendingVerify) {
+                    // V5.9.265 — All ATA polls returned 0 BUT the tx-parse never
+                    // explicitly returned 0 (it returned null = "tx not yet
+                    // indexed"). With Jupiter Ultra/RFQ this is the common case:
+                    // tokens really arrived, the indexer just hasn't caught up.
+                    // We keep pendingVerify so the StartupReconciler /
+                    // WalletTokenMemory adopts the position later instead of
+                    // banning the mint and walking away from real on-chain SOL.
+                    ErrorLogger.warn(
+                        "Executor",
+                        "⚠️ POST-BUY INDEXING LAG: $verifySymbol — tx confirmed, ATA poll returned 0 but tx-parse hasn't indexed yet. Leaving pendingVerify."
+                    )
+                    LiveTradeLogStore.log(
+                        verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "⚠️ ATA poll returned 0 but tx not yet indexed — keeping position; StartupReconciler will adopt it once tokens index.",
                         traderTag = "MEME",
                     )
                 } else if (ts.position.pendingVerify) {

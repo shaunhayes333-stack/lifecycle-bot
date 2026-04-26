@@ -492,6 +492,61 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         return out
     }
 
+    /**
+     * V5.9.265 — Authoritative post-buy token verification.
+     *
+     * After Jupiter Ultra/RFQ swaps, `getTokenAccountsByOwner` can return
+     * stale 0 for the new mint for 30+ seconds even though the tokens
+     * actually landed. The forensics tile caught this red-handed:
+     *   ✅ Tx confirmed on-chain
+     *   ❌ All 5 polls returned wallet qty = 0
+     *   ✅ User's wallet UI shows the tokens
+     *
+     * Fix: parse the actual transaction signature via getTransaction and
+     * read postTokenBalances[]. This is the on-chain ground truth, not a
+     * derived index that lags.
+     *
+     * Returns the UI-amount delta the wallet's owner address received for
+     * the given mint, or null if the tx couldn't be parsed yet (callers
+     * should retry).
+     */
+    fun getTokenAmountFromSig(sig: String, mint: String): Double? {
+        return try {
+            val params = JSONArray()
+                .put(sig)
+                .put(JSONObject()
+                    .put("encoding", "jsonParsed")
+                    .put("commitment", "confirmed")
+                    .put("maxSupportedTransactionVersion", 0))
+            val resp = rpc("getTransaction", params)
+            val result = resp.optJSONObject("result") ?: return null
+            val meta = result.optJSONObject("meta") ?: return null
+
+            val pre  = meta.optJSONArray("preTokenBalances")  ?: JSONArray()
+            val post = meta.optJSONArray("postTokenBalances") ?: JSONArray()
+
+            // Find owner=publicKeyB58 + mint=mint entries in pre and post
+            fun extract(arr: JSONArray): Double {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    if (o.optString("mint") != mint) continue
+                    if (o.optString("owner") != publicKeyB58) continue
+                    val ta = o.optJSONObject("uiTokenAmount") ?: continue
+                    val ui = ta.optString("uiAmountString", "0").toDoubleOrNull()
+                        ?: ta.optDouble("uiAmount", 0.0)
+                    return ui
+                }
+                return 0.0
+            }
+            val before = extract(pre)
+            val after  = extract(post)
+            (after - before).coerceAtLeast(0.0)
+        } catch (e: Exception) {
+            android.util.Log.w("SolanaWallet", "getTokenAmountFromSig failed: ${e.message}")
+            null
+        }
+    }
+
     fun getTokenAccounts(): Map<String, Double> {
         // V5.9.254 FIX: Same as getTokenAccountsWithDecimals — query both token programs
         // with commitment=confirmed and no dataSize filter.
