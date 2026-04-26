@@ -3206,10 +3206,17 @@ class BotService : Service() {
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // PENDING SELL QUEUE PROCESSING - every 5 loops (~25 seconds) in live mode
-            // Retries sells that failed due to wallet disconnect or other issues
+            // PENDING SELL QUEUE PROCESSING - every 10 loops (~50 seconds) in live mode
+            // V5.9.321: Changed loopCount % 1 → % 10.
+            // Solana tx confirmation takes 20-30s. With % 1 (every ~5s), a sell queued
+            // from a first FAILED_RETRYABLE would be re-fired 5-6 times before the
+            // original liveSell had even received its on-chain confirmation — producing
+            // the double SELL_START / PENDING_RETRY_1 pattern seen in Live Trade Forensics.
+            // The sellInProgress guard prevents concurrent double-execution, but the
+            // retries still pile up in logs and waste RPC calls. 50s gives a safe
+            // margin beyond the maximum realistic Solana confirmation window (30-40s).
             // ═══════════════════════════════════════════════════════════════════
-            if (!cfg.paperMode && loopCount % 1 == 0 && wallet != null && PendingSellQueue.hasPending()) {
+            if (!cfg.paperMode && loopCount % 10 == 0 && wallet != null && PendingSellQueue.hasPending()) {
                 scope.launch {
                     try {
                         val pendingSells = PendingSellQueue.getAndClear()

@@ -32,11 +32,18 @@ object PendingSellQueue {
     
     private val queue = ConcurrentHashMap<String, PendingSell>()
     
-    // Max age before we give up (30 minutes)
-    private const val MAX_AGE_MS = 30 * 60_000L
-    
-    // Max retries
-    private const val MAX_RETRIES = 5
+    // V5.9.321: Max age extended 30min → 24h.
+    // A position that can't sell for 30 minutes (RPC outage, illiquid) was being
+    // silently DROPPED. The tokens stayed in the wallet but the bot forgot about
+    // them — phantom position, no sell ever attempted again. 24h aligns with
+    // FeeRetryQueue and gives enough runway for any RPC/Jupiter outage to recover.
+    private const val MAX_AGE_MS = 24 * 60 * 60_000L  // 24 hours
+
+    // V5.9.321: MAX_RETRIES 5 → 50 — matches BotService's "never fake-close, keep retrying"
+    // stance from V5.9.291. The old 5-retry limit meant a position that hit a Jupiter
+    // outage for 25 seconds would exhaust all retries and be PERMANENTLY dropped with
+    // no sell ever executed. retryCount just drives the BotService alert escalation.
+    private const val MAX_RETRIES = 50
     
     /**
      * Add a sell order to the pending queue.

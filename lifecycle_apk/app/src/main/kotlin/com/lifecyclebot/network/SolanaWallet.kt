@@ -622,11 +622,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val bhBytes     = Base58.base58Decode(blockhash)
         val systemProg  = ByteArray(32)  // SystemProgram = 32 zero bytes
 
-        // Transfer instruction data: [2 (transfer opcode), amount as little-endian u64]
+        // Transfer instruction data: SystemProgram.transfer wire format
+        //   bytes 0-3:  opcode as u32 little-endian = [0x02, 0x00, 0x00, 0x00]
+        //   bytes 4-11: lamports as u64 little-endian (8 bytes)
+        // CRITICAL: opcode MUST be 4 bytes (u32), not 1 byte.
+        // The original code used instrData[0]=2 with lamports in bytes 1-8,
+        // which produced [0x02, lam0..lam7, 0x00, 0x00, 0x00] — 12 bytes but
+        // with the lamports shifted by 3 bytes from what Solana expects.
+        // RPC response: "invalid instruction data" — FEE_SEND_FAILED on EVERY call.
         val instrData = ByteArray(12)
-        instrData[0]  = 2
+        instrData[0] = 0x02; instrData[1] = 0x00; instrData[2] = 0x00; instrData[3] = 0x00
         var lam = lamports
-        for (i in 1..8) { instrData[i] = (lam and 0xFF).toByte(); lam = lam ushr 8 }
+        for (i in 4..11) { instrData[i] = (lam and 0xFF).toByte(); lam = lam ushr 8 }
 
         // Compact-array encoding (Solana wire format)
         fun compactU16(n: Int): ByteArray = when {
