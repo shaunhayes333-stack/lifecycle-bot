@@ -830,8 +830,11 @@ object SentientPersonality {
     }
 
     private fun buildContextSummary(): String {
-        // ── FLUID LEARNING ──────────────────────────────────────────────────────────
-        val fluidProgress = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Throwable) { 0.0 }
+        val progress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Throwable) {
+            0.0
+        }
 
         val streakLine = when {
             consecutiveWins >= 2 -> "on a ${consecutiveWins}-win streak"
@@ -841,236 +844,175 @@ object SentientPersonality {
 
         val latestThoughts = ArrayList(thoughts)
             .takeLast(8)
-            .joinToString(" || ") { thought -> thought.category.name + ": " + thought.message }
+            .joinToString(" || ") { thought ->
+                thought.category.name + ": " + thought.message
+            }
             .ifBlank { "none yet" }
 
-        // ── ALL OPEN POSITIONS (V5.9.270 full universe) ────────────────────────────
-        val memePositions = try {
-            val allTokens = synchronized(BotService.status.tokens) { BotService.status.tokens.values.toList() }
-            allTokens.filter { ts -> ts.position.qtyToken > 0.0 }.map { ts ->
-                val entry = ts.position.entryPrice
-                val pnlPct = if (entry > 0.0) ((ts.lastPrice / entry) - 1.0) * 100.0 else 0.0
-                val mode = ts.position.tradingMode.ifBlank { "MEME" }
-                val layer = when {
-                    ts.position.isTreasuryPosition -> "TREASURY"
-                    ts.position.isShitCoinPosition -> "SHITCOIN"
-                    ts.position.isBlueChipPosition -> "BLUECHIP"
-                    else -> mode
-                }
-                val tag = if (ts.position.pendingVerify) "$layer[verifying]" else layer
-                Triple(ts.symbol, pnlPct, tag)
-            }
-        } catch (_: Throwable) { emptyList() }
-
-        val treasuryPositions = try {
-            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().map { pos ->
-                val pnlPct = if (pos.entryPrice > 0.0 && pos.currentPrice > 0.0)
-                    ((pos.currentPrice / pos.entryPrice) - 1.0) * 100.0 else 0.0
-                Triple(pos.symbol, pnlPct, "TREASURY")
-            }
-        } catch (_: Throwable) { emptyList() }
-
-        val shitcoinPositions = try {
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
-                .filter { pos -> memePositions.none { it.first == pos.symbol && it.third == "SHITCOIN" } }
-                .map { pos -> Triple(pos.symbol, 0.0, "SHITCOIN") }
-        } catch (_: Throwable) { emptyList() }
-
-        val blueChipPositions = try {
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
-                .filter { pos -> memePositions.none { it.first == pos.symbol && it.third == "BLUECHIP" } }
-                .map { pos -> Triple(pos.symbol, 0.0, "BLUECHIP") }
-        } catch (_: Throwable) { emptyList() }
-
-        val qualityPositions = try {
-            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
-                .filter { pos -> memePositions.none { it.first == pos.symbol } }
-                .map { pos -> Triple(pos.symbol, 0.0, "QUALITY") }
-        } catch (_: Throwable) { emptyList() }
-
-        val moonshotPositions = try {
-            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
-                .filter { pos -> memePositions.none { it.first == pos.symbol } }
-                .map { pos ->
-                    val pnlPct = if (pos.entryPrice > 0.0 && pos.highWaterMark > pos.entryPrice)
-                        ((pos.highWaterMark / pos.entryPrice) - 1.0) * 100.0 else 0.0
-                    Triple(pos.symbol, pnlPct, "MOONSHOT")
-                }
-        } catch (_: Throwable) { emptyList() }
-
-        val allPositions = (memePositions + treasuryPositions + shitcoinPositions +
-                blueChipPositions + qualityPositions + moonshotPositions)
-            .distinctBy { it.first }.take(12)
-        val totalOpen = allPositions.size
-
-        val opensLine = if (allPositions.isEmpty()) "open positions: none" else {
-            "open positions (${totalOpen}): " + allPositions.joinToString(", ") { (sym, pnl, layer) ->
-                val pnlStr = if (pnl != 0.0) (if (pnl >= 0) "+${fmt1(pnl)}%" else "${fmt1(pnl)}%") else ""
-                "$sym[$layer]${if (pnlStr.isNotBlank()) "($pnlStr)" else ""}"
-            }
-        }
-
-        // ── BOT STATUS LINE ─────────────────────────────────────────────────────────
         val botLine = try {
             val s = BotService.status
             val runTag = if (s.running) "RUNNING" else "STOPPED"
-            val ctx = BotService.instance?.applicationContext
-            val isPaper = if (ctx == null) true else {
-                try { com.lifecyclebot.data.ConfigStore.load(ctx).paperMode } catch (_: Throwable) { true }
+            "bot: $runTag · open=${s.openPositionCount} · paperSol=${fmt1(s.paperWalletSol)} · liveSol=${fmt1(s.walletSol)}"
+        } catch (_: Throwable) {
+            "bot: status unavailable"
+        }
+
+        val opensLine = try {
+            val opens = BotService.status.openPositions.take(5)
+            if (opens.isEmpty()) {
+                "meme opens: none"
+            } else {
+                "meme opens: " + opens.joinToString(", ") { ts ->
+                    val entry = ts.position.entryPrice
+                    val pnlPct = if (entry > 0.0) ((ts.lastPrice / entry) - 1.0) * 100.0 else 0.0
+                    ts.symbol + "(" + (if (pnlPct >= 0) "+" else "") + fmt1(pnlPct) + "%)"
+                }
             }
-            val modeTag = if (isPaper) "PAPER" else "LIVE"
-            "bot: $runTag[$modeTag] · meme_open=${s.openPositionCount} · all_open=$totalOpen · paperSol=${fmt1(s.paperWalletSol)} · liveSol=${fmt1(s.walletSol)}"
-        } catch (_: Throwable) { "bot: status unavailable" }
+        } catch (_: Throwable) {
+            "meme opens: ?"
+        }
 
-        // ── TREASURY ────────────────────────────────────────────────────────────────
-        val treasurySummaryLine = try {
-            val stats = com.lifecyclebot.v3.scoring.CashGenerationAI.getStats()
-            val tWr = if (stats.dailyTradeCount > 0) " WR=${String.format("%.0f", stats.winRate)}%" else ""
-            "treasury[${stats.mode.name}]: ${fmt1(stats.treasuryBalanceSol)} SOL · ${treasuryPositions.size} scalp(s) live$tWr"
-        } catch (_: Throwable) { "treasury: ?" }
+        // V5.9.268 — full layer-store enumeration so the LLM persona is
+        // not blind to live treasury / shitcoin / bluechip / moonshot /
+        // manip / express positions. Previously only the V3 layer
+        // (BotService.status.openPositions) was visible, which is why
+        // Morgan Freeman kept saying 'no active positions in the live
+        // ledger' while the UI clearly showed open Treasury Scalps.
+        fun fmtLayer(label: String, list: List<Triple<String, Double, Long>>): String {
+            if (list.isEmpty()) return "$label: none"
+            return "$label: " + list.take(5).joinToString(", ") { (sym, pnlPct, ageMs) ->
+                val agePart = when {
+                    ageMs < 60_000L -> "${ageMs / 1000}s"
+                    ageMs < 3_600_000L -> "${ageMs / 60_000}m"
+                    else -> "${ageMs / 3_600_000}h"
+                }
+                "$sym(${if (pnlPct >= 0) "+" else ""}${fmt1(pnlPct)}%, $agePart)"
+            }
+        }
 
-        // ── GLOBAL REGIME (V4 CrossMarket) ──────────────────────────────────────────
+        val nowMs = System.currentTimeMillis()
+        fun pnlOf(entryPrice: Double, currentPrice: Double): Double =
+            if (entryPrice > 0.0 && currentPrice > 0.0) ((currentPrice / entryPrice) - 1.0) * 100.0 else 0.0
+
+        val treasuryLine = try {
+            val positions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot()
+            fmtLayer(
+                "treasury scalps",
+                positions.map { p ->
+                    val cur = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(p.mint) ?: p.entryPrice
+                    Triple(p.symbol, pnlOf(p.entryPrice, cur), nowMs - p.entryTime)
+                }
+            )
+        } catch (_: Throwable) { "treasury scalps: ?" }
+
+        val shitLine = try {
+            val positions = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+            fmtLayer(
+                "shit",
+                positions.map { Triple(it.symbol, 0.0, nowMs - it.entryTime) }
+            )
+        } catch (_: Throwable) { "shit: ?" }
+
+        val moonLine = try {
+            val positions = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+            fmtLayer(
+                "moonshot",
+                positions.map { Triple(it.symbol, 0.0, nowMs - it.entryTime) }
+            )
+        } catch (_: Throwable) { "moonshot: ?" }
+
+        val blueLine = try {
+            val positions = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+            fmtLayer(
+                "bluechip",
+                positions.map { Triple(it.symbol, 0.0, nowMs - it.entryTime) }
+            )
+        } catch (_: Throwable) { "bluechip: ?" }
+
+        val manipLine = try {
+            val positions = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions()
+            fmtLayer(
+                "manip",
+                positions.map { Triple(it.symbol, 0.0, nowMs - it.entryTime) }
+            )
+        } catch (_: Throwable) { "manip: ?" }
+
+        val expressLine = try {
+            val rides = com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides()
+            fmtLayer(
+                "express",
+                rides.map { Triple(it.symbol, 0.0, nowMs - it.entryTime) }
+            )
+        } catch (_: Throwable) { "express: ?" }
+
+        // Aggregate count for the summary line so the LLM has a number it
+        // cannot misquote.
+        val allLayerCount = try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().size +
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size +
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size +
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size +
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().size +
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().size +
+                BotService.status.openPositions.size
+        } catch (_: Throwable) { -1 }
+        val totalsLine = "total open across all layers: " +
+            (if (allLayerCount >= 0) allLayerCount.toString() else "?")
+
         val regimeLine = try {
             "global regime: " + com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime().name
-        } catch (_: Throwable) { "global regime: ?" }
+        } catch (_: Throwable) {
+            "global regime: ?"
+        }
 
-        // ── LOCAL REGIME (MarketRegimeAI) ───────────────────────────────────────────
-        val localRegimeLine = try {
-            val r = MarketRegimeAI
-            "local regime: ${r.getCurrentRegime().name} (conf=${fmt1(r.getRegimeConfidence()*100)}% WR=${fmt1(r.getCurrentRegimeWinRate()*100)}%)"
-        } catch (_: Throwable) { "" }
-
-        // ── 30D PROOF RUN ────────────────────────────────────────────────────────────
         val proofLine = try {
             val start = RunTracker30D.startBalance
             val cur = RunTracker30D.currentBalance
             val retPct = if (start > 0.0) ((cur - start) / start) * 100.0 else 0.0
             "30d proof: day ${RunTracker30D.getCurrentDay()}/30 · " +
-                    (if (retPct >= 0.0) "+" else "") + fmt1(retPct) + "% · ${RunTracker30D.totalTrades}t"
-        } catch (_: Throwable) { "30d proof: ?" }
-
-        // ── V4 CROSSTALK UNIVERSE STATE ─────────────────────────────────────────────
-        val v4Snap = try { com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSnapshot() } catch (_: Throwable) { null }
-        val v4Line = if (v4Snap != null) buildString {
-            append("V4 universe: riskMode=${v4Snap.globalRiskMode?.name ?: "?"}")
-            append(" session=${v4Snap.sessionContext?.name ?: "?"}")
-            append(" portfolioHeat=${"%.2f".format(v4Snap.portfolioHeat ?: 0.0)}")
-            val flags = v4Snap.killFlags
-            if (!flags.isNullOrEmpty()) append(" ⚠️killFlags=${flags.joinToString(",")}")
-        } else "V4 universe: unavailable"
-
-        // ── SYMBOLIC NERVOUS SYSTEM (24 channels) ────────────────────────────────────
-        val symContext = try {
-            val sc = SymbolicContext
-            buildString {
-                append("symbolic: risk=${"%.2f".format(sc.overallRisk)}")
-                append(" conf=${"%.2f".format(sc.overallConfidence)}")
-                append(" health=${"%.2f".format(sc.marketHealth)}")
-                append(" edge=${"%.2f".format(sc.edgeStrength)}")
-                append(" mood=${sc.emotionalState}")
-                if (sc.isCircuitBreaking()) append(" [CIRCUIT BREAKING]")
-                if (sc.isRegimeTransitioning()) append(" [REGIME SHIFT]")
-                if (sc.isLeadLagWarning()) append(" [LEAD-LAG WARNING]")
-                if (sc.isHighRisk()) append(" [HIGH RISK]")
-            }
-        } catch (_: Throwable) { "symbolic: ?" }
-
-        // ── DRAWDOWN CIRCUIT ─────────────────────────────────────────────────────────
-        val drawdownLine = try {
-            val agg = com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()
-            val status = when {
-                agg >= 0.9 -> "FULL"
-                agg >= 0.7 -> "NORMAL"
-                agg >= 0.5 -> "REDUCED"
-                agg >= 0.3 -> "DEFENSIVE"
-                else -> "CIRCUIT BREAK"
-            }
-            "drawdown circuit: aggression=${"%.2f".format(agg)} [$status]"
-        } catch (_: Throwable) { "" }
-
-        // ── BEHAVIOR AI ──────────────────────────────────────────────────────────────
-        val behaviorLine = try {
-            val state = com.lifecyclebot.v3.scoring.BehaviorAI.getState()
-            "behavior: ${state.sentimentClass} · tilt=${state.tiltLevel}% · disc=${state.disciplineScore}% · " +
-                    "session=${state.sessionTrades}t(${state.sessionWins}W/${state.sessionLosses}L)" +
-                    (if (state.tiltProtectionActive) " [TILT PROTECTED]" else "") +
-                    (if (state.tenXCount > 0) " 🔥${state.tenXCount}×10X" else "")
-        } catch (_: Throwable) { "" }
-
-        // ── EDUCATION / CURRICULUM LEVEL ──────────────────────────────────────────────
-        val educationLine = try {
-            val lvl = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getCurrentCurriculumLevel()
-            val prog = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLevelProgress()
-            val isMega = com.lifecyclebot.v3.scoring.EducationSubLayerAI.isMegaBrain()
-            val totalTrades = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getTotalTradesAcrossAllLayers()
-            "education: ${lvl.icon} ${lvl.displayName} (${prog}% to next)${if (isMega) " [MEGA BRAIN]" else ""} · $totalTrades total trades"
-        } catch (_: Throwable) { "" }
-
-        // ── META COGNITION TRUST ──────────────────────────────────────────────────────
-        val metaLine = try {
-            val analyzed = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()
-            if (analyzed >= 15) {
-                val topTrust = com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()
-                    .entries.filter { it.value.totalPredictions >= 10 }
-                    .sortedByDescending { it.value.trustMultiplier }.take(3)
-                    .joinToString(", ") { "${it.value.layer.displayName}(x${"%.2f".format(it.value.trustMultiplier)})" }
-                "metacognition ($analyzed trades): top trust → $topTrust"
-            } else "metacognition: collecting data ($analyzed trades)"
-        } catch (_: Throwable) { "" }
-
-        // ── FLUID LEARNING PHASE ──────────────────────────────────────────────────────
-        val fluidPhaseLine = try {
-            val fl = FluidLearning
-            val phase = fl.getLearningPhase()
-            val winRate = fl.getWinRate()
-            val tradeCount = fl.getTradeCount()
-            "fluid learning: ${phase.name} · $tradeCount trades · WR=${"%.0f".format(winRate * 100)}% · progress=${"%.0f".format(fluidProgress * 100)}%"
-        } catch (_: Throwable) { "fluid learning: ${"%.0f".format(fluidProgress * 100)}% progress" }
-
-        // ── TOP/BOTTOM PERFORMING LAYERS ─────────────────────────────────────────────
-        val layerLine = try {
-            val diag = com.lifecyclebot.v3.scoring.EducationSubLayerAI.runDiagnostics()
-            val active = diag.entries.filter { it.value }.mapNotNull { entry ->
-                try { entry.key to com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLayerAccuracy(entry.key) } catch (_: Throwable) { null }
-            }.sortedByDescending { it.second }
-            val top = active.take(3).joinToString(", ") { (n, a) -> "$n(${"%.0f".format(a*100)}%)" }
-            val bot = active.takeLast(3).reversed().joinToString(", ") { (n, a) -> "$n(${"%.0f".format(a*100)}%)" }
-            "layers: top[$top] · weak[$bot]"
-        } catch (_: Throwable) { "" }
-
-        // ── WINNING LAYER COMBINATIONS ────────────────────────────────────────────────
-        val winComboLine = try {
-            val combos = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getWinningLayerCombinations().take(3)
-            if (combos.isNotEmpty()) "winning combos: " + combos.joinToString(" | ") { (combo, edge) -> "$combo→+${"%.1f".format(edge)}%" }
-            else ""
-        } catch (_: Throwable) { "" }
-
-        // ── PERSONALITY TRAITS ────────────────────────────────────────────────────────
-        val traitsLine = try {
-            val traits = PersonalityMemoryStore.getTraits()
-            "traits: " + (traits?.describe() ?: "no data")
-        } catch (_: Throwable) { "" }
+                (if (retPct >= 0.0) "+" else "") + fmt1(retPct) + "% · ${RunTracker30D.totalTrades}t"
+        } catch (_: Throwable) {
+            "30d proof: ?"
+        }
 
         return buildString {
-            append("mood: ").append(lastMood.name.toLowerCase(java.util.Locale.US)).append('\n')
-            append(fluidPhaseLine).append('\n')
-            append("streak: ").append(streakLine).append(" (W:$recentWins / L:$recentLosses)").append('\n')
-            append(botLine).append('\n')
-            append(opensLine).append('\n')
-            append(treasurySummaryLine).append('\n')
-            append(regimeLine).append('\n')
-            if (localRegimeLine.isNotBlank()) append(localRegimeLine).append('\n')
-            append(proofLine).append('\n')
-            append(v4Line).append('\n')
-            append(symContext).append('\n')
-            if (drawdownLine.isNotBlank()) append(drawdownLine).append('\n')
-            if (behaviorLine.isNotBlank()) append(behaviorLine).append('\n')
-            if (educationLine.isNotBlank()) append(educationLine).append('\n')
-            if (metaLine.isNotBlank()) append(metaLine).append('\n')
-            if (layerLine.isNotBlank()) append(layerLine).append('\n')
-            if (winComboLine.isNotBlank()) append(winComboLine).append('\n')
-            if (traitsLine.isNotBlank()) append(traitsLine).append('\n')
-            append("recent thoughts: ").append(latestThoughts)
+            append("mood: ")
+            append(lastMood.name.toLowerCase(Locale.US))
+            append('\n')
+            append("learning progress: ")
+            append((progress * 100.0).toInt())
+            append("%\n")
+            append("streak: ")
+            append(streakLine)
+            append(" (W:")
+            append(recentWins)
+            append(" / L:")
+            append(recentLosses)
+            append(")\n")
+            append(botLine)
+            append('\n')
+            append(opensLine)
+            append('\n')
+            append(treasuryLine)
+            append('\n')
+            append(shitLine)
+            append('\n')
+            append(moonLine)
+            append('\n')
+            append(blueLine)
+            append('\n')
+            append(manipLine)
+            append('\n')
+            append(expressLine)
+            append('\n')
+            append(totalsLine)
+            append('\n')
+            append(regimeLine)
+            append('\n')
+            append(proofLine)
+            append('\n')
+            append("recent thoughts: ")
+            append(latestThoughts)
         }
     }
 

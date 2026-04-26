@@ -857,6 +857,24 @@ object CashGenerationAI {
         return synchronized(activePositions) { activePositions[mint] }
     }
 
+    /**
+     * V5.9.268 — public snapshot of all live treasury scalps.
+     * Used by the SentientPersonality LLM context-builder so 'Morgan
+     * Freeman' actually sees treasury positions in the live ledger.
+     */
+    fun getActivePositionsSnapshot(): List<TreasuryPosition> {
+        return synchronized(activePositions) { activePositions.values.toList() }
+    }
+
+    /**
+     * V5.9.268 — paper- and live-aware snapshot. Returns the positions
+     * for whichever wallet matches `isPaper`.
+     */
+    fun getActivePositionsForMode(isPaper: Boolean): List<TreasuryPosition> {
+        val source = if (isPaper) paperPositions else livePositions
+        return synchronized(source) { source.values.toList() }
+    }
+
     fun updatePrice(mint: String, price: Double) {
         if (price > 0) {
             currentPrices[mint] = price

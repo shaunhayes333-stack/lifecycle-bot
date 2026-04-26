@@ -3034,7 +3034,7 @@ class BotService : Service() {
                                         if (sell.retryCount >= 20 && sell.retryCount % 5 == 0) {
                                             // Escalating alert every 5 attempts after threshold
                                             addLog("🚨 STUCK SELL (${sell.retryCount} attempts): ${sell.symbol} — still retrying. Tokens in wallet.")
-                                            onNotify(
+                                            sendTradeNotif(
                                                 "🚨 Stuck Sell — Action Required",
                                                 "${sell.symbol}: ${sell.retryCount} sell attempts failed. " +
                                                 "Tokens are still in your wallet. Bot will keep retrying. " +
