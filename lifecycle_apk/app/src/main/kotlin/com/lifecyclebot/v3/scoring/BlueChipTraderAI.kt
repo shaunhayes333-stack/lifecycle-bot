@@ -708,11 +708,12 @@ object BlueChipTraderAI {
     // V5.4: Fluid thresholds - much lower at bootstrap to allow paper mode to trade
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
     // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
-    private const val BC_SCORE_BOOTSTRAP = 22       // V5.9.266: moderate (was 18 at V5.9.263)
+    // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
+    private const val BC_SCORE_BOOTSTRAP = 28       // V5.9.300: 22→28 (per-trader strict gate)
     private const val BC_SCORE_MATURE = 38
 
     // V5.9.83: Conf floor raised so initial entries are higher-conviction.
-    private const val BC_CONF_BOOTSTRAP = 17        // V5.9.266: moderate (was 14 at V5.9.263)
+    private const val BC_CONF_BOOTSTRAP = 28        // V5.9.300: 17→28 (per-trader strict gate)
     private const val BC_CONF_MATURE = 48
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 

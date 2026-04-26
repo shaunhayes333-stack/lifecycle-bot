@@ -1178,11 +1178,13 @@ object ShitCoinTraderAI {
     // Bootstrap needs MORE trades for learning, not fewer
     // Bootstrap: score >= 20, conf >= 20% (was 35/25+10 = too high!)
     // Mature: score >= 40, conf >= 50%
-    private const val SC_SCORE_BOOTSTRAP = 18         // V5.9.275: restored 22→18; HARD_GATE already quality-filters
+    // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
+    // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
+    private const val SC_SCORE_BOOTSTRAP = 30         // V5.9.300: 18→30 (per-trader strict gate)
     private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 18          // V5.9.275: restored 20→18 to match score floor
+    private const val SC_CONF_BOOTSTRAP = 30          // V5.9.300: 18→30 (per-trader strict gate)
     private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     

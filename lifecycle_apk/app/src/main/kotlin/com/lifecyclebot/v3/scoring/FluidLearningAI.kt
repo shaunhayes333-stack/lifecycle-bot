@@ -239,9 +239,12 @@ object FluidLearningAI {
     // Chihuahua age=0.94m) all skipped at the 1-min floor — but the
     // best pump.fun plays ARE the first 60s. Let the bot see them.
     private const val MIN_TOKEN_AGE_BOOTSTRAP = 0.25  // 15 seconds
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 22.0  // V5.9.275: restored 28→22 (V5.9.266 over-tightened)
-    private const val MIN_SCORE_BOOTSTRAP = 25           // V5.9.275: restored 32→25 (matches SC_SCORE_BOOTSTRAP=18)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 2500.0   // V5.9.275: restored 3500→2500
+    // V5.9.300: V5.9.198 ARCHITECTURE RESTORATION — Global floors LOW, per-trader floors HIGH.
+    // The previous topology (global tight, per-trader loose) inverted the V5.9.198 design that hit 50%+ WR.
+    // Now: global gates open the floodgates; ShitCoin/BlueChip/Markets enforce strict quality at the trader layer.
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.300: 22→5 (open the floodgates)
+    private const val MIN_SCORE_BOOTSTRAP = 5            // V5.9.300: 25→5 (per-trader gates do the filtering)
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 1000.0   // V5.9.300: 2500→1000 (per-trader liq floors enforce quality)
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.
@@ -975,14 +978,14 @@ object FluidLearningAI {
     // V5.7.6b: BROADENED to match Meme trader philosophy - loose bootstrap, tight mature
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // SPOT trading thresholds — V5.9.266: moderate (was 22/24 at V5.9.263)
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 28
+    // SPOT trading thresholds — V5.9.300: floor inversion — per-trader gates strict (was 28/30 at V5.9.266)
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 30
     private const val MARKETS_SPOT_SCORE_MATURE = 60
     private const val MARKETS_SPOT_CONF_BOOTSTRAP = 30
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
-    // LEVERAGE trading thresholds — V5.9.266: moderate (was 24/26 at V5.9.263)
-    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 30
+    // LEVERAGE trading thresholds — V5.9.300: floor inversion — leverage demands tighter gate (was 30/32)
+    private const val MARKETS_LEV_SCORE_BOOTSTRAP = 32
     private const val MARKETS_LEV_SCORE_MATURE = 70
     private const val MARKETS_LEV_CONF_BOOTSTRAP = 32
     private const val MARKETS_LEV_CONF_MATURE = 70
@@ -1034,7 +1037,7 @@ object FluidLearningAI {
     // Post-hook: FluidLearningAI itself mutates learning progress based on realized PnL,
     // so this floor auto-drifts with winrate.
     // ═══════════════════════════════════════════════════════════════════════════
-    private const val SCANNER_LIQ_FLOOR_BOOTSTRAP = 1_500.0
+    private const val SCANNER_LIQ_FLOOR_BOOTSTRAP = 1_000.0  // V5.9.300: 1500→1000 (open scanner gate; per-trader liq floors filter)
     private const val SCANNER_LIQ_FLOOR_MATURE = 8_000.0
     fun getScannerLiqFloor(): Double = lerp(SCANNER_LIQ_FLOOR_BOOTSTRAP, SCANNER_LIQ_FLOOR_MATURE)
 

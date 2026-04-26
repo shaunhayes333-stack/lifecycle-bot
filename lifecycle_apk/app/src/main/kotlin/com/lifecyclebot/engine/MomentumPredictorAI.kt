@@ -102,8 +102,10 @@ object MomentumPredictorAI {
         STRONG_PUMP("STRONG PUMP LIKELY", 20.0),       // Add 20 to entry score
         PUMP_BUILDING("PUMP BUILDING", 10.0),          // Add 10 to entry score
         NEUTRAL("NEUTRAL", 0.0),
-        WEAK("WEAK MOMENTUM", -10.0),                  // Subtract 10 from entry score
-        DISTRIBUTION("DISTRIBUTION", -20.0),           // Subtract 20 from entry score
+        // V5.9.300: Halved penalties — momentum was choking signals during bootstrap.
+        // Per-trader gates do quality filtering; momentum should nudge, not gatekeep.
+        WEAK("WEAK MOMENTUM", -5.0),                   // V5.9.300: was -10
+        DISTRIBUTION("DISTRIBUTION", -10.0),           // V5.9.300: was -20
     }
     
     // Token momentum tracking
@@ -236,17 +238,19 @@ object MomentumPredictorAI {
         ).count { it }
         
         return when {
+            // V5.9.300: Loosened pump triggers — was 75/3 patterns and 70+breakout.
+            // Bootstrap needs momentum signal flow, not an elite-only gate.
             // Strong pump signals
-            score >= 75 && patterns >= 3 -> MomentumPrediction.STRONG_PUMP to (score * 0.9)
-            score >= 70 && momentum.hasMomentumBreakout -> MomentumPrediction.STRONG_PUMP to (score * 0.85)
+            score >= 65 && patterns >= 2 -> MomentumPrediction.STRONG_PUMP to (score * 0.9)
+            score >= 60 && momentum.hasMomentumBreakout -> MomentumPrediction.STRONG_PUMP to (score * 0.85)
             
             // Building momentum
-            score >= 55 && patterns >= 2 -> MomentumPrediction.PUMP_BUILDING to (score * 0.8)
-            score >= 50 && momentum.hasVolumeAcceleration -> MomentumPrediction.PUMP_BUILDING to (score * 0.75)
+            score >= 45 && patterns >= 1 -> MomentumPrediction.PUMP_BUILDING to (score * 0.8)
+            score >= 40 && momentum.hasVolumeAcceleration -> MomentumPrediction.PUMP_BUILDING to (score * 0.75)
             
             // Weak/Distribution
-            score < 30 && !momentum.hasAccumulation -> MomentumPrediction.DISTRIBUTION to (70.0)
-            score < 40 -> MomentumPrediction.WEAK to (60.0)
+            score < 25 && !momentum.hasAccumulation -> MomentumPrediction.DISTRIBUTION to (70.0)
+            score < 35 -> MomentumPrediction.WEAK to (60.0)
             
             // Neutral
             else -> MomentumPrediction.NEUTRAL to (50.0)
