@@ -75,11 +75,11 @@ object CryptoAltTrader {
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
 
     // V5.9.221: Stagnant + loser eviction thresholds
-    private const val STAGNANT_MIN_HOLD_MS  = 15 * 60 * 1000L  // V5.9.229: 5→15 min — alts need time to develop
+    private const val STAGNANT_MIN_HOLD_MS  = 10 * 60 * 1000L  // V5.9.272: 15→10 min — flat tokens proven dead in 10min
     private const val STAGNANT_MAX_PNL_PCT  = 0.5               // V5.9.229: ±0.5% = truly stagnant (was ±1% — evicted too many flat→pump setups)
     private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
     private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
-    private const val DEADWEIGHT_HOLD_MS    = 30 * 60 * 1000L  // V5.9.229: 12→30 min — alts routinely need 20-40 min to move
+    private const val DEADWEIGHT_HOLD_MS    = 20 * 60 * 1000L  // V5.9.272: 30→20 min — cap max hold for stale alts
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -1149,6 +1149,20 @@ object CryptoAltTrader {
             return null
         }
 
+        // V5.9.272: MOMENTUM GATE — block entries on flat/dead tokens.
+        // Established alts (XMR, CAKE, VET etc) sitting at <1.5% 24h change with no
+        // strong RSI/MACD confirmation are noise. Churning capital on them produces
+        // tiny flat positions that never hit TP and clog all 40 slots.
+        // Exception: RSI<35 (oversold bounce) or RSI>65 (overbought short) bypass this.
+        val techRsiForGate = try {
+            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
+        } catch (_: Exception) { 50.0 }
+        val hasStrongRsi = techRsiForGate < 35.0 || techRsiForGate > 65.0
+        if (kotlin.math.abs(change) < 1.5 && !hasStrongRsi) {
+            ErrorLogger.debug(TAG, "🚫 MOMENTUM GATE: ${market.symbol} change=${"%.2f".format(change)}% RSI=${"%.0f".format(techRsiForGate)} — too flat to enter")
+            return null
+        }
+
         return AltSignal(
             market         = market,
             direction      = direction,
@@ -1598,6 +1612,32 @@ object CryptoAltTrader {
                     continue
                 }
                 val updated = position.copy(currentPrice = data.price)
+
+                // V5.9.272: HARD SL — fire before anything else if price crossed stop
+                val slPriceOk = updated.stopLossPrice > 0 && updated.entryPrice > 0
+                val tpPriceOk = updated.takeProfitPrice > 0 && updated.entryPrice > 0
+                if (slPriceOk) {
+                    val hitSl = when (updated.direction) {
+                        com.lifecyclebot.perps.PerpsDirection.LONG  -> data.price <= updated.stopLossPrice
+                        com.lifecyclebot.perps.PerpsDirection.SHORT -> data.price >= updated.stopLossPrice
+                    }
+                    if (hitSl) {
+                        closePosition(id, "HARD_SL: price=${data.price.fmt(6)} crossed SL=${updated.stopLossPrice.fmt(6)} (${updated.getPnlPct().let { if (it>=0) "+${"%.2f".format(it)}" else "${"%.2f".format(it)}" }}%)")
+                        continue
+                    }
+                }
+                // V5.9.272: HARD TP — take profit immediately when price crosses target
+                if (tpPriceOk) {
+                    val hitTp = when (updated.direction) {
+                        com.lifecyclebot.perps.PerpsDirection.LONG  -> data.price >= updated.takeProfitPrice
+                        com.lifecyclebot.perps.PerpsDirection.SHORT -> data.price <= updated.takeProfitPrice
+                    }
+                    if (hitTp) {
+                        closePosition(id, "HARD_TP: price=${data.price.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
+                        continue
+                    }
+                }
+
                 // V5.9.9: Track peak PnL for trailing stop
                 val currentPnl = updated.getPnlPct()
                 if (currentPnl > updated.highestPnlPct) {
