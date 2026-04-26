@@ -806,13 +806,102 @@ object MarketsLiveExecutor {
      */
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // V5.9.230: FLASH.TRADE PERPS — active Solana perps DEX (replaces dead Jupiter Perps v2)
-    // Flash.trade supports: SOL, BTC, ETH, BNB, XRP, ADA, AVAX, LINK, DOT, MATIC and more.
-    // API: https://api.flash.trade/v1 — permissionless, up to 100x leverage.
-    // For paper mode: records the position locally (no on-chain call).
-    // For live mode: opens a real leveraged position on Flash.trade.
-    // SHORT is fully supported (unlike SPOT-only Jupiter swap path).
+    // V5.9.320: FLASH.TRADE PERPS — FULLY WIRED TO REAL API
+    //
+    // API base: https://flashapi.trade  (NOT api.flash.trade — that was wrong)
+    // No API key required. Rate limit: 10 req/s.
+    //
+    // OPEN:  POST /transaction-builder/open-position
+    //   → inputTokenSymbol: "USDC", outputTokenSymbol: "SOL"/"BTC"/etc.
+    //   → inputAmountUi: USD amount as string
+    //   → leverage: float, tradeType: "LONG"/"SHORT"
+    //   → owner: wallet pubkey
+    //   → Response: { transactionBase64, err }
+    //
+    // CLOSE: POST /transaction-builder/close-position
+    //   → positionKey: Flash position account pubkey (from GET /positions/owner/{wallet})
+    //   → inputUsdUi: full position size USD
+    //   → withdrawTokenSymbol: "USDC"
+    //   → owner: wallet pubkey
+    //
+    // FIND KEY: GET /positions/owner/{wallet}?includePnlInLeverageDisplay=true
+    //   → returns array with .key and .marketSymbol/.sideUi for matching
+    //
+    // Flash supports: SOL, BTC, ETH, BNB, XRP, ADA, DOGE, AVAX, LINK, DOT,
+    //                 MATIC, LTC, ATOM, UNI, ARB, OP, APT, SUI, INJ, JUP,
+    //                 NEAR, TIA, WLD, ENA, BONK, WIF, PEPE, TRUMP, SHIB
+    //
+    // For unsupported symbols: degrade transparently to Jupiter SPOT swap.
     // ═══════════════════════════════════════════════════════════════════════════
+
+    private val FLASH_API_BASE = "https://flashapi.trade"
+
+    // Shared OkHttp client for all Flash API calls (reused, not recreated per call)
+    private val flashHttp by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    // Flash supported symbols — confirmed on-chain markets
+    // Public so CryptoAltTrader can check before storing Flash position keys.
+    val FLASH_SUPPORTED_PUBLIC = setOf(
+        "SOL", "BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "AVAX",
+        "LINK", "DOT", "MATIC", "LTC", "ATOM", "UNI", "ARB", "OP",
+        "APT", "SUI", "INJ", "JUP", "NEAR", "TIA", "WLD", "ENA",
+        "BONK", "WIF", "PEPE", "TRUMP", "SHIB"
+    )
+    private val FLASH_SUPPORTED = FLASH_SUPPORTED_PUBLIC
+
+    /** Fetch all open positions for a wallet from Flash API. Returns list of position objects. */
+    private fun fetchFlashPositions(walletAddress: String): org.json.JSONArray? {
+        return try {
+            val request = okhttp3.Request.Builder()
+                .url("$FLASH_API_BASE/positions/owner/$walletAddress?includePnlInLeverageDisplay=true")
+                .get()
+                .build()
+            val response = flashHttp.newCall(request).execute()
+            val body = response.body?.string() ?: return null
+            if (!response.isSuccessful) {
+                ErrorLogger.warn(TAG, "Flash fetchPositions ${response.code}: $body")
+                return null
+            }
+            org.json.JSONArray(body)
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "Flash fetchPositions exception: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Find the Flash position key for an open position by matching symbol + side.
+     * Returns the positionKey (account pubkey) needed for the close endpoint.
+     */
+    fun findFlashPositionKey(walletAddress: String, symbol: String, direction: PerpsDirection): String? {
+        val positions = fetchFlashPositions(walletAddress) ?: return null
+        val sideTarget = if (direction == PerpsDirection.LONG) "Long" else "Short"
+        for (i in 0 until positions.length()) {
+            val pos = positions.optJSONObject(i) ?: continue
+            val mktSymbol = pos.optString("marketSymbol", "")
+            val side = pos.optString("sideUi", "")
+            if (mktSymbol.equals(symbol, ignoreCase = true) && side.equals(sideTarget, ignoreCase = true)) {
+                val key = pos.optString("key", "")
+                if (key.isNotBlank()) return key
+            }
+        }
+        return null
+    }
+
+    /**
+     * Open a leveraged perps position on Flash.trade.
+     * Uses USDC as collateral input (most liquid route).
+     * Returns tx signature on success, null on failure.
+     * On unsupported symbol: degrades transparently to Jupiter SPOT.
+     *
+     * IMPORTANT: caller must store the returned flashPositionKey from the
+     * position lookup after open to enable proper close later.
+     */
     private suspend fun executeFlashTradePerps(
         wallet: com.lifecyclebot.network.SolanaWallet,
         walletAddress: String,
@@ -821,91 +910,189 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         leverage: Double,
     ): String? = withContext(Dispatchers.IO) {
-        // Flash.trade supported symbols for leveraged perps
-        val FLASH_SUPPORTED = setOf(
-            "SOL", "BTC", "ETH", "BNB", "XRP", "ADA", "DOGE", "AVAX",
-            "LINK", "DOT", "MATIC", "LTC", "ATOM", "UNI", "ARB", "OP",
-            "APT", "SUI", "INJ", "JUP", "NEAR", "TIA", "WLD", "ENA",
-            "BONK", "WIF", "PEPE", "TRUMP", "SHIB"
-        )
 
         val symbol = market.symbol
+
         if (symbol !in FLASH_SUPPORTED) {
-            // Symbol not on Flash — degrade to SPOT (honest, not silent)
-            ErrorLogger.info(TAG, "⚠️ Flash.trade: $symbol not in perps universe — degrading to SPOT 1x")
+            ErrorLogger.info(TAG, "⚠️ Flash: $symbol not in perps universe — degrading to SPOT 1x")
             val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
                 .getTokenBySymbol(symbol)?.mint
                 ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
             return@withContext if (mint != null)
                 executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
             else {
-                ErrorLogger.warn(TAG, "⛔ Flash + SPOT: no mint for $symbol — skipping")
+                ErrorLogger.warn(TAG, "⛔ Flash + SPOT fallback: no mint for $symbol")
                 null
             }
         }
 
-        // Flash.trade perps API call
-        val flashApiUrl = "https://api.flash.trade/v1/positions/open"
-        val sideStr = if (direction == PerpsDirection.LONG) "long" else "short"
+        val tradeType = if (direction == PerpsDirection.LONG) "LONG" else "SHORT"
         val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
-        val collateralUsdc = sizeSol * solPriceUsd  // V5.9.310: real SOL price from WalletManager
+        val inputAmountUsd = sizeSol * solPriceUsd  // collateral in USD
+        val slippagePct = (configuredSlippageBps() / 100.0).coerceIn(0.1, 5.0)
 
-        ErrorLogger.info(TAG, "⚡ Flash.trade PERPS: $symbol $sideStr ${leverage.toInt()}x | size=${sizeSol.fmt(4)} SOL")
+        ErrorLogger.info(TAG, "⚡ Flash.trade PERPS: $symbol $tradeType ${leverage}x | \$${inputAmountUsd.fmt(2)} collateral")
 
         return@withContext try {
-            val body = org.json.JSONObject().apply {
-                put("symbol", "${symbol}/USD")
-                put("side", sideStr)
-                put("leverage", leverage.toInt())
-                put("collateralSol", sizeSol)
-                put("walletAddress", walletAddress)
-                put("slippageBps", configuredSlippageBps())
+            val reqBody = org.json.JSONObject().apply {
+                put("inputTokenSymbol",   "USDC")       // pay with USDC
+                put("outputTokenSymbol",  symbol)        // open perp on this market
+                put("inputAmountUi",      inputAmountUsd.fmt(2))
+                put("leverage",           leverage)
+                put("tradeType",          tradeType)
+                put("owner",              walletAddress)
+                put("slippagePercentage", slippagePct.toString())
             }.toString()
 
-            // V5.9.235 fix: use a local OkHttpClient (no class-level 'client' in this object)
-            val http = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
             val mediaJson = "application/json; charset=utf-8".toMediaType()
             val request = okhttp3.Request.Builder()
-                .url(flashApiUrl)
-                .post(body.toRequestBody(mediaJson))
+                .url("$FLASH_API_BASE/transaction-builder/open-position")
+                .post(reqBody.toRequestBody(mediaJson))
                 .header("Content-Type", "application/json")
                 .build()
 
-            val response = http.newCall(request).execute()
+            val response = flashHttp.newCall(request).execute()
             val responseBody = response.body?.string() ?: ""
 
-            if (response.isSuccessful) {
-                val json = org.json.JSONObject(responseBody)
-                val txBase64 = json.optString("transaction", "")
-                if (txBase64.isNotEmpty()) {
-                    // Sign and send via SolanaWallet.signAndSend (handles signing + RPC submission)
-                    val sig = try { wallet.signAndSend(txBase64) } catch (_: Exception) { null }
-                    if (!sig.isNullOrEmpty()) {
-                        ErrorLogger.info(TAG, "✅ Flash.trade $sideStr $symbol ${leverage.toInt()}x: $sig")
-                        return@withContext sig
-                    }
-                }
-                ErrorLogger.warn(TAG, "⚠️ Flash.trade: got 200 but no tx — check API format")
-                null
-            } else {
-                // Flash API not reachable or symbol unsupported at runtime — degrade to spot
-                ErrorLogger.warn(TAG, "⚠️ Flash.trade $symbol returned ${response.code} — degrading to SPOT")
-                val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                    .getTokenBySymbol(symbol)?.mint
-                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-                if (mint != null) executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
-                else null
+            if (!response.isSuccessful) {
+                ErrorLogger.warn(TAG, "⚠️ Flash open-position ${response.code}: $responseBody — degrading to SPOT")
+                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
             }
+
+            val json = org.json.JSONObject(responseBody)
+            val err = json.optString("err", "null")
+            if (err != "null" && err.isNotBlank()) {
+                ErrorLogger.warn(TAG, "⚠️ Flash API err for $symbol: $err — degrading to SPOT")
+                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+            }
+
+            val txBase64 = json.optString("transactionBase64", "")
+            if (txBase64.isBlank()) {
+                ErrorLogger.warn(TAG, "⚠️ Flash: no transaction in response for $symbol")
+                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+            }
+
+            // Sign and send the Flash transaction
+            val sig = try {
+                wallet.signAndSend(txBase64)
+            } catch (ex: Exception) {
+                ErrorLogger.warn(TAG, "⚠️ Flash sign/send failed for $symbol: ${ex.message}")
+                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+            }
+
+            if (sig.isNullOrBlank()) {
+                ErrorLogger.warn(TAG, "⚠️ Flash: empty sig for $symbol — degrading to SPOT")
+                return@withContext degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+            }
+
+            ErrorLogger.info(TAG, "✅ Flash.trade $tradeType $symbol ${leverage}x OPEN: ${sig.take(24)}...")
+            sig
+
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "Flash.trade exception for $symbol: ${e.message} — degrading to SPOT")
-            val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                .getTokenBySymbol(symbol)?.mint
-                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
-            if (mint != null) executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
-            else null
+            ErrorLogger.warn(TAG, "Flash exception for $symbol: ${e.message} — degrading to SPOT")
+            degradeFlashToSpot(wallet, walletAddress, market, direction, sizeSol)
+        }
+    }
+
+    /** Degrade a Flash perps open to a Jupiter SPOT swap (1x, LONG only). */
+    private suspend fun degradeFlashToSpot(
+        wallet: com.lifecyclebot.network.SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+    ): String? {
+        val mint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+            .getTokenBySymbol(market.symbol)?.mint
+            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+        return if (mint != null)
+            executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
+        else null
+    }
+
+    /**
+     * Close a Flash.trade leveraged position.
+     * Looks up the open position key from Flash API by matching symbol+side,
+     * then calls /transaction-builder/close-position to get a ready-to-sign tx.
+     *
+     * @param positionKeyHint  Optional pre-stored position key. If null, we query Flash API.
+     */
+    suspend fun closeFlashPosition(
+        wallet: com.lifecyclebot.network.SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeUsd: Double,
+        positionKeyHint: String? = null,
+    ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
+
+        // 1. Resolve position key
+        val positionKey = positionKeyHint
+            ?: findFlashPositionKey(walletAddress, market.symbol, direction)
+
+        if (positionKey.isNullOrBlank()) {
+            ErrorLogger.warn(TAG, "⛔ Flash close: no position key found for ${market.symbol} ${direction.name}")
+            return@withContext Pair(false, null)
+        }
+
+        ErrorLogger.info(TAG, "⚡ Flash.trade CLOSE: ${market.symbol} ${direction.name} | key=${positionKey.take(12)}... | \$${sizeUsd.fmt(2)}")
+
+        val slippagePct = (configuredSlippageBps() / 100.0).coerceIn(0.1, 5.0)
+
+        return@withContext try {
+            val reqBody = org.json.JSONObject().apply {
+                put("positionKey",           positionKey)
+                put("inputUsdUi",            sizeUsd.fmt(2))  // full position USD for full close
+                put("withdrawTokenSymbol",   "USDC")          // receive USDC back
+                put("owner",                 walletAddress)
+                put("slippagePercentage",    slippagePct.toString())
+            }.toString()
+
+            val mediaJson = "application/json; charset=utf-8".toMediaType()
+            val request = okhttp3.Request.Builder()
+                .url("$FLASH_API_BASE/transaction-builder/close-position")
+                .post(reqBody.toRequestBody(mediaJson))
+                .header("Content-Type", "application/json")
+                .build()
+
+            val response = flashHttp.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                ErrorLogger.warn(TAG, "⚠️ Flash close ${response.code}: $responseBody")
+                return@withContext Pair(false, null)
+            }
+
+            val json = org.json.JSONObject(responseBody)
+            val err = json.optString("err", "null")
+            if (err != "null" && err.isNotBlank()) {
+                ErrorLogger.warn(TAG, "⚠️ Flash close API err: $err")
+                return@withContext Pair(false, null)
+            }
+
+            val txBase64 = json.optString("transactionBase64", "")
+            if (txBase64.isBlank()) {
+                ErrorLogger.warn(TAG, "⚠️ Flash close: no transaction in response")
+                return@withContext Pair(false, null)
+            }
+
+            val sig = try {
+                wallet.signAndSend(txBase64)
+            } catch (ex: Exception) {
+                ErrorLogger.warn(TAG, "⚠️ Flash close sign/send failed: ${ex.message}")
+                return@withContext Pair(false, null)
+            }
+
+            if (sig.isNullOrBlank()) {
+                return@withContext Pair(false, null)
+            }
+
+            ErrorLogger.info(TAG, "✅ Flash.trade CLOSE ${market.symbol}: ${sig.take(24)}...")
+            Pair(true, sig)
+
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "Flash close exception for ${market.symbol}: ${e.message}")
+            Pair(false, null)
         }
     }
 
@@ -915,6 +1102,7 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         leverage: Double = 1.0,
         traderType: String = "Markets",
+        flashPositionKey: String? = null,  // V5.9.320: Flash perps key for leveraged crypto closes
     ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
         
         ErrorLogger.info(TAG, "CLOSE LIVE POSITION: $traderType | ${market.symbol}")
@@ -933,14 +1121,36 @@ object MarketsLiveExecutor {
             return@withContext Pair(false, null)
         }
 
-        // V5.9.16/V5.9.50: REAL close path —
-        //   Tokenized asset (xStocks / PAXG / EURC) → swap <mint> → SOL
-        //   Crypto (V5.9.45 spot-swap opens)        → swap <crypto_mint> → SOL
-        //   Legacy USDC-parked positions            → swap USDC → SOL (backwards-compat)
-        // Previously crypto was explicitly excluded from tokenized routing and
-        // always fell through to the USDC branch — since V5.9.45 opens the
-        // real crypto mint (not USDC), every crypto live BUY since then has
-        // been un-closable. That silently locked capital in the alt token.
+        // V5.9.320: REAL close path —
+        //   Flash leveraged crypto (leverage>1, posKey provided) → closeFlashPosition API
+        //   Tokenized asset (xStocks / PAXG / EURC) → Jupiter swap <mint> → SOL
+        //   Crypto SPOT (V5.9.310 opens)            → Jupiter swap <crypto_mint> → SOL
+        //   Legacy USDC-parked positions            → Jupiter swap USDC → SOL
+
+        // ── Flash leveraged close (fastest path) ──────────────────────────────
+        if (leverage > 1.0 && market.isCrypto && market.symbol in FLASH_SUPPORTED_PUBLIC) {
+            val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+            val sizeUsd  = sizeSol * solPrice * leverage  // full notional
+            val (flashOk, flashSig) = closeFlashPosition(
+                wallet           = wallet,
+                walletAddress    = walletAddress!!,
+                market           = market,
+                direction        = direction,
+                sizeUsd          = sizeUsd,
+                positionKeyHint  = flashPositionKey,
+            )
+            if (flashOk) {
+                // Collect close fee
+                val feePercent = LEVERAGE_TRADING_FEE_PERCENT
+                val feeAmountSol = sizeSol * feePercent
+                collectTradingFee(wallet, feeAmountSol, market.symbol, "CLOSE")
+                ErrorLogger.info(TAG, "✅ Flash leveraged close success: ${market.symbol}")
+                return@withContext Pair(true, flashSig)
+            }
+            ErrorLogger.warn(TAG, "⚠️ Flash close failed for ${market.symbol} — falling through to Jupiter SPOT close")
+            // Fall through to Jupiter close if Flash fails
+        }
+
         val tokenizedMint = TokenizedAssetRegistry.mintFor(market.symbol)
         val cryptoMint = if (market.isCrypto) {
             com.lifecyclebot.perps.DynamicAltTokenRegistry

@@ -174,7 +174,10 @@ object CryptoAltTrader {
         var closeTime     : Long? = null,
         var closePrice    : Double? = null,
         var realizedPnl   : Double? = null,
-        var highestPnlPct : Double = 0.0   // V5.9.9: Track peak PnL for trailing stop
+        var highestPnlPct : Double = 0.0,  // V5.9.9: Track peak PnL for trailing stop
+        // V5.9.320: Flash.trade position account key — needed for proper close via Flash API.
+        // Set after open for leveraged crypto positions. Null = SPOT or USDC-parked.
+        var flashPositionKey: String? = null,
     ) {
         val leverageLabel: String get() = if (isSpot) "SPOT" else "${leverage.toInt()}x"
 
@@ -211,8 +214,9 @@ object CryptoAltTrader {
             .put("aiScore",         p.aiScore)
             .put("aiConfidence",    p.aiConfidence)
             .put("reasons",         org.json.JSONArray(p.reasons))
-            .put("openTime",        p.openTime)
-            .put("highestPnlPct",   p.highestPnlPct)
+            .put("openTime",         p.openTime)
+            .put("highestPnlPct",    p.highestPnlPct)
+            .apply { if (p.flashPositionKey != null) put("flashPositionKey", p.flashPositionKey) }
     }
     private fun altPositionFromJson(j: org.json.JSONObject): AltPosition {
         val reasonsArr = j.optJSONArray("reasons")
@@ -234,7 +238,11 @@ object CryptoAltTrader {
             aiConfidence    = j.optInt("aiConfidence", 50),
             reasons         = reasons,
             openTime        = j.optLong("openTime", System.currentTimeMillis()),
-        ).apply { highestPnlPct = j.optDouble("highestPnlPct", 0.0) }
+        ).apply {
+            highestPnlPct = j.optDouble("highestPnlPct", 0.0)
+            val fk = j.optString("flashPositionKey", "")
+            if (fk.isNotBlank()) flashPositionKey = fk
+        }
     }
     private fun persistAltPositions() {
         try {
@@ -1365,6 +1373,34 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
 
+        // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
+        // position key so we can close it properly via the Flash close-position endpoint.
+        // SPOT positions close via Jupiter swap (no Flash key needed).
+        if (!isPaperMode.get() && !isSpot && signal.market.symbol in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    kotlinx.coroutines.delay(3_000L) // brief delay for tx to settle on-chain
+                    val wallet = WalletManager.getWallet()
+                    val walletAddress = wallet?.publicKeyB58
+                    if (!walletAddress.isNullOrBlank()) {
+                        val key = MarketsLiveExecutor.findFlashPositionKey(
+                            walletAddress = walletAddress,
+                            symbol        = signal.market.symbol,
+                            direction     = signal.direction,
+                        )
+                        if (key != null) {
+                            positions[position.id]?.flashPositionKey = key
+                            if (!isSpot) leveragePositions[position.id]?.flashPositionKey = key
+                            persistAltPositions()
+                            ErrorLogger.info("CryptoAlt", "⚡ Flash posKey stored for ${signal.market.symbol}: ${key.take(12)}...")
+                        } else {
+                            ErrorLogger.warn("CryptoAlt", "⚠️ Flash posKey not found for ${signal.market.symbol} — close will use wallet-scan fallback")
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         // V5.9.178 — persist the actual position JSON so it survives app updates.
         persistAltPositions()
 
@@ -1849,11 +1885,12 @@ object CryptoAltTrader {
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                     val (ok, _) = MarketsLiveExecutor.closeLivePosition(
-                        market     = pos.market,
-                        direction  = pos.direction,
-                        sizeSol    = pos.sizeSol,
-                        leverage   = pos.leverage,
-                        traderType = "CryptoAlt"
+                        market           = pos.market,
+                        direction        = pos.direction,
+                        sizeSol          = pos.sizeSol,
+                        leverage         = pos.leverage,
+                        traderType       = "CryptoAlt",
+                        flashPositionKey = pos.flashPositionKey,  // V5.9.320: Flash key for leveraged crypto
                     )
                     ok
                 }
