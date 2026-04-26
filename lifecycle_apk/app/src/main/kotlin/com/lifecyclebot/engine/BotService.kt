@@ -5268,8 +5268,9 @@ if (deferredCount > 0) {
                                     isPaper = cfg.paperMode
                                 )
 
-                                // Record Blue Chip position only if the buy actually opened one
-                                if (ts.position.isOpen) com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
+                                // V5.9.270 FIX: Use qtyToken > 0 || pendingVerify (not just isOpen).
+                                // For live buys, liveBuy() leaves pendingVerify=true making isOpen=false.
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify) com.lifecyclebot.v3.scoring.BlueChipTraderAI.addPosition(
                                     com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -5420,8 +5421,9 @@ if (deferredCount > 0) {
                                                 spaceModeName = moonshotScore.spaceMode.displayName,
                                             )
 
-                                            // Register with MoonshotTraderAI only if position actually opened
-                                            if (ts.position.isOpen) com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
+                                            // V5.9.270 FIX: Use qtyToken > 0 || pendingVerify (not just isOpen).
+                                            // For live buys, liveBuy() leaves pendingVerify=true making isOpen=false.
+                                            if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify) com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
                                                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
                                                     mint = ts.mint,
                                                     symbol = ts.symbol,
@@ -5730,10 +5732,11 @@ if (deferredCount > 0) {
                                 ts.position.tradingMode = "SHITCOIN"
                                 ts.position.tradingModeEmoji = "💩"
 
-                                // Register with ShitCoinTraderAI ONLY if the buy actually opened a position.
-                                // Premature registration (before isOpen is confirmed) creates phantom positions
-                                // that block future real buys with ALREADY_OPEN_IN_SHITCOIN rejections.
-                                if (ts.position.isOpen) {
+                                // Register with ShitCoinTraderAI when position is opened or pending live verification.
+                                // V5.9.270 FIX: For LIVE buys, liveBuy() sets pendingVerify=true which makes
+                                // isOpen=false — so checking isOpen alone skips registration for all live trades!
+                                // Correct check: qtyToken > 0 (paper) OR pendingVerify=true (live, awaiting confirm).
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify) {
                                     val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
                                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
                                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
