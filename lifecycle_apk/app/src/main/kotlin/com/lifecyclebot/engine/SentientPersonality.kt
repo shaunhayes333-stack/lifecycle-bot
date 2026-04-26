@@ -855,9 +855,15 @@ object SentientPersonality {
         // Previously: only BotService.status.openPositions (meme layer) was visible.
         // Now: Treasury, ShitCoin, BlueChip, Quality, Moonshot all included.
 
-        // Meme / express positions from TokenState map (includes pendingVerify guard)
+        // Meme / express positions from TokenState map.
+        // V5.9.270: Include pendingVerify=true positions too — these are CONFIRMED on-chain
+        // (BUY_VERIFIED_LANDED) but still within the phantom-guard window. The LLM must
+        // know about them so it doesn't falsely report "no active positions".
         val memePositions = try {
-            BotService.status.openPositions.map { ts ->
+            val allTokens = synchronized(BotService.status.tokens) {
+                BotService.status.tokens.values.toList()
+            }
+            allTokens.filter { ts -> ts.position.qtyToken > 0.0 }.map { ts ->
                 val entry = ts.position.entryPrice
                 val pnlPct = if (entry > 0.0) ((ts.lastPrice / entry) - 1.0) * 100.0 else 0.0
                 val mode = ts.position.tradingMode.ifBlank { "MEME" }
@@ -867,7 +873,8 @@ object SentientPersonality {
                     ts.position.isBlueChipPosition -> "BLUECHIP"
                     else -> mode
                 }
-                Triple(ts.symbol, pnlPct, layer)
+                val tag = if (ts.position.pendingVerify) "$layer[verifying]" else layer
+                Triple(ts.symbol, pnlPct, tag)
             }
         } catch (_: Throwable) { emptyList() }
 
