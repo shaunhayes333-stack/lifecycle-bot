@@ -7511,7 +7511,11 @@ if (deferredCount > 0) {
             // After bot restart, ShitCoinTraderAI.activePositions is empty in-memory.
             // checkExit() returns HOLD forever → positions sit idle indefinitely.
             // Re-register from persisted ts.position data so exits work correctly.
-            if (!com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint) && ts.position.isOpen) {
+            // V5.9.293: Mirror the V5.9.270 fix — isOpen is false while pendingVerify=true
+            // (within first 120s). Without this, live buys mid-restart never re-register.
+            val scHasRealPosition = ts.position.isOpen ||
+                (ts.position.qtyToken > 0.0 && ts.position.pendingVerify)
+            if (!com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint) && scHasRealPosition) {
                 val recTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
                 val recSl = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss()
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
@@ -7722,8 +7726,11 @@ if (deferredCount > 0) {
             // V5.9.204: MOONSHOT RECOVERY — after restart activePositions is empty
             // MoonshotTraderAI.checkExit returns HOLD for unregistered positions.
             // Re-register from persisted data so exits fire correctly.
+            // V5.9.293: Include pendingVerify positions (live buys within 120s window).
+            val msHasRealPosition = ts.position.isOpen ||
+                (ts.position.qtyToken > 0.0 && ts.position.pendingVerify)
             if (!com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)
-                    && ts.position.isOpen && ts.position.entryPrice > 0) {
+                    && msHasRealPosition && ts.position.entryPrice > 0) {
                 val rawMode = ts.position.tradingMode ?: "MOONSHOT_ORBITAL"
                 val spaceMode = try {
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.valueOf(

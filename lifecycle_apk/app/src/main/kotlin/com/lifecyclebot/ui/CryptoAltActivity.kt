@@ -2210,14 +2210,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 posSection.addView(thinDivider())
             }
 
-            // Close All button
-            val closeBtn = tv("🔴  Close All Positions", 13f, red, bold = true).apply {
-                setBackgroundColor(0xFF2E0A0A.toInt())
-                setPadding(16, 12, 16, 12)
-                gravity = Gravity.CENTER
-                layoutParams = llp(match, wrap).apply { topMargin = 8 }
-            }
-            posSection.addView(closeBtn)
+            // V5.9.293: Removed "Close All" button — bot manages all exits.
             root.addView(posSection)
             root.addView(thinDivider())
         }
@@ -2270,29 +2263,7 @@ class CryptoAltActivity : AppCompatActivity() {
             WatchlistEngine.addToWatchlist(tok.symbol)
             Toast.makeText(this, "📌 ${tok.symbol} added to watchlist", Toast.LENGTH_SHORT).show()
         }
-        if (openPositions.isNotEmpty()) {
-            val closeBtn = root.findViewWithTag<TextView?>(null) // find by traversal
-            // We set the close action directly on the button in posSection
-            // The button was not tagged — find it by searching root children
-            fun findCloseBtn(vg: android.view.ViewGroup): TextView? {
-                for (i in 0 until vg.childCount) {
-                    val ch = vg.getChildAt(i)
-                    if (ch is TextView && ch.text.toString().contains("Close All")) return ch
-                    if (ch is android.view.ViewGroup) findCloseBtn(ch)?.let { return it }
-                }
-                return null
-            }
-            findCloseBtn(root)?.setOnClickListener {
-                lifecycleScope.launch(Dispatchers.IO) {
-                    openPositions.forEach { CryptoAltTrader.requestClose(it.id) }
-                    withContext(Dispatchers.Main) {
-                        dialog.dismiss()
-                        Toast.makeText(this@CryptoAltActivity, "🔴 Closing ${openPositions.size} position(s)", Toast.LENGTH_SHORT).show()
-                        selectTab(2)
-                    }
-                }
-            }
-        }
+        // V5.9.293: Close All wiring removed — bot manages all exits automatically.
 
         // Close on back tap anywhere outside content
         scroll.setOnClickListener { /* consume */ }
@@ -2996,33 +2967,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
         // ── Tap to open detail dialog with mini chart ─────────────────────────
         if (isOpen) {
-            // Visible close chip above the progress bar
-            val closePosChip = tv("🔴 Close", 10f, white, bold = true).apply {
-                setPadding(14, 6, 14, 6)
-                setBackgroundColor(0xFFEF4444.toInt())
-                layoutParams = llp(match, wrap).apply { setMargins(13, 0, 13, 6) }
-                gravity = Gravity.CENTER
-            }
-            val posIdCompact = pos.id
-            val posSymCompact = pos.market.symbol
-            closePosChip.setOnClickListener {
-                AlertDialog.Builder(this@CryptoAltActivity)
-                    .setTitle("Close Position?")
-                    .setMessage("Manually close $posSymCompact?")
-                    .setPositiveButton("Yes, Close") { _, _ ->
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            CryptoAltTrader.requestClose(posIdCompact)
-                            withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(this@CryptoAltActivity, "✅ Closing $posSymCompact…", android.widget.Toast.LENGTH_SHORT).show()
-                                selectTab(2)
-                            }
-                        }
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }
-            outer.addView(closePosChip)
-
+            // V5.9.293: Removed manual close chip — bot manages all exits automatically.
             outer.setOnClickListener {
                 showAltPositionDetailDialog(pos, dynTok, solPrice)
             }
@@ -3178,27 +3123,12 @@ class CryptoAltActivity : AppCompatActivity() {
 
         root.addView(thinDivider())
 
-        // Close button
-        val closeBtn = tv("🔴  CLOSE POSITION", 14f, white, bold = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, 16, 0, 16)
-            setBackgroundColor(0xFFEF4444.toInt())
-            layoutParams = llp(match, wrap)
-        }
-
+        // V5.9.293: Removed manual close button — bot manages all exits automatically.
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_MinWidth)
             .setView(scrollView)
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Dismiss", null)
             .create()
 
-        closeBtn.setOnClickListener {
-            dialog.dismiss()
-            lifecycleScope.launch(Dispatchers.IO) {
-                CryptoAltTrader.requestClose(pos.id)
-                withContext(Dispatchers.Main) { selectTab(2) }
-            }
-        }
-        root.addView(closeBtn)
         dialog.show()
     }
 

@@ -699,6 +699,25 @@ object CryptoAltTrader {
             try {
                 if (hasPosition(market)) { skippedPos++; continue }
 
+                // V5.9.292: LIVE mode — skip markets that cannot actually execute.
+                // SPOT path requires a Solana mint. If no mint exists for this alt, the
+                // trade will generate a signal but silently fail in executeLiveTradeAtSize
+                // (returning false every time). This causes zero live trades and wastes
+                // the signal pipeline. Skip early so only tradeable markets are analyzed.
+                // Leverage path uses Flash.trade (no mint needed) and is always allowed.
+                val isLiveScan = !isPaperMode.get()
+                if (isLiveScan && !preferLeverage.get()) {
+                    val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+                        .getTokenBySymbol(market.symbol)
+                        ?.mint
+                        ?.let { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                        ?: false
+                    if (!hasMint) {
+                        ErrorLogger.debug(TAG, "🪙 LIVE SPOT SKIP: ${market.symbol} — no Solana mint in registry")
+                        continue
+                    }
+                }
+
                 val data = PerpsMarketDataFetcher.getMarketData(market)
 
                 if (data.price <= 0) {

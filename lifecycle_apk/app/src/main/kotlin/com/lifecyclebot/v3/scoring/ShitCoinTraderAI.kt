@@ -1133,16 +1133,18 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. V5.9.275: TIME-BASED EXIT — tiered time exits, increased patience for flat positions
-        // Flat tokens that haven't gone negative deserve more time on meme chains (30-60s pump windows)
+        // 5. V5.9.293: TIME-BASED EXIT — give tokens room to breathe.
+        // Meme coins routinely wick -3 to -5% on entry before the real move.
+        // Cutting at -3%@6min was creating a waterfall of noise losses that
+        // destroyed win rate without preventing real losers (SL handles -7%).
         //
-        //   < -3%  at  6min → clear loser, not coming back
+        //   < -5%  at  7min → meaningful loss, recovery unlikely
         //   < -6%  at  5min → deep loss, emergency cut
-        //   < -0.5% at 35min → extended flat/small-loss cap (was <+1% at 20min — too aggressive)
+        //   < -0.5% at 35min → flat/small-loss extended cap
         //
-        val timeExitEarlyBad  = holdMinutes >= 6  && pnlPct < -3.0    // clear loser
-        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // deep loss emergency
-        val timeExitMaxHold   = holdMinutes >= 35 && pnlPct < -0.5    // V5.9.275: 20min→35min, +1%→-0.5%
+        val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.293: 6min→7min, -3%→-5%
+        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // keep: deep loss emergency
+        val timeExitMaxHold   = holdMinutes >= 35 && pnlPct < -0.5    // keep: flat cap
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"
