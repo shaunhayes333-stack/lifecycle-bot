@@ -559,9 +559,14 @@ object EducationSubLayerAI {
             layersUpdated++
         } catch (e: Exception) { errors.add("MetaCognitionAI: ${e.message}") }
         
-        // FluidLearningAI - Update learning progress
+        // FluidLearningAI - V5.9.320: DO NOT call FluidLearningAI.recordTrade() here.
+        // Each trader (ShitCoin, Moonshot, BlueChip, Quality) already calls
+        // FluidLearningAI.recordPaperTrade() / recordLiveTrade() directly with
+        // the correct isWin=pnlPct>=1.0 threshold BEFORE calling recordSimpleTradeOutcome().
+        // Calling it again here was double-counting every trade — inflating session
+        // trade count 2x and corrupting the learning phase/maturity signal.
+        // We still track Education's own layer record for FluidLearning accuracy.
         try {
-            FluidLearningAI.recordTrade(outcome.isWin)
             markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct)
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
@@ -884,15 +889,14 @@ object EducationSubLayerAI {
         val isShadowTrade: Boolean = false,
     ) {
         // V5.9.313: REVERT V5.9.190 isWin contract.
-        // Layer LEARNING is direction accuracy ("did the AI correctly call the
-        // move?"), NOT trade profitability after fees. A +0.5% correctly-
-        // predicted move was being marked as a LOSS, dragging every layer's
-        // smoothedAccuracy below random and corrupting the learning signal.
-        // Profitability is reported separately in the LLM/Sentient Mind chat
-        // via expectancyPct — this lives in scoring layer purely for direction.
-        // (Scratch-skip in recordOutcome at line 449 still protects the fan-out
-        // path against pure noise.)
-        val isWin: Boolean get() = pnlPct > 0
+        // V5.9.320: UNIFIED isWin threshold — match ALL traders (ShitCoin, Moonshot,
+        // BlueChip, Quality all use pnlPct >= 1.0 since V5.9.208). The old > 0
+        // threshold was counting fee-drag scratches (+0.1% to +0.9%) as wins,
+        // inflating every layer's smoothedAccuracy and teaching the neural network
+        // that flat/losing setups are good entries. This corrupted all 41 layer
+        // accuracy records and drove the 10% win rate shown in bootstrap.
+        // Must match the traders' own definition — a win = clears 1% net.
+        val isWin: Boolean get() = pnlPct >= 1.0
         val isRunner: Boolean get() = pnlPct >= 20.0
         val isRug: Boolean get() = pnlPct <= -30.0
     }
@@ -1426,12 +1430,49 @@ object EducationSubLayerAI {
      * side is softened during early trade count.
      */
     fun applyMuteBoost(layerName: String, vote: Int): Triple<Int, Double, String> {
-        // V5.9.161 — AUTO-MUTE ENGINE REMOVED per user directive.
-        // "remove the auto mute engine completely". Every layer always
-        // contributes at full weight. No mutes, no soft penalties, no
-        // heavy boosts. Expectancy shaping happens elsewhere (scoring
-        // floors, fluid layer maturation, expectancy-weighted consensus).
-        return Triple(vote, 1.0, "DISABLED")
+        // V5.9.320: RE-ENABLE conservative MuteBoost — the Harvard brain loop.
+        // Education learns accuracy per layer → this is the path that feeds
+        // accuracy BACK into scoring. Without it, layers that have PROVEN they
+        // predict the wrong direction still vote at full weight = net drag on WR.
+        //
+        // Philosophy: this does NOT affect trading volume. Muted layers are
+        // silence, not a trade-blocker. The trade still happens on the signal
+        // from all the REMAINING layers. We're improving signal quality only.
+        //
+        // Rules (conservative — only mutes confirmed-bad, nothing else):
+        //   edge < 0.33 AND >= 20 recorded trades → MUTE (×0.00) — actively harmful
+        //   edge < 0.42 AND >= 20 recorded trades → SOFT_PENALTY (×0.65) — below noise floor
+        //   edge >= 0.62 AND >= 20 trades, positive vote only → BOOST (×1.20)
+        //   otherwise → NORMAL (×1.00)
+        //
+        // Bootstrap relaxation: penalty strength scaled by getBootstrapRelaxation()
+        // so early learning phase is not over-filtered (< 500 trades: full relaxation).
+
+        val m = layerPerformance[layerName] ?: return Triple(vote, 1.0, "NORMAL")
+        val trades = m.totalOutcomesRecorded
+        val MIN_TRADES = 20
+
+        if (trades < MIN_TRADES) return Triple(vote, 1.0, "NORMAL")
+
+        val edge = getLayerAccuracy(layerName)   // Bayesian-smoothed, 0..1
+        val relaxation = getBootstrapRelaxation() // 0.30..1.00
+
+        return when {
+            // MUTE: layer is provably predicting the WRONG direction
+            edge < 0.33 && relaxation >= 0.75 -> {
+                Triple(0, 0.0, "MUTE")
+            }
+            // SOFT PENALTY: below noise floor, reduce influence
+            edge < 0.42 && relaxation >= 0.55 -> {
+                val mult = 0.65 * relaxation
+                Triple((vote * mult).toInt(), mult, "SOFT_PENALTY")
+            }
+            // BOOST: positive vote from a proven accurate layer — amplify
+            edge >= 0.62 && vote > 0 -> {
+                Triple((vote * 1.20).toInt().coerceAtLeast(vote), 1.20, "BOOST")
+            }
+            else -> Triple(vote, 1.0, "NORMAL")
+        }
     }
 
     /**
@@ -1445,9 +1486,24 @@ object EducationSubLayerAI {
     )
 
     fun getMuteBoostStatus(): MuteBoostStatus {
-        // V5.9.161 — auto-mute engine removed. Always return empty lists
-        // so UI / diagnostics reflect "no layer is being throttled".
-        return MuteBoostStatus(emptyList(), emptyList(), emptyList(), emptyList())
+        // V5.9.320 — auto-mute re-enabled. Report real gate states.
+        val muted       = mutableListOf<String>()
+        val softPenalty = mutableListOf<String>()
+        val boosted     = mutableListOf<String>()
+        val heavyBoost  = mutableListOf<String>()  // kept for compat, not used in V5.9.320
+        val relaxation  = getBootstrapRelaxation()
+
+        for (name in REGISTERED_LAYERS) {
+            val m = layerPerformance[name] ?: continue
+            if (m.totalOutcomesRecorded < 20) continue
+            val edge = getLayerAccuracy(name)
+            when {
+                edge < 0.33 && relaxation >= 0.75 -> muted.add(name)
+                edge < 0.42 && relaxation >= 0.55 -> softPenalty.add(name)
+                edge >= 0.62                       -> boosted.add(name)
+            }
+        }
+        return MuteBoostStatus(muted, softPenalty, boosted, heavyBoost)
     }
 
     /**
