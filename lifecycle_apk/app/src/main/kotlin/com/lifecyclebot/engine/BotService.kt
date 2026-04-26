@@ -910,6 +910,111 @@ class BotService : Service() {
         prefs.edit().putFloat(LAST_SUB_PNL_KEY, currentSubPnl.toFloat()).apply()
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.317: MANUAL TRADE API (paper + live, end-to-end)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Routes to executor.doBuy / executor.doSell which already handle all
+    // routing (paper vs live), security guards, exposure caps, fee splits and
+    // shadow-paper mirroring. This is the single source of truth used by the
+    // manual BUY/SELL buttons on the active token panel in MainActivity.
+    
+    /**
+     * Manual BUY for a specific token. Returns (success, message) for UI feedback.
+     * - In paper mode: routes to paperBuy (no wallet required).
+     * - In live mode: routes through full security guard + Jupiter swap pipeline.
+     * - Sizing: caller-supplied sol amount (no SmartSizer override) so user has
+     *   precise control. Validation prevents overdraw / negative amounts.
+     */
+    fun manualBuy(mint: String, solAmount: Double): Pair<Boolean, String> {
+        if (mint.isBlank()) return false to "No token selected"
+        if (solAmount <= 0.0 || solAmount.isNaN() || solAmount.isInfinite()) {
+            return false to "Invalid amount: $solAmount SOL"
+        }
+        if (!::executor.isInitialized) return false to "Bot not started"
+
+        val ts = status.tokens[mint] ?: return false to "Token not in watchlist: ${mint.take(8)}"
+        if (ts.position.isOpen) {
+            return false to "Position already open: ${ts.symbol}"
+        }
+
+        val cfgNow = ConfigStore.load(applicationContext)
+        val isPaper = cfgNow.paperMode
+        val w = wallet
+        val walletSol = if (isPaper) {
+            // paper: use paper treasury; doBuy ignores walletSol on paper path
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
+        } else {
+            try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+        }
+
+        // Live-mode preflight: ensure wallet exists + has enough SOL.
+        if (!isPaper) {
+            if (w == null) return false to "Live wallet not connected"
+            // Reserve 0.01 SOL for swap fees (mirrors V5.9.309 fix).
+            if (walletSol < solAmount + 0.01) {
+                return false to "Insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(solAmount + 0.01)}"
+            }
+        }
+
+        return try {
+            ErrorLogger.info("BotService",
+                "👆 MANUAL BUY: ${ts.symbol} | ${"%.4f".format(solAmount)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}")
+            addLog("👆 Manual BUY: ${ts.symbol} ${"%.4f".format(solAmount)} SOL ${if (isPaper) "(paper)" else "(LIVE)"}")
+            executor.doBuy(
+                ts = ts,
+                sol = solAmount,
+                score = 50.0,                // neutral score: this is a user override, not an AI decision
+                wallet = w,
+                walletSol = walletSol,
+                identity = null,             // let TradeIdentityManager assign
+                quality = "MANUAL",
+                skipGraduated = false,
+            )
+            true to "Buy submitted (${if (isPaper) "paper" else "LIVE"})"
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "manualBuy error for ${ts.symbol}", e)
+            false to "Error: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    /**
+     * Manual SELL of an open position. Returns (success, message).
+     * - In paper mode: routes to paperSell (instant fill at last price).
+     * - In live mode: routes through Jupiter swap pipeline + reconnect logic.
+     * - Reason tag "MANUAL" so journal entries are clearly attributed.
+     */
+    fun manualSell(mint: String): Pair<Boolean, String> {
+        if (mint.isBlank()) return false to "No token selected"
+        if (!::executor.isInitialized) return false to "Bot not started"
+
+        val ts = status.tokens[mint] ?: return false to "Token not in watchlist: ${mint.take(8)}"
+        if (!ts.position.isOpen) {
+            return false to "No open position for ${ts.symbol}"
+        }
+
+        val cfgNow = ConfigStore.load(applicationContext)
+        val isPaper = cfgNow.paperMode
+        val w = wallet
+        val walletSol = if (isPaper) {
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
+        } else {
+            try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+        }
+
+        if (!isPaper && w == null) return false to "Live wallet not connected"
+
+        return try {
+            ErrorLogger.info("BotService",
+                "👆 MANUAL SELL: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
+            addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
+            val result = executor.doSell(ts, "MANUAL", w, walletSol)
+            true to "Sell submitted (${result.name})"
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
+            false to "Error: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
 
     fun startBot() {
         if (status.running) return

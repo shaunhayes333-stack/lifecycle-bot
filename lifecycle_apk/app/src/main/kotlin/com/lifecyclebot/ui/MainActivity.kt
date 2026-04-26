@@ -331,6 +331,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDecisionLog: TextView
     private lateinit var scrollLog: android.widget.ScrollView
     private lateinit var btnClearLog: TextView
+    // V5.9.317: Manual BUY/SELL buttons in active token panel
+    private lateinit var btnManualBuy: android.widget.Button
+    private lateinit var btnManualSell: android.widget.Button
     private val logLines = ArrayDeque<String>(200)
 
     // top-up settings
@@ -1181,6 +1184,12 @@ for legal compliance.
         scrollLog     = try { findViewById(R.id.scrollLog)   } catch (_: Exception) { android.widget.ScrollView(this) }
         btnClearLog   = try { findViewById(R.id.btnClearLog) } catch (_: Exception) { TextView(this) }
         btnClearLog.setOnClickListener { clearDecisionLog() }
+
+        // V5.9.317: Manual BUY/SELL buttons (paper + live, end-to-end)
+        btnManualBuy  = try { findViewById(R.id.btnManualBuy)  } catch (_: Exception) { android.widget.Button(this) }
+        btnManualSell = try { findViewById(R.id.btnManualSell) } catch (_: Exception) { android.widget.Button(this) }
+        btnManualBuy.setOnClickListener { onManualBuyClicked() }
+        btnManualSell.setOnClickListener { onManualSellClicked() }
 
         // top-up
         switchTopUp    = try { findViewById(R.id.switchTopUp)    } catch (_: Exception) { android.widget.Switch(this) }
@@ -4624,6 +4633,112 @@ This cannot be undone!
     // ── watchlist ─────────────────────────────────────────────────────
 
     // ── Decision log ─────────────────────────────────────────────────
+
+    /**
+     * V5.9.317: Manual BUY click handler. Prompts user for SOL amount, confirms,
+     * routes to BotService.manualBuy which handles paper vs live correctly
+     * end-to-end (paperBuy / Jupiter swap pipeline + security guards + fee split).
+     */
+    private fun onManualBuyClicked() {
+        val mint = etActiveToken.text.toString().trim()
+        if (mint.isBlank()) {
+            Toast.makeText(this, "No active token selected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val service = com.lifecyclebot.engine.BotService.instance
+        if (service == null) {
+            Toast.makeText(this, "Bot service not running — start the bot first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
+        if (ts == null) {
+            Toast.makeText(this, "Token not in watchlist", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (ts.position.isOpen) {
+            Toast.makeText(this, "Position already open — use SELL", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+        val isPaper = cfg.paperMode
+        val modeLabel = if (isPaper) "PAPER" else "🔴 LIVE"
+
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            hint = "SOL amount (e.g. 0.05)"
+            setText("0.05")
+            setPadding(pad, pad, pad, pad)
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Manual BUY — ${ts.symbol}  [$modeLabel]")
+            .setMessage("Enter SOL amount to buy.\n\nMode: ${if (isPaper) "Paper trading" else "LIVE — uses real wallet SOL"}")
+            .setView(input)
+            .setPositiveButton("BUY") { _, _ ->
+                val amt = input.text.toString().toDoubleOrNull()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val (ok, msg) = service.manualBuy(mint, amt)
+                Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * V5.9.317: Manual SELL click handler. Confirms with current PnL preview,
+     * routes to BotService.manualSell which handles paper vs live correctly.
+     */
+    private fun onManualSellClicked() {
+        val mint = etActiveToken.text.toString().trim()
+        if (mint.isBlank()) {
+            Toast.makeText(this, "No active token selected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val service = com.lifecyclebot.engine.BotService.instance
+        if (service == null) {
+            Toast.makeText(this, "Bot service not running — start the bot first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ts = com.lifecyclebot.engine.BotService.status.tokens[mint]
+        if (ts == null) {
+            Toast.makeText(this, "Token not in watchlist", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!ts.position.isOpen) {
+            Toast.makeText(this, "No open position to sell", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val pos = ts.position
+        val pnlPct = if (pos.entryPrice > 0 && ts.lastPrice > 0)
+            ((ts.lastPrice - pos.entryPrice) / pos.entryPrice) * 100.0
+        else 0.0
+        val pnlSol = pos.qtyToken * (ts.lastPrice - pos.entryPrice) / (ts.lastPrice.takeIf { it > 0 } ?: 1.0)
+
+        val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+        val modeLabel = if (cfg.paperMode) "PAPER" else "🔴 LIVE"
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Manual SELL — ${ts.symbol}  [$modeLabel]")
+            .setMessage(
+                "Close position now?\n\n" +
+                "Qty: ${"%.4f".format(pos.qtyToken)}\n" +
+                "Entry: $${"%.6f".format(pos.entryPrice)}\n" +
+                "Now:   $${"%.6f".format(ts.lastPrice)}\n" +
+                "PnL:   ${"%+.2f".format(pnlPct)}%  (${"%+.4f".format(pnlSol)} SOL)"
+            )
+            .setPositiveButton("SELL") { _, _ ->
+                val (ok, msg) = service.manualSell(mint)
+                Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     private fun updateDecisionLog(ts: TokenState) {
         val meta   = ts.meta

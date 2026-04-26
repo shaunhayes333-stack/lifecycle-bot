@@ -2866,7 +2866,7 @@ class Executor(
 
     // ── buy ───────────────────────────────────────────────────────────
 
-    private fun doBuy(ts: TokenState, sol: Double, score: Double,
+    internal fun doBuy(ts: TokenState, sol: Double, score: Double,
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
                       quality: String = "C",
@@ -4442,7 +4442,7 @@ class Executor(
         }
     }
 
-    private fun doSell(ts: TokenState, reason: String,
+    internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)

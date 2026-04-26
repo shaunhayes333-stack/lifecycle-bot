@@ -433,34 +433,58 @@ class JournalActivity : AppCompatActivity() {
     /**
      * V5.6.28c: Manual restoration dialog for lost paper treasury balance.
      * Shows input dialog to restore paper treasury value that was wiped.
+     * V5.9.317: FIXED — AlertDialog with both setMessage() + setItems() was
+     * suppressing the items list (Android only renders one). Switched to a
+     * custom view with explicit option buttons so user can actually pick.
      */
     private fun showRestoreStatsDialog() {
         val currentPaper = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true)
         val currentLive = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(false)
-        
-        val options = arrayOf(
-            "Restore Paper Treasury",
-            "Restore Live Treasury", 
-            "Restore Both"
-        )
-        
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Restore Stats")
-            .setMessage(
-                "Current values:\n" +
-                "• Paper Treasury: ${String.format("%.2f", currentPaper)} SOL\n" +
-                "• Live Treasury: ${String.format("%.2f", currentLive)} SOL\n\n" +
-                "What would you like to restore?"
-            )
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> showTreasuryInputDialog("Paper", true)
-                    1 -> showTreasuryInputDialog("Live", false)
-                    2 -> showBothTreasuryInputDialog()
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        container.addView(TextView(this).apply {
+            text = "Current values:\n• Paper Treasury: ${String.format("%.2f", currentPaper)} SOL\n• Live Treasury: ${String.format("%.2f", currentLive)} SOL\n\nWhat would you like to restore?"
+            setPadding(0, 0, 0, dp(16))
+            textSize = 14f
+        })
+
+        lateinit var dlg: android.app.AlertDialog
+
+        fun mkBtn(label: String, color: Int, onClick: () -> Unit): android.widget.Button {
+            return android.widget.Button(this).apply {
+                text = label
+                setTextColor(0xFFFFFFFF.toInt())
+                setBackgroundColor(color)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.setMargins(0, 0, 0, dp(8)) }
+                setOnClickListener {
+                    dlg.dismiss()
+                    onClick()
                 }
             }
+        }
+
+        container.addView(mkBtn("Restore Paper Treasury", 0xFF10B981.toInt()) {
+            showTreasuryInputDialog("Paper", true)
+        })
+        container.addView(mkBtn("Restore Live Treasury", 0xFF9945FF.toInt()) {
+            showTreasuryInputDialog("Live", false)
+        })
+        container.addView(mkBtn("Restore Both", 0xFFF59E0B.toInt()) {
+            showBothTreasuryInputDialog()
+        })
+
+        dlg = android.app.AlertDialog.Builder(this)
+            .setTitle("Restore Stats")
+            .setView(container)
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+        dlg.show()
     }
     
     private fun showTreasuryInputDialog(type: String, isPaper: Boolean) {
