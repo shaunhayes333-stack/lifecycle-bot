@@ -736,7 +736,7 @@ Talk like a real mind, not a settings screen.
         val narrativeBlock = try {
             val hot = com.lifecyclebot.v4.meta.NarrativeFlowAI.getHotNarratives().take(4)
             if (hot.isEmpty()) "  no hot narratives"
-            else hot.joinToString(", ") { n -> "${n.theme}(heat=${"%.2f".format(n.heat)} phase=${n.phase.name})" }
+            else hot.joinToString(", ") { n -> "${n.theme}(heat=${"%.2f".format(n.narrativeHeat)} phase=${n.phase.name})" }
         } catch (_: Throwable) { "  (unavailable)" }
 
         // ── COLLECTIVE INTELLIGENCE ──────────────────────────────────────────────
@@ -767,7 +767,7 @@ Talk like a real mind, not a settings screen.
             if (snap != null) {
                 val narr = snap.narrativeMap.entries.sortedByDescending { it.value }.take(3)
                 val frag = snap.fragilityMap.entries.filter { it.value > 0.5 }.sortedByDescending { it.value }.take(3)
-                val ll = snap.leadLagLinks.take(3).joinToString(", ") { "${it.leader}→${it.follower}(${it.lagSecs}s)" }
+                val ll = snap.leadLagLinks.take(3).joinToString(", ") { "${it.leader}→${it.lagger}(${it.expectedDelaySec}s)" }
                 buildString {
                     if (narr.isNotEmpty()) append("  narrative heat: ${narr.joinToString(", ") { "${it.key}=${"%.2f".format(it.value)}" }}\n")
                     if (frag.isNotEmpty()) append("  fragility hotspots: ${frag.joinToString(", ") { "${it.key}=${"%.2f".format(it.value)}" }}\n")
