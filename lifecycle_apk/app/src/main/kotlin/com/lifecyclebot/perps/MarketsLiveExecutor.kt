@@ -287,8 +287,11 @@ object MarketsLiveExecutor {
                     }
                     mint != null -> executeCryptoSpotSwap(wallet, walletAddress, market, direction, sizeSol, mint)
                     else -> {
-                        ErrorLogger.warn(TAG, "⛔ LIVE crypto blocked: no Solana mint in registry for ${market.symbol}")
-                        null
+                        // V5.9.310: No static mint — try UniversalBridgeEngine two-hop route.
+                        // Routes SOL→USDC→target via Jupiter. Covers entire Solana DeFi universe:
+                        // any token with Jupiter liquidity is reachable even without a cached mint.
+                        ErrorLogger.info(TAG, "🌉 No static mint for ${market.symbol} — trying UniversalBridge two-hop")
+                        executeCryptoViaBridge(wallet, walletAddress, market, direction, sizeSol)
                     }
                 }
             }
@@ -535,35 +538,100 @@ object MarketsLiveExecutor {
                 "⚠️ SHORT not supported on SPOT crypto swap for ${market.symbol} — perps retired, skipping live.")
             return null
         }
-        // V5.9.309: WALLET BALANCE PRE-CHECK with RENT_RESERVE.
-        // Without this, the alt trader was sizing trades to the full SOL balance and
-        // Jupiter rejected with "Insufficient funds" because there was no SOL left for
-        // tx fee + ATA rent + priority fee. User wallet drained, no tokens delivered.
-        val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
-        val RENT_RESERVE_SOL = 0.012  // covers tx fee + ATA rent + priority fee + buffer
-        val effectiveSizeSol = minOf(sizeSol, walletSol - RENT_RESERVE_SOL)
-        if (effectiveSizeSol < 0.005) {
-            ErrorLogger.warn(TAG,
-                "⛔ ${market.symbol} SPOT skipped: wallet=${walletSol.fmt(4)} SOL, reserve=${RENT_RESERVE_SOL} SOL — not enough for swap+fees")
+        // V5.9.310: Use UniversalBridgeEngine to pick best source token from wallet.
+        // Previously always used SOL_MINT as input — if wallet had USDC/USDT but low SOL,
+        // the swap would fail or get trimmed to near-zero.
+        // Now: scan wallet, pick best source (USDC→SOL→other), bridge to USDC if needed,
+        // then USDC→target. This makes the entire Solana DeFi universe accessible from
+        // any held token.
+        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val sizeUsd = sizeSol * solPriceUsd
+
+        ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG | \$${sizeUsd.fmt(2)} via UniversalBridge → ${targetMint.take(8)}...")
+
+        val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
+
+        val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
+            wallet     = wallet,
+            targetMint = targetMint,
+            sizeUsd    = sizeUsd,
+        )
+
+        if (!bridge.success) {
+            // UniversalBridge failed — fall back to direct SOL→target with rent reserve
+            ErrorLogger.warn(TAG, "  Bridge failed (${bridge.errorMsg}) — SOL direct fallback")
+            val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+            val RENT_RESERVE_SOL = 0.012
+            val effectiveSizeSol = minOf(sizeSol, walletSol - RENT_RESERVE_SOL)
+            if (effectiveSizeSol < 0.005) {
+                ErrorLogger.warn(TAG, "⛔ ${market.symbol} SPOT skipped: insufficient SOL for fallback (${walletSol.fmt(4)} SOL)")
+                return null
+            }
+            val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
+            val sig = executeJupiterSwap(
+                wallet         = wallet,
+                walletAddress  = walletAddress,
+                inputMint      = SOL_MINT,
+                outputMint     = targetMint,
+                amountLamports = amountLamports,
+                slippageBps    = configuredSlippageBps(),
+            ) ?: return null
+            return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
+        }
+
+        val sig = bridge.swapTxSig ?: return null
+        return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
+    }
+
+    /**
+     * V5.9.310: Bridge-only crypto swap — for tokens with no static Solana mint.
+     * Routes SOL (or best wallet token) → USDC → target via UniversalBridgeEngine two-hop.
+     * Jupiter discovers the target mint from its strict token list at runtime.
+     * If still no mint found after runtime lookup, parks capital as USDC collateral.
+     */
+    private suspend fun executeCryptoViaBridge(
+        wallet: SolanaWallet,
+        walletAddress: String,
+        market: PerpsMarket,
+        direction: PerpsDirection,
+        sizeSol: Double,
+    ): String? {
+        if (direction == PerpsDirection.SHORT) {
+            ErrorLogger.warn(TAG, "⚠️ ${market.symbol} SHORT via bridge not supported on SPOT — skipping")
             return null
         }
-        if (effectiveSizeSol < sizeSol) {
-            ErrorLogger.info(TAG, "  ✂️ ${market.symbol}: trimmed sizeSol ${sizeSol.fmt(4)} → ${effectiveSizeSol.fmt(4)} (rent reserve)")
+        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val sizeUsd = sizeSol * solPriceUsd
+
+        // Runtime mint lookup — Jupiter strict list is fetched at startup into DynamicAltTokenRegistry
+        val runtimeMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
+            .getTokenBySymbol(market.symbol)?.mint
+            ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+
+        if (runtimeMint == null) {
+            // No mint at all — park capital as USDC so it's not sitting idle in SOL
+            ErrorLogger.warn(TAG, "🌉 ${market.symbol}: no runtime mint — parking \$${sizeUsd.fmt(2)} as USDC collateral")
+            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
+                wallet     = wallet,
+                targetMint = com.lifecyclebot.engine.UniversalBridgeEngine.USDC_MINT,
+                sizeUsd    = sizeUsd,
+            )
+            return if (bridge.success) bridge.swapTxSig else null
         }
-        ErrorLogger.info(TAG, "  💱 SPOT swap: ${market.symbol} LONG via Jupiter v1 | ${effectiveSizeSol.fmt(4)} SOL → ${targetMint.take(8)}...")
-        val amountLamports = (effectiveSizeSol * 1_000_000_000L).toLong()
-        // V5.9.105: snapshot target-mint balance BEFORE swap for phantom guard
-        val balanceBefore = readTokenUi(wallet, targetMint) ?: 0.0
-        val sig = executeJupiterSwap(
-            wallet         = wallet,
-            walletAddress  = walletAddress,
-            inputMint      = SOL_MINT,
-            outputMint     = targetMint,
-            amountLamports = amountLamports,
-            slippageBps    = configuredSlippageBps(),
-        ) ?: return null
-        // V5.9.105: verify tokens actually arrived — otherwise phantom
-        return if (verifyBuyDelivered(wallet, targetMint, balanceBefore, market.symbol)) sig else null
+
+        ErrorLogger.info(TAG, "🌉 ${market.symbol}: runtime mint=${runtimeMint.take(8)}... | \$${sizeUsd.fmt(2)} two-hop bridge")
+        val balanceBefore = readTokenUi(wallet, runtimeMint) ?: 0.0
+        val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
+            wallet     = wallet,
+            targetMint = runtimeMint,
+            sizeUsd    = sizeUsd,
+        )
+        if (!bridge.success) {
+            ErrorLogger.warn(TAG, "🌉 ${market.symbol} bridge failed: ${bridge.errorMsg}")
+            return null
+        }
+        val sig = bridge.swapTxSig ?: return null
+        return if (verifyBuyDelivered(wallet, runtimeMint, balanceBefore, market.symbol)) sig else null
     }
 
     /**
@@ -762,7 +830,8 @@ object MarketsLiveExecutor {
         // Flash.trade perps API call
         val flashApiUrl = "https://api.flash.trade/v1/positions/open"
         val sideStr = if (direction == PerpsDirection.LONG) "long" else "short"
-        val collateralUsdc = sizeSol * 20.0  // approximate SOL→USD at ~$150 avg, use fixed ratio for now
+        val solPriceUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
+        val collateralUsdc = sizeSol * solPriceUsd  // V5.9.310: real SOL price from WalletManager
 
         ErrorLogger.info(TAG, "⚡ Flash.trade PERPS: $symbol $sideStr ${leverage.toInt()}x | size=${sizeSol.fmt(4)} SOL")
 
