@@ -1122,6 +1122,12 @@ class LifecycleStrategy(
         // ═══════════════════════════════════════════════════════════════════
         val isZeroConfidence = edgeConfidence <= 0.0
         val isVeryLowConfidence = edgeConfidence < 25.0
+        // V5.9.314: Selective paper-mode floors. V5.9.311 unblocked everything,
+        // which restored volume but produced 11-loss streaks at 12% WR (worse
+        // than random). These soft floors filter the noisiest garbage while
+        // still allowing 5–10x the pre-V5.9.311 volume for layer learning.
+        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 15.0
+        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 10.0
         
         val shouldTradeBase = when {
             // HARD BLOCK: Zero confidence in LIVE mode only (paper still learns)
@@ -1133,6 +1139,10 @@ class LifecycleStrategy(
             // exposure tiny on weak setups, while feeding the AI training funnel.
             edgeVeto && isVeryLowConfidence && !isPaperMode -> false
             
+            // V5.9.314: Paper-mode soft floors — block obvious garbage but keep volume up.
+            paperEdgeSkipFloor -> false
+            paperLowQualityFloor -> false
+            
             // Paper mode: Allow edge vetoed trades if confidence is reasonable (learning)
             isPaperMode -> rawSignal == "BUY" && !ts.position.isOpen
             
@@ -1143,6 +1153,8 @@ class LifecycleStrategy(
         val blockReason = when {
             isZeroConfidence && !isPaperMode -> "Zero confidence (0%) = no trade [LIVE]"
             edgeVeto && isVeryLowConfidence && !isPaperMode -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%) [LIVE]"
+            paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<15% (${edgeConfidence.toInt()}%)"
+            paperLowQualityFloor -> "Paper floor: quality=C + conf<10% (${edgeConfidence.toInt()}%)"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"
             ts.position.isOpen -> "Position already open"
