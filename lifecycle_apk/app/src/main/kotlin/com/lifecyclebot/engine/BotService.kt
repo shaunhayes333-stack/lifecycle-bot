@@ -483,6 +483,39 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "NetworkSignalAutoBuyer start error: ${e.message}")
         }
         
+        // V5.9.319: One-time POISONED-LAYER AUTO-RESET migration.
+        // After flashing the V5.9.318 isWin fix, layers built up under the
+        // V5.9.190 'isWin = pnlPct >= 1.0' contract still have smoothedAccuracy
+        // values calibrated against losses-disguised-as-wins. The cumulative
+        // Bayesian smoothing means those wrong values won't self-heal in a
+        // reasonable time. Detect catastrophic poisoning (avg accuracy < 25%
+        // across 10+ active layers with 50+ trades each) and do ONE
+        // resetAllLearning() so layers train fresh against the correct
+        // direction-accuracy contract.
+        try {
+            val migrationKey = "v5_9_319_poison_reset_done"
+            val prefs = applicationContext.getSharedPreferences("bot_migrations", android.content.Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(migrationKey, false)) {
+                val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity().values
+                val active = maturity.filter { it.trades >= 50 }
+                if (active.size >= 10) {
+                    val avgAcc = active.map { it.smoothedAccuracy }.average()
+                    if (avgAcc < 0.25) {
+                        ErrorLogger.warn("BotService",
+                            "💉 V5.9.319 POISON_RESET triggered — avg accuracy=${(avgAcc*100).toInt()}% across ${active.size} active layers. Resetting once.")
+                        addLog("💉 POISON_RESET: layers were poisoned by old learning contract. Wiped & re-training fresh.")
+                        com.lifecyclebot.v3.scoring.EducationSubLayerAI.resetAllLearning()
+                    } else {
+                        ErrorLogger.info("BotService",
+                            "✅ V5.9.319 poison check OK — avg accuracy=${(avgAcc*100).toInt()}% (>=25%). No reset needed.")
+                    }
+                }
+                prefs.edit().putBoolean(migrationKey, true).apply()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "Poison-reset check error: ${e.message}")
+        }
+
         // V5.7.4: Start Insider Tracker AI (Trump/Pelosi/Whale wallet monitoring)
         try {
             com.lifecyclebot.v3.scoring.InsiderTrackerAI.start(heliusApiKey = cfg.heliusApiKey) { signal ->

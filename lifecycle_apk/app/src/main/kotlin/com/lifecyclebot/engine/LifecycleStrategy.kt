@@ -1126,8 +1126,10 @@ class LifecycleStrategy(
         // which restored volume but produced 11-loss streaks at 12% WR (worse
         // than random). These soft floors filter the noisiest garbage while
         // still allowing 5–10x the pre-V5.9.311 volume for layer learning.
-        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 15.0
-        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 10.0
+        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 25.0   // V5.9.319: 15→25 — bot at 3% WR with old floor
+        // V5.9.319: C-quality conf=33 trades (LOL/EITHER style) were leaking through old floor=10.
+        // Bot was at 3% WR with 26 consec losses. C-quality requires conf>=40 now in paper.
+        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 40.0
 
         // V5.9.318: TradingCopilot life-coach overlay. Read-only consume of the
         // current coaching directive. Drives 4 dynamic effects:
@@ -1173,8 +1175,8 @@ class LifecycleStrategy(
             copilotBrake -> "🛑 Copilot EMERGENCY_BRAKE: ${copilot.advice.take(80)}"
             isZeroConfidence && !isPaperMode -> "Zero confidence (0%) = no trade [LIVE]"
             edgeVeto && isVeryLowConfidence && !isPaperMode -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%) [LIVE]"
-            paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<15% (${edgeConfidence.toInt()}%)"
-            paperLowQualityFloor -> "Paper floor: quality=C + conf<10% (${edgeConfidence.toInt()}%)"
+            paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<25% (${edgeConfidence.toInt()}%)"
+            paperLowQualityFloor -> "Paper floor: quality=C + conf<40% (${edgeConfidence.toInt()}%)"
             belowCopilotFloor -> "🧭 Copilot floor: conf=${edgeConfidence.toInt()}% < ${copilotConfFloor.toInt()}% (${copilot.mood.name})"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"

@@ -173,9 +173,11 @@ object TradingCopilot {
             }
 
             // ─── 4. TRADE MOOD ───────────────────────────────────────────
+            // V5.9.319: tighter triggers — 7 consec losses (was 10) and 25%
+            // WR cutoff (was 25 with 10 trades) catch disasters earlier.
             val mood = when {
-                lossStreak >= 10 || biggestLoss <= -40.0 -> TradeMood.EMERGENCY_BRAKE
-                lossStreak >= 6 || (wrPct < 25 && tradesObserved >= 10) -> TradeMood.PROTECT
+                lossStreak >= 7 || biggestLoss <= -40.0 -> TradeMood.EMERGENCY_BRAKE
+                lossStreak >= 4 || (wrPct < 25 && tradesObserved >= 8) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL
             }

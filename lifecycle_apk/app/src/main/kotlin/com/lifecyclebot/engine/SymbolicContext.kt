@@ -178,7 +178,17 @@ object SymbolicContext {
             // V5.9.212 — Emotional State: expanded vocabulary (7 states)
             // ANALYTICAL: high edge but moderate confidence — learning mode
             // CURIOUS:    moderate everything — exploring, no strong signal yet
-            emotionalState = when {
+            // V5.9.319: HARD-OVERRIDE based on actual TradingCopilot recent
+            // performance. The composite signals could say 'GREEDY' (trust+
+            // edge high) while the bot was 26 losses deep at -32% drawdown.
+            // Mood must reflect REALITY, not just upstream subsystem averages.
+            val coachMood = try { com.lifecyclebot.engine.TradingCopilot.current() } catch (_: Exception) { null }
+            val realityOverride = when (coachMood?.mood) {
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE -> "PANIC"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.PROTECT -> "FEARFUL"
+                else -> null
+            }
+            emotionalState = realityOverride ?: when {
                 overallRisk > 0.8                                         -> "PANIC"
                 overallRisk > 0.6                                         -> "FEARFUL"
                 overallConfidence > 0.75 && overallRisk < 0.25            -> "EUPHORIC"
