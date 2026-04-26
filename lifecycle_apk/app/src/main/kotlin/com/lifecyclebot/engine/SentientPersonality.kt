@@ -947,9 +947,12 @@ object SentientPersonality {
 
         val treasurySummaryLine = try {
             val stats = com.lifecyclebot.v3.scoring.CashGenerationAI.getStats()
-            val tBal = stats.totalAvailableSol
+            val tBal = stats.treasuryBalanceSol
             val tDeploy = treasuryPositions.size
-            "treasury: ${fmt1(tBal)} SOL available · $tDeploy active scalp(s)"
+            val tMode = stats.mode.name
+            val tWr = if (stats.dailyTradeCount > 0)
+                " WR=${String.format("%.0f", stats.winRate)}%" else ""
+            "treasury[$tMode]: ${fmt1(tBal)} SOL · $tDeploy scalp(s) live$tWr"
         } catch (_: Throwable) {
             "treasury: ?"
         }
