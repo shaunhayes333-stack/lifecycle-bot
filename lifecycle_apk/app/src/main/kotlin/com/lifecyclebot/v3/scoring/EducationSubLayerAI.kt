@@ -437,19 +437,29 @@ object EducationSubLayerAI {
         val snappedScores: Map<String, Int> = snap?.scores ?: emptyMap()
         var updated = 0
 
+        // V5.9.307: SCRATCH = NEUTRAL OUTCOME (was poisoning every layer's accuracy).
+        // Pre-V5.9.190 era only updated layer accuracy on clear wins (>=1%) or clear
+        // losses (<=-1%). When scratches (between -1% and +1%) flooded the bot
+        // with 84% noise, the V5.9.190 'isWin >= 1%' contract caused every bullish
+        // layer to be marked WRONG on every scratch — dragging directional accuracy
+        // to 2-4% (well below random chance) and inverting expectancy. This is the
+        // 'base44 changed what we had' regression the user has been reporting.
+        // We now skip accuracy updates entirely on scratch trades and only mark
+        // clear directional outcomes. Layers stay green and learn real signal.
+        val isScratchOutcome = outcome.pnlPct > -1.0 && outcome.pnlPct < 1.0
+
         REGISTERED_LAYERS.forEach { layerName ->
             try {
                 val score = snappedScores[layerName] ?: 0
-                if (abs(score) > REAL_ACCURACY_NEUTRAL_THRESHOLD) {
-                    // Layer had a real directional opinion — score it
+                if (abs(score) > REAL_ACCURACY_NEUTRAL_THRESHOLD && !isScratchOutcome) {
+                    // Layer had a real directional opinion AND outcome was decisive — score it
                     val predictedBullish = score > 0
                     val wasCorrect = (predictedBullish && outcome.isWin) ||
                                      (!predictedBullish && !outcome.isWin)
                     markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct, isShadowTrade = outcome.isShadowTrade)
                     updated++
                 } else {
-                    // Layer was neutral/absent — keep it alive without poisoning expectancy.
-                    // A layer that didn't vote is NOT wrong — it was observing.
+                    // Layer was neutral, OR outcome was a scratch — keep alive without poisoning expectancy.
                     val m = layerPerformance.getOrPut(layerName) { LayerPerformanceMetrics(layerName) }
                     m.lastRecordedTimestamp = System.currentTimeMillis()
                 }
@@ -913,6 +923,19 @@ object EducationSubLayerAI {
     fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean = false) {
         val metrics = layerPerformance.getOrPut(layerName) {
             LayerPerformanceMetrics(layerName)
+        }
+        // V5.9.307: SCRATCH GUARD — same fix as recordTradeOutcomeAcrossAllLayers but
+        // protecting the direct call sites (HoldTime, MetaCog, Fluid, Adaptive,
+        // MomentumPredictor, NarrativeDetector, TimeOptimization, etc.) which were
+        // unconditionally marking layers WRONG on scratch trades.
+        // Scratches in (-1%, +1%) carry no directional signal; they only update the
+        // activity timestamp so the layer stays "alive" without poisoning accuracy.
+        // pnlPct == 0.0 calls from markLayerUpdated() (signal-update, not trade) are
+        // explicitly allowed through so signal-quality counters keep moving.
+        val isTrueScratchTrade = pnlPct != 0.0 && pnlPct > -1.0 && pnlPct < 1.0
+        if (isTrueScratchTrade) {
+            metrics.lastRecordedTimestamp = System.currentTimeMillis()
+            return
         }
         // Legacy binary counters (unchanged).
         metrics.totalOutcomesRecorded++
