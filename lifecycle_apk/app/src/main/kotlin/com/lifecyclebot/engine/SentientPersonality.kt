@@ -849,27 +849,109 @@ object SentientPersonality {
             }
             .ifBlank { "none yet" }
 
+        // ── V5.9.270: FULL UNIVERSE POSITION AWARENESS ──────────────────────────
+        // Aggregate open positions from ALL trading layers so the LLM has an
+        // accurate picture of the live book — not just meme TokenState positions.
+        // Previously: only BotService.status.openPositions (meme layer) was visible.
+        // Now: Treasury, ShitCoin, BlueChip, Quality, Moonshot all included.
+
+        // Meme / express positions from TokenState map (includes pendingVerify guard)
+        val memePositions = try {
+            BotService.status.openPositions.map { ts ->
+                val entry = ts.position.entryPrice
+                val pnlPct = if (entry > 0.0) ((ts.lastPrice / entry) - 1.0) * 100.0 else 0.0
+                val mode = ts.position.tradingMode.ifBlank { "MEME" }
+                val layer = when {
+                    ts.position.isTreasuryPosition -> "TREASURY"
+                    ts.position.isShitCoinPosition -> "SHITCOIN"
+                    ts.position.isBlueChipPosition -> "BLUECHIP"
+                    else -> mode
+                }
+                Triple(ts.symbol, pnlPct, layer)
+            }
+        } catch (_: Throwable) { emptyList() }
+
+        // Treasury positions from CashGenerationAI (SEPARATE from TokenState map)
+        val treasuryPositions = try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().map { pos ->
+                val pnlPct = if (pos.entryPrice > 0.0 && pos.currentPrice > 0.0)
+                    ((pos.currentPrice / pos.entryPrice) - 1.0) * 100.0 else 0.0
+                Triple(pos.symbol, pnlPct, "TREASURY")
+            }
+        } catch (_: Throwable) { emptyList() }
+
+        // ShitCoin layer (has its own activePositions map separate from TokenState)
+        val shitcoinPositions = try {
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+                .filter { pos ->
+                    // Only include if NOT already visible via meme TokenState (avoid duplicates)
+                    memePositions.none { it.first == pos.symbol && it.third == "SHITCOIN" }
+                }
+                .map { pos ->
+                    Triple(pos.symbol, 0.0, "SHITCOIN")
+                }
+        } catch (_: Throwable) { emptyList() }
+
+        // BlueChip layer
+        val blueChipPositions = try {
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+                .filter { pos -> memePositions.none { it.first == pos.symbol && it.third == "BLUECHIP" } }
+                .map { pos -> Triple(pos.symbol, 0.0, "BLUECHIP") }
+        } catch (_: Throwable) { emptyList() }
+
+        // Quality layer
+        val qualityPositions = try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+                .filter { pos -> memePositions.none { it.first == pos.symbol } }
+                .map { pos -> Triple(pos.symbol, 0.0, "QUALITY") }
+        } catch (_: Throwable) { emptyList() }
+
+        // Moonshot layer
+        val moonshotPositions = try {
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+                .filter { pos -> memePositions.none { it.first == pos.symbol } }
+                .map { pos ->
+                    val pnlPct = if (pos.entryPrice > 0.0 && pos.highWaterMark > pos.entryPrice)
+                        ((pos.highWaterMark / pos.entryPrice) - 1.0) * 100.0 else 0.0
+                    Triple(pos.symbol, pnlPct, "MOONSHOT")
+                }
+        } catch (_: Throwable) { emptyList() }
+
+        val allPositions = (memePositions + treasuryPositions + shitcoinPositions +
+                blueChipPositions + qualityPositions + moonshotPositions)
+            .distinctBy { it.first }  // dedupe by symbol
+            .take(12)
+
+        val totalOpen = allPositions.size
+
+        val opensLine = if (allPositions.isEmpty()) {
+            "open positions: none"
+        } else {
+            "open positions (${totalOpen}): " + allPositions.joinToString(", ") { (sym, pnl, layer) ->
+                val pnlStr = if (pnl != 0.0) (if (pnl >= 0) "+${fmt1(pnl)}%" else "${fmt1(pnl)}%") else ""
+                "$sym[$layer]${if (pnlStr.isNotBlank()) "($pnlStr)" else ""}"
+            }
+        }
+
         val botLine = try {
             val s = BotService.status
             val runTag = if (s.running) "RUNNING" else "STOPPED"
-            "bot: $runTag · open=${s.openPositionCount} · paperSol=${fmt1(s.paperWalletSol)} · liveSol=${fmt1(s.walletSol)}"
+            val isPaper = try { com.lifecyclebot.data.ConfigStore.load(
+                BotService.instance?.applicationContext ?: return@try "bot: ctx_null"
+            ).paperMode } catch (_: Throwable) { true }
+            val modeTag = if (isPaper) "PAPER" else "LIVE"
+            "bot: $runTag[$modeTag] · meme_open=${s.openPositionCount} · all_open=$totalOpen · paperSol=${fmt1(s.paperWalletSol)} · liveSol=${fmt1(s.walletSol)}"
         } catch (_: Throwable) {
             "bot: status unavailable"
         }
 
-        val opensLine = try {
-            val opens = BotService.status.openPositions.take(5)
-            if (opens.isEmpty()) {
-                "meme opens: none"
-            } else {
-                "meme opens: " + opens.joinToString(", ") { ts ->
-                    val entry = ts.position.entryPrice
-                    val pnlPct = if (entry > 0.0) ((ts.lastPrice / entry) - 1.0) * 100.0 else 0.0
-                    ts.symbol + "(" + (if (pnlPct >= 0) "+" else "") + fmt1(pnlPct) + "%)"
-                }
-            }
+        val treasurySummaryLine = try {
+            val stats = com.lifecyclebot.v3.scoring.CashGenerationAI.getStats()
+            val tBal = stats.totalAvailableSol
+            val tDeploy = treasuryPositions.size
+            "treasury: ${fmt1(tBal)} SOL available · $tDeploy active scalp(s)"
         } catch (_: Throwable) {
-            "meme opens: ?"
+            "treasury: ?"
         }
 
         val regimeLine = try {
@@ -905,6 +987,8 @@ object SentientPersonality {
             append(botLine)
             append('\n')
             append(opensLine)
+            append('\n')
+            append(treasurySummaryLine)
             append('\n')
             append(regimeLine)
             append('\n')
