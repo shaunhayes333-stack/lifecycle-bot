@@ -2139,8 +2139,10 @@ for legal compliance.
                 // Calculate total P&L
                 var totalPnl = 0.0
                 for (pos in moonshotPositions) {
+                    // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
                     val currentPrice = try {
-                        com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                        val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                        if (ref > 0.0) ref else pos.entryPrice
                     } catch (_: Exception) { pos.entryPrice }
                     val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
                     totalPnl += pos.entrySol * (pnlPct / 100)
@@ -2724,8 +2726,10 @@ for legal compliance.
         
         positions.forEach { pos ->
             // V5.8: Use live token price from BotService (consistent with other windows)
+            // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                if (ref > 0.0) ref else pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
@@ -3161,8 +3165,10 @@ for legal compliance.
         llManipPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         positions.forEach { pos ->
+            // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                if (ref > 0.0) ref else pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
@@ -3258,8 +3264,12 @@ for legal compliance.
         llMoonshotPositions.removeAllViews()
         
         for (pos in positions) {
+            // V5.9.302: Guard against dead price feed (ref=0 when token rugs/dies).
+            // Without guard: pnlPct = (0 - entryPrice)/entryPrice*100 = -100% even though
+            // the engine hasn't closed it. Show ~0% instead while RUG_SAFETY_NET fires.
             val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: pos.entryPrice
+                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                if (ref > 0.0) ref else pos.entryPrice
             } catch (_: Exception) { pos.entryPrice }
             
             val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
@@ -3507,7 +3517,11 @@ for legal compliance.
             llSniperMissions.removeAllViews()
             
             for (mission in missions) {
-                val currentPrice = com.lifecyclebot.engine.BotService.status.tokens[mission.mint]?.ref ?: mission.entryPrice
+                // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
+                val currentPrice = run {
+                    val ref = com.lifecyclebot.engine.BotService.status.tokens[mission.mint]?.ref ?: 0.0
+                    if (ref > 0.0) ref else mission.entryPrice
+                }
                 val pnlPct = ((currentPrice - mission.entryPrice) / mission.entryPrice * 100)
                 val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
                 

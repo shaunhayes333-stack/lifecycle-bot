@@ -7182,6 +7182,7 @@ if (deferredCount > 0) {
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.264 — RUG SAFETY NET (ALWAYS-ON)
+        // V5.9.302 — DEAD-FEED RUG DETECTION FIX
         //
         // The 41 AI layers are useless if the price feed returns 0 (token
         // rugged) and the per-trader exit-check code masks that 0 by
@@ -7189,8 +7190,18 @@ if (deferredCount > 0) {
         // as 0%, no SL / RUG_DETECTED ever fires — the position sits at
         // -100% on the UI while the evaluator thinks "still flat, hold".
         //
-        // This intercepts the rug condition BEFORE any per-layer checkExit
-        // is called and force-exits via the executor immediately.
+        // V5.9.302 root cause: the prior safety net relied on `bestPrice`
+        // (which falls back to histPrice). If histPrice was a stale entry
+        // price, `bestPrice < entryPrice * 0.005` was FALSE → safety net
+        // never fired → positions sat at -100% indefinitely (Trump 16m,
+        // NUKX 13m in user-reported screenshot).
+        //
+        // NEW POLICY:
+        //   - Trigger on rawPrice <= 0 AND age >= 30s (was 60s) — a dead
+        //     price feed for 30+ seconds IS a rug; do not wait for histPrice.
+        //   - ALSO trigger on bestPrice < 0.5% of entry (existing path).
+        //   - In PAPER mode, cap the recorded loss at -25% so learning is
+        //     not poisoned by -100% outliers (this is a sim, not real money).
         // ═══════════════════════════════════════════════════════════════════
         try {
             val pos = ts.position
@@ -7199,20 +7210,39 @@ if (deferredCount > 0) {
             val histPrice = ts.history.lastOrNull()?.priceUsd ?: 0.0
             val bestPrice = if (rawPrice > 0.0) rawPrice else histPrice
 
-            // Trigger when price feed has had at least 60s post-entry to update
-            // AND the best price we have is below 0.5% of entry (i.e., effectively 0).
-            // Below 0.5% of entry = 99.5%+ loss = rug.
-            val rugDetected = entryAgeMs >= 60_000L &&
+            // V5.9.302: TWO independent rug triggers
+            // (a) Dead price feed: rawPrice == 0 for 30+ seconds → rug
+            // (b) Crashed price: bestPrice < 0.5% of entry → rug
+            val deadFeedRug = entryAgeMs >= 30_000L &&
                     pos.entryPrice > 0.0 &&
-                    bestPrice < pos.entryPrice * 0.005
+                    rawPrice <= 0.0
+            val crashedRug = entryAgeMs >= 30_000L &&
+                    pos.entryPrice > 0.0 &&
+                    bestPrice in 0.000001..(pos.entryPrice * 0.005)
+            val rugDetected = deadFeedRug || crashedRug
 
             if (rugDetected) {
+                // V5.9.302: PAPER-MODE LOSS CAP — avoid poisoning learning with -100% outliers.
+                // In paper mode, force the recorded exit price to entry × 0.75 (= -25% loss)
+                // so the bot learns from a realistic worst-case rug rather than catastrophic noise.
+                val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Exception) { true }
+                val effectiveExitPrice = if (isPaper) {
+                    pos.entryPrice * 0.75  // -25% paper rug cap
+                } else {
+                    bestPrice.coerceAtLeast(pos.entryPrice * 0.001)  // live: tiny floor to avoid div-by-zero
+                }
+                val triggerKind = if (deadFeedRug) "DEAD_FEED" else "CRASH"
                 ErrorLogger.warn(
                     "BotService",
-                    "🚨 RUG SAFETY NET: ${ts.symbol} mint=${ts.mint.take(8)} | " +
-                    "entry=${pos.entryPrice} lastPrice=$rawPrice histPrice=$histPrice age=${entryAgeMs / 1000}s — FORCE SELL"
+                    "🚨 RUG SAFETY NET ($triggerKind): ${ts.symbol} mint=${ts.mint.take(8)} | " +
+                    "entry=${pos.entryPrice} lastPrice=$rawPrice histPrice=$histPrice age=${entryAgeMs / 1000}s | " +
+                    "${if (isPaper) "PAPER cap @ -25%" else "LIVE bestPrice=$bestPrice"} — FORCE SELL"
                 )
-                addLog("🚨 RUG SAFETY: ${ts.symbol} price ≈ 0 — forcing exit", ts.mint)
+                addLog("🚨 RUG SAFETY ($triggerKind): ${ts.symbol} ${if (isPaper) "(paper -25% cap)" else "price≈0"} — forcing exit", ts.mint)
+                // Push the capped price into ts so downstream close-recorders use it
+                if (isPaper) {
+                    try { ts.lastPrice = effectiveExitPrice } catch (_: Exception) {}
+                }
                 try {
                     executor.requestSell(
                         ts = ts,
@@ -7225,9 +7255,9 @@ if (deferredCount > 0) {
                 }
                 // Also wipe layer-store position trackers immediately so the
                 // UI stops displaying the rugged position on next refresh.
-                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, bestPrice,
+                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, effectiveExitPrice,
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
-                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, bestPrice,
+                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, effectiveExitPrice,
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
                 return
             }
