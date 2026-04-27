@@ -2384,18 +2384,56 @@ object CryptoAltTrader {
 
     /**
      * Close the latest-opened paper position matching a symbol.
+     * V5.9.338: Now searches meme/BotService positions first (by symbol),
+     * then falls back to CryptoAlt perps desk. The LLM was emitting
+     * symbol="ASTEROID" but this function was only searching perps positions —
+     * meme tokens (ShitCoin/Moonshot/Quality/BlueChip/Treasury) live in
+     * BotService.status.tokens keyed by mint, not symbol. That caused the
+     * "can't find token" error even when the position was visible on screen.
      */
     fun llmClosePaperSell(symbol: String, reason: String): LlmTradeResult {
         if (!isPaperMode.get()) return LlmTradeResult.Rejected("HARD RULE V5.9.187: LLM cannot spend real money. Paper mode only.")
         val ticker = symbol.trim().uppercase()
+
+        // ── 1. Try meme / BotService positions first ──────────────────────────
+        // These are TokenState objects in BotService.status.tokens, keyed by mint.
+        // The LLM knows them by symbol (e.g. "ASTEROID"), so search by symbol.
+        val botService = try { com.lifecyclebot.engine.BotService.instance } catch (_: Exception) { null }
+        if (botService != null) {
+            val memeTs = try {
+                val tokensMap = com.lifecyclebot.engine.BotService.status.tokens
+                synchronized(tokensMap) {
+                    tokensMap.values
+                        .filter { it.symbol.equals(ticker, ignoreCase = true) && it.position.isOpen }
+                        .maxByOrNull { it.position.entryTime }
+                }
+            } catch (_: Exception) { null }
+
+            if (memeTs != null) {
+                return try {
+                    val (ok, msg) = botService.manualSell(memeTs.mint)
+                    if (ok) {
+                        val pnlPct = memeTs.position.pnlPct
+                        ErrorLogger.info(TAG, "💬 LLM MEME SELL: $ticker pnl=${"%.1f".format(pnlPct)}% | $reason")
+                        LlmTradeResult.Success("📄 meme sell queued: $ticker @ ${"%.1f".format(pnlPct)}%")
+                    } else {
+                        LlmTradeResult.Rejected("meme sell failed: $msg")
+                    }
+                } catch (e: Exception) {
+                    LlmTradeResult.Rejected("meme sell error: ${e.message}")
+                }
+            }
+        }
+
+        // ── 2. Fall back to CryptoAlt perps desk ──────────────────────────────
         val match = positions.values
             .filter { it.market.symbol.equals(ticker, ignoreCase = true) && it.closeTime == null }
             .maxByOrNull { it.openTime }
-            ?: return LlmTradeResult.Rejected("no open $ticker paper position")
+            ?: return LlmTradeResult.Rejected("no open $ticker position found (checked meme + perps desks)")
         val pnlPct = match.getPnlPct()
         requestClose(match.id)
-        ErrorLogger.info(TAG, "💬 LLM PAPER SELL: ${ticker} pnl=${pnlPct.fmt(1)}% | $reason")
-        return LlmTradeResult.Success("📄 paper sell queued: $ticker @ ${pnlPct.fmt(1)}%")
+        ErrorLogger.info(TAG, "💬 LLM PERPS SELL: ${ticker} pnl=${pnlPct.fmt(1)}% | $reason")
+        return LlmTradeResult.Success("📄 perps sell queued: $ticker @ ${pnlPct.fmt(1)}%")
     }
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
 
