@@ -220,8 +220,18 @@ class AutoModeEngine(
         if (cb?.consecutiveLosses ?: 0 >= cbLossThreshold) return BotMode.DEFENSIVE
 
         // SNIPE — fresh token
+        // V5.9.340: When history is empty, the token was JUST added by the
+        // scanner and the price poll hasn't populated yet. Previously we fell
+        // through to RANGE (Long.MAX_VALUE age) which mis-classified launches
+        // as "established". Prefer addedToWatchlistAt as the true wall-clock
+        // age of the token in our universe, falling back to first history ts.
         val hist       = ts.history.toList()
-        val tokenAgeMs = if (hist.isNotEmpty()) System.currentTimeMillis() - hist.first().ts else Long.MAX_VALUE
+        val nowMs      = System.currentTimeMillis()
+        val tokenAgeMs = when {
+            ts.addedToWatchlistAt > 0L -> nowMs - ts.addedToWatchlistAt
+            hist.isNotEmpty()          -> nowMs - hist.first().ts
+            else                       -> 0L  // unknown age → treat as fresh, not ancient
+        }
         val ageMins    = tokenAgeMs / 60_000.0
         if (ageMins <= 15.0) return BotMode.SNIPE
 

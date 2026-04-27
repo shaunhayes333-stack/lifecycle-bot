@@ -42,6 +42,18 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════
         const val DEBUG_PIPELINE = true
 
+        // ═══════════════════════════════════════════════════════════════
+        // V5.9.340: MARKET TRADER MASTER KILL-SWITCH
+        // User directive: disable the Market Trader completely while we
+        // rewire the AATE scoring/learning stack to match the build
+        // #1920-#1947 behavior. This does NOT touch any live buy/sell
+        // path — it simply forces every Markets sub-trader into the
+        // "disabled" state so none of them scan, score, or open new
+        // positions. Existing positions still close through their
+        // normal exit paths. Flip to false to re-enable.
+        // ═══════════════════════════════════════════════════════════════
+        const val MARKET_TRADER_KILL_SWITCH = true
+
         fun logPipeline(symbol: String, stage: String, msg: String) {
             if (!DEBUG_PIPELINE) return
             ErrorLogger.info("BotService", "[PIPELINE/$stage] $symbol | $msg")
@@ -371,13 +383,21 @@ class BotService : Service() {
         
         // V5.7.3: Start ALL market traders — ALWAYS run when bot is active
         // V5.7.7: Apply individual sub-trader enabled flags from config before starting
+        // V5.9.340: MARKET_TRADER_KILL_SWITCH overrides every Markets sub-trader.
+        // When true, all markets stay disabled regardless of cfg — used to
+        // isolate the meme trader while we rewire the AATE scoring stack.
         val marketsStartCfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsStartCfg.perpsEnabled)
-        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsStartCfg.stocksEnabled)
-        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsStartCfg.commoditiesEnabled)
-        com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsStartCfg.metalsEnabled)
-        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsStartCfg.forexEnabled)
-        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
+        val marketsKill = MARKET_TRADER_KILL_SWITCH
+        if (marketsKill) {
+            ErrorLogger.warn("BotService", "🛑 MARKET_TRADER_KILL_SWITCH=ON — all Markets sub-traders forced OFF (meme + copy only)")
+            addLog("🛑 Market Trader disabled (kill-switch) — rewiring AATE to 1920-1947 behavior")
+        }
+        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(!marketsKill && marketsStartCfg.perpsEnabled)
+        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(!marketsKill && marketsStartCfg.stocksEnabled)
+        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(!marketsKill && marketsStartCfg.commoditiesEnabled)
+        com.lifecyclebot.perps.MetalsTrader.setEnabled(!marketsKill && marketsStartCfg.metalsEnabled)
+        com.lifecyclebot.perps.ForexTrader.setEnabled(!marketsKill && marketsStartCfg.forexEnabled)
+        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(!marketsKill && marketsStartCfg.cryptoAltsEnabled)
 
         try {
             com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
@@ -2933,7 +2953,7 @@ class BotService : Service() {
             if (!memeEnabled) {
                 // Meme trader disabled — still run markets watchdog before sleeping
                 try {
-                    val marketsEnabled = cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2
+                    val marketsEnabled = !MARKET_TRADER_KILL_SWITCH && (cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2)
                     if (marketsEnabled && loopCount % 10 == 0) {
                         val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
                         if (!healthy) {
@@ -3190,29 +3210,29 @@ class BotService : Service() {
                         addLog("⚡ Markets engine restarted by watchdog")
                     }
                     // CryptoAltTrader watchdog — only if enabled
-                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                    if (!MARKET_TRADER_KILL_SWITCH && cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
                     }
                     // TokenizedStockTrader watchdog — only if stocks enabled
-                    if (cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                    if (!MARKET_TRADER_KILL_SWITCH && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("📈 Stock trader watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.TokenizedStockTrader.start()
                     }
                     // CommoditiesTrader watchdog — only if commodities enabled
-                    if (cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                    if (!MARKET_TRADER_KILL_SWITCH && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.CommoditiesTrader.start()
                     }
                     // MetalsTrader watchdog — only if metals enabled
-                    if (cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                    if (!MARKET_TRADER_KILL_SWITCH && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.MetalsTrader.start()
                     }
                     // ForexTrader watchdog — only if forex enabled
-                    if (cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                    if (!MARKET_TRADER_KILL_SWITCH && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.ForexTrader.start()
                     }

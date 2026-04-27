@@ -496,9 +496,13 @@ object EdgeOptimizer {
         buyPct: Double,
         entryTiming: EntryTiming,
         isPaperMode: Boolean = false,
+        isFresh: Boolean = false,  // V5.9.340: hist is too short to trust the gates yet
     ): FilterResult {
         // DEAD phase — always skip (even paper mode)
-        if (phase.phase == MarketPhase.DEAD) {
+        // V5.9.340: DEAD is often a false-positive on fresh tokens (empty hist
+        // → phase detector infers "no activity"). Let fresh tokens through;
+        // they'll be re-evaluated next scan once data populates.
+        if (phase.phase == MarketPhase.DEAD && !isFresh) {
             return FilterResult(
                 shouldTrade = false,
                 reason = "Phase is DEAD - no activity",
@@ -540,7 +544,11 @@ object EdgeOptimizer {
         val requireOptimalTiming = !lenient  // Lenient: advisory, Strict-live: required
         
         // Volume too low — skip
-        if (volumeScore < minVolume) {
+        // V5.9.340: Fresh tokens (hist too short, poll hasn't fired yet) get a
+        // pass on the volume gate. Without this, a newly added watchlist token
+        // whose first candle hasn't landed is marked "dead" and excluded for
+        // the full scan cycle — which often happens to be the LAUNCH window.
+        if (volumeScore < minVolume && !isFresh) {
             return FilterResult(
                 shouldTrade = false,
                 reason = "Volume too low (${volumeScore.toInt()} < ${minVolume.toInt()})",
