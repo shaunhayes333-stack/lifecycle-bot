@@ -190,9 +190,51 @@ class UnifiedScorer(
 
             // Final card — no MuteBoost gate, no approvalMemory, no CrossTalk penalty
             val finalCard = ScoreCard(allComponents + metaComponent + behaviorComponent)
-            // Still record entry scores for learning (passive — doesn't affect this trade's score)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
-            Log.i("UnifiedScorer", "🏛️ CLASSIC ${candidate.symbol} | total=${finalCard.total}")
+
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.341 — SHADOW-RUN outer ring in CLASSIC mode (Phase X.1)
+            // Run the 14 V5.9.123 outer-ring layers so EducationSubLayerAI
+            // sees their entry-score prediction and correlates it with the
+            // trade outcome. Their values are NOT added to finalCard.total
+            // (classic-feel scoring preserved) — this is purely a learning
+            // data capture so all 41 layers can turn green on the neural
+            // network indicator over time.
+            // ═══════════════════════════════════════════════════════════════
+            val shadowOuterRing: List<ScoreComponent> = try {
+                listOf(
+                    CorrelationHedgeAI.score(candidate, ctx),
+                    LiquidityExitPathAI.score(candidate, ctx),
+                    MEVDetectionAI.score(candidate, ctx),
+                    StablecoinFlowAI.score(candidate, ctx),
+                    OperatorFingerprintAI.score(candidate, ctx),
+                    SessionEdgeAI.score(candidate, ctx),
+                    ExecutionCostPredictorAI.score(candidate, ctx),
+                    DrawdownCircuitAI.score(candidate, ctx),
+                    CapitalEfficiencyAI.score(candidate, ctx),
+                    TokenDNAClusteringAI.score(candidate, ctx),
+                    PeerAlphaVerificationAI.score(candidate, ctx),
+                    NewsShockAI.score(candidate, ctx),
+                    FundingRateAwarenessAI.score(candidate, ctx),
+                    OrderbookImbalancePulseAI.score(candidate, ctx),
+                )
+            } catch (e: Exception) {
+                Log.w("UnifiedScorer", "classicScore shadow-run error: ${e.message}")
+                emptyList()
+            }
+
+            // Record entry scores for ALL 41 layers (classic sum + shadow outer
+            // ring) so applyRealAccuracyLearning can correlate every layer's
+            // prediction with the actual outcome on close.
+            try {
+                val learningRecord = finalCard.components + shadowOuterRing
+                EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord)
+            } catch (_: Exception) {}
+
+            // Also expose the shadow layers to LayerHealthTracker so UI layer
+            // diagnostics show all 41 layers as "seen this cycle".
+            try { LayerHealthTracker.record(shadowOuterRing) } catch (_: Exception) {}
+
+            Log.i("UnifiedScorer", "🏛️ CLASSIC ${candidate.symbol} | total=${finalCard.total} | shadow=${shadowOuterRing.size}L")
             finalCard
 
         } catch (e: Exception) {

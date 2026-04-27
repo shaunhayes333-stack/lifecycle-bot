@@ -61,17 +61,17 @@ object ShitCoinTraderAI {
     // Market cap filter - V5.2.12: Extended to $100K to flow into Quality layer
     // ShitCoin: $0 - $100K (degen memes and early plays)
     // Quality picks up at $100K+
-    private const val MAX_MARKET_CAP_USD = 500_000.0   // V5.9.325: 100K→500K — meme tokens trade $100K-$500K, was killing most candidates
+    private const val MAX_MARKET_CAP_USD = 100_000.0   // V5.9.341: 500K→100K (golden V5.9.134)
     private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 1_500.0   // V5.9.335: 2000→1500
-    private const val MIN_LIQUIDITY_USD_MATURE = 3_000.0      // V5.9.335: 5000→3000 — not enough candidates passing
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 3_000.0   // V5.9.341: 1500→3000 (golden V5.9.134)
+    private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.9.341: 3000→5000 (golden V5.9.134)
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 25   // V5.9.336: 12→25 — paper needs throughput to learn, 12 was starving bootstrap
+    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.9.341: 25→12 (golden V5.9.134)
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
@@ -109,7 +109,7 @@ object ShitCoinTraderAI {
     private const val MIN_SOCIAL_SCORE = 20           // Minimum social presence (0-100)
     
     // Age requirements - Fresh tokens only
-    private const val MAX_TOKEN_AGE_HOURS = 12.0      // V5.9.325: 6→12h — 6h was silently TOO_OLD on most tokens
+    private const val MAX_TOKEN_AGE_HOURS = 6.0       // V5.9.341: 12→6h (golden V5.9.134)
     // V5.9.160: tokenAgeMinutes in BotService is counted from addedToWatchlistAt,
     // i.e. the moment the bot FIRST DISCOVERED the token, not the token's real
     // on-chain creation time. That means once the bot has been running 6h+,
@@ -1248,13 +1248,13 @@ object ShitCoinTraderAI {
     // Mature: score >= 40, conf >= 50%
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
     // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
-    private const val SC_SCORE_BOOTSTRAP = 10         // V5.9.335: 15→10 — floor too tight, nothing trading
-    private const val SC_SCORE_MATURE = 35            // V5.9.335: 50→35 — mature threshold was starving flow
+    private const val SC_SCORE_BOOTSTRAP = 20         // V5.9.341: 10→20 (golden V5.9.134)
+    private const val SC_SCORE_MATURE = 40            // V5.9.341: 35→40 (golden V5.9.134)
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 10          // V5.9.335: 15→10 — loosen further
-    private const val SC_CONF_MATURE = 40             // V5.9.335: 55→40 — was blocking too many valid setups
-    private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
+    private const val SC_CONF_BOOTSTRAP = 15          // V5.9.341: 10→15 (golden V5.9.134)
+    private const val SC_CONF_MATURE = 50             // V5.9.341: 40→50 (golden V5.9.134)
+    private const val SC_CONF_BOOST_MAX = 15.0        // V5.9.341: 5→15 (golden V5.9.134)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()

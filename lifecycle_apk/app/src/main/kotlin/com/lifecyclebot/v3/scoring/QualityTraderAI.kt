@@ -55,11 +55,11 @@ object QualityTraderAI {
     // V5.2.12: Quality layer handles professional mid-cap trading
     // Market cap: $100K - $1M (flows from ShitCoin at $100K, promotes to BlueChip at $1M)
     // V5.9.189: Lowered to $75K — $100K was too restrictive on Solana, many quality tokens sit 75-100K
-    private const val MIN_MARKET_CAP_USD = 75_000.0    // $75K minimum
+    private const val MIN_MARKET_CAP_USD = 100_000.0   // V5.9.341: 75K→100K (golden V5.9.134)
     private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 3_000.0      // V5.9.335: 5000→3000 — loosen floor
+    private const val MIN_LIQUIDITY_USD = 10_000.0     // V5.9.341: 3000→10000 (golden V5.9.134)
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
@@ -70,7 +70,7 @@ object QualityTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
     private const val MAX_POSITION_SOL = 0.25           // Up to 0.25 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 20     // V5.9.336: 10→20 — paper needs throughput to learn
+    private const val MAX_CONCURRENT_POSITIONS = 10     // V5.9.341: 20→10 (golden V5.9.134)
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start

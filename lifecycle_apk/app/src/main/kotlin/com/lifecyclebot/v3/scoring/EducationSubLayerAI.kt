@@ -446,7 +446,10 @@ object EducationSubLayerAI {
         // 'base44 changed what we had' regression the user has been reporting.
         // We now skip accuracy updates entirely on scratch trades and only mark
         // clear directional outcomes. Layers stay green and learn real signal.
-        val isScratchOutcome = outcome.pnlPct > -1.0 && outcome.pnlPct < 1.0
+        // V5.9.341 — tighten scratch band to align with new isWin (>-0.5).
+        // Only truly flat trades (-0.5% .. +0.5%) are scratches now. Trades
+        // of ±1% carry real directional signal and should drive learning.
+        val isScratchOutcome = outcome.pnlPct > -0.5 && outcome.pnlPct < 0.5
 
         REGISTERED_LAYERS.forEach { layerName ->
             try {
@@ -769,6 +772,49 @@ object EducationSubLayerAI {
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.9.341 — OUTER-RING LEARN HOOKS (Phase X.2 + X.3)
+        // Every outer-ring layer that previously plateaued at 50% accuracy
+        // (Bayesian prior) now receives trade outcomes via markLayerOutcome.
+        // Combined with the applyRealAccuracyLearning universal loop, this
+        // makes all 41 layers evolve in both activity AND accuracy — so they
+        // can actually go green on the neural network indicator.
+        //
+        // For the 6 layers that have rich internal learn hooks (trust nets,
+        // fingerprint clustering, etc.), their native recordOutcome() calls
+        // require extra context (Session, creator, CandidateSnapshot) that
+        // isn't carried on TradeOutcomeData. Wiring those deeper hooks is a
+        // separate scope (Phase C follow-up). For now every layer gets
+        // directional accuracy + activity via the central tracker.
+        // ═══════════════════════════════════════════════════════════════════
+
+        // AITrustNetworkAI — has a layer-scores signature; feed it the snap
+        // we captured from pendingEntryScores (if present).
+        try {
+            val pending = pendingEntryScores[outcome.mint]
+            if (pending != null) {
+                AITrustNetworkAI.recordTradeOutcome(pending.scores, outcome.isWin)
+            }
+            markLayerOutcome("AITrustNetworkAI", outcome.isWin, outcome.pnlPct)
+            layersUpdated++
+        } catch (_: Exception) {}
+
+        // 15 remaining outer-ring layers: record directional outcome via
+        // the central tracker so they join the 41-layer learning firehose.
+        for (name in listOf(
+            "CapitalEfficiencyAI", "ExecutionCostPredictorAI",
+            "OperatorFingerprintAI", "SessionEdgeAI", "TokenDNAClusteringAI",
+            "CorrelationHedgeAI", "DrawdownCircuitAI", "FundingRateAwarenessAI",
+            "LiquidityExitPathAI", "MEVDetectionAI", "NewsShockAI",
+            "OrderbookImbalancePulseAI", "PeerAlphaVerificationAI", "ReflexAI",
+            "StablecoinFlowAI",
+        )) {
+            try {
+                markLayerOutcome(name, outcome.isWin, outcome.pnlPct)
+                layersUpdated++
+            } catch (_: Exception) {}
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // PHASE 6a: V5.9.210 — ALL 41 registered layers stay alive.
         // applyRealAccuracyLearning (called below) now handles universal
         // accuracy + activity-touch for every layer including these 16.
@@ -900,15 +946,15 @@ object EducationSubLayerAI {
         // V5.9.224: shadow trades (blocked/rejected) get reduced learning weight
         val isShadowTrade: Boolean = false,
     ) {
-        // V5.9.313: REVERT V5.9.190 isWin contract.
-        // V5.9.320: UNIFIED isWin threshold — match ALL traders (ShitCoin, Moonshot,
-        // BlueChip, Quality all use pnlPct >= 1.0 since V5.9.208). The old > 0
-        // threshold was counting fee-drag scratches (+0.1% to +0.9%) as wins,
-        // inflating every layer's smoothedAccuracy and teaching the neural network
-        // that flat/losing setups are good entries. This corrupted all 41 layer
-        // accuracy records and drove the 10% win rate shown in bootstrap.
-        // Must match the traders' own definition — a win = clears 1% net.
-        val isWin: Boolean get() = pnlPct >= 1.0
+        // V5.9.341 — REVERT isWin to fee-aware threshold (>-0.5%).
+        // V5.9.320 set isWin >= 1.0 to "match the traders", but with fees
+        // eating 0.5-0.8% per roundtrip, 50-70% of trades land in (-1%, +1%)
+        // and get classified as scratches — contributing ZERO learning weight
+        // across 41 layers. The bot was seeing only 30-50% of its own trade
+        // signal. User directive (V5.9.341): restore fee-aware golden
+        // behaviour — a trade is a win if it cleared fees. Every trade with
+        // a clear directional outcome now teaches the network.
+        val isWin: Boolean get() = pnlPct > -0.5
         val isRunner: Boolean get() = pnlPct >= 20.0
         val isRug: Boolean get() = pnlPct <= -30.0
     }

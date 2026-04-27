@@ -746,7 +746,12 @@ object FinalDecisionGate {
         val learningProgress = FluidLearningAI.getLearningProgress()
         // V5.6.28f: UNIFIED LEARNING - No separate bootstrap for LIVE
         // LIVE inherits all PAPER learning. Both modes use same thresholds.
-        val isBootstrapPhase = learningProgress < 0.40  // V5.9.165: aligned
+        // V5.9.341 — CLASSIC-MODE BYPASS (Phase A).
+        // When UnifiedScorer.classicMode=true the user wants the bot to behave
+        // like builds #1920-#1947: isBootstrapPhase < 0.25 (not 0.40) so the
+        // bootstrap bypass window lines up with golden learning velocity.
+        val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
+        val isBootstrapPhase = if (classicMode) learningProgress < 0.25 else learningProgress < 0.40  // V5.9.341 classic / V5.9.165 modern
         val isPaperMode = mode == TradeMode.PAPER
         // V5.6.28f: Allow confidence floor bypass for BOTH modes during learning
         val canBypassConfidenceFloors = isBootstrapPhase
@@ -836,7 +841,10 @@ object FinalDecisionGate {
             rawConfidence
         }
 
-        val BOOTSTRAP_MIN_CONFIDENCE = 8.0  // V5.9.184: was 3.0 — floor raised to target 25-50% WR
+        // V5.9.341 — CLASSIC mode uses golden 3.0 floor; modern keeps 8.0.
+        // V5.9.184 raised it to 8.0 targeting higher WR but blocked 60% of
+        // paper bootstrap trades — the learner needs that volume back.
+        val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 3.0 else 8.0
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
             ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
 
@@ -930,7 +938,9 @@ object FinalDecisionGate {
 
         val toxicPatternFlags = mutableListOf<String>()
         if (isCGrade) toxicPatternFlags.add("quality_C")
-        if (confidence < 28.0) toxicPatternFlags.add("conf<28")  // V5.9.266: moderate (was conf<25 at V5.9.263)
+        // V5.9.341 — CLASSIC: conf<35 (golden). MODERN: conf<28.
+        val toxicConfThreshold = if (classicMode) 35.0 else 28.0
+        if (confidence < toxicConfThreshold) toxicPatternFlags.add("conf<${toxicConfThreshold.toInt()}")
         // V5.9.63: was memory<=-8 — combined with quality_C + AI_degraded
         // (which is the default state in paper for any fresh meme) this
         // formed a 3-flag HARD_KILL too easily. Tightened to <=-14 so

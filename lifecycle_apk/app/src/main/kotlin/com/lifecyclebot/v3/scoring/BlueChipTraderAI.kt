@@ -56,7 +56,7 @@ object BlueChipTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.15         // Larger than Treasury (0.05)
     private const val MAX_POSITION_SOL = 0.5           // Up to 0.5 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 15    // V5.9.336: 8→15 — paper needs throughput to learn
+    private const val MAX_CONCURRENT_POSITIONS = 8     // V5.9.341: 15→8 (golden V5.9.134)
     
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 1.0         // ~$150 daily loss limit
@@ -713,17 +713,17 @@ object BlueChipTraderAI {
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
     // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
-    private const val BC_SCORE_BOOTSTRAP = 20       // V5.9.335: 28→20 — nothing trading
-    private const val BC_SCORE_MATURE = 28          // V5.9.335: 38→28
+    private const val BC_SCORE_BOOTSTRAP = 30       // V5.9.341: 20→30 (golden V5.9.134)
+    private const val BC_SCORE_MATURE = 38          // V5.9.341: 28→38 (golden V5.9.134)
 
     // V5.9.83: Conf floor raised so initial entries are higher-conviction.
-    private const val BC_CONF_BOOTSTRAP = 20        // V5.9.335: 28→20
-    private const val BC_CONF_MATURE = 35           // V5.9.335: 48→35
+    private const val BC_CONF_BOOTSTRAP = 22        // V5.9.341: 20→22 (golden V5.9.134)
+    private const val BC_CONF_MATURE = 48           // V5.9.341: 35→48 (golden V5.9.134)
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
-    private const val BC_LIQ_BOOTSTRAP = 7_000.0    // V5.9.335: 10000→7000
-    private const val BC_LIQ_MATURE = 15_000.0      // V5.9.335: 25000→15000 — too few $1M tokens had $25K liq
+    private const val BC_LIQ_BOOTSTRAP = 15_000.0   // V5.9.341: 7000→15000 (golden V5.9.134)
+    private const val BC_LIQ_MATURE = 25_000.0      // V5.9.341: 15000→25000 (golden V5.9.134)
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()
