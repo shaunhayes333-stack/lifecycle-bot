@@ -329,7 +329,7 @@ object CommoditiesTrader {
                 
                 // V5.9.328: Trust gate — halt new entries when CommoditiesAI is DISTRUSTED
                 val commTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("CommoditiesAI") } catch (_: Exception) { null }
-                if (commTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                if (commTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
                     ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: TRUST_GATE — CommoditiesAI DISTRUSTED, skipping entry")
                     continue
                 }

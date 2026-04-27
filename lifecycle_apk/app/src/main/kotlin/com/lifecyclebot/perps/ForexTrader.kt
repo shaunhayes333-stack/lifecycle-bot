@@ -307,7 +307,7 @@ object ForexTrader {
                 val signal = analyzeMarket(market, data)
                 // V5.9.328: Trust gate — halt new entries when ForexAI is DISTRUSTED
                 val forexTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("ForexAI") } catch (_: Exception) { null }
-                if (forexTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                if (forexTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
                     ErrorLogger.warn(TAG, "💱 ${market.symbol}: TRUST_GATE — ForexAI DISTRUSTED, skipping entry")
                     continue
                 }

@@ -678,7 +678,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     val trustLevel = try {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
                     } catch (_: Exception) { null }
-                    if (trustLevel == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                    if (trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
                         ErrorLogger.warn(TAG, "📈 ${market.symbol}: TRUST_GATE — TokenizedStockAI DISTRUSTED, skipping entry")
                         continue
                     }

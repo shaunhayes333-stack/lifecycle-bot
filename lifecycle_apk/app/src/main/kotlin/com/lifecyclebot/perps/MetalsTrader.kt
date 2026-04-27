@@ -322,7 +322,7 @@ object MetalsTrader {
                 val signal = analyzeMarket(market, data)
                 // V5.9.328: Trust gate — halt new entries when MetalsAI is DISTRUSTED
                 val metalsTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("MetalsAI") } catch (_: Exception) { null }
-                if (metalsTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                if (metalsTrust == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
                     ErrorLogger.warn(TAG, "🥇 ${market.symbol}: TRUST_GATE — MetalsAI DISTRUSTED, skipping entry")
                     continue
                 }
