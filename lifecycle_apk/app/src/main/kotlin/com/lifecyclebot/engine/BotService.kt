@@ -7225,20 +7225,50 @@ if (deferredCount > 0) {
                     
                     is com.lifecyclebot.v3.V3Decision.Rejected -> {
                         val fdgTag = if (fdgDecision.canExecute()) "FDG:✓" else "FDG:✗"
-                        
+
                         ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
                             "${result.reason} | $fdgTag")
-                        
+
                         // Track comparison
                         com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
                             v3Decision = "REJECT",
                             fdgWouldExecute = fdgDecision.canExecute()
                         )
-                        
+
                         // V3 REJECT = DO NOT EXECUTE
                         if (v3ControlsExecution) {
                             addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
                             useV3Decision = false  // V5.9.187: REJECT skips V3 only; routing-type rejects let ShitCoin run
+                        }
+
+                        // ═════════════════════════════════════════════════════
+                        // V5.9.346 — MEME UNIFIED SCORER BRIDGE (paper-only fallback)
+                        // The alts trader's 79% WR architecture: TA pre-filter
+                        // + synthetic floors + 60/40 blend bypassing FDG. When
+                        // V3 rejects in paper mode, the bridge gets a second
+                        // look. If it says shouldEnter we override V3 with
+                        // a small position. Live mode still defers to V3.
+                        // ═════════════════════════════════════════════════════
+                        if (cfg.paperMode && !useV3Decision) {
+                            try {
+                                val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)
+                                if (verdict.shouldEnter) {
+                                    // Tiny bridge size — bridge entries are
+                                    // bootstrap learning trades; the meme
+                                    // trader's adaptive sizing kicks in once
+                                    // the layer-accuracy data accumulates.
+                                    val bridgeSize = 0.05
+                                    useV3Decision = true
+                                    v3SizeSol = bridgeSize
+                                    v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)}"
+                                    ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
+                                    addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
+                                } else {
+                                    ErrorLogger.debug("BotService", "🌉 Bridge declined ${identity.symbol}: ${verdict.rejectReason}")
+                                }
+                            } catch (be: Exception) {
+                                ErrorLogger.debug("BotService", "🌉 Bridge error on ${identity.symbol}: ${be.message}")
+                            }
                         }
                     }
                     
