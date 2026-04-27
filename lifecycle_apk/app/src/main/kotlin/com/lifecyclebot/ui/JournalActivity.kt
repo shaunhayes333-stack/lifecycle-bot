@@ -35,6 +35,14 @@ class JournalActivity : AppCompatActivity() {
 
     private var pollJob: Job? = null
 
+    // V5.9.330 OOM FIX: Paginate the trade list. Building thousands of Views
+    // at once (every 2s polling loop) causes OOM → process kill → START_STICKY
+    // → bot appears to "randomly start". Show only the most recent PAGE_SIZE
+    // trades; user can tap "Load More" to see older ones.
+    private val PAGE_SIZE = 100
+    private var currentPage = 1          // number of pages currently visible (grows on "Load More")
+    private var cachedSellEntries = listOf<com.lifecyclebot.engine.TradeJournal.JournalEntry>()
+
     private val white = 0xFFFFFFFF.toInt()
     private val muted = 0xFF6B7280.toInt()
     private val green = 0xFF10B981.toInt()
@@ -118,6 +126,7 @@ class JournalActivity : AppCompatActivity() {
                 setTextColor(if (filter == currentModeFilter) 0xFF10B981.toInt() else 0xFF9CA3AF.toInt())
                 setOnClickListener {
                     currentModeFilter = filter
+                    currentPage = 1  // V5.9.330: reset pagination on filter change
                     updateTabColors()
                     refreshTrades()
                 }
@@ -167,10 +176,19 @@ class JournalActivity : AppCompatActivity() {
         pollJob = lifecycleScope.launch {
             while (isActive) {
                 try {
-                    refreshTrades()
+                    // V5.9.330: Fetch data on IO thread, render on main.
+                    // journal.buildJournal() hits SharedPreferences/TradeHistoryStore —
+                    // doing this on the main thread causes ANR when trade count is large.
+                    val tokens = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        getTokensSnapshot()
+                    }
+                    // buildJournal renders on the main thread (required for View ops)
+                    refreshTradesWithTokens(tokens)
                 } catch (_: Exception) {
                 }
-                delay(2000)
+                // V5.9.330: Slowed from 2s → 10s. Building 100-View lists on
+                // the main thread 30x/min was burning CPU and causing frame drops.
+                delay(10_000)
             }
         }
     }
@@ -280,6 +298,15 @@ class JournalActivity : AppCompatActivity() {
         }
     }
 
+    /** V5.9.330: Called from IO-prefetched polling path with pre-fetched tokens. */
+    private fun refreshTradesWithTokens(tokens: Map<String, TokenState>) {
+        try {
+            buildJournal(tokens)
+        } catch (_: Exception) {
+            showEmptyJournal()
+        }
+    }
+
     private fun buildJournal(tokens: Map<String, TokenState>) {
         // V5.9.248: apply mode filter — live / paper / all
         val allEntries = journal.buildJournal(tokens)
@@ -311,7 +338,13 @@ class JournalActivity : AppCompatActivity() {
             return
         }
 
-        sellEntries.forEach { entry ->
+        // V5.9.330 OOM FIX: Only render up to (PAGE_SIZE * currentPage) most-recent
+        // trades. "Load More" button below list bumps currentPage by 1.
+        // Building 5000+ Views on the main thread every 2s caused OOM crashes.
+        cachedSellEntries = sellEntries
+        val pagedEntries = sellEntries.takeLast(PAGE_SIZE * currentPage)
+
+        pagedEntries.forEach { entry ->
             val outcome = classifyOutcome(entry.pnlPct)
             val pnlColor = when (outcome) {
                 TradeOutcome.WIN -> green
@@ -401,6 +434,42 @@ class JournalActivity : AppCompatActivity() {
                     1
                 )
                 setBackgroundColor(divider)
+            })
+        }
+
+        // V5.9.330: "Load More" button — shows if there are older trades beyond current page
+        val totalShowing = PAGE_SIZE * currentPage
+        if (cachedSellEntries.size > totalShowing) {
+            val loadMoreBtn = TextView(this).apply {
+                text = "⬆️  Load ${minOf(PAGE_SIZE, cachedSellEntries.size - totalShowing)} older trades  (${cachedSellEntries.size - totalShowing} remaining)"
+                textSize = 13f
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                setTextColor(0xFF60A5FA.toInt())
+                gravity = android.view.Gravity.CENTER
+                typeface = Typeface.DEFAULT_BOLD
+                setBackgroundColor(0xFF1F2937.toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.topMargin = dp(8) }
+                setOnClickListener {
+                    currentPage++
+                    refreshTrades()
+                }
+            }
+            llJournalTrades.addView(loadMoreBtn)
+        } else if (cachedSellEntries.size > PAGE_SIZE) {
+            // All trades loaded — show count label
+            llJournalTrades.addView(TextView(this).apply {
+                text = "— all ${cachedSellEntries.size} trades loaded —"
+                textSize = 11f
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                setTextColor(muted)
+                gravity = android.view.Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
             })
         }
     }

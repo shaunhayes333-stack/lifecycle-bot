@@ -606,7 +606,22 @@ class BotService : Service() {
                 scope.launch { stopBot() }
             }
         }
-        return START_STICKY
+        // V5.9.330 RANDOM-START FIX: Changed from START_STICKY to START_NOT_STICKY.
+        //
+        // START_STICKY causes Android to auto-restart the service with a null intent
+        // whenever the process is killed (OOM, crash, system memory pressure).
+        // The Journal OOM crash was killing the process → Android restarted it →
+        // bot appeared to "randomly start on its own".
+        //
+        // START_NOT_STICKY: Android does NOT auto-restart on process death.
+        // Intentional restart paths are preserved:
+        //   - BootReceiver fires on reboot/update (checks was_running_before_shutdown)
+        //   - ServiceWatchdog (WorkManager every 15min) also checks that flag
+        //   - BotViewModel.startBot() calls startForegroundService() explicitly
+        //
+        // Effect: bot only restarts when the USER had it running AND it naturally
+        // crashed/died, NOT when an unrelated screen (Journal) OOM-killed the process.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

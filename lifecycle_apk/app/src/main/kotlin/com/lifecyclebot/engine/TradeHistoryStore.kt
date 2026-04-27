@@ -42,6 +42,10 @@ object TradeHistoryStore {
     // ── Legacy SharedPreferences keys (used only for one-time migration) ──
     private const val PREFS_NAME          = "trade_history_store"
     private const val KEY_TRADES          = "trades_json"
+    // V5.9.330: Cap in-memory list to prevent OOM when Journal builds Views.
+    // SQLite is the source of truth — older trades are always on disk.
+    // Journal shows the most recent PAGE_SIZE trades via takeLast().
+    private const val MAX_IN_MEMORY_TRADES = 2000
     private const val KEY_LIFETIME_STATS  = "lifetime_stats_json"
 
     private const val WIN_THRESHOLD_PCT   = 1.0   // V5.9.218
@@ -164,14 +168,28 @@ object TradeHistoryStore {
             backfillLifetimeFromTrades()
         }
 
+        // V5.9.330: Trim in-memory list to most recent MAX_IN_MEMORY_TRADES after load.
+        // SQLite retains the full history — Journal pages from it on export.
+        synchronized(lock) {
+            if (trades.size > MAX_IN_MEMORY_TRADES) {
+                trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
+            }
+        }
+
         ErrorLogger.info("TradeHistoryStore",
-            "📊 Loaded ${synchronized(lock) { trades.size }} trades from SQLite (lifetime sells=$lifetimeSells)")
+            "📊 Loaded ${synchronized(lock) { trades.size }} trades in-memory (SQLite retains all, lifetime sells=$lifetimeSells)")
     }
 
     // ── Public API ───────────────────────────────────────────────────
 
     fun recordTrade(trade: Trade) {
-        synchronized(lock) { trades.add(trade) }
+        synchronized(lock) {
+            trades.add(trade)
+            // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
+            if (trades.size > MAX_IN_MEMORY_TRADES) {
+                trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
+            }
+        }
         bumpLifetimeFor(trade)
         insertTradeAsync(trade)
     }
