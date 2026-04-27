@@ -36,6 +36,11 @@ object MemeUnifiedScorerBridge {
 
     private const val TAG = "MemeBridge"
 
+    // Single shared scorer instance — UnifiedScorer is a class with all
+    // dependencies defaulted, so no-args constructor is safe and reuse
+    // avoids re-creating sub-AIs per candidate.
+    private val sharedScorer by lazy { UnifiedScorer() }
+
     private val defaultCtx by lazy {
         TradingContext(
             config = TradingConfigV3(),
@@ -98,7 +103,7 @@ object MemeUnifiedScorerBridge {
 
         // 3) V3 score (advisory) via UnifiedScorer.score
         val card: ScoreCard = try {
-            UnifiedScorer.score(snap, defaultCtx)
+            sharedScorer.score(snap, defaultCtx)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "V3 scoring failed for ${ts.symbol}: ${e.message}")
             return MemeVerdict(
@@ -179,7 +184,7 @@ object MemeUnifiedScorerBridge {
         val buyPress = ts.lastBuyPressurePct.coerceIn(0.0, 100.0)
 
         // 2) Short-term momentum from price slope. 0% → 50, +20% → 100, -20% → 0
-        val pxThen = if (hist.size >= 5) hist[hist.size - 5].price else pxNow
+        val pxThen = if (hist.size >= 5) hist[hist.size - 5].priceUsd else pxNow
         val pctChg = if (pxThen > 0) ((pxNow - pxThen) / pxThen) * 100.0 else 0.0
         val momentum = (50.0 + (pctChg.coerceIn(-20.0, 20.0) * 2.5))
             .coerceIn(0.0, 100.0)
@@ -194,8 +199,8 @@ object MemeUnifiedScorerBridge {
 
         // 4) EMA fan from short MAs
         val emaScore = if (hist.size >= 10) {
-            val ema5  = hist.takeLast(5).map { it.price }.average()
-            val ema10 = hist.takeLast(10).map { it.price }.average()
+            val ema5  = hist.takeLast(5).map { it.priceUsd }.average()
+            val ema10 = hist.takeLast(10).map { it.priceUsd }.average()
             when {
                 pxNow > ema5 && ema5 > ema10 -> 80.0
                 pxNow > ema5 || ema5 > ema10 -> 55.0
@@ -208,7 +213,7 @@ object MemeUnifiedScorerBridge {
             val recent = hist.takeLast(8)
             var gains = 0.0; var losses = 0.0
             for (i in 1 until recent.size) {
-                val d = recent[i].price - recent[i - 1].price
+                val d = recent[i].priceUsd - recent[i - 1].priceUsd
                 if (d > 0) gains += d else losses -= d
             }
             val rs = if (losses > 0) gains / losses else 99.0
