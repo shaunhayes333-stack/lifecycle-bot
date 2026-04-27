@@ -3584,15 +3584,19 @@
                         android:maxWidth="140dp" android:ellipsize="end" android:singleLine="true"/>
                 </LinearLayout>
             </LinearLayout>
-                     DECISION LOG (attached to token card)
-                     ═══════════════════════════════ -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/card_bg"
-                    android:layout_marginTop="10dp"
-                    android:padding="10dp"
-                    android:orientation="vertical">
+
+            <!-- ═══════════════════════════════
+                 DECISION LOG
+                 ═══════════════════════════════ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/section_card_bg"
+                android:layout_marginStart="@dimen/card_margin"
+                android:layout_marginEnd="@dimen/card_margin"
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+                android:padding="@dimen/card_padding"
+                android:orientation="vertical">
 
 <!-- Header row -->
                 <LinearLayout
