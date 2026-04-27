@@ -257,11 +257,14 @@ object FluidLearningAI {
         buyPressurePct: Double,
         isPaper: Boolean
     ): Boolean {
-        // V5.9.222: Extended bootstrap assist through 70% progress.
-        // At 50% (991 trades) the bot is still in the learning curve;
-        // completely disabling force-entry here starves the meme scanner
-        // of volume. Quality bars (score>=50, buy%>=25) prevent trash entries.
-        if (getLearningProgress() >= 0.70) return false
+        // V5.9.322: Bootstrap assist ends at BOOTSTRAP_PHASE_END (1000 trades) — hard raw count.
+        // Previously used getLearningProgress() >= 0.70, but with 11% WR the adaptive
+        // regression pulls progress down to ~0.56 at 3000+ trades, keeping bootstrap assist
+        // alive and letting score=5 / buyPressure=5% garbage through all quality gates.
+        // Raw trade count is immune to the adaptive regression feedback loop.
+        val rawTotalTrades = getTotalTradeCount()
+        if (rawTotalTrades >= BOOTSTRAP_PHASE_END) return false   // 1000+ trades = no assist
+        if (getLearningProgress() >= 0.60) return false           // secondary progress check
         
         // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {
@@ -556,15 +559,23 @@ object FluidLearningAI {
 
         val progress = when {
             totalTrades > MATURE_PHASE_END -> {
-                // Phase 3+: Adaptive adjustment based on recent performance.
-                // Poor performance loosens thresholds to allow more learning trades.
-                // Expert/Master phases (3000-5000+): still adapts but with higher floor.
-                val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.60 else 0.45
+                // V5.9.322: CLOSED FEEDBACK LOOP — low WR no longer loosens gates at mature/expert.
+                //
+                // OLD LOGIC: <40% WR → progress -= 0.25 (loosens everything). This created a
+                // runaway loop at 3000+ trades: bad WR → loose gates → more bad trades → worse WR.
+                // At 3088 trades / 11% WR: progress regressed to 0.56, re-enabling bootstrap assist.
+                //
+                // NEW LOGIC: WR < 30% → TIGHTEN gates (bad entries are the problem, not lack of data).
+                //            WR 30-50% → hold position (don't loosen, don't tighten aggressively).
+                //            WR 50%+   → hold position (on target).
+                // Floor raised to 0.65 at mature, 0.70 at expert so bootstrap assist NEVER re-enables.
+                val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.70 else 0.65
                 when {
-                    blendedWinRate >= 50 -> baseProgress                                         // V5.9.184: 50%+ WR = on target in mature: hold position
-                    blendedWinRate < 40 -> (baseProgress - 0.25).coerceAtLeast(adaptiveFloor)   // V5.9.184: <40% in mature = loosen gatesn significantly
-                    blendedWinRate < 50 -> (baseProgress - 0.15).coerceAtLeast(adaptiveFloor + 0.10)  // V5.9.184: <50% in mature = tighten slightly
-                    blendedWinRate < 60 -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.15)  // V5.9.184: <60% in mature = minor penalty
+                    blendedWinRate >= 50 -> baseProgress                                              // On target — hold selectivity
+                    blendedWinRate < 20  -> (baseProgress + 0.05).coerceAtMost(MAX_LEARNING_PROGRESS)  // Very bad WR → tighten further
+                    blendedWinRate < 30  -> baseProgress                                              // Bad WR → hold, don't loosen
+                    blendedWinRate < 40  -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor)        // Below average → tiny loosen (was -0.25)
+                    blendedWinRate < 50  -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.05) // Slightly below → minor loosen
                     else -> baseProgress
                 }
             }
