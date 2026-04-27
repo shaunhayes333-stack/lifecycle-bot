@@ -348,7 +348,7 @@ object EducationSubLayerAI {
         val timestamp: Long = System.currentTimeMillis(),
     )
     private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
-    private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 2  // |score| ≤ 2 → no prediction
+    private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 0  // V5.9.344: 2→0. Even ±1 counts as a directional vote so layers converge off the 50% Bayesian prior instead of plateauing red.
     private const val REAL_ACCURACY_EXPIRY_MS = 24 * 60 * 60 * 1000L  // purge after 24h
 
     /**
@@ -375,6 +375,11 @@ object EducationSubLayerAI {
      * Canonical name used across scoring/diagnostics. Maps a component name
      * (as emitted by UnifiedScorer) to the REGISTERED_LAYERS key.
      */
+    // V5.9.344 — expose the component→layer mapping so UnifiedScorer can
+    // fetch per-layer accuracy for weighted scoring without duplicating the
+    // translation table.
+    fun componentNameToLayer(componentName: String): String = normalizeLayerName(componentName)
+
     private fun normalizeLayerName(componentName: String): String = when (componentName.lowercase()) {
         "entry"              -> "EntryAI"
         "momentum"           -> "MomentumPredictorAI"

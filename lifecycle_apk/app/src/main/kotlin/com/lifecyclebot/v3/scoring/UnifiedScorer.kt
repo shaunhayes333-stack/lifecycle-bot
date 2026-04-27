@@ -130,11 +130,31 @@ class UnifiedScorer(
 
         val allComponents = baseComponents + collectiveComponent
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.344 — ACCURACY-WEIGHTED SCORING (no muting)
+        // Multiplies each component's value by a weight derived from that
+        // layer's smoothed accuracy. Per user directive "don't mute layers":
+        // weight is floored at 0.7 (a layer at 0% accuracy still contributes
+        // 70% of its vote) and capped at 1.5 (a layer at 100% accuracy
+        // contributes 150%). Layers with no data yet sit at 0.5 prior → 1.0
+        // weight (identity). As layers diverge, good ones naturally carry
+        // more weight and bad ones less — without silencing anyone.
+        // ═══════════════════════════════════════════════════════════════════
+        val weightedComponents = allComponents.map { comp ->
+            val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
+            val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
+            val weight   = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+            val newValue = (comp.value * weight).toInt()
+            if (comp.value != 0 && newValue != comp.value) {
+                comp.copy(value = newValue, reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
+            } else comp
+        }
+
         // MetaCognitionAI — same logic as build ~1920 (soft veto, no fatal in bootstrap)
         return try {
-            MetaCognitionAI.recordFromScoreCard(candidate.mint, candidate.symbol, allComponents)
+            MetaCognitionAI.recordFromScoreCard(candidate.mint, candidate.symbol, weightedComponents)
 
-            val predictions = allComponents.mapNotNull { comp ->
+            val predictions = weightedComponents.mapNotNull { comp ->
                 val layer = mapComponentNameToLayer(comp.name) ?: return@mapNotNull null
                 val signal = when {
                     comp.value > 5  -> MetaCognitionAI.SignalType.BULLISH
@@ -150,7 +170,7 @@ class UnifiedScorer(
             }
 
             val metaResult    = MetaCognitionAI.calculateMetaConfidence(predictions)
-            val baseTotal     = allComponents.sumOf { it.value }
+            val baseTotal     = weightedComponents.sumOf { it.value }
             val adjustedTotal = MetaCognitionAI.adjustScore(baseTotal, predictions)
             val metaAdjustment = adjustedTotal - baseTotal
             val vetoReason    = MetaCognitionAI.checkVeto(predictions, metaResult.confidence)
@@ -202,9 +222,11 @@ class UnifiedScorer(
             } else null
 
             // Final card — no MuteBoost gate, no approvalMemory, no CrossTalk penalty
+            // V5.9.344: sum is built from the weight-adjusted 20-layer components
+            // so accuracy-weighted scoring flows through to finalCard.total.
             val finalCard = ScoreCard(
                 listOfNotNull(freshBonus).let { bonus ->
-                    allComponents + metaComponent + behaviorComponent + bonus
+                    weightedComponents + metaComponent + behaviorComponent + bonus
                 }
             )
 
