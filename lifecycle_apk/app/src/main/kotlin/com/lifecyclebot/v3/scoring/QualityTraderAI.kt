@@ -59,7 +59,7 @@ object QualityTraderAI {
     private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
-    private const val MIN_LIQUIDITY_USD = 5_000.0      // V5.9.191: $5K hard floor (was $10K)
+    private const val MIN_LIQUIDITY_USD = 3_000.0      // V5.9.335: 5000→3000 — loosen floor
     
     // Token age - prefer established tokens
     // V5.2.12: Made fluid - lower during learning to gather data
@@ -257,7 +257,7 @@ object QualityTraderAI {
         // Liquidity filter — FLUID: lower during bootstrap for data gathering
         // V5.4: was hard $20K floor; now $5K bootstrap → $20K mature
         val learningProgress = FluidLearningAI.getLearningProgress()
-        val minLiqUsd = (5_000 + learningProgress * 12_000).coerceIn(5_000.0, MIN_LIQUIDITY_USD)
+        val minLiqUsd = (3_000 + learningProgress * 7_000).coerceIn(3_000.0, MIN_LIQUIDITY_USD)  // V5.9.335: loosened
         if (liquidityUsd < minLiqUsd) {
             return QualitySignal(false, reason = "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiqUsd.toInt()} (learning=${(learningProgress*100).toInt()}%)")
         }
@@ -271,7 +271,7 @@ object QualityTraderAI {
         
         // Buy pressure filter — FLUID: lower during bootstrap so paper mode gets data
         // V5.4: was hard 40%, now 25% bootstrap → 40% mature
-        val minBuyPressure = (25 + learningProgress * 15).toInt().coerceIn(25, 40)
+        val minBuyPressure = (20 + learningProgress * 15).toInt().coerceIn(20, 35)  // V5.9.335: loosened (was 25..40)
         if (buyPressure < minBuyPressure) {
             return QualitySignal(false, reason = "Buy pressure low: $buyPressure% < $minBuyPressure% (learning=${(learningProgress*100).toInt()}%)")
         }
@@ -354,7 +354,7 @@ object QualityTraderAI {
         // Score breakdown: mcap(max 25) + liq(max 20) + age(max 15) + buy(max 20) + V3(0-20) = 100
         // At bootstrap: minScore=20 means liq+buy alone can get us in. At mature: 40 requires 3+ signals
         // V5.9.191: bootstrap 20→15, mature 40→35 — easier entry during learning phase
-        val minScore = (15 + learningProgress * 20).toInt().coerceIn(15, 35)
+        val minScore = (10 + learningProgress * 15).toInt().coerceIn(10, 25)  // V5.9.335: loosened (was 15+20 → 15..35)
 
         // V5.9.316: REMOVED V5.9.218 HARD_GATE for buy pressure < 50%.
         // Build #1941 era used soft scoring — qualityScore already includes

@@ -713,17 +713,17 @@ object BlueChipTraderAI {
     // Blue Chip tokens are $1M+ mcap so high liq floor was blocking most paper candidates
     // V5.9.83: Bootstrap thresholds were TOO loose — 1% win rate observed. Tighten.
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
-    private const val BC_SCORE_BOOTSTRAP = 28       // V5.9.300: 22→28 (per-trader strict gate)
-    private const val BC_SCORE_MATURE = 38
+    private const val BC_SCORE_BOOTSTRAP = 20       // V5.9.335: 28→20 — nothing trading
+    private const val BC_SCORE_MATURE = 28          // V5.9.335: 38→28
 
     // V5.9.83: Conf floor raised so initial entries are higher-conviction.
-    private const val BC_CONF_BOOTSTRAP = 28        // V5.9.300: 17→28 (per-trader strict gate)
-    private const val BC_CONF_MATURE = 48
+    private const val BC_CONF_BOOTSTRAP = 20        // V5.9.335: 28→20
+    private const val BC_CONF_MATURE = 35           // V5.9.335: 48→35
     private const val BC_CONF_BOOST_MAX = 8.0       // Softer bootstrap boost
 
     // V5.9.83: Liq floor at bootstrap raised to filter out the thinnest rugs.
-    private const val BC_LIQ_BOOTSTRAP = 10_000.0   // V5.9.266: moderate (was 8_000 at V5.9.263)
-    private const val BC_LIQ_MATURE = 25_000.0      // Tighten at maturity (experienced = selective)
+    private const val BC_LIQ_BOOTSTRAP = 7_000.0    // V5.9.335: 10000→7000
+    private const val BC_LIQ_MATURE = 15_000.0      // V5.9.335: 25000→15000 — too few $1M tokens had $25K liq
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
         val progress = FluidLearningAI.getLearningProgress()

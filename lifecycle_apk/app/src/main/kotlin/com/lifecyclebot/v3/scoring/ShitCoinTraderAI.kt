@@ -65,8 +65,8 @@ object ShitCoinTraderAI {
     private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0   // V5.9.266: moderate (was 1_500 at V5.9.263)
-    private const val MIN_LIQUIDITY_USD_MATURE = 5_000.0      // V5.5: $5K hard floor when mature
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 1_500.0   // V5.9.335: 2000→1500
+    private const val MIN_LIQUIDITY_USD_MATURE = 3_000.0      // V5.9.335: 5000→3000 — not enough candidates passing
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
@@ -892,10 +892,10 @@ object ShitCoinTraderAI {
         // Tokens with neutral momentum AND weak buy pressure get -15 pts subtracted
         // from their score before threshold check. Tokens with any real signal pass fine.
         // This preserves fan-out for 500%+ memes while blocking the zero-signal trash.
-        val hasWeakSignal = momentum <= 0.0 && buyPressurePct < 45.0
+        val hasWeakSignal = momentum < -5.0 && buyPressurePct < 40.0  // V5.9.335: loosened (was <=0 && <45)
         if (hasWeakSignal) {
-            shitScore = (shitScore - 15).coerceAtLeast(0)
-            ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -15pts → score=$shitScore")
+            shitScore = (shitScore - 8).coerceAtLeast(0)   // V5.9.335: -15→-8 — softer penalty
+            ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -8pts → score=$shitScore")
         }
 
         // Check thresholds
@@ -1245,12 +1245,12 @@ object ShitCoinTraderAI {
     // Mature: score >= 40, conf >= 50%
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
     // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
-    private const val SC_SCORE_BOOTSTRAP = 15         // V5.9.325: 30→15 — at 52% progress lerp gives ~33, allows meme fan-out
-    private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
+    private const val SC_SCORE_BOOTSTRAP = 10         // V5.9.335: 15→10 — floor too tight, nothing trading
+    private const val SC_SCORE_MATURE = 35            // V5.9.335: 50→35 — mature threshold was starving flow
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 15          // V5.9.325: 30→15 — at 52% progress lerp gives ~36%, allows meme fan-out
-    private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
+    private const val SC_CONF_BOOTSTRAP = 10          // V5.9.335: 15→10 — loosen further
+    private const val SC_CONF_MATURE = 40             // V5.9.335: 55→40 — was blocking too many valid setups
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     
     private fun lerp(bootstrap: Double, mature: Double): Double {
