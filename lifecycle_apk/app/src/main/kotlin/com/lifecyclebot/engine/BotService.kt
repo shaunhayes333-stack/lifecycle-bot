@@ -1330,7 +1330,7 @@ class BotService : Service() {
                 ErrorLogger.info("BotService", "Creating market scanner...")
                 marketScanner = SolanaMarketScanner(
                     cfg          = { ConfigStore.load(applicationContext) },
-                    onTokenFound = { mint, symbol, name, source, score, liquidityUsd ->
+                    onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                         try {
                             val c = ConfigStore.load(applicationContext)
                             
@@ -1445,6 +1445,7 @@ class BotService : Service() {
                                 scanner = source.name,
                                 marketCapUsd = liquidityUsd * 10,  // Rough mcap estimate
                                 liquidityUsd = liquidityUsd,
+                                volumeH1 = volumeH1,
                             )
                             
                             // Mark identity as queued (not yet watchlisted)
@@ -3943,6 +3944,26 @@ class BotService : Service() {
                                     ts.lastLiquidityUsd = merged.liquidityUsd
                                     ts.lastMcap = merged.marketCapUsd
                                     ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=$${merged.liquidityUsd.toInt()}")
+                                }
+                                // V5.9.331: Seed volumeH1 from scanner so VOL_GATE doesn't block
+                                // fresh tokens on their first evaluation tick (previously 0.0 → $500 fail)
+                                if (ts.history.isEmpty() && merged.volumeH1 > 0) {
+                                    val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
+                                    val seedMcap  = if (ts.lastMcap  > 0) ts.lastMcap  else merged.marketCapUsd
+                                    val seedCandle = com.lifecyclebot.data.Candle(
+                                        ts          = System.currentTimeMillis(),
+                                        priceUsd    = seedPrice,
+                                        marketCap   = seedMcap,
+                                        volumeH1    = merged.volumeH1,
+                                        volume24h   = 0.0,
+                                        buysH1      = 0,
+                                        sellsH1     = 0,
+                                        highUsd     = seedPrice,
+                                        lowUsd      = seedPrice,
+                                        openUsd     = seedPrice,
+                                    )
+                                    synchronized(ts.history) { ts.history.addLast(seedCandle) }
+                                    ErrorLogger.debug("BotService", "📊 VOL_SEED: ${merged.symbol} h1vol=$${merged.volumeH1.toInt()}")
                                 }
                             }
                             orchestrator?.onTokenAdded(merged.mint, merged.symbol)

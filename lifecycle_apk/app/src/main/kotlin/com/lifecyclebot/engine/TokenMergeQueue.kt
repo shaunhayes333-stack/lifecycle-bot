@@ -70,6 +70,7 @@ object TokenMergeQueue {
         var symbol: String,
         var marketCapUsd: Double,
         var liquidityUsd: Double,
+        var volumeH1: Double,
         val firstSeenAt: Long,
         var lastSeenAt: Long,
         val scanners: MutableSet<String>,
@@ -83,6 +84,7 @@ object TokenMergeQueue {
         val symbol: String,
         val marketCapUsd: Double,
         val liquidityUsd: Double,
+        val volumeH1: Double,
         val primaryScanner: String,
         val allScanners: Set<String>,
         val confidence: Int,
@@ -98,6 +100,7 @@ object TokenMergeQueue {
         scanner: String,
         marketCapUsd: Double = 0.0,
         liquidityUsd: Double = 0.0,
+        volumeH1: Double = 0.0,
     ) {
         val now = System.currentTimeMillis()
         totalDiscoveries.incrementAndGet()
@@ -123,6 +126,10 @@ object TokenMergeQueue {
 
             if (liquidityUsd > existing.liquidityUsd) {
                 existing.liquidityUsd = liquidityUsd
+            }
+
+            if (volumeH1 > existing.volumeH1) {
+                existing.volumeH1 = volumeH1
             }
 
             if (symbol.length > existing.symbol.length) {
@@ -152,6 +159,7 @@ object TokenMergeQueue {
                 symbol = symbol,
                 marketCapUsd = marketCapUsd,
                 liquidityUsd = liquidityUsd,
+                volumeH1 = volumeH1,
                 firstSeenAt = now,
                 lastSeenAt = now,
                 scanners = mutableSetOf(scanner),
@@ -190,6 +198,7 @@ object TokenMergeQueue {
                     symbol = entry.symbol,
                     marketCapUsd = entry.marketCapUsd,
                     liquidityUsd = entry.liquidityUsd,
+                    volumeH1 = entry.volumeH1,
                     primaryScanner = entry.bestScanner,
                     allScanners = entry.scanners.toSet(),
                     confidence = entry.confidence,
@@ -278,6 +287,7 @@ object TokenMergeQueue {
                 symbol = entry.symbol,
                 marketCapUsd = entry.marketCapUsd,
                 liquidityUsd = entry.liquidityUsd,
+                volumeH1 = entry.volumeH1,
                 primaryScanner = entry.bestScanner,
                 allScanners = entry.scanners.toSet(),
                 confidence = entry.confidence,

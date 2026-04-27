@@ -654,7 +654,7 @@ object ModeLearning {
  */
 class SolanaMarketScanner(
     private val cfg: () -> BotConfig,
-    private val onTokenFound: (mint: String, symbol: String, name: String, source: TokenSource, score: Double, liquidityUsd: Double) -> Unit,
+    private val onTokenFound: (mint: String, symbol: String, name: String, source: TokenSource, score: Double, liquidityUsd: Double, volumeH1: Double) -> Unit,
     private val onLog: (String) -> Unit,
     private val getBrain: () -> BotBrain? = { null },
 ) {
@@ -2369,7 +2369,8 @@ class SolanaMarketScanner(
             adjustedToken.name,
             adjustedToken.source,
             adjustedToken.score,
-            adjustedToken.liquidityUsd
+            adjustedToken.liquidityUsd,
+            adjustedToken.volumeH1
         )
     }
 
