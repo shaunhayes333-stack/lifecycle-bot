@@ -193,9 +193,15 @@ class AutoModeEngine(
             return BotMode.COPY
 
         // DEFENSIVE — recent loss streak or market conditions poor
+        // V5.9.336: During bootstrap (<70% progress), don't force DEFENSIVE on 3 losses.
+        // The bot NEEDS to trade to learn — capping to defensive at 3 losses during early
+        // learning creates a deadlock: losses → DEFENSIVE → fewer trades → slower learning → more losses.
+        // Only enforce defensive loss-streak gate when we have enough history to trust it.
+        val bootstrapProgress = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
+        val defensiveLossThreshold = if (bootstrapProgress < 0.70) 7 else 3  // bootstrap: need 7/10 losses, mature: 3/10
         val recentTrades = ts.trades.takeLast(10)
         val recentLosses = recentTrades.count { it.pnlSol < 0 }
-        if (recentLosses >= 3) return BotMode.DEFENSIVE
+        if (recentLosses >= defensiveLossThreshold) return BotMode.DEFENSIVE
 
         // Check circuit breaker state - use synchronized copy
         val firstToken = synchronized(status.tokens) {
@@ -210,7 +216,8 @@ class AutoModeEngine(
                     }
                 } catch (_: Exception) { null }
             }
-        if (cb?.consecutiveLosses ?: 0 >= 3) return BotMode.DEFENSIVE
+        val cbLossThreshold = if (bootstrapProgress < 0.70) 7 else 3
+        if (cb?.consecutiveLosses ?: 0 >= cbLossThreshold) return BotMode.DEFENSIVE
 
         // SNIPE — fresh token
         val hist       = ts.history.toList()

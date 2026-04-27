@@ -70,7 +70,7 @@ object QualityTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08          // Between Treasury (0.01) and BlueChip (0.15)
     private const val MAX_POSITION_SOL = 0.25           // Up to 0.25 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 10     // V5.9.316: REVERT V5.9.218 5→10 — restore build #1941 fan-out
+    private const val MAX_CONCURRENT_POSITIONS = 20     // V5.9.336: 10→20 — paper needs throughput to learn
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     private const val TAKE_PROFIT_BOOTSTRAP = 15.0      // 15% at start

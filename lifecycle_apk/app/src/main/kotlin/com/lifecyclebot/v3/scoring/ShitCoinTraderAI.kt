@@ -71,7 +71,7 @@ object ShitCoinTraderAI {
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
     private const val MAX_POSITION_SOL = 0.30         // V5.6: Raised from 0.20 - bigger wallet = bigger positions
-    private const val MAX_CONCURRENT_POSITIONS = 12   // V5.9.316: REVERT V5.9.218 6→12 — restore build #1941 fan-out
+    private const val MAX_CONCURRENT_POSITIONS = 25   // V5.9.336: 12→25 — paper needs throughput to learn, 12 was starving bootstrap
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
     // V4.20: Removed daily loss limit - ShitCoin is now primary layer
@@ -973,10 +973,14 @@ object ShitCoinTraderAI {
         } catch (_: Exception) {}
 
         // 4. EducationSubLayerAI — mute/boost on score
+        // V5.9.336: During bootstrap (<70% progress) NEVER mute ShitCoin — it needs trades to learn.
+        // At 0W/7L the edu layer would mute it immediately, creating a deadlock: no trades = no data
+        // = stays muted forever. Mute/penalty only applies when we have enough history to trust the signal.
         try {
+            val eduProgress = FluidLearningAI.getLearningProgress()
             val (boostedScore, mult, status) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_TRADER", shitScore)
-            when (status) {
-                "MUTE", "SOFT_PENALTY" -> return ShitCoinSignal(
+            if (eduProgress >= 0.70 && (status == "MUTE" || status == "SOFT_PENALTY")) {
+                return ShitCoinSignal(
                     shouldEnter = false, positionSizeSol = 0.0,
                     takeProfitPct = 0.0, stopLossPct = 0.0,
                     confidence = shitConfidence,
@@ -985,10 +989,9 @@ object ShitCoinTraderAI {
                     riskLevel = riskLevel, socialScore = socialBonus,
                     bundleWarning = bundleWarning, graduationImminent = graduationImminent,
                 )
-                else -> {
-                    shitScore = boostedScore.coerceAtLeast(0)
-                    ErrorLogger.debug(TAG, "💩 EDU gate=$status ×${mult.fmt(2)} → score=$shitScore")
-                }
+            } else {
+                shitScore = boostedScore.coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "💩 EDU gate=$status ×${mult.fmt(2)} → score=$shitScore (progress=${(eduProgress*100).toInt()}%)")
             }
         } catch (_: Exception) {}
 
