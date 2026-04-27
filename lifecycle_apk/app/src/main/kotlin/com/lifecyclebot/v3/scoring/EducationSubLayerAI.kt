@@ -789,6 +789,18 @@ object EducationSubLayerAI {
         // the approval learner silently sees nothing.
         analyzeLayerCorrelations(outcome)
 
+        // V5.9.339: Capture entry scores BEFORE applyRealAccuracyLearning removes them
+        // pendingEntryScores.remove() happens inside applyRealAccuracyLearning — must read first
+        try {
+            if (BootstrapAdaptiveEngine.isBootstrapActive()) {
+                val pending = pendingEntryScores[outcome.mint]
+                val layerScores: Map<String, Int> = pending?.scores?.mapKeys { it.key.lowercase() } ?: emptyMap()
+                if (layerScores.isNotEmpty()) {
+                    BootstrapAdaptiveEngine.recordTradeOutcome(layerScores, outcome.isWin)
+                }
+            }
+        } catch (_: Exception) {}
+
         val realUpdates = applyRealAccuracyLearning(outcome)
         if (realUpdates > 0) {
             ErrorLogger.info(TAG, "🎯 REAL ACCURACY: ${outcome.symbol} — ${realUpdates} layers updated from entry-score correlation")

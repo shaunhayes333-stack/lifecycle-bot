@@ -294,7 +294,12 @@ class UnifiedScorer(
             )
         }
 
-        val preTrust = if (bootstrapBypass) classic27 else (classic27 + listOf(
+        // V5.9.339: BootstrapAdaptiveEngine — all 44 layers active from trade 1.
+        // OLD: bootstrapBypass=true dropped 14 outer-ring layers and skipped AITrustNetworkAI
+        //      → layers recorded outcomes but never influenced scoring → 11% WR self-fulfilling loop.
+        // NEW: outer-ring layers ALWAYS run, scaled by bootstrap ramp (0.15→1.0 over 0-400 trades).
+        //      Each layer also gets a 10-trade rolling multiplier [0.3, 2.0] that is reversible.
+        val outerRingRaw = listOf(
             CorrelationHedgeAI.score(candidate, ctx),
             LiquidityExitPathAI.score(candidate, ctx),
             MEVDetectionAI.score(candidate, ctx),
@@ -309,15 +314,34 @@ class UnifiedScorer(
             NewsShockAI.score(candidate, ctx),
             FundingRateAwarenessAI.score(candidate, ctx),
             OrderbookImbalancePulseAI.score(candidate, ctx),
-        ).map { fluidScale(genEqScale(it)) })
+        ).map { fluidScale(genEqScale(it)) }
 
-        val preBaseComponents = if (bootstrapBypass) preTrust else run {
-            preTrust.map { c ->
-                if (c.value > 0) {
-                    val w = AITrustNetworkAI.getTrustWeight(c.name)
-                    c.copy(value = (c.value * w).toInt())
-                } else c
+        // Apply bootstrap adaptive multipliers to outer ring during bootstrap
+        val outerRingScaled = if (bootstrapBypass) {
+            outerRingRaw.map { c ->
+                val adj = BootstrapAdaptiveEngine.applyBootstrapScale(c.name.lowercase(), c.value)
+                if (adj == c.value) c else c.copy(value = adj,
+                    reason = "${c.reason} | BSTRAP×${"%.2f".format(BootstrapAdaptiveEngine.getMultiplier(c.name.lowercase()))}")
             }
+        } else outerRingRaw
+
+        // Also apply bootstrap adaptive multipliers to inner ring during bootstrap
+        val innerRingScaled = if (bootstrapBypass) {
+            classic27.map { c ->
+                val adj = BootstrapAdaptiveEngine.applyBootstrapScale(c.name.lowercase(), c.value)
+                if (adj == c.value) c else c.copy(value = adj,
+                    reason = "${c.reason} | BSTRAP×${"%.2f".format(BootstrapAdaptiveEngine.getMultiplier(c.name.lowercase()))}")
+            }
+        } else classic27
+
+        val preTrust = innerRingScaled + outerRingScaled
+
+        // AITrustNetworkAI: apply during bootstrap too (needs early data to learn)
+        val preBaseComponents = preTrust.map { c ->
+            if (c.value > 0) {
+                val w = AITrustNetworkAI.getTrustWeight(c.name)
+                c.copy(value = (c.value * w).toInt())
+            } else c
         }
         val baseComponents = preBaseComponents
 
@@ -443,9 +467,15 @@ class UnifiedScorer(
 
             val votesForApproval = (v59123CappedComponents + metaComponent + behaviorComponent)
                 .associate { it.name to it.value }
-            val (approvalNudge, approvalReason) = if (bootstrapBypass) 0 to "BOOTSTRAP" else try {
+            // V5.9.339: Enable approval_memory during bootstrap at reduced weight
+            // Old: returned 0/"BOOTSTRAP" → approval pattern memory never fired during 1000 trades
+            val (approvalNudgeRaw, approvalReason) = try {
                 EducationSubLayerAI.approvalBoostFor(votesForApproval)
             } catch (_: Exception) { 0 to "ERR" }
+            val approvalNudge = if (bootstrapBypass) {
+                // Scale approval nudge by bootstrap ramp so it grows as we learn
+                (approvalNudgeRaw * BootstrapAdaptiveEngine.getBootstrapRamp()).toInt()
+            } else approvalNudgeRaw
             val approvalComponent = ScoreComponent(name = "approval_memory", value = approvalNudge, reason = approvalReason)
 
             val mutedNames  = mutableListOf<String>()

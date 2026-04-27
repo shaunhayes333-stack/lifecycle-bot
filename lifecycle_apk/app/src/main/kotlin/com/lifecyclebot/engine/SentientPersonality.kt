@@ -1120,7 +1120,7 @@ object SentientPersonality {
             sb.appendLine("  └ closed-loop: $loop")
         } catch (e: Exception) { warnings.add("FinalDecisionGate status unavailable"); sb.appendLine("GATE: ⚠️ error — ${e.message}") }
 
-        // ── Fluid Learning ────────────────────────────────────────────────────
+        // ── Fluid Learning + Bootstrap Adaptive ──────────────────────────────
         try {
             val prog = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
             val icon = when {
@@ -1130,6 +1130,11 @@ object SentientPersonality {
             }
             if (prog < 0.2) warnings.add("Fluid learning very early (${(prog*100).toInt()}%) — loose thresholds active")
             sb.appendLine("FLUID LEARNING: $icon (${(prog * 100).toInt()}%)")
+            // V5.9.339: Bootstrap adaptive engine summary
+            if (com.lifecyclebot.v3.scoring.BootstrapAdaptiveEngine.isBootstrapActive()) {
+                val bsSummary = try { com.lifecyclebot.v3.scoring.BootstrapAdaptiveEngine.getSummary() } catch (_: Exception) { "unavailable" }
+                sb.appendLine("  └ BOOTSTRAP ADAPTIVE: $bsSummary")
+            }
         } catch (e: Exception) { warnings.add("FluidLearningAI error"); sb.appendLine("FLUID LEARNING: ⚠️ error — ${e.message}") }
 
         // ── Global Regime ─────────────────────────────────────────────────────
