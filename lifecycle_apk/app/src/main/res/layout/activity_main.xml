@@ -3274,265 +3274,6 @@
 
 
                 <!-- ═══════════════════════════════
-                     DECISION LOG (attached to token card)
-                     ═══════════════════════════════ -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/card_bg"
-                    android:layout_marginTop="10dp"
-                    android:padding="10dp"
-                    android:orientation="vertical">
-
-<!-- Header row -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="10dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="📜 Decision Log"
-                        android:textColor="#FFFFFF"
-                        android:textSize="@dimen/section_title_size"
-                        android:textStyle="bold"/>
-
-                    <!-- Clear button -->
-                    <TextView
-                        android:id="@+id/btnClearLog"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Clear"
-                        android:textColor="#6B7280"
-                        android:textSize="12sp"
-                        android:clickable="true"
-                        android:focusable="true"/>
-                </LinearLayout>
-
-                <!-- Score breakdown: last evaluated token -->
-                <LinearLayout
-                    android:id="@+id/cardLogScores"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/card_bg"
-                    android:padding="10dp"
-                    android:orientation="vertical"
-                    android:layout_marginBottom="8dp"
-                    android:visibility="gone">
-
-                    <!-- Token + phase + signal in one row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <TextView
-                            android:id="@+id/tvLogToken"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="—"
-                            android:textColor="#FFFFFF"
-                            android:textSize="13sp"
-                            android:fontFamily="monospace"
-                            android:textStyle="bold"/>
-
-                        <TextView
-                            android:id="@+id/tvLogPhase"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="—"
-                            android:textColor="#6B7280"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"
-                            android:layout_marginEnd="8dp"/>
-
-                        <TextView
-                            android:id="@+id/tvLogSignal"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="WAIT"
-                            android:textColor="#6B7280"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"
-                            android:textStyle="bold"
-                            android:background="@drawable/chip_neutral_bg"
-                            android:paddingStart="6dp"
-                            android:paddingEnd="6dp"
-                            android:paddingTop="2dp"
-                            android:paddingBottom="2dp"/>
-                    </LinearLayout>
-
-                    <!-- V5.9.317: Manual BUY / SELL buttons (paper + live) -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="8dp">
-
-                        <Button
-                            android:id="@+id/btnManualBuy"
-                            android:layout_width="0dp"
-                            android:layout_height="36dp"
-                            android:layout_weight="1"
-                            android:layout_marginEnd="4dp"
-                            android:text="BUY"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp"
-                            android:textStyle="bold"
-                            android:background="@drawable/chip_green_bg"
-                            android:minHeight="0dp"
-                            android:paddingTop="0dp"
-                            android:paddingBottom="0dp"/>
-
-                        <Button
-                            android:id="@+id/btnManualSell"
-                            android:layout_width="0dp"
-                            android:layout_height="36dp"
-                            android:layout_weight="1"
-                            android:layout_marginStart="4dp"
-                            android:text="SELL"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp"
-                            android:textStyle="bold"
-                            android:background="@drawable/chip_red_bg"
-                            android:minHeight="0dp"
-                            android:paddingTop="0dp"
-                            android:paddingBottom="0dp"/>
-                    </LinearLayout>
-
-                    <!-- Score breakdown grid: 2 columns -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="4dp">
-
-                        <TextView
-                            android:id="@+id/tvLogEntry"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="ENTRY  —"
-                            android:textColor="#9945FF"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-
-                        <TextView
-                            android:id="@+id/tvLogExit"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="EXIT  —"
-                            android:textColor="#EF4444"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="4dp">
-
-                        <TextView
-                            android:id="@+id/tvLogVol"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="VOL  —"
-                            android:textColor="#3B82F6"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-
-                        <TextView
-                            android:id="@+id/tvLogPress"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="BUY%  —"
-                            android:textColor="#10B981"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginBottom="4dp">
-
-                        <TextView
-                            android:id="@+id/tvLogMom"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="MOM  —"
-                            android:textColor="#F59E0B"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-
-                        <TextView
-                            android:id="@+id/tvLogEmaFan"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="EMA FAN  —"
-                            android:textColor="#6B7280"
-                            android:textSize="11sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-
-                    <!-- Active flags row: exhaustion / vol-div / ath-prox / stochrsi -->
-                    <TextView
-                        android:id="@+id/tvLogFlags"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text=""
-                        android:textColor="#F59E0B"
-                        android:textSize="11sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginTop="4dp"/>
-
-                    <!-- Reason line -->
-                    <TextView
-                        android:id="@+id/tvLogReason"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text=""
-                        android:textColor="#6B7280"
-                        android:textSize="11sp"
-                        android:fontFamily="monospace"
-                        android:layout_marginTop="4dp"
-                        android:maxLines="2"/>
-                </LinearLayout>
-
-                <!-- Scrollable log lines -->
-                <ScrollView
-                    android:id="@+id/scrollLog"
-                    android:layout_width="match_parent"
-                    android:layout_height="160dp"
-                    android:fadeScrollbars="false">
-
-                    <TextView
-                        android:id="@+id/tvDecisionLog"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Waiting for first evaluation…"
-                        android:textColor="#4B5563"
-                        android:textSize="11sp"
-                        android:fontFamily="monospace"
-                        android:lineSpacingExtra="2dp"
-                        android:paddingBottom="4dp"/>
-                    </ScrollView>
-
-                </LinearLayout>
             </LinearLayout>
             </LinearLayout>
 
@@ -3843,6 +3584,265 @@
                         android:maxWidth="140dp" android:ellipsize="end" android:singleLine="true"/>
                 </LinearLayout>
             </LinearLayout>
+                     DECISION LOG (attached to token card)
+                     ═══════════════════════════════ -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:layout_marginTop="10dp"
+                    android:padding="10dp"
+                    android:orientation="vertical">
+
+<!-- Header row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📜 Decision Log"
+                        android:textColor="#FFFFFF"
+                        android:textSize="@dimen/section_title_size"
+                        android:textStyle="bold"/>
+
+                    <!-- Clear button -->
+                    <TextView
+                        android:id="@+id/btnClearLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Clear"
+                        android:textColor="#6B7280"
+                        android:textSize="12sp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+                </LinearLayout>
+
+                <!-- Score breakdown: last evaluated token -->
+                <LinearLayout
+                    android:id="@+id/cardLogScores"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:padding="10dp"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+
+                    <!-- Token + phase + signal in one row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:id="@+id/tvLogToken"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="—"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:id="@+id/tvLogPhase"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="—"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:layout_marginEnd="8dp"/>
+
+                        <TextView
+                            android:id="@+id/tvLogSignal"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="WAIT"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"
+                            android:textStyle="bold"
+                            android:background="@drawable/chip_neutral_bg"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"/>
+                    </LinearLayout>
+
+                    <!-- V5.9.317: Manual BUY / SELL buttons (paper + live) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="8dp">
+
+                        <Button
+                            android:id="@+id/btnManualBuy"
+                            android:layout_width="0dp"
+                            android:layout_height="36dp"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="4dp"
+                            android:text="BUY"
+                            android:textColor="#FFFFFF"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:background="@drawable/chip_green_bg"
+                            android:minHeight="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingBottom="0dp"/>
+
+                        <Button
+                            android:id="@+id/btnManualSell"
+                            android:layout_width="0dp"
+                            android:layout_height="36dp"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:text="SELL"
+                            android:textColor="#FFFFFF"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:background="@drawable/chip_red_bg"
+                            android:minHeight="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingBottom="0dp"/>
+                    </LinearLayout>
+
+                    <!-- Score breakdown grid: 2 columns -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogEntry"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="ENTRY  —"
+                            android:textColor="#9945FF"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogExit"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="EXIT  —"
+                            android:textColor="#EF4444"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogVol"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="VOL  —"
+                            android:textColor="#3B82F6"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogPress"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="BUY%  —"
+                            android:textColor="#10B981"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="4dp">
+
+                        <TextView
+                            android:id="@+id/tvLogMom"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="MOM  —"
+                            android:textColor="#F59E0B"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+
+                        <TextView
+                            android:id="@+id/tvLogEmaFan"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="EMA FAN  —"
+                            android:textColor="#6B7280"
+                            android:textSize="11sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- Active flags row: exhaustion / vol-div / ath-prox / stochrsi -->
+                    <TextView
+                        android:id="@+id/tvLogFlags"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#F59E0B"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginTop="4dp"/>
+
+                    <!-- Reason line -->
+                    <TextView
+                        android:id="@+id/tvLogReason"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="#6B7280"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginTop="4dp"
+                        android:maxLines="2"/>
+                </LinearLayout>
+
+                <!-- Scrollable log lines -->
+                <ScrollView
+                    android:id="@+id/scrollLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="160dp"
+                    android:fadeScrollbars="false">
+
+                    <TextView
+                        android:id="@+id/tvDecisionLog"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Waiting for first evaluation…"
+                        android:textColor="#4B5563"
+                        android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:paddingBottom="4dp"/>
+                    </ScrollView>
+
+                </LinearLayout>
 
             <!-- ═══════════════════════════════
                  OPEN POSITIONS
