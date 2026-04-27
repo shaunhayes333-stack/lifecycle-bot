@@ -5113,6 +5113,28 @@ if (deferredCount > 0) {
                 marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
                 isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
             )
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.349 — MEME UNIFIED SCORER BRIDGE (universal visibility)
+            //
+            // The bridge sees EVERY meme token that reaches the V3 engine,
+            // not just V3-rejected ones. We compute its verdict once here
+            // and override any non-execute V3 outcome in paper mode when
+            // the bridge says shouldEnter. Live mode always defers to V3.
+            // ═══════════════════════════════════════════════════════════════════
+            val memeBridgeVerdict: com.lifecyclebot.v3.MemeUnifiedScorerBridge.MemeVerdict? =
+                if (cfg.paperMode && !ts.position.isOpen) {
+                    try { com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts) }
+                    catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "🌉 Bridge scoring error for ${ts.symbol}: ${e.message}")
+                        null
+                    }
+                } else null
+            memeBridgeVerdict?.let { mv ->
+                ErrorLogger.debug("BotService",
+                    "🌉 Bridge: ${identity.symbol} | tech=${mv.techScore} v3=${mv.v3Score} blend=${mv.blendedScore} mult=${"%.2f".format(mv.trustMultiplier)} enter=${mv.shouldEnter}${if (mv.rejectReason != null) " rej=${mv.rejectReason}" else ""}"
+                )
+            }
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0 FIX: Register V3 decision with FinalExecutionPermit
@@ -6843,6 +6865,29 @@ if (deferredCount > 0) {
                         phase = decision.phase,
                     )
                     
+                    // V5.9.349: Bridge override on V3 WATCH (paper only)
+                    if (memeBridgeVerdict?.shouldEnter == true) {
+                        try {
+                            val bridgeSize = 0.05
+                            ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_WATCH: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")
+                            addLog("🌉 Bridge BUY: ${identity.symbol} | V3_WATCH override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)
+                            executor.v3Buy(
+                                ts = ts,
+                                sizeSol = bridgeSize,
+                                walletSol = effectiveBalance,
+                                v3Score = memeBridgeVerdict.blendedScore,
+                                v3Band = "MEME_BRIDGE",
+                                v3Confidence = 60.0,
+                                wallet = wallet,
+                                lastSuccessfulPollMs = lastSuccessfulPollMs,
+                                openPositionCount = status.openPositionCount,
+                                totalExposureSol = status.totalExposureSol,
+                            )
+                        } catch (be: Exception) {
+                            ErrorLogger.debug("BotService", "🌉 Bridge execute failed on WATCH ${identity.symbol}: ${be.message}")
+                        }
+                    }
+                    
                     // ═══════════════════════════════════════════════════════════════════
                     // V3.3 FIX: DO NOT RETURN - Allow Treasury Mode evaluation below!
                     // Treasury Mode runs CONCURRENTLY and can scalp WATCH tokens
@@ -6871,6 +6916,29 @@ if (deferredCount > 0) {
                         confidence = result.confidence.toDouble(),
                         phase = decision.phase,
                     )
+                    
+                    // V5.9.349: Bridge override on V3 SHADOW_ONLY (paper only)
+                    if (memeBridgeVerdict?.shouldEnter == true) {
+                        try {
+                            val bridgeSize = 0.05
+                            ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_SHADOW_ONLY: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")
+                            addLog("🌉 Bridge BUY: ${identity.symbol} | V3_SHADOW override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)
+                            executor.v3Buy(
+                                ts = ts,
+                                sizeSol = bridgeSize,
+                                walletSol = effectiveBalance,
+                                v3Score = memeBridgeVerdict.blendedScore,
+                                v3Band = "MEME_BRIDGE",
+                                v3Confidence = 60.0,
+                                wallet = wallet,
+                                lastSuccessfulPollMs = lastSuccessfulPollMs,
+                                openPositionCount = status.openPositionCount,
+                                totalExposureSol = status.totalExposureSol,
+                            )
+                        } catch (be: Exception) {
+                            ErrorLogger.debug("BotService", "🌉 Bridge execute failed on SHADOW_ONLY ${identity.symbol}: ${be.message}")
+                        }
+                    }
                     
                     return
                 }
@@ -6904,6 +6972,29 @@ if (deferredCount > 0) {
                             confidence = 0.0,
                             phase = decision.phase,
                         )
+                        
+                        // V5.9.349: Bridge override on V3 REJECT (paper only)
+                        if (memeBridgeVerdict?.shouldEnter == true) {
+                            try {
+                                val bridgeSize = 0.05
+                                ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_REJECT: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")
+                                addLog("🌉 Bridge BUY: ${identity.symbol} | V3_REJECT override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)
+                                executor.v3Buy(
+                                    ts = ts,
+                                    sizeSol = bridgeSize,
+                                    walletSol = effectiveBalance,
+                                    v3Score = memeBridgeVerdict.blendedScore,
+                                    v3Band = "MEME_BRIDGE",
+                                    v3Confidence = 60.0,
+                                    wallet = wallet,
+                                    lastSuccessfulPollMs = lastSuccessfulPollMs,
+                                    openPositionCount = status.openPositionCount,
+                                    totalExposureSol = status.totalExposureSol,
+                                )
+                            } catch (be: Exception) {
+                                ErrorLogger.debug("BotService", "🌉 Bridge execute failed on REJECT ${identity.symbol}: ${be.message}")
+                            }
+                        }
                         
                         return
                     }
