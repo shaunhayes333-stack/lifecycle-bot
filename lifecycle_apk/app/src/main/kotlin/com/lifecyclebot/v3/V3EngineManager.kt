@@ -110,6 +110,10 @@ object V3EngineManager {
 
                 botConfig = botCfg
 
+                // V5.9.326 — propagate classic scoring flag to UnifiedScorer
+                com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode = botCfg.classicScoringMode
+                android.util.Log.i("V3EngineManager", "🏛️ Scoring mode: ${if (botCfg.classicScoringMode) "CLASSIC (build ~1920)" else "MODERN (V5.9.325)"}")
+
                 config = TradingConfigV3(
                     minLiquidityUsd = 500.0,
                     // V5.9.155 — widen the age gate. 30-min was a pump.fun-
@@ -604,7 +608,8 @@ object V3EngineManager {
         val openPos = exposureGuard?.openCount() ?: 0
         val tracked = shadowTracker?.allTracked()?.size ?: 0
 
-        return "V3: $mode | exp=${exposure}% | pos=$openPos | tracked=$tracked"
+        val scoringTag = if (com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode) "CLASSIC🏛️" else "MODERN"
+        return "V3: $mode | exp=${exposure}% | pos=$openPos | tracked=$tracked | scoring=$scoringTag"
     }
 
     /**

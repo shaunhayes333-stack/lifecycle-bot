@@ -220,6 +220,7 @@ data class BotConfig(
     val v3MinScoreToTrade: Int = 20,                // V3.2: Lowered from 55 - minimum unified score to consider trade
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
+    val classicScoringMode: Boolean = true,          // V5.9.326: Use build ~1920 classic scorer (20 inner layers, no outer ring, no TrustNet/MuteBoost/genEq/CrossTalk/approvalMemory)
     // V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
     // Auto-buy from network signals (Copy Trade from Hive)
     val autoTradeNetworkSignals: Boolean = false,   // DISABLED by default - user must opt-in
@@ -393,6 +394,8 @@ object ConfigStore {
             // Cyclic Trade Ring
             putBoolean("cyclic_trade_enabled",       cfg.cyclicTradeEnabled)
             putBoolean("cyclic_trade_live_enabled",  cfg.cyclicTradeLiveEnabled)
+            // V5.9.326: classic scoring mode
+            putBoolean("classic_scoring_mode",         cfg.classicScoringMode)
             apply()
         }
     }
@@ -547,6 +550,8 @@ object ConfigStore {
             perpsEnabled                = p.getBoolean("perps_enabled", true),
             cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", true),  // V5.9.222: default on
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
+            // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
+            classicScoringMode          = p.getBoolean("classic_scoring_mode", true),
         )
     }
 
