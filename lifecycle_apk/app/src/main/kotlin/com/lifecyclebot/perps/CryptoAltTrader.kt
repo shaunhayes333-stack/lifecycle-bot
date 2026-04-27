@@ -2413,7 +2413,7 @@ object CryptoAltTrader {
                 return try {
                     val (ok, msg) = botService.manualSell(memeTs.mint)
                     if (ok) {
-                        val pnlPct = memeTs.position.pnlPct
+                        val pnlPct = if (memeTs.position.entryPrice > 0) (memeTs.lastPrice / memeTs.position.entryPrice - 1.0) * 100.0 else 0.0
                         ErrorLogger.info(TAG, "💬 LLM MEME SELL: $ticker pnl=${"%.1f".format(pnlPct)}% | $reason")
                         LlmTradeResult.Success("📄 meme sell queued: $ticker @ ${"%.1f".format(pnlPct)}%")
                     } else {
