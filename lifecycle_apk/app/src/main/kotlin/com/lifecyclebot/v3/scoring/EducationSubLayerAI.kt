@@ -446,10 +446,11 @@ object EducationSubLayerAI {
         // 'base44 changed what we had' regression the user has been reporting.
         // We now skip accuracy updates entirely on scratch trades and only mark
         // clear directional outcomes. Layers stay green and learn real signal.
-        // V5.9.341 — tighten scratch band to align with new isWin (>-0.5).
-        // Only truly flat trades (-0.5% .. +0.5%) are scratches now. Trades
-        // of ±1% carry real directional signal and should drive learning.
-        val isScratchOutcome = outcome.pnlPct > -0.5 && outcome.pnlPct < 0.5
+        // V5.9.342 — Align scratch band back to markLayerOutcome's own
+        // ±1% guard (was temporarily tightened in V5.9.341 but neutralized
+        // by the inner guard anyway). Keeps accuracy-update semantics
+        // consistent with every other callsite.
+        val isScratchOutcome = outcome.pnlPct > -1.0 && outcome.pnlPct < 1.0
 
         REGISTERED_LAYERS.forEach { layerName ->
             try {
@@ -772,47 +773,30 @@ object EducationSubLayerAI {
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.9.341 — OUTER-RING LEARN HOOKS (Phase X.2 + X.3)
-        // Every outer-ring layer that previously plateaued at 50% accuracy
-        // (Bayesian prior) now receives trade outcomes via markLayerOutcome.
-        // Combined with the applyRealAccuracyLearning universal loop, this
-        // makes all 41 layers evolve in both activity AND accuracy — so they
-        // can actually go green on the neural network indicator.
+        // V5.9.342 — OUTER-RING LEARN HOOKS (revised from V5.9.341)
         //
-        // For the 6 layers that have rich internal learn hooks (trust nets,
-        // fingerprint clustering, etc.), their native recordOutcome() calls
-        // require extra context (Session, creator, CandidateSnapshot) that
-        // isn't carried on TradeOutcomeData. Wiring those deeper hooks is a
-        // separate scope (Phase C follow-up). For now every layer gets
-        // directional accuracy + activity via the central tracker.
+        // V5.9.341 bug: we were explicitly calling markLayerOutcome() for
+        // 16 outer-ring layers here, AFTER applyRealAccuracyLearning (below)
+        // already correlates each shadow-run layer's entry score with
+        // directional outcome. That double-dispatched every trade for the
+        // 14 score()-capable outer-ring layers AND fed the duplicate call a
+        // wrong `wasSuccess` (overall bot isWin, not per-layer direction),
+        // corrupting smoothedAccuracy so the Main UI / Neural Network view
+        // showed weird numbers.
+        //
+        // Fix: let applyRealAccuracyLearning do its job for every layer
+        // present in pendingEntryScores (now all 14 shadow-run outer-ring
+        // layers thanks to V5.9.341 Phase X.1). Only AITrustNetworkAI keeps
+        // its native internal recordTradeOutcome(layerScores, won) — that's
+        // a different state mechanism (trust weights), not the accuracy
+        // tracker, so it doesn't double-count.
         // ═══════════════════════════════════════════════════════════════════
-
-        // AITrustNetworkAI — has a layer-scores signature; feed it the snap
-        // we captured from pendingEntryScores (if present).
         try {
             val pending = pendingEntryScores[outcome.mint]
             if (pending != null) {
                 AITrustNetworkAI.recordTradeOutcome(pending.scores, outcome.isWin)
             }
-            markLayerOutcome("AITrustNetworkAI", outcome.isWin, outcome.pnlPct)
-            layersUpdated++
         } catch (_: Exception) {}
-
-        // 15 remaining outer-ring layers: record directional outcome via
-        // the central tracker so they join the 41-layer learning firehose.
-        for (name in listOf(
-            "CapitalEfficiencyAI", "ExecutionCostPredictorAI",
-            "OperatorFingerprintAI", "SessionEdgeAI", "TokenDNAClusteringAI",
-            "CorrelationHedgeAI", "DrawdownCircuitAI", "FundingRateAwarenessAI",
-            "LiquidityExitPathAI", "MEVDetectionAI", "NewsShockAI",
-            "OrderbookImbalancePulseAI", "PeerAlphaVerificationAI", "ReflexAI",
-            "StablecoinFlowAI",
-        )) {
-            try {
-                markLayerOutcome(name, outcome.isWin, outcome.pnlPct)
-                layersUpdated++
-            } catch (_: Exception) {}
-        }
 
         // ═══════════════════════════════════════════════════════════════════
         // PHASE 6a: V5.9.210 — ALL 41 registered layers stay alive.
@@ -946,15 +930,15 @@ object EducationSubLayerAI {
         // V5.9.224: shadow trades (blocked/rejected) get reduced learning weight
         val isShadowTrade: Boolean = false,
     ) {
-        // V5.9.341 — REVERT isWin to fee-aware threshold (>-0.5%).
-        // V5.9.320 set isWin >= 1.0 to "match the traders", but with fees
-        // eating 0.5-0.8% per roundtrip, 50-70% of trades land in (-1%, +1%)
-        // and get classified as scratches — contributing ZERO learning weight
-        // across 41 layers. The bot was seeing only 30-50% of its own trade
-        // signal. User directive (V5.9.341): restore fee-aware golden
-        // behaviour — a trade is a win if it cleared fees. Every trade with
-        // a clear directional outcome now teaches the network.
-        val isWin: Boolean get() = pnlPct > -0.5
+        // V5.9.342 — REVERT V5.9.341 isWin tweak.
+        // After audit the >-0.5% threshold turned out to be inert for layer
+        // counters (markLayerOutcome's internal ±1% scratch guard skips the
+        // whole middle band regardless of isWin value) AND it was being
+        // read by downstream consumers that expected the ≥1% fee-aware
+        // contract the rest of AATE uses (TradeHistoryStore, BotBrain,
+        // trader paperStats all use ≥1%). Keeping that contract here is
+        // the honest alignment.
+        val isWin: Boolean get() = pnlPct >= 1.0
         val isRunner: Boolean get() = pnlPct >= 20.0
         val isRug: Boolean get() = pnlPct <= -30.0
     }
