@@ -154,7 +154,8 @@ object BehaviorAI {
             // ═══════════════════════════════════════════════════════════════
             // REGULAR WINS
             // ═══════════════════════════════════════════════════════════════
-            pnlPct > 2.0 -> {
+            // V5.9.320: unified win threshold >= 1.0 (matches Education/Fluid/all traders)
+            pnlPct >= 1.0 -> {
                 sessionWins.incrementAndGet()
                 consecutiveWins.incrementAndGet()
                 consecutiveLosses.set(0)
@@ -170,9 +171,9 @@ object BehaviorAI {
             }
             
             // ═══════════════════════════════════════════════════════════════
-            // SCRATCH (break even)
-            // ═══════════════════════════════════════════════════════════════
-            pnlPct in -2.0..2.0 -> {
+            // SCRATCH (break even) — matches Education scratch range (-1% to +1%)
+            // V5.9.320: was -2.0..2.0, now -1.0..1.0 to match unified thresholds
+            pnlPct in -1.0..1.0 -> {
                 // Neutral - no streak change
                 disciplineScore.addAndGet(1)  // Small bonus for not losing
             }

@@ -3267,7 +3267,7 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
                 mint = tradeId.mint,
-                traderSource = "Meme",
+                traderSource = ts.position.tradingMode.ifEmpty { "MEME" },  // V5.9.320: was hardcoded "Meme"
                 reason = reason,
                 scoreHint = score,
             )
@@ -4009,7 +4009,7 @@ class Executor(
                 }
                 com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryReason(
                     mint = tradeId.mint,
-                    traderSource = "Meme",
+                    traderSource = ts.position.tradingMode.ifEmpty { "MEME" },  // V5.9.320: was hardcoded "Meme"
                     reason = reason,
                     scoreHint = score,
                 )
@@ -5424,6 +5424,18 @@ class Executor(
                     } else 0.0
                 },
                 timeToPeakMins = holdTimeDouble * 0.5,
+                // V5.9.320: derive traderSource from actual trading mode, not hardcoded
+                traderSource = when {
+                    ts.position.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
+                    ts.position.tradingMode == "SHITCOIN"   -> "SHITCOIN"
+                    ts.position.tradingMode == "BLUE_CHIP"  -> "BLUECHIP"
+                    ts.position.tradingMode == "QUALITY"    -> "QUALITY"
+                    ts.position.tradingMode == "TREASURY"   -> "TREASURY"
+                    ts.position.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
+                    ts.position.tradingMode == "MANIPULATED" -> "MANIPULATED"
+                    else -> "MEME"
+                },
+                lossReason = if (pnlP < -2.0) reason else "",
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -6233,6 +6245,63 @@ class Executor(
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
         ExitIntelligence.resetPosition(tradeId.mint)
+
+        // V5.9.320 FIX: EdgeLearning was NEVER called in live path (paper-only).
+        // Now mirrors the paper doSell path so EdgeLearning's threshold
+        // auto-tuner (buy%/volume/phase gates) learns from real money outcomes.
+        EdgeLearning.learnFromOutcome(
+            mint = tradeId.mint,
+            exitPrice = exitPrice,
+            pnlPercent = pnlP,
+            wasExecuted = true,
+        )
+
+        // V5.9.320 FIX: BehaviorLearning (engine) was NEVER called in live path.
+        // Now fed the full rich context so pattern DB learns from live outcomes.
+        try {
+            val liveVolatilityLevel = when {
+                ts.meta.volScore > 80 -> "EXTREME"
+                ts.meta.volScore > 60 -> "HIGH"
+                ts.meta.volScore > 40 -> "MEDIUM"
+                else -> "LOW"
+            }
+            val liveVolumeSignal = when {
+                ts.meta.volScore > 80 -> "SURGE"
+                ts.meta.volScore > 60 -> "INCREASING"
+                ts.meta.volScore > 40 -> "NORMAL"
+                ts.meta.volScore > 20 -> "DECREASING"
+                else -> "LOW"
+            }
+            val liveSentiment = when {
+                ts.meta.emafanAlignment.contains("BULL") -> "BULL"
+                ts.meta.emafanAlignment.contains("BEAR") -> "BEAR"
+                else -> "NEUTRAL"
+            }
+            val liveHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val liveDay  = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+            BehaviorLearning.recordTrade(
+                entryScore     = pos.entryScore.toInt(),
+                entryPhase     = pos.entryPhase.ifEmpty { "UNKNOWN" },
+                setupQuality   = when {
+                    pos.entryScore >= 90 -> "A+"
+                    pos.entryScore >= 80 -> "A"
+                    pos.entryScore >= 70 -> "B"
+                    else                 -> "C"
+                },
+                tradingMode    = pos.tradingMode.ifEmpty { "LIVE" },
+                marketSentiment = liveSentiment,
+                volatilityLevel = liveVolatilityLevel,
+                volumeSignal   = liveVolumeSignal,
+                liquidityUsd   = ts.lastLiquidityUsd,
+                mcapUsd        = ts.lastMcap,
+                holderTopPct   = ts.safety.topHolderPct.toDouble(),
+                rugcheckScore  = ts.safety.rugcheckScore,
+                hourOfDay      = liveHour,
+                dayOfWeek      = liveDay,
+                holdTimeMinutes = holdMinutesLive,
+                pnlPct         = pnlP,
+            )
+        } catch (_: Exception) {}
         
         try {
             val wasSignalCorrect = when {
@@ -6444,8 +6513,17 @@ class Executor(
                     } else 0.0
                 },
                 timeToPeakMins = holdMinutes * 0.5,
-                // V5.9.170 — traderSource + lossReason for firehose.
-                traderSource = "Meme",
+                // V5.9.320: derive traderSource from actual trading mode — was hardcoded "Meme"
+                traderSource = when {
+                    pos.tradingMode.startsWith("MOONSHOT") -> "MOONSHOT"
+                    pos.tradingMode == "SHITCOIN"   -> "SHITCOIN"
+                    pos.tradingMode == "BLUE_CHIP"  -> "BLUECHIP"
+                    pos.tradingMode == "QUALITY"    -> "QUALITY"
+                    pos.tradingMode == "TREASURY"   -> "TREASURY"
+                    pos.tradingMode == "DIP_HUNTER" -> "DIP_HUNTER"
+                    pos.tradingMode == "MANIPULATED" -> "MANIPULATED"
+                    else -> "MEME"
+                },
                 lossReason = if (pnlP < -2.0) reason else "",
             )
             

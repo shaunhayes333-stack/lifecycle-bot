@@ -22,7 +22,7 @@ object BehaviorLearning {
     private const val MIN_OCCURRENCES_RELIABLE = 5
     private const val MIN_CONFIDENCE_TO_USE = 0.60
 
-    private const val WIN_THRESHOLD_PCT = 0.5
+    private const val WIN_THRESHOLD_PCT = 1.0  // V5.9.320: unified — matches Education/FluidLearning/all traders
     private const val LOSS_THRESHOLD_PCT = -2.0
 
     // Self-healing
