@@ -61,7 +61,7 @@ object ShitCoinTraderAI {
     // Market cap filter - V5.2.12: Extended to $100K to flow into Quality layer
     // ShitCoin: $0 - $100K (degen memes and early plays)
     // Quality picks up at $100K+
-    private const val MAX_MARKET_CAP_USD = 100_000.0   // V5.2.12: Raised from $50K to flow into Quality
+    private const val MAX_MARKET_CAP_USD = 500_000.0   // V5.9.325: 100K→500K — meme tokens trade $100K-$500K, was killing most candidates
     private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
@@ -109,7 +109,7 @@ object ShitCoinTraderAI {
     private const val MIN_SOCIAL_SCORE = 20           // Minimum social presence (0-100)
     
     // Age requirements - Fresh tokens only
-    private const val MAX_TOKEN_AGE_HOURS = 6.0       // Only tokens <6 hours old (mature)
+    private const val MAX_TOKEN_AGE_HOURS = 12.0      // V5.9.325: 6→12h — 6h was silently TOO_OLD on most tokens
     // V5.9.160: tokenAgeMinutes in BotService is counted from addedToWatchlistAt,
     // i.e. the moment the bot FIRST DISCOVERED the token, not the token's real
     // on-chain creation time. That means once the bot has been running 6h+,
@@ -118,7 +118,7 @@ object ShitCoinTraderAI {
     // Bootstrap: lift the ceiling to 3 days so the learner gets full flow.
     private const val MAX_TOKEN_AGE_HOURS_BOOTSTRAP = 72.0
     private fun effectiveMaxTokenAgeHours(): Double = try {
-        if (FluidLearningAI.getLearningProgress() < 0.40) MAX_TOKEN_AGE_HOURS_BOOTSTRAP
+        if (FluidLearningAI.getLearningProgress() < 0.70) MAX_TOKEN_AGE_HOURS_BOOTSTRAP  // V5.9.325: 0.40→0.70
         else MAX_TOKEN_AGE_HOURS
     } catch (_: Exception) { MAX_TOKEN_AGE_HOURS }
     private const val OPTIMAL_AGE_MINUTES = 30.0      // Sweet spot: 30 mins - 2 hours
@@ -883,11 +883,20 @@ object ShitCoinTraderAI {
         val minScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
         
-        // V5.9.316: REMOVED V5.9.218/V5.9.275 HARD GATES — they over-filtered
-        // entries that produced 500%+ trades in build #1941. Soft scoring
-        // already reflects momentum/buyPressure; threshold check below is
-        // the proper filter, not a hard cut. The user explicitly requested
-        // restoration of pre-V5.9.218 fan-out behavior.
+        // V5.9.328: QUALITY SOFT GATE — replaces the V5.9.218 hard binary block.
+        // V5.9.316 fully removed gates and V5.9.300 opened FluidLearning bootstrap floors
+        // to score=5/bp=5%. Together they created a double-hole: garbage entries with
+        // zero momentum flooded through, producing W=14/L=69 (16.8% WR).
+        //
+        // New approach: soft penalty (not hard block) on truly dead signals.
+        // Tokens with neutral momentum AND weak buy pressure get -15 pts subtracted
+        // from their score before threshold check. Tokens with any real signal pass fine.
+        // This preserves fan-out for 500%+ memes while blocking the zero-signal trash.
+        val hasWeakSignal = momentum <= 0.0 && buyPressurePct < 45.0
+        if (hasWeakSignal) {
+            shitScore = (shitScore - 15).coerceAtLeast(0)
+            ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -15pts → score=$shitScore")
+        }
 
         // Check thresholds
         val passesScore = shitScore >= minScore
@@ -1236,11 +1245,11 @@ object ShitCoinTraderAI {
     // Mature: score >= 40, conf >= 50%
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
     // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
-    private const val SC_SCORE_BOOTSTRAP = 30         // V5.9.300: 18→30 (per-trader strict gate)
+    private const val SC_SCORE_BOOTSTRAP = 15         // V5.9.325: 30→15 — at 52% progress lerp gives ~33, allows meme fan-out
     private const val SC_SCORE_MATURE = 50            // V5.9.194: Tighter at maturity
     
     // V5.2 FIX: Lower confidence required in bootstrap
-    private const val SC_CONF_BOOTSTRAP = 30          // V5.9.300: 18→30 (per-trader strict gate)
+    private const val SC_CONF_BOOTSTRAP = 15          // V5.9.325: 30→15 — at 52% progress lerp gives ~36%, allows meme fan-out
     private const val SC_CONF_MATURE = 55             // V5.9.194: Solid confidence when mature
     private const val SC_CONF_BOOST_MAX = 5.0         // V5.9.194: Small boost only — don't inflate confidence
     

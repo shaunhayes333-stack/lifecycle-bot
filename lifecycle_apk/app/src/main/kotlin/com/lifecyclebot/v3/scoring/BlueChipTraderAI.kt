@@ -358,7 +358,8 @@ object BlueChipTraderAI {
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)
         
-        if (pnlSol > 0) {
+        // V5.9.328: Use pnlPct>=1.0 for win tracking (unified threshold, was pnlSol>0)
+        if (pnlPct >= 1.0) {
             dailyWins.incrementAndGet()
             addToBalance(pnlSol * COMPOUNDING_RATIO, pos.isPaper) // Compound portion
         } else {

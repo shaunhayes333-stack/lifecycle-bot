@@ -242,9 +242,9 @@ object FluidLearningAI {
     // V5.9.300: V5.9.198 ARCHITECTURE RESTORATION — Global floors LOW, per-trader floors HIGH.
     // The previous topology (global tight, per-trader loose) inverted the V5.9.198 design that hit 50%+ WR.
     // Now: global gates open the floodgates; ShitCoin/BlueChip/Markets enforce strict quality at the trader layer.
-    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 5.0   // V5.9.300: 22→5 (open the floodgates)
-    private const val MIN_SCORE_BOOTSTRAP = 5            // V5.9.300: 25→5 (per-trader gates do the filtering)
-    private const val MIN_LIQUIDITY_BOOTSTRAP = 1000.0   // V5.9.300: 2500→1000 (per-trader liq floors enforce quality)
+    private const val MIN_BUY_PRESSURE_BOOTSTRAP = 30.0  // V5.9.328: 5→30 — 5% was noise-level; need real buy momentum
+    private const val MIN_SCORE_BOOTSTRAP = 20           // V5.9.328: 5→20 — score=5 lets garbage through after V5.9.316 removed per-trader hard gates
+    private const val MIN_LIQUIDITY_BOOTSTRAP = 2000.0   // V5.9.328: 1000→2000 — require minimal real pool depth
     
     /**
      * Check if we should force a bootstrap entry to break the cold-start deadlock.

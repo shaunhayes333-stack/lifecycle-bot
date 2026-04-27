@@ -320,6 +320,12 @@ object MetalsTrader {
                 val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
                 
                 val signal = analyzeMarket(market, data)
+                // V5.9.328: Trust gate — halt new entries when MetalsAI is DISTRUSTED
+                val metalsTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("MetalsAI") } catch (_: Exception) { null }
+                if (metalsTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                    ErrorLogger.warn(TAG, "🥇 ${market.symbol}: TRUST_GATE — MetalsAI DISTRUSTED, skipping entry")
+                    continue
+                }
                 if (signal != null && signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh) {
                     // SPOT signal if no spot position
                     if (!spotPositions.values.any { it.market == market }) {
@@ -493,10 +499,9 @@ object MetalsTrader {
             }
         } catch (_: Exception) {}
         
-        // Floor for paper mode learning
-        if (score < 35) score = 35
-        if (confidence < 30) confidence = 30
-        reasons.add("📚 ALWAYS_TRADE mode")
+        // V5.9.328: Removed score/confidence floors — inflating scores past fluid thresholds
+        // was injecting blind signals with RSI=50/MACD=NEUTRAL into live trading.
+        reasons.add("📚 Learning: quality-gated mode")
         
         return MetalSignal(
             market = market,

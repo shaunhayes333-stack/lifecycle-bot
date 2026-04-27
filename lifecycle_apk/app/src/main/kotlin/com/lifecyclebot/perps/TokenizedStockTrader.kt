@@ -671,6 +671,18 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 if (signal != null) {
                     ErrorLogger.info(TAG, "📈 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
                     
+                    // V5.9.328: TRUST GATE — if StrategyTrustAI has marked this layer as
+                    // DISTRUSTED (WR < threshold after sufficient trades), halt new entries.
+                    // This prevents the bot from continuing to open losing trades after the
+                    // AI has already concluded the strategy is broken.
+                    val trustLevel = try {
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
+                    } catch (_: Exception) { null }
+                    if (trustLevel == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                        ErrorLogger.warn(TAG, "📈 ${market.symbol}: TRUST_GATE — TokenizedStockAI DISTRUSTED, skipping entry")
+                        continue
+                    }
+                    
                     // V5.7.6: Use FLUID thresholds from FluidLearningAI
                     val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
                     val confThresh = FluidLearningAI.getMarketsSpotConfThreshold()
@@ -981,11 +993,11 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             }
         } catch (_: Exception) {}
         
-        // V5.7.6: ALWAYS generate signals in paper mode - ensures maximum learning
-        // No artificial floor — poor signals should be rejected
-        if (score < 35) score = 35
-        // confidence floor removed — let the signal quality filter do its job
-        reasons.add("📚 Learning: ALWAYS_TRADE mode")
+        // V5.9.328: Removed forced score >= 35 floor — it was pushing genuinely bad
+        // signals over the prefilter gate (score >= 45 → V3) and injecting noise trades.
+        // Real signals that don't meet the threshold should be REJECTED, not inflated.
+        // The 41-layer V3 AI will still pass good signals through at lower scores via V3 override.
+        reasons.add("📚 Learning: quality-gated mode")
         
         return StockSignal(
             market = market,

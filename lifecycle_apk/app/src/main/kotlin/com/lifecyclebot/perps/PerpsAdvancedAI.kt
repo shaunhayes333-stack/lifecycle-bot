@@ -896,15 +896,33 @@ object PerpsAdvancedAI {
         if (high24h <= 0.0 || low24h <= 0.0 || high24h < low24h) return
         val now = System.currentTimeMillis()
         history.clear()
-        // 14 anchored points drawn from the real 24h envelope:
-        //   low → mid → high → mid → current  (repeated to fill)
+        // V5.9.328 FIX: Directional tape instead of zigzag.
+        // The old zigzag (low→mid→high→mid→low…) produced RSI≈50 and MACD=NEUTRAL
+        // on every single market regardless of actual trend direction.
+        // New approach: infer direction from 24h change implied by high/low vs current,
+        // then build a monotonically trending tape so RSI/MACD reflect the actual direction.
+        //
+        // If current price is in the upper half of the 24h range → bullish tape (low→current)
+        // If current price is in the lower half → bearish tape (high→current)
+        // This gives RSI≈60-70 for bullish assets and RSI≈30-40 for bearish ones.
         val mid = (high24h + low24h) / 2.0
-        val tape = listOf(low24h, mid, high24h, mid, low24h, mid, high24h, mid, low24h, mid, high24h, mid, currentPrice, currentPrice)
+        val isBullish = currentPrice >= mid
+        val tapeSize = 14
+        val tape = (0 until tapeSize).map { idx ->
+            val t = idx.toDouble() / (tapeSize - 1)  // 0.0 → 1.0
+            if (isBullish) {
+                // trending up: start from low, rise toward current
+                low24h + (currentPrice - low24h) * t
+            } else {
+                // trending down: start from high, fall toward current
+                high24h + (currentPrice - high24h) * t
+            }
+        }
         tape.forEachIndexed { idx, p ->
             history.add(PricePoint(
                 price = p,
-                timestamp = now - (tape.size - idx) * 60_000L,  // 1-min spaced
-                volume = volume24h / tape.size,
+                timestamp = now - (tapeSize - idx) * 60_000L,  // 1-min spaced
+                volume = volume24h / tapeSize,
             ))
         }
         while (history.size > MAX_HISTORY_SIZE) { history.removeAt(0) }

@@ -327,6 +327,13 @@ object CommoditiesTrader {
                 val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
                 val levConfThresh = FluidLearningAI.getMarketsLeverageConfThreshold()
                 
+                // V5.9.328: Trust gate — halt new entries when CommoditiesAI is DISTRUSTED
+                val commTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("CommoditiesAI") } catch (_: Exception) { null }
+                if (commTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                    ErrorLogger.warn(TAG, "🛢️ ${market.symbol}: TRUST_GATE — CommoditiesAI DISTRUSTED, skipping entry")
+                    continue
+                }
+
                 // Generate SPOT signal if no spot position
                 if (!hasSpotPosition(market)) {
                     val spotSignal = analyzeMarket(market, data, TradeType.SPOT)
@@ -500,7 +507,8 @@ object CommoditiesTrader {
         // V5.9.199: Raised floor 35/30 → 50/40 (matches CryptoAlt fix)
         if (score < 50) score = 50
         if (confidence < 40) confidence = 40
-        reasons.add("📚 ALWAYS_TRADE mode")
+        // V5.9.328: Removed ALWAYS_TRADE label — quality-gated now.
+        reasons.add("📚 Learning: quality-gated mode")
         
         return CommoditySignal(
             market = market,

@@ -305,6 +305,12 @@ object ForexTrader {
                 val levScoreThresh = FluidLearningAI.getMarketsLeverageScoreThreshold()
                 
                 val signal = analyzeMarket(market, data)
+                // V5.9.328: Trust gate — halt new entries when ForexAI is DISTRUSTED
+                val forexTrust = try { com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("ForexAI") } catch (_: Exception) { null }
+                if (forexTrust == com.lifecyclebot.v4.meta.StrategyTrustAI.TrustLevel.DISTRUSTED) {
+                    ErrorLogger.warn(TAG, "💱 ${market.symbol}: TRUST_GATE — ForexAI DISTRUSTED, skipping entry")
+                    continue
+                }
                 if (signal != null && signal.score >= spotScoreThresh && signal.confidence >= spotConfThresh) {
                     // SPOT signal if no spot position
                     if (!spotPositions.values.any { it.market == market }) {
@@ -486,9 +492,9 @@ object ForexTrader {
         } catch (_: Exception) {}
         
         // Floor for paper mode learning
-        if (score < 35) score = 35
-        if (confidence < 30) confidence = 30
-        reasons.add("📚 ALWAYS_TRADE mode")
+        // V5.9.328: Removed score/confidence floors — inflating scores was injecting
+        // blind NEUTRAL signals. Quality gate in runScanCycle handles thresholds.
+        reasons.add("📚 Learning: quality-gated mode")
         
         return ForexSignal(
             market = market,

@@ -582,7 +582,8 @@ object DipHunterAI {
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)
         
-        if (pnlSol > 0) {
+        // V5.9.328: Use pnlPct>=1.0 for win tracking (unified threshold)
+        if (pnlPct >= 1.0) {
             dailyWins.incrementAndGet()
             dipBalanceBps.addAndGet((pnlSol * 40).toLong())  // 40% compound
         } else {
@@ -590,11 +591,14 @@ object DipHunterAI {
         }
         
         // Record to FluidLearningAI
+        // V5.9.328 FIX: was pnlSol > 0 (counts any tiny gain as win, ignores fees).
+        // Unified to pnlPct >= 1.0 threshold — consistent with ShitCoin/Moonshot/BlueChip.
+        val isWin = pnlPct >= 1.0
         try {
             if (pos.isPaper) {
-                FluidLearningAI.recordPaperTrade(pnlSol > 0)
+                FluidLearningAI.recordPaperTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(pnlSol > 0)
+                FluidLearningAI.recordLiveTrade(isWin)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
