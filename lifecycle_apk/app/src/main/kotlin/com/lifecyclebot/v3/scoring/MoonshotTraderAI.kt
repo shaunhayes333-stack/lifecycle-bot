@@ -73,7 +73,7 @@ object MoonshotTraderAI {
     // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor
     // was excluding most sub-$50K-mcap fresh pump.fun launches which are
     // exactly the volume we want the scorer to learn from.
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 5_000.0    // V5.9.341: 2000→5000 (golden V5.9.134)
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // V5.9.343: walk-back to pre-V5.9.341
     private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
     
     // Position sizing - moderate but aggressive

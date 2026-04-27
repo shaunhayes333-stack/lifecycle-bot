@@ -188,8 +188,25 @@ class UnifiedScorer(
                 ScoreComponent(name = "behavior", value = 0, reason = "NO_DATA")
             }
 
+            // V5.9.343 — FRESH-TOKEN PROVISIONAL BONUS
+            // Fresh tokens (just discovered, low hist) score 0-5 on every
+            // layer because momentum/volume/liquidity return ~0 on empty
+            // history. They sit in WAIT forever with X:43/X:73 rejection
+            // counts. This bonus lets the launch-window signal carry
+            // weight during the SNIPE window (≤15 minutes old per
+            // AutoModeEngine's SNIPE classifier).
+            val isFreshLaunch = candidate.ageMinutes <= 3.0
+            val freshBonus = if (isFreshLaunch) {
+                ScoreComponent(name = "fresh_launch_bonus", value = 15,
+                    reason = "🚀 Fresh launch grace (+15) | age=${"%.1f".format(candidate.ageMinutes)}m")
+            } else null
+
             // Final card — no MuteBoost gate, no approvalMemory, no CrossTalk penalty
-            val finalCard = ScoreCard(allComponents + metaComponent + behaviorComponent)
+            val finalCard = ScoreCard(
+                listOfNotNull(freshBonus).let { bonus ->
+                    allComponents + metaComponent + behaviorComponent + bonus
+                }
+            )
 
             // ═══════════════════════════════════════════════════════════════
             // V5.9.341 — SHADOW-RUN outer ring in CLASSIC mode (Phase X.1)

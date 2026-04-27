@@ -1816,8 +1816,19 @@ for legal compliance.
             
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT
+            // V5.9.343 — Aggregate across the base memetrader AND every
+            // specialist trader that holds its own paperPositions map.
+            // Previously this only counted state.openPositions (base tokens),
+            // so the counter was mis-reporting real exposure when Moonshot,
+            // ShitCoin, Quality, BlueChip or Treasury had active positions.
             // ═══════════════════════════════════════════════════════════════════
-            val openCount = state.openPositions.size
+            val memeOpen     = state.openPositions.size
+            val shitOpen     = try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
+            val qualityOpen  = try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
+            val blueOpen     = try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
+            val moonOpen     = try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
+            val treasuryOpen = try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size } catch (_: Exception) { 0 }
+            val openCount    = memeOpen + shitOpen + qualityOpen + blueOpen + moonOpen + treasuryOpen
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             

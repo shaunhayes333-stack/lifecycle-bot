@@ -841,10 +841,9 @@ object FinalDecisionGate {
             rawConfidence
         }
 
-        // V5.9.341 — CLASSIC mode uses golden 3.0 floor; modern keeps 8.0.
-        // V5.9.184 raised it to 8.0 targeting higher WR but blocked 60% of
-        // paper bootstrap trades — the learner needs that volume back.
-        val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 3.0 else 8.0
+        // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
+        // bot trades from first start per user directive. Modern keeps 8.0.
+        val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
             ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
 
@@ -938,8 +937,9 @@ object FinalDecisionGate {
 
         val toxicPatternFlags = mutableListOf<String>()
         if (isCGrade) toxicPatternFlags.add("quality_C")
-        // V5.9.341 — CLASSIC: conf<35 (golden). MODERN: conf<28.
-        val toxicConfThreshold = if (classicMode) 35.0 else 28.0
+        // V5.9.343 — CLASSIC: conf<20 (walk-back for trading-from-start).
+        // MODERN: conf<28 (V5.9.266).
+        val toxicConfThreshold = if (classicMode) 20.0 else 28.0
         if (confidence < toxicConfThreshold) toxicPatternFlags.add("conf<${toxicConfThreshold.toInt()}")
         // V5.9.63: was memory<=-8 — combined with quality_C + AI_degraded
         // (which is the default state in paper for any fresh meme) this
