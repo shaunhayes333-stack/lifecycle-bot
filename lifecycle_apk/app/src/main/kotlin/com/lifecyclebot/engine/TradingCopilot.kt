@@ -173,31 +173,43 @@ object TradingCopilot {
             }
 
             // ─── 4. TRADE MOOD ───────────────────────────────────────────
-            // V5.9.319: tighter triggers — 7 consec losses (was 10) and 25%
-            // WR cutoff (was 25 with 10 trades) catch disasters earlier.
+            // V5.9.337: Bootstrap-aware thresholds. During bootstrap (<70% progress),
+            // the bot MUST keep trading to accumulate data. The WR < 25% gate was
+            // permanently locking it into PROTECT because 24% WR with 74 trades is
+            // normal for early learning — not a disaster requiring handbraking.
+            val bootstrapProg = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
+            val isBootstrap = bootstrapProg < 0.70
+
+            val emergencySteakThresh = if (isBootstrap) 12 else 7
+            val protectStreakThresh  = if (isBootstrap) 8  else 4
+            val protectWrThresh      = if (isBootstrap) 12.0 else 25.0   // bootstrap: only brake on truly disastrous WR
+            val protectWrMinTrades   = if (isBootstrap) 30 else 8         // bootstrap: need more trades before WR gate fires
+
             val mood = when {
-                lossStreak >= 7 || biggestLoss <= -40.0 -> TradeMood.EMERGENCY_BRAKE
-                lossStreak >= 4 || (wrPct < 25 && tradesObserved >= 8) -> TradeMood.PROTECT
+                lossStreak >= emergencySteakThresh || biggestLoss <= -60.0 -> TradeMood.EMERGENCY_BRAKE
+                lossStreak >= protectStreakThresh || (wrPct < protectWrThresh && tradesObserved >= protectWrMinTrades) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL
             }
 
             // ─── 5. CONFIDENCE FLOOR ──────────────────────────────────────
-            // EMERGENCY_BRAKE: 25% — only highest-confidence setups
-            // PROTECT:         15% — selective
-            // NORMAL:          8%  — V5.9.311 baseline
-            // AGGRESSIVE_HUNT: 5%  — let the bot press its edge
+            // Bootstrap softens floors — paper mode needs volume, not discipline.
+            // EMERGENCY_BRAKE: 25% mature / 15% bootstrap
+            // PROTECT:         15% mature / 8%  bootstrap (don't choke learning)
+            // NORMAL:          8%  always
+            // AGGRESSIVE_HUNT: 5%  always
             val recMinConf = when (mood) {
-                TradeMood.EMERGENCY_BRAKE -> 25.0
-                TradeMood.PROTECT -> 15.0
+                TradeMood.EMERGENCY_BRAKE -> if (isBootstrap) 15.0 else 25.0
+                TradeMood.PROTECT -> if (isBootstrap) 8.0 else 15.0
                 TradeMood.NORMAL -> 8.0
                 TradeMood.AGGRESSIVE_HUNT -> 5.0
             }
 
             // ─── 6. SIZING MULTIPLIER ─────────────────────────────────────
+            // Bootstrap: PROTECT only trims 25% (not 50%) — paper sizing is symbolic anyway
             val sizing = when (mood) {
-                TradeMood.EMERGENCY_BRAKE -> 0.25
-                TradeMood.PROTECT -> 0.5
+                TradeMood.EMERGENCY_BRAKE -> if (isBootstrap) 0.5 else 0.25
+                TradeMood.PROTECT -> if (isBootstrap) 0.75 else 0.5
                 TradeMood.NORMAL -> 1.0
                 TradeMood.AGGRESSIVE_HUNT -> 1.30
             }

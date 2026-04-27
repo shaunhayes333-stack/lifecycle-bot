@@ -1141,7 +1141,12 @@ class LifecycleStrategy(
         val copilot = com.lifecyclebot.engine.TradingCopilot.current()
         val copilotBrake = copilot.mood == com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE
         val copilotConfFloor = copilot.recommendedMinConfidence
-        val belowCopilotFloor = isPaperMode && edgeConfidence < copilotConfFloor
+        // V5.9.337: During bootstrap, PROTECT floor only applies if we're past 70% progress.
+        // Before that, paper mode must keep trading — the copilot floor was permanently blocking
+        // entries because 24% WR locked the bot into PROTECT, which then raised the conf floor,
+        // which blocked entries, which meant WR stayed at 24% → permanent handbrake loop.
+        val copilotBootstrap = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.70 } catch (_: Exception) { true }
+        val belowCopilotFloor = isPaperMode && edgeConfidence < copilotConfFloor && !copilotBootstrap
 
         val shouldTradeBase = when {
             // V5.9.318: Copilot emergency brake — bot is in catastrophic state, halt new entries
