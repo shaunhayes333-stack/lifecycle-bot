@@ -131,32 +131,33 @@ class UnifiedScorer(
         val allComponents = baseComponents + collectiveComponent
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.9.345 — ACCURACY-BOOST SCORING (ONE-SIDED, TRUE NO-MUTE)
+        // V5.9.351 — RESTORE V5.9.344 TWO-SIDED ACCURACY-WEIGHTED SCORING
+        // (build 2209 behaviour — user directive "make current build match
+        // build 2209 performance exactly, keeping the new UI changes").
         //
-        // V5.9.344 regression: the two-sided formula (0.7-1.5 around 0.5
-        // accuracy) multiplied every component by ~0.83-0.86 when all layers
-        // were converged at 16-20% accuracy, compressing total scores below
-        // the FDG floor and collapsing 24h volume from 200→5 trades. That
-        // was an effective mute in aggregate, violating the user directive.
+        // The V5.9.345 revert to a one-sided 1.0-1.5 formula removed the
+        // downward pressure that made the top-performing build (2209) actually
+        // concentrate volume on high-accuracy layers. The user confirmed the
+        // 83 trades / 24h, 43% WR, +72% run-return numbers came from the
+        // V5.9.344 formula — the "death-spiral" concern was misread.
         //
-        // This formula is strictly one-sided:
-        //   accuracy ≤ 0.50  →  weight = 1.00  (identity, no change)
-        //   accuracy 0.55    →  weight = 1.05
-        //   accuracy 0.70    →  weight = 1.20
-        //   accuracy 1.00    →  weight = 1.50
+        //   weight = clamp(0.7 + accuracy * 0.8, 0.7, 1.5)
         //
-        // Layers at ANY accuracy contribute their full raw vote. Only
-        // genuinely above-random layers amplify the signal. No downspiral
-        // is mathematically possible.
+        //   accuracy 0.00 → weight 0.70 (70% vote — no mute)
+        //   accuracy 0.50 → weight 1.10
+        //   accuracy 1.00 → weight 1.50 (150% vote)
+        //
+        // Applied to all 20 inner-ring classic components AFTER the soft
+        // penalty cap but BEFORE meta/behavior/fresh bonuses.
         // ═══════════════════════════════════════════════════════════════════
         val weightedComponents = allComponents.map { comp ->
             val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
             val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
-            val weight    = (1.0 + ((accuracy - 0.5).coerceAtLeast(0.0) * 1.0)).coerceAtMost(1.5)
-            if (weight > 1.01 && comp.value != 0) {
-                val newValue = (comp.value * weight).toInt()
-                comp.copy(value = newValue, reason = "${comp.reason} [boost=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
-            } else comp  // identity at accuracy ≤ 50% — no mute, no change
+            val weight    = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+            val newValue  = (comp.value * weight).toInt()
+            if (comp.value != 0 && newValue != comp.value) {
+                comp.copy(value = newValue, reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
+            } else comp
         }
 
         // MetaCognitionAI — same logic as build ~1920 (soft veto, no fatal in bootstrap)
