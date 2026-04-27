@@ -70,6 +70,7 @@
         <activity android:name=".ui.MultiAssetActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.CollectiveBrainActivity" android:exported="false"/>
         <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.PersonaStudioActivity" android:exported="false" android:screenOrientation="portrait" android:label="Persona Studio"/>
         <activity android:name=".ui.InsiderWalletsActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.WatchlistActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>

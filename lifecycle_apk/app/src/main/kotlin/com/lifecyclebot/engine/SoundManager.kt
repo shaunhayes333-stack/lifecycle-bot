@@ -63,24 +63,32 @@ class SoundManager(private val ctx: Context) {
     
     private fun loadCustomSounds() {
         try {
-            // Try to load Homer's "Woohoo!" for buy events
-            val woohooResId = ctx.resources.getIdentifier("woohoo", "raw", ctx.packageName)
-            if (woohooResId != 0) {
-                woohooSoundId = soundPool.load(ctx, woohooResId, 1)
+            // V5.9.350: Persona Studio can swap built-in sounds for user-picked
+            // MP3s stored at filesDir/custom_sounds/<slot>.mp3. We check for a
+            // valid user file FIRST; fall back to res/raw/<slot> if absent.
+            val customDir = java.io.File(ctx.filesDir, "custom_sounds")
+
+            fun tryLoadSlot(slot: String): Int {
+                val customFile = java.io.File(customDir, "$slot.mp3")
+                if (customFile.exists() && customFile.length() > 0) {
+                    try {
+                        val id = soundPool.load(customFile.absolutePath, 1)
+                        if (id > 0) {
+                            ErrorLogger.info("SoundManager", "🎵 Loaded CUSTOM $slot.mp3 (${customFile.length() / 1024}KB)")
+                            return id
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.warn("SoundManager", "custom $slot load failed: ${e.message}")
+                    }
+                }
+                val resId = ctx.resources.getIdentifier(slot, "raw", ctx.packageName)
+                return if (resId != 0) soundPool.load(ctx, resId, 1) else -1
             }
-            
-            // Try to load "Awesome!" for block events  
-            val awesomeResId = ctx.resources.getIdentifier("awesome", "raw", ctx.packageName)
-            if (awesomeResId != 0) {
-                awesomeSoundId = soundPool.load(ctx, awesomeResId, 1)
-            }
-            
-            // Try to load A+ setup alert sound
-            val aplusResId = ctx.resources.getIdentifier("aplus_alert", "raw", ctx.packageName)
-            if (aplusResId != 0) {
-                aplusAlertSoundId = soundPool.load(ctx, aplusResId, 1)
-            }
-            
+
+            woohooSoundId     = tryLoadSlot("woohoo")
+            awesomeSoundId    = tryLoadSlot("awesome")
+            aplusAlertSoundId = tryLoadSlot("aplus_alert")
+
             soundsLoaded = woohooSoundId > 0 || awesomeSoundId > 0 || aplusAlertSoundId > 0
             if (soundsLoaded) {
                 ErrorLogger.info("SoundManager", "Custom sounds loaded! 🎵 Woohoo!")

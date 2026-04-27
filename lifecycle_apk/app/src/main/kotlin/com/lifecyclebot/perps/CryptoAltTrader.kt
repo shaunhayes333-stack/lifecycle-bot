@@ -1834,12 +1834,32 @@ object CryptoAltTrader {
         // V5.9.136 — route outcome to the LLM Trade Score scoreboard if
         // this was a chat-triggered paper trade (marked by the reasons
         // prefix set in llmOpenPaperBuy).
+        // V5.9.350 — also route into the persona memory funnel so LLM chat
+        // trades drift the bot's traits, trigger milestones, and update the
+        // active persona's bio (this was previously meme-only).
         if (isPaperMode.get() && pos.reasons.any { it.startsWith("LLM chat:", ignoreCase = true) }) {
             try {
                 com.lifecyclebot.engine.LlmTradeScore.recordClose(
                     pnlSol = pnlSol,
                     pnlPct = pos.getPnlPct(),
                     symbol = pos.market.symbol,
+                )
+            } catch (_: Exception) {}
+            try {
+                val heldMin = ((System.currentTimeMillis() - pos.openTime) / 60_000L).toInt().coerceAtLeast(0)
+                val giveback = (pos.highestPnlPct - pos.getPnlPct()).coerceAtLeast(0.0)
+                com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
+                    pnlPct = pos.getPnlPct(),
+                    gaveBackFromPeakPct = giveback,
+                    heldMinutes = heldMin,
+                )
+                val ctx = com.lifecyclebot.engine.BotService.instance?.applicationContext
+                val personaId = if (ctx != null) {
+                    try { com.lifecyclebot.engine.Personalities.getActive(ctx).id } catch (_: Exception) { "aate" }
+                } else "aate"
+                com.lifecyclebot.engine.PersonalityMemoryStore.recordPersonaTrade(
+                    personaId = personaId,
+                    pnlPct    = pos.getPnlPct(),
                 )
             } catch (_: Exception) {}
         }

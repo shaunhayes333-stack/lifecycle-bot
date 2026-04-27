@@ -845,12 +845,22 @@ for legal compliance.
         try {
             findViewById<android.view.View>(R.id.btnOpenBehavior)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+            // V5.9.350: Long-press opens the Persona Studio (traits / memories / chat / sounds)
+            findViewById<android.view.View>(R.id.btnOpenBehavior)
+                ?.setOnLongClickListener {
+                    startActivity(android.content.Intent(this, PersonaStudioActivity::class.java)); true
+                }
         } catch (_: Exception) {}
         
         // V5.2: Quick Behavior Tile
         try {
             findViewById<android.view.View>(R.id.btnQuickBehavior)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
+            // V5.9.350: Long-press the quick tile also opens Persona Studio
+            findViewById<android.view.View>(R.id.btnQuickBehavior)
+                ?.setOnLongClickListener {
+                    startActivity(android.content.Intent(this, PersonaStudioActivity::class.java)); true
+                }
         } catch (_: Exception) {}
 
         // V5.9.14: Symbolic Telemetry row → opens Tuning (Sentient Mind panel)
