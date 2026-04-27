@@ -706,7 +706,91 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════
-                 V5.6.9: LIVE READINESS INDICATOR
+                 V5.9.348: PER-TRADER TABS (Meme / Crypto Alts / Perps)
+                 Header row above the readiness + 30-day cards so each tab
+                 swaps the data feeding those cards.
+                 ═══════════════════════════════════════════════════════════════ -->
+            <LinearLayout
+                android:id="@+id/cardTradersOverview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginStart="@dimen/screen_padding"
+                android:layout_marginEnd="@dimen/screen_padding"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="4dp">
+
+                <!-- Combined summary line across all traders -->
+                <TextView
+                    android:id="@+id/tvTradersSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🧠 All Traders: 0 trades · --% WR · 0.0000 SOL"
+                    android:textColor="#9CA3AF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:gravity="center"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="6dp"/>
+
+                <!-- Tab row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tabTraderMeme"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="💎 Meme"
+                        android:gravity="center"
+                        android:textColor="#000000"
+                        android:background="@drawable/pill_bg_green"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+
+                    <TextView
+                        android:id="@+id/tabTraderAlts"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🪙 Alts"
+                        android:gravity="center"
+                        android:textColor="#9CA3AF"
+                        android:background="@drawable/pill_bg"
+                        android:textSize="11sp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+
+                    <TextView
+                        android:id="@+id/tabTraderPerps"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="⚡ Perps"
+                        android:gravity="center"
+                        android:textColor="#9CA3AF"
+                        android:background="@drawable/pill_bg"
+                        android:textSize="11sp"
+                        android:paddingTop="6dp"
+                        android:paddingBottom="6dp"
+                        android:clickable="true"
+                        android:focusable="true"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 V5.6.9: LIVE READINESS INDICATOR (per-trader, driven by tabs)
                  Shows when paper trading performance is ready for live mode
                  ═══════════════════════════════════════════════════════════════ -->
             <LinearLayout

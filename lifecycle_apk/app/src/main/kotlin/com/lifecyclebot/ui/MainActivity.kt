@@ -377,6 +377,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewReadinessProgressBar: View
     private lateinit var tvReadinessRecommendation: TextView
 
+    // V5.9.348: Per-trader tabbed readiness ("MEME" | "ALTS" | "PERPS")
+    private var currentReadinessTab: String = "MEME"
+    private var tvTradersSummary: TextView? = null
+    private var tabTraderMeme: TextView? = null
+    private var tabTraderAlts: TextView? = null
+    private var tabTraderPerps: TextView? = null
+
     // settings
     private lateinit var etActiveToken: EditText
     private lateinit var spMode: Spinner
@@ -1081,6 +1088,16 @@ for legal compliance.
         tvReadinessProgress = try { findViewById(R.id.tvReadinessProgress) } catch (_: Exception) { TextView(this) }
         viewReadinessProgressBar = try { findViewById(R.id.viewReadinessProgressBar) } catch (_: Exception) { View(this) }
         tvReadinessRecommendation = try { findViewById(R.id.tvReadinessRecommendation) } catch (_: Exception) { TextView(this) }
+
+        // V5.9.348: Per-trader tab bindings (Meme/Alts/Perps)
+        tvTradersSummary = try { findViewById(R.id.tvTradersSummary) } catch (_: Exception) { null }
+        tabTraderMeme    = try { findViewById(R.id.tabTraderMeme) } catch (_: Exception) { null }
+        tabTraderAlts    = try { findViewById(R.id.tabTraderAlts) } catch (_: Exception) { null }
+        tabTraderPerps   = try { findViewById(R.id.tabTraderPerps) } catch (_: Exception) { null }
+        tabTraderMeme?.setOnClickListener  { selectReadinessTab("MEME") }
+        tabTraderAlts?.setOnClickListener  { selectReadinessTab("ALTS") }
+        tabTraderPerps?.setOnClickListener { selectReadinessTab("PERPS") }
+        applyTabStyles()
         
         // V5.2.8: Export button click listener
         btn30DayExport.setOnClickListener {
@@ -4321,6 +4338,16 @@ for legal compliance.
      * Shows balance, return, drawdown, trades, W/L/S, win rate, learning metrics, and integrity
      */
     private fun update30DayRunStats() {
+        // V5.9.348: Per-trader 30-day / lifetime stats card, driven by currentReadinessTab.
+        when (currentReadinessTab) {
+            "ALTS"  -> render30DayAlts()
+            "PERPS" -> render30DayPerps()
+            else    -> render30DayMeme()
+        }
+    }
+
+    /** V5.9.348: Meme 30-day proof run (native RunTracker30D). */
+    private fun render30DayMeme() {
         val tracker = com.lifecyclebot.engine.RunTracker30D
         
         // Show/hide card based on whether run is active
@@ -4384,6 +4411,106 @@ for legal compliance.
             integrity >= 80 -> green
             integrity >= 60 -> amber
             else -> red
+        })
+    }
+
+    /** V5.9.348: Alts "Lifetime" proof card (CryptoAltTrader has no 30-day window). */
+    private fun render30DayAlts() {
+        card30DayRun.visibility = View.VISIBLE
+        val stats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
+        val totalTrades   = (stats["totalTrades"]    as? Int)    ?: 0
+        val wins          = (stats["winningTrades"]  as? Int)    ?: 0
+        val losses        = (stats["losingTrades"]   as? Int)    ?: 0
+        val paperBalance  = (stats["paperBalance"]   as? Double) ?: 0.0
+        val openPositions = (stats["openPositions"]  as? Int)    ?: 0
+        val phaseLabel    = (stats["learningPhase"]  as? String) ?: "BOOTSTRAP"
+        val initialBalance = try { com.lifecyclebot.perps.CryptoAltTrader.getInitialBalance() } catch (_: Exception) { paperBalance }
+
+        tv30DayCounter.text = "🪙 ALTS · LIFETIME"
+        tv30DayBalance.text = String.format("%.4f SOL", paperBalance)
+        val returnPct = if (initialBalance > 0) ((paperBalance - initialBalance) / initialBalance) * 100 else 0.0
+        val sign = if (returnPct >= 0) "+" else ""
+        tv30DayReturn.text = "$sign${String.format("%.2f", returnPct)}%"
+        tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
+
+        tv30DayDrawdown.text = "N/A"
+        tv30DayDrawdown.setTextColor(muted)
+
+        tv30DayTrades.text = totalTrades.toString()
+        tv30DayWLS.text = "$wins / $losses / 0"
+
+        val meaningful = wins + losses
+        val winRate = if (meaningful > 0) (wins * 100 / meaningful) else 0
+        tv30DayWinRate.text = "$winRate%"
+        tv30DayWinRate.setTextColor(when {
+            winRate >= 60 -> green
+            winRate >= 45 -> amber
+            else -> red
+        })
+
+        tv30DayLearning.text = phaseLabel
+        tv30DayAccuracy.text = "$winRate%"
+        tv30DayAccuracy.setTextColor(when {
+            winRate >= 60 -> green
+            winRate >= 45 -> amber
+            else -> red
+        })
+        tv30DayIntegrity.text = openPositions.toString()
+        tv30DayIntegrity.setTextColor(Color.parseColor("#00BFFF"))
+    }
+
+    /** V5.9.348: Perps "Lifetime" proof card (PerpsTraderAI has no native 30-day window). */
+    private fun render30DayPerps() {
+        card30DayRun.visibility = View.VISIBLE
+        val perps = com.lifecyclebot.perps.PerpsTraderAI
+        val trades       = try { perps.getLifetimeTrades() } catch (_: Exception) { 0 }
+        val wins         = try { perps.getLifetimeWins() } catch (_: Exception) { 0 }
+        val losses       = try { perps.getLifetimeLosses() } catch (_: Exception) { 0 }
+        val balance      = try { perps.getBalance() } catch (_: Exception) { 0.0 }
+        val learningPct  = try { perps.getLearningProgress() } catch (_: Exception) { 0 }
+        val discipline   = try { perps.getDisciplineScore() } catch (_: Exception) { 0 }
+        val readiness    = try { perps.getLiveReadiness() } catch (_: Exception) { null }
+
+        tv30DayCounter.text = "⚡ PERPS · LIFETIME"
+        tv30DayBalance.text = String.format("%.4f SOL", balance)
+
+        val returnPct = readiness?.paperPnlPct ?: 0.0
+        val sign = if (returnPct >= 0) "+" else ""
+        tv30DayReturn.text = "$sign${String.format("%.2f", returnPct)}%"
+        tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
+
+        val maxDD = readiness?.maxDrawdownPct ?: 0.0
+        tv30DayDrawdown.text = String.format("%.1f%%", maxDD)
+        tv30DayDrawdown.setTextColor(when {
+            maxDD <= 10.0 -> green
+            maxDD <= 25.0 -> amber
+            else          -> red
+        })
+
+        tv30DayTrades.text = trades.toString()
+        tv30DayWLS.text = "$wins / $losses / 0"
+
+        val meaningful = wins + losses
+        val winRate = if (meaningful > 0) (wins * 100 / meaningful) else 0
+        tv30DayWinRate.text = "$winRate%"
+        tv30DayWinRate.setTextColor(when {
+            winRate >= 55 -> green
+            winRate >= 45 -> amber
+            else -> red
+        })
+
+        tv30DayLearning.text = "$learningPct%"
+        tv30DayAccuracy.text = "$discipline"
+        tv30DayAccuracy.setTextColor(when {
+            discipline >= 70 -> green
+            discipline >= 50 -> amber
+            else             -> red
+        })
+        tv30DayIntegrity.text = (readiness?.readinessScore ?: 0).toString()
+        tv30DayIntegrity.setTextColor(when {
+            (readiness?.readinessScore ?: 0) >= 70 -> green
+            (readiness?.readinessScore ?: 0) >= 50 -> amber
+            else                                    -> red
         })
     }
     
@@ -4450,17 +4577,29 @@ This cannot be undone!
      */
     private fun updateLiveReadiness() {
         try {
-            // V5.9.220: Profitability-gated live readiness.
-            // READY requires ALL of:
-            //   1. >= 500 meaningful trades (W+L)
-            //   2. Win rate >= 50% (breakeven threshold at typical ~1:1 R:R)
-            //   3. Profit factor >= 1.3 (total gross wins / total gross losses)
-            //   4. Total realized PnL > 0 (actually made money, not just high WR)
-            //
-            // Rationale: 33% WR is deeply unprofitable at any normal R:R ratio.
-            // A bot needs >50% WR at 1:1, or >40% at 1.5:1 to be consistently profitable.
-            // We use 50% as the floor because avg win (~+8%) ≈ avg loss (~-6%) in practice.
+            // V5.9.348: Route to the selected trader tab (MEME / ALTS / PERPS)
+            updateTradersSummary()
+            when (currentReadinessTab) {
+                "ALTS"  -> renderAltsReadiness()
+                "PERPS" -> renderPerpsReadiness()
+                else    -> renderMemeReadiness()
+            }
 
+            // Hide card if in live mode (already trading live)
+            try {
+                val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
+                val isPaperMode = prefs.getBoolean("paper_mode", true)
+                cardLiveReadiness.visibility = if (isPaperMode) View.VISIBLE else View.GONE
+            } catch (_: Exception) {
+                cardLiveReadiness.visibility = View.VISIBLE
+            }
+        } catch (_: Exception) {
+            // Silently fail — non-critical UI
+        }
+    }
+
+    /** V5.9.348: Meme trader readiness — original TradeHistoryStore logic. */
+    private fun renderMemeReadiness() {
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
             val totalTrades = stats.totalStoredTrades
             val meaningfulTrades = stats.totalWins + stats.totalLosses
@@ -4570,24 +4709,257 @@ This cannot be undone!
                     tvReadinessRecommendation.setTextColor(red)
                 }
             }
-            
-            // Hide card if in live mode (already trading live)
-            // V5.9.41: key is "paper_mode" in BotConfig, not "paperMode"
-            try {
-                val prefs = getSharedPreferences("bot_config", MODE_PRIVATE)
-                val isPaperMode = prefs.getBoolean("paper_mode", true)
-                if (!isPaperMode) {
-                    cardLiveReadiness.visibility = View.GONE
-                } else {
-                    cardLiveReadiness.visibility = View.VISIBLE
-                }
-            } catch (_: Exception) {
-                cardLiveReadiness.visibility = View.VISIBLE
+    }
+
+    /** V5.9.348: Crypto Alts trader readiness — uses CryptoAltTrader.getStats(). */
+    private fun renderAltsReadiness() {
+        val stats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
+        val totalTrades    = (stats["totalTrades"] as? Int) ?: 0
+        val wins           = (stats["winningTrades"] as? Int) ?: 0
+        val losses         = (stats["losingTrades"] as? Int) ?: 0
+        val meaningfulTrades = wins + losses
+        val winRate        = (stats["winRate"] as? Double) ?: 0.0
+        val totalPnlSol    = (stats["totalPnlSol"] as? Double) ?: 0.0
+        val phase          = (stats["learningPhase"] as? String) ?: "BOOTSTRAP"
+
+        // Alts readiness thresholds (mirrors CryptoAltTrader.isLiveReady)
+        val WR_READY      = 52.0
+        val WR_ALMOST     = 48.0
+        val TRADES_READY  = 5000
+        val TRADES_ALMOST = 1500
+
+        val isProfitable   = totalPnlSol > 0.0
+        val isReady        = meaningfulTrades >= TRADES_READY && winRate >= WR_READY && isProfitable
+        val isAlmostReady  = meaningfulTrades >= TRADES_ALMOST && winRate >= WR_ALMOST
+
+        val tradesScore  = minOf(meaningfulTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 50.0
+        val winRateScore = minOf(winRate / WR_READY, 1.0) * 40.0
+        val pnlScore     = if (isProfitable) 10.0 else 0.0
+        val readinessScore = (tradesScore + winRateScore + pnlScore).toInt().coerceIn(0, 100)
+
+        tvReadinessWinRate.text = if (totalTrades > 0) "${winRate.toInt()}%" else "--"
+        tvReadinessWinRate.setTextColor(when {
+            winRate >= WR_READY  -> green
+            winRate >= WR_ALMOST -> amber
+            else                 -> red
+        })
+
+        tvReadinessTrades.text = totalTrades.toString()
+        tvReadinessTrades.setTextColor(when {
+            totalTrades >= TRADES_READY  -> green
+            totalTrades >= TRADES_ALMOST -> amber
+            else                         -> white
+        })
+
+        tvReadinessPhase.text = phase
+        tvReadinessPhase.setTextColor(Color.parseColor("#9945FF"))
+
+        tvReadinessProgress.text = "$readinessScore%"
+        val params = viewReadinessProgressBar.layoutParams
+        val parent = viewReadinessProgressBar.parent as? FrameLayout
+        if (parent != null) {
+            val maxWidth = parent.width
+            if (maxWidth > 0) {
+                params.width = (maxWidth * readinessScore / 100)
+                viewReadinessProgressBar.layoutParams = params
             }
-            
-        } catch (e: Exception) {
-            // Silently fail - non-critical UI
         }
+
+        when {
+            isReady -> {
+                tvLiveReadinessBadge.text = "READY"
+                tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                tvReadinessRecommendation.text = "✅ Crypto Alts profitable in paper. Safe for live."
+                tvReadinessRecommendation.setTextColor(green)
+            }
+            isAlmostReady -> {
+                tvLiveReadinessBadge.text = "ALMOST"
+                tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                val needed = mutableListOf<String>()
+                if (meaningfulTrades < TRADES_READY) needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
+                if (!isProfitable)                   needed.add("positive PnL")
+                tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.setTextColor(amber)
+            }
+            else -> {
+                tvLiveReadinessBadge.text = "NOT READY"
+                tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                val needed = mutableListOf<String>()
+                if (meaningfulTrades < TRADES_READY) needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
+                if (!isProfitable)                   needed.add("positive PnL")
+                tvReadinessRecommendation.text = "🚫 Alts learning. ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.setTextColor(red)
+            }
+        }
+    }
+
+    /** V5.9.348: Perps trader readiness — uses PerpsTraderAI.getLiveReadiness(). */
+    private fun renderPerpsReadiness() {
+        val r = try { com.lifecyclebot.perps.PerpsTraderAI.getLiveReadiness() } catch (_: Exception) { null }
+        if (r == null) {
+            tvReadinessWinRate.text = "--"
+            tvReadinessTrades.text  = "0"
+            tvReadinessPhase.text   = "LEARNING"
+            tvReadinessProgress.text = "0%"
+            tvLiveReadinessBadge.text = "NOT READY"
+            tvLiveReadinessBadge.setTextColor(Color.WHITE)
+            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+            tvReadinessRecommendation.text = "📚 Perps engine not initialised yet."
+            tvReadinessRecommendation.setTextColor(muted)
+            return
+        }
+
+        val winRate  = r.paperWinRate
+        val trades   = r.paperTrades
+        val score    = r.readinessScore
+
+        tvReadinessWinRate.text = if (trades > 0) "${winRate.toInt()}%" else "--"
+        tvReadinessWinRate.setTextColor(when {
+            winRate >= 55.0 -> green
+            winRate >= 45.0 -> amber
+            else            -> red
+        })
+
+        tvReadinessTrades.text = trades.toString()
+        tvReadinessTrades.setTextColor(when {
+            trades >= 100 -> green
+            trades >= 30  -> amber
+            else          -> white
+        })
+
+        val phaseLabel = r.phase.name.lowercase().replaceFirstChar { it.uppercase() }
+        tvReadinessPhase.text = phaseLabel
+        tvReadinessPhase.setTextColor(when (r.phase) {
+            com.lifecyclebot.perps.ReadinessPhase.READY      -> green
+            com.lifecyclebot.perps.ReadinessPhase.PRACTICING -> Color.parseColor("#00BFFF")
+            com.lifecyclebot.perps.ReadinessPhase.CAUTION    -> red
+            else                                              -> amber
+        })
+
+        tvReadinessProgress.text = "$score%"
+        val params = viewReadinessProgressBar.layoutParams
+        val parent = viewReadinessProgressBar.parent as? FrameLayout
+        if (parent != null) {
+            val maxWidth = parent.width
+            if (maxWidth > 0) {
+                params.width = (maxWidth * score / 100)
+                viewReadinessProgressBar.layoutParams = params
+            }
+        }
+
+        when (r.phase) {
+            com.lifecyclebot.perps.ReadinessPhase.READY -> {
+                tvLiveReadinessBadge.text = "READY"
+                tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                tvReadinessRecommendation.text = r.recommendation
+                tvReadinessRecommendation.setTextColor(green)
+            }
+            com.lifecyclebot.perps.ReadinessPhase.PRACTICING -> {
+                tvLiveReadinessBadge.text = "ALMOST"
+                tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                tvReadinessRecommendation.text = r.recommendation
+                tvReadinessRecommendation.setTextColor(amber)
+            }
+            com.lifecyclebot.perps.ReadinessPhase.CAUTION -> {
+                tvLiveReadinessBadge.text = "CAUTION"
+                tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                tvReadinessRecommendation.text = r.recommendation
+                tvReadinessRecommendation.setTextColor(red)
+            }
+            else -> {
+                tvLiveReadinessBadge.text = "LEARNING"
+                tvLiveReadinessBadge.setTextColor(Color.BLACK)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                tvReadinessRecommendation.text = r.recommendation
+                tvReadinessRecommendation.setTextColor(amber)
+            }
+        }
+    }
+
+    /** V5.9.348: Switch active readiness tab & refresh both readiness + 30-day cards. */
+    private fun selectReadinessTab(tab: String) {
+        if (currentReadinessTab == tab) return
+        currentReadinessTab = tab
+        applyTabStyles()
+        try { updateLiveReadiness() } catch (_: Exception) { }
+        try { update30DayRunStats()  } catch (_: Exception) { }
+        try { performHaptic() } catch (_: Exception) { }
+    }
+
+    /** V5.9.348: Highlight the selected trader tab pill. */
+    private fun applyTabStyles() {
+        val tabs = listOf(
+            "MEME"  to tabTraderMeme,
+            "ALTS"  to tabTraderAlts,
+            "PERPS" to tabTraderPerps,
+        )
+        tabs.forEach { (key, tv) ->
+            val t = tv ?: return@forEach
+            if (key == currentReadinessTab) {
+                t.setBackgroundResource(R.drawable.pill_bg_green)
+                t.setTextColor(Color.BLACK)
+                t.setTypeface(null, android.graphics.Typeface.BOLD)
+            } else {
+                t.setBackgroundResource(R.drawable.pill_bg)
+                t.setTextColor(Color.parseColor("#9CA3AF"))
+                t.setTypeface(null, android.graphics.Typeface.NORMAL)
+            }
+        }
+    }
+
+    /** V5.9.348: Combined summary line across Meme + Alts + Perps. */
+    private fun updateTradersSummary() {
+        try {
+            val tv = tvTradersSummary ?: return
+            // Meme
+            val memeStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val memeWins   = memeStats.totalWins
+            val memeLosses = memeStats.totalLosses
+            val memeTrades = memeWins + memeLosses
+            val memePnl    = memeStats.totalPnlSol
+            // Alts
+            val altsStats = try { com.lifecyclebot.perps.CryptoAltTrader.getStats() } catch (_: Exception) { emptyMap<String, Any>() }
+            val altsWins   = (altsStats["winningTrades"] as? Int) ?: 0
+            val altsLosses = (altsStats["losingTrades"] as? Int) ?: 0
+            val altsTrades = altsWins + altsLosses
+            val altsPnl    = (altsStats["totalPnlSol"] as? Double) ?: 0.0
+            // Perps
+            var perpsTrades = 0
+            var perpsWins   = 0
+            var perpsLosses = 0
+            var perpsPnl    = 0.0
+            try {
+                perpsTrades = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades()
+                perpsWins   = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWins()
+                perpsLosses = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeLosses()
+                perpsPnl    = com.lifecyclebot.perps.PerpsTraderAI.getLifetimePnlSol()
+            } catch (_: Exception) { }
+
+            val totalTrades = memeTrades + altsTrades + perpsTrades
+            val totalWins   = memeWins + altsWins + perpsWins
+            val totalLoss   = memeLosses + altsLosses + perpsLosses
+            val totalDecisive = totalWins + totalLoss
+            val blendedWR = if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
+            val totalPnl  = memePnl + altsPnl + perpsPnl
+
+            val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
+            val pnlSign = if (totalPnl >= 0) "+" else ""
+            tv.text = "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
+            tv.setTextColor(when {
+                blendedWR >= 50.0 -> green
+                blendedWR >= 45.0 -> amber
+                totalDecisive == 0 -> Color.parseColor("#9CA3AF")
+                else              -> red
+            })
+        } catch (_: Exception) { }
     }
 
     private fun renderTrades(trades: List<Trade>) {
