@@ -384,20 +384,24 @@ class BotService : Service() {
         // V5.7.3: Start ALL market traders — ALWAYS run when bot is active
         // V5.7.7: Apply individual sub-trader enabled flags from config before starting
         // V5.9.340: MARKET_TRADER_KILL_SWITCH overrides every Markets sub-trader.
-        // When true, all markets stay disabled regardless of cfg — used to
-        // isolate the meme trader while we rewire the AATE scoring stack.
+        // V5.9.345: User directive — "look at the AATE alts trader, it trades
+        // heaps and has good win rate." Keep kill-switch for Perps / Stocks /
+        // Commodities / Metals / Forex, but EXEMPT CryptoAlts so it resumes
+        // full operation. Alts has a separate scanner + its own trust hooks
+        // and was producing +52% WR in the Strategy Trust log pre-kill.
         val marketsStartCfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
         val marketsKill = MARKET_TRADER_KILL_SWITCH
         if (marketsKill) {
-            ErrorLogger.warn("BotService", "🛑 MARKET_TRADER_KILL_SWITCH=ON — all Markets sub-traders forced OFF (meme + copy only)")
-            addLog("🛑 Market Trader disabled (kill-switch) — rewiring AATE to 1920-1947 behavior")
+            ErrorLogger.warn("BotService", "🛑 MARKET_TRADER_KILL_SWITCH=ON (excl. Alts) — Perps/Stocks/Commodities/Metals/Forex forced OFF")
+            addLog("🛑 Market Trader disabled (kill-switch) — Alts re-enabled per user directive")
         }
         com.lifecyclebot.perps.PerpsTraderAI.setEnabled(!marketsKill && marketsStartCfg.perpsEnabled)
         com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(!marketsKill && marketsStartCfg.stocksEnabled)
         com.lifecyclebot.perps.CommoditiesTrader.setEnabled(!marketsKill && marketsStartCfg.commoditiesEnabled)
         com.lifecyclebot.perps.MetalsTrader.setEnabled(!marketsKill && marketsStartCfg.metalsEnabled)
         com.lifecyclebot.perps.ForexTrader.setEnabled(!marketsKill && marketsStartCfg.forexEnabled)
-        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(!marketsKill && marketsStartCfg.cryptoAltsEnabled)
+        // V5.9.345: Alts bypasses kill-switch — user wants it running.
+        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
 
         try {
             com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
@@ -3209,8 +3213,8 @@ class BotService : Service() {
                         com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
                         addLog("⚡ Markets engine restarted by watchdog")
                     }
-                    // CryptoAltTrader watchdog — only if enabled
-                    if (!MARKET_TRADER_KILL_SWITCH && cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                    // CryptoAltTrader watchdog — only if enabled (V5.9.345: exempt from kill-switch)
+                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()

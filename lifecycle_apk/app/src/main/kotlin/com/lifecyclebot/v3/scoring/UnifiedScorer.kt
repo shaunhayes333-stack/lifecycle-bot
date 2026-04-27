@@ -131,23 +131,32 @@ class UnifiedScorer(
         val allComponents = baseComponents + collectiveComponent
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.9.344 — ACCURACY-WEIGHTED SCORING (no muting)
-        // Multiplies each component's value by a weight derived from that
-        // layer's smoothed accuracy. Per user directive "don't mute layers":
-        // weight is floored at 0.7 (a layer at 0% accuracy still contributes
-        // 70% of its vote) and capped at 1.5 (a layer at 100% accuracy
-        // contributes 150%). Layers with no data yet sit at 0.5 prior → 1.0
-        // weight (identity). As layers diverge, good ones naturally carry
-        // more weight and bad ones less — without silencing anyone.
+        // V5.9.345 — ACCURACY-BOOST SCORING (ONE-SIDED, TRUE NO-MUTE)
+        //
+        // V5.9.344 regression: the two-sided formula (0.7-1.5 around 0.5
+        // accuracy) multiplied every component by ~0.83-0.86 when all layers
+        // were converged at 16-20% accuracy, compressing total scores below
+        // the FDG floor and collapsing 24h volume from 200→5 trades. That
+        // was an effective mute in aggregate, violating the user directive.
+        //
+        // This formula is strictly one-sided:
+        //   accuracy ≤ 0.50  →  weight = 1.00  (identity, no change)
+        //   accuracy 0.55    →  weight = 1.05
+        //   accuracy 0.70    →  weight = 1.20
+        //   accuracy 1.00    →  weight = 1.50
+        //
+        // Layers at ANY accuracy contribute their full raw vote. Only
+        // genuinely above-random layers amplify the signal. No downspiral
+        // is mathematically possible.
         // ═══════════════════════════════════════════════════════════════════
         val weightedComponents = allComponents.map { comp ->
             val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
-            val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
-            val weight   = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
-            val newValue = (comp.value * weight).toInt()
-            if (comp.value != 0 && newValue != comp.value) {
-                comp.copy(value = newValue, reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
-            } else comp
+            val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
+            val weight    = (1.0 + ((accuracy - 0.5).coerceAtLeast(0.0) * 1.0)).coerceAtMost(1.5)
+            if (weight > 1.01 && comp.value != 0) {
+                val newValue = (comp.value * weight).toInt()
+                comp.copy(value = newValue, reason = "${comp.reason} [boost=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
+            } else comp  // identity at accuracy ≤ 50% — no mute, no change
         }
 
         // MetaCognitionAI — same logic as build ~1920 (soft veto, no fatal in bootstrap)
