@@ -155,6 +155,47 @@ class UnifiedScorer(
         // V5.9.158: the V5.9.123 stack is still bypassed during bootstrap
         // (<40%), and once it re-engages at mature phase its negative votes
         // are fluid-scaled by newLayerNegScale (see top of fn).
+        // V5.9.325 — GENERATION EQUALIZATION
+        // The outer ring (V5.9.123 layers) was added AFTER the inner ring had accumulated
+        // extensive trading history. Without equalization, inner layers get downgraded by
+        // MuteBoost/TrustNet based on real performance data, while outer layers vote at
+        // full strength (no data to be evaluated by). This creates an unintended priority
+        // flip: newer outer layers dominate over proven inner layers.
+        //
+        // Fix: scale outer ring votes by (outerAvgSamples / innerAvgSamples) coerced to
+        // [0.5, 1.0]. Outer ring starts at 50% influence and earns full weight proportionally
+        // as its sample count catches up to the inner ring's average.
+        // Once outer has equal history to inner → ramp = 1.0 → full equal weight.
+        val genEqRamp: Double = try {
+            val outerRingNames = listOf(
+                "CorrelationHedgeAI", "LiquidityExitPathAI", "MEVDetectionAI",
+                "StablecoinFlowAI", "OperatorFingerprintAI", "SessionEdgeAI",
+                "ExecutionCostPredictorAI", "DrawdownCircuitAI", "CapitalEfficiencyAI",
+                "TokenDNAClusteringAI", "PeerAlphaVerificationAI", "NewsShockAI",
+                "FundingRateAwarenessAI", "OrderbookImbalancePulseAI",
+            )
+            val innerRingNames = listOf(
+                "MomentumPredictorAI", "NarrativeDetectorAI", "TimeOptimizationAI",
+                "LiquidityDepthAI", "MarketRegimeAI", "TokenWinMemory",
+                "VolatilityRegimeAI", "OrderFlowImbalanceAI", "SmartMoneyDivergenceAI",
+                "LiquidityCycleAI", "FearGreedAI", "HoldTimeOptimizerAI",
+                "InsiderTrackerAI",
+            )
+            val outerAvg = EducationSubLayerAI.getAverageSampleCount(outerRingNames)
+            val innerAvg = EducationSubLayerAI.getAverageSampleCount(innerRingNames)
+            if (innerAvg < 5.0) 1.0  // no inner data yet — treat equally
+            else (outerAvg / innerAvg).coerceIn(0.5, 1.0)
+        } catch (_: Exception) { 1.0 }  // fail-safe: equal weight
+
+        fun genEqScale(c: ScoreComponent): ScoreComponent {
+            if (genEqRamp >= 1.0) return c  // fully caught up — no scaling needed
+            val scaled = (c.value * genEqRamp).toInt()
+            return if (scaled == c.value) c else c.copy(
+                value = scaled,
+                reason = "${c.reason} | GENEQ×${"%.2f".format(genEqRamp)}"
+            )
+        }
+
         val preTrust = if (bootstrapBypass) classic27 else (classic27 + listOf(
             // V5.9.123 — Layers 28-42: correlation + exit-path + meta-trust
             // + macro + DNA + operator + session + drawdown + capital-efficiency
@@ -174,7 +215,7 @@ class UnifiedScorer(
             NewsShockAI.score(candidate, ctx),
             FundingRateAwarenessAI.score(candidate, ctx),
             OrderbookImbalancePulseAI.score(candidate, ctx),
-        ).map { fluidScale(it) })
+        ).map { fluidScale(genEqScale(it)) })  // V5.9.325: genEqScale before fluidScale
 
         // V5.9.154 — BOOTSTRAP BYPASS: restore the V5.9.108 (build ~#1915)
         // memetrader behaviour the user is asking for. During bootstrap the

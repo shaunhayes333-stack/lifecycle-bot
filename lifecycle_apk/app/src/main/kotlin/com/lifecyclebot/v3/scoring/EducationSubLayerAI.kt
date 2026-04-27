@@ -1450,9 +1450,36 @@ object EducationSubLayerAI {
 
         val m = layerPerformance[layerName] ?: return Triple(vote, 1.0, "NORMAL")
         val trades = m.totalOutcomesRecorded
-        val MIN_TRADES = 20
 
-        if (trades < MIN_TRADES) return Triple(vote, 1.0, "NORMAL")
+        // V5.9.325: Two-tier MIN_TRADES to prevent outer ring from having priority
+        // over inner ring due to sampling asymmetry.
+        // Outer ring layers (added in V5.9.123) have fewer accumulated samples than
+        // the original inner ring layers. Using the same MIN_TRADES threshold means
+        // inner layers get muted/penalized by early-learning noise while outer layers
+        // pass through at full strength (NORMAL ×1.0) — creating a false priority.
+        // Fix: outer ring needs 50 samples before evaluation; inner ring stays at 20.
+        val OUTER_RING_LAYERS = setOf(
+            "CorrelationHedgeAI", "LiquidityExitPathAI", "MEVDetectionAI",
+            "StablecoinFlowAI", "OperatorFingerprintAI", "SessionEdgeAI",
+            "ExecutionCostPredictorAI", "DrawdownCircuitAI", "CapitalEfficiencyAI",
+            "TokenDNAClusteringAI", "PeerAlphaVerificationAI", "NewsShockAI",
+            "FundingRateAwarenessAI", "OrderbookImbalancePulseAI",
+        )
+        val MIN_TRADES = if (layerName in OUTER_RING_LAYERS) 50 else 20
+
+        // V5.9.325: While outer ring is still warming up (< MIN_TRADES), apply a
+        // proportional "newcomer discount" instead of full-strength NORMAL ×1.0.
+        // Scale: 0 samples → ×0.5, 50 samples → ×1.0. Linear ramp.
+        // This ensures outer ring starts with HALF the influence of proven inner layers
+        // and earns equal weight only once it has enough data to be fairly evaluated.
+        if (trades < MIN_TRADES) {
+            if (layerName in OUTER_RING_LAYERS) {
+                val ramp = 0.5 + 0.5 * (trades.toDouble() / MIN_TRADES)  // 0.5..1.0
+                val scaled = (vote * ramp).toInt()
+                return Triple(scaled, ramp, "NEWCOMER")
+            }
+            return Triple(vote, 1.0, "NORMAL")
+        }
 
         val edge = getLayerAccuracy(layerName)   // Bayesian-smoothed, 0..1
         val relaxation = getBootstrapRelaxation() // 0.30..1.00
@@ -1485,6 +1512,16 @@ object EducationSubLayerAI {
         val heavyBoost:  List<String>,
     )
 
+    /**
+     * V5.9.325 — Generation equalization helper.
+     * Returns the average totalOutcomesRecorded across a list of layer names.
+     * Used by UnifiedScorer to compute the outer/inner ring sample ratio.
+     */
+    fun getAverageSampleCount(layerNames: List<String>): Double {
+        val counts = layerNames.mapNotNull { layerPerformance[it]?.totalOutcomesRecorded }
+        return if (counts.isEmpty()) 0.0 else counts.average()
+    }
+
     fun getMuteBoostStatus(): MuteBoostStatus {
         // V5.9.320 — auto-mute re-enabled. Report real gate states.
         val muted       = mutableListOf<String>()
@@ -1493,9 +1530,17 @@ object EducationSubLayerAI {
         val heavyBoost  = mutableListOf<String>()  // kept for compat, not used in V5.9.320
         val relaxation  = getBootstrapRelaxation()
 
+        val outerRingLayers = setOf(
+            "CorrelationHedgeAI", "LiquidityExitPathAI", "MEVDetectionAI",
+            "StablecoinFlowAI", "OperatorFingerprintAI", "SessionEdgeAI",
+            "ExecutionCostPredictorAI", "DrawdownCircuitAI", "CapitalEfficiencyAI",
+            "TokenDNAClusteringAI", "PeerAlphaVerificationAI", "NewsShockAI",
+            "FundingRateAwarenessAI", "OrderbookImbalancePulseAI",
+        )
         for (name in REGISTERED_LAYERS) {
             val m = layerPerformance[name] ?: continue
-            if (m.totalOutcomesRecorded < 20) continue
+            val minT = if (name in outerRingLayers) 50 else 20  // V5.9.325: two-tier
+            if (m.totalOutcomesRecorded < minT) continue
             val edge = getLayerAccuracy(name)
             when {
                 edge < 0.33 && relaxation >= 0.75 -> muted.add(name)

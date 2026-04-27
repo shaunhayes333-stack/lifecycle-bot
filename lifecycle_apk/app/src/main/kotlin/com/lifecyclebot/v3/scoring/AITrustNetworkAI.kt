@@ -81,8 +81,28 @@ object AITrustNetworkAI {
         return (value * stat.trustWeight()).toInt()
     }
 
+    // V5.9.325: outer ring layers that were added AFTER the original inner ring
+    // have fewer accumulated samples. Using the same 20-sample floor means inner
+    // layers can be downgraded (trust < 1.0) while outer layers stay pinned at
+    // the neutral 1.0 default — creating an unintended positive priority for outer.
+    // Fix: outer ring needs 50 decisive samples before trust can diverge from 1.0.
+    private val OUTER_RING_LAYER_NAMES = setOf(
+        "correlationhedgeai", "liquidityexitpathai", "mevdetectionai",
+        "stablecoinflowai", "operatorfingerprintai", "sessionedgeai",
+        "executioncostpredictorai", "drawdowncircuitai", "capitalefficiencyai",
+        "tokendnaclusteringai", "peeralphaverificationai", "newsshockai",
+        "fundingrateawarenessai", "orderbookimbalancepulseai",
+    )
+
     fun getTrustWeight(layerName: String): Double {
-        return stats[layerName]?.trustWeight() ?: 1.0
+        val stat = stats[layerName] ?: return 1.0
+        val decisiveSamples = stat.samplesInWindow.count { it >= 0 }
+        // V5.9.325: outer ring needs 50 decisive samples (inner needs 20) before
+        // trust can be adjusted from neutral 1.0. Without this, inner layers that
+        // underperform get downgraded while outer layers stay at 1.0 "by default."
+        val minSamples = if (layerName.lowercase() in OUTER_RING_LAYER_NAMES) 50 else 20
+        if (decisiveSamples < minSamples) return 1.0
+        return stat.trustWeight()
     }
 
     /**
