@@ -20,7 +20,7 @@ object MemeLossStreakGuard {
     private const val BLOCK_DURATION_MS = 60L * 60_000L  // 1 hour
 
     private data class Entry(
-        val recent: ArrayDeque<Boolean> = ArrayDeque(),  // true = loss
+        val recent: java.util.ArrayDeque<Boolean> = java.util.ArrayDeque(),  // true = loss
         @Volatile var blockUntilMs: Long = 0L,
     )
 
