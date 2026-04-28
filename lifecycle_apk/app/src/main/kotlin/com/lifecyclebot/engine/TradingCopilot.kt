@@ -283,11 +283,12 @@ object TradingCopilot {
         }
     }
 
-    // ─── V5.9.354 — Active layer-shake state ─────────────────────────────
+    // ─── V5.9.354 / V5.9.356 — Active layer-shake state ──────────────────
     @Volatile private var poisonedSinceMs: Long = 0L
     @Volatile private var lastShakeMs: Long = 0L
     private val POISON_DWELL_MS  = 20L * 60_000L  // need 20min sustained POISONED
-    private val SHAKE_COOLDOWN_MS = 60L * 60_000L // don't shake more than 1×/hour
+    private val SHAKE_COOLDOWN_MS = 60L * 60_000L // default 1×/hour
+    private val SHAKE_COOLDOWN_FAST_MS = 30L * 60_000L  // V5.9.356: 30min when severely lost
 
     private fun maybeShakeLayers(d: Directive, tradesObserved: Int) {
         val now = System.currentTimeMillis()
@@ -300,13 +301,28 @@ object TradingCopilot {
             return
         }
         if (now - poisonedSinceMs < POISON_DWELL_MS) return
-        if (now - lastShakeMs < SHAKE_COOLDOWN_MS) return
         if (tradesObserved < 50) return  // don't fire during early bootstrap
-        val shaken = com.lifecyclebot.v3.scoring.EducationSubLayerAI.shakeWeakLayers(severity = 0.5)
+
+        // V5.9.356: Adaptive shake severity + cooldown.
+        // When the brain is severely lost (avg accuracy < 40% over 200+
+        // trades — proven worse than random) we ramp from severity 0.5 →
+        // 0.8 and cooldown 60min → 30min. Healthy regimes still get the
+        // gentle once-per-hour nudge.
+        val avgAcc = try {
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+                .values.map { it.smoothedAccuracy }.average()
+        } catch (_: Exception) { 0.5 }
+        val severelyLost = tradesObserved >= 200 && avgAcc < 0.40
+        val cooldown = if (severelyLost) SHAKE_COOLDOWN_FAST_MS else SHAKE_COOLDOWN_MS
+        val severity = if (severelyLost) 0.8 else 0.5
+        if (now - lastShakeMs < cooldown) return
+
+        val shaken = com.lifecyclebot.v3.scoring.EducationSubLayerAI.shakeWeakLayers(severity = severity)
         if (shaken > 0) {
             ErrorLogger.warn(TAG,
                 "🔧 COPILOT INTERVENTION: $shaken poisoned layers nudged toward 0.5 prior after " +
-                "${(now - poisonedSinceMs) / 60_000}min sustained POISONED state."
+                "${(now - poisonedSinceMs) / 60_000}min POISONED · severity=${"%.1f".format(severity)} " +
+                "(avgAcc=${(avgAcc * 100).toInt()}% · ${if (severelyLost) "AGGRESSIVE" else "GENTLE"})"
             )
             lastShakeMs = now
             poisonedSinceMs = now  // reset dwell after shake

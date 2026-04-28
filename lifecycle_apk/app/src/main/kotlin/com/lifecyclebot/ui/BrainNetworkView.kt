@@ -297,14 +297,19 @@ class BrainNetworkView @JvmOverloads constructor(
                 layer.levelIcon = m.level.icon
                 layer.levelProgress = m.levelProgress
                 layer.trades = m.trades
-                // V5.9.313: REVERT V5.9.190 — node color = LEARNING progression
-                // (direction accuracy), NOT trade P&L. A layer that calls
-                // direction 70% right but only earns +0.2% per trade after fees
-                // is still a well-LEARNED layer; its profitability is shown
-                // separately in the LLM/Sentient Mind chat's expectancy stats.
-                // smoothedAccuracy is 0..1 — upscale to 0..100 for the
-                // color-coding `accuracy` field already used by the view.
-                layer.accuracy = m.smoothedAccuracy * 100.0
+                // V5.9.356 — Show POST-FLIP effective accuracy (not raw).
+                // V5.9.353 sign-flips any layer with accuracy ≥ 0.55 AND
+                // expectancy ≤ -2% (it's directionally right but bleeds money,
+                // so the scorer inverts its vote). Without this fix the
+                // network would still paint that layer red even though it's
+                // now contributing positive edge after the flip — the user's
+                // exact complaint at 794 trades.
+                val rawAcc = m.smoothedAccuracy
+                val isFlipped = m.trades >= 30 &&
+                    m.smoothedAccuracy >= 0.55 &&
+                    m.expectancyPct <= -2.0
+                val effectiveAcc = if (isFlipped) (1.0 - rawAcc) else rawAcc
+                layer.accuracy = effectiveAcc * 100.0
                 layer.isActive = m.isActive
             }
         }

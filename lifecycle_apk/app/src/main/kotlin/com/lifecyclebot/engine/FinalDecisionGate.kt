@@ -370,7 +370,13 @@ object FinalDecisionGate {
         // The only difference is tighter stop-losses applied elsewhere.
         // ═══════════════════════════════════════════════════════════════════════════
         
-        val floor = lerp(paperConfidenceBase, CONF_FLOOR_MATURE * 0.6, learningProgress)
+        // V5.9.356 — Raise the MATURE-phase floor from 36% (60×0.6) to 45%
+        // (60×0.75). User report at 794 trades / 30% layer accuracy showed
+        // 81% scratch rate — bot was taking too many coin-flip setups, the
+        // layers couldn't learn from fee-band outcomes. A tighter mature
+        // floor blocks low-conviction trades and gives the brain decisive
+        // (win/loss) outcomes to learn from.
+        val floor = lerp(paperConfidenceBase, CONF_FLOOR_MATURE * 0.75, learningProgress)
         val adaptiveFloor = if (adaptiveRelaxationActive) {
             (floor * 0.5).coerceAtLeast(5.0)
         } else {
