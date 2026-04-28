@@ -4843,6 +4843,33 @@ This cannot be undone!
 
     /** V5.9.348: Perps trader readiness — uses PerpsTraderAI.getLiveReadiness(). */
     private fun renderPerpsReadiness() {
+        // V5.9.358 — when the Perps trader is disabled by the master
+        // MARKET_TRADER_KILL_SWITCH, the readiness tab was rendering all
+        // zeros with no explanation. Surface the real reason so the user
+        // knows the data is missing because the trader is off, not broken.
+        val perpsEnabled = try { com.lifecyclebot.perps.PerpsTraderAI.isEnabled() } catch (_: Exception) { false }
+        if (!perpsEnabled) {
+            tvReadinessWinRate.text = "--"
+            tvReadinessWinRate.setTextColor(muted)
+            tvReadinessTrades.text  = "0"
+            tvReadinessTrades.setTextColor(muted)
+            tvReadinessPhase.text   = "DISABLED"
+            tvReadinessPhase.setTextColor(amber)
+            tvReadinessProgress.text = "0%"
+            tvLiveReadinessBadge.text = "OFFLINE"
+            tvLiveReadinessBadge.setTextColor(Color.WHITE)
+            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+            tvReadinessRecommendation.text = "🔌 Perps trader is OFF — enable Perps in Markets settings to start collecting live readiness data."
+            tvReadinessRecommendation.setTextColor(muted)
+            // Zero the progress bar so it doesn't show stale Meme/Alts width.
+            try {
+                val params = viewReadinessProgressBar.layoutParams
+                params.width = 0
+                viewReadinessProgressBar.layoutParams = params
+            } catch (_: Exception) {}
+            return
+        }
+
         val r = try { com.lifecyclebot.perps.PerpsTraderAI.getLiveReadiness() } catch (_: Exception) { null }
         if (r == null) {
             tvReadinessWinRate.text = "--"

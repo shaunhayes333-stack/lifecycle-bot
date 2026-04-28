@@ -330,7 +330,13 @@ class CryptoAltActivity : AppCompatActivity() {
         tvHeroPnl.text     = "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
         tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
-        tvHeroTrades.text  = "$trades trades"
+        // V5.9.358 — show W/L/S breakdown so the previous "62% WR / -13 SOL"
+        // data drift cannot hide again. The WR shown above now uses the
+        // honest contract: wins (≥1%) / decisive (wins + losses).
+        val wins = CryptoAltTrader.getWinCount()
+        val losses = CryptoAltTrader.getLossCount()
+        val scratches = CryptoAltTrader.getScratchCount()
+        tvHeroTrades.text  = "$trades · ${wins}W / ${losses}L / ${scratches}S"
         tvHeroPhase.text   = phase
         tvHeroPhase.setTextColor(phaseColor(phase))
     }

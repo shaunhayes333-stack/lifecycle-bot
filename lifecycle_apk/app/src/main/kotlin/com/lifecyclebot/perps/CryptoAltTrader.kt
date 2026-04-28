@@ -130,6 +130,11 @@ object CryptoAltTrader {
     private val totalTrades      = AtomicInteger(0)
     private val winningTrades    = AtomicInteger(0)
     private val losingTrades     = AtomicInteger(0)
+    // V5.9.358 — honest win contract: a "scratch" is |pnlPct| < 1%. Counted
+    // separately so getWinRate() = wins / (wins + losses), matching
+    // RunTracker30D.classifyTrade and the rest of AATE. Alts-only field —
+    // does NOT touch any other trader's state.
+    private val scratchTrades    = AtomicInteger(0)
 
     @Volatile private var paperBalance    = 0.0    // Balance managed by MultiAssetActivity shared pool
     @Volatile private var liveWalletBalance = 0.0
@@ -153,6 +158,15 @@ object CryptoAltTrader {
     private const val KEY_PNL             = "total_pnl_sol"
     private const val KEY_INITIAL_BALANCE  = "initial_balance"
     // V5.9.53: removed hard 500 SOL cap — legitimate big wins were silently excluded
+    // V5.9.358 — separate scratch counter persistence (Alts-only).
+    private const val KEY_SCRATCHES = "scratch_trades_v358"
+    // V5.9.358 — one-time migration flag: when first booting under the
+    // honest win contract, the legacy `winningTrades` count is inflated
+    // because it was incremented on `pnlSol >= 0` (counting scratches as
+    // wins). We can't recover the true win/loss/scratch split from
+    // history, so we reset Alts counters to zero exactly once and start
+    // collecting honest data. Meme/Perps/RunTracker30D untouched.
+    private const val KEY_WR_CONTRACT_MIGRATED_358 = "wr_contract_v358_migrated"
     private const val KEY_LIVE    = "is_live_mode"
 
     // ─── Position model ───────────────────────────────────────────────────────
@@ -1632,6 +1646,16 @@ object CryptoAltTrader {
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
+            // V5.9.358 — MICROWIN_LOCK (Alts-only): book +1–5% wins after
+            // 15 min instead of letting them sit and round-trip into losers.
+            // Larger winners (>5%) keep running so we never cap real
+            // breakouts. This is the small-win-lock path the user asked for.
+            if (pnlPct >= 1.0 && pnlPct < 5.0 && holdMs >= STAGNANT_MIN_HOLD_MS) {
+                closePosition(id, "MICROWIN_LOCK: +${"%.1f".format(pnlPct)}% after ${holdMs/60000}min — book the small win")
+                ErrorLogger.info(TAG, "🪙 🔒 MICROWIN_LOCK ${pos.market.symbol} (+${"%.1f".format(pnlPct)}%)")
+                continue
+            }
+
             // V5.9.229: protect ANY winning position — even small gains deserve to run
             if (pnlPct >= 1.0) continue
 
@@ -1791,7 +1815,17 @@ object CryptoAltTrader {
                         } catch (_: Exception) { Double.NEGATIVE_INFINITY }
 
                         val lockFired = dynamicLock > 0.0 && currentPnl <= dynamicLock
-                        val peakDrawdownFired = peakPnl >= 100.0 && (peakPnl - currentPnl) >= 35.0
+                        // V5.9.358 — Alts-only tighter peak-drawdown floor.
+                        // Was: only fired at peak >= 100% with 35pt give-back,
+                        // letting +27% peaks round-trip to -2% before any
+                        // protection. Now: any peak >= 20% is exit-locked
+                        // when current gain falls below half the peak
+                        // (i.e. given back 50% of the peak). Catches the
+                        // +27 → -2 round-trip class directly without
+                        // touching Meme or any other trader.
+                        val peakDrawdownFired =
+                            (peakPnl >= 100.0 && (peakPnl - currentPnl) >= 35.0) ||
+                            (peakPnl >= 20.0 && currentPnl <= peakPnl * 0.5)
 
                         when {
                             lockFired ->
@@ -1880,13 +1914,35 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         // V5.7.7: Count trades at close so win rate is accurate (wins+losses / total)
+        // V5.9.358 — honest win contract: switch from `pnlSol >= 0` (which
+        // counted scratches as wins, inflating top-of-screen WR to 62% while
+        // realised PnL was -13 SOL) to `pnlPct >= 1.0`, matching
+        // RunTracker30D.classifyTrade and the rest of AATE.
+        // Scope: ALTS-ONLY. The boolean `isWinByPct` is computed locally
+        // from this position's pnlPct and used only by Alts-side state
+        // updates below. Any callee that previously got an Alts-flavoured
+        // boolean (FluidLearning markets counters, SentientPersonality)
+        // gets a more honest signal but the same API.
+        val pnlPctForWin = pos.getPnlPct()
+        val isWinByPct   = pnlPctForWin >= 1.0
+        val isLossByPct  = pnlPctForWin <= -1.0
         totalTrades.incrementAndGet()
-        if (pnlSol >= 0) {
-            winningTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pos.getPnlPct()) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
-        } else {
-            losingTrades.incrementAndGet()
-            try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pos.getPnlPct()) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
+        when {
+            isWinByPct -> {
+                winningTrades.incrementAndGet()
+                try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
+            }
+            isLossByPct -> {
+                losingTrades.incrementAndGet()
+                try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
+            }
+            else -> {
+                // Scratch: |pnlPct| < 1%. Bump local scratch counter only.
+                // Skip FluidLearning markets win/loss feed so noise doesn't
+                // poison Alts learning curves. Other traders (Meme, Perps)
+                // are completely untouched.
+                scratchTrades.incrementAndGet()
+            }
         }
 
         if (isPaperMode.get()) {
@@ -1934,15 +1990,25 @@ object CryptoAltTrader {
         }
 
         val pnlPct    = pos.getPnlPct()
-        val isWin     = pnlSol >= 0
+        // V5.9.358 — same honest contract for personality routing. Only
+        // genuine ≥1% wins fire onTradeWin; only genuine ≤-1% losses fire
+        // onTradeLoss. Scratches (|pnlPct|<1%) skip personality entirely so
+        // SentientPersonality doesn't drift toward false euphoria on
+        // fee-band noise. Alts-only — Meme & Perps unchanged.
+        val isWin     = pnlPct >= 1.0
+        val isScratch = pnlPct > -1.0 && pnlPct < 1.0
         val paper     = isPaperMode.get()
         val modeStr   = if (paper) "paper" else "live"
         val timestamp = System.currentTimeMillis()
         val holdMs    = timestamp - pos.openTime
 
         // V5.9.9: Sentient personality reacts to trade outcomes
+        // V5.9.358 — skip personality update entirely on scratches to
+        // prevent false-positive euphoria from fee-band noise (Alts-only).
         try {
-            if (isWin) {
+            if (isScratch) {
+                // no-op: scratch trades don't update persona traits
+            } else if (isWin) {
                 com.lifecyclebot.engine.SentientPersonality.onTradeWin(
                     pos.market.symbol, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", holdMs / 1000
                 )
@@ -2157,11 +2223,40 @@ object CryptoAltTrader {
         totalTrades.set(   p.getInt(KEY_TRADES,  0))
         winningTrades.set( p.getInt(KEY_WINS,    0))
         losingTrades.set(  p.getInt(KEY_LOSSES,  0))
+        scratchTrades.set( p.getInt(KEY_SCRATCHES, 0))
         totalPnlSol       = p.getFloat(KEY_PNL, 0f).toDouble()
         val savedInitial  = p.getFloat(KEY_INITIAL_BALANCE, 0f).toDouble()
         if (savedInitial > 0.0) initialBalance = savedInitial
         else if (paperBalance > 0.0) initialBalance = paperBalance
         isPaperMode.set(  !p.getBoolean(KEY_LIVE, true))
+
+        // V5.9.358 — one-time honest-win-contract migration. The legacy
+        // counter incremented on `pnlSol >= 0`, so any persisted Alts
+        // run before V5.9.358 has scratches mis-counted as wins. We
+        // can't reconstruct the truth, so we reset Alts trade counters
+        // ONCE on first boot of V5.9.358 and start collecting honest
+        // data. paperBalance / totalPnlSol are NOT reset (those are
+        // cumulative SOL, still correct). Meme/Perps untouched.
+        if (!p.getBoolean(KEY_WR_CONTRACT_MIGRATED_358, false)) {
+            val hadHistory = totalTrades.get() > 0
+            if (hadHistory) {
+                ErrorLogger.warn(TAG, "🔧 V5.9.358 honest-WR migration: resetting Alts counters " +
+                    "(was trades=${totalTrades.get()} W=${winningTrades.get()} L=${losingTrades.get()} " +
+                    "— legacy contract counted scratches as wins).")
+            }
+            totalTrades.set(0)
+            winningTrades.set(0)
+            losingTrades.set(0)
+            scratchTrades.set(0)
+            p.edit()
+                .putBoolean(KEY_WR_CONTRACT_MIGRATED_358, true)
+                .putInt(KEY_TRADES, 0)
+                .putInt(KEY_WINS, 0)
+                .putInt(KEY_LOSSES, 0)
+                .putInt(KEY_SCRATCHES, 0)
+                .apply()
+        }
+
         ErrorLogger.debug(TAG, "🪙 SharedPrefs: bal=${paperBalance.fmt(2)} trades=${totalTrades.get()}")
     }
 
@@ -2171,6 +2266,7 @@ object CryptoAltTrader {
             ?.putInt(KEY_TRADES,     totalTrades.get())
             ?.putInt(KEY_WINS,       winningTrades.get())
             ?.putInt(KEY_LOSSES,     losingTrades.get())
+            ?.putInt(KEY_SCRATCHES,  scratchTrades.get())
             ?.putFloat(KEY_PNL,             totalPnlSol.toFloat())
             ?.putFloat(KEY_INITIAL_BALANCE, initialBalance.toFloat())
             ?.putBoolean(KEY_LIVE,  !isPaperMode.get())
@@ -2190,14 +2286,28 @@ object CryptoAltTrader {
                 val state = tursoClient.loadMarketsState("ALT_$instanceId")
                 if (state != null) {
                     paperBalance = if (state.paperBalanceSol > 1.0) state.paperBalanceSol else 0.0
-                    totalTrades.set(state.totalTrades)
-                    winningTrades.set(state.totalWins)
-                    losingTrades.set(state.totalLosses)
                     totalPnlSol  = state.totalPnlSol
+                    // V5.9.358 — only restore counter values from Turso AFTER
+                    // the one-time honest-WR migration. paperBalance and
+                    // totalPnlSol stay (those are honest cumulative SOL),
+                    // but the trade/win/loss counters are inflated under the
+                    // legacy contract and must start fresh once.
+                    val migrated = prefs?.getBoolean(KEY_WR_CONTRACT_MIGRATED_358, false) ?: false
+                    if (migrated) {
+                        totalTrades.set(state.totalTrades)
+                        winningTrades.set(state.totalWins)
+                        losingTrades.set(state.totalLosses)
+                    } else {
+                        ErrorLogger.warn(TAG, "🔧 V5.9.358 honest-WR migration: ignoring cloud trade counters " +
+                            "(was trades=${state.totalTrades} W=${state.totalWins} L=${state.totalLosses}) " +
+                            "to start clean under the new contract.")
+                        // Force-set the flag so subsequent boots resume normal cloud restore.
+                        prefs?.edit()?.putBoolean(KEY_WR_CONTRACT_MIGRATED_358, true)?.apply()
+                    }
                     // Track initial balance for correct pnl% display
                     if (initialBalance <= 0.0 && paperBalance > 0.0) initialBalance = paperBalance
                     isPaperMode.set(!state.isLiveMode)
-                    ErrorLogger.info(TAG, "🪙 Loaded state: balance=${paperBalance.fmt(2)} SOL | trades=${state.totalTrades} | WR=${state.winRate.toInt()}%")
+                    ErrorLogger.info(TAG, "🪙 Loaded state: balance=${paperBalance.fmt(2)} SOL | trades=${totalTrades.get()} | WR=${"%.1f".format(getWinRate())}%")
                 } else {
                     ErrorLogger.info(TAG, "🪙 No persisted state — using defaults")
                 }
@@ -2472,10 +2582,18 @@ object CryptoAltTrader {
 
     fun getTotalTrades(): Int    = totalTrades.get()
     fun getWinCount(): Int       = winningTrades.get()
+    // V5.9.358 — honest WR: decisive trades only (wins / (wins + losses)).
+    // Matches RunTracker30D + Meme contract. Was wins/totalTrades which
+    // included scratches as "denominator only" while pnlSol≥0 made them
+    // count as wins → top header showed 62% with -13 SOL realised PnL.
     fun getWinRate(): Double {
-        val total = totalTrades.get()
-        return if (total > 0) winningTrades.get().toDouble() / total * 100 else 0.0
+        val w = winningTrades.get()
+        val l = losingTrades.get()
+        val decisive = w + l
+        return if (decisive > 0) w.toDouble() / decisive * 100 else 0.0
     }
+    fun getScratchCount(): Int   = scratchTrades.get()
+    fun getLossCount(): Int      = losingTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getInitialBalance(): Double = if (initialBalance > 0.0) initialBalance else paperBalance
 
