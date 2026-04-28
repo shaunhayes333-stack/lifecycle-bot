@@ -306,6 +306,7 @@ object VoiceManager {
         when (spec) {
             is VoiceSpec.LocalSherpa -> speakLocalSherpa(clean, spec, token)
             is VoiceSpec.Remote -> speakRemote(clean, spec, token)
+            is VoiceSpec.ElevenLabs -> speakElevenLabs(clean, spec, token)
             is VoiceSpec.Android -> speakAndroid(clean, spec, token)
         }
     }
