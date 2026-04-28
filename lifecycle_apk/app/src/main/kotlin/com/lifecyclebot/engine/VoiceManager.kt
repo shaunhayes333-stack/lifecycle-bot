@@ -28,6 +28,18 @@ object VoiceManager {
     private const val KEY_REMOTE_KEY = "tts_api_key"
     private const val KEY_REMOTE_MODEL = "tts_model_default"
 
+    // V5.9.361 — ElevenLabs second backend for richer character voices.
+    private const val KEY_BACKEND          = "tts_backend"          // "auto" | "openai" | "elevenlabs"
+    private const val KEY_ELEVEN_KEY       = "tts_eleven_key"
+    private const val KEY_ELEVEN_MODEL     = "tts_eleven_model"
+    private const val DEFAULT_ELEVEN_MODEL = "eleven_turbo_v2_5"
+    // One-time seed of the user's ElevenLabs key on first boot. Stored in
+    // SharedPrefs (device-local, never round-tripped to the repo). User can
+    // rotate via Settings sheet at any time.
+    private const val ELEVEN_SEED_KEY = "sk_2468d0f6f4ba96ef5877a9db238f3b277e3899905b27fe90"
+    private const val ELEVEN_SEED_FLAG = "tts_eleven_seeded_v361"
+    private const val DEFAULT_BACKEND_AUTO = "auto"
+
     private const val KEY_LOCAL_ENABLED = "tts_local_enabled"
     private const val KEY_LOCAL_ENGINE = "tts_local_engine"
     private const val KEY_LOCAL_MODEL_DIR = "tts_local_model_dir"
@@ -87,6 +99,21 @@ object VoiceManager {
             val speed: Float = 1.0f,
             val fallbackLocaleTag: String = "en-US"
         ) : VoiceSpec()
+
+        /**
+         * V5.9.361 — ElevenLabs character-voice backend. Each persona maps to
+         * a stable voice id. We use the cheapest "turbo" model for free-tier
+         * friendliness; voice_settings let us dial the persona delivery.
+         */
+        data class ElevenLabs(
+            val voiceId: String,
+            val modelId: String = DEFAULT_ELEVEN_MODEL,
+            val stability: Double = 0.45,
+            val similarityBoost: Double = 0.85,
+            val style: Double = 0.30,
+            val speakerBoost: Boolean = true,
+            val fallbackLocaleTag: String = "en-US",
+        ) : VoiceSpec()
     }
 
     fun init(ctx: Context) {
@@ -98,7 +125,64 @@ object VoiceManager {
         // current correct defaults and cause 'Cleetus sounds female' bugs.
         // The purge is idempotent and runs once per app version.
         try { purgeStaleVoiceOverridesOnce(ctx) } catch (_: Throwable) {}
+        // V5.9.361 — one-time seed of the ElevenLabs API key into SharedPrefs.
+        try { seedElevenLabsKeyOnce(ctx) } catch (_: Throwable) {}
     }
+
+    /** V5.9.361 — Mirror the user's Gemini/Universal LLM key into the
+     *  remote-TTS key slot if the latter is blank. The default remote URL
+     *  already points at the Emergent universal-key proxy; once the same
+     *  key is present in the TTS slot, all the existing per-persona OpenAI
+     *  voice mappings (Cleetus → onyx + Florida-redneck instructions etc.)
+     *  finally take effect. Without this mirror the bot was silently
+     *  falling back to Android TTS — a single default female voice — which
+     *  is why every persona sounded the same. */
+    fun ensureRemoteKeyMirroredFromGemini(ctx: Context, geminiKey: String) {
+        if (geminiKey.isBlank()) return
+        val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_REMOTE_KEY, "")?.trim().orEmpty()
+        if (existing.isBlank()) {
+            prefs.edit().putString(KEY_REMOTE_KEY, geminiKey).apply()
+            ErrorLogger.info(TAG, "🔊 Mirrored LLM key into TTS slot — per-persona OpenAI voices now active.")
+        }
+    }
+
+    private fun seedElevenLabsKeyOnce(ctx: Context) {
+        val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(ELEVEN_SEED_FLAG, false)) return
+        val current = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+        if (current.isBlank()) {
+            prefs.edit()
+                .putString(KEY_ELEVEN_KEY, ELEVEN_SEED_KEY)
+                .putBoolean(ELEVEN_SEED_FLAG, true)
+                .apply()
+            ErrorLogger.info(TAG, "🔊 Seeded ElevenLabs key (one-time). Rotate via Settings sheet.")
+        } else {
+            prefs.edit().putBoolean(ELEVEN_SEED_FLAG, true).apply()
+        }
+    }
+
+    /** V5.9.361 — public ElevenLabs key accessor (Settings UI uses these). */
+    fun getElevenLabsKey(ctx: Context): String =
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+
+    fun setElevenLabsKey(ctx: Context, key: String) {
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ELEVEN_KEY, key.trim()).apply()
+    }
+
+    /** Backend selector: "auto" | "openai" | "elevenlabs". */
+    fun setBackend(ctx: Context, backend: String) {
+        val v = backend.trim().lowercase().takeIf { it in setOf("auto", "openai", "elevenlabs") } ?: "auto"
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_BACKEND, v).apply()
+    }
+
+    fun getBackend(ctx: Context): String =
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_BACKEND, DEFAULT_BACKEND_AUTO)?.trim()?.lowercase() ?: DEFAULT_BACKEND_AUTO
+
 
     private fun purgeStaleVoiceOverridesOnce(ctx: Context) {
         val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -298,6 +382,7 @@ object VoiceManager {
         when (val spec = resolveVoiceSpec(ctx, personaId)) {
             is VoiceSpec.LocalSherpa -> speakLocalSherpa(clean, spec, token)
             is VoiceSpec.Remote -> speakRemote(clean, spec, token)
+            is VoiceSpec.ElevenLabs -> speakElevenLabs(clean, spec, token)
             is VoiceSpec.Android -> speakAndroid(clean, spec, token)
         }
     }
@@ -331,6 +416,25 @@ object VoiceManager {
         }
 
         val remoteConfigured = isRemoteConfigured(ctx)
+        // V5.9.361 — backend routing:
+        //   auto       → ElevenLabs if key present, else OpenAI proxy.
+        //   elevenlabs → force ElevenLabs (fallback to OpenAI/Android if no key).
+        //   openai     → force OpenAI proxy.
+        val backend = prefs.getString(KEY_BACKEND, DEFAULT_BACKEND_AUTO)?.trim()?.lowercase() ?: DEFAULT_BACKEND_AUTO
+        val elevenKey = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+        val useEleven = elevenKey.isNotBlank() && (backend == "elevenlabs" || backend == DEFAULT_BACKEND_AUTO)
+        if (useEleven) {
+            return VoiceSpec.ElevenLabs(
+                voiceId = defaultElevenLabsVoiceForPersona(personaId),
+                modelId = prefs.getString(KEY_ELEVEN_MODEL, DEFAULT_ELEVEN_MODEL)?.trim()?.ifBlank { DEFAULT_ELEVEN_MODEL } ?: DEFAULT_ELEVEN_MODEL,
+                stability = defaultElevenStabilityForPersona(personaId),
+                similarityBoost = 0.85,
+                style = defaultElevenStyleForPersona(personaId),
+                speakerBoost = true,
+                fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId),
+            )
+        }
+
         if (remoteConfigured) {
             val remoteVoice = if (overrideRemoteVoice.isNotBlank()) {
                 overrideRemoteVoice
@@ -438,11 +542,51 @@ object VoiceManager {
     }
 
     /**
-     * V5.9.87 — gpt-4o-mini-tts style-instruction prompts. This is what
-     * actually makes the voices sound like the characters, not the voice id.
-     * Each prompt paints: accent, emotional state, vocal timbre, delivery
-     * tempo, and a couple of signature quirks.
+     * V5.9.361 — ElevenLabs stock-voice mapping per persona. These are
+     * pre-licensed voices on every ElevenLabs account; no cloning, no
+     * impersonation. Picked to match the *vibe* of each persona archetype.
+     * User can override per-persona via SharedPrefs key tts_eleven_voice_<pid>.
      */
+    private fun defaultElevenLabsVoiceForPersona(personaId: String): String {
+        val ctx = appCtx
+        if (ctx != null) {
+            val override = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString("tts_eleven_voice_$personaId", null)?.trim().orEmpty()
+            if (override.isNotBlank()) return override
+        }
+        // Stock ElevenLabs voice IDs (Adam/Antoni/Bella/etc) — stable, on every account.
+        return when (personaId) {
+            "aate"       -> "pNInz6obpgDQGcFmaJgB" // Adam — clean, deep American male
+            "irishman"   -> "D38z5RcWu1voky8WS1ja" // Fin  — Irish sailor cadence
+            "batman"     -> "2EiwWnXFnvU5JabPnv8n" // Clyde — gravelly, war-veteran rasp
+            "gentleman"  -> "onwK4e9ZLuTAKqWW03F9" // Daniel — polished British news anchor
+            "frasier"    -> "ZQe5CZNOzWyzPSCn5a3c" // James — older British, articulate
+            "wallstreet" -> "TxGEqnHWrfWFTfGW9XjX" // Josh — energetic, fast American male
+            "zen"        -> "GBv7mTt0atIp3Br8iCZE" // Thomas — calm meditation male
+            "cockney"    -> "CYw3kZ02Hs0563khs1Fj" // Dave  — British conversational
+            "cowboy"     -> "29vD33N1CtxCmqQRPOHJ" // Drew  — well-rounded American narrator
+            "hunter_s"   -> "yoZ06aMxZJJ28mfd3POQ" // Sam   — raspy American male
+            "narrator"   -> "29vD33N1CtxCmqQRPOHJ" // Drew  — narrator default
+            "pirate"     -> "ODq5zmih8GrVes37Dizd" // Patrick — old shouty male, perfect pirate
+            "waifu"      -> "jsCqWAovK2LkecY7zXl4" // Freya — expressive young female
+            "cleetus"    -> "yoZ06aMxZJJ28mfd3POQ" // Sam   — raspy southern-leaning American — best Cleetus archetype available without impersonation
+            "peter"      -> "TxGEqnHWrfWFTfGW9XjX" // Josh  — energetic dad-energy male
+            else         -> "pNInz6obpgDQGcFmaJgB" // Adam fallback
+        }
+    }
+
+    private fun defaultElevenStabilityForPersona(personaId: String): Double = when (personaId) {
+        "batman", "zen", "narrator", "gentleman" -> 0.65   // calmer, less variation
+        "wallstreet", "hunter_s", "cleetus", "peter", "cockney" -> 0.30  // more variation, dynamic
+        else -> 0.45
+    }
+
+    private fun defaultElevenStyleForPersona(personaId: String): Double = when (personaId) {
+        "cleetus", "peter", "wallstreet", "hunter_s", "pirate" -> 0.55  // exaggerated character delivery
+        "batman", "zen", "gentleman", "narrator" -> 0.15                 // measured
+        else -> 0.30
+    }
+
     private fun defaultRemoteInstructionsForPersona(personaId: String): String {
         return when (personaId) {
             "aate" -> """
@@ -1067,6 +1211,101 @@ object VoiceManager {
             start()
         }
     }
+
+    // V5.9.361 — ElevenLabs character-voice backend.
+    private fun speakElevenLabs(text: String, spec: VoiceSpec.ElevenLabs, token: Long) {
+        val ctx = appCtx ?: return
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val apiKey = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+        if (apiKey.isBlank()) {
+            // No key — fall through to OpenAI proxy if configured, else Android TTS.
+            val openAiUrl = prefs.getString(KEY_REMOTE_URL, DEFAULT_REMOTE_URL)?.trim().orEmpty()
+            val openAiKey = prefs.getString(KEY_REMOTE_KEY, "")?.trim().orEmpty()
+            if (openAiUrl.isNotBlank() && openAiKey.isNotBlank()) {
+                speakRemote(
+                    text = text,
+                    spec = VoiceSpec.Remote(
+                        voice = "alloy",
+                        model = sanitizedTtsModel(prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL)),
+                        speed = 1.0,
+                        fallbackLocaleTag = spec.fallbackLocaleTag,
+                    ),
+                    token = token,
+                )
+            } else {
+                speakAndroid(text, VoiceSpec.Android(localeTag = spec.fallbackLocaleTag), token)
+            }
+            return
+        }
+
+        val trimmed = text.take(1200)
+        val url = "https://api.elevenlabs.io/v1/text-to-speech/${spec.voiceId}?output_format=mp3_44100_128"
+
+        Thread {
+            try {
+                if (token != generation.get()) return@Thread
+                val voiceSettings = JSONObject().apply {
+                    put("stability", spec.stability)
+                    put("similarity_boost", spec.similarityBoost)
+                    put("style", spec.style)
+                    put("use_speaker_boost", spec.speakerBoost)
+                }
+                val body = JSONObject().apply {
+                    put("text", trimmed)
+                    put("model_id", spec.modelId)
+                    put("voice_settings", voiceSettings)
+                }
+                val req = Request.Builder()
+                    .url(url)
+                    .header("xi-api-key", apiKey)
+                    .header("Accept", "audio/mpeg")
+                    .header("Content-Type", "application/json")
+                    .post(body.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                http.newCall(req).execute().use { resp ->
+                    if (token != generation.get()) return@use
+                    if (!resp.isSuccessful) {
+                        val err = resp.body?.string().orEmpty().take(300)
+                        ErrorLogger.warn(TAG, "ElevenLabs HTTP ${resp.code}: $err — falling back to OpenAI/Android")
+                        // 401 = bad key, 429 = quota — fall back gracefully.
+                        val openAiUrl = prefs.getString(KEY_REMOTE_URL, DEFAULT_REMOTE_URL)?.trim().orEmpty()
+                        val openAiKey = prefs.getString(KEY_REMOTE_KEY, "")?.trim().orEmpty()
+                        if (openAiUrl.isNotBlank() && openAiKey.isNotBlank()) {
+                            speakRemote(
+                                text = trimmed,
+                                spec = VoiceSpec.Remote(
+                                    voice = defaultRemoteVoiceForPersona("aate"),
+                                    model = sanitizedTtsModel(prefs.getString(KEY_REMOTE_MODEL, DEFAULT_REMOTE_MODEL)),
+                                    speed = 1.0,
+                                    fallbackLocaleTag = spec.fallbackLocaleTag,
+                                ),
+                                token = token,
+                            )
+                        } else {
+                            speakAndroid(trimmed, VoiceSpec.Android(localeTag = spec.fallbackLocaleTag), token)
+                        }
+                        return@use
+                    }
+                    val bytes = resp.body?.bytes()
+                    if (bytes == null || bytes.isEmpty()) {
+                        ErrorLogger.warn(TAG, "ElevenLabs empty body")
+                        speakAndroid(trimmed, VoiceSpec.Android(localeTag = spec.fallbackLocaleTag), token)
+                        return@use
+                    }
+                    if (token != generation.get()) return@use
+                    val outFile = File(ctx.cacheDir, "tts_eleven_${token}_${UUID.randomUUID()}.mp3")
+                    outFile.writeBytes(bytes)
+                    playAudioFile(outFile, token)
+                }
+            } catch (t: Throwable) {
+                ErrorLogger.warn(TAG, "ElevenLabs request failed: ${t.message}")
+                speakAndroid(text, VoiceSpec.Android(localeTag = spec.fallbackLocaleTag), token)
+            }
+        }.start()
+    }
+
+
 
     private fun playAudioFile(file: File, token: Long) {
         if (token != generation.get()) {

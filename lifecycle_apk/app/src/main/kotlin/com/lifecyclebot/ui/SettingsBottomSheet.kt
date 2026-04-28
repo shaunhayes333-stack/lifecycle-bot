@@ -58,6 +58,8 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etBirdeyeKey: EditText
     private lateinit var etGroqKey: EditText
     private lateinit var etGeminiKey: EditText
+    // V5.9.361 — ElevenLabs TTS key for per-persona character voices.
+    private lateinit var etElevenLabsKey: EditText
     private lateinit var etJupiterKey: EditText
     private lateinit var etTgBotToken: EditText
     private lateinit var etTgChatId: EditText
@@ -132,6 +134,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etBirdeyeKey = view.findViewById(R.id.etBirdeyeKey)
         etGroqKey = view.findViewById(R.id.etGroqKey)
         etGeminiKey = view.findViewById(R.id.etGeminiKey)
+        etElevenLabsKey = view.findViewById(R.id.etElevenLabsKey)
         etJupiterKey = view.findViewById(R.id.etJupiterKey)
         etTgBotToken = view.findViewById(R.id.etTgBotToken)
         etTgChatId = view.findViewById(R.id.etTgChatId)
@@ -352,6 +355,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etBirdeyeKey.setText(cfg.birdeyeApiKey)
         etGroqKey.setText(cfg.groqApiKey)
         etGeminiKey.setText(cfg.geminiApiKey)
+        // V5.9.361 — load ElevenLabs key directly from VoiceManager (lives in
+        // VoiceManager prefs, not main Config, so it doesn't pollute the
+        // bot config schema).
+        try {
+            etElevenLabsKey.setText(com.lifecyclebot.engine.VoiceManager.getElevenLabsKey(requireContext()))
+        } catch (_: Exception) {}
         etJupiterKey.setText(cfg.jupiterApiKey)
         
         // Telegram
@@ -414,6 +423,13 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         )
         
         onSettingsSaved?.invoke(newConfig)
+        // V5.9.361 — persist ElevenLabs key (lives in VoiceManager prefs).
+        try {
+            com.lifecyclebot.engine.VoiceManager.setElevenLabsKey(
+                requireContext(),
+                etElevenLabsKey.text.toString().trim(),
+            )
+        } catch (_: Exception) {}
         Toast.makeText(requireContext(), "Settings saved", Toast.LENGTH_SHORT).show()
         ErrorLogger.info(TAG, "Settings saved via bottom sheet")
         dismiss()

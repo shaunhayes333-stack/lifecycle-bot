@@ -375,6 +375,12 @@ class BotService : Service() {
         if (cfg.geminiApiKey.isNotBlank()) {
             GeminiCopilot.init(cfg.geminiApiKey)
             ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
+            // V5.9.361 — mirror the universal LLM key into VoiceManager's TTS
+            // slot so the existing per-persona OpenAI voices (Cleetus → onyx
+            // + Florida-redneck instructions etc.) actually take effect.
+            // Without this mirror the bot was silently falling back to
+            // Android TTS (one default female voice for everyone).
+            try { VoiceManager.ensureRemoteKeyMirroredFromGemini(applicationContext, cfg.geminiApiKey) } catch (_: Exception) {}
         }
 
         // V5.9.129: Start the Sentience loop — LLM ↔ Personality ↔ Symbolic feedback.
