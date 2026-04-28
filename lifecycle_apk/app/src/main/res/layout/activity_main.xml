@@ -703,6 +703,30 @@
                         android:fontFamily="monospace"/>
                 </LinearLayout>
 
+                <!-- V5.9.359: Persona Studio Tile — traits, milestone timeline,
+                     chat replay, and the new MP3 sound-swap with drag-and-drop +
+                     share-target + long-press preview. Was hidden behind a
+                     long-press on Tuning; surfacing it as a real tile so the
+                     new MP3 features are discoverable. -->
+                <LinearLayout
+                    android:id="@+id/btnQuickPersona"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:background="@drawable/section_card_bg"
+                    android:layout_marginStart="6dp"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🎭" android:textSize="20sp"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Persona" android:textColor="#F472B6" android:textSize="10sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════

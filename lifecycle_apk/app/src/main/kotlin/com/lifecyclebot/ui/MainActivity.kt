@@ -866,6 +866,13 @@ for legal compliance.
                 }
         } catch (_: Exception) {}
 
+        // V5.9.359: Persona Studio Tile — direct entry point so the new MP3
+        // drag-drop / share-to-app / preview features are discoverable.
+        try {
+            findViewById<android.view.View>(R.id.btnQuickPersona)
+                ?.setOnClickListener { startActivity(android.content.Intent(this, PersonaStudioActivity::class.java)) }
+        } catch (_: Exception) {}
+
         // V5.9.14: Symbolic Telemetry row → opens Tuning (Sentient Mind panel)
         try {
             findViewById<android.view.View>(R.id.rowSymTelemetry)
