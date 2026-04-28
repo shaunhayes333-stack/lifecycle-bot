@@ -4677,9 +4677,16 @@ class Executor(
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
+        // V5.9.363 — SYMMETRIC SCRATCH ZONE.
+        // Old: WIN ≥ +2.0%, LOSS ≤ -3.0%. The asymmetric -3% loss threshold
+        // meant winners that retraced from +50% back to +1% got hidden as
+        // SCRATCH while -2% losses still showed up as 'real'. With 1960
+        // scratches / 209 wins / 581 losses, this asymmetry was distorting
+        // the learning signal AND the WR display. Symmetric ±1.5% gives
+        // both sides equal weight — fewer scratches, fairer brain training.
         val tradeClassification = when {
-            pnlP >= 2.0 -> "WIN"
-            pnlP <= -3.0 -> "LOSS"
+            pnlP >= 1.5 -> "WIN"
+            pnlP <= -1.5 -> "LOSS"
             else -> "SCRATCH"
         }
         
@@ -6018,9 +6025,10 @@ class Executor(
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
+        // V5.9.363 — SYMMETRIC SCRATCH ZONE (live mirror of paper-mode change).
         val tradeClassification = when {
-            pnlP >= 2.0 -> "WIN"
-            pnlP <= -3.0 -> "LOSS"
+            pnlP >= 1.5 -> "WIN"
+            pnlP <= -1.5 -> "LOSS"
             else -> "SCRATCH"
         }
         

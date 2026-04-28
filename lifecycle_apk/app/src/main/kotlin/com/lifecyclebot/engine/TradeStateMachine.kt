@@ -124,6 +124,24 @@ object TradeStateMachine {
         ts.pullbackLowPrice = 0.0
         ErrorLogger.info("StateMachine", "⏸️ ${mint.take(8)}: Cooldown for ${cd/1000}s")
     }
+
+    /**
+     * V5.9.363 — CATASTROPHE COOLDOWN.
+     * After a single trade hits ≤ -25% PnL, force a 30-MINUTE cooldown on
+     * that mint. Prevents the bot from instantly re-buying the same rug it
+     * just got blown up on (which used to happen because the regular 30s
+     * cooldown wasn't enough to outlast a fast-rugging meme).
+     */
+    fun startCatastropheCooldown(mint: String, pnlPct: Double) {
+        val ts = getState(mint)
+        ts.state = TradeState.COOLDOWN
+        val cd = 30L * 60_000L   // 30 minutes
+        ts.cooldownUntil = System.currentTimeMillis() + cd
+        ts.entryPattern = EntryPattern.NONE
+        ts.spikeHighPrice = 0.0
+        ts.pullbackLowPrice = 0.0
+        ErrorLogger.warn("StateMachine", "💀 CATASTROPHE COOLDOWN ${mint.take(8)}: pnl=${"%.1f".format(pnlPct)}% → 30 min lockout")
+    }
     
     /**
      * Get remaining cooldown time in minutes

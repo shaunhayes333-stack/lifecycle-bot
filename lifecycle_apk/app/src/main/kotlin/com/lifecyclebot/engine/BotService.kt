@@ -2836,21 +2836,35 @@ class BotService : Service() {
                         // Calculate PnL
                         val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
                         
-                        // HARD FLOOR CHECK - IMMEDIATE EXIT
+                        // V5.9.363 — TIGHTENED HARD FLOOR.
+                        // Old rapid-stop fired at -15% but real positions kept
+                        // hitting -69% because price feeds dropped during fast
+                        // rugs and `currentPrice` went stale. We now also fire
+                        // a CATASTROPHE COOLDOWN whenever we observe pnl ≤ -25%
+                        // — even though the hard floor sell is already in flight,
+                        // the 30-min cooldown prevents the bot from instantly
+                        // re-buying the same rug as soon as the price oracle
+                        // catches up.
+                        val isCatastrophe = pnlPct <= -25.0
                         if (pnlPct <= -HARD_FLOOR_STOP_PCT) {
-                            ErrorLogger.warn("BotService", "🚨 RAPID STOP: ${ts.symbol} at ${pnlPct.toInt()}% - HARD FLOOR HIT")
-                            addLog("🛑 RAPID STOP: ${ts.symbol} ${pnlPct.toInt()}% | HARD FLOOR EXIT")
+                            val tag = if (isCatastrophe) "CATASTROPHE" else "HARD_FLOOR"
+                            ErrorLogger.warn("BotService", "🚨 RAPID STOP ($tag): ${ts.symbol} at ${pnlPct.toInt()}%")
+                            addLog("🛑 RAPID $tag STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
                             
                             // Execute immediate sell
                             executor.requestSell(
                                 ts = ts,
-                                reason = "RAPID_HARD_FLOOR_STOP",
+                                reason = if (isCatastrophe) "RAPID_CATASTROPHE_STOP" else "RAPID_HARD_FLOOR_STOP",
                                 wallet = wallet,
                                 walletSol = effectiveBalance
                             )
                             
-                            // Force cooldown
-                            TradeStateMachine.startCooldown(ts.mint)
+                            // Force cooldown — 30 min on catastrophe, regular otherwise
+                            if (isCatastrophe) {
+                                TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+                            } else {
+                                TradeStateMachine.startCooldown(ts.mint)
+                            }
                         }
                         
                         // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)

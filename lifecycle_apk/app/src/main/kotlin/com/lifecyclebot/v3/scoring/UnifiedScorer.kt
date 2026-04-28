@@ -155,17 +155,20 @@ class UnifiedScorer(
             val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
             val weight    = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
 
-            // V5.9.353: Polarity self-heal — if a layer has high directional
-            // accuracy but a strongly NEGATIVE expectancy (it predicts price
-            // moves correctly but trades following it lose money), flip its
-            // sign in scoring. This converts the "best-but-bleeding" layers
-            // (SessionEdg 83% dir / -1.6%, DrawdownCi 83% / -1.7%, Correlatio
-            // 80% / -3.6%) from anti-edge into real edge contributors.
+            // V5.9.363: Polarity self-heal — STRENGTHENED (was V5.9.353).
+            // OLD threshold: required smoothedAccuracy ≥ 0.55 AND expectancyPct ≤ -2.0%.
+            // That meant a layer like "DrawdownCi 71% dir / -0.2%" never flipped
+            // because the negative expectancy was too small — and yet it was
+            // genuinely anti-correlated with profit. After 4000 trades the bot
+            // had 90.8% accuracy but 26% WR; layers were "right about direction"
+            // and "wrong about money" simultaneously. We now flip on profit
+            // alone: 30+ trades AND ANY negative mean PnL → invert the score.
+            // Direction-accuracy is no longer required — what matters is whether
+            // following this layer's vote MAKES OR LOSES money.
             val (flippedValue, flipTag) = try {
                 val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
                 val anticorrelated = maturity.trades >= 30 &&
-                    maturity.smoothedAccuracy >= 0.55 &&
-                    maturity.expectancyPct <= -2.0
+                    maturity.expectancyPct < -0.3   // V5.9.363: any meaningful negative expectancy now flips
                 if (anticorrelated && comp.value != 0) {
                     -comp.value to " [FLIP exp=${"%.1f".format(maturity.expectancyPct)}%]"
                 } else comp.value to ""
