@@ -171,6 +171,40 @@ class BehaviorActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {}
 
+        // V5.9.362 — LAYER AMNESTY: poisoned-brain rescue button.
+        try {
+            findViewById<Button>(R.id.btnLayerAmnesty)?.setOnClickListener {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("🕊  Layer Amnesty")
+                    .setMessage(
+                        "Brain poisoned after thousands of trades on a stale schema?\n\n" +
+                        "This pulls EVERY layer's accuracy back to a neutral 50% prior, " +
+                        "wipes the winning/losing pattern caches, and resets per-layer " +
+                        "trust to 1.0× — so the freshly-rewired layers can re-explore " +
+                        "without dragging the old poisoned weights along.\n\n" +
+                        "It KEEPS: trade-count history, curriculum level, balance, positions.\n" +
+                        "It DROPS: hit-rate cache, weighted edge, trust multipliers, combos.\n\n" +
+                        "Use ONCE when the network has gone red and stayed red. Then let " +
+                        "it relearn for 200-500 trades before evaluating."
+                    )
+                    .setPositiveButton("Grant Amnesty") { _, _ ->
+                        try {
+                            val n = com.lifecyclebot.v3.scoring.EducationSubLayerAI.layerAmnesty()
+                            android.widget.Toast.makeText(
+                                this,
+                                "🕊 Amnesty granted to $n layers. Brain is re-exploring.",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        } catch (e: Exception) {
+                            ErrorLogger.warn("BehaviorUI", "Layer Amnesty failed: ${e.message}")
+                            android.widget.Toast.makeText(this, "Amnesty failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        } catch (_: Exception) {}
+
         // V5.9.10: Sentient Mind UI
         tvSentientMood        = try { findViewById(R.id.tvSentientMood) } catch (_: Exception) { null }
         tvSentientDiagnostics = try { findViewById(R.id.tvSentientDiagnostics) } catch (_: Exception) { null }

@@ -2937,11 +2937,51 @@ class BotService : Service() {
         var lastPendingVerifyWatchdogAt = 0L
         val pendingVerifyWatchdogIntervalMs = 60_000L
 
+        // V5.9.362 — REGIME PULSE
+        // CrossMarketRegimeAI is only ever fed by CryptoAltTrader / TokenizedStockTrader.
+        // When Perps is OFFLINE the regime stays on its boot default forever, so the
+        // meme trader runs full-throttle even in obvious chop / risk-off conditions.
+        // This 60s pulse pushes SOL/BTC/ETH from PerpsMarketDataFetcher (Pyth/Jupiter/
+        // CoinGecko, already cached) into the regime engine and re-evaluates so the
+        // entire universe sees a live regime no matter which traders are active.
+        var lastRegimePulseAt = 0L
+        val regimePulseIntervalMs = 60_000L
+
         var loopCount = 0
         while (status.running) {
           try {
             loopCount++
-            
+
+            // V5.9.362 — Regime pulse (every 60s, side-effect-only, never blocks)
+            if (System.currentTimeMillis() - lastRegimePulseAt > regimePulseIntervalMs) {
+                lastRegimePulseAt = System.currentTimeMillis()
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        listOf(
+                            com.lifecyclebot.perps.PerpsMarket.SOL,
+                            com.lifecyclebot.perps.PerpsMarket.BTC,
+                            com.lifecyclebot.perps.PerpsMarket.ETH,
+                        ).forEach { m ->
+                            try {
+                                val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(m)
+                                if (data.price > 0) {
+                                    com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(
+                                        symbol = m.symbol,
+                                        price = data.price,
+                                        change24hPct = data.priceChange24hPct,
+                                        volume = data.volume24h,
+                                    )
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        try {
+                            val out = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime()
+                            ErrorLogger.debug("BotService", "🌐 Regime pulse → ${out.mode} (${out.reasons.firstOrNull() ?: "—"})")
+                        } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+                }
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
             // Freeze aggression for this loop cycle to prevent mid-loop mutations

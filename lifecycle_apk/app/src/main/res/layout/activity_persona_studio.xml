@@ -247,6 +247,77 @@
                 android:visibility="gone"/>
         </LinearLayout>
 
+        <!-- ═════════════════ V5.9.362 — CHARACTER VOICE ═════════════════ -->
+        <LinearLayout
+            android:id="@+id/cardVoice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/section_card_bg"
+            android:padding="12dp"
+            android:layout_marginBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="🗣  Character Voice"
+                    android:textColor="#00FF88"
+                    android:textSize="13sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/tvVoiceCurrent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="—"
+                    android:textColor="#9945FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Pick a TTS engine + voice for the active persona. Routes through ElevenLabs, OpenAI, Sherpa, or Android."
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="10dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <Button
+                    android:id="@+id/btnVoicePick"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="PICK VOICE"
+                    android:textColor="#9945FF"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:backgroundTint="#100A1F"
+                    android:layout_marginEnd="6dp"/>
+                <Button
+                    android:id="@+id/btnVoicePreview"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="🔊 PREVIEW"
+                    android:textColor="#14F195"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:backgroundTint="#001A0E"
+                    android:layout_marginStart="6dp"/>
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- ═════════════════ CUSTOM SOUNDS ═════════════════ -->
         <LinearLayout
             android:id="@+id/cardSounds"

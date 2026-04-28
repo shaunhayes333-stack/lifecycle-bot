@@ -11,6 +11,7 @@ import android.view.DragEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
@@ -118,6 +119,9 @@ class PersonaStudioActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnResetTraits).setOnClickListener { resetTraits() }
 
+        // V5.9.362 — wire character-voice picker (per-persona ElevenLabs override)
+        wireVoicePicker()
+
         wireSoundSlot(
             SoundSlot(
                 slot   = SLOT_WOOHOO,
@@ -191,6 +195,7 @@ class PersonaStudioActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshAll()
+        try { refreshVoiceLabel() } catch (_: Exception) {}
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -332,6 +337,165 @@ class PersonaStudioActivity : AppCompatActivity() {
         )
         refreshTraits()
         Toast.makeText(this, "Traits reset to neutral", Toast.LENGTH_SHORT).show()
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // V5.9.362 — Character voice picker (per-persona ElevenLabs override)
+    // ──────────────────────────────────────────────────────────────────
+
+    private var tvVoiceCurrent: TextView? = null
+
+    private fun wireVoicePicker() {
+        tvVoiceCurrent = try { findViewById(R.id.tvVoiceCurrent) } catch (_: Exception) { null }
+        try {
+            findViewById<Button>(R.id.btnVoicePick)?.setOnClickListener { showVoicePickerDialog() }
+        } catch (_: Exception) {}
+        try {
+            findViewById<Button>(R.id.btnVoicePreview)?.setOnClickListener { previewActivePersonaVoice() }
+        } catch (_: Exception) {}
+        refreshVoiceLabel()
+    }
+
+    private fun refreshVoiceLabel() {
+        val tv = tvVoiceCurrent ?: return
+        val active = try { Personalities.getActive(this) } catch (_: Exception) { null }
+        if (active == null) {
+            tv.text = "—"
+            return
+        }
+        // V5.9.362 — show CURRENT effective backend + voice on the label so the
+        // user immediately sees which engine is being used per persona.
+        val backendId = try { com.lifecyclebot.engine.VoiceManager.getBackendForPersona(this, active.id) } catch (_: Exception) { "" }
+        val effectiveBackend = if (backendId.isBlank()) "auto" else backendId
+        val voiceName: String = try {
+            when (effectiveBackend) {
+                "elevenlabs", "auto" -> {
+                    val vid = com.lifecyclebot.engine.VoiceManager.getElevenLabsVoiceForPersona(this, active.id)
+                    val cat = com.lifecyclebot.engine.VoiceManager.stockElevenLabsCatalogue()
+                    cat.firstOrNull { it.first == vid }?.second ?: "custom"
+                }
+                "openai" -> {
+                    val vid = com.lifecyclebot.engine.VoiceManager.getOpenAiVoiceForPersona(this, active.id)
+                    val cat = com.lifecyclebot.engine.VoiceManager.stockOpenAiCatalogue()
+                    cat.firstOrNull { it.first == vid }?.second ?: vid
+                }
+                "sherpa"  -> "Sherpa local"
+                "android" -> "System TTS"
+                else      -> "—"
+            }
+        } catch (_: Exception) { "—" }
+        val backendLabel = when (effectiveBackend) {
+            "elevenlabs" -> "11L"
+            "openai"     -> "OAI"
+            "sherpa"     -> "SHRP"
+            "android"    -> "ANDR"
+            else         -> "AUTO"
+        }
+        tv.text = "$backendLabel · $voiceName"
+    }
+
+    private fun showVoicePickerDialog() {
+        val active = try { Personalities.getActive(this) } catch (_: Exception) { null } ?: run {
+            Toast.makeText(this, "No active persona", Toast.LENGTH_SHORT).show(); return
+        }
+        // V5.9.362 — Step 1: pick BACKEND (ElevenLabs / OpenAI / Sherpa / Android).
+        val backends = try { com.lifecyclebot.engine.VoiceManager.availableBackends(this) } catch (_: Exception) { emptyList() }
+        if (backends.isEmpty()) {
+            Toast.makeText(this, "No TTS backends available", Toast.LENGTH_SHORT).show(); return
+        }
+        val labels = backends.map { b ->
+            val tag = if (b.available) "" else "  (unavailable)"
+            "${b.displayName}$tag — ${b.blurb}"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Backend for ${active.displayName}")
+            .setItems(labels) { _, idx ->
+                val pick = backends[idx]
+                if (!pick.available) {
+                    Toast.makeText(this, "${pick.displayName} not configured — set it up in Settings.", Toast.LENGTH_LONG).show()
+                    return@setItems
+                }
+                try { com.lifecyclebot.engine.VoiceManager.setBackendForPersona(this, active.id, pick.id) } catch (_: Exception) {}
+                // Step 2: drill into the backend's voice catalogue (if applicable).
+                when (pick.id) {
+                    "elevenlabs" -> showElevenLabsVoiceDialog(active)
+                    "openai"     -> showOpenAiVoiceDialog(active)
+                    "sherpa", "android" -> {
+                        // Single-voice backends — just save and preview.
+                        Toast.makeText(this, "🔊 ${active.displayName} → ${pick.displayName}", Toast.LENGTH_SHORT).show()
+                        refreshVoiceLabel()
+                        previewActivePersonaVoice()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showElevenLabsVoiceDialog(active: Personalities.Persona) {
+        val catalogue = try { com.lifecyclebot.engine.VoiceManager.stockElevenLabsCatalogue() } catch (_: Exception) { emptyList() }
+        if (catalogue.isEmpty()) {
+            Toast.makeText(this, "Voice catalogue unavailable", Toast.LENGTH_SHORT).show(); return
+        }
+        val labels = catalogue.map { "${it.second} — ${it.third}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("ElevenLabs voice for ${active.displayName}")
+            .setItems(labels) { _, idx ->
+                val pick = catalogue[idx]
+                try {
+                    com.lifecyclebot.engine.VoiceManager.setElevenLabsVoiceForPersona(this, active.id, pick.first)
+                    Toast.makeText(this, "🔊 ${active.displayName} → ${pick.second}", Toast.LENGTH_SHORT).show()
+                    refreshVoiceLabel()
+                    com.lifecyclebot.engine.VoiceManager.speak(
+                        "${pick.second}. ${active.displayName} now speaks with my voice.",
+                        active
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showOpenAiVoiceDialog(active: Personalities.Persona) {
+        val catalogue = try { com.lifecyclebot.engine.VoiceManager.stockOpenAiCatalogue() } catch (_: Exception) { emptyList() }
+        if (catalogue.isEmpty()) {
+            Toast.makeText(this, "OpenAI catalogue unavailable", Toast.LENGTH_SHORT).show(); return
+        }
+        val labels = catalogue.map { "${it.second} — ${it.third}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("OpenAI voice for ${active.displayName}")
+            .setItems(labels) { _, idx ->
+                val pick = catalogue[idx]
+                try {
+                    com.lifecyclebot.engine.VoiceManager.setOpenAiVoiceForPersona(this, active.id, pick.first)
+                    Toast.makeText(this, "🔊 ${active.displayName} → ${pick.second}", Toast.LENGTH_SHORT).show()
+                    refreshVoiceLabel()
+                    com.lifecyclebot.engine.VoiceManager.speak(
+                        "${pick.second}. ${active.displayName} now speaks with my voice.",
+                        active
+                    )
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun previewActivePersonaVoice() {
+        val active = try { Personalities.getActive(this) } catch (_: Exception) { null } ?: run {
+            Toast.makeText(this, "No active persona", Toast.LENGTH_SHORT).show(); return
+        }
+        try {
+            com.lifecyclebot.engine.VoiceManager.speak(
+                "Operator. ${active.displayName} reporting in. Brain online, ledger live, ready to ride.",
+                active
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Preview failed: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────

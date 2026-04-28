@@ -1803,6 +1803,45 @@ object EducationSubLayerAI {
         }
         return shaken
     }
+
+    /**
+     * V5.9.362 — LAYER AMNESTY (operator-triggered hard reset of poisoned weights)
+     *
+     * Brain has converged to bad after thousands of trades on a stale schema?
+     * Amnesty pulls *every* registered layer's accuracy back to the 50% prior,
+     * keeps the trade-count history (so maturity / curriculum survive), wipes
+     * the winning/losing combination caches (so re-exploration can begin), and
+     * preserves the raw `polarity` sign so the polarity-healing engine doesn't
+     * have to re-discover inverse-correlated layers from scratch.
+     *
+     * This is the user-facing "Reset Bad Habits" button — strictly stronger
+     * than `shakeWeakLayers` but weaker than `resetAllLearning` (which would
+     * vaporise the curriculum / sample counts entirely).
+     *
+     * @return number of layers reset
+     */
+    fun layerAmnesty(): Int {
+        var reset = 0
+        layerPerformance.forEach { (_, m) ->
+            // Force successfulPredictions to exactly 50% of total — neutral prior.
+            val neutral = m.totalOutcomesRecorded / 2
+            m.successfulPredictions = neutral
+            // Pull the V5.9.138 quality-weighted edge score back to neutral too.
+            // weightedHits / weightSum → 0.5 by setting weightedHits = weightSum/2.
+            m.weightedHits = m.weightSum / 2.0
+            // Reset trust multiplier so the bot stops trusting its old bad calls.
+            m.trustMultiplier = 1.0
+            reset++
+        }
+        // Drop pattern caches — the bot must re-learn winning combinations
+        // from the new healthier baseline.
+        winningCombinations.clear()
+        losingCombinations.clear()
+        approvalPatterns.clear()
+        try { saveForced() } catch (_: Exception) {}
+        ErrorLogger.warn(TAG, "🕊  LAYER AMNESTY: $reset layers pulled to 50% neutral prior; combo caches cleared")
+        return reset
+    }
     
     /**
      * Get trust multiplier for a specific layer.

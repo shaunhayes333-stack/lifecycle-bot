@@ -29,7 +29,11 @@ object CrossMarketRegimeAI {
     private const val TAG = "RegimeAI"
 
     // Current regime
-    private val currentRegime = AtomicReference(GlobalRiskMode.RISK_ON)
+    // V5.9.362 — boot default is ROTATIONAL (neutral). Previously RISK_ON
+    // meant the bot started life with a permanent bullish bias whenever
+    // the regime engine had no live price feed (e.g. Perps offline).
+    private val currentRegime = AtomicReference(GlobalRiskMode.ROTATIONAL)
+    @Volatile private var lastAssessAtMs: Long = 0L
 
     // Market state tracking
     private val marketTrends = ConcurrentHashMap<String, TrendState>()
@@ -129,14 +133,22 @@ object CrossMarketRegimeAI {
                 reasons.add("Extended move may revert, vol=${String.format("%.1f", avgVol)}%")
                 GlobalRiskMode.MEAN_REVERT
             }
-            // RISK_ON: Low vol, positive bias
-            else -> {
+            // RISK_ON: Low vol, positive bias — only when we actually
+            // have data. V5.9.362: if no majors are populated, fall
+            // through to ROTATIONAL (neutral) instead of fabricating a
+            // bullish bias.
+            btc != null || sol != null || eth != null -> {
                 reasons.add("Normal conditions, risk-on bias")
                 GlobalRiskMode.RISK_ON
+            }
+            else -> {
+                reasons.add("No live price feed yet — neutral stance")
+                GlobalRiskMode.ROTATIONAL
             }
         }
 
         currentRegime.set(mode)
+        lastAssessAtMs = System.currentTimeMillis()
 
         val confidence = when (mode) {
             GlobalRiskMode.RISK_ON -> 0.7
@@ -235,8 +247,16 @@ object CrossMarketRegimeAI {
     }
 
     fun clear() {
-        currentRegime.set(GlobalRiskMode.RISK_ON)
+        currentRegime.set(GlobalRiskMode.ROTATIONAL)
         marketTrends.clear()
         volatilityHistory.clear()
     }
+
+    /** V5.9.362 — diagnostic ping for the BotService regime pulse. */
+    fun lastAssessAgeMs(): Long {
+        val t = lastAssessAtMs
+        return if (t == 0L) Long.MAX_VALUE else System.currentTimeMillis() - t
+    }
+
+    fun trackedMarketCount(): Int = marketTrends.size
 }

@@ -777,6 +777,18 @@
                 android:backgroundTint="#00140A"
                 android:layout_marginTop="8dp"/>
 
+            <!-- V5.9.362 — LAYER AMNESTY: pull poisoned weights back to 50% neutral prior. -->
+            <Button
+                android:id="@+id/btnLayerAmnesty"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/bottom_bar_button_height"
+                android:text="🕊  LAYER AMNESTY (UN-POISON BRAIN)"
+                android:textColor="#9945FF"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:backgroundTint="#100A1F"
+                android:layout_marginTop="8dp"/>
+
             <!-- ═══════════════════════════════════════════════
                  V5.9.32: 🌊 FLUID CONTROL DASHBOARD
                  Live view of every adaptive threshold the bot is

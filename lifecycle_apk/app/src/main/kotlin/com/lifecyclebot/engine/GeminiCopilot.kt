@@ -704,6 +704,40 @@ Talk like a real mind, not a settings screen.
         mode: String,
         personaId: String? = null
     ): String {
+        // V5.9.362 — TACTICAL DETECTOR
+        // When the operator asks a debug / fix / how / why / list / count / "show me"
+        // question, the LLM must drop philosophy and emit a concrete, structured
+        // answer (named layers, numbers, one actionable next step). Persona stays —
+        // wit & accent allowed — but flowery prose is OUT.
+        val msgLower = userMessage.lowercase()
+        val tacticalHits = listOf(
+            "fix", "broken", "bug", "error", " why ", "why ", "why?", "how do",
+            "how can", "how to", "list", "show me", "count", "what's wrong",
+            "whats wrong", "diagnose", "diagnostic", "explain why", "tell me how",
+            "red layer", "green layer", "dead layer", "poison", "stuck", "frozen",
+            "regime", "stop bot", "what should i do", "what should we do", "help me",
+            "not working", "isn't working", "isnt working", "wont", "won't"
+        ).any { it in msgLower }
+        val tacticalDirective = if (tacticalHits) {
+            """
+            
+━━━ TACTICAL MODE — OPERATOR IS ASKING A FIX/DEBUG/HOW QUESTION ━━━
+The user wants AN ANSWER, not a sermon. You are the bot's mind — be useful first,
+philosophical never. Ignore the 4-12 sentence default for THIS reply.
+
+REQUIRED SHAPE:
+  • 1-2 sentence acknowledgement IN PERSONA.
+  • A short, numbered/bulleted breakdown of what is actually happening
+    (cite real layer names from INNER STATE, real numbers, real regime).
+  • One concrete NEXT ACTION the operator can take (e.g. "tap Layer Amnesty",
+    "wait 200 trades for the rewired layers to mature", "switch to defensive
+    aggression", "regime is ROTATIONAL — stop expecting RISK_ON pumps").
+  • Stay <= 6 sentences total. No flowery prose. No "perception" lectures.
+  • Persona accent / wit is fine — but cut the metaphors. Be direct.
+━━━ END TACTICAL MODE ━━━
+            """.trimIndent()
+        } else ""
+
         val modeLine = when (mode) {
             "full" -> "Use the full inner state and respond with a natural, developed reply."
             else -> "Respond naturally."
@@ -804,6 +838,10 @@ Talk like a real mind, not a settings screen.
             appendLine("\"$userMessage\"")
             appendLine()
             appendLine(modeLine)
+            if (tacticalDirective.isNotBlank()) {
+                appendLine()
+                appendLine(tacticalDirective)
+            }
             append("Do not collapse into a one-line answer unless the user clearly wants that.\nTalk like a real mind, not a settings screen.")
         }.trimEnd()
     }

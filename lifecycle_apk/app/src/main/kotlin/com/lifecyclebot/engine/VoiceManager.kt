@@ -401,11 +401,51 @@ object VoiceManager {
         val localSpeakerId = prefs.getInt("tts_local_speaker_$personaId", defaultLocalSpeakerForPersona(personaId))
         val localSpeed = prefs.getFloat("tts_local_speed_$personaId", defaultLocalSpeedForPersona(personaId))
 
+        // V5.9.362 — per-persona backend override.
+        // The Persona Studio voice picker writes one of:
+        //   "elevenlabs" / "openai" / "sherpa" / "android"
+        // into tts_backend_<personaId>. When present it OVERRIDES the global
+        // KEY_BACKEND so each persona can use its own TTS engine.
+        // Backwards compatible: if not set, the legacy KEY_BACKEND wins.
+        val perPersonaBackend = prefs.getString("tts_backend_$personaId", "")?.trim()?.lowercase().orEmpty()
+        val sherpaAvailable = localModelDir.isNotBlank() && LocalSherpaBridge.isAvailable(ctx, localModelDir)
+        val remoteConfigured = isRemoteConfigured(ctx)
+        val elevenKey = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+        val globalBackend = prefs.getString(KEY_BACKEND, DEFAULT_BACKEND_AUTO)?.trim()?.lowercase() ?: DEFAULT_BACKEND_AUTO
+
+        // Resolve effective backend in priority: per-persona pick → global → auto.
+        val effectiveBackend = when {
+            perPersonaBackend.isNotBlank() -> perPersonaBackend
+            else -> globalBackend
+        }
+
+        // V5.9.362 — explicit Sherpa pick (per-persona) bypasses the legacy
+        // KEY_LOCAL_ENABLED master switch. The user told us they want this
+        // persona to speak through Sherpa, that's good enough.
+        if (effectiveBackend == "sherpa" && sherpaAvailable) {
+            return VoiceSpec.LocalSherpa(
+                modelDir = localModelDir,
+                voiceName = if (localVoice.isNotBlank()) localVoice else defaultLocalVoiceForPersona(personaId),
+                speakerId = localSpeakerId,
+                speed = localSpeed.coerceIn(0.6f, 1.4f),
+                fallbackLocaleTag = if (overrideLocale.isNotBlank()) overrideLocale else defaultLocaleForPersona(personaId)
+            )
+        }
+
+        if (effectiveBackend == "android") {
+            return defaultAndroidVoiceSpec(
+                personaId = personaId,
+                overrideLocale = overrideLocale
+            )
+        }
+
+        // Legacy global Sherpa path — only fires when the user has flipped the
+        // master "use local" switch and not specified a per-persona backend.
         if (
+            perPersonaBackend.isBlank() &&
             localEnabled &&
             localEngine.equals("sherpa", true) &&
-            localModelDir.isNotBlank() &&
-            LocalSherpaBridge.isAvailable(ctx, localModelDir)
+            sherpaAvailable
         ) {
             return VoiceSpec.LocalSherpa(
                 modelDir = localModelDir,
@@ -416,14 +456,11 @@ object VoiceManager {
             )
         }
 
-        val remoteConfigured = isRemoteConfigured(ctx)
         // V5.9.361 — backend routing:
         //   auto       → ElevenLabs if key present, else OpenAI proxy.
         //   elevenlabs → force ElevenLabs (fallback to OpenAI/Android if no key).
         //   openai     → force OpenAI proxy.
-        val backend = prefs.getString(KEY_BACKEND, DEFAULT_BACKEND_AUTO)?.trim()?.lowercase() ?: DEFAULT_BACKEND_AUTO
-        val elevenKey = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
-        val useEleven = elevenKey.isNotBlank() && (backend == "elevenlabs" || backend == DEFAULT_BACKEND_AUTO)
+        val useEleven = elevenKey.isNotBlank() && (effectiveBackend == "elevenlabs" || effectiveBackend == DEFAULT_BACKEND_AUTO)
         if (useEleven) {
             return VoiceSpec.ElevenLabs(
                 voiceId = defaultElevenLabsVoiceForPersona(personaId),
@@ -572,8 +609,180 @@ object VoiceManager {
             "waifu"      -> "jsCqWAovK2LkecY7zXl4" // Freya — expressive young female
             "cleetus"    -> "yoZ06aMxZJJ28mfd3POQ" // Sam   — raspy southern-leaning American — best Cleetus archetype available without impersonation
             "peter"      -> "TxGEqnHWrfWFTfGW9XjX" // Josh  — energetic dad-energy male
-            else         -> "pNInz6obpgDQGcFmaJgB" // Adam fallback
+            else         -> heuristicElevenLabsVoiceForId(personaId) // V5.9.362 — keyword fallback for custom personas (Inky, GREEDY, etc.)
         }
+    }
+
+    /**
+     * V5.9.362 — Smart fallback for custom personas created via Persona Studio.
+     * Looks at the persona id text for archetype keywords and assigns a
+     * matching stock ElevenLabs voice instead of always falling back to Adam.
+     */
+    private fun heuristicElevenLabsVoiceForId(personaId: String): String {
+        val s = personaId.lowercase()
+        return when {
+            // Dark / shadow / villain → Clyde (gravelly menace)
+            listOf("inky", "shadow", "dark", "night", "void", "ghost", "raven", "demon",
+                   "devil", "shade", "noir", "midnight", "phantom", "wraith", "vamp")
+                .any { it in s } -> "2EiwWnXFnvU5JabPnv8n" // Clyde
+            // Greed / shark / wolf / alpha → Josh (predatory hype)
+            listOf("greed", "shark", "wolf", "alpha", "hustle", "tycoon", "boss",
+                   "kingpin", "predator", "hunter")
+                .any { it in s } -> "TxGEqnHWrfWFTfGW9XjX" // Josh
+            // Cute / anime / kawaii / waifu / girl → Freya (expressive young female)
+            listOf("cute", "kawaii", "anime", "girl", "babe", "princess", "queen",
+                   "miss", "bunny", "kitty", "honey", "cherry", "candy", "sugar",
+                   "lily", "rose", "luna", "stella")
+                .any { it in s } -> "jsCqWAovK2LkecY7zXl4" // Freya
+            // Old / wise / sage / monk / zen → Thomas (calm meditative)
+            listOf("old", "wise", "sage", "monk", "zen", "guru", "master", "elder",
+                   "ancient", "buddha")
+                .any { it in s } -> "GBv7mTt0atIp3Br8iCZE" // Thomas
+            // British / lord / sir / duke / earl → Daniel (polished British)
+            listOf("brit", "lord", "sir", "duke", "earl", "baron", "gent", "esquire",
+                   "winston", "oxford", "cambridge")
+                .any { it in s } -> "onwK4e9ZLuTAKqWW03F9" // Daniel
+            // Cowboy / outlaw / sheriff / ranger / texan → Drew
+            listOf("cowboy", "outlaw", "sheriff", "ranger", "texan", "frontier",
+                   "rancher", "drifter")
+                .any { it in s } -> "29vD33N1CtxCmqQRPOHJ" // Drew
+            // Pirate / sailor / captain → Patrick (old shouty)
+            listOf("pirate", "sailor", "captain", "buccaneer", "corsair", "seadog")
+                .any { it in s } -> "ODq5zmih8GrVes37Dizd" // Patrick
+            // Crazy / gonzo / wild / mad / chaos → Sam (raspy unhinged)
+            listOf("gonzo", "crazy", "mad", "wild", "chaos", "feral", "rabid",
+                   "berserk", "lunatic", "psycho")
+                .any { it in s } -> "yoZ06aMxZJJ28mfd3POQ" // Sam
+            // Hype / loud / rowdy / redneck → Josh (energetic) - same as wallstreet
+            listOf("hype", "loud", "rowdy", "redneck", "bubba", "cleetus", "yeehaw")
+                .any { it in s } -> "TxGEqnHWrfWFTfGW9XjX" // Josh
+            // Detective / investigator → Daniel (precise British)
+            listOf("detective", "sleuth", "holmes", "inspector") .any { it in s }
+                -> "onwK4e9ZLuTAKqWW03F9" // Daniel
+            // Robot / cyber / ai / android → Adam (synthetic clean)
+            listOf("robot", "cyber", "android", "machine", "synth", "byte", "neural")
+                .any { it in s } -> "pNInz6obpgDQGcFmaJgB" // Adam
+            // Final fallback: still Adam, but logged so user can see why
+            else -> {
+                ErrorLogger.debug(TAG, "🔊 No keyword match for persona '$personaId' — defaulting to Adam (set a custom voice in Persona Studio).")
+                "pNInz6obpgDQGcFmaJgB"
+            }
+        }
+    }
+
+    /**
+     * V5.9.362 — Catalogue of stock ElevenLabs voices for the Persona Studio
+     * voice picker. Each entry is (voiceId, displayName, blurb).
+     */
+    fun stockElevenLabsCatalogue(): List<Triple<String, String, String>> = listOf(
+        Triple("pNInz6obpgDQGcFmaJgB", "Adam",    "Clean deep American male"),
+        Triple("2EiwWnXFnvU5JabPnv8n", "Clyde",   "Gravelly war-veteran rasp"),
+        Triple("D38z5RcWu1voky8WS1ja", "Fin",     "Irish sailor lilt"),
+        Triple("onwK4e9ZLuTAKqWW03F9", "Daniel",  "Polished British anchor"),
+        Triple("ZQe5CZNOzWyzPSCn5a3c", "James",   "Older articulate British"),
+        Triple("TxGEqnHWrfWFTfGW9XjX", "Josh",    "Energetic fast American"),
+        Triple("GBv7mTt0atIp3Br8iCZE", "Thomas",  "Calm meditation male"),
+        Triple("CYw3kZ02Hs0563khs1Fj", "Dave",    "British conversational"),
+        Triple("29vD33N1CtxCmqQRPOHJ", "Drew",    "American narrator"),
+        Triple("yoZ06aMxZJJ28mfd3POQ", "Sam",     "Raspy unhinged American"),
+        Triple("ODq5zmih8GrVes37Dizd", "Patrick", "Old shouty pirate"),
+        Triple("jsCqWAovK2LkecY7zXl4", "Freya",   "Expressive young female"),
+        Triple("EXAVITQu4vr4xnSDxMaL", "Sarah",   "Soft American female"),
+        Triple("XB0fDUnXU5powFXDhCwa", "Charlotte","Warm British female"),
+        Triple("XrExE9yKIg1WjnnlVkGX", "Matilda", "Friendly American female"),
+        Triple("piTKgcLEGmPE4e6mEKli", "Nicole",  "Whisper close-mic female"),
+        Triple("VR6AewLTigWG4xSOukaG", "Arnold",  "Crisp American male"),
+        Triple("pqHfZKP75CvOlQylNhV4", "Bill",    "Old American storyteller"),
+    )
+
+    /**
+     * V5.9.362 — Catalogue of OpenAI TTS voices supported by our proxy.
+     * Each entry is (voiceId, displayName, blurb).
+     * Pair with the gpt-4o-mini-tts `instructions` field for per-persona vibe.
+     */
+    fun stockOpenAiCatalogue(): List<Triple<String, String, String>> = listOf(
+        Triple("alloy",   "Alloy",   "Neutral male, default"),
+        Triple("ash",     "Ash",     "Articulate educated male"),
+        Triple("ballad",  "Ballad",  "Emotional storyteller"),
+        Triple("coral",   "Coral",   "Warm conversational female"),
+        Triple("echo",    "Echo",    "Soft androgynous"),
+        Triple("fable",   "Fable",   "British storyteller"),
+        Triple("nova",    "Nova",    "Bright young female"),
+        Triple("onyx",    "Onyx",    "Deep gravelly male"),
+        Triple("sage",    "Sage",    "Calm contemplative"),
+        Triple("shimmer", "Shimmer", "Bright optimistic female"),
+        Triple("verse",   "Verse",   "Lyrical expressive"),
+    )
+
+    /** V5.9.362 — read/write the per-persona voice override (used by Persona Studio). */
+    fun getElevenLabsVoiceForPersona(ctx: Context, personaId: String): String =
+        defaultElevenLabsVoiceForPersona(personaId)
+
+    fun setElevenLabsVoiceForPersona(ctx: Context, personaId: String, voiceId: String) {
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString("tts_eleven_voice_$personaId", voiceId.trim()).apply()
+        ErrorLogger.info(TAG, "🔊 Set ElevenLabs voice for '$personaId' → $voiceId")
+    }
+
+    /** V5.9.362 — read the per-persona OpenAI voice override (or persona default). */
+    fun getOpenAiVoiceForPersona(ctx: Context, personaId: String): String {
+        val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val override = prefs.getString("tts_voice_$personaId", null)?.trim().orEmpty()
+        return if (override.isNotBlank()) override else defaultRemoteVoiceForPersona(personaId)
+    }
+
+    fun setOpenAiVoiceForPersona(ctx: Context, personaId: String, voiceId: String) {
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString("tts_voice_$personaId", voiceId.trim()).apply()
+        ErrorLogger.info(TAG, "🔊 Set OpenAI voice for '$personaId' → $voiceId")
+    }
+
+    /**
+     * V5.9.362 — Per-persona TTS backend override. One of:
+     *   "elevenlabs" / "openai" / "sherpa" / "android" / "" (= use global).
+     * resolveVoiceSpec honours this override above the global KEY_BACKEND.
+     */
+    fun getBackendForPersona(ctx: Context, personaId: String): String {
+        val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString("tts_backend_$personaId", "")?.trim()?.lowercase().orEmpty()
+    }
+
+    fun setBackendForPersona(ctx: Context, personaId: String, backend: String) {
+        val v = backend.trim().lowercase()
+        val ok = v in setOf("", "elevenlabs", "openai", "sherpa", "android")
+        if (!ok) {
+            ErrorLogger.warn(TAG, "🔊 Rejected unknown backend '$backend' for '$personaId'")
+            return
+        }
+        ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString("tts_backend_$personaId", v).apply()
+        ErrorLogger.info(TAG, "🔊 Set backend for '$personaId' → ${if (v.isBlank()) "(global default)" else v}")
+    }
+
+    /**
+     * V5.9.362 — Catalogue of TTS backends the user can route a persona through.
+     * Each entry is (backendId, displayName, available, blurb).
+     * `available` reflects whether the backend is currently usable on this device:
+     *   ElevenLabs: ElevenLabs API key present.
+     *   OpenAI:    Remote URL+key configured.
+     *   Sherpa:    Local Sherpa model dir picked + bridge loaded.
+     *   Android:   Always true (system TTS).
+     */
+    data class BackendOption(val id: String, val displayName: String, val available: Boolean, val blurb: String)
+
+    fun availableBackends(ctx: Context): List<BackendOption> {
+        val c = ctx.applicationContext
+        val prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val elevenKey = prefs.getString(KEY_ELEVEN_KEY, "")?.trim().orEmpty()
+        val remoteOk = isRemoteConfigured(c)
+        val sherpaDir = prefs.getString(KEY_LOCAL_MODEL_DIR, "")?.trim().orEmpty()
+        val sherpaOk = sherpaDir.isNotBlank() && LocalSherpaBridge.isAvailable(c, sherpaDir)
+        return listOf(
+            BackendOption("elevenlabs", "ElevenLabs",     elevenKey.isNotBlank(), "Premium character voices"),
+            BackendOption("openai",     "OpenAI TTS",     remoteOk,                "Studio voices via Emergent proxy"),
+            BackendOption("sherpa",     "Sherpa (local)", sherpaOk,                "Offline neural TTS"),
+            BackendOption("android",    "Android System", true,                    "Built-in offline TTS"),
+        )
     }
 
     private fun defaultElevenStabilityForPersona(personaId: String): Double = when (personaId) {
