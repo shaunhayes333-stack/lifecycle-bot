@@ -60,7 +60,23 @@ class SoundManager(private val ctx: Context) {
         // Try to load custom sounds if they exist
         loadCustomSounds()
     }
-    
+
+    /** V5.9.359 — Public hot-reload for the Persona Studio MP3 swap.
+     *  Unloads previously-loaded slot IDs before reloading so we don't
+     *  leak SoundPool entries on every swap. Safe to call from the UI
+     *  thread; no-op if soundPool is unavailable. */
+    fun reloadCustomSounds() {
+        try {
+            if (woohooSoundId > 0) soundPool.unload(woohooSoundId)
+            if (awesomeSoundId > 0) soundPool.unload(awesomeSoundId)
+            if (aplusAlertSoundId > 0) soundPool.unload(aplusAlertSoundId)
+        } catch (_: Exception) {}
+        woohooSoundId = -1
+        awesomeSoundId = -1
+        aplusAlertSoundId = -1
+        loadCustomSounds()
+    }
+
     private fun loadCustomSounds() {
         try {
             // V5.9.350: Persona Studio can swap built-in sounds for user-picked

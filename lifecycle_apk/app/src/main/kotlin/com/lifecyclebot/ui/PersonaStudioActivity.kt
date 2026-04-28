@@ -1,10 +1,13 @@
 package com.lifecyclebot.ui
 
 import android.app.Activity
+import android.content.ClipDescription
 import android.content.Intent
 import android.graphics.Color
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.view.DragEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -14,11 +17,13 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.lifecyclebot.R
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.Personalities
 import com.lifecyclebot.engine.PersonalityMemoryStore
+import com.lifecyclebot.engine.SoundManager
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -146,6 +151,41 @@ class PersonaStudioActivity : AppCompatActivity() {
         }
 
         buildTraitSliders()
+
+        // V5.9.359 — handle inbound ACTION_SEND of audio MIME (share-to-app
+        // from any file manager). User picks the slot in a dialog, we run
+        // the same handlePickedMp3 + live reload pipeline.
+        handleShareIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        intent?.let { handleShareIntent(it) }
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action != Intent.ACTION_SEND) return
+        val uri: Uri? = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+        }
+        val mime = intent.type ?: ""
+        if (uri == null || !mime.startsWith("audio/")) return
+        promptSlotChooser { slot ->
+            handlePickedMp3(slot, uri)
+        }
+    }
+
+    private fun promptSlotChooser(onPick: (String) -> Unit) {
+        val labels = arrayOf("🎉 Buy (woohoo)", "🛡 Block (awesome)", "⭐ A+ Setup Alert")
+        val slots  = arrayOf(SLOT_WOOHOO, SLOT_AWESOME, SLOT_APLUS)
+        AlertDialog.Builder(this)
+            .setTitle("Replace which sound?")
+            .setItems(labels) { _, idx -> onPick(slots[idx]) }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun onResume() {
@@ -418,12 +458,110 @@ class PersonaStudioActivity : AppCompatActivity() {
                 pendingSoundSlot = null
             }
         }
+        // V5.9.359 — long-press = audio preview (built-in or custom).
+        s.row.setOnLongClickListener {
+            previewSlot(s.slot)
+            true
+        }
+        // V5.9.359 — drag-and-drop target. Accepts URIs with audio MIME from
+        // any drag source (file manager, multi-window, etc.). Highlights the
+        // pill on enter, drops fall through the same handlePickedMp3 pipeline.
+        s.row.setOnDragListener { view, event ->
+            val cd: ClipDescription? = event.clipDescription
+            val isAudio = cd != null && (
+                cd.hasMimeType("audio/*") ||
+                cd.hasMimeType("audio/mpeg") ||
+                cd.hasMimeType("audio/mp3") ||
+                cd.hasMimeType(ClipDescription.MIMETYPE_TEXT_URILIST)
+            )
+            when (event.action) {
+                DragEvent.ACTION_DRAG_STARTED -> isAudio
+                DragEvent.ACTION_DRAG_ENTERED -> {
+                    view.alpha = 0.55f
+                    true
+                }
+                DragEvent.ACTION_DRAG_EXITED, DragEvent.ACTION_DRAG_ENDED -> {
+                    view.alpha = 1f
+                    true
+                }
+                DragEvent.ACTION_DROP -> {
+                    view.alpha = 1f
+                    val item = event.clipData?.getItemAt(0)
+                    val uri = item?.uri
+                    if (uri != null) {
+                        try {
+                            // Permission is required to read the dropped URI.
+                            val perms = event.requestDragAndDropPermissions(this)
+                            try { handlePickedMp3(s.slot, uri) } finally { perms?.release() }
+                        } catch (e: Exception) {
+                            // Some sources don't grant URI permission — best-effort copy anyway.
+                            handlePickedMp3(s.slot, uri)
+                        }
+                        true
+                    } else false
+                }
+                else -> true
+            }
+        }
         s.reset.setOnClickListener {
             val f = customSoundFile(this, s.slot)
             if (f.exists()) f.delete()
+            try { SoundManager.reloadCustomSounds() } catch (_: Exception) {}
             refreshSounds()
             Toast.makeText(this, "Reverted ${s.slot} to built-in sound", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** V5.9.359 — Quick MP3 preview for a slot. Plays custom file if present
+     *  else falls back to res/raw/<slot>. Stops itself on second tap. */
+    @Volatile private var previewPlayer: MediaPlayer? = null
+    @Volatile private var previewingSlot: String? = null
+
+    private fun previewSlot(slot: String) {
+        // Toggle off if already previewing this slot.
+        if (previewingSlot == slot) {
+            try { previewPlayer?.stop(); previewPlayer?.release() } catch (_: Exception) {}
+            previewPlayer = null
+            previewingSlot = null
+            Toast.makeText(this, "⏹ stopped", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Stop whatever else might be playing.
+        try { previewPlayer?.release() } catch (_: Exception) {}
+        previewPlayer = null
+        previewingSlot = null
+
+        val player = try {
+            val f = customSoundFile(this, slot)
+            if (f.exists() && f.length() > 0) {
+                MediaPlayer().apply { setDataSource(f.absolutePath); prepare() }
+            } else {
+                val resId = resources.getIdentifier(slot, "raw", packageName)
+                if (resId == 0) null else MediaPlayer.create(this, resId)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "preview failed: ${e.message}")
+            null
+        }
+        if (player == null) {
+            Toast.makeText(this, "No audio for $slot", Toast.LENGTH_SHORT).show()
+            return
+        }
+        player.setOnCompletionListener {
+            try { it.release() } catch (_: Exception) {}
+            if (previewingSlot == slot) {
+                previewingSlot = null
+                previewPlayer = null
+            }
+        }
+        try { player.start() } catch (e: Exception) {
+            try { player.release() } catch (_: Exception) {}
+            Toast.makeText(this, "Preview failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            return
+        }
+        previewPlayer = player
+        previewingSlot = slot
+        Toast.makeText(this, "▶ previewing $slot (long-press again to stop)", Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshSounds() {
@@ -457,12 +595,26 @@ class PersonaStudioActivity : AppCompatActivity() {
                 Toast.makeText(this, "File too large (>5MB). Please pick a smaller MP3.", Toast.LENGTH_LONG).show()
                 return
             }
+            // V5.9.359 — hot reload: SoundManager re-loads its SoundPool slots
+            // immediately so the new MP3 plays on the very next event. No
+            // service restart needed, killing the old "restart bot service"
+            // toast.
+            try { SoundManager.reloadCustomSounds() } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "SoundManager reload failed: ${e.message}")
+            }
             refreshSounds()
-            Toast.makeText(this, "✓ $slot updated — restart bot service to reload", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "✓ $slot updated — ready to play", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "mp3 copy failed: ${e.message}")
             Toast.makeText(this, "Copy failed: ${e.message}", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    override fun onDestroy() {
+        try { previewPlayer?.release() } catch (_: Exception) {}
+        previewPlayer = null
+        previewingSlot = null
+        super.onDestroy()
     }
 
     // ──────────────────────────────────────────────────────────────────

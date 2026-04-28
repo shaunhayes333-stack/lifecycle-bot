@@ -70,7 +70,17 @@
         <activity android:name=".ui.MultiAssetActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.CollectiveBrainActivity" android:exported="false"/>
         <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
-        <activity android:name=".ui.PersonaStudioActivity" android:exported="false" android:screenOrientation="portrait" android:label="Persona Studio"/>
+        <activity android:name=".ui.PersonaStudioActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:label="Persona Studio">
+            <!-- V5.9.359 — accept shared MP3s from any file manager. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="audio/*"/>
+            </intent-filter>
+        </activity>
         <activity android:name=".ui.InsiderWalletsActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.WatchlistActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>

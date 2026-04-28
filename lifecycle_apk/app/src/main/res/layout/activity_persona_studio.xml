@@ -268,7 +268,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Tap any row to pick an MP3 from your device. It replaces the built-in sound for that event."
+                android:text="Tap a row to pick an MP3, drop one in, or share-to-app from any file manager. Long-press a row to preview."
                 android:textColor="#6B7280"
                 android:textSize="10sp"
                 android:layout_marginTop="4dp"
