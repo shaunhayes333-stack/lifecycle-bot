@@ -489,13 +489,9 @@ class PersonaStudioActivity : AppCompatActivity() {
                     val item = event.clipData?.getItemAt(0)
                     val uri = item?.uri
                     if (uri != null) {
-                        try {
-                            // Permission is required to read the dropped URI.
-                            val perms = event.requestDragAndDropPermissions(this)
-                            try { handlePickedMp3(s.slot, uri) } finally { perms?.release() }
-                        } catch (e: Exception) {
-                            // Some sources don't grant URI permission — best-effort copy anyway.
-                            handlePickedMp3(s.slot, uri)
+                        val perms = try { requestDragAndDropPermissions(event) } catch (_: Exception) { null }
+                        try { handlePickedMp3(s.slot, uri) } finally {
+                            try { perms?.release() } catch (_: Exception) {}
                         }
                         true
                     } else false
@@ -506,7 +502,7 @@ class PersonaStudioActivity : AppCompatActivity() {
         s.reset.setOnClickListener {
             val f = customSoundFile(this, s.slot)
             if (f.exists()) f.delete()
-            try { SoundManager.reloadCustomSounds() } catch (_: Exception) {}
+            try { SoundManager.reloadActiveCustomSounds() } catch (_: Exception) {}
             refreshSounds()
             Toast.makeText(this, "Reverted ${s.slot} to built-in sound", Toast.LENGTH_SHORT).show()
         }
@@ -599,7 +595,7 @@ class PersonaStudioActivity : AppCompatActivity() {
             // immediately so the new MP3 plays on the very next event. No
             // service restart needed, killing the old "restart bot service"
             // toast.
-            try { SoundManager.reloadCustomSounds() } catch (e: Exception) {
+            try { SoundManager.reloadActiveCustomSounds() } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "SoundManager reload failed: ${e.message}")
             }
             refreshSounds()

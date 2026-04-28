@@ -77,6 +77,25 @@ class SoundManager(private val ctx: Context) {
         loadCustomSounds()
     }
 
+    init {
+        // V5.9.359 — track the active instance so non-service callers
+        // (e.g. PersonaStudioActivity) can trigger a hot-reload without
+        // having to bind to BotService.
+        latestInstance = this
+    }
+
+    companion object {
+        @Volatile
+        private var latestInstance: SoundManager? = null
+
+        /** V5.9.359 — Static convenience to reload custom sounds from
+         *  any Activity context. No-op if no SoundManager has been
+         *  constructed yet (e.g. bot service not started). */
+        fun reloadActiveCustomSounds() {
+            try { latestInstance?.reloadCustomSounds() } catch (_: Exception) {}
+        }
+    }
+
     private fun loadCustomSounds() {
         try {
             // V5.9.350: Persona Studio can swap built-in sounds for user-picked
