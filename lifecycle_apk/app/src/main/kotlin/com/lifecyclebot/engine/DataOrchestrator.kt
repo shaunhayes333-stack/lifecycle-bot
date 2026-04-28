@@ -149,6 +149,9 @@ class DataOrchestrator(
         if (devWallet.isBlank()) return
         tokenDevWallets[mint] = devWallet
         heliusWs?.watchWallet(devWallet)
+        // V5.9.357 — mirror into OperatorRegistry so OperatorFingerprintAI's
+        // trade-close hook can resolve the creator without touching the scanner.
+        try { OperatorRegistry.set(mint, devWallet) } catch (_: Exception) {}
     }
 
     // ── candle seeding ────────────────────────────────────────────────
@@ -257,6 +260,8 @@ class DataOrchestrator(
         scope.launch {
             // Store dev wallet
             tokenDevWallets[mint] = devWallet
+            // V5.9.357 — mirror into OperatorRegistry for trade-close lookup.
+            try { OperatorRegistry.set(mint, devWallet) } catch (_: Exception) {}
 
             // Check creator history in background
             val creatorReport = try {

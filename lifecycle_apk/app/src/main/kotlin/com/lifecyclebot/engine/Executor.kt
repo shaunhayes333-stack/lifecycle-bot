@@ -40,6 +40,11 @@ object RuggedContracts {
         blacklist[mint] = lossPct
         save()
         ErrorLogger.info("RuggedContracts", "💀 Blacklisted $symbol ($mint) - lost ${lossPct.toInt()}%")
+
+        // V5.9.357 — every blacklist event is also a peer-loss signal for
+        // PeerAlphaVerificationAI: this instance just lost on this mint, so
+        // any future scoring of the same mint within 2h gets the -8 veto.
+        try { com.lifecyclebot.v3.scoring.PeerAlphaVerificationAI.markPeerLoss(mint) } catch (_: Exception) {}
         
         // Report to Collective Learning hive mind (async)
         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
@@ -5882,6 +5887,22 @@ class Executor(
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnl, pos.costSol)
+
+            // V5.9.357 — feed real Jupiter quote-vs-realized slip into
+            // ExecutionCostPredictorAI so its per-liquidity-band history
+            // finally accumulates samples. quote.outAmount = optimistic
+            // estimate; solBack = actual SOL received post-fees/MEV.
+            try {
+                val quotedSol = quote.outAmount / 1_000_000_000.0
+                if (quotedSol > 0.0 && solBack > 0.0) {
+                    val liqUsd = ts.lastLiquidityUsd
+                    com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(
+                        liqUsd = liqUsd,
+                        quotedPxUsd = quotedSol,
+                        realizedPxUsd = solBack,
+                    )
+                }
+            } catch (_: Exception) {}
 
             // V5.9.72: clear retry counters on a genuine successful swap so
             // the mint starts fresh next time.

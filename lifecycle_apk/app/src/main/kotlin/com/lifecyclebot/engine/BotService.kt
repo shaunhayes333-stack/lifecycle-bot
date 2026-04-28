@@ -943,6 +943,9 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "NetworkSignalAutoBuyer stop error: ${e.message}")
         }
+
+        // V5.9.357: Stop Macro Pollers
+        try { MacroPollers.stop() } catch (_: Exception) {}
         
         // Shutdown CollectiveLearning
         try {
@@ -1363,7 +1366,13 @@ class BotService : Service() {
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
-        
+
+        // V5.9.357 — start macro pollers (Binance funding 5m, Gemini sentiment
+        // 15m, CoinGecko stables 60m). These feed FundingRateAwarenessAI,
+        // NewsShockAI and StablecoinFlowAI which were previously voting 0
+        // because nothing in the codebase ever called their feeders.
+        try { MacroPollers.start(scope) } catch (_: Exception) {}
+
         // Start data orchestrator (real-time streams)
         addLog("✓ Creating data orchestrator...")
         try {

@@ -296,7 +296,7 @@ class UnifiedScorer(
             // prediction with the actual outcome on close.
             try {
                 val learningRecord = finalCard.components + shadowOuterRing
-                EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord)
+                EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord, candidate)
             } catch (_: Exception) {}
 
             // Also expose the shadow layers to LayerHealthTracker so UI layer
@@ -616,7 +616,7 @@ class UnifiedScorer(
             }
 
             val finalCard = ScoreCard(gatedComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
 
             try {
                 val totalScore = finalCard.total
@@ -642,7 +642,7 @@ class UnifiedScorer(
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "modernScore error: ${e.message}")
             val fallbackCard = ScoreCard(v59123CappedComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components, candidate) } catch (_: Exception) {}
             fallbackCard
         }
     }

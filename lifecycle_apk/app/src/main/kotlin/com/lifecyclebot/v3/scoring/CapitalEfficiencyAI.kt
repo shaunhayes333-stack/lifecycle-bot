@@ -48,6 +48,10 @@ object CapitalEfficiencyAI {
     fun score(candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
         val band = bandFor(candidate.ageMinutes)
         val expected = bandPnlPerSolHour[band] ?: return ScoreComponent("CapitalEfficiencyAI", 0, "💸 $band: no history")
+        // V5.9.357 — warmup: need 5+ samples in this age band before voting,
+        // otherwise a single early outcome could swing the score wildly.
+        val n = bandSampleCount[band] ?: 0
+        if (n < 5) return ScoreComponent("CapitalEfficiencyAI", 0, "💸 $band: warming ($n/5)")
         val median = globalMedianPnlPerSolHour
         val value = when {
             expected > median * 2.0 -> +5
@@ -58,7 +62,7 @@ object CapitalEfficiencyAI {
         }
         return ScoreComponent(
             "CapitalEfficiencyAI", value,
-            "💸 $band PnL/SOL·h=${"%.4f".format(expected)} vs median=${"%.4f".format(median)}"
+            "💸 $band PnL/SOL·h=${"%.4f".format(expected)} vs median=${"%.4f".format(median)} (n=$n)"
         )
     }
 }

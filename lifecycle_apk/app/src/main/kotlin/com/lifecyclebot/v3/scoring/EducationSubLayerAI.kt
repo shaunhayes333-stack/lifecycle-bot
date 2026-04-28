@@ -346,6 +346,10 @@ object EducationSubLayerAI {
     private data class EntryScoreSnapshot(
         val scores: Map<String, Int>,
         val timestamp: Long = System.currentTimeMillis(),
+        // V5.9.357 — stash the actual CandidateSnapshot so trade-close hooks can
+        // feed CapitalEfficiencyAI / TokenDNAClusteringAI / OperatorFingerprintAI
+        // with the real entry-time features instead of bailing to "no data".
+        val candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot? = null,
     )
     private val pendingEntryScores = ConcurrentHashMap<String, EntryScoreSnapshot>()
     private const val REAL_ACCURACY_NEUTRAL_THRESHOLD = 0  // V5.9.344: 2→0. Even ±1 counts as a directional vote so layers converge off the 50% Bayesian prior instead of plateauing red.
@@ -357,6 +361,17 @@ object EducationSubLayerAI {
      * compute real per-layer prediction accuracy.
      */
     fun recordEntryScores(mint: String, components: List<ScoreComponent>) {
+        recordEntryScores(mint, components, null)
+    }
+
+    /** V5.9.357 — overload that also stashes the entry-time CandidateSnapshot so
+     *  the trade-close path can dispatch to layers that need richer features
+     *  (CapitalEfficiencyAI, TokenDNAClusteringAI, OperatorFingerprintAI). */
+    fun recordEntryScores(
+        mint: String,
+        components: List<ScoreComponent>,
+        candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot?,
+    ) {
         if (mint.isBlank() || components.isEmpty()) return
         // Garbage-collect stale snapshots occasionally (cheap bounded sweep)
         if (pendingEntryScores.size > 500) {
@@ -364,7 +379,7 @@ object EducationSubLayerAI {
             pendingEntryScores.entries.removeIf { it.value.timestamp < cutoff }
         }
         val map = components.associate { normalizeLayerName(it.name) to it.value }
-        pendingEntryScores[mint] = EntryScoreSnapshot(map)
+        pendingEntryScores[mint] = EntryScoreSnapshot(map, candidate = candidate)
     }
 
     /** V5.9.140 — public wrapper so UnifiedScorer can normalise without making
@@ -800,6 +815,50 @@ object EducationSubLayerAI {
             val pending = pendingEntryScores[outcome.mint]
             if (pending != null) {
                 AITrustNetworkAI.recordTradeOutcome(pending.scores, outcome.isWin)
+            }
+        } catch (_: Exception) {}
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.357 — REAL FEEDER WIRING for previously-orphaned outer-ring
+        // layers. Each layer's score() bailed to 0 forever because nothing in
+        // the codebase ever called its recordOutcome(). Now we feed them with
+        // the actual entry-time CandidateSnapshot (stashed in V5.9.357) plus
+        // TradeOutcomeData so they can finally accumulate real history and
+        // produce real votes. Each call is fail-soft and only fires on
+        // decisive outcomes (|pnl|≥1%) so scratches don't poison priors.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val pending = pendingEntryScores[outcome.mint]
+            val cand = pending?.candidate
+            val decisive = outcome.pnlPct >= 1.0 || outcome.pnlPct <= -1.0
+            if (decisive) {
+                // CapitalEfficiencyAI: PnL/SOL-hour by age band. We pass
+                // sizeSol=1.0 so the metric reduces to per-hour pct return,
+                // which is still a valid ranking signal across all trades.
+                try {
+                    val holdHours = (outcome.holdTimeMinutes / 60.0).coerceAtLeast(0.05)
+                    CapitalEfficiencyAI.recordOutcome(
+                        ageBandMinutes = outcome.tokenAgeMinutes,
+                        pnlPct = outcome.pnlPct,
+                        sizeSol = 1.0,
+                        holdHours = holdHours,
+                    )
+                } catch (_: Exception) {}
+
+                // TokenDNAClusteringAI: needs the entry-time CandidateSnapshot
+                if (cand != null) {
+                    try { TokenDNAClusteringAI.recordOutcome(cand, outcome.isWin) } catch (_: Exception) {}
+                }
+
+                // OperatorFingerprintAI: creator from CandidateSnapshot.extra OR
+                // fallback to DataOrchestrator's tokenDevWallets registry.
+                try {
+                    val creator = cand?.extraString("creator")?.takeIf { it.isNotBlank() }
+                        ?: com.lifecyclebot.engine.OperatorRegistry.getDevWallet(outcome.mint)
+                    if (!creator.isNullOrBlank()) {
+                        OperatorFingerprintAI.recordOutcome(creator, outcome.isWin)
+                    }
+                } catch (_: Exception) {}
             }
         } catch (_: Exception) {}
 
