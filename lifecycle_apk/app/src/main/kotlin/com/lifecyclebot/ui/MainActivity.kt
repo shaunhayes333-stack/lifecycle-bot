@@ -1786,17 +1786,29 @@ for legal compliance.
             // Data persists across app restarts and is never auto-cleared.
             // ═══════════════════════════════════════════════════════════════════
             val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
+            // tile matches the 30-Day Proof card byte-for-byte. User report:
+            // "the meme coin 30 day is at 26% the livereadiness is drawing
+            // wrong data!!!" Different isLoss/isScratch thresholds between
+            // TradeHistoryStore and RunTracker30D were painting 20% vs 26%
+            // on the same meme data. RunTracker30D is the proof-run source
+            // of truth so we align everything to it.
+            val tracker30d    = com.lifecyclebot.engine.RunTracker30D
+            val memeWinsRT    = tracker30d.wins
+            val memeLossesRT  = tracker30d.losses
+            val memeScratchRT = tracker30d.scratches
+            val memeDecisive  = memeWinsRT + memeLossesRT
+            val memeWrRT      = if (memeDecisive > 0) (memeWinsRT * 100.0) / memeDecisive else 0.0
             
             // 24H trades from persisted journal
             val trades24h = persistedStats.trades24h
             tvStats24hTrades.text = "$trades24h"
             
-            // Win rate: Use LIFETIME win rate from persisted journal
-            // This gives true percentage figures based on all recorded trades
+            // Win rate: Use RunTracker30D meme-trader-specific WR.
             val winRate = when {
-                persistedStats.totalTrades >= 1 -> persistedStats.winRate.toInt()
-                persistedStats.winRate24h > 0 -> persistedStats.winRate24h
-                else -> 0  // No trades yet
+                memeDecisive >= 1                 -> memeWrRT.toInt()
+                persistedStats.winRate24h > 0     -> persistedStats.winRate24h
+                else -> 0
             }
             
             tvStatsWinRate.text = "$winRate%"
@@ -1824,9 +1836,9 @@ for legal compliance.
                         }
                         parent.addView(sub)
                     }
-                    val w = persistedStats.totalWins
-                    val l = persistedStats.totalLosses
-                    val s = persistedStats.totalScratches
+                    val w = memeWinsRT
+                    val l = memeLossesRT
+                    val s = memeScratchRT
                     val totalNonScratch = w + l
                     val rawWr = if (totalNonScratch > 0) w * 100.0 / totalNonScratch else 0.0
                     val totalAll = w + l + s
@@ -4622,12 +4634,21 @@ This cannot be undone!
 
     /** V5.9.348: Meme trader readiness — original TradeHistoryStore logic. */
     private fun renderMemeReadiness() {
+            // V5.9.355: Align Meme Live Readiness with RunTracker30D so the
+            // numbers match the 30-Day Proof card byte-for-byte. User report:
+            // 'the meme coin 30 day is at 26% the livereadiness is drawing
+            // wrong data!!!' TradeHistoryStore and RunTracker30D classify
+            // scratches vs losses with different thresholds, causing 20% vs
+            // 26% drift on the same meme data. RunTracker30D is the
+            // source of truth for the proof-run readiness assessment.
+            val rt = com.lifecyclebot.engine.RunTracker30D
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-            val totalTrades = stats.totalStoredTrades
-            val meaningfulTrades = stats.totalWins + stats.totalLosses
-            val winRate = stats.winRate
-            val profitFactor = stats.profitFactor
-            val totalPnlSol = stats.totalPnlSol
+            val totalTrades = rt.totalTrades.coerceAtLeast(stats.totalStoredTrades)
+            val meaningfulTrades = rt.wins + rt.losses
+            val winRate = if (meaningfulTrades > 0)
+                (rt.wins * 100.0) / meaningfulTrades else 0.0
+            val profitFactor = stats.profitFactor  // stays on recent-in-memory avg w / avg l
+            val totalPnlSol = rt.totalRealizedPnlSol.takeIf { it != 0.0 } ?: stats.totalPnlSol
 
             // Profitability gates
             val WR_READY      = 50.0   // minimum win rate to go live
