@@ -45,7 +45,7 @@ object TradeHistoryStore {
     // V5.9.330: Cap in-memory list to prevent OOM when Journal builds Views.
     // SQLite is the source of truth — older trades are always on disk.
     // Journal shows the most recent PAGE_SIZE trades via takeLast().
-    private const val MAX_IN_MEMORY_TRADES = 2000
+    private const val MAX_IN_MEMORY_TRADES = 10000  // V5.9.354: was 2000 — too small for active days. Lifetime counters now back-fill stats so this is just for 24h-window queries.
     private const val KEY_LIFETIME_STATS  = "lifetime_stats_json"
 
     private const val WIN_THRESHOLD_PCT   = 1.0   // V5.9.218
@@ -389,11 +389,17 @@ object TradeHistoryStore {
         val decisive24h   = wins24h + losses24h
         val scratches24h  = sells24h.size - decisive24h
 
-        val allSells      = synchronized(lock) { trades.filter { it.side == "SELL" } }
-        val totalWins     = allSells.count { isWin(it) }
-        val totalLosses   = allSells.count { isLoss(it) }
-        val totalCompleted= totalWins + totalLosses
-        val totalScratches= allSells.size - totalCompleted
+        // V5.9.354: Use the never-trimmed lifetime counters for lifetime
+        // totals — the in-memory list is capped at MAX_IN_MEMORY_TRADES
+        // and was silently capping the stats at 2000 trades on the UI.
+        // Recent in-memory list still drives avgWinPct/profitFactor (those
+        // need recent samples; OK to approximate from last N trades).
+        val totalWins      = lifetimeWins
+        val totalLosses    = lifetimeLosses
+        val totalScratches = lifetimeScratches
+        val totalCompleted = totalWins + totalLosses
+
+        val allSells       = synchronized(lock) { trades.filter { it.side == "SELL" } }
 
         val lifetimeWR    = if (totalCompleted > 0)
             totalWins * 100.0 / totalCompleted.toDouble() else 50.0
@@ -411,13 +417,13 @@ object TradeHistoryStore {
             winningTrades.isNotEmpty() -> 2.0
             else -> 0.0
         }
-        val totalPnlSol   = allSells.sumOf { it.pnlSol }
+        val totalPnlSol   = lifetimeRealizedPnlSol
 
         return StatsSnapshot(
             trades24h          = getTrades24h().size,
             winRate24h         = winRate24h,
             pnl24hSol          = sells24h.sumOf { it.pnlSol },
-            totalStoredTrades  = synchronized(lock) { trades.size },
+            totalStoredTrades  = lifetimeSells,  // V5.9.354: lifetime, not in-memory size
             totalTrades        = totalCompleted,
             winRate            = lifetimeWR,
             avgWinPct          = avgWinPct,

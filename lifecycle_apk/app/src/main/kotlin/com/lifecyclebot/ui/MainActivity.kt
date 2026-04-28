@@ -383,6 +383,9 @@ class MainActivity : AppCompatActivity() {
     private var tabTraderMeme: TextView? = null
     private var tabTraderAlts: TextView? = null
     private var tabTraderPerps: TextView? = null
+    // V5.9.354: Live Readiness card title (updates per tab so the active
+    // trader is always visible at a glance — fixes 'cross populating' UX).
+    private var tvLiveReadinessTitle: TextView? = null
 
     // settings
     private lateinit var etActiveToken: EditText
@@ -1104,6 +1107,7 @@ for legal compliance.
         tabTraderMeme    = try { findViewById(R.id.tabTraderMeme) } catch (_: Exception) { null }
         tabTraderAlts    = try { findViewById(R.id.tabTraderAlts) } catch (_: Exception) { null }
         tabTraderPerps   = try { findViewById(R.id.tabTraderPerps) } catch (_: Exception) { null }
+        tvLiveReadinessTitle = try { findViewById(R.id.tvLiveReadinessTitle) } catch (_: Exception) { null }
         tabTraderMeme?.setOnClickListener  { selectReadinessTab("MEME") }
         tabTraderAlts?.setOnClickListener  { selectReadinessTab("ALTS") }
         tabTraderPerps?.setOnClickListener { selectReadinessTab("PERPS") }
@@ -4589,6 +4593,14 @@ This cannot be undone!
         try {
             // V5.9.348: Route to the selected trader tab (MEME / ALTS / PERPS)
             updateTradersSummary()
+            // V5.9.354: Stamp the active tab onto the card title so cross-tab
+            // confusion is impossible — user can read at a glance which
+            // trader's stats are showing.
+            tvLiveReadinessTitle?.text = when (currentReadinessTab) {
+                "ALTS"  -> "🚀 Live Readiness · 🪙 ALTS"
+                "PERPS" -> "🚀 Live Readiness · ⚡ PERPS"
+                else    -> "🚀 Live Readiness · 💎 MEME"
+            }
             when (currentReadinessTab) {
                 "ALTS"  -> renderAltsReadiness()
                 "PERPS" -> renderPerpsReadiness()

@@ -254,6 +254,19 @@ object TradingCopilot {
             lastDirective = directive
             lastUpdateMs = System.currentTimeMillis()
 
+            // ─── V5.9.354 — ACTIVE INTERVENTION ───────────────────────────
+            // User feedback: "the copilot is meant to be able to identify
+            // that the win rate is poor and shake the ai layers etc back
+            // into line. at the moment it just handbrakes."
+            //
+            // When learning health is POISONED for a sustained period
+            // (>= 20 min) AND we have enough trades to be sure it's not
+            // noise, call EducationSubLayerAI.shakeWeakLayers(0.5). That
+            // pulls every layer with accuracy < 0.55 and ≥ 30 trades back
+            // toward the 0.5 prior so they re-explore instead of staying
+            // pinned in the converged-bad local minimum.
+            try { maybeShakeLayers(directive, tradesObserved) } catch (_: Exception) { }
+
             // Emit a log line whenever the mood or health flips, so the user
             // can SEE the copilot reasoning in their decision feed.
             if (didStateChange(directive)) {
@@ -267,6 +280,36 @@ object TradingCopilot {
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Copilot update error: ${e.message}")
             return lastDirective
+        }
+    }
+
+    // ─── V5.9.354 — Active layer-shake state ─────────────────────────────
+    @Volatile private var poisonedSinceMs: Long = 0L
+    @Volatile private var lastShakeMs: Long = 0L
+    private val POISON_DWELL_MS  = 20L * 60_000L  // need 20min sustained POISONED
+    private val SHAKE_COOLDOWN_MS = 60L * 60_000L // don't shake more than 1×/hour
+
+    private fun maybeShakeLayers(d: Directive, tradesObserved: Int) {
+        val now = System.currentTimeMillis()
+        if (d.learningHealth != LearningHealth.POISONED) {
+            poisonedSinceMs = 0L
+            return
+        }
+        if (poisonedSinceMs == 0L) {
+            poisonedSinceMs = now
+            return
+        }
+        if (now - poisonedSinceMs < POISON_DWELL_MS) return
+        if (now - lastShakeMs < SHAKE_COOLDOWN_MS) return
+        if (tradesObserved < 50) return  // don't fire during early bootstrap
+        val shaken = com.lifecyclebot.v3.scoring.EducationSubLayerAI.shakeWeakLayers(severity = 0.5)
+        if (shaken > 0) {
+            ErrorLogger.warn(TAG,
+                "🔧 COPILOT INTERVENTION: $shaken poisoned layers nudged toward 0.5 prior after " +
+                "${(now - poisonedSinceMs) / 60_000}min sustained POISONED state."
+            )
+            lastShakeMs = now
+            poisonedSinceMs = now  // reset dwell after shake
         }
     }
 

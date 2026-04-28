@@ -1710,6 +1710,40 @@ object EducationSubLayerAI {
         lastLevel = CurriculumLevel.FRESHMAN
         ErrorLogger.warn(TAG, "🔄 ALL EDUCATION DATA RESET")
     }
+
+    /**
+     * V5.9.354 — Copilot active intervention.
+     *
+     * When the Copilot detects sustained POISONED state (avg layer accuracy
+     * stuck near 50% with negative expectancy after lots of trades), this
+     * "shakes" the weak layers: nudges their accuracy back toward the 0.5
+     * prior and zeros their winning/losing combination counts so they
+     * re-explore. Strong layers (≥ 0.55 accuracy) are left alone.
+     *
+     * @param severity 0.0 = no-op, 1.0 = full reset toward neutral.
+     */
+    fun shakeWeakLayers(severity: Double = 0.5): Int {
+        val s = severity.coerceIn(0.0, 1.0)
+        if (s <= 0.0) return 0
+        var shaken = 0
+        layerPerformance.forEach { (_, m) ->
+            if (m.totalOutcomesRecorded < 30) return@forEach
+            val accRatio = m.accuracy / 100.0
+            if (accRatio < 0.55) {
+                // Interpolate successfulPredictions toward the 50% prior
+                // (totalOutcomesRecorded / 2). Pulls the derived accuracy
+                // back toward 0.5 without nuking the sample-count history.
+                val neutralPreds = m.totalOutcomesRecorded / 2
+                m.successfulPredictions = ((m.successfulPredictions * (1.0 - s) + neutralPreds * s)).toInt()
+                    .coerceIn(0, m.totalOutcomesRecorded)
+                shaken++
+            }
+        }
+        if (shaken > 0) {
+            ErrorLogger.warn(TAG, "🔧 SHAKE: Copilot nudged $shaken weak layers toward 0.5 prior (severity=${"%.2f".format(s)})")
+        }
+        return shaken
+    }
     
     /**
      * Get trust multiplier for a specific layer.
