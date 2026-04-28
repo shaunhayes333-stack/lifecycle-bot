@@ -55,6 +55,39 @@ class BotService : Service() {
         const val MARKET_TRADER_KILL_SWITCH = true
 
         // ═══════════════════════════════════════════════════════════════
+        // V5.9.353: Strategy distrust pause
+        //
+        // User log showed: Trust[SHITCOIN] score=0.085 level=DISTRUSTED
+        // WR=0% exp=-19.38 fp=87.5%  — yet the bot kept routing tokens to
+        // ShitCoin and they all stop-lossed (Scum Ultman -8% in 1 min).
+        // When a strategy is provably bleeding, freeze it for 10 min so
+        // newer (less-poisoned) strategies get the trade flow.
+        // ═══════════════════════════════════════════════════════════════
+        const val STRATEGY_DISTRUST_PAUSE_MS = 10L * 60_000L  // 10 minutes
+        private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
+            try {
+                val trust = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustRecord(strategy) ?: return false to ""
+                val now = System.currentTimeMillis()
+                val until = strategyPauseUntilMs[strategy] ?: 0L
+                if (until > now) {
+                    return true to "paused ${(until - now) / 60_000}m more (WR=${(trust.recentWinRate * 100).toInt()}% fp=${(trust.falsePositiveRate * 100).toInt()}%)"
+                }
+                val severelyDistrusted = trust.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
+                    trust.recentWinRate < 0.10 &&
+                    trust.falsePositiveRate > 0.70
+                if (severelyDistrusted) {
+                    strategyPauseUntilMs[strategy] = now + STRATEGY_DISTRUST_PAUSE_MS
+                    return true to "freshly paused 10m (WR=${(trust.recentWinRate * 100).toInt()}% fp=${(trust.falsePositiveRate * 100).toInt()}%)"
+                }
+                return false to ""
+            } catch (_: Exception) {
+                return false to ""
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         // V5.9.352: Meme Bridge override guardrails
         //
         // V5.9.349 made the bridge override V3 on Watch / ShadowOnly /
@@ -1455,7 +1488,11 @@ class BotService : Service() {
                             // The scanner is supposed to be WIDE OPEN — FDG/V3 gate execution.
                             // Proven-edge live now uses the same $500 floor as paper.
                             val lenientScan = com.lifecyclebot.engine.ModeLeniency.useLenientGates(c.paperMode)
-                            val paperMinLiquidity = 500.0
+                            // V5.9.353: User raised paper floor from $500 → $8K to stop the
+                            // $1-5K rug-pool feed (CIVI -84% liq, AFC $1332 liq, etc.). The
+                            // 9-hour run showed the bot was getting fed paper-thin tokens
+                            // that vaporized in minutes — every entry was a guaranteed loss.
+                            val paperMinLiquidity = 8000.0
                             val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0
@@ -5090,6 +5127,15 @@ if (deferredCount > 0) {
             return
         }
 
+        // V5.9.353: 1b. LOSS-STREAK BLOCK — refuse re-entry on a mint whose
+        // last 3 closes were all losses (block elapses after 1 hour).
+        val lossBlockUntil = MemeLossStreakGuard.blockedUntilMs(ts.mint)
+        if (lossBlockUntil > 0L) {
+            val remainingMin = (lossBlockUntil - System.currentTimeMillis()) / 60_000L
+            ErrorLogger.debug("BotService", "🛑 [LOSS_STREAK] ${identity.symbol} | SKIP | 3-loss streak — blocked ${remainingMin}min more")
+            return
+        }
+
         // 2. VOLUME GATE — no volume = dead token, don't buy
         val lastVolumeH1 = ts.history.lastOrNull()?.volumeH1 ?: 0.0
         val learningPct  = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
@@ -6147,6 +6193,15 @@ if (deferredCount > 0) {
                         }
                         
                         if (shouldEnter) {
+                            // V5.9.353: Distrust pause — refuse ShitCoin entries when
+                            // StrategyTrustAI reports DISTRUSTED + WR<10% + fp>70%.
+                            // Prevents the converged-bad-brain from continuing to bleed
+                            // through this layer for 10 min at a time.
+                            val (paused, why) = BotService.isStrategyPausedByTrust("SHITCOIN")
+                            if (paused) {
+                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | DISTRUST PAUSE | $why")
+                                return
+                            }
                             // V4.1: Apply bootstrap size multiplier for micro-positions
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)

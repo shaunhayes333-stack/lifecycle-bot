@@ -512,6 +512,15 @@ object BehaviorAI {
         if (disciplineScore.get() >= 70) {
             sentiment = ((sentiment - 50) * 0.7 + 50).toInt()  // Dampen extremes
         }
+
+        // V5.9.353: EUPHORIA cap when actively bleeding. User log showed
+        // sentiment=EUPHORIA while streak=-3 and tilt=8% because historical
+        // sessionBigWins overpowered recent loss data. Force-cap at 70
+        // (high-CONFIDENCE) whenever the bot is on a losing streak or
+        // tilting — you cannot be euphoric while bleeding.
+        if (streak <= -2 || tiltLevel.get() >= 30) {
+            sentiment = sentiment.coerceAtMost(70)
+        }
         
         return sentiment.coerceIn(0, 100)
     }

@@ -192,6 +192,13 @@ object TradeHistoryStore {
         }
         bumpLifetimeFor(trade)
         insertTradeAsync(trade)
+        // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
+        // Only emits on close events (SELL side). Buy events ignored.
+        try {
+            if (trade.side.equals("SELL", true) && trade.mint.isNotBlank()) {
+                MemeLossStreakGuard.recordOutcome(trade.mint, isWin = trade.pnlSol > 0.0)
+            }
+        } catch (_: Exception) { /* non-fatal */ }
     }
 
     fun recordTrades(newTrades: List<Trade>) {

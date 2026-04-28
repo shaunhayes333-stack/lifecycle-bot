@@ -154,9 +154,29 @@ class UnifiedScorer(
             val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
             val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
             val weight    = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
-            val newValue  = (comp.value * weight).toInt()
-            if (comp.value != 0 && newValue != comp.value) {
-                comp.copy(value = newValue, reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]")
+
+            // V5.9.353: Polarity self-heal — if a layer has high directional
+            // accuracy but a strongly NEGATIVE expectancy (it predicts price
+            // moves correctly but trades following it lose money), flip its
+            // sign in scoring. This converts the "best-but-bleeding" layers
+            // (SessionEdg 83% dir / -1.6%, DrawdownCi 83% / -1.7%, Correlatio
+            // 80% / -3.6%) from anti-edge into real edge contributors.
+            val (flippedValue, flipTag) = try {
+                val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
+                val anticorrelated = maturity.trades >= 30 &&
+                    maturity.smoothedAccuracy >= 0.55 &&
+                    maturity.expectancyPct <= -2.0
+                if (anticorrelated && comp.value != 0) {
+                    -comp.value to " [FLIP exp=${"%.1f".format(maturity.expectancyPct)}%]"
+                } else comp.value to ""
+            } catch (_: Exception) { comp.value to "" }
+
+            val newValue = (flippedValue * weight).toInt()
+            if (comp.value != 0 && (newValue != comp.value || flipTag.isNotEmpty())) {
+                comp.copy(
+                    value = newValue,
+                    reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]$flipTag",
+                )
             } else comp
         }
 

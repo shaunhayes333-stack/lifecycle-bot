@@ -1,0 +1,72 @@
+package com.lifecyclebot.engine
+
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * V5.9.353 — Meme Loss-Streak Guard
+ *
+ * After 9 hours of running the user observed the bot rebuying the same
+ * tokens through repeated losses (WLD: closed 1s ago after −35%, Scum
+ * Ultman re-entered into a -8% stop). The 5 min cooldown alone wasn't
+ * enough — what was missing is a "stop trying" rule per token.
+ *
+ * Rule: if a mint's last 3 closed trades were ALL losses, refuse any
+ * new entry on that mint for 60 minutes. Win or scratch resets the
+ * streak.
+ */
+object MemeLossStreakGuard {
+
+    private const val STREAK_LIMIT = 3
+    private const val BLOCK_DURATION_MS = 60L * 60_000L  // 1 hour
+
+    private data class Entry(
+        val recent: ArrayDeque<Boolean> = ArrayDeque(),  // true = loss
+        @Volatile var blockUntilMs: Long = 0L,
+    )
+
+    private val state = ConcurrentHashMap<String, Entry>()
+
+    /** Call when a meme position closes. isWin = true if PnL > 0. */
+    fun recordOutcome(mint: String, isWin: Boolean) {
+        if (mint.isBlank()) return
+        val e = state.getOrPut(mint) { Entry() }
+        synchronized(e) {
+            // win/scratch resets streak; loss appends.
+            if (isWin) {
+                e.recent.clear()
+                e.blockUntilMs = 0L
+                return
+            }
+            e.recent.addLast(true)
+            while (e.recent.size > STREAK_LIMIT) e.recent.pollFirst()
+            if (e.recent.size >= STREAK_LIMIT && e.recent.all { it }) {
+                e.blockUntilMs = System.currentTimeMillis() + BLOCK_DURATION_MS
+                ErrorLogger.warn(
+                    "MemeLossStreakGuard",
+                    "🛑 ${mint.take(8)}… 3 losses in a row — blocking re-entry for ${BLOCK_DURATION_MS / 60_000} min"
+                )
+            }
+        }
+    }
+
+    /** Returns blocked-until timestamp (0 if not blocked). */
+    fun blockedUntilMs(mint: String): Long {
+        val e = state[mint] ?: return 0L
+        val until = e.blockUntilMs
+        if (until == 0L) return 0L
+        if (System.currentTimeMillis() >= until) {
+            // Window elapsed — clear the block but keep streak so next
+            // close still has context.
+            e.blockUntilMs = 0L
+            return 0L
+        }
+        return until
+    }
+
+    /** Convenience: are we blocked right now? */
+    fun isBlocked(mint: String): Boolean = blockedUntilMs(mint) > 0L
+
+    fun clear(mint: String) {
+        state.remove(mint)
+    }
+}
