@@ -111,6 +111,46 @@ object PerpsUnifiedScorerBridge {
         priceChangePct: Double,
         direction: String,   // "LONG" | "SHORT"
     ): V3Verdict {
+        // V5.9.366 — non-meme asset short-circuit.
+        //
+        // BUG (user, Feb 2026): "markets still doesn't make leverage trades"
+        //   despite Stocks tab clearly showing 5 LONG signals (AAPL/GOOGL/META/
+        //   MSFT/NFLX) at score=50.
+        //
+        // ROOT CAUSE: V3 is the 41-layer meme-coin scorer. It measures
+        //   bundled%, holders, freshness, buy-pressure swing, etc. — signals
+        //   that are null/neutral/inappropriate for real-world assets like
+        //   stocks, forex, metals, commodities. With those inputs zeroed out,
+        //   V3 returns a low or negative v3Score, dragging the blended score
+        //   (60% technical + 40% V3) below blendedFloor and silently vetoing
+        //   every Markets-layer trade.
+        //
+        // FIX: For STOCK / FOREX / METAL / COMMODITY / PERP_INDEX asset
+        //   classes, gate on technicalScore + technicalConfidence directly
+        //   (the gates the trader's own analyzer already validated) and
+        //   skip the meme-tuned V3 stack. ALT (CryptoAlts) and meme paths
+        //   keep the original blended gate.
+        val isMemeOrAlt = assetClass.equals("ALT", ignoreCase = true) ||
+                          assetClass.equals("MEME", ignoreCase = true) ||
+                          assetClass.equals("CRYPTO", ignoreCase = true)
+        if (!isMemeOrAlt) {
+            // Pure technical gate for real-world assets. Floor is the same
+            // 45/35 baseline V3 used as its fallback path — known-good defaults.
+            val techOk = technicalScore >= 45 && technicalConfidence >= 35
+            if (techOk) {
+                ErrorLogger.info(TAG, "[$assetClass] $symbol: TECH-GATE PASS score=$technicalScore conf=$technicalConfidence (V3 bypass — non-meme asset)")
+            } else {
+                ErrorLogger.debug(TAG, "[$assetClass] $symbol: TECH-GATE veto score=$technicalScore<45 or conf=$technicalConfidence<35")
+            }
+            return V3Verdict(
+                v3Score = 0,
+                trustMultiplier = 1.0,
+                blendedScore = technicalScore,
+                topReasons = listOf("non_meme_tech_gate"),
+                shouldEnter = techOk,
+            )
+        }
+
         val mintKey = makeMintKey(assetClass, symbol)
 
         val snap = CandidateSnapshot(
