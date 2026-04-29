@@ -724,18 +724,28 @@ object PerpsLearningBridge {
             // Update correlation data
             val corr = layerPerpsCorrelation.getOrPut(layerName) { CorrelationData() }
             corr.signalsGiven++
-            if (directionCorrect) corr.signalsCorrect++
+            // V5.9.368 — non-directional layers (BehaviorAI/MetaCognitionAI/
+            // FluidLearningAI/etc., flagged isDirectional=false in layerConfigs)
+            // contribute RISK/LEVERAGE/SIZING — not LONG/SHORT. Grading them
+            // against directionCorrect was producing nonsense accuracy stats
+            // (e.g. BehaviorAI 1.3% on 2589 signals — far below 50% chance,
+            // a clear bias signature, not real prediction error). Use isWin
+            // as the success metric for non-directional layers: "did the
+            // trade this layer participated in actually win?"
+            val cfg = layerConfigs[layerName]
+            val layerCorrect = if (cfg?.isDirectional == false) isWin else directionCorrect
+            if (layerCorrect) corr.signalsCorrect++
             corr.totalPnlContribution += trade.pnlPct
             corr.lastUpdate = System.currentTimeMillis()
             
             // Adjust trust score
             val currentTrust = layerPerpsTrust[layerName] ?: 0.5
-            val trustDelta = if (directionCorrect) 0.01 else -0.01
+            val trustDelta = if (layerCorrect) 0.01 else -0.01
             val newTrust = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
             layerPerpsTrust[layerName] = newTrust
             
             // Route learning to the actual layer
-            routeLearningToLayer(layerName, trade, directionCorrect)
+            routeLearningToLayer(layerName, trade, layerCorrect)
         }
         
         crossLayerSyncs.incrementAndGet()
@@ -952,6 +962,34 @@ object PerpsLearningBridge {
     fun getCrossLayerSyncs(): Int = crossLayerSyncs.get()
     
     fun getConnectedLayerCount(): Int = layerConfigs.size
+
+    /**
+     * V5.9.368 — One-shot reset of correlation stats for non-directional
+     * layers. Pre-V5.9.368, these layers were being graded against
+     * directional outcome — producing nonsense accuracy stats (e.g.
+     * BehaviorAI at 1.3% on 2589 signals). Once the grading bug is
+     * fixed, these stats should start fresh so the new measurement
+     * isn't dragged down by 2k+ mis-graded historical signals.
+     *
+     * Idempotent — safe to call on every boot. Tracks a flag in prefs
+     * so the reset only runs once per install.
+     */
+    fun resetNonDirectionalCorrelationOnce() {
+        val p = prefs ?: return
+        if (p.getBoolean("non_dir_corr_reset_v5_9_368", false)) return
+        var resetCount = 0
+        layerConfigs.forEach { (name, cfg) ->
+            if (!cfg.isDirectional) {
+                layerPerpsCorrelation[name] = CorrelationData()
+                resetCount++
+            }
+        }
+        p.edit().putBoolean("non_dir_corr_reset_v5_9_368", true).apply()
+        ErrorLogger.info(
+            TAG,
+            "🧹 V5.9.368: reset correlation stats for $resetCount non-directional layers — starting clean baseline"
+        )
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.6: MULTI-ASSET TRADE RECORDING

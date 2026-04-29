@@ -492,6 +492,11 @@ class BotService : Service() {
         // V5.7: Initialize PerpsLearningBridge for cross-layer perps intelligence
         try {
             com.lifecyclebot.perps.PerpsLearningBridge.init(applicationContext)
+            // V5.9.368 — clear polluted non-directional layer stats once
+            // (BehaviorAI/MetaCognitionAI/FluidLearningAI/etc were being
+            // graded against directional outcome — produced nonsense
+            // accuracy like BehaviorAI 1.3% on 2589 signals). One-shot.
+            com.lifecyclebot.perps.PerpsLearningBridge.resetNonDirectionalCorrelationOnce()
             ErrorLogger.info("BotService", "PerpsLearningBridge initialized - ${com.lifecyclebot.perps.PerpsLearningBridge.getConnectedLayerCount()} layers connected")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
@@ -710,6 +715,31 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "RunTracker30D sync error: ${e.message}")
         }
         
+        // V5.9.368 — One-shot 72h trust quarantine for TokenizedStockAI.
+        // Backstory: the prior 50 stock trades all lost (0% WR) because
+        // V3 was running its meme-coin scoring on AAPL/TSLA/etc., dragging
+        // every blended score below the trade gate (fixed by V5.9.366's
+        // V3 bypass for non-meme assets). Those 50 losses pushed
+        // TokenizedStockAI's trust below 0.25 → DISTRUSTED → TRUST_GATE
+        // is now blocking every new entry, so V5.9.366's fix can't prove
+        // itself. 72h quarantine lets the new V3-bypass path produce a
+        // clean baseline before trust is recomputed. Only triggered if
+        // the strategy is currently DISTRUSTED — the call is idempotent
+        // and harmless on every other launch.
+        try {
+            val tsai = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
+            if (tsai == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
+                !com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined("TokenizedStockAI")) {
+                com.lifecyclebot.v4.meta.StrategyTrustAI.setQuarantine(
+                    strategy   = "TokenizedStockAI",
+                    durationMs = 72L * 3_600_000L,
+                    reason     = "V5.9.366_v3_bypass_recovery_window",
+                )
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "TokenizedStockAI quarantine error: ${e.message}")
+        }
+
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
@@ -1543,7 +1573,14 @@ class BotService : Service() {
                             // bypass below: if ≥2 distinct scanners have already discovered the
                             // same mint inside the merge window, the token is treated as a
                             // strong-signal confirmation and skips this floor entirely.
-                            val paperMinLiquidity = 3000.0
+                            // V5.9.368 — user log analysis showed WR drifting from 38% → 35%
+                            // over the 4809-trade run after V5.9.364 deploy. The $3K floor
+                            // re-overlapped the V5.9.353 rug-pool zone ($3K-$5K). Raised to
+                            // $5K as a midpoint compromise — still well above scanner-side
+                            // floors ($250-$1500) so V5.9.363 widening continues to pay off,
+                            // but cuts the $3K-$5K rug-zone overlap. Multi-scanner bypass
+                            // remains in effect — confirmed alpha can still come in below $5K.
+                            val paperMinLiquidity = 5000.0
                             val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0

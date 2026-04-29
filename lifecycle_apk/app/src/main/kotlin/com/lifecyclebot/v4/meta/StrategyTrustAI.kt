@@ -38,6 +38,26 @@ object StrategyTrustAI {
     // Per-strategy trade history (ring buffer style)
     private val tradeHistory = ConcurrentHashMap<String, MutableList<TradeLesson>>()
 
+    /**
+     * V5.9.368 — TRUST QUARANTINE
+     *
+     * Per-strategy "ignore trust gate until {timestamp}" map. Set by the
+     * main UI / user request to give a strategy a clean recovery window
+     * after a structural fix has been deployed (e.g., V5.9.366 V3 bypass
+     * for non-meme assets fixed why TokenizedStockAI's prior 50 trades
+     * lost). During quarantine:
+     *
+     *   - getTrustLevel(strategy) returns UNTESTED instead of DISTRUSTED
+     *     so callers like TokenizedStockTrader's TRUST_GATE let new
+     *     entries through.
+     *   - recordTrade() still records the trade for accountability, but
+     *     recalculateTrust() will set the level to UNTESTED if quarantine
+     *     is active, preventing premature DISTRUST while the new path is
+     *     being validated.
+     *   - Quarantine auto-expires; no manual unlock needed.
+     */
+    private val quarantineUntilMs = ConcurrentHashMap<String, Long>()
+
     // Known strategies — must match actual ts.position.tradingMode values set in BotService
     // V5.9.217: All tradingMode values now use TradingLayer.name (enum name) — canonical.
     //   BLUE_CHIP, DIP_HUNTER, V3_QUALITY, SHITCOIN, EXPRESS, QUALITY, TREASURY, MOONSHOT, etc.
@@ -212,6 +232,10 @@ object StrategyTrustAI {
 
         val trustLevel = when {
             recent.size < MIN_TRADES_FOR_TRUST -> TrustLevel.UNTESTED
+            // V5.9.368 — quarantine window suppresses DISTRUSTED so the
+            // strategy can rebuild a clean baseline after a structural fix.
+            (quarantineUntilMs[strategy] ?: 0L) > System.currentTimeMillis() &&
+                trustScore < 0.25 -> TrustLevel.UNTESTED
             trustScore < 0.25 -> TrustLevel.DISTRUSTED
             trustScore < 0.45 -> TrustLevel.NEUTRAL
             trustScore < 0.70 -> TrustLevel.TRUSTED
@@ -251,8 +275,37 @@ object StrategyTrustAI {
 
     fun getTrustLevel(strategy: String): TrustLevel {
         trustRecords.putIfAbsent(strategy, createDefaultRecord(strategy))
+        // V5.9.368 — honour quarantine window: while active, hide DISTRUSTED
+        // verdicts so new trades can fire and rebuild a clean baseline.
+        val until = quarantineUntilMs[strategy] ?: 0L
+        if (until > System.currentTimeMillis()) {
+            val rec = trustRecords[strategy]
+            if (rec?.trustLevel == TrustLevel.DISTRUSTED) {
+                return TrustLevel.UNTESTED
+            }
+        }
         return trustRecords[strategy]?.trustLevel ?: TrustLevel.UNTESTED
     }
+
+    /**
+     * V5.9.368 — set a quarantine window for a strategy. While the window
+     * is open, the trust gate will report UNTESTED instead of DISTRUSTED
+     * and recalculateTrust() will avoid setting DISTRUSTED. Auto-expires.
+     */
+    fun setQuarantine(strategy: String, durationMs: Long, reason: String = "user_request") {
+        val until = System.currentTimeMillis() + durationMs
+        quarantineUntilMs[strategy] = until
+        ErrorLogger.info(
+            TAG,
+            "🛡️ QUARANTINE SET: $strategy for ${durationMs / 3_600_000L}h (until $until) — reason=$reason"
+        )
+    }
+
+    fun isQuarantined(strategy: String): Boolean =
+        (quarantineUntilMs[strategy] ?: 0L) > System.currentTimeMillis()
+
+    fun getQuarantineUntil(strategy: String): Long? =
+        quarantineUntilMs[strategy]?.takeIf { it > System.currentTimeMillis() }
 
     fun getTrustRecord(strategy: String): StrategyTrustRecord? =
         trustRecords[strategy]
