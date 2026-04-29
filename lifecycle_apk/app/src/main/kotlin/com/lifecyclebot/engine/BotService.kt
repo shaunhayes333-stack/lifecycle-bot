@@ -52,7 +52,28 @@ class BotService : Service() {
         // positions. Existing positions still close through their
         // normal exit paths. Flip to false to re-enable.
         // ═══════════════════════════════════════════════════════════════
-        const val MARKET_TRADER_KILL_SWITCH = true
+        const val MARKET_TRADER_KILL_SWITCH = false  // V5.9.362 — reinstated; switches in Settings now drive enable/disable per trader
+
+        /**
+         * V5.9.362 — runtime re-apply of the Markets Trader switches. Called
+         * from MainActivity right after the Settings sheet save, so toggling
+         * Perps/Stocks/Commodities/Metals/Forex/Alts in the UI takes effect
+         * without a service restart. The MARKET_TRADER_KILL_SWITCH constant
+         * is honoured so dev builds can still globally suppress the stack.
+         */
+        fun reapplyMarketsTraderSwitches(ctx: android.content.Context) {
+            val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+            val kill = MARKET_TRADER_KILL_SWITCH
+            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(!kill && cfg.perpsEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(!kill && cfg.stocksEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(!kill && cfg.commoditiesEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(!kill && cfg.metalsEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.ForexTrader.setEnabled(!kill && cfg.forexEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cfg.cryptoAltsEnabled) } catch (_: Exception) {}
+            ErrorLogger.info("BotService", "🎚️ Markets switches re-applied: " +
+                "perps=${cfg.perpsEnabled} stocks=${cfg.stocksEnabled} comm=${cfg.commoditiesEnabled} " +
+                "metals=${cfg.metalsEnabled} forex=${cfg.forexEnabled} alts=${cfg.cryptoAltsEnabled}")
+        }
 
         // ═══════════════════════════════════════════════════════════════
         // V5.9.353: Strategy distrust pause
@@ -8448,6 +8469,28 @@ if (deferredCount > 0) {
                 addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice}", ts.mint)
             }
             val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
+            // V5.9.362 — Moonshot stale-price exit: same fix as Quality. Without
+            // this, a stuck price feed pins pnl=0% and Moonshot's checkExit
+            // returns HOLD forever (positions sit 5–8h unchanged in the UI).
+            run {
+                val moonshotHoldMins = (System.currentTimeMillis() - ts.position.entryTime) / 60_000
+                val priceFreshness = if (ts.lastPriceUpdate > 0) System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
+                if (priceFreshness >= 10L * 60_000L && moonshotHoldMins >= 20) {
+                    ErrorLogger.warn("BotService",
+                        "🌙⏱️ MOONSHOT STALE-PRICE EXIT: ${ts.symbol} | feed age=${priceFreshness/60_000}min held=${moonshotHoldMins}min")
+                    executor.requestSell(
+                        ts = ts,
+                        reason = "MOONSHOT_STALE_PRICE",
+                        wallet = wallet,
+                        walletSol = effectiveBalance
+                    )
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, ts.position.entryPrice,
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS)
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                    addLog("⏱️ MOONSHOT STALE-PRICE: ${ts.symbol} | price feed stale ${priceFreshness/60_000}min, forced SL", ts.mint)
+                    return
+                }
+            }
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Moonshot:${exitSignal.name}") } catch (_: Exception) {}
             
@@ -8527,6 +8570,32 @@ if (deferredCount > 0) {
                 com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, ts.position.entryPrice, deadExitSignal)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("💀 QUALITY DEAD-PRICE: ${ts.symbol} | price feed gone >5min, forced SL", ts.mint)
+                return
+            }
+
+            // V5.9.362: STALE-PRICE EXIT — the dead-price check above only fires
+            // when ALL three sources (ref/lastPrice/history) are zero. The actual
+            // failure mode the user sees is positions stuck at exactly 0.0% PnL
+            // for hours because lastPrice is non-zero but hasn't been refreshed
+            // by DataOrchestrator/Birdeye/pump.fun pollers — so currentPrice falls
+            // back to entryPrice and TP/SL never trigger. Detect via the new
+            // lastPriceUpdate timestamp: if no fresh price in 10+ min and held
+            // 20+ min, force a STOP_LOSS exit so the slot is freed.
+            val priceFreshness = if (ts.lastPriceUpdate > 0) System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
+            val priceStaleMs = 10L * 60_000L
+            if (priceFreshness >= priceStaleMs && qualityHoldMins >= 20) {
+                ErrorLogger.warn("BotService",
+                    "⭐⏱️ QUALITY STALE-PRICE EXIT: ${ts.symbol} | feed age=${priceFreshness/60_000}min held=${qualityHoldMins}min → forcing SL")
+                val staleExitSignal = com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
+                executor.requestSell(
+                    ts = ts,
+                    reason = "QUALITY_STALE_PRICE",
+                    wallet = wallet,
+                    walletSol = effectiveBalance
+                )
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, ts.position.entryPrice, staleExitSignal)
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("⏱️ QUALITY STALE-PRICE: ${ts.symbol} | price feed stale ${priceFreshness/60_000}min, forced SL", ts.mint)
                 return
             }
             
@@ -9142,6 +9211,7 @@ if (deferredCount > 0) {
             if (ov != null && ov.priceUsd > 0) {
                 synchronized(ts) {
                     ts.lastPrice = ov.priceUsd
+                    ts.lastPriceUpdate = System.currentTimeMillis()
                     ts.lastLiquidityUsd = ov.liquidity
                     ts.lastMcap = ov.marketCap
                     ts.lastFdv = ov.marketCap
@@ -9185,6 +9255,7 @@ if (deferredCount > 0) {
                         if (mcap > 0) {
                             synchronized(ts) {
                                 ts.lastPrice = priceUsd
+                                ts.lastPriceUpdate = System.currentTimeMillis()
                                 ts.lastMcap = mcap
                                 ts.lastFdv = mcap
                                 ts.lastLiquidityUsd = mcap * 0.1

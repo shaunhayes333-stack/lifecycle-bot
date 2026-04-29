@@ -33,6 +33,12 @@ object StablecoinFlowAI {
 
     private val snapshot = AtomicReference<FlowSnapshot?>(null)
 
+    /** V5.9.362 — wiring health: 1 if a stablecoin flow snapshot has been captured. */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val ready = snapshot.get() != null
+        return Triple(if (ready) 1 else 0, 1, ready)
+    }
+
     /**
      * Called by a background poller once per hour with the latest CoinGecko
      * values. Poller lives in NetworkSignalAutoBuyer's existing macro loop

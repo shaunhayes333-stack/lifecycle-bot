@@ -27,6 +27,12 @@ object OrderbookImbalancePulseAI {
 
     private val history = ConcurrentHashMap<String, ArrayDeque<Sample>>()
 
+    /** V5.9.362 — wiring health: total samples across all tracked mints (floor 3). */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val total = history.values.sumOf { dq -> synchronized(dq) { dq.size } }
+        return Triple(total, 3, total >= 3)
+    }
+
     fun pushTick(mint: String, buyPressurePct: Double) {
         val dq = history.getOrPut(mint) { ArrayDeque() }
         synchronized(dq) {

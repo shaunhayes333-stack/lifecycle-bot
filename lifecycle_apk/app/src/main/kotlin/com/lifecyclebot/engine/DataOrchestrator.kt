@@ -348,6 +348,7 @@ class DataOrchestrator(
                 
                 // Update token state with real-time data
                 ts.lastPrice = priceUsd
+                ts.lastPriceUpdate = System.currentTimeMillis()
                 ts.lastMcap = mcap
                 ts.lastLiquidityUsd = liquidity
                 ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0

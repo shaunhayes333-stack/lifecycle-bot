@@ -28,6 +28,12 @@ object TokenDNAClusteringAI {
 
     private val stats = ConcurrentHashMap<String, ClusterStat>()
 
+    /** V5.9.362 — wiring health: total cluster samples (wins+losses) vs floor 10. */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val total = stats.values.sumOf { it.wins + it.losses }
+        return Triple(total, 10, total >= 10)
+    }
+
     private fun clusterKey(candidate: CandidateSnapshot): String {
         val mcapBand = when {
             candidate.marketCapUsd < 10_000   -> "MCAP_0_10K"

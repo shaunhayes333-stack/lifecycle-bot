@@ -26,6 +26,12 @@ object PeerAlphaVerificationAI {
     // collective loader (NetworkSignalAutoBuyer broadcasts into here).
     private val peerLosses = ConcurrentHashMap<String, Long>()
 
+    /** V5.9.362 — wiring health: number of recent peer-loss broadcasts seen (floor 1). */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val n = peerLosses.size
+        return Triple(n, 1, n >= 1)
+    }
+
     fun markPeerLoss(mint: String) {
         peerLosses[mint] = System.currentTimeMillis()
     }

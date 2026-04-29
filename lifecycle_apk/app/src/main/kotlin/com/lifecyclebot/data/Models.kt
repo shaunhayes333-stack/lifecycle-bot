@@ -215,6 +215,7 @@ data class TokenState(
     var addedToWatchlistAt: Long = System.currentTimeMillis(),  // when token was added to watchlist
     var candleTimeframeMinutes: Int = 1,  // timeframe of history[] candles (1=1M, 60=1H, 240=4H, 1440=1D)
     var lastPrice: Double = 0.0,
+    var lastPriceUpdate: Long = 0L,    // V5.9.362 — wallclock of most recent lastPrice mutation; used to detect stale-feed positions stuck at 0% PnL
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk
     var lastFdv: Double = 0.0,             // fully diluted valuation

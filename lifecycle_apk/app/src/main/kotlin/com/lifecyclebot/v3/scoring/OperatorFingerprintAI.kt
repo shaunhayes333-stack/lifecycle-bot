@@ -44,6 +44,12 @@ object OperatorFingerprintAI {
     }
 
     private val records = ConcurrentHashMap<String, OpRecord>()
+
+    /** V5.9.362 — wiring health: number of distinct creators learned (floor 5). */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val n = records.size
+        return Triple(n, 5, n >= 5)
+    }
     @Volatile private var prefs: SharedPreferences? = null
 
     fun init(ctx: Context) {

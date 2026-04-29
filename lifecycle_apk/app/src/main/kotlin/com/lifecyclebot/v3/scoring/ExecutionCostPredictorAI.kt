@@ -33,6 +33,12 @@ object ExecutionCostPredictorAI {
     }
 
     private val bands = ConcurrentHashMap<String, Band>()
+
+    /** V5.9.362 — wiring health: total samples across all liquidity bands vs floor 10. */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val total = bands.values.sumOf { it.samples }
+        return Triple(total, 10, total >= 10)
+    }
     @Volatile private var prefs: SharedPreferences? = null
 
     fun init(ctx: Context) {

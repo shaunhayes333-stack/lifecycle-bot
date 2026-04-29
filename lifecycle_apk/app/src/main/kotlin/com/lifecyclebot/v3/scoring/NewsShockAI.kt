@@ -26,6 +26,12 @@ object NewsShockAI {
 
     private val snap = AtomicReference<SentimentSnapshot?>(null)
 
+    /** V5.9.362 — wiring health: 1 if a sentiment snapshot has been captured. */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val ready = snap.get() != null
+        return Triple(if (ready) 1 else 0, 1, ready)
+    }
+
     fun updateFromPoll(score: Double, slope15m: Double) {
         snap.set(SentimentSnapshot(score.coerceIn(-1.0, 1.0), slope15m.coerceIn(-2.0, 2.0), System.currentTimeMillis()))
         ErrorLogger.info(TAG, "📰 sentiment=${"%.2f".format(score)} slope15m=${"%.2f".format(slope15m)}")

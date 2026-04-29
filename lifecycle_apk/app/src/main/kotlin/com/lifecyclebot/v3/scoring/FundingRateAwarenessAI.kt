@@ -27,6 +27,12 @@ object FundingRateAwarenessAI {
     // symbol → annualised funding rate (0.10 = 10% APR)
     private val fundingRatesApr = ConcurrentHashMap<String, Double>()
 
+    /** V5.9.362 — wiring health: number of symbols with funding feed (vs 1 minimum). */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val n = fundingRatesApr.size
+        return Triple(n, 1, n >= 1)
+    }
+
     fun updateFundingRate(symbol: String, apr: Double) {
         fundingRatesApr[symbol.uppercase()] = apr
     }

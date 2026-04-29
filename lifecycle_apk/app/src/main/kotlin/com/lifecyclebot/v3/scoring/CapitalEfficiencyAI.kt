@@ -24,6 +24,12 @@ object CapitalEfficiencyAI {
     private val bandSampleCount = ConcurrentHashMap<String, Int>()
     private var globalMedianPnlPerSolHour: Double = 0.0
 
+    /** V5.9.362 — wiring health: max samples per age-band vs warmup floor (5). */
+    fun getWiringHealth(): Triple<Int, Int, Boolean> {
+        val maxSamples = bandSampleCount.values.maxOrNull() ?: 0
+        return Triple(maxSamples, 5, maxSamples >= 5)
+    }
+
     private fun bandFor(ageMinutes: Double): String = when {
         ageMinutes < 15     -> "AGE_0_15m"
         ageMinutes < 60     -> "AGE_15_60m"

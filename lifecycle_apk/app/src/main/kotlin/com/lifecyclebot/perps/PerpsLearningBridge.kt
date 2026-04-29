@@ -1030,6 +1030,10 @@ object PerpsLearningBridge {
             val signals = corr?.signalsGiven ?: 0
             sb.appendLine("  $name: trust=${String.format("%.2f", trust)} | acc=${String.format("%.1f", accuracy)}% | signals=$signals")
         }
+        // V5.9.362 — surface the wiring health for the 9 outer-ring layers
+        // wired in V5.9.357 so the user can watch them converge.
+        sb.appendLine()
+        sb.appendLine(com.lifecyclebot.engine.WiringHealth.detailBlock())
         return sb.toString()
     }
 }

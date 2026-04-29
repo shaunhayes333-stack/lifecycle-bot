@@ -6251,6 +6251,10 @@ This cannot be undone!
             if (newConfig.activeToken != state.config.activeToken) {
                 etActiveToken.setText(newConfig.activeToken)
             }
+            // V5.9.362 — apply Markets Trader per-asset switches (Perps/Stocks/
+            // Commodities/Metals/Forex/Alts) immediately so the user doesn't
+            // have to restart the bot service to enable/disable a trader.
+            try { com.lifecyclebot.engine.BotService.reapplyMarketsTraderSwitches(applicationContext) } catch (_: Exception) {}
         }
         
         sheet.onExportRequested = {
@@ -8732,6 +8736,8 @@ $sentStatus
 
 Recent inner monologues:
 $reflections
+
+${com.lifecyclebot.engine.WiringHealth.detailBlock()}
             """.trimIndent()
 
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
