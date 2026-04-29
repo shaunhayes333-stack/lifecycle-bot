@@ -5468,8 +5468,14 @@ This cannot be undone!
             val mqSize = com.lifecyclebot.engine.TokenMergeQueue.getPendingCount()
             val probSize = probationEntries.size
             val bypassCount = com.lifecyclebot.engine.MarketsTelemetry.multiScannerBypasses.get()
+            val insiderBuys = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyBuys.get()
+            val insiderExits = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyExits.get()
+            val insiderSuffix = if (insiderBuys > 0 || insiderExits > 0) {
+                " · 🐋$insiderBuys/$insiderExits"
+            } else ""
             "RAW ${tele.raw} → ENQ ${tele.enq} → MQ $mqSize → WL ${activeTokens.size}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
-                if (bypassCount > 0) " · 🟢Bypass $bypassCount" else ""
+                (if (bypassCount > 0) " · 🟢Bypass $bypassCount" else "") +
+                insiderSuffix
         } catch (_: Exception) { "" }
         tvWatchlistHeader.text = if (funnelLine.isNotEmpty()) {
             "Watchlist (${activeTokens.size})\n$funnelLine"

@@ -663,6 +663,10 @@ class BotService : Service() {
                 if (signal.wallet.riskLevel == com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.ALPHA) {
                     ErrorLogger.info("BotService", "🔍 INSIDER ALERT: ${signal.wallet.label} | ${signal.signalType.name} | ${signal.tokenSymbol ?: "?"}")
                 }
+                // V5.9.367 — dispatch to copy-trade engine: ACCUMULATION/PRE_TWEET
+                // → memetrader watchlist via WHALE_COPY; DISTRIBUTION on alpha
+                // wallets → copy-exit across all Markets-layer traders.
+                try { com.lifecyclebot.engine.InsiderCopyEngine.onTrackerSignal(signal) } catch (_: Exception) {}
             }
             ErrorLogger.info("BotService", "🔍 InsiderTrackerAI STARTED - Watching ${com.lifecyclebot.v3.scoring.InsiderTrackerAI.getAllWallets().size} wallets (Trump/Pelosi/Whales)")
         } catch (e: Exception) {
@@ -685,6 +689,11 @@ class BotService : Service() {
                         confidence = signal.confidence,
                     )
                 } catch (_: Exception) {}
+                // V5.9.367 — dispatch to copy-trade engine: BUY/NEW_POSITION
+                // → memetrader watchlist via WHALE_COPY scanner; SELL on
+                // alpha (smart-money) wallets → copy-exit across all
+                // Markets-layer traders.
+                try { com.lifecyclebot.engine.InsiderCopyEngine.onWalletTrackerSignal(signal) } catch (_: Exception) {}
             }
             val stats = com.lifecyclebot.perps.InsiderWalletTracker.getStats()
             ErrorLogger.info("BotService", "🔍 InsiderWalletTracker INITIALIZED — ${stats["total_wallets"]} wallets (POL=${stats["political"]}, SMART=${stats["smart_money"]}, CUSTOM=${stats["custom"]})")
