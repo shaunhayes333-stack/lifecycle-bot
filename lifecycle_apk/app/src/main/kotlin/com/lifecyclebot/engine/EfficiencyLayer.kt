@@ -54,8 +54,10 @@ object EfficiencyLayer {
     // pass (same root-cause family as V5.9.44 scanner TTL unification).
     // Downstream gates (FDG, hard blocks, promotion gate) handle risk; the
     // efficiency layer's job is throughput, not risk gating.
-    private const val DISCOVERY_COOLDOWN_MS_LIVE = 10_000L
-    private const val DISCOVERY_COOLDOWN_MS_PAPER = 10_000L
+    // V5.9.363 — wider funnel: cut discovery cooldown 10s→6s so re-evaluations
+    // (LIQ_CHANGE / SCORE_CHANGE / SOURCE_UPGRADE) reach the watchlist faster.
+    private const val DISCOVERY_COOLDOWN_MS_LIVE = 6_000L
+    private const val DISCOVERY_COOLDOWN_MS_PAPER = 6_000L
     private const val LIQ_CHANGE_THRESHOLD = 0.20            // 20% liquidity change triggers reprocess
     private const val SCORE_CHANGE_THRESHOLD = 15            // 15 point score change triggers reprocess
     
