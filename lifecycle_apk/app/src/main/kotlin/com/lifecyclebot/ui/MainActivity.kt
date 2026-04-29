@@ -5458,7 +5458,24 @@ This cannot be undone!
         // ═══════════════════════════════════════════════════════════════════════
         // WATCHLIST COLUMN (center) - Active tokens only
         // ═══════════════════════════════════════════════════════════════════════
-        tvWatchlistHeader.text = "Watchlist (${activeTokens.size})"
+        // V5.9.365 — Funnel Stages tile: piggyback on the watchlist header so
+        // the user can see exactly where tokens are dying in the pipeline:
+        //   RAW (raw scanner hits) → ENQ (enqueued to merge) → MQ (pending in
+        //   merge queue) → WL (active watchlist) plus secondary counters
+        //   (probation, liq-rejects, saturated, multi-scanner bypasses).
+        val funnelLine = try {
+            val tele = com.lifecyclebot.engine.MarketsTelemetry.latestThroughput
+            val mqSize = com.lifecyclebot.engine.TokenMergeQueue.getPendingCount()
+            val probSize = probationEntries.size
+            val bypassCount = com.lifecyclebot.engine.MarketsTelemetry.multiScannerBypasses.get()
+            "RAW ${tele.raw} → ENQ ${tele.enq} → MQ $mqSize → WL ${activeTokens.size}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
+                if (bypassCount > 0) " · 🟢Bypass $bypassCount" else ""
+        } catch (_: Exception) { "" }
+        tvWatchlistHeader.text = if (funnelLine.isNotEmpty()) {
+            "Watchlist (${activeTokens.size})\n$funnelLine"
+        } else {
+            "Watchlist (${activeTokens.size})"
+        }
         
         activeTokens.forEach { ts ->
             val card = buildTokenCard(ts, active, solPrice, scaleFactor, state)

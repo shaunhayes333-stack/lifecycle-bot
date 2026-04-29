@@ -1553,6 +1553,7 @@ class BotService : Service() {
                                 return@SolanaMarketScanner
                             }
                             if (multiScannerConfirmed && liquidityUsd < minLiquidity) {
+                                MarketsTelemetry.multiScannerBypasses.incrementAndGet()
                                 ErrorLogger.info("BotService", "🟢 MULTI-SCANNER BYPASS: ${identity.symbol} liq=\$${liquidityUsd.toInt()} (${priorScanners + 1} scanners) — admitted below \$${minLiquidity.toInt()} floor")
                             }
                             

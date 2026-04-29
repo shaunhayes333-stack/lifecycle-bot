@@ -752,6 +752,29 @@ class SolanaMarketScanner(
         return "RAW=$telemetryRawScanned CD=$telemetryCooldownHits RUG=$telemetryRugRejects LIQ=$telemetryLiqRejects ENQ=$telemetryEnqueued STALE=$telemetryStaleDrops SAT=$telemetrySaturatedDrops"
     }
 
+    /**
+     * V5.9.365 — structured snapshot for UI rendering. The string getter above
+     * is convenient for log lines but UIs need typed numbers.
+     */
+    data class ThroughputSnapshot(
+        val raw: Int,
+        val cd: Int,
+        val rug: Int,
+        val liqRej: Int,
+        val enq: Int,
+        val stale: Int,
+        val sat: Int,
+    )
+    fun getThroughputTelemetrySnapshot(): ThroughputSnapshot = ThroughputSnapshot(
+        raw     = telemetryRawScanned,
+        cd      = telemetryCooldownHits,
+        rug     = telemetryRugRejects,
+        liqRej  = telemetryLiqRejects,
+        enq     = telemetryEnqueued,
+        stale   = telemetryStaleDrops,
+        sat     = telemetrySaturatedDrops,
+    )
+
     fun resetTelemetry() {
         telemetryRawScanned = 0
         telemetryCooldownHits = 0
@@ -869,15 +892,19 @@ class SolanaMarketScanner(
             val url = "https://api.dexscreener.com/token-profiles/latest/v1?chainId=solana"
             ErrorLogger.info("Scanner", "TEST: Fetching newest token profiles...")
 
-            val body = getWithRetry(url) ?: run {
-                ErrorLogger.error("Scanner", "TEST FAILED: No response from DexScreener API")
-                onLog("❌ API test failed - no response")
+            // V5.9.365 — DexScreener cold-start is flaky. Was 1-shot with no
+            // retries → routinely produced a single `TEST FAILED` ERROR on first
+            // boot. Now retries 4× with backoff and downgrades to WARN so the
+            // Errors panel stays clean. Real scanning resumes next cycle anyway.
+            val body = getWithRetry(url, maxRetries = 4) ?: run {
+                ErrorLogger.warn("Scanner", "TEST: cold-start fetch failed (DexScreener unreachable) — will retry next scan cycle")
+                onLog("⚠️ Cold-start API probe failed (transient) — scanner will retry on next cycle")
                 return
             }
 
             val profiles = if (body.startsWith("[")) JSONArray(body) else {
-                ErrorLogger.error("Scanner", "TEST FAILED: Invalid response format")
-                onLog("❌ API test failed - bad format")
+                ErrorLogger.warn("Scanner", "TEST: cold-start got non-array response — will retry next scan cycle")
+                onLog("⚠️ Cold-start API probe got bad format (transient)")
                 return
             }
 
@@ -2297,6 +2324,12 @@ class SolanaMarketScanner(
             onLog("📊 ${getThroughputTelemetry()}")
             lastTelemetryLogMs = now
         }
+
+        // V5.9.365 — push snapshot to MarketsTelemetry singleton so the main UI's
+        // Funnel Stages tile can read fresh counters without holding a scanner ref.
+        try {
+            MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot()
+        } catch (_: Exception) {}
 
         if (seenRemoved > 0 || rejectedRemoved > 0) {
             ErrorLogger.info(
