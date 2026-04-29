@@ -268,6 +268,15 @@ object TokenMergeQueue {
 
     fun isPending(mint: String): Boolean = pendingDiscoveries.containsKey(mint)
 
+    /**
+     * V5.9.364 — return the number of distinct scanners that have already
+     * discovered this mint inside the current merge window. Used by
+     * BotService to bypass the paper-mode liquidity floor for multi-scanner
+     * confirmed tokens (≥2 sources within 5s = strong signal regardless of liq).
+     */
+    fun priorScannerCount(mint: String): Int =
+        pendingDiscoveries[mint]?.scanners?.size ?: 0
+
     fun getPendingCount(): Int = pendingDiscoveries.size
 
     fun getStats(): String {

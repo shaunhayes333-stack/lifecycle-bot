@@ -1528,17 +1528,32 @@ class BotService : Service() {
                             // $1-5K rug-pool feed (CIVI -84% liq, AFC $1332 liq, etc.). The
                             // 9-hour run showed the bot was getting fed paper-thin tokens
                             // that vaporized in minutes — every entry was a guaranteed loss.
-                            val paperMinLiquidity = 8000.0
+                            // V5.9.364 — user feedback "scanner went backwards": the $8K floor
+                            // was eating ~all of V5.9.363's wider funnel. Lowered to $3K (still
+                            // above the $1-5K rug zone of V5.9.353), AND added a multi-scanner
+                            // bypass below: if ≥2 distinct scanners have already discovered the
+                            // same mint inside the merge window, the token is treated as a
+                            // strong-signal confirmation and skips this floor entirely.
+                            val paperMinLiquidity = 3000.0
                             val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0
                             
                             // Check 2a: MINIMUM LIQUIDITY
                             val minLiquidity = if (lenientScan) paperMinLiquidity else liveStrictMinLiquidity
-                            if (liquidityUsd < minLiquidity) {
+                            // V5.9.364 — multi-scanner bypass. priorScannerCount returns the
+                            // number of distinct scanners that already enqueued this mint inside
+                            // the 5s merge window. ≥1 prior scanner means THIS hit makes it ≥2,
+                            // i.e. multi-source confirmed → bypass the floor.
+                            val priorScanners = TokenMergeQueue.priorScannerCount(identity.mint)
+                            val multiScannerConfirmed = priorScanners >= 1
+                            if (!multiScannerConfirmed && liquidityUsd < minLiquidity) {
                                 TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
                                 return@SolanaMarketScanner
+                            }
+                            if (multiScannerConfirmed && liquidityUsd < minLiquidity) {
+                                ErrorLogger.info("BotService", "🟢 MULTI-SCANNER BYPASS: ${identity.symbol} liq=\$${liquidityUsd.toInt()} (${priorScanners + 1} scanners) — admitted below \$${minLiquidity.toInt()} floor")
                             }
                             
                             // Check 2b: Blacklist (always check in live, optional in paper)
