@@ -358,9 +358,35 @@ object ForexTrader {
         val layerVotes = mutableMapOf<String, PerpsDirection>()
         var score = 50
         var confidence = 50
-        
+
         val change = data.priceChange24hPct
-        val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+
+        // V5.9.376 — consult the dedicated forex strategy for session-aware,
+        // bidirectional, pip-based decision. If it stands down (off-session
+        // or insufficient edge), skip this pair entirely.
+        val rsiVal: Double? = try {
+            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
+        } catch (_: Exception) { null }
+        val isOversold = try { com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).isOversold } catch (_: Exception) { false }
+        val isOverbought = try { com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).isOverbought } catch (_: Exception) { false }
+        val setup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(
+            symbol = market.symbol,
+            price = data.price,
+            priceChange24hPct = change,
+            rsi = rsiVal,
+            isOversold = isOversold,
+            isOverbought = isOverbought,
+        ) ?: run {
+            ErrorLogger.debug(TAG, "💱 ${market.symbol}: ForexStrategy stand-down (off-session or no edge)")
+            return null
+        }
+        val direction = setup.direction
+        score += (setup.conviction - 40).coerceAtLeast(0)
+        confidence += (setup.conviction - 40).coerceAtLeast(0)
+        reasons.addAll(setup.reasons.map { "🎯 $it" })
+        reasons.add("🎯 Setup: ${setup.direction.symbol} · ${setup.pairClass} · ${setup.session} · " +
+            "TP=${setup.tpPips.toInt()}p SL=${setup.slPips.toInt()}p lev=${"%.1f".format(setup.leverage)}x")
+        layerVotes["ForexStrategy"] = direction
         
         // 1. Momentum analysis (forex moves less, so lower thresholds)
         when {
@@ -565,8 +591,26 @@ object ForexTrader {
         // V5.9.93: fluid TP/SL
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
         val baseTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        val tpPct = baseTpPct * tpMult
-        val slPct = SL_PERCENT * slMult
+
+        // V5.9.376 — use ForexStrategy pip-based TP/SL instead of %-based
+        // (a 0.5% SL on EURUSD was 50 pips of room — far too wide). Falls
+        // back to the legacy % multipliers if the strategy stood down.
+        val strategySetup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(
+            symbol = signal.market.symbol,
+            price = signal.price,
+            priceChange24hPct = signal.priceChange24h,
+        )
+        val tpPct: Double
+        val slPct: Double
+        if (strategySetup != null) {
+            tpPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(
+                signal.market.symbol, strategySetup.tpPips, signal.price)
+            slPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(
+                signal.market.symbol, strategySetup.slPips, signal.price)
+        } else {
+            tpPct = baseTpPct * tpMult
+            slPct = SL_PERCENT * slMult
+        }
 
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)
