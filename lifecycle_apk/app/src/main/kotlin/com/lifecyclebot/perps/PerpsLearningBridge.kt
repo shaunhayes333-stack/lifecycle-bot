@@ -1157,32 +1157,32 @@ object PerpsLearningBridge {
      */
     fun resetNonDirectionalCorrelationOnce() {
         val p = prefs ?: return
-        // V5.9.374 — lane architecture supersedes the V5.9.372 single-reset.
-        // Clear ALL lanes once so every (layer, asset) pair starts from 0
-        // under the new grading rules. Idempotent: flagged in prefs.
-        if (p.getBoolean("lanes_reset_v5_9_374", false)) return
+        // V5.9.380 — second reset. V5.9.374 lanes shipped without per-layer
+        // voting, so every layer in a lane showed identical accuracy (user
+        // saw 297 trades × 20.2% on every MEME layer). V5.9.380 adds per-
+        // layer vote capture (LayerVoteSampler) + replay (LayerVoteStore).
+        // With votes live, layers will finally diverge — but only if we
+        // clear the uniform-stat baseline from V5.9.374 first.
+        if (p.getBoolean("lanes_reset_v5_9_380", false)) return
 
         val before = layerPerpsCorrelation.size
         layerPerpsCorrelation.clear()
-        // Keep trust scores but pull them toward neutral so they don't
-        // carry a biased prior into the fresh lanes.
+        // Soft-pull trust toward neutral, same as V5.9.374 reset.
         layerPerpsTrust.replaceAll { _, v -> 0.5 + (v - 0.5) * 0.2 }
 
-        // Wipe every persisted corr_* key (legacy unsuffixed, _STOCK, and
-        // any prior lane-formatted keys) so the next save() writes a clean
-        // slate keyed only by "$name#$asset".
         p.edit().apply {
             p.all.keys.filter { it.startsWith("corr_signals_") || it.startsWith("corr_correct_") || it.startsWith("corr_pnl_") }
                 .forEach { remove(it) }
-            putBoolean("lanes_reset_v5_9_374", true)
+            putBoolean("lanes_reset_v5_9_380", true)
+            putBoolean("lanes_reset_v5_9_374", true)     // legacy flag
             putBoolean("non_dir_corr_reset_v5_9_372", true)  // legacy flag
             putBoolean("non_dir_corr_reset_v5_9_368", true)  // legacy flag
             apply()
         }
         ErrorLogger.info(
             TAG,
-            "🧹 V5.9.374: cleared $before unified correlation records + persisted keys — " +
-                "per-asset lanes start at zero across MEME/PERPS/STOCK/FOREX/METAL/COMMODITY"
+            "🧹 V5.9.380: cleared $before correlation records — fresh baseline; " +
+                "per-layer voting (LayerVoteSampler) now gates signal credit"
         )
     }
     

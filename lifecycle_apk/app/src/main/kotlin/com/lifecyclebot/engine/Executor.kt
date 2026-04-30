@@ -678,6 +678,13 @@ class Executor(
         try {
             if (trade.side == "BUY") {
                 PatternClassifier.noteEntry(ts.mint, PatternClassifier.extract(ts))
+                // V5.9.380 — capture each of the 26 meme layers' votes at
+                // entry. On SELL closeout (below, ~line 803) we replay each
+                // vote into PerpsLearningBridge so layers diverge in accuracy
+                // based on their OWN opinion, not the bot's aggregate WR.
+                try {
+                    com.lifecyclebot.learning.LayerVoteSampler.captureAllMemeVotes(ts)
+                } catch (_: Exception) {}
             } else if (trade.side == "SELL") {
                 PatternClassifier.noteExit(
                     mint = ts.mint,
@@ -791,17 +798,19 @@ class Executor(
                     // unless we've stashed it in ts.meta. Graceful no-op otherwise.
                 } catch (_: Exception) {}
 
-                // V5.9.374 — feed the MEME lane of PerpsLearningBridge. The 26+
-                // memecoin layers were previously blind to spot meme outcomes
-                // (they only received perps signals, which are 3% of trade
-                // volume). Now every meme close trains its own lane, giving
-                // each layer thousands of real training signals without
-                // bleeding into the PERPS/STOCK/FOREX lanes.
+                // V5.9.380 — per-layer vote replay. Each of the 26 meme layers
+                // cast a vote at BUY time (see LayerVoteSampler) and is now
+                // graded on ITS OWN opinion. Layers that voted bullish on a
+                // winning trade get +1 correct; layers that voted bearish on
+                // a losing trade ALSO get +1 correct (for saving us). Layers
+                // that abstained get no signal. This is what V5.9.374 lanes
+                // should have done from day one.
                 try {
-                    com.lifecyclebot.perps.PerpsLearningBridge.recordMemeTrade(
-                        symbol = ts.symbol,
+                    com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
+                        mint = ts.mint,
                         isWin = isWin,
                         pnlPct = pnl,
+                        symbol = ts.symbol,
                     )
                 } catch (_: Exception) { /* non-critical */ }
             } catch (e: Exception) {
