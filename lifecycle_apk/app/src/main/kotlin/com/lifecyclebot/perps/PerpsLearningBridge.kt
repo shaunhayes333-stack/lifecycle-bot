@@ -732,8 +732,19 @@ object PerpsLearningBridge {
             // a clear bias signature, not real prediction error). Use isWin
             // as the success metric for non-directional layers: "did the
             // trade this layer participated in actually win?"
+            // V5.9.372 — generalize the fix. The original null-safe check
+            // (cfg?.isDirectional == false) returned false when cfg was
+            // null (layer not registered in layerConfigs), so 13 layers
+            // (FluidLearning/MetaCognition/VolatilityRegime/EducationSubLayer/
+            // MarketRegime/MomentumPredictor/CashGen/LiquidityCycle/
+            // RegimeTransition/QualityTrader/HoldTimeOptimizer/
+            // SellOptimization/SmartMoneyDivergence) all sat at exactly
+            // acc=3.3% (1/30) because they fell through to directionCorrect.
+            // New rule: only grade against directionCorrect when the layer
+            // is EXPLICITLY registered with isDirectional=true. Anything
+            // else (unknown layer or isDirectional=false) grades on isWin.
             val cfg = layerConfigs[layerName]
-            val layerCorrect = if (cfg?.isDirectional == false) isWin else directionCorrect
+            val layerCorrect = if (cfg?.isDirectional == true) directionCorrect else isWin
             if (layerCorrect) corr.signalsCorrect++
             corr.totalPnlContribution += trade.pnlPct
             corr.lastUpdate = System.currentTimeMillis()
@@ -976,18 +987,40 @@ object PerpsLearningBridge {
      */
     fun resetNonDirectionalCorrelationOnce() {
         val p = prefs ?: return
-        if (p.getBoolean("non_dir_corr_reset_v5_9_368", false)) return
+        if (p.getBoolean("non_dir_corr_reset_v5_9_372", false)) return
+        // V5.9.372 — wider reset bumped from v5_9_368 key. The original
+        // V5.9.368 reset only cleared layers explicitly flagged
+        // isDirectional=false in layerConfigs — it missed 13 layers that
+        // weren't registered at all (FluidLearning/MetaCognition/etc.,
+        // all stuck at acc=3.3% from being graded against directionCorrect).
+        // V5.9.372 generalized the grading rule to default to isWin for
+        // any non-explicitly-directional layer, so the historical stats
+        // for ALL non-directional-explicit layers need a fresh baseline.
+        // Easiest: reset every layer that has correlation data — the
+        // grading rule change applies retroactively from the next trade.
         var resetCount = 0
-        layerConfigs.forEach { (name, cfg) ->
-            if (!cfg.isDirectional) {
+        layerPerpsCorrelation.keys.toList().forEach { name ->
+            val cfg = layerConfigs[name]
+            if (cfg?.isDirectional != true) {
                 layerPerpsCorrelation[name] = CorrelationData()
                 resetCount++
             }
         }
-        p.edit().putBoolean("non_dir_corr_reset_v5_9_368", true).apply()
+        // Also reset any explicitly non-directional layers that may have
+        // been added since the v5.9.368 reset shipped.
+        layerConfigs.forEach { (name, cfg) ->
+            if (!cfg.isDirectional && layerPerpsCorrelation[name] == null) {
+                layerPerpsCorrelation[name] = CorrelationData()
+                resetCount++
+            }
+        }
+        p.edit()
+            .putBoolean("non_dir_corr_reset_v5_9_372", true)
+            .putBoolean("non_dir_corr_reset_v5_9_368", true)  // keep legacy flag set
+            .apply()
         ErrorLogger.info(
             TAG,
-            "🧹 V5.9.368: reset correlation stats for $resetCount non-directional layers — starting clean baseline"
+            "🧹 V5.9.372: reset correlation stats for $resetCount non-directional layers — starting clean baseline (generalized fix)"
         )
     }
     
