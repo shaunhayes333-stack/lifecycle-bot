@@ -506,6 +506,19 @@ class BotService : Service() {
                 com.lifecyclebot.engine.LeveragePreference.restoreAllTraders()
             } catch (_: Exception) {}
             ErrorLogger.info("BotService", "PerpsLearningBridge initialized - ${com.lifecyclebot.perps.PerpsLearningBridge.getConnectedLayerCount()} layers connected")
+
+            // V5.9.375 — run the offline backtest baseline once on boot so the
+            // user sees exactly what the bot did per asset class, segmented.
+            // Non-blocking: fires on IO thread and logs through ErrorLogger.
+            try {
+                Thread {
+                    try {
+                        com.lifecyclebot.backtest.BacktestEngine.logAssetClassBaseline()
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("Backtest", "baseline log error: ${e.message}")
+                    }
+                }.apply { isDaemon = true; name = "BacktestBaseline" }.start()
+            } catch (_: Exception) {}
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
         }
