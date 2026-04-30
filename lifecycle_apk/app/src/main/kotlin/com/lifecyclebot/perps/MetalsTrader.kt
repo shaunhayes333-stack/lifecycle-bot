@@ -376,7 +376,22 @@ object MetalsTrader {
         var confidence = 50
         
         val change = data.priceChange24hPct
-        val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+
+        // V5.9.377 — consult MetalsStrategy for USD-inverse, safe-haven aware,
+        // bidirectional decision. Stand down if no edge. Replaces the
+        // "change >= 0 → LONG" long-biased heuristic.
+        val rsiVal: Double? = try {
+            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
+        } catch (_: Exception) { null }
+        val setup = com.lifecyclebot.perps.strategy.MetalsStrategy.decide(
+            symbol = market.symbol,
+            priceChange24hPct = change,
+            rsi = rsiVal,
+        ) ?: run {
+            ErrorLogger.debug(TAG, "🥇 ${market.symbol}: MetalsStrategy stand-down (no edge)")
+            return null
+        }
+        val direction = setup.direction
         
         // 1. Momentum analysis
         when {

@@ -399,7 +399,21 @@ object CommoditiesTrader {
         var confidence = 50
         
         val change = data.priceChange24hPct
-        val direction = if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
+
+        // V5.9.377 — consult CommoditiesStrategy for seasonal + USD + trend
+        // bidirectional decision.
+        val rsiVal: Double? = try {
+            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
+        } catch (_: Exception) { null }
+        val setup = com.lifecyclebot.perps.strategy.CommoditiesStrategy.decide(
+            symbol = market.symbol,
+            priceChange24hPct = change,
+            rsi = rsiVal,
+        ) ?: run {
+            ErrorLogger.debug(TAG, "🛢️ ${market.symbol}: CommoditiesStrategy stand-down (no edge)")
+            return null
+        }
+        val direction = setup.direction
         
         // Add trade type indicator
         reasons.add("${tradeType.emoji} ${tradeType.name}")
