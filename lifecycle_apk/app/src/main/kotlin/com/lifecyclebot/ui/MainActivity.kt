@@ -4642,21 +4642,35 @@ This cannot be undone!
     /** V5.9.348: Meme trader readiness — original TradeHistoryStore logic. */
     private fun renderMemeReadiness() {
             // V5.9.355: Align Meme Live Readiness with RunTracker30D so the
-            // numbers match the 30-Day Proof card byte-for-byte.
-            // V5.9.369 — switch from rt.totalTrades/rt.wins (which mixes in
-            // markets-layer trades and was dragging meme WR from ~38% down
-            // to 35% via 50 stock losses) to rt.memeBucket which is populated
-            // exclusively by the memetrader pipeline. RunTracker30D global
-            // counters are kept for the lifetime 30-Day Proof Run card.
+            // numbers match the 30-Day Proof card byte-for-byte. User report:
+            // 'the meme coin 30 day is at 26% the livereadiness is drawing
+            // wrong data!!!' TradeHistoryStore and RunTracker30D classify
+            // scratches vs losses with different thresholds, causing 20% vs
+            // 26% drift on the same meme data. RunTracker30D is the
+            // source of truth for the proof-run readiness assessment.
+            //
+            // V5.9.369 attempted to switch this to read from the new
+            // RunTracker30D.memeBucket so stock losses wouldn't drag meme
+            // WR down. BUT: pre-V5.9.369 trades (the user's 3312 historical
+            // trades) were never asset-tagged, so the bucket only had 13
+            // trades vs 3312 in the global counter. Result: trade count
+            // came from one source (6663) and WR came from the empty
+            // bucket (15%) — completely wrong, didn't match 30-Day Proof.
+            //
+            // V5.9.371 — revert to reading rt.totalTrades / rt.wins /
+            // rt.losses directly. This matches 30-Day Proof Run exactly,
+            // which is what the user expects. The stock-contamination
+            // issue is real but tiny (a few stock trades in 3000+); will
+            // be addressed properly when 30-Day Proof Run itself is
+            // asset-segregated (so the proof card shows MEME-only too).
             val rt = com.lifecyclebot.engine.RunTracker30D
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-            val mb = rt.memeBucket
-            val totalTrades = mb.trades.coerceAtLeast(stats.totalStoredTrades)
-            val meaningfulTrades = mb.wins + mb.losses
+            val totalTrades = rt.totalTrades.coerceAtLeast(stats.totalStoredTrades)
+            val meaningfulTrades = rt.wins + rt.losses
             val winRate = if (meaningfulTrades > 0)
-                (mb.wins * 100.0) / meaningfulTrades else 0.0
+                (rt.wins * 100.0) / meaningfulTrades else 0.0
             val profitFactor = stats.profitFactor  // stays on recent-in-memory avg w / avg l
-            val totalPnlSol = mb.pnlSol.takeIf { it != 0.0 } ?: stats.totalPnlSol
+            val totalPnlSol = rt.totalRealizedPnlSol.takeIf { it != 0.0 } ?: stats.totalPnlSol
 
             // Profitability gates
             val WR_READY      = 50.0   // minimum win rate to go live
