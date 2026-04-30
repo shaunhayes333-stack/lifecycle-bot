@@ -5030,7 +5030,30 @@ This cannot be undone!
 
             val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
             val pnlSign = if (totalPnl >= 0) "+" else ""
-            tv.text = "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
+            // V5.9.370 — per-asset breakdown line. Pulls from the V5.9.369
+            // RunTracker30D.AssetBucket so MEME/ALT/PERP/STOCK/FOREX/METAL/COMMOD
+            // each show their own clean WR and trade count.
+            val perAssetLine = try {
+                val rt = com.lifecyclebot.engine.RunTracker30D
+                fun fmt(label: String, b: com.lifecyclebot.engine.RunTracker30D.AssetBucket): String {
+                    val dec = b.wins + b.losses
+                    return if (dec == 0) "$label —" else "$label ${dec}t/${b.winRate().toInt()}%"
+                }
+                listOf(
+                    fmt("M",  rt.memeBucket),
+                    fmt("A",  rt.altsBucket),
+                    fmt("P",  rt.perpsBucket),
+                    fmt("S",  rt.stocksBucket),
+                    fmt("FX", rt.forexBucket),
+                    fmt("MT", rt.metalsBucket),
+                    fmt("CD", rt.commodBucket),
+                ).joinToString(" · ")
+            } catch (_: Exception) { "" }
+            tv.text = if (perAssetLine.isNotEmpty()) {
+                "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n📊 $perAssetLine"
+            } else {
+                "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
+            }
             tv.setTextColor(when {
                 blendedWR >= 50.0 -> green
                 blendedWR >= 45.0 -> amber

@@ -557,6 +557,31 @@ object FluidLearningAI {
                 MAX_LEARNING_PROGRESS
         }
 
+        // V5.9.370 — EARNED-WR PROGRESS CEILING.
+        //
+        // BUG (user, after 5000-trade run + restart): "wouldn't trade on the
+        //   memetrader at all". After totalTrades >= 5000 baseProgress = 1.0
+        //   (Master phase, max selectivity), pushing all dynamic floors
+        //   (V3 techFloor=60, blendedFloor=55, FDG paper floor 45→max etc.)
+        //   to their maximum — almost no incoming token clears the bar.
+        //
+        // ROOT CAUSE: the Master phase implicitly assumes mastery was earned
+        //   with a profitable WR. A 5000-trade bot at 35% WR is *not* a
+        //   master — it's an over-fitted unprofitable bot. Locking it at
+        //   1.0 selectivity stops trading entirely.
+        //
+        // FIX: cap baseProgress against an "earned" ceiling derived from
+        //   blended WR. Bot only graduates to higher selectivity once it
+        //   has actually demonstrated higher WR.
+        val earnedCeiling = when {
+            blendedWinRate >= 60 -> MAX_LEARNING_PROGRESS  // ≥60% WR → full Master
+            blendedWinRate >= 50 -> 0.85                    // 50-60% → high Expert
+            blendedWinRate >= 40 -> 0.75                    // 40-50% → mid Mature
+            blendedWinRate >= 30 -> 0.65                    // 30-40% → low Mature
+            else                 -> 0.50                    // <30%   → Bootstrap ceiling
+        }
+        val cappedBaseProgress = baseProgress.coerceAtMost(earnedCeiling)
+
         val progress = when {
             totalTrades > MATURE_PHASE_END -> {
                 // V5.9.322: CLOSED FEEDBACK LOOP — low WR no longer loosens gates at mature/expert.
@@ -569,22 +594,24 @@ object FluidLearningAI {
                 //            WR 30-50% → hold position (don't loosen, don't tighten aggressively).
                 //            WR 50%+   → hold position (on target).
                 // Floor raised to 0.65 at mature, 0.70 at expert so bootstrap assist NEVER re-enables.
+                // V5.9.370 — uses cappedBaseProgress (earned-WR ceiling applied) so 5000-trade
+                // bots at <50% WR aren't locked at full Master selectivity.
                 val adaptiveFloor = if (totalTrades > EXPERT_PHASE_END) 0.70 else 0.65
                 when {
-                    blendedWinRate >= 50 -> baseProgress                                              // On target — hold selectivity
-                    blendedWinRate < 20  -> (baseProgress + 0.05).coerceAtMost(MAX_LEARNING_PROGRESS)  // Very bad WR → tighten further
-                    blendedWinRate < 30  -> baseProgress                                              // Bad WR → hold, don't loosen
-                    blendedWinRate < 40  -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor)        // Below average → tiny loosen (was -0.25)
-                    blendedWinRate < 50  -> (baseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.05) // Slightly below → minor loosen
-                    else -> baseProgress
+                    blendedWinRate >= 50 -> cappedBaseProgress                                              // On target — hold selectivity
+                    blendedWinRate < 20  -> (cappedBaseProgress + 0.05).coerceAtMost(MAX_LEARNING_PROGRESS)  // Very bad WR → tighten further
+                    blendedWinRate < 30  -> cappedBaseProgress                                              // Bad WR → hold, don't loosen
+                    blendedWinRate < 40  -> (cappedBaseProgress - 0.05).coerceAtLeast(adaptiveFloor)        // Below average → tiny loosen (was -0.25)
+                    blendedWinRate < 50  -> (cappedBaseProgress - 0.05).coerceAtLeast(adaptiveFloor + 0.05) // Slightly below → minor loosen
+                    else -> cappedBaseProgress
                 }
             }
             else -> {
                 // Phase 1-2: Win rate speeds/slows learning progression
                 when {
-                    blendedWinRate > 85 -> (baseProgress * 1.15).coerceAtMost(MAX_LEARNING_PROGRESS) // V5.9.184: >85% WR = elite, accelerate, capped
-                    blendedWinRate < 25 -> baseProgress * 0.80                       // V5.9.184: <25% is bad; slow gates — target 25-50% struggling
-                    else -> baseProgress
+                    blendedWinRate > 85 -> (cappedBaseProgress * 1.15).coerceAtMost(MAX_LEARNING_PROGRESS) // V5.9.184: >85% WR = elite, accelerate, capped
+                    blendedWinRate < 25 -> cappedBaseProgress * 0.80                       // V5.9.184: <25% is bad; slow gates — target 25-50% struggling
+                    else -> cappedBaseProgress
                 }
             }
         }.coerceAtMost(MAX_LEARNING_PROGRESS)  // V5.9: Hard cap at 1.0 (full expert)
