@@ -1026,6 +1026,12 @@ class SolanaMarketScanner(
                 delay(100)
                 runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
                 delay(100)
+                runScan("scanGeckoTrendingPools") { scanGeckoTrendingPools() }
+                delay(100)
+                runScan("scanGeckoTopPoolsByVolume") { scanGeckoTopPoolsByVolume() }
+                delay(100)
+                runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
+                delay(100)
                 runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
 
                 System.gc()
@@ -1977,6 +1983,204 @@ class SolanaMarketScanner(
             throw e
         } catch (e: Exception) {
             ErrorLogger.debug("Scanner", "scanRaydiumNewPools error: ${e.message}")
+        }
+    }
+
+    // V5.9.373 — NEW SCANNER SOURCES (expand watchlist toward ~500 idle tokens).
+    // Previous 11 sources all used DexScreener / Pump.fun / GeckoTerminal new_pools,
+    // causing heavy deduplication (62 enqueued → 9 watchlisted). The three scanners
+    // below target genuinely distinct universes:
+    //   1) GeckoTerminal trending_pools — engagement-sorted, not creation-sorted
+    //   2) GeckoTerminal top pools (pages 1-3) — volume-leaders, deep paginated
+    //   3) GeckoTerminal Meteora DEX-filtered pools — different DEX token set
+    private suspend fun scanGeckoTrendingPools() {
+        try {
+            val url = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"
+            val body = getWithRetry(url) ?: return
+            val pools = JSONObject(body).optJSONArray("data") ?: return
+            var found = 0
+            for (i in 0 until minOf(pools.length(), 40)) {
+                if (found >= 30) break
+                val pool = pools.optJSONObject(i) ?: continue
+                val attrs = pool.optJSONObject("attributes") ?: continue
+                val relationships = pool.optJSONObject("relationships") ?: continue
+                val baseTokenId = relationships.optJSONObject("base_token")
+                    ?.optJSONObject("data")?.optString("id", "") ?: continue
+                val mint = baseTokenId.removePrefix("solana_")
+                if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
+                val name = attrs.optString("name", "")
+                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+
+                val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
+                val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
+                val buysH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sellsH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val mcap = attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0
+                val createdAt = attrs.optString("pool_created_at", "")
+                val ageHours = if (createdAt.isNotBlank()) {
+                    try {
+                        val ms = java.time.Instant.parse(createdAt).toEpochMilli()
+                        (System.currentTimeMillis() - ms) / 3_600_000.0
+                    } catch (_: Exception) { 24.0 }
+                } else 24.0
+
+                val trendingBonus = 15.0
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = name.substringBefore("/").trim(),
+                    name = name,
+                    source = TokenSource.DEX_TRENDING,
+                    liquidityUsd = liqUsd,
+                    volumeH1 = volH1,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "solana",
+                    priceChangeH1 = attrs.optJSONObject("price_change_percentage")
+                        ?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0,
+                    txCountH1 = buysH1 + sellsH1,
+                    score = scoreToken(liqUsd, volH1, buysH1 + sellsH1, mcap, 0.0, ageHours) + trendingBonus,
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                    onLog("🔥 GeckoTrend: ${token.symbol} | age=${ageHours.toInt()}h | liq=\$${liqUsd.toInt()}")
+                }
+            }
+            if (found > 0) ErrorLogger.info("Scanner", "scanGeckoTrendingPools: found $found tokens")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanGeckoTrendingPools error: ${e.message}")
+        }
+    }
+
+    private suspend fun scanGeckoTopPoolsByVolume() {
+        // Paginate top pools by volume — brings in mid-cap/high-volume tokens
+        // that aren't fresh enough to appear in new_pools but are highly active.
+        var totalFound = 0
+        for (page in 1..3) {
+            try {
+                val url = "https://api.geckoterminal.com/api/v2/networks/solana/pools?page=$page"
+                val body = getWithRetry(url) ?: continue
+                val pools = JSONObject(body).optJSONArray("data") ?: continue
+                var found = 0
+                for (i in 0 until minOf(pools.length(), 30)) {
+                    if (found >= 20) break
+                    val pool = pools.optJSONObject(i) ?: continue
+                    val attrs = pool.optJSONObject("attributes") ?: continue
+                    val relationships = pool.optJSONObject("relationships") ?: continue
+                    val baseTokenId = relationships.optJSONObject("base_token")
+                        ?.optJSONObject("data")?.optString("id", "") ?: continue
+                    val mint = baseTokenId.removePrefix("solana_")
+                    if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
+                    val name = attrs.optString("name", "")
+                    if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+
+                    val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
+                    val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
+                    val buysH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                    val sellsH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                    val mcap = attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0
+                    val createdAt = attrs.optString("pool_created_at", "")
+                    val ageHours = if (createdAt.isNotBlank()) {
+                        try {
+                            val ms = java.time.Instant.parse(createdAt).toEpochMilli()
+                            (System.currentTimeMillis() - ms) / 3_600_000.0
+                        } catch (_: Exception) { 24.0 }
+                    } else 24.0
+
+                    val token = ScannedToken(
+                        mint = mint,
+                        symbol = name.substringBefore("/").trim(),
+                        name = name,
+                        source = TokenSource.DEX_TRENDING,
+                        liquidityUsd = liqUsd,
+                        volumeH1 = volH1,
+                        mcapUsd = mcap,
+                        pairCreatedHoursAgo = ageHours,
+                        dexId = "solana",
+                        priceChangeH1 = attrs.optJSONObject("price_change_percentage")
+                            ?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0,
+                        txCountH1 = buysH1 + sellsH1,
+                        score = scoreToken(liqUsd, volH1, buysH1 + sellsH1, mcap, 0.0, ageHours),
+                    )
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        found++
+                        totalFound++
+                    }
+                }
+                if (found > 0) ErrorLogger.info("Scanner", "scanGeckoTopPoolsByVolume p$page: found $found tokens")
+                delay(150)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ErrorLogger.debug("Scanner", "scanGeckoTopPoolsByVolume p$page error: ${e.message}")
+            }
+        }
+        if (totalFound > 0) onLog("📊 GeckoTop: $totalFound tokens across 3 pages")
+    }
+
+    private suspend fun scanMeteoraPoolsViaGecko() {
+        // Meteora is a distinct Solana DEX (DLMM pools) with a token set that
+        // barely overlaps with Raydium/Pump.fun. This brings fresh variety to
+        // the watchlist.
+        try {
+            val url = "https://api.geckoterminal.com/api/v2/networks/solana/dexes/meteora/pools?page=1"
+            val body = getWithRetry(url) ?: return
+            val pools = JSONObject(body).optJSONArray("data") ?: return
+            var found = 0
+            for (i in 0 until minOf(pools.length(), 40)) {
+                if (found >= 25) break
+                val pool = pools.optJSONObject(i) ?: continue
+                val attrs = pool.optJSONObject("attributes") ?: continue
+                val relationships = pool.optJSONObject("relationships") ?: continue
+                val baseTokenId = relationships.optJSONObject("base_token")
+                    ?.optJSONObject("data")?.optString("id", "") ?: continue
+                val mint = baseTokenId.removePrefix("solana_")
+                if (mint.isBlank() || mint == baseTokenId || isSeen(mint)) continue
+                val name = attrs.optString("name", "")
+                if (name.contains("/USDC", ignoreCase = true) || name.contains("/USDT", ignoreCase = true)) continue
+
+                val liqUsd = attrs.optString("reserve_in_usd", "0").toDoubleOrNull() ?: 0.0
+                val volH1 = attrs.optJSONObject("volume_usd")?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0
+                val buysH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("buys", 0) ?: 0
+                val sellsH1 = attrs.optJSONObject("transactions")?.optJSONObject("h1")?.optInt("sells", 0) ?: 0
+                val mcap = attrs.optString("fdv_usd", "0").toDoubleOrNull() ?: 0.0
+                val createdAt = attrs.optString("pool_created_at", "")
+                val ageHours = if (createdAt.isNotBlank()) {
+                    try {
+                        val ms = java.time.Instant.parse(createdAt).toEpochMilli()
+                        (System.currentTimeMillis() - ms) / 3_600_000.0
+                    } catch (_: Exception) { 6.0 }
+                } else 6.0
+
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = name.substringBefore("/").trim(),
+                    name = name,
+                    source = TokenSource.RAYDIUM_NEW_POOL,
+                    liquidityUsd = liqUsd,
+                    volumeH1 = volH1,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "meteora",
+                    priceChangeH1 = attrs.optJSONObject("price_change_percentage")
+                        ?.optString("h1", "0")?.toDoubleOrNull() ?: 0.0,
+                    txCountH1 = buysH1 + sellsH1,
+                    score = scoreToken(liqUsd, volH1, buysH1 + sellsH1, mcap, 0.0, ageHours),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                    onLog("🌊 Meteora: ${token.symbol} | age=${ageHours.toInt()}h | liq=\$${liqUsd.toInt()}")
+                }
+            }
+            if (found > 0) ErrorLogger.info("Scanner", "scanMeteoraPoolsViaGecko: found $found tokens")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanMeteoraPoolsViaGecko error: ${e.message}")
         }
     }
 
