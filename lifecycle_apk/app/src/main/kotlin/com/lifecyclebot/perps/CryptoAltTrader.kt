@@ -960,6 +960,29 @@ object CryptoAltTrader {
         var confidence = 50
 
         val change    = data.priceChange24hPct
+
+        // V5.9.381 — consult CryptoAltStrategy for BTC-dominance + vol-regime
+        // aware direction. If the strategy stands down (spot + bearish, or no
+        // edge), we skip analysis entirely. The strategy's direction overrides
+        // the legacy technical fallback below.
+        val altStrategyMode = com.lifecyclebot.perps.strategy.CryptoAltStrategy.Mode.PERPS_BIDIRECTIONAL
+        val altRsi: Double? = try {
+            PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
+            PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
+            PerpsAdvancedAI.analyzeTechnicals(market).rsi
+        } catch (_: Exception) { null }
+        val altSetup = try {
+            com.lifecyclebot.perps.strategy.CryptoAltStrategy.decide(
+                symbol = market.symbol,
+                priceChange24hPct = change,
+                mode = altStrategyMode,
+                volatility24h = kotlin.math.abs(change),
+                btcDominanceChange7d = 0.0,
+                btcPriceChange24h = 0.0,
+                rsi = altRsi,
+            )
+        } catch (_: Exception) { null }
+
         // V5.9.230: INDEPENDENT DIRECTION — evaluate LONG and SHORT separately.
         // Old code always picked LONG when change >= 0, meaning in flat/sideways markets
         // (most alts sitting at +0.01% to +0.83%) EVERY signal was LONG.
@@ -967,8 +990,6 @@ object CryptoAltTrader {
         val technicalDirection = run {
             // Prefer RSI/MACD direction when available (seeded from OHLC)
             try {
-                PerpsAdvancedAI.seedHistoryFromOHLC(market, data.price, data.high24h, data.low24h, data.volume24h)
-                PerpsAdvancedAI.recordPrice(market, data.price, data.volume24h)
                 val tech = PerpsAdvancedAI.analyzeTechnicals(market)
                 // RSI<40 → strong SHORT signal; RSI>60 → strong LONG signal; else use price
                 when {
@@ -982,7 +1003,14 @@ object CryptoAltTrader {
                 }
             } catch (_: Exception) { if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT }
         }
-        val direction = technicalDirection
+        // V5.9.381 — CryptoAltStrategy direction wins when it has conviction
+        val direction = altSetup?.direction ?: technicalDirection
+        if (altSetup != null) {
+            score += (altSetup.conviction - 40).coerceAtLeast(0)
+            confidence += (altSetup.conviction - 40).coerceAtLeast(0)
+            reasons.addAll(altSetup.reasons.map { "🪙 $it" })
+            layerVotes["CryptoAltStrategy"] = direction
+        }
 
         // ── Layer 1: Price Momentum ───────────────────────────────────────────
         when {

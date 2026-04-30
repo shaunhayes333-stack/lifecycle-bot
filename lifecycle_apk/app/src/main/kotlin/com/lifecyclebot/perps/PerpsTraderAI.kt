@@ -421,28 +421,51 @@ object PerpsTraderAI {
         // ═══════════════════════════════════════════════════════════════════
         // DIRECTION ANALYSIS
         // ═══════════════════════════════════════════════════════════════════
-        
+
         val direction: PerpsDirection
-        
-        // Trend analysis
-        val trend = marketData.getTrend()
-        when (trend) {
-            "BULLISH" -> {
-                direction = PerpsDirection.LONG
-                score += 15
-                confidence += 10
-                reasons.add("📈 Bullish trend: +${marketData.priceChange24hPct.fmt(1)}%")
-            }
-            "BEARISH" -> {
-                direction = PerpsDirection.SHORT
-                score += 15
-                confidence += 10
-                reasons.add("📉 Bearish trend: ${marketData.priceChange24hPct.fmt(1)}%")
-            }
-            else -> {
-                // Neutral - use funding rate
-                direction = if (marketData.isFundingFavorableLong()) PerpsDirection.LONG else PerpsDirection.SHORT
-                reasons.add("➡️ Neutral trend - using funding bias")
+
+        // V5.9.381 — consult PerpsStrategy first (funding/OI/LSR-aware,
+        // bidirectional). If it returns a setup with conviction, use its
+        // direction. Otherwise fall back to the legacy trend/funding path.
+        val perpsStrategySetup = try {
+            com.lifecyclebot.perps.strategy.PerpsStrategy.decide(
+                symbol = market.symbol,
+                priceChange24hPct = marketData.priceChange24hPct,
+                volatility24h = kotlin.math.abs(marketData.priceChange24hPct),
+                fundingRate8h = marketData.fundingRate,
+                longShortRatio = marketData.getLongShortRatio(),
+                rsi = null,
+            )
+        } catch (_: Exception) { null }
+
+        if (perpsStrategySetup != null) {
+            direction = perpsStrategySetup.direction
+            score += (perpsStrategySetup.conviction - 45).coerceAtLeast(0)
+            confidence += (perpsStrategySetup.conviction - 45).coerceAtLeast(0)
+            reasons.addAll(perpsStrategySetup.reasons.map { "⚡ $it" })
+            reasons.add("⚡ PerpsStrategy: ${direction.symbol} · lev=${"%.1f".format(perpsStrategySetup.leverage)}x · " +
+                "TP=${"%.2f".format(perpsStrategySetup.tpPct)}% SL=${"%.2f".format(perpsStrategySetup.slPct)}%")
+        } else {
+            // Legacy trend-based direction fallback
+            val trend = marketData.getTrend()
+            when (trend) {
+                "BULLISH" -> {
+                    direction = PerpsDirection.LONG
+                    score += 15
+                    confidence += 10
+                    reasons.add("📈 Bullish trend: +${marketData.priceChange24hPct.fmt(1)}%")
+                }
+                "BEARISH" -> {
+                    direction = PerpsDirection.SHORT
+                    score += 15
+                    confidence += 10
+                    reasons.add("📉 Bearish trend: ${marketData.priceChange24hPct.fmt(1)}%")
+                }
+                else -> {
+                    // Neutral - use funding rate
+                    direction = if (marketData.isFundingFavorableLong()) PerpsDirection.LONG else PerpsDirection.SHORT
+                    reasons.add("➡️ Neutral trend - using funding bias")
+                }
             }
         }
         
