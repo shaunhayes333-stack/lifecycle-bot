@@ -4665,7 +4665,15 @@ This cannot be undone!
             // asset-segregated (so the proof card shows MEME-only too).
             val rt = com.lifecyclebot.engine.RunTracker30D
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-            val totalTrades = rt.totalTrades.coerceAtLeast(stats.totalStoredTrades)
+            // V5.9.371b — read EXACTLY from RunTracker30D so the numbers
+            // shown here match the 30-Day Proof Run card byte-for-byte.
+            // Removed the .coerceAtLeast(stats.totalStoredTrades) because
+            // stats.totalStoredTrades = 6663 (TradeHistoryStore raw trade
+            // count, includes scratches and journal-replay duplicates)
+            // while rt.totalTrades = 3312 (the 30-Day Proof's clean
+            // counter). User explicitly asked these match — that's
+            // rt.totalTrades, not whichever happens to be bigger.
+            val totalTrades = rt.totalTrades
             val meaningfulTrades = rt.wins + rt.losses
             val winRate = if (meaningfulTrades > 0)
                 (rt.wins * 100.0) / meaningfulTrades else 0.0
