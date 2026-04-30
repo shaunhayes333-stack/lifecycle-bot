@@ -156,6 +156,7 @@ object CommoditiesStrategy {
             when {
                 r <= 28 -> { bias += 2; reasons.add("📉 Oversold ${r.toInt()}") }
                 r >= 72 -> { bias -= 2; reasons.add("📈 Overbought ${r.toInt()}") }
+                else -> Unit
             }
         }
 

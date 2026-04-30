@@ -181,6 +181,7 @@ object ForexStrategy {
                 r <= 35 -> { bias += 3; reasons.add("📉 Oversold RSI=${r.toInt()}") }
                 r >= 75 -> { bias -= 6; reasons.add("📈 Deep overbought RSI=${r.toInt()} → SHORT bias") }
                 r >= 65 -> { bias -= 3; reasons.add("📈 Overbought RSI=${r.toInt()}") }
+                else -> Unit
             }
         }
         if (isOversold) { bias += 3 }

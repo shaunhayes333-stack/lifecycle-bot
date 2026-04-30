@@ -101,6 +101,7 @@ object MetalsStrategy {
                 when {
                     vix > 30 -> { bias += 5; conviction += 15; reasons.add("😱 VIX=${vix.toInt()} → flight to precious") }
                     vix > 22 -> { bias += 2; conviction += 8; reasons.add("⚠️ VIX=${vix.toInt()} elevated") }
+                    else -> Unit
                 }
             }
         }
@@ -110,6 +111,7 @@ object MetalsStrategy {
             when {
                 r <= 28 -> { bias += 3; reasons.add("📉 Oversold ${r.toInt()}") }
                 r >= 72 -> { bias -= 3; reasons.add("📈 Overbought ${r.toInt()}") }
+                else -> Unit
             }
         }
 

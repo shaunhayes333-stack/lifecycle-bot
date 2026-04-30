@@ -115,6 +115,7 @@ object CryptoAltStrategy {
             when {
                 r <= 25 -> { bias += 3; reasons.add("📉 Oversold ${r.toInt()}") }
                 r >= 75 -> { bias -= 3; reasons.add("📈 Overbought ${r.toInt()}") }
+                else -> Unit
             }
         }
 

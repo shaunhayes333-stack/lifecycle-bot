@@ -107,6 +107,7 @@ object PerpsStrategy {
             when {
                 lsr > 2.5 -> { bias -= 2; reasons.add("⚠️ L/S ratio ${("%.2f".format(lsr))} — top-heavy") }
                 lsr < 0.4 -> { bias += 2; reasons.add("⚠️ L/S ratio ${("%.2f".format(lsr))} — bottom-heavy") }
+                else -> Unit
             }
         }
 
@@ -125,6 +126,7 @@ object PerpsStrategy {
                 r <= 30 -> { bias += 2 }
                 r >= 78 -> { bias -= 4; reasons.add("📈 Deep overbought ${r.toInt()}") }
                 r >= 70 -> { bias -= 2 }
+                else -> Unit
             }
         }
 
