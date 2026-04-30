@@ -497,6 +497,14 @@ class BotService : Service() {
             // graded against directional outcome — produced nonsense
             // accuracy like BehaviorAI 1.3% on 2589 signals). One-shot.
             com.lifecyclebot.perps.PerpsLearningBridge.resetNonDirectionalCorrelationOnce()
+            // V5.9.369 — initialize + restore leverage preferences for all
+            // Markets-layer traders from SharedPreferences. Bug fix: each
+            // trader's preferLeverage was a fresh AtomicBoolean(false) on
+            // every boot, so user's LEVERAGE choice was being thrown away.
+            try {
+                com.lifecyclebot.engine.LeveragePreference.init(applicationContext)
+                com.lifecyclebot.engine.LeveragePreference.restoreAllTraders()
+            } catch (_: Exception) {}
             ErrorLogger.info("BotService", "PerpsLearningBridge initialized - ${com.lifecyclebot.perps.PerpsLearningBridge.getConnectedLayerCount()} layers connected")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
@@ -726,18 +734,31 @@ class BotService : Service() {
         // clean baseline before trust is recomputed. Only triggered if
         // the strategy is currently DISTRUSTED — the call is idempotent
         // and harmless on every other launch.
+        // V5.9.369 — extended to all Markets-layer trader strategies.
+        // The pre-V5.9.366 mis-grading was identical for every asset
+        // class, so any trader currently DISTRUSTED is in the same
+        // recovery situation and deserves the same 72h clean window.
         try {
-            val tsai = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
-            if (tsai == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
-                !com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined("TokenizedStockAI")) {
-                com.lifecyclebot.v4.meta.StrategyTrustAI.setQuarantine(
-                    strategy   = "TokenizedStockAI",
-                    durationMs = 72L * 3_600_000L,
-                    reason     = "V5.9.366_v3_bypass_recovery_window",
-                )
+            val candidates = listOf(
+                "TokenizedStockAI",
+                "CryptoAltAI",
+                "ForexAI",
+                "MetalsAI",
+                "CommoditiesAI",
+            )
+            for (name in candidates) {
+                val lvl = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(name)
+                if (lvl == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
+                    !com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(name)) {
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.setQuarantine(
+                        strategy   = name,
+                        durationMs = 72L * 3_600_000L,
+                        reason     = "V5.9.366_v3_bypass_recovery_window",
+                    )
+                }
             }
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "TokenizedStockAI quarantine error: ${e.message}")
+            ErrorLogger.debug("BotService", "Markets trust quarantine error: ${e.message}")
         }
 
         } catch (e: Exception) {

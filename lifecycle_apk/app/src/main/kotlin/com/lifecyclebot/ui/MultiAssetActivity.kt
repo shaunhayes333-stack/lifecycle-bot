@@ -488,30 +488,17 @@ class MultiAssetActivity : AppCompatActivity() {
     private fun setupClickListeners() {
         btnSpotMode.setOnClickListener {
             showSpotOnly = true
-            // V5.9.3: Tell the active trader to prefer SPOT
-            when (currentTab) {
-                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(false)
-                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(false)
-                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(false)
-                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(false)
-                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(false)
-                else -> {}
-            }
+            // V5.9.369 — apply SPOT to ALL Markets-layer traders + persist
+            // (was per-current-tab only, lost on app restart).
+            com.lifecyclebot.engine.LeveragePreference.applyToAllTraders(useLeverage = false)
             updateModeToggle()
             refreshData()
         }
         
         btnLeverageMode.setOnClickListener {
             showSpotOnly = false
-            // V5.9.3: Tell the active trader to prefer LEVERAGE
-            when (currentTab) {
-                AssetTab.CRYPTO  -> CryptoAltTrader.setPreferLeverage(true)
-                AssetTab.STOCKS  -> TokenizedStockTrader.setPreferLeverage(true)
-                AssetTab.COMMODITIES -> CommoditiesTrader.setPreferLeverage(true)
-                AssetTab.METALS  -> MetalsTrader.setPreferLeverage(true)
-                AssetTab.FOREX   -> ForexTrader.setPreferLeverage(true)
-                else -> {}
-            }
+            // V5.9.369 — apply LEVERAGE to ALL Markets-layer traders + persist.
+            com.lifecyclebot.engine.LeveragePreference.applyToAllTraders(useLeverage = true)
             updateModeToggle()
             refreshData()
         }

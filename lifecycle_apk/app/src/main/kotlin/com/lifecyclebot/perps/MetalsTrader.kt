@@ -1048,7 +1048,7 @@ object MetalsTrader {
     /** V5.9.3: Receive paper balance broadcast from BotService */
 
     /** V5.9.3: UI toggle compatibility — Commod/Metals/Forex open both spot+lev automatically */
-    private val preferLeverage = AtomicBoolean(false)
+    private val preferLeverage = AtomicBoolean(true)   // V5.9.369: leverage default for metals
     fun setPreferLeverage(lev: Boolean) { preferLeverage.set(lev) }
     fun isPreferLeverage(): Boolean = preferLeverage.get()
 

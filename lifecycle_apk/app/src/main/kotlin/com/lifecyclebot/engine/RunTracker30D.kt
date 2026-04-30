@@ -44,6 +44,32 @@ object RunTracker30D {
     @Volatile var wins: Int = 0
     @Volatile var losses: Int = 0
     @Volatile var scratches: Int = 0
+
+    // V5.9.369 — per-asset-class trade counters. RunTracker30D was global,
+    // so Markets-layer trades (50 stocks @ 0% WR) were dragging the
+    // Meme Live Readiness WR down to 35%. Now each trader passes its
+    // assetClass tag and we increment the matching bucket; existing
+    // global counters are preserved for back-compat (lifetime run-level
+    // metrics still aggregate across all assets).
+    data class AssetBucket(
+        @Volatile var trades: Int = 0,
+        @Volatile var wins: Int = 0,
+        @Volatile var losses: Int = 0,
+        @Volatile var scratches: Int = 0,
+        @Volatile var pnlSol: Double = 0.0,
+    ) {
+        fun winRate(): Double {
+            val decisive = wins + losses
+            return if (decisive > 0) wins * 100.0 / decisive else 0.0
+        }
+    }
+    val memeBucket   = AssetBucket()
+    val altsBucket   = AssetBucket()
+    val perpsBucket  = AssetBucket()
+    val stocksBucket = AssetBucket()
+    val forexBucket  = AssetBucket()
+    val metalsBucket = AssetBucket()
+    val commodBucket = AssetBucket()
     
     @Volatile var peakBalance: Double = 0.0
     @Volatile var maxDrawdown: Double = 0.0  // Stored as negative percentage
@@ -205,6 +231,7 @@ object RunTracker30D {
         score: Int,
         confidence: Int,
         decision: String,
+        assetClass: String? = null,   // V5.9.369: "MEME"|"ALT"|"PERP"|"STOCK"|"FOREX"|"METAL"|"COMMODITY"; auto-inferred from mode if null
     ) {
         // FIX_1 — HOLD TIME SANITY
         var sanitizedHoldTime = holdTimeSec.coerceAtLeast(0)
@@ -222,6 +249,18 @@ object RunTracker30D {
             "LOSS" -> losses++
             "SCRATCH" -> scratches++
         }
+
+        // V5.9.369 — increment per-asset-class bucket so MEME readiness
+        // doesn't pull stock losses into its WR calc.
+        try {
+            val bucket = bucketFor(assetClass ?: inferAssetClassFromMode(mode))
+            bucket.trades++
+            when (classification) {
+                "WIN" -> bucket.wins++
+                "LOSS" -> bucket.losses++
+                "SCRATCH" -> bucket.scratches++
+            }
+        } catch (_: Exception) {}
         
         // V5.6.15: Track realized P&L in SOL (not accumulated percentages)
         // V5.9.56: SANITY CAP — without this, a single glitchy trade carrying a
@@ -233,6 +272,11 @@ object RunTracker30D {
         val sanitizedPnlPct = pnlPct.coerceIn(-100.0, 10000.0)
         val realizedPnlSol = sizeSol * (sanitizedPnlPct / 100.0)
         totalRealizedPnlSol += realizedPnlSol
+
+        // V5.9.369 — also write realized PnL to the matching asset bucket
+        try {
+            bucketFor(assetClass ?: inferAssetClassFromMode(mode)).pnlSol += realizedPnlSol
+        } catch (_: Exception) {}
         
         // Track best/worst trade percentages (capped for sanity)
         val cappedPnlPct = pnlPct.coerceIn(-100.0, 10000.0)  // Cap at -100% to +10000%
@@ -780,6 +824,36 @@ SYSTEM
             save()
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Sync error: ${e.message}")
+        }
+    }
+
+    // V5.9.369 — asset-class bucket helpers.
+    private fun bucketFor(assetClass: String): AssetBucket = when (assetClass.uppercase()) {
+        "MEME"      -> memeBucket
+        "ALT", "ALTS", "CRYPTOALT", "CRYPTO_ALT" -> altsBucket
+        "PERP", "PERPS"                           -> perpsBucket
+        "STOCK", "STOCKS"                         -> stocksBucket
+        "FOREX", "FX"                             -> forexBucket
+        "METAL", "METALS"                         -> metalsBucket
+        "COMMODITY", "COMMOD", "COMMODITIES"      -> commodBucket
+        else                                       -> memeBucket   // legacy default
+    }
+
+    /**
+     * Best-effort inference of asset class from the legacy `mode` string
+     * (e.g. "Stocks_5x", "AltSpot", "PERPS_LONG", "TREASURY", "SHITCOIN").
+     * Used when the trader hasn't been updated to pass assetClass yet.
+     */
+    private fun inferAssetClassFromMode(mode: String): String {
+        val m = mode.uppercase()
+        return when {
+            m.startsWith("STOCK") || m.contains("STOCKS_") -> "STOCK"
+            m.startsWith("FOREX") || m.contains("FOREX_")  -> "FOREX"
+            m.startsWith("METAL") || m.contains("METALS_") -> "METAL"
+            m.startsWith("COMMOD") || m.contains("COMMODITIES_") -> "COMMODITY"
+            m.startsWith("PERP")  || m.contains("PERPS_")  -> "PERP"
+            m.startsWith("ALT")   || m.contains("ALTSPOT") || m.contains("CRYPTO_ALT") -> "ALT"
+            else                                             -> "MEME"
         }
     }
 }

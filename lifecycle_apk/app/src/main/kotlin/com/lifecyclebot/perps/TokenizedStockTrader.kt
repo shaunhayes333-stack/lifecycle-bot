@@ -128,7 +128,11 @@ object TokenizedStockTrader {
     private val isRunning = AtomicBoolean(false)
     private val isPaperMode = AtomicBoolean(true)  // V5.7.6b: Default to paper, can be switched to LIVE
     private val isEnabled = AtomicBoolean(true)
-    private val preferLeverage = AtomicBoolean(false)  // V5.9.3: mirrors UI SPOT/LEVERAGE toggle
+    // V5.9.3: mirrors UI SPOT/LEVERAGE toggle.
+    // V5.9.369: default LEVERAGE for tokenized stocks — spot stocks on
+    // Solana DEXs are illiquid synthetics; leverage is the actual product
+    // users come here for. Restored from SharedPreferences in init().
+    private val preferLeverage = AtomicBoolean(true)
     
     // V5.7.6b: Live trading state
     private var liveWalletBalance = 0.0  // Updated from connected wallet

@@ -110,7 +110,8 @@ object GlobalTradeRegistry {
     
     // Maximum watchlist size to prevent memory issues
     // V5.2: Increased for paper mode learning - need more exposure
-    private const val MAX_WATCHLIST_SIZE = 300  // V5.9.182: doubled for paper bootstrap coverage
+    // V5.9.369: 300→500 to give 100+ idle bench depth (user feedback)
+    private const val MAX_WATCHLIST_SIZE = 500  // V5.9.369: was 300; bumped for memetrader idle pool target ≥100
     private const val MAX_PROBATION_SIZE = 500
     
     data class WatchlistEntry(
@@ -609,12 +610,37 @@ object GlobalTradeRegistry {
     
     /**
      * Remove a token from the watchlist.
+     * V5.9.369 — never evict a mint that has an active position. Eviction
+     * while a position is open orphans the token from price polling and
+     * exit management, leaving a "ghost position" the bot can't close.
+     * If the caller is force-closing (e.g. after the position closes and
+     * the trader explicitly drops the watchlist entry), it should call
+     * removeFromWatchlistForced(mint, reason).
      */
     fun removeFromWatchlist(mint: String, reason: String = "MANUAL"): Boolean {
+        if (activePositions.containsKey(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ removeFromWatchlist BLOCKED for $mint — active position open (reason was: $reason)")
+            return false
+        }
         val removed = watchlist.remove(mint)
         if (removed != null) {
             totalTokensRemoved.incrementAndGet()
             ErrorLogger.debug(TAG, "➖ Removed ${removed.symbol} | reason=$reason")
+            return true
+        }
+        return false
+    }
+
+    /**
+     * V5.9.369 — explicit forced-removal escape hatch. ONLY for trader
+     * close paths that have already closed the position. Bypasses the
+     * active-position guard. Do not use from rejection / cleanup paths.
+     */
+    fun removeFromWatchlistForced(mint: String, reason: String = "FORCED"): Boolean {
+        val removed = watchlist.remove(mint)
+        if (removed != null) {
+            totalTokensRemoved.incrementAndGet()
+            ErrorLogger.debug(TAG, "➖ FORCED removed ${removed.symbol} | reason=$reason")
             return true
         }
         return false
@@ -624,6 +650,13 @@ object GlobalTradeRegistry {
      * Register that a token was rejected (so it won't be re-added).
      */
     fun registerRejection(mint: String, symbol: String, reason: String, rejectedBy: String) {
+        // V5.9.369 — don't reject a mint we currently hold. The position
+        // sticks around regardless; rejecting/removing the watchlist
+        // entry would orphan price polling.
+        if (activePositions.containsKey(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ registerRejection BLOCKED for $symbol — active position open (would-be reason: $reason)")
+            return
+        }
         rejectedTokens[mint] = RejectionEntry(
             mint = mint,
             symbol = symbol,
@@ -632,7 +665,8 @@ object GlobalTradeRegistry {
             rejectedBy = rejectedBy,
         )
         
-        // Also remove from watchlist if present
+        // Also remove from watchlist if present (safe — guard above already
+        // returned for active positions).
         removeFromWatchlist(mint, "REJECTED: $reason")
     }
     
