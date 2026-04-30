@@ -51,6 +51,78 @@ import kotlin.math.min
 object PerpsLearningBridge {
     
     private const val TAG = "🧠PerpsLearningBridge"
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.374 — PER-ASSET LEARNING LANES
+    // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // The 41+ AI layers were originally built for memecoin trading. They were
+    // later reused for Perps/Stocks/Forex/Metals/Commodities but never given
+    // asset-class context. Every layer's "accuracy" was a mixed-bag average
+    // (or worse: only reflected one asset class while being blind to others).
+    //
+    // New model: every layer has 6 INDEPENDENT correlation lanes, one per
+    // asset class. Each lane tracks its own signals, accuracy, trust, and
+    // PnL contribution. A layer can be 0.85 trust in MEME and 0.25 in FOREX
+    // simultaneously — and be graded honestly in each lane.
+    //
+    // Key format:  "$layerName#$assetClass"   e.g.  "BehaviorAI#MEME"
+    //
+    // Backward-compat on load:
+    //   • unsuffixed keys (V5.9.373 and earlier)  → mapped to #PERPS lane
+    //   • "${name}_STOCK" suffix (V5.7.3 legacy)  → mapped to #STOCK lane
+    //
+    // ═══════════════════════════════════════════════════════════════════════════
+    enum class AssetClass { MEME, PERPS, STOCK, FOREX, METAL, COMMODITY }
+
+    private fun laneKey(layerName: String, asset: AssetClass): String =
+        "${layerName}#${asset.name}"
+
+    /** Default layer lists per asset class — used when a caller doesn't supply
+     *  its own contributingLayers (e.g. the Forex/Metal/Commodity record paths
+     *  historically only bumped aggregate counters). These are the layers most
+     *  likely to have materially influenced a trade in each lane. Callers that
+     *  know the exact voting list SHOULD pass it explicitly. */
+    private val defaultMemeLayers = listOf(
+        "BehaviorAI", "FluidLearningAI", "MomentumPredictorAI", "QualityTraderAI",
+        "VolatilityRegimeAI", "LiquidityCycleAI", "FearGreedAI", "MarketRegimeAI",
+        "SocialVelocityAI", "CashGenerationAI", "EducationSubLayerAI",
+        "MetaCognitionAI", "RegimeTransitionAI", "SmartMoneyDivergenceAI",
+        "DipHunterAI", "SellOptimizationAI", "HoldTimeOptimizerAI",
+        "WhaleTrackerAI", "UltraFastRugDetectorAI", "OrderFlowImbalanceAI",
+        "CollectiveIntelligenceAI", "MoonshotTraderAI", "ShitCoinTraderAI",
+        "ShitCoinExpress", "BlueChipTraderAI", "ProjectSniperAI",
+    )
+    private val defaultForexLayers = listOf(
+        "MarketRegimeAI", "VolatilityRegimeAI", "RegimeTransitionAI",
+        "FluidLearningAI", "EducationSubLayerAI", "MetaCognitionAI",
+        "FearGreedAI", "BehaviorAI", "CashGenerationAI",
+        "SmartMoneyDivergenceAI", "MomentumPredictorAI",
+    )
+    private val defaultMetalLayers = listOf(
+        "MarketRegimeAI", "VolatilityRegimeAI", "FluidLearningAI",
+        "EducationSubLayerAI", "MetaCognitionAI", "BehaviorAI",
+        "CashGenerationAI", "RegimeTransitionAI", "QualityTraderAI",
+        "MomentumPredictorAI",
+    )
+    private val defaultCommodityLayers = listOf(
+        "MarketRegimeAI", "VolatilityRegimeAI", "FluidLearningAI",
+        "EducationSubLayerAI", "MetaCognitionAI", "BehaviorAI",
+        "CashGenerationAI", "SmartMoneyDivergenceAI", "RegimeTransitionAI",
+        "MomentumPredictorAI",
+    )
+
+    fun defaultLayersFor(asset: AssetClass): List<String> = when (asset) {
+        AssetClass.MEME -> defaultMemeLayers
+        AssetClass.PERPS -> layerConfigs.keys.toList()
+        AssetClass.STOCK -> listOf(
+            "BlueChipTraderAI", "QualityTraderAI", "MarketRegimeAI",
+            "SmartMoneyDivergenceAI", "FluidLearningAI", "EducationSubLayerAI",
+        )
+        AssetClass.FOREX -> defaultForexLayers
+        AssetClass.METAL -> defaultMetalLayers
+        AssetClass.COMMODITY -> defaultCommodityLayers
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LAYER MAPPING - How each spot layer contributes to perps
@@ -382,10 +454,11 @@ object PerpsLearningBridge {
         prefs = context.getSharedPreferences("perps_learning_bridge", android.content.Context.MODE_PRIVATE)
         restore()
         
-        // Initialize default trust scores
+        // Initialize default trust scores (V5.9.374 — write to PERPS lane)
         layerConfigs.forEach { (name, config) ->
-            if (!layerPerpsTrust.containsKey(name)) {
-                layerPerpsTrust[name] = config.trustWeight
+            val key = laneKey(name, AssetClass.PERPS)
+            if (!layerPerpsTrust.containsKey(key)) {
+                layerPerpsTrust[key] = config.trustWeight
             }
         }
 
@@ -395,10 +468,11 @@ object PerpsLearningBridge {
                 val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
                 val perfsFromTurso = client.getPerpsLayerRankings()
                 for (perf in perfsFromTurso) {
-                    val localTrust = layerPerpsTrust[perf.layerName] ?: continue
-                    // 60% Turso (cross-session), 40% local (this session)
+                    // V5.9.374 — Turso trust blends into the PERPS lane
+                    val key = laneKey(perf.layerName, AssetClass.PERPS)
+                    val localTrust = layerPerpsTrust[key] ?: continue
                     val blended = (perf.trustScore * 0.6 + localTrust * 0.4).coerceIn(0.05, 1.0)
-                    layerPerpsTrust[perf.layerName] = blended
+                    layerPerpsTrust[key] = blended
                 }
                 if (perfsFromTurso.isNotEmpty()) {
                     ErrorLogger.info(TAG, "🧠 Loaded ${perfsFromTurso.size} layer trust scores from Turso (cross-session)")
@@ -421,20 +495,67 @@ object PerpsLearningBridge {
     private fun restore() {
         val p = prefs ?: return
         
-        // Restore trust scores
+        // Restore trust scores (legacy unsuffixed → PERPS lane)
         layerConfigs.keys.forEach { name ->
             val trust = p.getFloat("trust_$name", layerConfigs[name]?.trustWeight?.toFloat() ?: 0.5f)
-            layerPerpsTrust[name] = trust.toDouble()
+            // V5.9.374: write legacy trust into the PERPS lane; it will be saved
+            // back with the lane suffix on next save() cycle.
+            layerPerpsTrust[laneKey(name, AssetClass.PERPS)] = trust.toDouble()
+        }
+
+        // V5.9.374 — restore new lane-keyed trust scores (layerName#ASSET)
+        AssetClass.values().forEach { asset ->
+            // For every known layer, look for a lane-specific trust value
+            (layerConfigs.keys + defaultMemeLayers + defaultForexLayers + defaultMetalLayers + defaultCommodityLayers)
+                .distinct()
+                .forEach { name ->
+                    val key = laneKey(name, asset)
+                    val lane = p.getFloat("trust_$key", Float.NaN)
+                    if (!lane.isNaN()) layerPerpsTrust[key] = lane.toDouble()
+                }
         }
         
-        // Restore correlations
+        // Restore correlations (legacy unsuffixed → PERPS lane)
         layerConfigs.keys.forEach { name ->
             val signals = p.getInt("corr_signals_$name", 0)
             val correct = p.getInt("corr_correct_$name", 0)
             val pnl = p.getFloat("corr_pnl_$name", 0f)
             if (signals > 0) {
-                layerPerpsCorrelation[name] = CorrelationData(signals, correct, pnl.toDouble(), System.currentTimeMillis())
+                layerPerpsCorrelation[laneKey(name, AssetClass.PERPS)] =
+                    CorrelationData(signals, correct, pnl.toDouble(), System.currentTimeMillis())
             }
+        }
+
+        // V5.9.374 — restore legacy `_STOCK` suffix into STOCK lane
+        layerConfigs.keys.forEach { name ->
+            val legacyKey = "${name}_STOCK"
+            val signals = p.getInt("corr_signals_$legacyKey", 0)
+            val correct = p.getInt("corr_correct_$legacyKey", 0)
+            val pnl = p.getFloat("corr_pnl_$legacyKey", 0f)
+            if (signals > 0) {
+                layerPerpsCorrelation[laneKey(name, AssetClass.STOCK)] =
+                    CorrelationData(signals, correct, pnl.toDouble(), System.currentTimeMillis())
+            }
+            val trustLegacy = p.getFloat("trust_$legacyKey", Float.NaN)
+            if (!trustLegacy.isNaN()) {
+                layerPerpsTrust[laneKey(name, AssetClass.STOCK)] = trustLegacy.toDouble()
+            }
+        }
+
+        // V5.9.374 — restore new lane-suffixed correlation keys
+        AssetClass.values().forEach { asset ->
+            (layerConfigs.keys + defaultMemeLayers + defaultForexLayers + defaultMetalLayers + defaultCommodityLayers)
+                .distinct()
+                .forEach { name ->
+                    val key = laneKey(name, asset)
+                    val signals = p.getInt("corr_signals_$key", 0)
+                    val correct = p.getInt("corr_correct_$key", 0)
+                    val pnl = p.getFloat("corr_pnl_$key", 0f)
+                    if (signals > 0) {
+                        layerPerpsCorrelation[key] =
+                            CorrelationData(signals, correct, pnl.toDouble(), System.currentTimeMillis())
+                    }
+                }
         }
         
         totalPerpsLearningEvents.set(p.getInt("totalLearningEvents", 0))
@@ -444,16 +565,16 @@ object PerpsLearningBridge {
         val p = prefs ?: return
         
         p.edit().apply {
-            // Save trust scores
-            layerPerpsTrust.forEach { (name, trust) ->
-                putFloat("trust_$name", trust.toFloat())
+            // V5.9.374 — save lane-keyed trust + correlation. Legacy unsuffixed
+            // keys are retained in-place for read-only back-compat but all new
+            // writes use the "$name#$asset" lane format.
+            layerPerpsTrust.forEach { (key, trust) ->
+                putFloat("trust_$key", trust.toFloat())
             }
-            
-            // Save correlations
-            layerPerpsCorrelation.forEach { (name, corr) ->
-                putInt("corr_signals_$name", corr.signalsGiven)
-                putInt("corr_correct_$name", corr.signalsCorrect)
-                putFloat("corr_pnl_$name", corr.totalPnlContribution.toFloat())
+            layerPerpsCorrelation.forEach { (key, corr) ->
+                putInt("corr_signals_$key", corr.signalsGiven)
+                putInt("corr_correct_$key", corr.signalsCorrect)
+                putFloat("corr_pnl_$key", corr.totalPnlContribution.toFloat())
             }
             
             putInt("totalLearningEvents", totalPerpsLearningEvents.get())
@@ -516,7 +637,7 @@ object PerpsLearningBridge {
         layerConfigs.forEach { (name, config) ->
             if (!config.applicableMarkets.contains(market)) return@forEach
             
-            val trust = layerPerpsTrust[name] ?: config.trustWeight
+            val trust = layerPerpsTrust[laneKey(name, AssetClass.PERPS)] ?: config.trustWeight
             
             try {
                 // Get layer signal based on type
@@ -707,6 +828,57 @@ object PerpsLearningBridge {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
+     * V5.9.374 — CORE LANE LEARNING ENTRY POINT.
+     * Every asset class routes through this. Each (layer, asset) pair gets its
+     * own independent correlation record + trust score, so a layer can excel
+     * in memes while still learning in forex without the numbers bleeding
+     * into each other.
+     *
+     * `directionCorrect` is optional — only perps supplies it. Non-perps
+     * assets use `isWin` as the universal success metric.
+     */
+    fun learnFromAssetTrade(
+        asset: AssetClass,
+        contributingLayers: List<String>,
+        isWin: Boolean,
+        pnlPct: Double,
+        symbol: String = "",
+        directionCorrect: Boolean? = null,
+    ) {
+        totalPerpsLearningEvents.incrementAndGet()
+        val layers = if (contributingLayers.isEmpty()) defaultLayersFor(asset) else contributingLayers
+
+        layers.forEach { layerName ->
+            val key = laneKey(layerName, asset)
+            val corr = layerPerpsCorrelation.getOrPut(key) { CorrelationData() }
+            corr.signalsGiven++
+            // Grading: directional perps layers use directionCorrect; everything
+            // else (non-directional + every non-perps asset class) grades on isWin.
+            val cfg = layerConfigs[layerName]
+            val useDirection = asset == AssetClass.PERPS &&
+                cfg?.isDirectional == true &&
+                directionCorrect != null
+            val layerCorrect = if (useDirection) directionCorrect!! else isWin
+            if (layerCorrect) corr.signalsCorrect++
+            corr.totalPnlContribution += pnlPct
+            corr.lastUpdate = System.currentTimeMillis()
+
+            val currentTrust = layerPerpsTrust[key] ?: (cfg?.trustWeight ?: 0.5)
+            val trustDelta = if (layerCorrect) 0.01 else -0.01
+            layerPerpsTrust[key] = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
+        }
+
+        crossLayerSyncs.incrementAndGet()
+        if (totalPerpsLearningEvents.get() % 10 == 0) save()  // batched persistence
+
+        ErrorLogger.info(
+            TAG,
+            "🧠 ${asset.name} learning: ${if (symbol.isNotBlank()) "$symbol " else ""}" +
+                "${if (isWin) "WIN" else "LOSS"} ${"%.1f".format(pnlPct)}% | layers=${layers.size}"
+        )
+    }
+
+    /**
      * Learn from a completed perps trade
      * Routes the outcome to all layers that contributed to the decision
      */
@@ -715,51 +887,27 @@ object PerpsLearningBridge {
         contributingLayers: List<String>,
         predictedDirection: PerpsDirection,
     ) {
-        totalPerpsLearningEvents.incrementAndGet()
-        
         val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
         val directionCorrect = (trade.direction == predictedDirection) == isWin
-        
+
+        // V5.9.374 — route through the per-asset lane entry point (PERPS lane).
+        // Kept the trade-level side-effects below (routeLearningToLayer +
+        // Turso persistence) since they existed before the lane refactor.
+        learnFromAssetTrade(
+            asset = AssetClass.PERPS,
+            contributingLayers = contributingLayers,
+            isWin = isWin,
+            pnlPct = trade.pnlPct,
+            symbol = "${trade.market.symbol} ${trade.direction.symbol}",
+            directionCorrect = directionCorrect,
+        )
+
         contributingLayers.forEach { layerName ->
-            // Update correlation data
-            val corr = layerPerpsCorrelation.getOrPut(layerName) { CorrelationData() }
-            corr.signalsGiven++
-            // V5.9.368 — non-directional layers (BehaviorAI/MetaCognitionAI/
-            // FluidLearningAI/etc., flagged isDirectional=false in layerConfigs)
-            // contribute RISK/LEVERAGE/SIZING — not LONG/SHORT. Grading them
-            // against directionCorrect was producing nonsense accuracy stats
-            // (e.g. BehaviorAI 1.3% on 2589 signals — far below 50% chance,
-            // a clear bias signature, not real prediction error). Use isWin
-            // as the success metric for non-directional layers: "did the
-            // trade this layer participated in actually win?"
-            // V5.9.372 — generalize the fix. The original null-safe check
-            // (cfg?.isDirectional == false) returned false when cfg was
-            // null (layer not registered in layerConfigs), so 13 layers
-            // (FluidLearning/MetaCognition/VolatilityRegime/EducationSubLayer/
-            // MarketRegime/MomentumPredictor/CashGen/LiquidityCycle/
-            // RegimeTransition/QualityTrader/HoldTimeOptimizer/
-            // SellOptimization/SmartMoneyDivergence) all sat at exactly
-            // acc=3.3% (1/30) because they fell through to directionCorrect.
-            // New rule: only grade against directionCorrect when the layer
-            // is EXPLICITLY registered with isDirectional=true. Anything
-            // else (unknown layer or isDirectional=false) grades on isWin.
             val cfg = layerConfigs[layerName]
             val layerCorrect = if (cfg?.isDirectional == true) directionCorrect else isWin
-            if (layerCorrect) corr.signalsCorrect++
-            corr.totalPnlContribution += trade.pnlPct
-            corr.lastUpdate = System.currentTimeMillis()
-            
-            // Adjust trust score
-            val currentTrust = layerPerpsTrust[layerName] ?: 0.5
-            val trustDelta = if (layerCorrect) 0.01 else -0.01
-            val newTrust = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
-            layerPerpsTrust[layerName] = newTrust
-            
-            // Route learning to the actual layer
             routeLearningToLayer(layerName, trade, layerCorrect)
         }
-        
-        crossLayerSyncs.incrementAndGet()
+
         save()
 
         // V5.8.0: Persist updated layer trust to Turso (fire-and-forget)
@@ -779,10 +927,6 @@ object PerpsLearningBridge {
                 ErrorLogger.debug(TAG, "🧠 Trust persist error: ${e.message}")
             }
         }
-
-        ErrorLogger.info(TAG, "🧠 Perps learning: ${trade.market.symbol} ${trade.direction.symbol} " +
-            "${if (isWin) "WIN" else "LOSS"} ${trade.pnlPct.fmt(1)}% | " +
-            "Layers: ${contributingLayers.size}")
     }
     
     /**
@@ -886,40 +1030,23 @@ object PerpsLearningBridge {
         contributingLayers: List<String>,
         marketConditions: Map<String, Any>,
     ) {
-        totalPerpsLearningEvents.incrementAndGet()
-        
         val isWin = trade.pnlPct >= 1.0  // V5.9.225: 1% floor
-        
-        // Stock-specific layer learning
         val stockLayers = listOf(
-            "BlueChipTraderAI",      // Quality stock picker
-            "QualityTraderAI",       // Quality filter
-            "MarketRegimeAI",        // Market conditions
-            "SmartMoneyDivergenceAI", // Institutional flow
-            "FluidLearningAI",       // Adaptive thresholds
-            "EducationSubLayerAI",   // Cross-layer learning
+            "BlueChipTraderAI", "QualityTraderAI", "MarketRegimeAI",
+            "SmartMoneyDivergenceAI", "FluidLearningAI", "EducationSubLayerAI",
         )
-        
-        (contributingLayers + stockLayers).distinct().forEach { layerName ->
-            // Update correlation data
-            val key = "${layerName}_STOCK"
-            val corr = layerPerpsCorrelation.getOrPut(key) { CorrelationData() }
-            corr.signalsGiven++
-            if (isWin) corr.signalsCorrect++
-            corr.totalPnlContribution += trade.pnlPct
-            corr.lastUpdate = System.currentTimeMillis()
-            
-            // Adjust trust score for stocks
-            val currentTrust = layerPerpsTrust["${layerName}_STOCK"] ?: 0.5
-            val trustDelta = if (isWin) 0.015 else -0.01  // Slightly higher reward for stock wins
-            val newTrust = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
-            layerPerpsTrust["${layerName}_STOCK"] = newTrust
-            
-            // Route learning
-            routeLearningToLayer(layerName, trade, isWin)
-        }
-        
-        // Save market stats to Turso
+        val allLayers = (contributingLayers + stockLayers).distinct()
+
+        // V5.9.374 — route through the STOCK lane of the per-asset entry point
+        learnFromAssetTrade(
+            asset = AssetClass.STOCK,
+            contributingLayers = allLayers,
+            isWin = isWin,
+            pnlPct = trade.pnlPct,
+            symbol = "${trade.market.symbol} ${trade.direction.symbol}",
+        )
+        allLayers.forEach { layerName -> routeLearningToLayer(layerName, trade, isWin) }
+
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val client = com.lifecyclebot.collective.CollectiveLearning.getClient() ?: return@launch
@@ -935,12 +1062,7 @@ object PerpsLearningBridge {
                 ErrorLogger.debug(TAG, "Turso market stats update failed: ${e.message}")
             }
         }
-        
-        crossLayerSyncs.incrementAndGet()
         save()
-        
-        ErrorLogger.info(TAG, "📈 Stock learning: ${trade.market.symbol} ${trade.direction.symbol} " +
-            "${if (isWin) "WIN" else "LOSS"} ${trade.pnlPct.fmt(1)}%")
     }
     
     /**
@@ -948,12 +1070,19 @@ object PerpsLearningBridge {
      */
     fun getStockLayerRecommendations(market: PerpsMarket): Map<String, Double> {
         if (!market.isStock) return emptyMap()
-        
-        return layerPerpsTrust.entries
-            .filter { it.key.endsWith("_STOCK") || layerConfigs[it.key]?.applicableMarkets?.contains(market) == true }
-            .sortedByDescending { it.value }
+        // V5.9.374 — read from STOCK lane keys ("$name#STOCK"). Fall back to
+        // PERPS-lane trust if the stock lane has no data yet for this layer.
+        return layerConfigs.keys
+            .filter { name -> layerConfigs[name]?.applicableMarkets?.contains(market) == true }
+            .mapNotNull { name ->
+                val stockTrust = layerPerpsTrust[laneKey(name, AssetClass.STOCK)]
+                val perpsTrust = layerPerpsTrust[laneKey(name, AssetClass.PERPS)]
+                val t = stockTrust ?: perpsTrust
+                if (t != null) name to t else null
+            }
+            .sortedByDescending { it.second }
             .take(5)
-            .associate { it.key.removeSuffix("_STOCK") to it.value }
+            .toMap()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -961,12 +1090,53 @@ object PerpsLearningBridge {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun getLayerPerpsStats(): Map<String, Pair<Double, Double>> {
-        // Returns map of layerName -> (trustScore, accuracy)
+        // V5.9.374 — aggregate rollup across all lanes so existing callers
+        // (the old diagnostics panel, CryptoAltActivity, MainActivity) keep
+        // getting a single (trust, accuracy) per layer. Trust = average of
+        // lanes with data; accuracy = sum(correct) / sum(signals) across lanes.
         return layerConfigs.keys.associateWith { name ->
-            val trust = layerPerpsTrust[name] ?: 0.5
-            val accuracy = layerPerpsCorrelation[name]?.getAccuracy() ?: 0.0
-            Pair(trust, accuracy)
+            var signalsTotal = 0
+            var correctTotal = 0
+            var trustSum = 0.0
+            var trustCount = 0
+            AssetClass.values().forEach { asset ->
+                val key = laneKey(name, asset)
+                layerPerpsCorrelation[key]?.let {
+                    signalsTotal += it.signalsGiven
+                    correctTotal += it.signalsCorrect
+                }
+                layerPerpsTrust[key]?.let {
+                    trustSum += it
+                    trustCount++
+                }
+            }
+            val avgTrust = if (trustCount > 0) trustSum / trustCount else 0.5
+            val acc = if (signalsTotal > 0) correctTotal.toDouble() / signalsTotal * 100 else 0.0
+            Pair(avgTrust, acc)
         }
+    }
+
+    /**
+     * V5.9.374 — per-asset stats for every known layer. UI uses this to
+     * render the lane breakdown: "BehaviorAI  MEME: 34% (3366)  PERPS: 3% (30)".
+     * Returns layerName → (asset → (trust, accuracy, signals)).
+     */
+    data class LaneStats(val trust: Double, val accuracy: Double, val signals: Int)
+    fun getLayerPerAssetStats(): Map<String, Map<AssetClass, LaneStats>> {
+        val allLayerNames = (layerConfigs.keys + defaultMemeLayers + defaultForexLayers +
+            defaultMetalLayers + defaultCommodityLayers).distinct()
+        return allLayerNames.associateWith { name ->
+            AssetClass.values().associateWith { asset ->
+                val key = laneKey(name, asset)
+                val corr = layerPerpsCorrelation[key]
+                val trust = layerPerpsTrust[key] ?: (layerConfigs[name]?.trustWeight ?: 0.5)
+                LaneStats(
+                    trust = trust,
+                    accuracy = corr?.getAccuracy() ?: 0.0,
+                    signals = corr?.signalsGiven ?: 0,
+                )
+            }.filterValues { it.signals > 0 }
+        }.filterValues { it.isNotEmpty() }
     }
     
     fun getTotalLearningEvents(): Int = totalPerpsLearningEvents.get()
@@ -987,40 +1157,32 @@ object PerpsLearningBridge {
      */
     fun resetNonDirectionalCorrelationOnce() {
         val p = prefs ?: return
-        if (p.getBoolean("non_dir_corr_reset_v5_9_372", false)) return
-        // V5.9.372 — wider reset bumped from v5_9_368 key. The original
-        // V5.9.368 reset only cleared layers explicitly flagged
-        // isDirectional=false in layerConfigs — it missed 13 layers that
-        // weren't registered at all (FluidLearning/MetaCognition/etc.,
-        // all stuck at acc=3.3% from being graded against directionCorrect).
-        // V5.9.372 generalized the grading rule to default to isWin for
-        // any non-explicitly-directional layer, so the historical stats
-        // for ALL non-directional-explicit layers need a fresh baseline.
-        // Easiest: reset every layer that has correlation data — the
-        // grading rule change applies retroactively from the next trade.
-        var resetCount = 0
-        layerPerpsCorrelation.keys.toList().forEach { name ->
-            val cfg = layerConfigs[name]
-            if (cfg?.isDirectional != true) {
-                layerPerpsCorrelation[name] = CorrelationData()
-                resetCount++
-            }
+        // V5.9.374 — lane architecture supersedes the V5.9.372 single-reset.
+        // Clear ALL lanes once so every (layer, asset) pair starts from 0
+        // under the new grading rules. Idempotent: flagged in prefs.
+        if (p.getBoolean("lanes_reset_v5_9_374", false)) return
+
+        val before = layerPerpsCorrelation.size
+        layerPerpsCorrelation.clear()
+        // Keep trust scores but pull them toward neutral so they don't
+        // carry a biased prior into the fresh lanes.
+        layerPerpsTrust.replaceAll { _, v -> 0.5 + (v - 0.5) * 0.2 }
+
+        // Wipe every persisted corr_* key (legacy unsuffixed, _STOCK, and
+        // any prior lane-formatted keys) so the next save() writes a clean
+        // slate keyed only by "$name#$asset".
+        p.edit().apply {
+            p.all.keys.filter { it.startsWith("corr_signals_") || it.startsWith("corr_correct_") || it.startsWith("corr_pnl_") }
+                .forEach { remove(it) }
+            putBoolean("lanes_reset_v5_9_374", true)
+            putBoolean("non_dir_corr_reset_v5_9_372", true)  // legacy flag
+            putBoolean("non_dir_corr_reset_v5_9_368", true)  // legacy flag
+            apply()
         }
-        // Also reset any explicitly non-directional layers that may have
-        // been added since the v5.9.368 reset shipped.
-        layerConfigs.forEach { (name, cfg) ->
-            if (!cfg.isDirectional && layerPerpsCorrelation[name] == null) {
-                layerPerpsCorrelation[name] = CorrelationData()
-                resetCount++
-            }
-        }
-        p.edit()
-            .putBoolean("non_dir_corr_reset_v5_9_372", true)
-            .putBoolean("non_dir_corr_reset_v5_9_368", true)  // keep legacy flag set
-            .apply()
         ErrorLogger.info(
             TAG,
-            "🧹 V5.9.372: reset correlation stats for $resetCount non-directional layers — starting clean baseline (generalized fix)"
+            "🧹 V5.9.374: cleared $before unified correlation records + persisted keys — " +
+                "per-asset lanes start at zero across MEME/PERPS/STOCK/FOREX/METAL/COMMODITY"
         )
     }
     
@@ -1040,29 +1202,35 @@ object PerpsLearningBridge {
     fun recordStockTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         stockTrades.incrementAndGet()
         if (isWin) stockWins.incrementAndGet()
-        totalPerpsLearningEvents.incrementAndGet()
-        ErrorLogger.debug(TAG, "📈 Stock trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+        // V5.9.374 — also feed the STOCK lane of every applicable layer.
+        learnFromAssetTrade(AssetClass.STOCK, emptyList(), isWin, pnlPct, market.symbol)
     }
     
     fun recordCommodityTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         commodityTrades.incrementAndGet()
         if (isWin) commodityWins.incrementAndGet()
-        totalPerpsLearningEvents.incrementAndGet()
-        ErrorLogger.debug(TAG, "🛢️ Commodity trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+        learnFromAssetTrade(AssetClass.COMMODITY, emptyList(), isWin, pnlPct, market.symbol)
     }
     
     fun recordMetalTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         metalTrades.incrementAndGet()
         if (isWin) metalWins.incrementAndGet()
-        totalPerpsLearningEvents.incrementAndGet()
-        ErrorLogger.debug(TAG, "🥇 Metal trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+        learnFromAssetTrade(AssetClass.METAL, emptyList(), isWin, pnlPct, market.symbol)
     }
     
     fun recordForexTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         forexTrades.incrementAndGet()
         if (isWin) forexWins.incrementAndGet()
-        totalPerpsLearningEvents.incrementAndGet()
-        ErrorLogger.debug(TAG, "💱 Forex trade recorded: ${market.symbol} ${direction.symbol} win=$isWin pnl=${"%.2f".format(pnlPct)}%")
+        learnFromAssetTrade(AssetClass.FOREX, emptyList(), isWin, pnlPct, market.symbol)
+    }
+
+    /**
+     * V5.9.374 — MEME lane entry. Called by the memecoin close path in
+     * Executor.kt so the 26 meme layers finally receive training signal
+     * from the 5000+ meme trades they've been blind to.
+     */
+    fun recordMemeTrade(symbol: String, isWin: Boolean, pnlPct: Double, contributingLayers: List<String> = emptyList()) {
+        learnFromAssetTrade(AssetClass.MEME, contributingLayers, isWin, pnlPct, symbol)
     }
     
     fun getAssetClassStats(): Map<String, Pair<Int, Int>> = mapOf(
@@ -1094,12 +1262,37 @@ object PerpsLearningBridge {
         sb.appendLine("  🥇 Metals: ${metalTrades.get()} trades | ${String.format("%.1f", metalWr)}% WR")
         sb.appendLine("  💱 Forex: ${forexTrades.get()} trades | ${String.format("%.1f", forexWr)}% WR")
         sb.appendLine()
-        sb.appendLine("LAYER TRUST SCORES:")
-        layerPerpsTrust.entries.sortedByDescending { it.value }.forEach { (name, trust) ->
-            val corr = layerPerpsCorrelation[name]
-            val accuracy = corr?.getAccuracy() ?: 0.0
-            val signals = corr?.signalsGiven ?: 0
-            sb.appendLine("  $name: trust=${String.format("%.2f", trust)} | acc=${String.format("%.1f", accuracy)}% | signals=$signals")
+        // V5.9.374 — per-asset lane breakdown. Shows exactly where each
+        // layer is getting signal and how accurate it is in each arena.
+        sb.appendLine("LAYER LANES (signals · acc · trust):")
+        val perAsset = getLayerPerAssetStats()
+        val sortedLayers = perAsset.keys.sortedByDescending { name ->
+            perAsset[name]?.values?.sumOf { it.signals } ?: 0
+        }
+        for (name in sortedLayers) {
+            val lanes = perAsset[name] ?: continue
+            val totalSignals = lanes.values.sumOf { it.signals }
+            sb.appendLine("  $name  (total=$totalSignals)")
+            AssetClass.values().forEach { asset ->
+                val stat = lanes[asset] ?: return@forEach
+                val icon = when (asset) {
+                    AssetClass.MEME -> "💎"
+                    AssetClass.PERPS -> "⚡"
+                    AssetClass.STOCK -> "📈"
+                    AssetClass.FOREX -> "💱"
+                    AssetClass.METAL -> "🥇"
+                    AssetClass.COMMODITY -> "🛢️"
+                }
+                sb.appendLine(
+                    "    $icon ${asset.name.padEnd(9)} " +
+                        "sig=${stat.signals.toString().padStart(5)} " +
+                        "acc=${String.format("%5.1f", stat.accuracy)}% " +
+                        "trust=${String.format("%.2f", stat.trust)}"
+                )
+            }
+        }
+        if (perAsset.isEmpty()) {
+            sb.appendLine("  (no lane data yet — waiting for first trade in each asset class)")
         }
         // V5.9.362 — surface the wiring health for the 9 outer-ring layers
         // wired in V5.9.357 so the user can watch them converge.

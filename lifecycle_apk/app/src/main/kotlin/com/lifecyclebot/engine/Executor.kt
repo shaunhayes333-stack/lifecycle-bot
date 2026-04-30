@@ -790,6 +790,20 @@ class Executor(
                     // OperatorFingerprint: creator is not in TokenState directly — skip
                     // unless we've stashed it in ts.meta. Graceful no-op otherwise.
                 } catch (_: Exception) {}
+
+                // V5.9.374 — feed the MEME lane of PerpsLearningBridge. The 26+
+                // memecoin layers were previously blind to spot meme outcomes
+                // (they only received perps signals, which are 3% of trade
+                // volume). Now every meme close trains its own lane, giving
+                // each layer thousands of real training signals without
+                // bleeding into the PERPS/STOCK/FOREX lanes.
+                try {
+                    com.lifecyclebot.perps.PerpsLearningBridge.recordMemeTrade(
+                        symbol = ts.symbol,
+                        isWin = isWin,
+                        pnlPct = pnl,
+                    )
+                } catch (_: Exception) { /* non-critical */ }
             } catch (e: Exception) {
                 // Silently ignore - behavior tracking is secondary
             }
