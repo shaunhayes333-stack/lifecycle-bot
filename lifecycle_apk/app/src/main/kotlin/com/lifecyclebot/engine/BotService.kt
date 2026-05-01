@@ -5135,7 +5135,20 @@ if (deferredCount > 0) {
     }
 
     // Note: lastSuccessfulPollMs update is handled in botLoop
-    
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.407 — IDLE → SCANNING transition.
+    // The TokenState's default phase is literally "idle". Without this nudge,
+    // any token that gets blocked by an early gate (HardRugPreFilter,
+    // DistributionFadeAvoider, etc) never escapes "IDLE" in the UI even
+    // though we are actively examining it every cycle. Promoting to
+    // "scanning" the moment we touch the token gives the user honest live
+    // progress in the watchlist column.
+    // ═══════════════════════════════════════════════════════════════════
+    if (ts.phase == "idle" && !ts.position.isOpen) {
+        ts.phase = "scanning"
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
     // ═══════════════════════════════════════════════════════════════════
@@ -5157,6 +5170,13 @@ if (deferredCount > 0) {
         
         if (!preFilterResult.pass) {
             HardRugPreFilter.logFailure(ts, preFilterResult)
+            // V5.9.407 — surface why we bailed so the watchlist stops showing IDLE.
+            ts.phase = when {
+                preFilterResult.reason?.contains("LIQUID", true) == true -> "thin_liq"
+                preFilterResult.reason?.contains("CONCEN", true) == true -> "rug_holders"
+                preFilterResult.reason?.contains("AUTH",  true) == true  -> "rug_auth"
+                else                                                      -> "rug_filtered"
+            }
             return  // Skip to next token (exit this coroutine)
         }
     }
@@ -5177,6 +5197,7 @@ if (deferredCount > 0) {
     
     if (distributionCheck.shouldBlock && !ts.position.isOpen) {
         ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
+        ts.phase = "distributing"   // V5.9.407 — surface gate reason in UI
         return  // Skip to next token (exit this coroutine)
     }
     
