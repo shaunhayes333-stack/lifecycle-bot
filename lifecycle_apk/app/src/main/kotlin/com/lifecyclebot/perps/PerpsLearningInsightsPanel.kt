@@ -368,12 +368,27 @@ object PerpsLearningInsightsPanel {
             lastRefresh.set(System.currentTimeMillis())
         }
         
-        // Get layer rankings
-        val layerStats = PerpsLearningBridge.getLayerPerpsStats()
-        val topLayers = layerStats.entries
-            .sortedByDescending { it.value.first * it.value.second }
+        // V5.9.382 — PnL-weighted top-performing ranker. The old ranker
+        // sorted by `trust × accuracy` which reward layers that were
+        // directionally right but lost money (screenshot showed top-3
+        // as TokenDNACl 90% dir (-3.9%), Correlatio 85% (-4.4%), etc.).
+        // New formula: composite score = (avgPnl/trade) × sqrt(signals) +
+        //              (accuracy-50)×0.5 bonus for calibration.
+        // Requires min 10 signals to qualify — prevents tiny-sample flukes
+        // from dominating.
+        val pnlStats = PerpsLearningBridge.getLayerPerpsStatsWithPnl()
+        val topLayers = pnlStats.entries
+            .filter { it.value.totalSignals >= 10 }
+            .map { (name, s) ->
+                val sqrtN = kotlin.math.sqrt(s.totalSignals.toDouble())
+                val calibrationBonus = (s.accuracyPct - 50.0) * 0.5
+                val composite = s.avgPnlPctPerTrade * sqrtN + calibrationBonus
+                Triple(name, composite, s)
+            }
+            .sortedByDescending { it.second }
             .take(5)
-            .map { it.key to (it.value.second) }
+            // Display value: avg PnL per trade (%) — the metric that matters.
+            .map { it.first to it.third.avgPnlPctPerTrade }
         
         return InsightsPanelData(
             recentInsights = getRecentInsights(10),

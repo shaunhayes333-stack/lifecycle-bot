@@ -1121,6 +1121,45 @@ object PerpsLearningBridge {
     }
 
     /**
+     * V5.9.382 — PnL-weighted stats for the "top performing layers" ranker.
+     * Returns layerName → (trust, accuracy, avgPnlPerTrade%). A layer can be
+     * 90% directionally right but still lose money if TP is never hit before
+     * SL. Ranking by PnL avoids rewarding layers that produce "correct"
+     * signals that bleed the account.
+     */
+    data class LayerPnlStats(
+        val trust: Double,
+        val accuracyPct: Double,
+        val avgPnlPctPerTrade: Double,
+        val totalSignals: Int,
+    )
+    fun getLayerPerpsStatsWithPnl(): Map<String, LayerPnlStats> {
+        return layerConfigs.keys.associateWith { name ->
+            var signalsTotal = 0
+            var correctTotal = 0
+            var pnlTotal = 0.0
+            var trustSum = 0.0
+            var trustCount = 0
+            AssetClass.values().forEach { asset ->
+                val key = laneKey(name, asset)
+                layerPerpsCorrelation[key]?.let {
+                    signalsTotal += it.signalsGiven
+                    correctTotal += it.signalsCorrect
+                    pnlTotal += it.totalPnlContribution
+                }
+                layerPerpsTrust[key]?.let {
+                    trustSum += it
+                    trustCount++
+                }
+            }
+            val avgTrust = if (trustCount > 0) trustSum / trustCount else 0.5
+            val acc = if (signalsTotal > 0) correctTotal.toDouble() / signalsTotal * 100 else 0.0
+            val avgPnl = if (signalsTotal > 0) pnlTotal / signalsTotal else 0.0
+            LayerPnlStats(avgTrust, acc, avgPnl, signalsTotal)
+        }
+    }
+
+    /**
      * V5.9.374 — per-asset stats for every known layer. UI uses this to
      * render the lane breakdown: "BehaviorAI  MEME: 34% (3366)  PERPS: 3% (30)".
      * Returns layerName → (asset → (trust, accuracy, signals)).

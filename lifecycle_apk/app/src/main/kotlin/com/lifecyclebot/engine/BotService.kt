@@ -27,6 +27,10 @@ class BotService : Service() {
 
     companion object {
         @Volatile private var _instance: java.lang.ref.WeakReference<BotService>? = null
+        // V5.9.384 — one-shot flag so BacktestEngine.logAssetClassBaseline
+        // doesn't rerun on every service restart within the same process
+        // (was allocating all 5784 trades × 6 replays each time).
+        @Volatile private var sessionBacktestRan: Boolean = false
         var instance: BotService?
             get() = _instance?.get()
             set(value) { _instance = if (value != null) java.lang.ref.WeakReference(value) else null }
@@ -524,15 +528,20 @@ class BotService : Service() {
 
             // V5.9.375 — run the offline backtest baseline once on boot so the
             // user sees exactly what the bot did per asset class, segmented.
-            // Non-blocking: fires on IO thread and logs through ErrorLogger.
+            // V5.9.384 — guarded with a first-boot-per-session flag so it
+            // doesn't re-run on every service restart (was allocating all
+            // 5784 trades × 6 replays on every boot, contributing to OOM).
             try {
-                Thread {
-                    try {
-                        com.lifecyclebot.backtest.BacktestEngine.logAssetClassBaseline()
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("Backtest", "baseline log error: ${e.message}")
-                    }
-                }.apply { isDaemon = true; name = "BacktestBaseline" }.start()
+                if (!sessionBacktestRan) {
+                    sessionBacktestRan = true
+                    Thread {
+                        try {
+                            com.lifecyclebot.backtest.BacktestEngine.logAssetClassBaseline()
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("Backtest", "baseline log error: ${e.message}")
+                        }
+                    }.apply { isDaemon = true; name = "BacktestBaseline" }.start()
+                }
             } catch (_: Exception) {}
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "PerpsLearningBridge init error: ${e.message}", e)
