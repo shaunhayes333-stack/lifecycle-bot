@@ -507,6 +507,21 @@ class BotService : Service() {
             } catch (_: Exception) {}
             ErrorLogger.info("BotService", "PerpsLearningBridge initialized - ${com.lifecyclebot.perps.PerpsLearningBridge.getConnectedLayerCount()} layers connected")
 
+            // V5.9.382 — one-time demotion wipe. The V5.9.374 uniformity
+            // glitch poisoned layer accuracy stats (every MEME layer at
+            // 20.2%), which triggered TradingCopilot's aggressive demotion
+            // (half the brain silenced at 0.5× weight), collapsing meme
+            // WR from 33% → 4%. Clear the inherited weight map once so the
+            // brain starts fresh under the new gentler 0.80/0.90 curve.
+            try {
+                val p = getSharedPreferences("aate_bot_prefs", android.content.Context.MODE_PRIVATE)
+                if (!p.getBoolean("poisoning_recal_v5_9_382", false)) {
+                    com.lifecyclebot.engine.TradingCopilot.clearDemotionWeights()
+                    p.edit().putBoolean("poisoning_recal_v5_9_382", true).apply()
+                    ErrorLogger.info("BotService", "🧹 V5.9.382: cleared inherited layer demotion weights (poisoning recal)")
+                }
+            } catch (_: Exception) {}
+
             // V5.9.375 — run the offline backtest baseline once on boot so the
             // user sees exactly what the bot did per asset class, segmented.
             // Non-blocking: fires on IO thread and logs through ErrorLogger.

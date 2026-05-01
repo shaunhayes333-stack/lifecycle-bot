@@ -559,6 +559,10 @@ object PerpsLearningBridge {
         }
         
         totalPerpsLearningEvents.set(p.getInt("totalLearningEvents", 0))
+
+        // V5.9.382 — restore aggregate asset-class counters (previously
+        // in-memory only; reset every restart, causing mismatches vs lanes).
+        restoreAssetCounters()
     }
     
     fun save() {
@@ -1198,30 +1202,97 @@ object PerpsLearningBridge {
     private val metalWins = AtomicInteger(0)
     private val forexTrades = AtomicInteger(0)
     private val forexWins = AtomicInteger(0)
-    
+    // V5.9.382 — MEME aggregate counters (for parity with the other 5 classes)
+    private val memeTrades = AtomicInteger(0)
+    private val memeWins = AtomicInteger(0)
+
+    /** V5.9.382 — restore aggregate asset-class counters from prefs so they
+     *  don't zero out on every restart. Also reseeds from lane signals when
+     *  both prefs + counter are empty (recovers pre-V5.9.382 history). */
+    private fun restoreAssetCounters() {
+        val p = prefs ?: return
+        stockTrades.set(p.getInt("agg_stockTrades", 0))
+        stockWins.set(p.getInt("agg_stockWins", 0))
+        commodityTrades.set(p.getInt("agg_commodityTrades", 0))
+        commodityWins.set(p.getInt("agg_commodityWins", 0))
+        metalTrades.set(p.getInt("agg_metalTrades", 0))
+        metalWins.set(p.getInt("agg_metalWins", 0))
+        forexTrades.set(p.getInt("agg_forexTrades", 0))
+        forexWins.set(p.getInt("agg_forexWins", 0))
+        memeTrades.set(p.getInt("agg_memeTrades", 0))
+        memeWins.set(p.getInt("agg_memeWins", 0))
+
+        // Reseed from lane signal counts when a class has zero aggregate
+        // but the lane has accumulated signals (pre-V5.9.382 data recovery).
+        fun reseedFrom(asset: AssetClass, tradesCounter: AtomicInteger, winsCounter: AtomicInteger) {
+            if (tradesCounter.get() > 0) return
+            var sigSum = 0
+            var corrSum = 0
+            layerPerpsCorrelation.forEach { (key, corr) ->
+                if (key.endsWith("#${asset.name}")) {
+                    sigSum = maxOf(sigSum, corr.signalsGiven)
+                    if (corr.signalsGiven > 0 && corr.signalsGiven >= sigSum) {
+                        corrSum = corr.signalsCorrect
+                    }
+                }
+            }
+            if (sigSum > 0) {
+                tradesCounter.set(sigSum)
+                winsCounter.set(corrSum)
+            }
+        }
+        reseedFrom(AssetClass.STOCK, stockTrades, stockWins)
+        reseedFrom(AssetClass.COMMODITY, commodityTrades, commodityWins)
+        reseedFrom(AssetClass.METAL, metalTrades, metalWins)
+        reseedFrom(AssetClass.FOREX, forexTrades, forexWins)
+        reseedFrom(AssetClass.MEME, memeTrades, memeWins)
+    }
+
+    /** V5.9.382 — persist aggregate counters. Called from save(). */
+    private fun saveAssetCounters() {
+        val p = prefs ?: return
+        p.edit().apply {
+            putInt("agg_stockTrades", stockTrades.get())
+            putInt("agg_stockWins", stockWins.get())
+            putInt("agg_commodityTrades", commodityTrades.get())
+            putInt("agg_commodityWins", commodityWins.get())
+            putInt("agg_metalTrades", metalTrades.get())
+            putInt("agg_metalWins", metalWins.get())
+            putInt("agg_forexTrades", forexTrades.get())
+            putInt("agg_forexWins", forexWins.get())
+            putInt("agg_memeTrades", memeTrades.get())
+            putInt("agg_memeWins", memeWins.get())
+            apply()
+        }
+    }
+
     fun recordStockTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         stockTrades.incrementAndGet()
         if (isWin) stockWins.incrementAndGet()
         // V5.9.374 — also feed the STOCK lane of every applicable layer.
         learnFromAssetTrade(AssetClass.STOCK, emptyList(), isWin, pnlPct, market.symbol)
+        saveAssetCounters()
     }
     
     fun recordCommodityTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         commodityTrades.incrementAndGet()
         if (isWin) commodityWins.incrementAndGet()
         learnFromAssetTrade(AssetClass.COMMODITY, emptyList(), isWin, pnlPct, market.symbol)
+        saveAssetCounters()
     }
     
     fun recordMetalTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         metalTrades.incrementAndGet()
         if (isWin) metalWins.incrementAndGet()
         learnFromAssetTrade(AssetClass.METAL, emptyList(), isWin, pnlPct, market.symbol)
+        saveAssetCounters()
     }
     
     fun recordForexTrade(market: PerpsMarket, direction: PerpsDirection, isWin: Boolean, pnlPct: Double) {
         forexTrades.incrementAndGet()
         if (isWin) forexWins.incrementAndGet()
         learnFromAssetTrade(AssetClass.FOREX, emptyList(), isWin, pnlPct, market.symbol)
+        saveAssetCounters()
     }
 
     /**
@@ -1230,10 +1301,14 @@ object PerpsLearningBridge {
      * from the 5000+ meme trades they've been blind to.
      */
     fun recordMemeTrade(symbol: String, isWin: Boolean, pnlPct: Double, contributingLayers: List<String> = emptyList()) {
+        memeTrades.incrementAndGet()
+        if (isWin) memeWins.incrementAndGet()
         learnFromAssetTrade(AssetClass.MEME, contributingLayers, isWin, pnlPct, symbol)
+        saveAssetCounters()
     }
     
     fun getAssetClassStats(): Map<String, Pair<Int, Int>> = mapOf(
+        "Memes" to Pair(memeTrades.get(), memeWins.get()),
         "Stocks" to Pair(stockTrades.get(), stockWins.get()),
         "Commodities" to Pair(commodityTrades.get(), commodityWins.get()),
         "Metals" to Pair(metalTrades.get(), metalWins.get()),
@@ -1253,10 +1328,12 @@ object PerpsLearningBridge {
         sb.appendLine("Cross-Layer Syncs: ${crossLayerSyncs.get()}")
         sb.appendLine()
         sb.appendLine("ASSET CLASS PERFORMANCE:")
+        val memeWr = if (memeTrades.get() > 0) memeWins.get() * 100.0 / memeTrades.get() else 0.0
         val stockWr = if (stockTrades.get() > 0) stockWins.get() * 100.0 / stockTrades.get() else 0.0
         val commodityWr = if (commodityTrades.get() > 0) commodityWins.get() * 100.0 / commodityTrades.get() else 0.0
         val metalWr = if (metalTrades.get() > 0) metalWins.get() * 100.0 / metalTrades.get() else 0.0
         val forexWr = if (forexTrades.get() > 0) forexWins.get() * 100.0 / forexTrades.get() else 0.0
+        sb.appendLine("  💎 Memes: ${memeTrades.get()} trades | ${String.format("%.1f", memeWr)}% WR")
         sb.appendLine("  📈 Stocks: ${stockTrades.get()} trades | ${String.format("%.1f", stockWr)}% WR")
         sb.appendLine("  🛢️ Commodities: ${commodityTrades.get()} trades | ${String.format("%.1f", commodityWr)}% WR")
         sb.appendLine("  🥇 Metals: ${metalTrades.get()} trades | ${String.format("%.1f", metalWr)}% WR")

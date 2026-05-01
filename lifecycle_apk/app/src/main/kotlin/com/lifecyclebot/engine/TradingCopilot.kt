@@ -96,6 +96,17 @@ object TradingCopilot {
     fun current(): Directive = lastDirective
     fun lastUpdated(): Long = lastUpdateMs
 
+    /**
+     * V5.9.382 — clear the inherited layer demotion map. Called once on
+     * boot after the recalibration flag is cleared, so the brain starts
+     * fresh without the poisoned-state demotions that collapsed WR from
+     * 33% → 4%. Safe idempotent call — the next recompute() cycle will
+     * rebuild a proper weights map with the new gentler 0.80/0.90 curve.
+     */
+    fun clearDemotionWeights() {
+        lastDirective = lastDirective.copy(layerWeightAdjust = emptyMap())
+    }
+
     // ═════════════════════════════════════════════════════════════════════
     // INGESTION — called every time a trade closes (paper OR live)
     // ═════════════════════════════════════════════════════════════════════
@@ -150,15 +161,35 @@ object TradingCopilot {
 
             // ─── 2. LAYER LEARNING HEALTH ─────────────────────────────────
             val maturity = try { EducationSubLayerAI.getAllLayerMaturity().values } catch (_: Exception) { emptyList() }
-            val activeLayers = maturity.filter { it.trades >= 5 }
+            // V5.9.382 — bump active-layer min trades from 5 → 20. Tiny-sample
+            // layers (1-4 trades) were distorting the average and feeding the
+            // poisoning detector noise. A layer with 3 trades at 0% isn't
+            // poisoned, it just hasn't voted yet.
+            val activeLayers = maturity.filter { it.trades >= 20 }
             val avgAccuracy = if (activeLayers.isNotEmpty())
                 activeLayers.map { it.smoothedAccuracy }.average() else 0.5
-            val poisonedLayers = activeLayers.count { it.smoothedAccuracy < 0.30 }
+
+            // V5.9.382 — bootstrap-aware poisoning threshold. During learning
+            // (< 70% progress) the bot is still exploring; 20-30% accuracy
+            // is NORMAL for meme signals, not pathological. Only flag as
+            // poisoned below 15% during bootstrap.
+            val bootstrapForPoison = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.70
+            } catch (_: Exception) { false }
+            val poisonFloor = if (bootstrapForPoison) 0.15 else 0.30
+
+            val poisonedLayers = activeLayers.count { it.smoothedAccuracy < poisonFloor }
             val healthyLayers = activeLayers.count { it.smoothedAccuracy >= 0.55 }
 
+            // V5.9.382 — loosened POISONED gate from ≥50% to ≥80%. The old
+            // 50% gate fired on my V5.9.374 uniformity glitch (every layer
+            // at 20.2%) and Copilot aggressively demoted half the brain,
+            // collapsing WR from 33% → 4%. The new 80% gate requires an
+            // overwhelming majority of active layers to be poisoned — which
+            // indicates a real learning contract failure, not noise.
             val learningHealth = when {
                 activeLayers.isEmpty() -> LearningHealth.STEADY
-                poisonedLayers >= activeLayers.size / 2 -> LearningHealth.POISONED
+                poisonedLayers >= (activeLayers.size * 4) / 5 -> LearningHealth.POISONED
                 avgAccuracy < 0.40 -> LearningHealth.DRIFTING
                 avgAccuracy >= 0.62 && healthyLayers >= activeLayers.size / 2 -> LearningHealth.EXCELLENT
                 else -> LearningHealth.STEADY
@@ -222,13 +253,17 @@ object TradingCopilot {
             } else 0.0
 
             // ─── 8. PER-LAYER WEIGHT ADJUSTMENTS ─────────────────────────
-            // Layers that are clearly poisoned get demoted (0.5x).
-            // Layers that are clearly excellent get amplified (1.30x).
+            // V5.9.382 — gentler demotion curve. The old 0.5× demotion on
+            // <30% accuracy silenced HALF the brain during the V5.9.374
+            // uniformity glitch (every layer at 20.2%), which collapsed
+            // WR from 33% → 4%. Even a layer that's genuinely under-
+            // performing should still contribute 80% of its nominal
+            // weight — the bot needs diversity to keep learning.
             val weights = mutableMapOf<String, Double>()
             for (m in activeLayers) {
                 val w = when {
-                    m.smoothedAccuracy < 0.30 -> 0.50  // distrust — likely learning wrong
-                    m.smoothedAccuracy < 0.45 -> 0.80
+                    m.smoothedAccuracy < 0.30 -> 0.80  // soft distrust (was 0.50)
+                    m.smoothedAccuracy < 0.45 -> 0.90  // minor distrust (was 0.80)
                     m.smoothedAccuracy >= 0.65 -> 1.30  // promote — calibrated
                     m.smoothedAccuracy >= 0.55 -> 1.10
                     else -> 1.0

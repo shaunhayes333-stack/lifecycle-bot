@@ -4914,6 +4914,31 @@ This cannot be undone!
             return
         }
 
+        // V5.9.382 — explicit "waiting for first paper trade" state. Before
+        // this fix the tab silently rendered 0/--/LEARNING with no hint that
+        // the engine was simply waiting for the paper trader to fire its
+        // first trade (a common state right after enabling perps).
+        if (r.paperTrades == 0) {
+            tvReadinessWinRate.text = "--"
+            tvReadinessWinRate.setTextColor(muted)
+            tvReadinessTrades.text  = "0"
+            tvReadinessTrades.setTextColor(muted)
+            tvReadinessPhase.text   = "WAITING"
+            tvReadinessPhase.setTextColor(Color.parseColor("#00BFFF"))
+            tvReadinessProgress.text = "0%"
+            tvLiveReadinessBadge.text = "STANDBY"
+            tvLiveReadinessBadge.setTextColor(Color.WHITE)
+            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+            tvReadinessRecommendation.text = "⚡ Perps trader ENABLED — waiting for the first paper trade to open. Check that a PerpsMarket has both funding + price data available."
+            tvReadinessRecommendation.setTextColor(muted)
+            try {
+                val params = viewReadinessProgressBar.layoutParams
+                params.width = 0
+                viewReadinessProgressBar.layoutParams = params
+            } catch (_: Exception) {}
+            return
+        }
+
         val winRate  = r.paperWinRate
         val trades   = r.paperTrades
         val score    = r.readinessScore
