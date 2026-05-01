@@ -304,6 +304,8 @@ class BotService : Service() {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
+            // V5.9.402 — LLM Lab: load strategies, paper bankroll, approval queue
+            try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
             ErrorLogger.info("BotService", "onCreate starting")
 
 
@@ -3156,6 +3158,39 @@ class BotService : Service() {
                 } catch (_: Throwable) { emptyList() }
                 if (distrusted.isNotEmpty()) {
                     com.lifecyclebot.engine.SentienceHooks.nominateStrategiesToPause(distrusted)
+                }
+            } catch (_: Throwable) {}
+
+            // V5.9.402 — LLM Lab tick (creation + paper exec + cull, all internally gated).
+            try {
+                com.lifecyclebot.engine.lab.LlmLabEngine.tick {
+                    // Universe feed: snapshot live tokens + their AATE composite scores
+                    val list = ArrayList<com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick>(
+                        status.tokens.size
+                    )
+                    val regime = try {
+                        val m = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime().mode
+                        when (m) {
+                            com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                            com.lifecyclebot.v4.meta.GlobalRiskMode.TRENDING -> "BULL"
+                            com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_OFF -> "BEAR"
+                            else -> "CHOP"
+                        }
+                    } catch (_: Throwable) { "ANY" }
+                    status.tokens.values.forEach { ts ->
+                        val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
+                        if (price <= 0) return@forEach
+                        val score = (ts.entryScore.toInt()).coerceIn(0, 100)
+                        list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
+                            symbol = ts.symbol.ifBlank { ts.mint.take(8) },
+                            mint = ts.mint,
+                            asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
+                            price = price,
+                            score = score,
+                            regime = regime,
+                        ))
+                    }
+                    list
                 }
             } catch (_: Throwable) {}
 

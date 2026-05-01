@@ -1098,6 +1098,18 @@ object MoonshotTraderAI {
             return ExitSignal.FLAT_EXIT
         }
 
+        // V5.9.402 — Lab Promoted Feed: proven LLM strategies can force-exit memes.
+        try {
+            if (com.lifecyclebot.engine.lab.LabPromotedFeed.shouldExitByPromotedRule(
+                    asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
+                    pnlPct = pnlPct,
+                    holdMinutes = holdMinutes,
+                )) {
+                ErrorLogger.info(TAG, "🧪 LAB EXIT: ${pos.symbol} matched a promoted strategy's TP/SL/timeout (${pnlPct.fmt(1)}%/${holdMinutes}min)")
+                return ExitSignal.FLAT_EXIT
+            }
+        } catch (_: Throwable) {}
+
         // Otherwise, HOLD - let it ride!
         return ExitSignal.HOLD
     }

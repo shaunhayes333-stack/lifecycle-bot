@@ -1,0 +1,369 @@
+package com.lifecyclebot.engine.lab
+
+import android.content.Context
+import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.GeminiCopilot
+import com.lifecyclebot.engine.SentienceHooks
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
+
+/**
+ * V5.9.402 — LLM Lab orchestrator.
+ *
+ * The Lab is the LLM's mini-universe. It owns:
+ *   • A pool of LLM-invented strategies (LabStrategy)
+ *   • Its own synthetic paper bankroll (default 100 SOL)
+ *   • A pending real-money approval queue (LabApproval)
+ *
+ * The Lab is fully wired through the AATE universe:
+ *   • Reads `SentienceHooks.crossEngineBias` to size against engine sentiment.
+ *   • Calls `SentienceHooks.recordEngineOutcome("LAB", …)` on every close so
+ *     the universe sees Lab outcomes too.
+ *   • Reads regimes from `CrossMarketRegimeAI` when available.
+ *
+ * Tick cadence (cheap, gated per call):
+ *   • CREATION cycle:    every 4h while LLM available + < strategy cap
+ *   • EVALUATION cycle:  every 30s — paper position TP/SL/timeout sweep
+ *   • CULL cycle:        every 1h — archive losers, request promote on winners
+ */
+object LlmLabEngine {
+    private const val TAG = "LlmLabEngine"
+
+    // ── Tuning knobs ────────────────────────────────────────────────────────
+    private const val CREATION_INTERVAL_MS = 4L * 60L * 60L * 1000L        // 4h
+    private const val EVAL_INTERVAL_MS     = 30_000L                       // 30s
+    private const val CULL_INTERVAL_MS     = 60L * 60L * 1000L             // 1h
+
+    private const val MAX_LIVE_STRATEGIES   = 12
+    private const val MAX_OPEN_POSITIONS    = 8
+    private const val MAX_PER_STRATEGY_OPEN = 1
+
+    // ── State ───────────────────────────────────────────────────────────────
+    private val lastEvalMs   = AtomicLong(0)
+    private val lastCullMs   = AtomicLong(0)
+    @Volatile private var ctxRef: Context? = null
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ────────────────────────────────────────────────────────────────────────
+    fun start(context: Context) {
+        if (ctxRef != null) return
+        ctxRef = context.applicationContext
+        LlmLabStore.init(context)
+        ErrorLogger.info(TAG, "🧪 LlmLab started — ${LlmLabStore.summary()}")
+        // Seed a default strategy so the lab isn't empty on first run.
+        seedDefaultsIfEmpty()
+    }
+
+    /** Called periodically from BotService.botLoop. Gated; cheap. */
+    fun tick(universeFeed: () -> List<LabUniverseTick>) {
+        if (!LlmLabStore.isEnabled()) return
+        val now = System.currentTimeMillis()
+
+        // 1. CREATION — every 4h, async (don't block the loop).
+        if (now - LlmLabStore.getLastCreationMs() >= CREATION_INTERVAL_MS) {
+            LlmLabStore.markCreated()  // mark pre-emptively to avoid re-entry on parallel ticks
+            GlobalScope.launch(Dispatchers.IO) { runCatching { runCreationCycle() } }
+        }
+
+        // 2. EVALUATION — every 30s, in-line (no LLM call, just price math).
+        if (now - lastEvalMs.get() >= EVAL_INTERVAL_MS) {
+            lastEvalMs.set(now)
+            runCatching { runEvaluationCycle(universeFeed()) }
+        }
+
+        // 3. CULL + promotion proposals — every 1h.
+        if (now - lastCullMs.get() >= CULL_INTERVAL_MS) {
+            lastCullMs.set(now)
+            runCatching { runCullCycle() }
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Tick payload from BotService — the universe-wide view the lab sees.
+    // ────────────────────────────────────────────────────────────────────────
+    data class LabUniverseTick(
+        val symbol: String,
+        val mint: String,
+        val asset: LabAssetClass,
+        val price: Double,
+        val score: Int,        // 0..100 — composite AATE score for the symbol
+        val regime: String,    // "BULL" | "BEAR" | "CHOP" | "ANY"
+    )
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 1. Creation cycle
+    // ────────────────────────────────────────────────────────────────────────
+    private fun seedDefaultsIfEmpty() {
+        if (LlmLabStore.allStrategies().isNotEmpty()) return
+        val seed = LabStrategy(
+            id = LlmLabStore.newStrategyId(),
+            name = "Lab Genesis #1",
+            rationale = "Seed strategy — moderate score gate, 10/-7 RR, 90min hold.",
+            asset = LabAssetClass.ANY,
+            entryScoreMin = 70,
+            entryRegime = "ANY",
+            takeProfitPct = 10.0,
+            stopLossPct = -7.0,
+            maxHoldMins = 90,
+            sizingSol = 0.25,
+            generation = 1,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(seed)
+    }
+
+    private fun runCreationCycle() {
+        val live = LlmLabStore.activeStrategies().size
+        if (live >= MAX_LIVE_STRATEGIES) {
+            ErrorLogger.info(TAG, "🧪 Creation skipped — at cap ($live/$MAX_LIVE_STRATEGIES)")
+            return
+        }
+        if (!GeminiCopilot.isConfigured() || GeminiCopilot.isAIDegraded()) {
+            ErrorLogger.info(TAG, "🧪 Creation skipped — LLM unavailable")
+            return
+        }
+
+        val recent = LlmLabStore.allStrategies()
+            .sortedByDescending { it.lastEvaluatedAt }
+            .take(8)
+            .joinToString("\n") { s ->
+                "- ${s.name} (${s.asset}, gen ${s.generation}) trades=${s.paperTrades} wr=${"%.0f".format(s.winRatePct())}% pnl=${"%.2f".format(s.paperPnlSol)}◎ status=${s.status}"
+            }
+
+        val prompt = """
+You are the AATE Lab strategist. Invent ONE new paper-trading strategy for the
+lab to try, distinct from the existing list below. Output STRICT JSON only.
+
+EXISTING STRATEGIES:
+$recent
+
+OUTPUT JSON FIELDS (all required):
+  name           short tag, <= 32 chars
+  rationale      one sentence, <= 120 chars
+  asset          one of: MEME, ALT, MARKETS, STOCK, FOREX, METAL, COMMODITY, ANY
+  entryScoreMin  integer 50..95
+  entryRegime    one of: ANY, BULL, BEAR, CHOP
+  takeProfitPct  number 3..50
+  stopLossPct    number -3..-30 (negative)
+  maxHoldMins    integer 15..480
+  sizingSol      number 0.05..1.0
+
+Reply with just the JSON object, nothing else.
+        """.trimIndent()
+
+        val raw = try {
+            GeminiCopilot.rawText(
+                userPrompt = prompt,
+                systemPrompt = "You are a quantitative strategist. Reply with strict JSON only.",
+                temperature = 0.9,
+                maxTokens = 400
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "Creation LLM call failed: ${e.message}")
+            null
+        } ?: return
+
+        val parsed = parseStrategyJson(raw) ?: run {
+            ErrorLogger.warn(TAG, "🧪 Strategy parse failed; reply: ${raw.take(160)}")
+            return
+        }
+
+        // Pick a parent (best paper performer if any) for lineage.
+        val parent = LlmLabStore.allStrategies()
+            .filter { it.paperTrades >= 5 }
+            .maxByOrNull { it.paperPnlSol }
+        val gen = (parent?.generation ?: 0) + 1
+
+        val s = parsed.copy(
+            id = LlmLabStore.newStrategyId(),
+            parentId = parent?.id,
+            generation = gen,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(s)
+        ErrorLogger.info(TAG, "🧪 LLM created strategy: ${s.name} (${s.asset}, gen=$gen, parent=${parent?.name ?: "none"})")
+    }
+
+    /**
+     * Lenient JSON parser — strips fences, extracts the first {...} block.
+     */
+    private fun parseStrategyJson(reply: String): LabStrategy? {
+        val cleaned = reply.trim()
+            .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        val start = cleaned.indexOf('{')
+        val end   = cleaned.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        return try {
+            val o = JSONObject(cleaned.substring(start, end + 1))
+            LabStrategy(
+                id = "",   // filled by caller
+                name = o.optString("name").ifBlank { return null }.take(32),
+                rationale = o.optString("rationale").take(140),
+                asset = LabAssetClass.parse(o.optString("asset")),
+                entryScoreMin = o.optInt("entryScoreMin", 70).coerceIn(40, 99),
+                entryRegime = o.optString("entryRegime", "ANY").uppercase(),
+                takeProfitPct = o.optDouble("takeProfitPct", 10.0).coerceIn(2.0, 100.0),
+                stopLossPct = o.optDouble("stopLossPct", -8.0).coerceIn(-50.0, -2.0),
+                maxHoldMins = o.optInt("maxHoldMins", 90).coerceIn(10, 720),
+                sizingSol = o.optDouble("sizingSol", 0.25).coerceIn(0.05, 2.0),
+                generation = 1,
+                status = LabStrategyStatus.ACTIVE,
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "JSON parse error: ${e.message}")
+            null
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 2. Evaluation cycle — fast, no LLM
+    // ────────────────────────────────────────────────────────────────────────
+    private fun runEvaluationCycle(universe: List<LabUniverseTick>) {
+        if (universe.isEmpty()) return
+
+        // Update existing positions (TP/SL/timeout sweep).
+        val openPositions = LlmLabStore.allPositions()
+        for (pos in openPositions) {
+            val tick = universe.firstOrNull { it.mint == pos.mint || it.symbol == pos.symbol }
+            val live = tick?.price ?: continue
+            LlmLabTrader.checkExit(pos, live)
+        }
+
+        // Maybe open a new position for ACTIVE strategies that don't have one.
+        if (LlmLabStore.allPositions().size >= MAX_OPEN_POSITIONS) return
+        val active = LlmLabStore.activeStrategies()
+        if (active.isEmpty()) return
+
+        for (s in active) {
+            val openForStrategy = LlmLabStore.positionsForStrategy(s.id).size
+            if (openForStrategy >= MAX_PER_STRATEGY_OPEN) continue
+
+            val candidate = pickCandidate(s, universe) ?: continue
+            // Bias size by symbiosis cross-engine multiplier.
+            val biasMult = try {
+                SentienceHooks.crossEngineBias(when (s.asset) {
+                    LabAssetClass.ALT -> "ALTS"
+                    LabAssetClass.MEME -> "MEME"
+                    else -> "MARKETS"
+                })
+            } catch (_: Throwable) { 1.0 }
+
+            val sized = (s.sizingSol * biasMult).coerceIn(s.sizingSol * 0.5, s.sizingSol * 1.5)
+            if (sized > LlmLabStore.getPaperBalance()) continue
+            LlmLabTrader.openPaper(s, candidate, sized)
+        }
+    }
+
+    private fun pickCandidate(s: LabStrategy, universe: List<LabUniverseTick>): LabUniverseTick? {
+        val pool = universe.filter { tick ->
+            (s.asset == LabAssetClass.ANY || tick.asset == s.asset) &&
+            tick.score >= s.entryScoreMin &&
+            (s.entryRegime == "ANY" || tick.regime == s.entryRegime) &&
+            tick.price > 0.0 &&
+            LlmLabStore.openPosition(s.id, tick.mint) == null
+        }
+        if (pool.isEmpty()) return null
+        return pool.maxByOrNull { it.score }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 3. Cull + AUTO-PROMOTION (proven strategies graduate into the live flow)
+    // ────────────────────────────────────────────────────────────────────────
+    private fun runCullCycle() {
+        for (s in LlmLabStore.allStrategies()) {
+            if (s.status == LabStrategyStatus.ARCHIVED) continue
+
+            // Loser cull
+            if (s.paperTrades >= LlmLabStore.ARCHIVE_LOSER_AFTER_TRADES &&
+                s.winRatePct() < LlmLabStore.ARCHIVE_LOSER_BELOW_WR_PCT) {
+                LlmLabStore.archiveStrategy(s.id, "WR ${"%.0f".format(s.winRatePct())}% < ${LlmLabStore.ARCHIVE_LOSER_BELOW_WR_PCT}% after ${s.paperTrades} trades")
+                continue
+            }
+
+            // AUTO-PROMOTION — once a strategy proves itself in paper, it
+            // graduates into PROMOTED status and starts nudging the live
+            // engine via LabPromotedFeed. No user approval needed for paper
+            // proving → live influence; the real-money guardrail still kicks
+            // in inside Executor.doBuy via LabPromotedFeed.requireLiveApproval.
+            if (s.status == LabStrategyStatus.ACTIVE &&
+                s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
+                s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
+                s.paperPnlSol > 0.0
+            ) {
+                LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
+                ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +
+                    "(${s.paperTrades} trades · WR ${"%.0f".format(s.winRatePct())}% · " +
+                    "PnL ${"%+.3f".format(s.paperPnlSol)}◎)")
+            }
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // User decisions on approvals
+    // ────────────────────────────────────────────────────────────────────────
+    fun approveApproval(approvalId: String) {
+        val a = LlmLabStore.allApprovals().firstOrNull { it.id == approvalId } ?: return
+        if (a.status != LabApprovalStatus.PENDING) return
+        LlmLabStore.decideApproval(approvalId, LabApprovalStatus.APPROVED)
+        when (a.kind) {
+            LabApprovalKind.PROMOTE_TO_LIVE -> {
+                val s = LlmLabStore.getStrategy(a.strategyId ?: "") ?: return
+                // Strategy already auto-promoted to PROMOTED; this approval grants
+                // live (real-money) spend authority via LabPromotedFeed.
+                LabPromotedFeed.grantLiveAuthority(s.id)
+                ErrorLogger.info(TAG, "🧪 LIVE SPEND AUTHORISED for ${s.name}")
+            }
+            LabApprovalKind.SINGLE_LIVE_TRADE -> {
+                ErrorLogger.info(TAG, "🧪 SINGLE LIVE TRADE approved (id=$approvalId) — strategy=${a.strategyId} symbol=${a.symbol}")
+                a.strategyId?.let { LabPromotedFeed.grantLiveAuthority(it) }
+            }
+            LabApprovalKind.TRANSFER_TO_MAIN_PAPER -> {
+                if (LlmLabStore.getPaperBalance() >= a.amountSol) {
+                    LlmLabStore.adjustPaperBalance(-a.amountSol)
+                    try {
+                        com.lifecyclebot.engine.BotService.status.paperWalletSol += a.amountSol
+                    } catch (_: Throwable) {}
+                    ErrorLogger.info(TAG, "🧪 TRANSFER ${a.amountSol}◎ Lab paper → main paper wallet")
+                }
+            }
+        }
+    }
+
+    fun denyApproval(approvalId: String) {
+        LlmLabStore.decideApproval(approvalId, LabApprovalStatus.DENIED)
+    }
+
+    /**
+     * Manual entry point for the LLM (or chat layer) to request a real-money
+     * trade on a specific symbol. Always queued for user approval — never
+     * executes immediately.
+     */
+    fun requestSingleLiveTrade(strategyId: String, symbol: String, amountSol: Double, reason: String) {
+        LlmLabStore.addApproval(LabApproval(
+            id = LlmLabStore.newApprovalId(),
+            kind = LabApprovalKind.SINGLE_LIVE_TRADE,
+            strategyId = strategyId,
+            symbol = symbol,
+            amountSol = amountSol,
+            reason = reason.take(200),
+        ))
+    }
+
+    /** LLM-initiated transfer of lab paper SOL into the main paper wallet. */
+    fun requestTransferToMainPaper(amountSol: Double, reason: String) {
+        LlmLabStore.addApproval(LabApproval(
+            id = LlmLabStore.newApprovalId(),
+            kind = LabApprovalKind.TRANSFER_TO_MAIN_PAPER,
+            strategyId = null, symbol = null,
+            amountSol = max(0.0, amountSol),
+            reason = reason.take(200),
+        ))
+    }
+
+    fun statusLine(): String = LlmLabStore.summary()
+}

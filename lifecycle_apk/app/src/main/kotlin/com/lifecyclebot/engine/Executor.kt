@@ -2996,7 +2996,36 @@ class Executor(
                 engine = "MEME", symbol = ts.symbol, regime = ts.source
             )
         } catch (_: Throwable) { 1.0 }
-        val effSol = (sol * sizeMult).coerceIn(sol * 0.5, sol * 1.5)
+
+        // V5.9.402 — Lab Promoted Feed: proven LLM strategies nudge live entries.
+        val labNudge = try {
+            com.lifecyclebot.engine.lab.LabPromotedFeed.entryNudge(
+                asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
+                score = score.toInt(),
+            )
+        } catch (_: Throwable) { null }
+        // If a promoted Lab strategy says the score is too weak, skip the entry.
+        if (labNudge != null && score.toInt() < labNudge.scoreFloor) {
+            onLog("🧪 LAB FLOOR: ${ts.symbol} score=${score.toInt()} < floor ${labNudge.scoreFloor} (${labNudge.strategyName})", tradeId.mint)
+            return
+        }
+        // Real-money guardrail: live mode + un-authorised promoted strategy
+        // → queue an approval and bail. Paper mode is unrestricted.
+        if (!cfg().paperMode && labNudge != null &&
+            com.lifecyclebot.engine.lab.LabPromotedFeed.requireLiveApproval(labNudge.strategyId)) {
+            try {
+                com.lifecyclebot.engine.lab.LlmLabEngine.requestSingleLiveTrade(
+                    strategyId = labNudge.strategyId,
+                    symbol = ts.symbol,
+                    amountSol = sol,
+                    reason = "Lab strategy '${labNudge.strategyName}' wants to spend ${"%.3f".format(sol)}◎ on ${ts.symbol} (score=${score.toInt()}).",
+                )
+            } catch (_: Throwable) {}
+            onLog("🧪 LAB AWAITING APPROVAL: ${labNudge.strategyName} → ${ts.symbol} (live trade queued)", tradeId.mint)
+            return
+        }
+        val labMult = labNudge?.sizeMultiplier ?: 1.0
+        val effSol = (sol * sizeMult * labMult).coerceIn(sol * 0.5, sol * 1.75)
 
         if (cfg().paperMode || wallet == null) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)

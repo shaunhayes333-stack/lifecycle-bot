@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0A0A0F"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
+
+    <!-- ── TOP BAR ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp"
+        android:background="#0A0A0F">
+
+        <TextView
+            android:id="@+id/btnLabBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="←"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="🧪 LLM Lab"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.04"/>
+            <TextView android:id="@+id/tvLabSubtitle"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Sandbox · paper-only · proves itself before live"
+                android:textColor="#6B7280"
+                android:textSize="9sp" android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <TextView android:id="@+id/btnLabRefresh"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="↻" android:textColor="#A78BFA" android:textSize="18sp"
+            android:paddingEnd="10dp" android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/btnLabToggle"
+            android:layout_width="wrap_content" android:layout_height="32dp"
+            android:gravity="center"
+            android:text="ON"
+            android:textColor="#000000"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:background="@drawable/pill_bg_green"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:fontFamily="monospace"/>
+    </LinearLayout>
+
+    <!-- ── HEADLINE STATS BAR ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingBottom="8dp"
+        android:background="#0A0A0F">
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <TextView android:id="@+id/tvLabBalance"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="100.00◎"
+                android:textColor="#A78BFA" android:textSize="18sp" android:textStyle="bold"
+                android:fontFamily="monospace"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="paper bank" android:textColor="#6B7280" android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <TextView android:id="@+id/tvLabPnl"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="+0.000◎"
+                android:textColor="#14F195" android:textSize="18sp" android:textStyle="bold"
+                android:fontFamily="monospace"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="paper PnL" android:textColor="#6B7280" android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <TextView android:id="@+id/tvLabActive"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="0/0"
+                android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"
+                android:fontFamily="monospace"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="active/promoted" android:textColor="#6B7280" android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+            <TextView android:id="@+id/tvLabPending"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="#F59E0B" android:textSize="18sp" android:textStyle="bold"
+                android:fontFamily="monospace"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="awaiting you" android:textColor="#6B7280" android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <!-- ── TABS ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_padding"
+        android:paddingEnd="@dimen/screen_padding"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:background="#0A0A0F">
+
+        <TextView android:id="@+id/tabLabApprovals"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="APPROVALS" android:textColor="#A78BFA" android:textSize="11sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:background="@drawable/tab_active_bg"
+            android:layout_marginEnd="4dp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabLabStrategies"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="STRATEGIES" android:textColor="#6B7280" android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/tab_inactive_bg"
+            android:layout_marginEnd="4dp"
+            android:clickable="true" android:focusable="true"/>
+        <TextView android:id="@+id/tabLabPositions"
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center"
+            android:text="POSITIONS" android:textColor="#6B7280" android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/tab_inactive_bg"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#1F2937"/>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+        <LinearLayout android:id="@+id/llLabContent"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_padding"
+            android:paddingEnd="@dimen/screen_padding"
+            android:paddingTop="8dp"
+            android:paddingBottom="32dp"/>
+    </ScrollView>
+</LinearLayout>
