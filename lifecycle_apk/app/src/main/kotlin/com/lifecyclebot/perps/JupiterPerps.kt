@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.network.JupiterApi
@@ -68,7 +70,7 @@ object JupiterPerps {
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
     
     // HTTP Client
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)

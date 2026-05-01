@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.data.BotConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -41,7 +43,7 @@ object DataPipeline {
     private const val MAX_TOKENS_PER_WALLET = 16
     private const val CACHE_CLEANUP_MULTIPLIER = 10L
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.SECONDS)

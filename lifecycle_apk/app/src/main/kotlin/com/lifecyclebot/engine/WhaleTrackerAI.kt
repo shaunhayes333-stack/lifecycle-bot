@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,7 +52,7 @@ object WhaleTrackerAI {
     
     private const val TAG = "WhaleTracker"
     
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

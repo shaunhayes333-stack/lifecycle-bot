@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
  */
 class SolscanDevTracker {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

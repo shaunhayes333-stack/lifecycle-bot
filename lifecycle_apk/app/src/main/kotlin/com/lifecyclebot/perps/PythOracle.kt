@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -268,7 +270,7 @@ object PythOracle {
     private val loggedDead = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     
     // HTTP Client
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()

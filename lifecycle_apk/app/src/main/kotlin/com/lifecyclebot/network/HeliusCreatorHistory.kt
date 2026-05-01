@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  */
 class HeliusCreatorHistory(private val apiKey: String) {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

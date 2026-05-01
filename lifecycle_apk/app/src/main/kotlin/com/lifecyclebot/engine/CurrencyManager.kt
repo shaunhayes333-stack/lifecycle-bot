@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import android.content.SharedPreferences
 import okhttp3.OkHttpClient
@@ -63,7 +65,7 @@ class CurrencyManager(private val ctx: Context) {
         val isCrypto: Boolean,
     )
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

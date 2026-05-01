@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.data.BotConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -24,7 +26,7 @@ import java.util.concurrent.TimeUnit
  */
 object TelegramNotifier {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()

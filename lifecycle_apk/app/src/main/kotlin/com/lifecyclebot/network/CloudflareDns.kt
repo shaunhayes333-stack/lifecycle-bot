@@ -27,7 +27,7 @@ class CloudflareDns private constructor() : Dns {
     
     // Bootstrap client uses system DNS (needed to resolve DoH provider IPs)
     // We use IP addresses directly for DoH providers to avoid circular dependency
-    private val bootstrapClient = OkHttpClient.Builder()
+    private val bootstrapClient = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.SECONDS)

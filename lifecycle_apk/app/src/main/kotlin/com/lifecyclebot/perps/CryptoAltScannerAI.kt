@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.network.CoinGeckoTrending
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +42,7 @@ object CryptoAltScannerAI {
     private const val DOMINANCE_CACHE_TTL = 120_000L // 2min dominance cache
     private const val NARRATIVE_CACHE_TTL = 180_000L // 3min narrative cache
 
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .build()

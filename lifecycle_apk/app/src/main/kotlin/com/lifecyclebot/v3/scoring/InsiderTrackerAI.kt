@@ -1,5 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.*
@@ -65,7 +67,7 @@ object InsiderTrackerAI {
     private const val TAG = "🔍InsiderTracker"
 
     // V5.9: real Helius API client
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

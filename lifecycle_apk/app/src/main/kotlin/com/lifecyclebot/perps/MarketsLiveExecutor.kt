@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.WalletManager
 import com.lifecyclebot.engine.UniversalBridgeEngine
@@ -838,7 +840,7 @@ object MarketsLiveExecutor {
 
     // Shared OkHttp client for all Flash API calls (reused, not recreated per call)
     private val flashHttp by lazy {
-        okhttp3.OkHttpClient.Builder()
+        com.lifecyclebot.network.SharedHttpClient.builder()
             .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()

@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
@@ -81,6 +83,11 @@ object PriceAggregator {
         } else 0.0
     }
     private const val CACHE_TTL_MS = 3_000L  // 3 second cache
+    // V5.9.393: stale-cache fallback window. When ALL live sources fail (or the
+    // symbol is currently pruned), serve the last known good price for up to 24h
+    // instead of returning null/0. Prevents bogus $0 reads from triggering false
+    // stop-losses or PnL corruption on the unified open-positions card.
+    private const val STALE_FALLBACK_TTL_MS = 24L * 60L * 60L * 1_000L  // 24h
     
     // Source success tracking
     private val sourceSuccessCount = ConcurrentHashMap<String, AtomicInteger>()
@@ -98,7 +105,7 @@ object PriceAggregator {
     private const val PRUNE_COOLDOWN_MS = 60 * 60 * 1000L  // 1 hour
     
     // HTTP Client (shared)
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
@@ -134,7 +141,13 @@ object PriceAggregator {
         // V5.9.25: auto-prune — skip symbols that have consistently failed until cooldown expires
         val pruneExpiresAt = prunedSymbols[symbol]
         if (pruneExpiresAt != null && System.currentTimeMillis() < pruneExpiresAt) {
-            // Still pruned — short-circuit with no network calls
+            // V5.9.393: serve last known good price if still within stale window,
+            // instead of forcing the caller into a price=0 fallback during the 1h prune.
+            val stale = priceCache[symbol]
+            if (stale != null && System.currentTimeMillis() - stale.timestamp < STALE_FALLBACK_TTL_MS) {
+                return@withContext PriceResult(stale.price, 0.0, "STALE_${stale.source}")
+            }
+            // Still pruned and no stale cache — short-circuit with no network calls
             return@withContext null
         } else if (pruneExpiresAt != null) {
             // Cooldown expired — remove prune and retry this cycle
@@ -178,6 +191,14 @@ object PriceAggregator {
         } else if (loggedAllFailed.add(symbol)) {
             // V5.9.24: log-once-per-symbol instead of spamming every scan cycle
             ErrorLogger.warn(TAG, "⚠️ ALL ${sources.size} sources failed for $symbol (silenced from now on)")
+        }
+
+        // V5.9.393: stale-cache fallback. If we have a recent (<24h) cached price
+        // from a previous successful fetch, serve it rather than returning null
+        // (which downstream turns into price=0 and triggers bogus stop-losses).
+        val stale = priceCache[symbol]
+        if (stale != null && System.currentTimeMillis() - stale.timestamp < STALE_FALLBACK_TTL_MS) {
+            return@withContext PriceResult(stale.price, 0.0, "STALE_${stale.source}")
         }
         return@withContext null
     }

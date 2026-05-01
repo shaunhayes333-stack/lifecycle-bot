@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
  */
 class XScraper {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .followRedirects(true)

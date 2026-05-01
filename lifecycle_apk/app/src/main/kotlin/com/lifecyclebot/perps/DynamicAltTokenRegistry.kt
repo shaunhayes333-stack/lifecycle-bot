@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.network.BirdeyeApi
 import com.lifecyclebot.network.CoinGeckoTrending
@@ -127,7 +129,7 @@ object DynamicAltTokenRegistry {
     private const val MIN_VOL_24H      = 10_000.0
     private const val MIN_AGE_MINUTES  = 10.0
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

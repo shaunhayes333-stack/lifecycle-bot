@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import android.content.SharedPreferences
 import okhttp3.OkHttpClient
@@ -43,7 +45,7 @@ class CopyTradeEngine(
     private val prefs: SharedPreferences =
         ctx.getSharedPreferences("copy_wallets", Context.MODE_PRIVATE)
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

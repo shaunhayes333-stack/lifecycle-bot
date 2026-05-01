@@ -1,5 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.v3.core.TradingContext
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.engine.ErrorLogger
@@ -38,7 +40,7 @@ class FearGreedAI : ScoringModule {
         private const val API_URL = "https://api.alternative.me/fng/?limit=1"
         private const val CACHE_DURATION_MS = 5 * 60 * 1000L  // 5 minutes
         
-        private val client = OkHttpClient.Builder()
+        private val client = SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
             .build()

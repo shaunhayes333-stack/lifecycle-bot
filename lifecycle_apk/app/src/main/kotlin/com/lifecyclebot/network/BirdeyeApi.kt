@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit
  */
 class BirdeyeApi(private val apiKey: String = "") {
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .build()

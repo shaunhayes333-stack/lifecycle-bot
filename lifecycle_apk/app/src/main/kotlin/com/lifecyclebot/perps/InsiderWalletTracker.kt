@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.engine.ErrorLogger
@@ -55,7 +57,7 @@ object InsiderWalletTracker {
     private var onInsiderSignalCallback: ((InsiderSignal) -> Unit)? = null
 
     // HTTP Client
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

@@ -60,7 +60,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      */
     fun getPublicKeyOnly(): String = publicKeyB58
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()

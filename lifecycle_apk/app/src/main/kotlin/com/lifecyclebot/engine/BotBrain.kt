@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.ConfigStore
@@ -65,7 +67,7 @@ class BotBrain(
     private val onParamChanged: (String, Double, Double, String) -> Unit,
 ) {
     private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val http   = OkHttpClient.Builder()
+    private val http   = SharedHttpClient.builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()

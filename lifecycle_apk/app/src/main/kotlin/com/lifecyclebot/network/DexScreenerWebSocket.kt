@@ -37,7 +37,7 @@ class DexScreenerWebSocket(
     ) -> Unit,
     private val onLog: (String) -> Unit,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .pingInterval(25, TimeUnit.SECONDS)

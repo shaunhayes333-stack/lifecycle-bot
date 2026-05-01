@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
@@ -63,7 +65,7 @@ object VoiceManager {
 
     private val generation = AtomicLong(0L)
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(20, TimeUnit.SECONDS)

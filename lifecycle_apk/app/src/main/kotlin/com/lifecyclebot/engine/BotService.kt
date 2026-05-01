@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9359,7 +9361,7 @@ if (deferredCount > 0) {
         // Try pump.fun API
         if (ts.lastPrice <= 0) {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
+                val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
                 val request = okhttp3.Request.Builder()

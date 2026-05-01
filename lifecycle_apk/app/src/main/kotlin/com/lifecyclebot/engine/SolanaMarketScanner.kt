@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import kotlinx.coroutines.cancel
 import android.content.Context
 import com.lifecyclebot.data.BotConfig
@@ -687,7 +689,7 @@ class SolanaMarketScanner(
         val score: Double,
     )
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
@@ -2614,7 +2616,7 @@ class SolanaMarketScanner(
         )
     }
 
-    private val rugcheckHttp = OkHttpClient.Builder()
+    private val rugcheckHttp = SharedHttpClient.builder()
         .connectTimeout(2, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
         .writeTimeout(2, TimeUnit.SECONDS)

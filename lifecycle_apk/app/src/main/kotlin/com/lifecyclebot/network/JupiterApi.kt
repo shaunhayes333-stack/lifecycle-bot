@@ -71,7 +71,7 @@ class JupiterApi(private val apiKey: String = "") {
         }
     }
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .dns(CloudflareDns.INSTANCE)
         .connectTimeout(CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .readTimeout(READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)

@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import android.content.Context
 import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.ConfigStore
@@ -388,7 +390,7 @@ class WalletManager private constructor(private val ctx: Context) {
     
     private fun tryCoinGecko(): Double {
         return try {
-            val http = okhttp3.OkHttpClient.Builder()
+            val http = com.lifecyclebot.network.SharedHttpClient.builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()
@@ -412,7 +414,7 @@ class WalletManager private constructor(private val ctx: Context) {
     
     private fun tryBinance(): Double {
         return try {
-            val http = okhttp3.OkHttpClient.Builder()
+            val http = com.lifecyclebot.network.SharedHttpClient.builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()
@@ -436,7 +438,7 @@ class WalletManager private constructor(private val ctx: Context) {
     
     private fun tryJupiter(): Double {
         return try {
-            val http = okhttp3.OkHttpClient.Builder()
+            val http = com.lifecyclebot.network.SharedHttpClient.builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()

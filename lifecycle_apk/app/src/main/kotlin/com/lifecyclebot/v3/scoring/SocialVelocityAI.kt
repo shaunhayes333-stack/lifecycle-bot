@@ -1,5 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.v3.core.TradingContext
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.engine.ErrorLogger
@@ -34,7 +36,7 @@ class SocialVelocityAI : ScoringModule {
         private const val BOOSTED_API = "https://api.dexscreener.com/token-boosts/top/v1"
         private const val CACHE_DURATION_MS = 2 * 60 * 1000L  // 2 minutes
         
-        private val client = OkHttpClient.Builder()
+        private val client = SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
             .build()

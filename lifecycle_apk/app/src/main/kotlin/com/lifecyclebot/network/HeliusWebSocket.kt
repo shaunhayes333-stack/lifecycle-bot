@@ -39,7 +39,7 @@ class HeliusWebSocket(
     ) -> Unit,
     private val onLog: (String) -> Unit,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .pingInterval(15, TimeUnit.SECONDS)

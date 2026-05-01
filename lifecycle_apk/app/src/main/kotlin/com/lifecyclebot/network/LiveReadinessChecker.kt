@@ -23,7 +23,7 @@ object LiveReadinessChecker {
     private const val RECHECK_MS = 30_000L
     private const val TIMEOUT_MS = 4_000L
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .dns(CloudflareDns.INSTANCE)
         .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
         .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)

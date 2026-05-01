@@ -25,7 +25,7 @@ class PumpFunWebSocket(
     private val onGraduation: (mint: String) -> Unit,
     private val onLog: (String) -> Unit,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)   // no read timeout — persistent connection
         .pingInterval(20, TimeUnit.SECONDS)

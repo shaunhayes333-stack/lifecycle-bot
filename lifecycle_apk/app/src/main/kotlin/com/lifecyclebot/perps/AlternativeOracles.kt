@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -43,7 +45,7 @@ object SwitchboardOracle {
     private const val CACHE_TTL_MS = 5_000L
     
     // HTTP Client
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
@@ -203,7 +205,7 @@ object JupiterPriceOracle {
     private var lastFetchTime = 0L
     private const val CACHE_TTL_MS = 3_000L
     
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
@@ -405,7 +407,7 @@ object BirdeyeOracle {
     private val priceCache = ConcurrentHashMap<String, Double>()
     private const val CACHE_TTL_MS = 5_000L
     
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
@@ -458,7 +460,7 @@ object DexScreenerOracle {
     private const val TAG = "📊DexScreener"
     private const val DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens/"
     
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.SECONDS)
         .build()

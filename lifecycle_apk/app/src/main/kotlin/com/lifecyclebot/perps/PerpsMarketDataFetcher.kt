@@ -1,5 +1,7 @@
 package com.lifecyclebot.perps
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.perps.DynamicAltTokenRegistry
 import kotlinx.coroutines.Dispatchers
@@ -410,7 +412,7 @@ object PerpsMarketDataFetcher {
     }
     
     // HTTP Client
-    private val client = OkHttpClient.Builder()
+    private val client = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

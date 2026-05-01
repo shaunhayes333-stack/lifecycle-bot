@@ -30,7 +30,7 @@ object ChartHistoryFetcher {
 
     private const val TAG = "ChartHist"
 
-    private val http = OkHttpClient.Builder()
+    private val http = SharedHttpClient.builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

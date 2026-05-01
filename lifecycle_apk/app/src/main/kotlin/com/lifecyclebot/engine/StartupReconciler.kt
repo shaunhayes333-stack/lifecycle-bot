@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+
 import com.lifecyclebot.data.BotStatus
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.network.SolanaWallet
@@ -426,7 +428,7 @@ class StartupReconciler(
     private fun getTokenBalance(mint: String): Double {
         return try {
             // Use getTokenAccountsByOwner RPC call
-            val http = okhttp3.OkHttpClient.Builder()
+            val http = com.lifecyclebot.network.SharedHttpClient.builder()
                 .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
