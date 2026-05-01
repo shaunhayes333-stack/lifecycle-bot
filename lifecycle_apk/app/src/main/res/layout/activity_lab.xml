@@ -181,6 +181,56 @@
     </LinearLayout>
 
     <!-- ═══════════════════════════════════════════════════════════════════
+         NEURAL CORE banner — rotating motto strip
+         ═══════════════════════════════════════════════════════════════════ -->
+    <TextView android:id="@+id/tvLabNeuralCore"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="▰▱▰▱  NEURAL CORE ONLINE  ▱▰▱▰"
+        android:textColor="#FFA78BFA"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:letterSpacing="0.2"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:singleLine="true"
+        android:background="#FF0A0612"/>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         NARRATIVE LIVE strip — alive memetic clusters with bonus chips
+         ═══════════════════════════════════════════════════════════════════ -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+        <LinearLayout android:id="@+id/llLabNarrativeStrip"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"/>
+    </HorizontalScrollView>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         ACTION BAR — manual override / toolkit
+         ═══════════════════════════════════════════════════════════════════ -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+        <LinearLayout android:id="@+id/llLabActionBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp"/>
+    </HorizontalScrollView>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
          LIVE TICKER — auto-scrolling thought feed
          ═══════════════════════════════════════════════════════════════════ -->
     <LinearLayout

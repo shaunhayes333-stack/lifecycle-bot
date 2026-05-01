@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
  * over time via SentienceHooks.requestLlmMemeBuy + persona memory; this is the
  * deterministic backbone.
  */
-object NarrativeAI {
+object MemeNarrativeAI {
 
     private const val TAG = "NarrativeAI"
 

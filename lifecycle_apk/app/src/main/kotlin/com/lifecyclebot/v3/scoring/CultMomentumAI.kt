@@ -25,11 +25,11 @@ object CultMomentumAI {
     private const val HOT_BONUS         = 18                  // when ≥4 fires in window
 
     // cluster → list of fire timestamps (most recent first; bounded)
-    private val opens = ConcurrentHashMap<NarrativeAI.Cluster, MutableList<Long>>()
+    private val opens = ConcurrentHashMap<MemeNarrativeAI.Cluster, MutableList<Long>>()
 
     /** Record a new entry for a cluster. */
-    fun noteOpen(cluster: NarrativeAI.Cluster) {
-        if (cluster == NarrativeAI.Cluster.UNKNOWN) return
+    fun noteOpen(cluster: MemeNarrativeAI.Cluster) {
+        if (cluster == MemeNarrativeAI.Cluster.UNKNOWN) return
         val list = opens.getOrPut(cluster) { mutableListOf() }
         synchronized(list) {
             list.add(0, System.currentTimeMillis())
@@ -41,8 +41,8 @@ object CultMomentumAI {
     }
 
     /** Score boost to add to the next entry in this cluster, if it's alive. */
-    fun bonusFor(cluster: NarrativeAI.Cluster): Int {
-        if (cluster == NarrativeAI.Cluster.UNKNOWN) return 0
+    fun bonusFor(cluster: MemeNarrativeAI.Cluster): Int {
+        if (cluster == MemeNarrativeAI.Cluster.UNKNOWN) return 0
         val n = countWithin(cluster)
         return when {
             n >= 4 -> HOT_BONUS
@@ -52,10 +52,10 @@ object CultMomentumAI {
     }
 
     /** True if a cluster is currently considered momentum-alive. */
-    fun isAlive(cluster: NarrativeAI.Cluster): Boolean = countWithin(cluster) >= MOMENTUM_THRESHOLD
+    fun isAlive(cluster: MemeNarrativeAI.Cluster): Boolean = countWithin(cluster) >= MOMENTUM_THRESHOLD
 
     /** Number of fires in the rolling window. */
-    fun countWithin(cluster: NarrativeAI.Cluster): Int {
+    fun countWithin(cluster: MemeNarrativeAI.Cluster): Int {
         val list = opens[cluster] ?: return 0
         synchronized(list) {
             evictExpired(list)
@@ -64,7 +64,7 @@ object CultMomentumAI {
     }
 
     /** Top-5 currently-alive clusters for UI/diagnostics. */
-    fun topAlive(): List<Pair<NarrativeAI.Cluster, Int>> =
+    fun topAlive(): List<Pair<MemeNarrativeAI.Cluster, Int>> =
         opens.entries
             .map { it.key to countWithin(it.key) }
             .filter { it.second >= MOMENTUM_THRESHOLD }

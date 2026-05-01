@@ -531,9 +531,9 @@ object MoonshotTraderAI {
         // and a further bonus when that cluster is "alive" (≥2 fires in the
         // last hour). These are additive and never subtract — the bot leans
         // into running narratives but a non-meme symbol still scores normally.
-        val narrative = try { NarrativeAI.detect(symbol = symbol, name = symbol) } catch (_: Throwable) { null }
+        val narrative = try { MemeNarrativeAI.detect(symbol = symbol, name = symbol) } catch (_: Throwable) { null }
         val narrativeBonus = narrative?.baseBonus ?: 0
-        val cultBonus = try { CultMomentumAI.bonusFor(narrative?.cluster ?: NarrativeAI.Cluster.UNKNOWN) } catch (_: Throwable) { 0 }
+        val cultBonus = try { CultMomentumAI.bonusFor(narrative?.cluster ?: MemeNarrativeAI.Cluster.UNKNOWN) } catch (_: Throwable) { 0 }
         if (narrativeBonus > 0 || cultBonus > 0) {
             ErrorLogger.info(TAG, "${narrative?.cluster?.emoji ?: ""} ${symbol} narrative=${narrativeBonus} cult=${cultBonus} (kw=${narrative?.matchedKeyword})")
         }
@@ -801,8 +801,8 @@ object MoonshotTraderAI {
         // V5.9.404 — telegraph the open into CultMomentumAI so subsequent
         // tokens in the same cluster ride the live narrative bonus.
         try {
-            val match = NarrativeAI.detect(symbol = position.symbol, name = position.symbol)
-            if (match.cluster != NarrativeAI.Cluster.UNKNOWN) {
+            val match = MemeNarrativeAI.detect(symbol = position.symbol, name = position.symbol)
+            if (match.cluster != MemeNarrativeAI.Cluster.UNKNOWN) {
                 CultMomentumAI.noteOpen(match.cluster)
             }
         } catch (_: Throwable) {}
@@ -843,9 +843,9 @@ object MoonshotTraderAI {
         // V5.9.404 — Symbolic learning: feed cluster outcome back to NarrativeAI
         // so the UI / future prompts can lean on which narratives actually pay.
         try {
-            val match = NarrativeAI.detect(symbol = pos.symbol, name = pos.symbol)
-            if (match.cluster != NarrativeAI.Cluster.UNKNOWN) {
-                NarrativeAI.recordOutcome(match.cluster, pnlPct, isWin)
+            val match = MemeNarrativeAI.detect(symbol = pos.symbol, name = pos.symbol)
+            if (match.cluster != MemeNarrativeAI.Cluster.UNKNOWN) {
+                MemeNarrativeAI.recordOutcome(match.cluster, pnlPct, isWin)
             }
         } catch (_: Exception) {}
         

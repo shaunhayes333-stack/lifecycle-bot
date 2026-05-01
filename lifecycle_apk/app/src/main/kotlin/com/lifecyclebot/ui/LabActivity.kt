@@ -55,6 +55,9 @@ class LabActivity : AppCompatActivity() {
     private lateinit var btnToggle: TextView
     private lateinit var dotStatus: View
     private lateinit var tvTicker: TextView
+    private lateinit var tvNeuralCore: TextView
+    private lateinit var llNarrativeStrip: LinearLayout
+    private lateinit var llActionBar: LinearLayout
 
     // ── Sectors ──────────────────────────────────────────────────────────
     private lateinit var secApprovals: TextView
@@ -97,6 +100,19 @@ class LabActivity : AppCompatActivity() {
     private var tickerIdx = 0
     private var tickerRunner: Runnable? = null
     private var pulseAnimator: ValueAnimator? = null
+    private var neuralRunner: Runnable? = null
+    private var neuralIdx = 0
+
+    private val neuralMottos = listOf(
+        "▰▱▰▱  NEURAL CORE ONLINE  ▱▰▱▰",
+        "▰▱▰▱  EVOLVING STRATEGIES…  ▱▰▱▰",
+        "▰▱▰▱  SCANNING MEMETIC SPACE  ▱▰▱▰",
+        "▰▱▰▱  SYNAPSE PRESSURE NOMINAL  ▱▰▱▰",
+        "▰▱▰▱  FEEDING SYMBIOSIS BUS  ▱▰▱▰",
+        "▰▱▰▱  COMPOSING NEW THOUGHTS  ▱▰▱▰",
+        "▰▱▰▱  PRUNING DEAD SYNAPSES  ▱▰▱▰",
+        "▰▱▰▱  AATE LAB · v5.9.405  ▱▰▱▰",
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,6 +126,7 @@ class LabActivity : AppCompatActivity() {
         wireClicks()
         startPulse()
         startTicker()
+        startNeuralRotator()
         rebuild()
     }
 
@@ -118,6 +135,7 @@ class LabActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         tickerRunner?.let { handler.removeCallbacks(it) }
+        neuralRunner?.let { handler.removeCallbacks(it) }
         pulseAnimator?.cancel()
     }
 
@@ -136,6 +154,9 @@ class LabActivity : AppCompatActivity() {
         btnToggle      = findViewById(R.id.btnLabToggle)
         dotStatus      = findViewById(R.id.dotLabStatus)
         tvTicker       = findViewById(R.id.tvLabTicker)
+        tvNeuralCore   = findViewById(R.id.tvLabNeuralCore)
+        llNarrativeStrip = findViewById(R.id.llLabNarrativeStrip)
+        llActionBar    = findViewById(R.id.llLabActionBar)
 
         secApprovals   = findViewById(R.id.secApprovals)
         secStrategies  = findViewById(R.id.secStrategies)
@@ -193,6 +214,19 @@ class LabActivity : AppCompatActivity() {
             }
         }
         handler.postDelayed(tickerRunner!!, 800L)
+    }
+
+    private fun startNeuralRotator() {
+        neuralRunner = object : Runnable {
+            override fun run() {
+                tvNeuralCore.text = neuralMottos[neuralIdx % neuralMottos.size]
+                tvNeuralCore.alpha = 0.4f
+                tvNeuralCore.animate().alpha(1f).setDuration(400L).start()
+                neuralIdx++
+                handler.postDelayed(this, 2800L)
+            }
+        }
+        handler.postDelayed(neuralRunner!!, 200L)
     }
 
     private fun refreshTickerSeq() {
@@ -284,6 +318,8 @@ class LabActivity : AppCompatActivity() {
 
         // Ticker --------------------------------------------------------------
         refreshTickerSeq()
+        rebuildNarrativeStrip()
+        rebuildActionBar()
 
         // Body ----------------------------------------------------------------
         llContent.removeAllViews()
@@ -293,6 +329,78 @@ class LabActivity : AppCompatActivity() {
             Sector.POSITIONS  -> { llChatComposer.visibility = View.GONE; buildPositionsBody() }
             Sector.CHAT       -> { llChatComposer.visibility = View.VISIBLE; buildChatBody() }
             Sector.PERSONA    -> { llChatComposer.visibility = View.GONE; buildPersonaBody() }
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Narrative strip — live memetic cluster heatmap
+    // ────────────────────────────────────────────────────────────────────
+    private fun rebuildNarrativeStrip() {
+        llNarrativeStrip.removeAllViews()
+        llNarrativeStrip.addView(rowText("⚡ NARRATIVES", deepP, 10, true).apply {
+            setPadding(0, 0, 12.dp(), 0)
+        })
+        // Show alive clusters first, then up to 3 with any history
+        val live = try { com.lifecyclebot.v3.scoring.CultMomentumAI.topAlive() } catch (_: Throwable) { emptyList() }
+        if (live.isEmpty()) {
+            llNarrativeStrip.addView(rowText("◌ no live momentum yet", muted, 10))
+        }
+        live.forEach { (cluster, n) ->
+            val bonus = try { com.lifecyclebot.v3.scoring.CultMomentumAI.bonusFor(cluster) } catch (_: Throwable) { 0 }
+            val color = if (bonus >= 18) magenta else if (bonus >= 10) green else cyan
+            val chip = TextView(this).apply {
+                text = "${cluster.emoji} ${cluster.name} ×${n}  +${bonus}"
+                setTextColor(color)
+                textSize = 10f
+                typeface = Typeface.MONOSPACE
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(10.dp(), 4.dp(), 10.dp(), 4.dp())
+                background = GradientDrawable().apply {
+                    cornerRadius = 999f
+                    setColor(0xFF0A0814.toInt())
+                    setStroke(1.dp(), color)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 6.dp(), 0) }
+            }
+            llNarrativeStrip.addView(chip)
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Action bar — manual override toolkit
+    // ────────────────────────────────────────────────────────────────────
+    private fun rebuildActionBar() {
+        if (llActionBar.childCount > 0) return  // build once, persist
+        val actions = listOf(
+            Triple("⚡ FORCE SPAWN",   green) { com.lifecyclebot.engine.lab.LlmLabEngine.forceSpawn(); rebuild() },
+            Triple("🧬 MUTATE BEST",  cyan)  { com.lifecyclebot.engine.lab.LlmLabEngine.mutateBest(); rebuild() },
+            Triple("🗑 PURGE ARCHIVE", amber) { com.lifecyclebot.engine.lab.LlmLabEngine.purgeArchived(); rebuild() },
+            Triple("➕ +10◎ TOPUP",    purple){ com.lifecyclebot.engine.lab.LlmLabEngine.topUpBankroll(10.0); rebuild() },
+        )
+        for ((label, color, action) in actions) {
+            val btn = TextView(this).apply {
+                text = label
+                setTextColor(color)
+                textSize = 11f
+                typeface = Typeface.MONOSPACE
+                setTypeface(typeface, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(12.dp(), 8.dp(), 12.dp(), 8.dp())
+                background = GradientDrawable().apply {
+                    cornerRadius = 999f
+                    setColor(0xFF0A0814.toInt())
+                    setStroke(1.dp(), color)
+                }
+                isClickable = true; isFocusable = true
+                letterSpacing = 0.08f
+                setOnClickListener { action() }
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(0, 0, 6.dp(), 0) }
+            }
+            llActionBar.addView(btn)
         }
     }
 
@@ -427,6 +535,10 @@ class LabActivity : AppCompatActivity() {
         // Params row (compact)
         val params = "score≥${s.entryScoreMin} · TP +${"%.0f".format(s.takeProfitPct)}% · SL ${"%.0f".format(s.stopLossPct)}% · hold ${s.maxHoldMins}m · size ${"%.2f".format(s.sizingSol)}◎ · regime ${s.entryRegime}"
         card.addView(rowText(params, grey, 10))
+
+        // V5.9.405 — DNA strip: 5 mini segmented meters showing the strategy's
+        // genetic profile in a glance. Aggression / Patience / Greed / Caution / Size.
+        card.addView(dnaStrip(s))
 
         // Proof bar (only ACTIVE, going for promotion)
         if (s.status == LabStrategyStatus.ACTIVE) {
@@ -646,6 +758,51 @@ class LabActivity : AppCompatActivity() {
             try { startActivity(Intent(this, PersonaStudioActivity::class.java)) } catch (_: Throwable) {}
         })
         llContent.addView(openRow)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // DNA strip — 5 mini segmented meters per strategy
+    // ────────────────────────────────────────────────────────────────────
+    private fun dnaStrip(s: LabStrategy): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8.dp(), 0, 4.dp())
+        }
+        // Map each param onto a 0..1 axis so they share the same gauge length.
+        val dims = listOf(
+            Triple("AGG",  // aggression: low score floor + tight SL ladder + small hold
+                ((100 - s.entryScoreMin) / 60.0).coerceIn(0.0, 1.0), magenta),
+            Triple("GREED",  (s.takeProfitPct / 50.0).coerceIn(0.0, 1.0), green),
+            Triple("RISK",   (kotlin.math.abs(s.stopLossPct) / 30.0).coerceIn(0.0, 1.0), red),
+            Triple("PATIEN", (s.maxHoldMins / 240.0).coerceIn(0.0, 1.0), cyan),
+            Triple("SIZE",   (s.sizingSol / 1.0).coerceIn(0.0, 1.0), purple),
+        )
+        for ((label, v, color) in dims) {
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = 4.dp() }
+            }
+            cell.addView(rowText(label, deepP, 8, true).apply { letterSpacing = 0.15f })
+            val bar = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 4.dp()
+                ).apply { topMargin = 2.dp() }
+            }
+            val cells = 12
+            val filled = (v * cells).toInt().coerceIn(0, cells)
+            for (i in 0 until cells) {
+                bar.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+                        .apply { setMargins(0, 0, 1.dp(), 0) }
+                    setBackgroundColor(if (i < filled) color else 0xFF1A0F2E.toInt())
+                })
+            }
+            cell.addView(bar)
+            row.addView(cell)
+        }
+        return row
     }
 
     private fun traitMeter(label: String, value: Double): View {

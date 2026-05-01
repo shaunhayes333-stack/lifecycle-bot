@@ -34,17 +34,18 @@ object LlmLabEngine {
     private const val TAG = "LlmLabEngine"
 
     // ── Tuning knobs ────────────────────────────────────────────────────────
-    private const val CREATION_INTERVAL_MS         = 4L * 60L * 60L * 1000L     // 4h steady state
-    // V5.9.404 — fast-creation cadence so the Lab mints strategies quickly on
-    // first install instead of looking dead for 4 hours.
-    private const val CREATION_FAST_INTERVAL_MS    = 10L * 60L * 1000L          // 10min during bootstrap
+    // V5.9.405 — Lab cadence aggressively increased so the LLM is *constantly*
+    // building strategies. User feedback: it should mint multiple per hour, not
+    // wait. Steady = 20min (3/hr) and bootstrap = 4min (15/hr in first 60min).
+    private const val CREATION_INTERVAL_MS         = 20L * 60L * 1000L          // 20min steady (3/hr)
+    private const val CREATION_FAST_INTERVAL_MS    = 4L * 60L * 1000L           // 4min during bootstrap
     private const val CREATION_FAST_WINDOW_MS      = 60L * 60L * 1000L          // first 60min after install
     private const val EVAL_INTERVAL_MS             = 30_000L                    // 30s
-    private const val CULL_INTERVAL_MS             = 60L * 60L * 1000L          // 1h
-    private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // log line every 60s
+    private const val CULL_INTERVAL_MS             = 30L * 60L * 1000L          // 30min
+    private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // 60s heartbeat
 
-    private const val MAX_LIVE_STRATEGIES   = 12
-    private const val MAX_OPEN_POSITIONS    = 8
+    private const val MAX_LIVE_STRATEGIES   = 24       // 12 → 24 (more variety)
+    private const val MAX_OPEN_POSITIONS    = 16       // 8 → 16
     private const val MAX_PER_STRATEGY_OPEN = 1
 
     // ── State ───────────────────────────────────────────────────────────────
@@ -118,25 +119,98 @@ object LlmLabEngine {
     // ────────────────────────────────────────────────────────────────────────
     private fun seedDefaultsIfEmpty() {
         if (LlmLabStore.allStrategies().isNotEmpty()) return
-        val seed = LabStrategy(
+        // V5.9.405 — seed THREE distinct personalities so the lab feels alive
+        // from the first second instead of just one Genesis. Each has a
+        // different risk/reward archetype to give the LLM diverse parents
+        // to evolve from.
+        val seeds = listOf(
+            LabStrategy(
+                id = LlmLabStore.newStrategyId(),
+                name = "Genesis · Hunter",
+                rationale = "Aggressive momentum hunter — high TP, tight SL, fast hold. Catches launches.",
+                asset = LabAssetClass.MEME,
+                entryScoreMin = 55,  entryRegime = "ANY",
+                takeProfitPct = 25.0, stopLossPct = -8.0, maxHoldMins = 60,
+                sizingSol = 0.20,   generation = 1, status = LabStrategyStatus.ACTIVE,
+            ),
+            LabStrategy(
+                id = LlmLabStore.newStrategyId(),
+                name = "Genesis · Sniper",
+                rationale = "Quality-gated sniper — only top-30% scores, asymmetric R/R, lets winners ride.",
+                asset = LabAssetClass.ANY,
+                entryScoreMin = 70,  entryRegime = "ANY",
+                takeProfitPct = 50.0, stopLossPct = -10.0, maxHoldMins = 180,
+                sizingSol = 0.30,   generation = 1, status = LabStrategyStatus.ACTIVE,
+            ),
+            LabStrategy(
+                id = LlmLabStore.newStrategyId(),
+                name = "Genesis · Scalper",
+                rationale = "Quick scalper — lower scores, tiny targets, churn for high frequency wins.",
+                asset = LabAssetClass.ANY,
+                entryScoreMin = 50,  entryRegime = "ANY",
+                takeProfitPct = 8.0, stopLossPct = -5.0, maxHoldMins = 30,
+                sizingSol = 0.15,   generation = 1, status = LabStrategyStatus.ACTIVE,
+            ),
+        )
+        seeds.forEach { LlmLabStore.addStrategy(it) }
+        ErrorLogger.info(TAG, "🧪 SEEDED ${seeds.size} genesis strategies — Hunter, Sniper, Scalper")
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Manual user actions (exposed via UI)
+    // ────────────────────────────────────────────────────────────────────────
+
+    /** Force an immediate creation cycle — ignores the rate limit. */
+    fun forceSpawn() {
+        ErrorLogger.info(TAG, "🧪 FORCE SPAWN requested by user")
+        LlmLabStore.markCreated()
+        GlobalScope.launch(Dispatchers.IO) { runCatching { runCreationCycle() } }
+    }
+
+    /** Mutate the top paper performer — birth a child strategy with tweaked params. */
+    fun mutateBest() {
+        val parent = LlmLabStore.allStrategies()
+            .filter { it.paperTrades >= 5 }
+            .maxByOrNull { it.paperPnlSol } ?: run {
+                ErrorLogger.info(TAG, "🧪 MUTATE skipped — no parent with ≥5 trades")
+                return
+            }
+        // 80%-of-parent params with random nudges (+/- 20%)
+        fun jitter(d: Double, pct: Double = 0.20): Double {
+            val delta = d * pct * (Math.random() * 2 - 1)
+            return d + delta
+        }
+        val child = LabStrategy(
             id = LlmLabStore.newStrategyId(),
-            name = "Lab Genesis #1",
-            // V5.9.404 — opened the gate so the seed actually fires during
-            // bootstrap. 70 was too high — most fresh memes score 50..65 in
-            // V3 composite and were never reaching the Lab. 55 lets the Lab
-            // start trading immediately while still filtering low-quality.
-            rationale = "Seed strategy — moderate score gate, 10/-7 RR, 90min hold.",
-            asset = LabAssetClass.ANY,
-            entryScoreMin = 55,
-            entryRegime = "ANY",
-            takeProfitPct = 10.0,
-            stopLossPct = -7.0,
-            maxHoldMins = 90,
-            sizingSol = 0.25,
-            generation = 1,
+            name = parent.name.replaceFirst(Regex("\\s*·\\s*Mut\\d+$"), "") + " · Mut${parent.generation}",
+            rationale = "Mutation of ${parent.name}: jittered TP/SL/hold to explore the local optimum.",
+            asset = parent.asset,
+            entryScoreMin = (parent.entryScoreMin + (-5..5).random()).coerceIn(40, 95),
+            entryRegime = parent.entryRegime,
+            takeProfitPct = jitter(parent.takeProfitPct).coerceIn(3.0, 100.0),
+            stopLossPct = jitter(parent.stopLossPct).coerceIn(-50.0, -2.0),
+            maxHoldMins = jitter(parent.maxHoldMins.toDouble()).toInt().coerceIn(15, 480),
+            sizingSol = jitter(parent.sizingSol).coerceIn(0.05, 1.0),
+            parentId = parent.id,
+            generation = parent.generation + 1,
             status = LabStrategyStatus.ACTIVE,
         )
-        LlmLabStore.addStrategy(seed)
+        LlmLabStore.addStrategy(child)
+        ErrorLogger.info(TAG, "🧪 MUTATED ${parent.name} → ${child.name}")
+    }
+
+    /** Permanently delete all archived strategies. */
+    fun purgeArchived(): Int {
+        val archived = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.ARCHIVED }
+        archived.forEach { LlmLabStore.removeStrategy(it.id) }
+        if (archived.isNotEmpty()) ErrorLogger.info(TAG, "🧪 PURGED ${archived.size} archived strategies")
+        return archived.size
+    }
+
+    /** Top-up the lab paper bankroll by N SOL (paper-only — costs nothing). */
+    fun topUpBankroll(amountSol: Double) {
+        LlmLabStore.adjustPaperBalance(amountSol)
+        ErrorLogger.info(TAG, "🧪 TOPUP +${amountSol}◎ paper bankroll")
     }
 
     private fun runCreationCycle() {

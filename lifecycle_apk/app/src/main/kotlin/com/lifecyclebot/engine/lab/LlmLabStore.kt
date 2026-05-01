@@ -145,6 +145,10 @@ object LlmLabStore {
         save()
     }
 
+    fun removeStrategy(id: String) {
+        if (strategies.remove(id) != null) save()
+    }
+
     fun newStrategyId(): String = "lab_" + UUID.randomUUID().toString().take(8)
 
     // ────────────────────────────────────────────────────────────────────────
