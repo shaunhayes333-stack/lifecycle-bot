@@ -223,6 +223,10 @@ object ShitCoinTraderAI {
         var firstTakeDone: Boolean = false,  // V4.1.3: Track if first partial take was done
         var partialRungsTaken: Int = 0,      // V5.9.163: laddered partial-take index
         var peakPnlPct: Double = 0.0,        // V5.9.163: track peak for floor-lock
+        // V5.9.392 — latest price seen by checkExit(); lets the unified
+        // open-positions card render live P&L for shitcoin bags that live
+        // only in paperPositions (no status.tokens entry).
+        var lastSeenPrice: Double = entryPrice,
     )
     
     data class ShitCoinSignal(
@@ -1095,6 +1099,8 @@ object ShitCoinTraderAI {
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        // V5.9.392 — stash latest price for unified open-positions card.
+        pos.lastSeenPrice = currentPrice
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000

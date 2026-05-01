@@ -186,6 +186,10 @@ object MoonshotTraderAI {
         var promotedFrom: String? = null,  // Which layer it was promoted from
         var peakPnlPct: Double = 0.0,
         var isCollectiveWinner: Boolean = false,
+        // V5.9.392 — latest price seen by checkExit(). Lets the unified
+        // open-positions UI render live P&L for Moonshot holdings that
+        // live only in paperPositions (no status.tokens entry).
+        var lastSeenPrice: Double = entryPrice,
     )
     
     data class PromotionCandidate(
@@ -967,6 +971,9 @@ object MoonshotTraderAI {
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        // V5.9.392 — stash latest price so the unified open-positions card
+        // can render live P&L for moonshot bags not in status.tokens.
+        pos.lastSeenPrice = currentPrice
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000

@@ -2597,7 +2597,7 @@ for legal compliance.
                 upsert(it.mint, it.symbol, "SHITCOIN", "💩",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = 0.0)
+                    currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
         try {
@@ -2605,7 +2605,7 @@ for legal compliance.
                 upsert(it.mint, it.symbol, "QUALITY", "⭐",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = 0.0)
+                    currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
         try {
@@ -2613,7 +2613,7 @@ for legal compliance.
                 upsert(it.mint, it.symbol, "BLUE_CHIP", "🔵",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = 0.0)
+                    currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
         try {
@@ -2621,7 +2621,7 @@ for legal compliance.
                 upsert(it.mint, it.symbol, "MOONSHOT", "🚀",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = 0.0)
+                    currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
         try {

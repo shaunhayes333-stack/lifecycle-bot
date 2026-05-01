@@ -159,6 +159,8 @@ object BlueChipTraderAI {
         var highWaterMark: Double = entryPrice,
         var peakPnlPct: Double = 0.0,
         var partialRungsTaken: Int = 0,
+        // V5.9.392 — latest price for unified open-positions card.
+        var lastSeenPrice: Double = entryPrice,
     )
     
     // Evaluation result
@@ -396,6 +398,7 @@ object BlueChipTraderAI {
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
 
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000

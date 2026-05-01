@@ -191,6 +191,8 @@ object QualityTraderAI {
         // V5.9.166: shared laddered profit-lock
         var peakPnlPct: Double = 0.0,
         var partialRungsTaken: Int = 0,
+        // V5.9.392 — latest price for unified open-positions card.
+        var lastSeenPrice: Double = entryPrice,
     )
     
     data class QualitySignal(
@@ -400,6 +402,7 @@ object QualityTraderAI {
         currentMcap: Double = 0.0,
     ): ExitSignal {
         val pos = activePositions[mint] ?: return ExitSignal.HOLD
+        pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
