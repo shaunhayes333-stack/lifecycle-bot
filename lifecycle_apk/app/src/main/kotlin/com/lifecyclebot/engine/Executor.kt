@@ -4780,6 +4780,26 @@ class Executor(
         if (pnl > 0) sounds?.playMilestone(pnlP)
         SmartSizer.recordTrade(pnl > 0, isPaperMode = true)
 
+        // V5.9.400 — feed ExecutionCostPredictorAI in paper mode so its
+        // per-liq-band history accumulates samples (was 100% zero / DEAD).
+        // Synthetic slip = sqrt(size/liq) basis-point model — rough but
+        // teaches the layer the relationship between size, liquidity and
+        // realized cost. Layer can then refine when live trades run.
+        try {
+            val liqUsdSlip = ts.lastLiquidityUsd
+            val sizeUsd = pos.costSol * WalletManager.lastKnownSolPrice
+            if (liqUsdSlip > 0 && sizeUsd > 0) {
+                val slipFrac = kotlin.math.sqrt(sizeUsd / liqUsdSlip).coerceAtMost(0.10)
+                val quoted = ts.lastPrice
+                val realized = quoted * (1.0 - slipFrac)
+                com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(
+                    liqUsd = liqUsdSlip,
+                    quotedPxUsd = quoted,
+                    realizedPxUsd = realized,
+                )
+            }
+        } catch (_: Exception) {}
+
         // V5.9.399 — flat 30% of realized profit goes to Treasury on every
         // green meme sell (no milestone gate). Losing/scratch sells contribute
         // nothing — principal is preserved, treasury grows only from wins.

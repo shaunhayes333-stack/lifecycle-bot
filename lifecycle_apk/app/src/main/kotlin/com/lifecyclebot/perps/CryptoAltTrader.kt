@@ -58,6 +58,24 @@ object CryptoAltTrader {
 
     private const val TAG = "🪙CryptoAltTrader"
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // V5.9.400 — realistic per-tier liquidity / mcap hints for V3 bridge.
+    // Hardcoded $500K liq + $50M mcap was producing systematic
+    // `liquidity=-7, metacognition=-4` veto on every alt signal (45→0 entries).
+    // These tiers are coarse but accurate enough to stop the bleed; they keep
+    // the V3 layers (LiquidityExitPath, ExecutionCost, MEV, OperatorFingerprint
+    // etc.) feeding from sensible bands so they actually accumulate samples.
+    // ─────────────────────────────────────────────────────────────────────────
+    private val tier1 = setOf("BTC", "ETH", "SOL", "BNB", "XRP", "WBTC", "STETH")           // $1B+ liq, $50B+ mcap
+    private val tier2 = setOf("DOGE", "ADA", "TRX", "LINK", "AVAX", "TON", "DOT", "MATIC",
+                              "LTC", "BCH", "XMR", "XLM", "ETC", "NEAR", "APT", "ARB", "OP",
+                              "ATOM", "ICP", "FIL", "HBAR", "VET", "INJ", "TAO", "RENDER")  // $100M+ liq, $5B+ mcap
+    private fun altLiqMcapHint(symbol: String): Pair<Double, Double> = when (symbol.uppercase()) {
+        in tier1 -> 5_000_000_000.0 to 100_000_000_000.0
+        in tier2 -> 200_000_000.0   to 10_000_000_000.0
+        else     -> 5_000_000.0     to 200_000_000.0    // long-tail alts on Binance/Coinbase still $1M-$50M liq
+    }
+
     // ─── Constants ────────────────────────────────────────────────────────────
     // V5.9.70: cap removed — exposure guard + wallet reserve are the real
     // concurrency governors. Large ceiling kept purely as a sanity bound
@@ -803,14 +821,15 @@ object CryptoAltTrader {
                         ErrorLogger.info(TAG, "🪙 SIGNAL: ${market.symbol} | score=${signal.score} | conf=${signal.confidence} | dir=${signal.direction.symbol}")
                     } else if (prefilterOk) {
                         val v3Approves = try {
+                            val (liqUsdEst2, mcapUsdEst2) = altLiqMcapHint(market.symbol)
                             val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
                                 symbol = market.symbol,
                                 assetClass = "ALT",
                                 price = signal.price,
                                 technicalScore = signal.score,
                                 technicalConfidence = signal.confidence,
-                                liqUsd = 500_000.0,
-                                mcapUsd = 50_000_000.0,
+                                liqUsd = liqUsdEst2,
+                                mcapUsd = mcapUsdEst2,
                                 priceChangePct = signal.priceChange24h,
                                 direction = signal.direction.name,
                             )
@@ -853,24 +872,31 @@ object CryptoAltTrader {
         // layers + real accuracy loop + ReflexAI that the memetrader uses.
         val v3Filtered = topSignals.mapNotNull { sig ->
             try {
+                // V5.9.400 — pass realistic per-tier liquidity/mcap so V3
+                // layers (LiquidityExitPath, ExecutionCost, MEV, etc.) don't
+                // mis-score every alt with `liquidity=-7`. Tier inference
+                // is rough but accurate enough to stop the systematic veto.
+                // Mid/large caps (BTC/ETH/SOL/major DEX tokens) sit at the
+                // top of LIQ_500K_PLUS; small alts stay at $500K floor.
+                val (liqUsdEst, mcapUsdEst) = altLiqMcapHint(sig.market.symbol)
                 val verdict = PerpsUnifiedScorerBridge.scoreForEntry(
                     symbol = sig.market.symbol,
                     assetClass = "ALT",
                     price = sig.price,
                     technicalScore = sig.score,
                     technicalConfidence = sig.confidence,
-                    liqUsd = 500_000.0,               // alt perps are deep
-                    mcapUsd = 50_000_000.0,
+                    liqUsd = liqUsdEst,
+                    mcapUsd = mcapUsdEst,
                     priceChangePct = sig.priceChange24h,
                     direction = sig.direction.name,
                 )
-                if (!verdict.shouldEnter) {
-                    ErrorLogger.debug(TAG, "🪙 V3 veto: ${sig.market.symbol} blended=${verdict.blendedScore} reasons=${verdict.topReasons.take(3)}")
-                    null
-                } else {
-                    ErrorLogger.info(TAG, "🪙 V3 PASS: ${sig.market.symbol} v3=${verdict.v3Score} blended=${verdict.blendedScore} trust=×${"%.2f".format(verdict.trustMultiplier)}")
-                    sig to verdict
-                }
+                // V5.9.400 — V3 bridge is ADVISORY for alts. The alt trader's
+                // own (score, conf, momentum gate) decides entry. V3 still
+                // contributes via verdict.trustMultiplier (sizing) and
+                // accumulates per-layer learning signals, but no longer
+                // single-handedly vetoes 45/45 signals to zero entries.
+                ErrorLogger.debug(TAG, "🪙 V3 advisory: ${sig.market.symbol} v3=${verdict.v3Score} blended=${verdict.blendedScore} trust=×${"%.2f".format(verdict.trustMultiplier)} shouldEnter=${verdict.shouldEnter}")
+                sig to verdict
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "🪙 V3 bridge error for ${sig.market.symbol}: ${e.message}")
                 sig to null   // fall back — allow signal through on bridge error

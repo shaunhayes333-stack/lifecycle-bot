@@ -1064,17 +1064,8 @@ object MoonshotTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. FLAT EXIT — V5.9.397: REVERTED to V5.9.304 behaviour after
-        // V5.9.394's tightening (maxHold*3/4 + peak<3% guard) backfired.
-        // The peak<3% guard meant trades that briefly peaked ≥3% then
-        // collapsed completely escaped flat-exit and only got caught by
-        // the 90-min DEAD POS FLUSH — turning what used to be -0.4%
-        // scratches into -8 to -15% losses. WR didn't change but per-loss
-        // magnitude exploded. User reports this killed the money printer.
-        //
-        // Back to: hold ≥ maxHold/2, pnl in [-2%, +5%]. CLUTCH-style
-        // scratches return — but small fast scratches are a much smaller
-        // bleed than 90-min liquidations of ex-runners.
+        // 5. FLAT EXIT — V5.9.397 baseline (V5.9.304 era).
+        // hold ≥ maxHold/2, pnl in [-2%, +5%].
         val flatExitMins = pos.spaceMode.maxHold / 2
         if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0) {
             ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold)")
