@@ -725,20 +725,32 @@ class Executor(
         //   AI predictions at entry → Trade outcome → Update layer accuracy
         // ═══════════════════════════════════════════════════════════════════
         if (trade.side == "SELL") {
+            // V5.9.390 — MetaCognition is meme-specific (its accuracy stats
+            // drive the meme-brain signal quality estimator). Non-meme sells
+            // MUST NOT pollute it. Gate inline on tradingMode. Sub-trader
+            // layers get their own per-layer maturity via EducationSubLayerAI's
+            // slim path (V5.9.388 Fix A).
             try {
-                val holdTimeMs = if (ts.position.entryTime > 0) {
-                    System.currentTimeMillis() - ts.position.entryTime
-                } else {
-                    0L
-                }
-                
-                com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    pnlPct = trade.pnlPct,
-                    holdTimeMs = holdTimeMs,
-                    exitReason = trade.reason.ifBlank { "unknown" }
+                val _mcTm = (ts.position.tradingMode ?: "").uppercase()
+                val _mcIsMemeBase = _mcTm.isBlank() || _mcTm !in setOf(
+                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+                    "QUALITY", "BLUECHIP", "BLUE_CHIP",
+                    "MOONSHOT", "TREASURY"
                 )
+                if (_mcIsMemeBase) {
+                    val holdTimeMs = if (ts.position.entryTime > 0) {
+                        System.currentTimeMillis() - ts.position.entryTime
+                    } else {
+                        0L
+                    }
+                    com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        pnlPct = trade.pnlPct,
+                        holdTimeMs = holdTimeMs,
+                        exitReason = trade.reason.ifBlank { "unknown" }
+                    )
+                }
             } catch (e: Exception) {
                 // Silently ignore - meta-cognition is secondary
             }
@@ -811,32 +823,42 @@ class Executor(
                 // V5.9.120: feed closed trade into PersonalityMemoryStore so
                 // trait vector, milestone log, and persona bio actually
                 // accumulate from real outcomes.
-                try {
-                    val peak = ts.position.peakGainPct
-                    val gaveBack = (peak - pnl).coerceAtLeast(0.0)
-                    val heldMs = if (ts.position.entryTime > 0) {
-                        System.currentTimeMillis() - ts.position.entryTime
-                    } else 0L
-                    val heldMin = (heldMs / 60_000L).toInt()
-                    PersonalityMemoryStore.recordTradeOutcome(pnl, gaveBack, heldMin)
-                    val activePersona = try {
-                        com.lifecyclebot.AATEApp.appContextOrNull()?.let {
-                            Personalities.getActive(it).id
-                        } ?: "aate"
-                    } catch (_: Exception) { "aate" }
-                    PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
-                } catch (_: Exception) { /* non-critical */ }
+                // V5.9.390 — meme-only. Persona trait vector is calibrated on
+                // meme P&L distributions; shitcoin rugs and blue-chip slow
+                // grinds would tilt the personality off-distribution.
+                if (_behAsset == "MEME") {
+                    try {
+                        val peak = ts.position.peakGainPct
+                        val gaveBack = (peak - pnl).coerceAtLeast(0.0)
+                        val heldMs = if (ts.position.entryTime > 0) {
+                            System.currentTimeMillis() - ts.position.entryTime
+                        } else 0L
+                        val heldMin = (heldMs / 60_000L).toInt()
+                        PersonalityMemoryStore.recordTradeOutcome(pnl, gaveBack, heldMin)
+                        val activePersona = try {
+                            com.lifecyclebot.AATEApp.appContextOrNull()?.let {
+                                Personalities.getActive(it).id
+                            } ?: "aate"
+                        } catch (_: Exception) { "aate" }
+                        PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
+                    } catch (_: Exception) { /* non-critical */ }
+                }
 
                 // V5.9.123 — feed closed-trade outcome into every new layer that
                 // learns from realized results. Each call fails soft.
-                try {
-                    val won = pnl > 0.5
-                    com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerClosed(ts.mint)
-                    com.lifecyclebot.v3.scoring.SessionEdgeAI.recordOutcome(
-                        com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession(), won)
-                    // OperatorFingerprint: creator is not in TokenState directly — skip
-                    // unless we've stashed it in ts.meta. Graceful no-op otherwise.
-                } catch (_: Exception) {}
+                // V5.9.390 — SessionEdgeAI + CorrelationHedge remain meme-only.
+                // CorrelationHedge tracks cross-token meme correlation; session
+                // edge is calibrated on meme session-of-day win distributions.
+                if (_behAsset == "MEME") {
+                    try {
+                        val won = pnl > 0.5
+                        com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerClosed(ts.mint)
+                        com.lifecyclebot.v3.scoring.SessionEdgeAI.recordOutcome(
+                            com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession(), won)
+                        // OperatorFingerprint: creator is not in TokenState directly — skip
+                        // unless we've stashed it in ts.meta. Graceful no-op otherwise.
+                    } catch (_: Exception) {}
+                }
 
                 // V5.9.380 — per-layer vote replay. Each of the 26 meme layers
                 // cast a vote at BUY time (see LayerVoteSampler) and is now
@@ -5297,6 +5319,18 @@ class Executor(
             wasExecuted = true,
         )
         
+        // V5.9.390 — everything below is meme-brain-specific (Whale /
+        // Regime / Momentum / Narrative / TimeOpt / CrossTalk / HoldTime /
+        // LiquidityDepth / EntryIntelligence / ExitIntelligence all
+        // calibrated on meme-base outcomes). Sub-trader closes must NOT
+        // pollute them. Computed once up-front, gated below.
+        val _psTm = (ts.position.tradingMode ?: "").uppercase()
+        val _psIsMemeBase = _psTm.isBlank() || _psTm !in setOf(
+            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+            "QUALITY", "BLUECHIP", "BLUE_CHIP",
+            "MOONSHOT", "TREASURY"
+        )
+        if (_psIsMemeBase) {
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes.toInt())
         
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutes.toInt())
@@ -5355,6 +5389,7 @@ class Executor(
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnlP > 0)
             }
         } catch (_: Exception) {}
+        } // end _psIsMemeBase gate (V5.9.390)
         
         try {
             val setupQuality = when {
@@ -6427,10 +6462,21 @@ class Executor(
         ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
         ExitIntelligence.resetPosition(tradeId.mint)
 
+        // V5.9.390 — meme-only learning gate for the LIVE sell path. Sub-trader
+        // live closes must not pollute BehaviorLearning / Whale / Regime /
+        // Momentum / Narrative / TimeOpt / LiquidityDepth / CrossTalk /
+        // TokenWinMemory. Computed once; each downstream try-block checks it.
+        val _lsTm = (ts.position.tradingMode ?: "").uppercase()
+        val _lsIsMemeBase = _lsTm.isBlank() || _lsTm !in setOf(
+            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+            "QUALITY", "BLUECHIP", "BLUE_CHIP",
+            "MOONSHOT", "TREASURY"
+        )
+
         // V5.9.320 FIX: EdgeLearning was NEVER called in live path (paper-only).
         // Now mirrors the paper doSell path so EdgeLearning's threshold
         // auto-tuner (buy%/volume/phase gates) learns from real money outcomes.
-        EdgeLearning.learnFromOutcome(
+        if (_lsIsMemeBase) EdgeLearning.learnFromOutcome(
             mint = tradeId.mint,
             exitPrice = exitPrice,
             pnlPercent = pnlP,
@@ -6460,6 +6506,7 @@ class Executor(
             }
             val liveHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             val liveDay  = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+        if (_lsIsMemeBase) {
             BehaviorLearning.recordTrade(
                 entryScore     = pos.entryScore.toInt(),
                 entryPhase     = pos.entryPhase.ifEmpty { "UNKNOWN" },
@@ -6482,8 +6529,11 @@ class Executor(
                 holdTimeMinutes = holdMinutesLive,
                 pnlPct         = pnlP,
             )
+            }  // V5.9.390 — end _lsIsMemeBase gate
         } catch (_: Exception) {}
         
+        // V5.9.390 — gate the remainder of meme-specific learning on asset class.
+        if (_lsIsMemeBase) {
         try {
             val wasSignalCorrect = when {
                 pnlP > 5.0 -> true
@@ -6553,6 +6603,7 @@ class Executor(
                 )
             }
         } catch (_: Exception) {}
+        }  // V5.9.390 — end _lsIsMemeBase block
         
         try {
             val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
