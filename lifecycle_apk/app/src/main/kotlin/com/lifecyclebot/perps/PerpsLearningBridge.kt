@@ -1179,7 +1179,7 @@ object PerpsLearningBridge {
     data class LaneStats(val trust: Double, val accuracy: Double, val signals: Int)
     fun getLayerPerAssetStats(): Map<String, Map<AssetClass, LaneStats>> {
         val allLayerNames = (layerConfigs.keys + defaultMemeLayers + defaultForexLayers +
-            defaultMetalLayers + defaultCommodityLayers).distinct()
+            defaultMetalLayers + defaultCommodityLayers + defaultAltLayers).distinct()
         return allLayerNames.associateWith { name ->
             AssetClass.values().associateWith { asset ->
                 val key = laneKey(name, asset)

@@ -581,6 +581,14 @@ class BehaviorActivity : AppCompatActivity() {
             // V5.9.133 — feed per-layer graduated curriculum to the view so
             // each of the 41 nodes shows its OWN level (Task 2a).
             brainNetworkView.updateLayerMaturity(EducationSubLayerAI.getAllLayerMaturity())
+            // V5.9.396 — feed per-engine lane stats so every layer paints
+            // three mini-dots (💎 Meme / 📈 Markets / 🪙 Alts) instead of one
+            // merged dot. Makes the three isolated engines (V5.9.395) visible.
+            try {
+                brainNetworkView.updateLayerPerEngine(
+                    com.lifecyclebot.perps.PerpsLearningBridge.getLayerPerAssetStats()
+                )
+            } catch (_: Exception) {}
             brainNetworkView.setCurriculumLevel(
                 level = level.displayName,
                 icon = level.icon,

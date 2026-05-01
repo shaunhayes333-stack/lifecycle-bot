@@ -46,12 +46,25 @@ class BrainNetworkView @JvmOverloads constructor(
         var levelIcon: String = "🎓",
         var levelProgress: Int = 0,   // 0..99 — never 100.
         var trades: Int = 0,
+        // V5.9.396 — per-engine lane stats so we can render three mini-dots
+        // per layer (💎 Meme / 📈 Markets / 🪙 Alts) instead of one merged dot.
+        // signals<=0 means "no data for this engine on this layer yet".
+        var memeAccuracy: Double = -1.0,    var memeSignals: Int = 0,
+        var marketsAccuracy: Double = -1.0, var marketsSignals: Int = 0,
+        var altsAccuracy: Double = -1.0,    var altsSignals: Int = 0,
     ) {
         val color: Int get() = when {
             !isActive -> 0xFFFF8800.toInt()       // Orange - dormant
             accuracy >= 60 -> 0xFF00FF88.toInt()  // Green - performing well
             accuracy >= 50 -> 0xFFFFFF00.toInt()  // Yellow - average
             else -> 0xFFFF4444.toInt()            // Red - underperforming
+        }
+
+        fun engineColor(signals: Int, accuracy: Double): Int = when {
+            signals <= 0   -> 0x66888888.toInt()   // Dim grey outline — no data yet
+            accuracy >= 60 -> 0xFF00FF88.toInt()   // Green
+            accuracy >= 50 -> 0xFFFFFF00.toInt()   // Yellow
+            else           -> 0xFFFF4444.toInt()   // Red
         }
     }
     
@@ -77,6 +90,11 @@ class BrainNetworkView @JvmOverloads constructor(
     private var isMegaBrain = false
     private var megaScore = 0.0
     private var levelProgress = 0
+
+    // V5.9.396 — when true, drawNodes renders three mini-dots per layer
+    // (💎 Meme / 📈 Markets / 🪙 Alts) instead of one merged dot. Flipped
+    // on the first call to updateLayerPerEngine.
+    private var perEngineMode = false
     
     // ═══════════════════════════════════════════════════════════════════
     // PAINTS
@@ -337,6 +355,53 @@ class BrainNetworkView @JvmOverloads constructor(
         levelProgress = progress
         invalidate()
     }
+
+    /**
+     * V5.9.396 — Update per-engine lane stats for every layer. Enables the
+     * three-mini-dots render mode so each layer visibly shows its accuracy
+     * in the 💎 Meme / 📈 Markets / 🪙 Alts engines independently.
+     *
+     * Caller supplies the snapshot from
+     * PerpsLearningBridge.getLayerPerAssetStats(). We aggregate the 5 Markets
+     * asset classes (STOCK + FOREX + METAL + COMMODITY + PERPS) into a single
+     * "Markets" engine bucket — that matches the three-engine separation
+     * shipped in V5.9.395.
+     */
+    fun updateLayerPerEngine(
+        perAsset: Map<String, Map<com.lifecyclebot.perps.PerpsLearningBridge.AssetClass, com.lifecyclebot.perps.PerpsLearningBridge.LaneStats>>,
+    ) {
+        val MEME = com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME
+        val ALT  = com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.ALT
+        val marketsClasses = listOf(
+            com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.STOCK,
+            com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.FOREX,
+            com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.METAL,
+            com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.COMMODITY,
+            com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.PERPS,
+        )
+        aiLayers.forEach { layer ->
+            val lanes = perAsset[layer.name] ?: emptyMap()
+            val memeLane = lanes[MEME]
+            layer.memeAccuracy = memeLane?.accuracy?.times(100) ?: -1.0
+            layer.memeSignals  = memeLane?.signals ?: 0
+            // Markets = signal-weighted average across 5 asset classes
+            var mktSigSum = 0; var mktAccAcc = 0.0
+            marketsClasses.forEach { cls ->
+                val s = lanes[cls]
+                if (s != null && s.signals > 0) {
+                    mktSigSum += s.signals
+                    mktAccAcc += s.accuracy * s.signals
+                }
+            }
+            layer.marketsSignals  = mktSigSum
+            layer.marketsAccuracy = if (mktSigSum > 0) (mktAccAcc / mktSigSum) * 100 else -1.0
+            val altLane = lanes[ALT]
+            layer.altsAccuracy = altLane?.accuracy?.times(100) ?: -1.0
+            layer.altsSignals  = altLane?.signals ?: 0
+        }
+        perEngineMode = true
+        invalidate()
+    }
     
     /**
      * Get count of active layers.
@@ -509,32 +574,88 @@ class BrainNetworkView @JvmOverloads constructor(
             val rad = Math.toRadians(layer.angle)
             val nodeX = cx + ringRadius * cos(rad).toFloat()
             val nodeY = cy + ringRadius * sin(rad).toFloat()
-            
-            // Node glow (for active layers)
-            if (layer.isActive) {
-                val pulseGlow = (sin(animationPhase * Math.PI * 2 + layer.pulsePhase * Math.PI * 4) * 0.3 + 0.7).toFloat()
-                nodeGlowPaint.color = (layer.color and 0x00FFFFFF) or ((0x80 * pulseGlow).toInt() shl 24)
-                canvas.drawCircle(nodeX, nodeY, nodeRadius * 2f, nodeGlowPaint)
+
+            if (perEngineMode) {
+                // V5.9.396 — 3 mini-dots arranged in a triangle, one per engine.
+                // Top-left = 💎 Meme   Top-right = 📈 Markets   Bottom = 🪙 Alts
+                drawEngineTriad(canvas, layer, nodeX, nodeY, nodeRadius)
+            } else {
+                // Legacy single-dot render (kept for back-compat until
+                // updateLayerPerEngine has been called).
+                if (layer.isActive) {
+                    val pulseGlow = (sin(animationPhase * Math.PI * 2 + layer.pulsePhase * Math.PI * 4) * 0.3 + 0.7).toFloat()
+                    nodeGlowPaint.color = (layer.color and 0x00FFFFFF) or ((0x80 * pulseGlow).toInt() shl 24)
+                    canvas.drawCircle(nodeX, nodeY, nodeRadius * 2f, nodeGlowPaint)
+                }
+                nodePaint.color = layer.color
+                canvas.drawCircle(nodeX, nodeY, nodeRadius, nodePaint)
             }
-            
-            // Node body
-            nodePaint.color = layer.color
-            canvas.drawCircle(nodeX, nodeY, nodeRadius, nodePaint)
-            
+
             // Node label (only show on larger screens / enough space)
             if (nodeRadius > 8) {
                 labelPaint.textSize = nodeRadius * 0.8f
                 labelPaint.color = 0xFFCCCCCC.toInt()
-                
+
                 // Position label outside the node
                 val labelRad = Math.toRadians(layer.angle)
                 val labelDist = ringRadius + nodeRadius * 2.5f
                 val labelX = cx + labelDist * cos(labelRad).toFloat()
                 val labelY = cy + labelDist * sin(labelRad).toFloat() + labelPaint.textSize / 3
-                
+
                 canvas.drawText(layer.shortName, labelX, labelY, labelPaint)
             }
         }
+    }
+
+    /**
+     * V5.9.396 — Draw the per-engine triangle of mini-dots at (cx,cy).
+     * Meme (top-left), Markets (top-right), Alts (bottom).
+     */
+    private fun drawEngineTriad(
+        canvas: Canvas, layer: AILayerNode,
+        cx: Float, cy: Float, nodeRadius: Float,
+    ) {
+        val mini = nodeRadius * 0.62f                 // each mini-dot slightly smaller than the old single dot
+        val spread = nodeRadius * 0.85f               // triangle arm length
+
+        // Three positions: top-left, top-right, bottom — classic tri-dot cluster.
+        val memeX    = cx - spread * 0.5f
+        val memeY    = cy - spread * 0.35f
+        val marketsX = cx + spread * 0.5f
+        val marketsY = cy - spread * 0.35f
+        val altsX    = cx
+        val altsY    = cy + spread * 0.6f
+
+        drawEngineDot(canvas, memeX,    memeY,    mini, layer.memeSignals,    layer.memeAccuracy,    layer.pulsePhase + 0.00f)
+        drawEngineDot(canvas, marketsX, marketsY, mini, layer.marketsSignals, layer.marketsAccuracy, layer.pulsePhase + 0.33f)
+        drawEngineDot(canvas, altsX,    altsY,    mini, layer.altsSignals,    layer.altsAccuracy,    layer.pulsePhase + 0.66f)
+    }
+
+    private fun drawEngineDot(
+        canvas: Canvas,
+        x: Float, y: Float, r: Float,
+        signals: Int, accuracy: Double, phase: Float,
+    ) {
+        if (signals <= 0) {
+            // Dim outline — engine has no data for this layer yet
+            val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0x66888888.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = 1.5f
+            }
+            canvas.drawCircle(x, y, r, outline)
+            return
+        }
+        val color = when {
+            accuracy >= 60 -> 0xFF00FF88.toInt()
+            accuracy >= 50 -> 0xFFFFFF00.toInt()
+            else           -> 0xFFFF4444.toInt()
+        }
+        val pulseGlow = (sin(animationPhase * Math.PI * 2 + phase * Math.PI * 4) * 0.3 + 0.7).toFloat()
+        nodeGlowPaint.color = (color and 0x00FFFFFF) or ((0x80 * pulseGlow).toInt() shl 24)
+        canvas.drawCircle(x, y, r * 1.8f, nodeGlowPaint)
+        nodePaint.color = color
+        canvas.drawCircle(x, y, r, nodePaint)
     }
     
     private fun drawBrain(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
