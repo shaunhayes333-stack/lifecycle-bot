@@ -647,9 +647,9 @@ object ShitCoinExpress {
         // Record to FluidLearningAI
         try {
             if (ride.isPaper) {
-                FluidLearningAI.recordPaperTrade(pnlSol > 0)
+                FluidLearningAI.recordSubTraderTrade(pnlSol > 0)
             } else {
-                FluidLearningAI.recordLiveTrade(pnlSol > 0)
+                FluidLearningAI.recordSubTraderTrade(pnlSol > 0)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")

@@ -2066,7 +2066,7 @@ object CryptoAltTrader {
         try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
 
         // ── BehaviorAI ────────────────────────────────────────────────────────
-        try { BehaviorAI.recordTrade(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper) } catch (_: Exception) {}
+        try { BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper, assetClass = "ALTS") } catch (_: Exception) {}
 
         // ── TradeHistoryStore — cross-bot shared log ──────────────────────────
         try {

@@ -714,6 +714,28 @@ object FluidLearningAI {
         if (isWin) sessionWins.incrementAndGet()
         lastProgressUpdate.set(0)
     }
+
+    // V5.9.388 — per-sub-trader counters so the MEME bucket (sessionTrades)
+    // stays pure-meme. Before this, ShitCoin / Quality / BlueChip / Moonshot
+    // / Treasury / DipHunter / ProjectSniper / SolanaArb / ShitCoinExpress
+    // all called recordPaperTrade(), dumping into the MEME bucket and
+    // inflating meme maturity with non-meme trades. Sub-traders now call
+    // recordSubTraderTrade(); meme base keeps calling recordPaperTrade().
+    private val subTraderSessionTrades = AtomicInteger(0)
+    private val subTraderSessionWins   = AtomicInteger(0)
+
+    /**
+     * V5.9.388 — sub-trader (ShitCoin / Quality / BlueChip / Moonshot /
+     * Treasury / DipHunter / ProjectSniper / SolanaArb / ShitCoinExpress)
+     * trade counter. Does NOT feed the MEME meme-bucket.
+     */
+    fun recordSubTraderTrade(isWin: Boolean, @Suppress("UNUSED_PARAMETER") subtrader: String = "") {
+        subTraderSessionTrades.incrementAndGet()
+        if (isWin) subTraderSessionWins.incrementAndGet()
+    }
+
+    fun getSubTraderTradeCount(): Int = subTraderSessionTrades.get()
+    fun getSubTraderWinCount():   Int = subTraderSessionWins.get()
     
     /**
      * Record a SHADOW trade with lowest learning weight (0.025 per trade).

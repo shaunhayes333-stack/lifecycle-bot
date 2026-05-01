@@ -100,7 +100,35 @@ object BehaviorAI {
      * - Live mode has much gentler penalties (we have full sentient learning)
      * - Only big losses (>30%) apply 0.25 penalty to learning progression
      */
-    fun recordTrade(pnlPct: Double, reason: String, mint: String, isPaperMode: Boolean = true) {
+    // V5.9.388 — per-asset-class counters so tilt / discipline / streak
+    // state isn't contaminated by trades from the wrong asset class. Meme
+    // base still drives the legacy global counters (consecutiveLosses /
+    // tiltLevel / disciplineScore) so all existing read paths are
+    // backwards-compatible.
+    private val perAssetTrades = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
+    private val perAssetWins   = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
+    private val perAssetLosses = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
+
+    fun recordTrade(pnlPct: Double, reason: String, mint: String, isPaperMode: Boolean = true) =
+        recordTradeForAsset(pnlPct, reason, mint, isPaperMode, assetClass = "MEME")
+
+    /**
+     * V5.9.388 — asset-class-scoped recordTrade. For MEME (the default),
+     * behaviour is unchanged — legacy tilt / discipline / streak counters
+     * all update. For every other class (SHITCOIN / QUALITY / BLUECHIP /
+     * MOONSHOT / TREASURY / PERPS / STOCK / FOREX / METAL / COMMODITY) we
+     * only update the per-asset counters, leaving the global tilt state
+     * alone. This stops five ShitCoin rug losses from locking the meme
+     * trader into PROTECT / tilt-cooldown.
+     */
+    fun recordTradeForAsset(pnlPct: Double, reason: String, mint: String,
+                            isPaperMode: Boolean = true, assetClass: String = "MEME") {
+        val cls = assetClass.uppercase().ifBlank { "MEME" }
+        perAssetTrades.getOrPut(cls) { AtomicInteger(0) }.incrementAndGet()
+        if (pnlPct >= 1.0)      perAssetWins.getOrPut(cls)   { AtomicInteger(0) }.incrementAndGet()
+        else if (pnlPct < -1.0) perAssetLosses.getOrPut(cls) { AtomicInteger(0) }.incrementAndGet()
+        if (cls != "MEME") return  // Skip global tilt / discipline state for non-meme classes.
+
         val now = System.currentTimeMillis()
         val timeSinceLastTrade = now - lastTradeTime.get()
         lastTradeTime.set(now)

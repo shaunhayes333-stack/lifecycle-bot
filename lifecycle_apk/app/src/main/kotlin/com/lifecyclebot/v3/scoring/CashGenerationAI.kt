@@ -1118,9 +1118,9 @@ object CashGenerationAI {
         try {
             val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
             if (pos.isPaper) {
-                FluidLearningAI.recordPaperTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")

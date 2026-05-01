@@ -523,7 +523,7 @@ object QualityTraderAI {
         val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
-        try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, isPaperMode) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (_: Exception) {}
         
         dailyPnlSol += pnlSol
         totalTrades++
@@ -533,9 +533,9 @@ object QualityTraderAI {
         // This ensures Quality trades contribute to system-wide learning
         try {
             if (isPaperMode) {
-                FluidLearningAI.recordPaperTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             }
             ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI [${if (isPaperMode) "PAPER" else "LIVE"}]: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
         } catch (e: Exception) {

@@ -796,7 +796,7 @@ object MoonshotTraderAI {
         val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0)
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
-        try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, pos.isPaperMode) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}
         
         // Update daily stats
         dailyPnlSolBps.addAndGet((pnlSol * 10000).toLong())
@@ -839,11 +839,11 @@ object MoonshotTraderAI {
         // This was MISSING before - Moonshot layer was isolated from central learning
         try {
             if (pos.isPaperMode) {
-                FluidLearningAI.recordPaperTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
                 try { com.lifecyclebot.engine.SmartSizer.recordTrade(isWin, isPaperMode = true) } catch (_: Exception) {}
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, exitReason.name, "MOONSHOT") } catch (_: Exception) {}
             } else {
-                FluidLearningAI.recordLiveTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             }
             ErrorLogger.debug(TAG, "📊 Recorded to FluidLearningAI: ${pos.symbol} ${if (isWin) "WIN" else "LOSS"}")
         } catch (e: Exception) {

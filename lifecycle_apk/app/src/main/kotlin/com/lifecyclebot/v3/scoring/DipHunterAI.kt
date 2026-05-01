@@ -596,9 +596,9 @@ object DipHunterAI {
         val isWin = pnlPct >= 1.0
         try {
             if (pos.isPaper) {
-                FluidLearningAI.recordPaperTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")

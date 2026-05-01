@@ -543,6 +543,52 @@ object EducationSubLayerAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     /**
+     * V5.9.388 — slim update path for sub-trader / market-class trades.
+     * Only updates the sub-trader's OWN layer metrics (so QualityTraderAI
+     * learns from its own closes, ShitCoinTraderAI from its own, etc.) and
+     * the cross-asset MetaCognition / Personality accumulators. Does NOT
+     * drive the 41-layer meme brain, which must stay pure-meme.
+     */
+    private fun recordTradeOutcomeForSubTrader(outcome: TradeOutcomeData) {
+        val src = outcome.traderSource.uppercase()
+        val selfLayer = when (src) {
+            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "ShitCoinTraderAI"
+            "QUALITY"                                         -> "QualityTraderAI"
+            "BLUECHIP", "BLUE_CHIP"                           -> "BlueChipTraderAI"
+            "MOONSHOT"                                        -> "MoonshotTraderAI"
+            "TREASURY", "CASHGEN", "CASH_GENERATION"          -> "CashGenerationAI"
+            else                                              -> null
+        }
+        if (selfLayer != null) {
+            try { markLayerOutcome(selfLayer, outcome.isWin, outcome.pnlPct) } catch (_: Exception) {}
+        }
+        // Route the outcome into the per-asset learning lane. Meme lane is
+        // NOT touched (that's the whole point of this gate).
+        try {
+            com.lifecyclebot.perps.PerpsLearningBridge.learnFromAssetTrade(
+                asset = when (src) {
+                    "MEME", "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+                    "QUALITY", "BLUECHIP", "BLUE_CHIP", "MOONSHOT",
+                    "TREASURY", "CASHGEN", "CASH_GENERATION" ->
+                        com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME
+                    "PERPS" -> com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.PERPS
+                    "STOCK", "STOCKS", "TOKENIZED_STOCK" ->
+                        com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.STOCK
+                    "FOREX", "FX" -> com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.FOREX
+                    "METAL", "METALS" -> com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.METAL
+                    "COMMODITY", "COMMODITIES" ->
+                        com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.COMMODITY
+                    else -> com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME
+                },
+                contributingLayers = if (selfLayer != null) listOf(selfLayer) else emptyList(),
+                isWin = outcome.isWin,
+                pnlPct = outcome.pnlPct,
+                symbol = outcome.symbol,
+            )
+        } catch (_: Exception) {}
+    }
+
+    /**
      * Master learning function - dispatches trade outcome to ALL learning layers.
      * 
      * This ensures NO layer is ever skipped and ALL layers learn from EVERY trade.
@@ -553,9 +599,34 @@ object EducationSubLayerAI {
         val startTime = System.currentTimeMillis()
         var layersUpdated = 0
         val errors = mutableListOf<String>()
-        
+
         // ═══════════════════════════════════════════════════════════════════
-        // PHASE 1: Core Learning Layers (Critical)
+        // V5.9.388 — ASSET-CLASS ROUTING GATE (FIX A).
+        //
+        // Until now every close (meme / shitcoin / quality / bluechip /
+        // moonshot / treasury / perps / stocks / forex / metals /
+        // commodities) fan-out fed the same 41 meme-brain layers. Layers
+        // trained on 15-min meme flips were being graded on 12-hour
+        // BlueChip holds — gradients pulled in 7 directions, accuracy
+        // stuck at ~25%, top-layer ranking contaminated.
+        //
+        // Now: only traderSource=="MEME" (pure meme base — not sub-traders)
+        // drives the full 41-layer meme-brain update. Sub-trader and
+        // market-class trades route through a slim sub-trader update path
+        // (see recordTradeOutcomeForSubTrader below) that only touches
+        // per-layer counters on the sub-trader's OWN layer + asset-specific
+        // accumulators. Personality / Copilot / Behavior routing is
+        // handled upstream via recordTradeForAsset.
+        // ═══════════════════════════════════════════════════════════════════
+        val src = outcome.traderSource.uppercase()
+        val isMemeBase = src == "MEME" || src.isBlank()
+        if (!isMemeBase) {
+            try { recordTradeOutcomeForSubTrader(outcome) } catch (_: Exception) {}
+            return
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PHASE 1: Core Learning Layers (Critical) — MEME BASE ONLY
         // ═══════════════════════════════════════════════════════════════════
         
         // HoldTimeOptimizerAI - Learn optimal hold durations

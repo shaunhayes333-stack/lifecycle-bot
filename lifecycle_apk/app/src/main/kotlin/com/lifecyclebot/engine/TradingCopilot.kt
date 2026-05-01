@@ -115,15 +115,47 @@ object TradingCopilot {
      * Record a trade outcome. Called from sub-trader close paths and
      * Executor.closeTrade hooks. Cheap O(1) — keeps a 30-trade rolling window.
      */
-    fun recordTrade(pnlPct: Double, isPaper: Boolean) {
-        synchronized(recentPnlPcts) {
-            recentPnlPcts.addLast(pnlPct)
-            recentTimes.addLast(System.currentTimeMillis())
-            while (recentPnlPcts.size > TRADE_WINDOW) {
-                recentPnlPcts.removeFirst()
-                recentTimes.removeFirst()
+    fun recordTrade(pnlPct: Double, isPaper: Boolean) =
+        recordTradeForAsset(pnlPct, isPaper, assetClass = "MEME")
+
+    /**
+     * V5.9.388 — asset-class-scoped trade recording. The MEME window drives
+     * the PROTECT / DEAD Copilot directive shown on the main UI, so it MUST
+     * stay pure-meme. Sub-trader & markets closes feed their own rolling
+     * windows so their regime / WR stats can be inspected without polluting
+     * the meme Copilot. Existing recordTrade() callers default to MEME for
+     * backwards compatibility.
+     */
+    fun recordTradeForAsset(pnlPct: Double, isPaper: Boolean, assetClass: String = "MEME") {
+        val cls = assetClass.uppercase().ifBlank { "MEME" }
+        if (cls == "MEME") {
+            synchronized(recentPnlPcts) {
+                recentPnlPcts.addLast(pnlPct)
+                recentTimes.addLast(System.currentTimeMillis())
+                while (recentPnlPcts.size > TRADE_WINDOW) {
+                    recentPnlPcts.removeFirst()
+                    recentTimes.removeFirst()
+                }
+            }
+        } else {
+            val dq = assetPnlWindows.getOrPut(cls) { ArrayDeque() }
+            synchronized(dq) {
+                dq.addLast(pnlPct)
+                while (dq.size > TRADE_WINDOW) dq.removeFirst()
             }
         }
+    }
+
+    // V5.9.388 — per-asset rolling windows (populated by sub-trader + markets
+    // closes via recordTradeForAsset). Only read for per-asset diagnostics;
+    // the meme recentPnlPcts window continues to drive the global directive.
+    private val assetPnlWindows = java.util.concurrent.ConcurrentHashMap<String, ArrayDeque<Double>>()
+
+    fun getAssetWindow(assetClass: String): List<Double> {
+        val cls = assetClass.uppercase().ifBlank { "MEME" }
+        if (cls == "MEME") return synchronized(recentPnlPcts) { recentPnlPcts.toList() }
+        val dq = assetPnlWindows[cls] ?: return emptyList()
+        return synchronized(dq) { dq.toList() }
     }
 
     // ═════════════════════════════════════════════════════════════════════

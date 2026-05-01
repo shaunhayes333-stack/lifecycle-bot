@@ -755,18 +755,58 @@ class Executor(
                 val isPaper = cfg().paperMode
                 
                 // Record to FluidLearningAI with appropriate weight
-                if (isPaper) {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
-                } else {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
+                // V5.9.388 — FluidLearning meme bucket gate: only pure meme
+                // base closes feed the MEME sessionTrades counter. Sub-trader
+                // closes (their own traders already called recordSubTraderTrade
+                // themselves) must NOT double-count into the meme bucket.
+                val _fluidTm = (ts.position.tradingMode ?: "").uppercase()
+                val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
+                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+                    "QUALITY", "BLUECHIP", "BLUE_CHIP",
+                    "MOONSHOT", "TREASURY"
+                )
+                if (isMemeBaseClose) {
+                    if (isPaper) {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
+                    } else {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
+                    }
                 }
-                
-                // Record to BehaviorAI for behavior pattern analysis
-                com.lifecyclebot.v3.scoring.BehaviorAI.recordTrade(
+
+                // Record to BehaviorAI for behavior pattern analysis.
+                // V5.9.388 — route by asset class so non-meme sub-trader
+                // losses don't lock the meme trader into PROTECT / tilt.
+                val _behAsset = when (_fluidTm) {
+                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
+                    "QUALITY"                                         -> "QUALITY"
+                    "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
+                    "MOONSHOT"                                        -> "MOONSHOT"
+                    "TREASURY"                                        -> "TREASURY"
+                    else                                              -> "MEME"
+                }
+                com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(
                     pnlPct = pnl,
                     reason = trade.reason,
-                    mint = ts.mint
+                    mint = ts.mint,
+                    isPaperMode = isPaper,
+                    assetClass = _behAsset,
                 )
+
+                // V5.9.388 — feed the meme-base close into the Copilot MEME
+                // window so the PROTECT / DEAD directive reflects actual
+                // meme-base performance. Sub-trader closes already record to
+                // Copilot with their own asset class (see each sub-trader's
+                // closePosition), so we only fire here for MEME base to avoid
+                // double-counting sub-trader trades.
+                if (_behAsset == "MEME") {
+                    try {
+                        com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(
+                            pnlPct = pnl,
+                            isPaper = isPaper,
+                            assetClass = "MEME",
+                        )
+                    } catch (_: Exception) {}
+                }
 
                 // V5.9.120: feed closed trade into PersonalityMemoryStore so
                 // trait vector, milestone log, and persona bio actually
@@ -805,13 +845,32 @@ class Executor(
                 // a losing trade ALSO get +1 correct (for saving us). Layers
                 // that abstained get no signal. This is what V5.9.374 lanes
                 // should have done from day one.
+                //
+                // V5.9.388 — ASSET-CLASS GATE (FIX A/2). closeoutMeme feeds
+                // the MEME lane of every layer. It was firing on every sell
+                // including ShitCoin/Quality/BlueChip/Moonshot/Treasury
+                // closes, polluting the meme-lane stats with non-meme
+                // outcomes. Now only pure meme base sells (tradingMode
+                // empty or one of the ExtendedMode names like SCALP /
+                // MOMENTUM / SWING) drive meme vote replay; sub-trader
+                // closes route through recordTradeOutcomeForSubTrader
+                // instead.
                 try {
-                    com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
-                        mint = ts.mint,
-                        isWin = isWin,
-                        pnlPct = pnl,
-                        symbol = ts.symbol,
-                    )
+                    val tm = (ts.position.tradingMode ?: "").uppercase()
+                    val isMemeBaseClose = tm.isBlank() ||
+                        tm !in setOf(
+                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+                            "QUALITY", "BLUECHIP", "BLUE_CHIP",
+                            "MOONSHOT", "TREASURY"
+                        )
+                    if (isMemeBaseClose) {
+                        com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
+                            mint = ts.mint,
+                            isWin = isWin,
+                            pnlPct = pnl,
+                            symbol = ts.symbol,
+                        )
+                    }
                 } catch (_: Exception) { /* non-critical */ }
             } catch (e: Exception) {
                 // Silently ignore - behavior tracking is secondary

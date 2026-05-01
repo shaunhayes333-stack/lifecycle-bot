@@ -620,12 +620,27 @@ class BehaviorActivity : AppCompatActivity() {
             // V5.9.313: REVERT V5.9.190 — TOP LAYERS = best-LEARNED (direction
             // accuracy), with PnL shown as secondary context. Profitability
             // ranking lives in the LLM/Sentient Mind chat.
+            // V5.9.388 — fee-aware ranking. Direction accuracy ignored fees
+            // (0.5% buy + 0.5% sell ≥ 1% total) so "87% dir (-4.2%)" layers
+            // were being promoted as top performers despite realised losses.
+            // Now we score layers on expectancy first, with accuracy used
+            // only as a tiebreaker. Layers with negative expectancy drop off
+            // the top list entirely.
             val motivational = EducationSubLayerAI.getMotivationalMessage()
             val allMaturity = EducationSubLayerAI.getAllLayerMaturity().values
                 .filter { it.trades >= 3 }
-            val topMaturity = allMaturity
-                .sortedByDescending { it.smoothedAccuracy }  // sort by learning progression
-                .take(3)
+            val positiveExpectancy = allMaturity.filter { it.expectancyPct > 0.0 }
+            val topMaturity = if (positiveExpectancy.isNotEmpty()) {
+                positiveExpectancy.sortedWith(
+                    compareByDescending<com.lifecyclebot.v3.scoring.EducationSubLayerAI.LayerMaturity> { it.expectancyPct }
+                        .thenByDescending { it.smoothedAccuracy }
+                ).take(3)
+            } else {
+                // Fallback: no net-positive layers yet — show highest expectancy
+                // (least negative) so the user sees the ranking rather than a
+                // blank row during bootstrap.
+                allMaturity.sortedByDescending { it.expectancyPct }.take(3)
+            }
             val topLayers = if (topMaturity.isEmpty()) {
                 motivational
             } else {
@@ -634,7 +649,7 @@ class BehaviorActivity : AppCompatActivity() {
                     val hit = (m.smoothedAccuracy * 100).toInt()
                     val exp = m.expectancyPct
                     val expStr = "%+.1f".format(exp) + "%"
-                    "$short $hit% dir ($expStr)"
+                    "$short ${expStr} (${hit}% dir)"
                 }
             }
             tvTopLayers.text = topLayers

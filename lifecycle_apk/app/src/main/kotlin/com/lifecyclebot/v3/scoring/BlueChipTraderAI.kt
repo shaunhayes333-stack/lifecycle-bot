@@ -352,7 +352,7 @@ object BlueChipTraderAI {
         val pnlSol = pos.entrySol * pnlPct / 100
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
-        try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, pos.isPaper) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "BLUECHIP") } catch (_: Exception) {}
         
         // Record to daily P&L
         val pnlBps = (pnlSol * 100).toLong()
@@ -370,9 +370,9 @@ object BlueChipTraderAI {
         try {
             val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold (was > 0 — counted fee-drag as win)
             if (pos.isPaper) {
-                FluidLearningAI.recordPaperTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             } else {
-                FluidLearningAI.recordLiveTrade(isWin)
+                FluidLearningAI.recordSubTraderTrade(isWin)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")

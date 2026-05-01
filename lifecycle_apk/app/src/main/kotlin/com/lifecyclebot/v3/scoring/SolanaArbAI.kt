@@ -452,9 +452,9 @@ object SolanaArbAI {
         // Record to FluidLearningAI
         try {
             if (position.isPaper) {
-                FluidLearningAI.recordPaperTrade(netProfitUsd > 0)
+                FluidLearningAI.recordSubTraderTrade(netProfitUsd > 0)
             } else {
-                FluidLearningAI.recordLiveTrade(netProfitUsd > 0)
+                FluidLearningAI.recordSubTraderTrade(netProfitUsd > 0)
             }
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "FluidLearning update failed: ${e.message}")
