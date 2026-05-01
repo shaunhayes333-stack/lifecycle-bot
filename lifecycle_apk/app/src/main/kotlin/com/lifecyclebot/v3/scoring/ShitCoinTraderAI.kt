@@ -390,6 +390,16 @@ object ShitCoinTraderAI {
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
 
+    /**
+     * V5.9.398 — Push a live price into the position without firing exit
+     * logic. Called from BotService's price-update hub for every tick so the
+     * unified open-positions card always shows fresh P&L%, independent of
+     * whether checkExit() ran for this mint on this loop.
+     */
+    fun updateLivePrice(mint: String, price: Double) {
+        if (price <= 0) return
+        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+    }
     // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
     fun markFirstTakeDone(mint: String) {
         synchronized(activePositions) { activePositions[mint] }?.firstTakeDone = true

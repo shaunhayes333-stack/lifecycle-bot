@@ -733,6 +733,12 @@ object MoonshotTraderAI {
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
 
+    /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
+    fun updateLivePrice(mint: String, price: Double) {
+        if (price <= 0) return
+        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+    }
+
     // Returns the partial sell % for a PARTIAL_TAKE exit (default 50% — sell half, ride half)
     fun getPartialSellPct(mint: String): Double {
         val pos = synchronized(activePositions) { activePositions[mint] }

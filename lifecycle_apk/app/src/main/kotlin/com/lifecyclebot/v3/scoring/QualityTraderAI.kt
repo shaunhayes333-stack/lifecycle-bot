@@ -563,6 +563,12 @@ object QualityTraderAI {
     }
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+
+    /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
+    fun updateLivePrice(mint: String, price: Double) {
+        if (price <= 0) return
+        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+    }
     
     /**
      * V5.2.12: Clear all positions (both paper and live)

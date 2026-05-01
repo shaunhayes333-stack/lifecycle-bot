@@ -4902,6 +4902,16 @@ if (deferredCount > 0) {
                 // V5.9.188c: CashGenerationAI.updatePrice() is the Treasury UI's price source
                 // (PriceAggregator doesn't exist in this codebase)
 
+                // V5.9.398 — push the same live price into the other 4 meme
+                // sub-traders so the unified open-positions card always shows
+                // fresh P&L%, not stale entry-price=current snapshots. Each
+                // updateLivePrice is a fast no-op if the trader doesn't hold
+                // this mint, so calling all 4 unconditionally is safe.
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.updateLivePrice(ts.mint, pair.candle.priceUsd)
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.updateLivePrice(ts.mint, pair.candle.priceUsd)
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.updateLivePrice(ts.mint, pair.candle.priceUsd)
+                com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(ts.mint, pair.candle.priceUsd)
+
                 // V5.8: Compute price momentum — ShitCoinExpress pre-filter needs >= 3.0
                 // ts.momentum was NEVER assigned anywhere, blocking all Express entries
                 // V5.9.116: Require only 3 candles (was 5) so fresh launches get a
