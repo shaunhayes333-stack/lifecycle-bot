@@ -1345,6 +1345,19 @@ object PerpsLearningBridge {
         learnFromAssetTrade(AssetClass.MEME, contributingLayers, isWin, pnlPct, symbol)
         saveAssetCounters()
     }
+
+    /**
+     * V5.9.394 — aggregate-only bump (no layer learning side effect).
+     * Called from LayerVoteStore.closeoutMeme so the `Memes: N trades | X% WR`
+     * counter in Cross-Layer Bridge stays in sync with the main UI's trade
+     * count. Before V5.9.394, vote-grading closeouts skipped recordMemeTrade
+     * entirely, freezing the aggregate at zero.
+     */
+    fun bumpMemeAggregate(isWin: Boolean) {
+        memeTrades.incrementAndGet()
+        if (isWin) memeWins.incrementAndGet()
+        saveAssetCounters()
+    }
     
     fun getAssetClassStats(): Map<String, Pair<Int, Int>> = mapOf(
         "Memes" to Pair(memeTrades.get(), memeWins.get()),

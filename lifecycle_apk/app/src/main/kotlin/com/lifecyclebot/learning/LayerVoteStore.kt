@@ -69,15 +69,27 @@ object LayerVoteStore {
      * until they decide to vote again.
      */
     fun closeoutMeme(mint: String, isWin: Boolean, pnlPct: Double, symbol: String = "") {
+        // V5.9.394 — ALWAYS bump the MEME aggregate counter so the Cross-Layer
+        // Bridge "Memes: N trades" stays in sync with the main UI. Previously
+        // only the no-votes fallback path hit recordMemeTrade, meaning every
+        // trade that had votes (the common case) silently skipped the counter
+        // and it stayed frozen at zero forever.
+        com.lifecyclebot.perps.PerpsLearningBridge.bumpMemeAggregate(isWin)
+
         val cast = drainVotes(mint)
         if (cast.isEmpty()) {
             // No votes recorded (trade opened before V5.9.380 shipped, or
             // sampler returned zero votes). Fall back to flat meme-lane
             // feed so the bot still learns SOMETHING from this trade.
-            com.lifecyclebot.perps.PerpsLearningBridge.recordMemeTrade(
-                symbol = symbol,
+            // V5.9.394 — use learnFromAssetTrade directly (NOT recordMemeTrade)
+            // because we already bumped the aggregate above and don't want
+            // to double-count it.
+            com.lifecyclebot.perps.PerpsLearningBridge.learnFromAssetTrade(
+                asset = com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME,
+                contributingLayers = emptyList(),
                 isWin = isWin,
                 pnlPct = pnlPct,
+                symbol = symbol,
             )
             return
         }

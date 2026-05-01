@@ -1058,15 +1058,15 @@ object MoonshotTraderAI {
             return ExitSignal.TRAILING_STOP
         }
         
-        // 5. FLAT EXIT — V5.9.304: V5.9.190-198 ERA RESTORATION
-        // Was firing on huge -5%..+20% band at 1/3 maxHold — killing 47% of trades
-        // as scratches before any real move developed. Tightened to a TRULY flat
-        // band (-2%..+5%) and longer required hold (1/2 maxHold) so genuine slow
-        // builders aren't murdered. Combined with rug safety net + flat-trade band
-        // at FluidLearningAI, this restores the 25-40% bootstrap WR era.
-        val flatExitMins = pos.spaceMode.maxHold / 2
-        if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0) {
-            ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold)")
+        // 5. FLAT EXIT — V5.9.394: further tightened after CLUTCH-style murders
+        // (held 34min, peak +0.11%, exited -0.44% — scratch trade guaranteed).
+        // Two new guards on top of V5.9.304:
+        //   • hold requirement raised from maxHold/2 → maxHold*3/4
+        //   • peak must ALSO have been flat (<3%). If the trade ever showed
+        //     ≥3% momentum, it earned more time — don't axe it at -0.5%.
+        val flatExitMins = (pos.spaceMode.maxHold * 3) / 4
+        if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0 && pos.peakPnlPct < 3.0) {
+            ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (peak=${pos.peakPnlPct.fmt(1)}%, 3/4-maxHold)")
             return ExitSignal.FLAT_EXIT
         }
         
