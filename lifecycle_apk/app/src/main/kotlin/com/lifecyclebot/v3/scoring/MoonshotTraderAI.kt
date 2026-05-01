@@ -434,8 +434,12 @@ object MoonshotTraderAI {
         }
         
         // 5. Safety check - fluid RC threshold
-        // V5.5: Raised paper RC floor from 2 → 10 (still lenient vs live's 20, but filters obvious rugs)
-        val minRcScore = if (isPaper) 10 else 20
+        // V5.9.404 — restored build #1941 era leniency. Was 10/20 (V5.5+).
+        // Brand-new pump.fun launches frequently have rugcheckScore=0 in the
+        // first minute; the 10-paper floor was rejecting the very tokens
+        // that produced 500%+ trades. Soft scoring + on-chain holders/lp
+        // checks downstream still filter true rugs.
+        val minRcScore = if (isPaper) 5 else 15
         if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
@@ -519,17 +523,33 @@ object MoonshotTraderAI {
         
         // Collective intelligence bonus
         score += collectiveBonus
+
+        // V5.9.404 — SYMBOLIC LAYER: NarrativeAI + CultMomentumAI.
+        // Memecoins are linguistic objects — the symbol *is* the alpha.
+        // We add a deterministic bonus when the symbol/name maps to a known
+        // memetic cluster (frog/dog/cat/political/AI-theme/cult/rocket/etc),
+        // and a further bonus when that cluster is "alive" (≥2 fires in the
+        // last hour). These are additive and never subtract — the bot leans
+        // into running narratives but a non-meme symbol still scores normally.
+        val narrative = try { NarrativeAI.detect(symbol = symbol, name = symbol) } catch (_: Throwable) { null }
+        val narrativeBonus = narrative?.baseBonus ?: 0
+        val cultBonus = try { CultMomentumAI.bonusFor(narrative?.cluster ?: NarrativeAI.Cluster.UNKNOWN) } catch (_: Throwable) { 0 }
+        if (narrativeBonus > 0 || cultBonus > 0) {
+            ErrorLogger.info(TAG, "${narrative?.cluster?.emoji ?: ""} ${symbol} narrative=${narrativeBonus} cult=${cultBonus} (kw=${narrative?.matchedKeyword})")
+        }
+        score += narrativeBonus + cultBonus
+        // Stash the cluster on the position later via addPosition (read by closePosition)
         
         // Minimum threshold — fluid by learning + paper mode
-        // V5.9.180: TOTAL floor obliteration — paper bootstrap tier dropped to 5.
-        // The user's directive: stop rejecting fresh memes during learning.
-        // V5.9.235: Raised bootstrap score floors — was letting score-5 garbage through.
-        // Even paper moonshots need real momentum signals to avoid 100% loss outcomes.
+        // V5.9.404 — restored build #1941-era permissiveness. The bootstrap
+        // floor of 30 (V5.9.235) was strangling fresh-launch entries that
+        // historically delivered 500%+ runs. Soft scoring still penalises
+        // weak setups; FluidLearningAI + Symbiosis still cull bad outcomes.
         val minScore = when {
-            learningProgress < 0.1 -> if (isPaper) 30 else 42  // was 5 — too low
-            learningProgress < 0.3 -> if (isPaper) 42 else 50  // was 15
-            learningProgress < 0.5 -> if (isPaper) 50 else 58  // was 30
-            else -> if (isPaper) 58 else 68                     // was 52/65
+            learningProgress < 0.1 -> if (isPaper) 12 else 30
+            learningProgress < 0.3 -> if (isPaper) 20 else 38
+            learningProgress < 0.5 -> if (isPaper) 30 else 48
+            else                   -> if (isPaper) 45 else 58
         }
         
         if (score < minScore) {
@@ -777,6 +797,15 @@ object MoonshotTraderAI {
             "mcap=\$${(position.marketCapUsd/1_000).toInt()}K | " +
             "size=${position.entrySol.fmt(3)} SOL | " +
             "TP=${position.takeProfitPct.toInt()}% SL=${position.stopLossPct.toInt()}%")
+
+        // V5.9.404 — telegraph the open into CultMomentumAI so subsequent
+        // tokens in the same cluster ride the live narrative bonus.
+        try {
+            val match = NarrativeAI.detect(symbol = position.symbol, name = position.symbol)
+            if (match.cluster != NarrativeAI.Cluster.UNKNOWN) {
+                CultMomentumAI.noteOpen(match.cluster)
+            }
+        } catch (_: Throwable) {}
     }
     
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
@@ -810,6 +839,15 @@ object MoonshotTraderAI {
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
+
+        // V5.9.404 — Symbolic learning: feed cluster outcome back to NarrativeAI
+        // so the UI / future prompts can lean on which narratives actually pay.
+        try {
+            val match = NarrativeAI.detect(symbol = pos.symbol, name = pos.symbol)
+            if (match.cluster != NarrativeAI.Cluster.UNKNOWN) {
+                NarrativeAI.recordOutcome(match.cluster, pnlPct, isWin)
+            }
+        } catch (_: Exception) {}
         
         // Update daily stats
         dailyPnlSolBps.addAndGet((pnlSol * 10000).toLong())
@@ -1024,10 +1062,11 @@ object MoonshotTraderAI {
             return ExitSignal.RUG_DETECTED
         }
 
-        // V5.9.235 — EARLY DEAD EXIT: position losing >6% within first 20min → cut it.
-        // Mirrors ShitCoin's 12min/-0% dead exit but allows a little more room since
-        // moonshots legitimately dip before launching. -6% over 20min = it's not launching.
-        if (holdMinutes <= EARLY_DEAD_EXIT_MINUTES && pnlPct < EARLY_DEAD_EXIT_THRESHOLD) {
+        // V5.9.404 — RELAXED early-dead exit. V5.9.235 cut everything at
+        // 20min/-6%, but legit moonshots routinely dip 6–10% before
+        // launching. Window halved to 12min and threshold widened to -10%
+        // so genuine pre-launch noise survives.
+        if (holdMinutes <= 12 && pnlPct < -10.0) {
             ErrorLogger.warn(TAG, "💀 MOON DEAD EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% at ${holdMinutes}min — cutting early")
             return ExitSignal.STOP_LOSS
         }
@@ -1081,8 +1120,11 @@ object MoonshotTraderAI {
             return ExitSignal.TIMEOUT
         }
         
-        // V5.9.204: DEAD POSITION FLUSH — >90min & flat <10% → force exit
-        if (holdMinutes >= 90 && pnlPct < 10.0 && pnlPct > -50.0) {
+        // V5.9.404 — DEAD POSITION FLUSH softened. Was 90min/<10% (V5.9.204).
+        // Build #1941 era let things ride — 500%+ winners often spent 2–3h
+        // flat or slightly underwater before launching. Now we only flush
+        // genuinely dead bags (180min, still under +5%, not deeply red).
+        if (holdMinutes >= 180 && pnlPct < 5.0 && pnlPct > -50.0) {
             ErrorLogger.warn(TAG, "💀 DEAD POS FLUSH: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.FLAT_EXIT
         }

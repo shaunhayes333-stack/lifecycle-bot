@@ -34,17 +34,24 @@ object LlmLabEngine {
     private const val TAG = "LlmLabEngine"
 
     // ── Tuning knobs ────────────────────────────────────────────────────────
-    private const val CREATION_INTERVAL_MS = 4L * 60L * 60L * 1000L        // 4h
-    private const val EVAL_INTERVAL_MS     = 30_000L                       // 30s
-    private const val CULL_INTERVAL_MS     = 60L * 60L * 1000L             // 1h
+    private const val CREATION_INTERVAL_MS         = 4L * 60L * 60L * 1000L     // 4h steady state
+    // V5.9.404 — fast-creation cadence so the Lab mints strategies quickly on
+    // first install instead of looking dead for 4 hours.
+    private const val CREATION_FAST_INTERVAL_MS    = 10L * 60L * 1000L          // 10min during bootstrap
+    private const val CREATION_FAST_WINDOW_MS      = 60L * 60L * 1000L          // first 60min after install
+    private const val EVAL_INTERVAL_MS             = 30_000L                    // 30s
+    private const val CULL_INTERVAL_MS             = 60L * 60L * 1000L          // 1h
+    private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // log line every 60s
 
     private const val MAX_LIVE_STRATEGIES   = 12
     private const val MAX_OPEN_POSITIONS    = 8
     private const val MAX_PER_STRATEGY_OPEN = 1
 
     // ── State ───────────────────────────────────────────────────────────────
-    private val lastEvalMs   = AtomicLong(0)
-    private val lastCullMs   = AtomicLong(0)
+    private val lastEvalMs       = AtomicLong(0)
+    private val lastCullMs       = AtomicLong(0)
+    private val lastHeartbeatMs  = AtomicLong(0)
+    private val firstStartMs     = AtomicLong(0)
     @Volatile private var ctxRef: Context? = null
 
     // ────────────────────────────────────────────────────────────────────────
@@ -54,6 +61,7 @@ object LlmLabEngine {
         if (ctxRef != null) return
         ctxRef = context.applicationContext
         LlmLabStore.init(context)
+        firstStartMs.set(System.currentTimeMillis())
         ErrorLogger.info(TAG, "🧪 LlmLab started — ${LlmLabStore.summary()}")
         // Seed a default strategy so the lab isn't empty on first run.
         seedDefaultsIfEmpty()
@@ -64,8 +72,18 @@ object LlmLabEngine {
         if (!LlmLabStore.isEnabled()) return
         val now = System.currentTimeMillis()
 
-        // 1. CREATION — every 4h, async (don't block the loop).
-        if (now - LlmLabStore.getLastCreationMs() >= CREATION_INTERVAL_MS) {
+        // Heartbeat — proves the Lab is alive in the logs even if it's not
+        // firing trades yet.
+        if (now - lastHeartbeatMs.get() >= HEARTBEAT_INTERVAL_MS) {
+            lastHeartbeatMs.set(now)
+            ErrorLogger.info(TAG, "🧪 heartbeat — ${LlmLabStore.summary()}")
+        }
+
+        // 1. CREATION — fast cadence (10min) during the first hour after start,
+        //    steady (4h) afterward. Async, never blocks the loop.
+        val sinceStart = now - firstStartMs.get()
+        val creationGap = if (sinceStart < CREATION_FAST_WINDOW_MS) CREATION_FAST_INTERVAL_MS else CREATION_INTERVAL_MS
+        if (now - LlmLabStore.getLastCreationMs() >= creationGap) {
             LlmLabStore.markCreated()  // mark pre-emptively to avoid re-entry on parallel ticks
             GlobalScope.launch(Dispatchers.IO) { runCatching { runCreationCycle() } }
         }
@@ -103,9 +121,13 @@ object LlmLabEngine {
         val seed = LabStrategy(
             id = LlmLabStore.newStrategyId(),
             name = "Lab Genesis #1",
+            // V5.9.404 — opened the gate so the seed actually fires during
+            // bootstrap. 70 was too high — most fresh memes score 50..65 in
+            // V3 composite and were never reaching the Lab. 55 lets the Lab
+            // start trading immediately while still filtering low-quality.
             rationale = "Seed strategy — moderate score gate, 10/-7 RR, 90min hold.",
             asset = LabAssetClass.ANY,
-            entryScoreMin = 70,
+            entryScoreMin = 55,
             entryRegime = "ANY",
             takeProfitPct = 10.0,
             stopLossPct = -7.0,
