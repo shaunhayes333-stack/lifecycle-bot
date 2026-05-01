@@ -1816,7 +1816,20 @@ for legal compliance.
             val topBarTradeCount = when (currentReadinessTab) {
                 "MEME"  -> if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) com.lifecyclebot.engine.RunTracker30D.totalTrades else trades24h
                 "ALTS"  -> try { (com.lifecyclebot.perps.CryptoAltTrader.getStats()["totalTrades"] as? Int) ?: trades24h } catch (_: Exception) { trades24h }
-                "PERPS" -> try { com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades() } catch (_: Exception) { trades24h }
+                "PERPS" -> try {
+                    // V5.9.387 — PERPS tab = unified AATE markets, so the top-bar
+                    // trade count aggregates every markets trader the same way
+                    // renderPerpsReadiness() does. Was only PerpsTraderAI which
+                    // meant the top-bar always showed 0 while markets were trading.
+                    var t = 0
+                    t += ((com.lifecyclebot.perps.CryptoAltTrader.getStats()["totalTrades"] as? Int) ?: 0)
+                    t += com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades()
+                    t += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
+                    t += com.lifecyclebot.perps.ForexTrader.getTotalTrades()
+                    t += com.lifecyclebot.perps.MetalsTrader.getTotalTrades()
+                    t += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades()
+                    t
+                } catch (_: Exception) { trades24h }
                 else    -> trades24h
             }
             tvStats24hTrades.text = "$topBarTradeCount"
@@ -4738,7 +4751,7 @@ This cannot be undone!
             // trader's stats are showing.
             tvLiveReadinessTitle?.text = when (currentReadinessTab) {
                 "ALTS"  -> "🚀 Live Readiness · 🪙 ALTS"
-                "PERPS" -> "🚀 Live Readiness · ⚡ PERPS"
+                "PERPS" -> "🚀 Live Readiness · ⚡ AATE MARKETS"  // V5.9.387 — unified view
                 else    -> "🚀 Live Readiness · 💎 MEME"
             }
             when (currentReadinessTab) {
@@ -4911,7 +4924,6 @@ This cannot be undone!
         val totalTrades    = (stats["totalTrades"] as? Int) ?: 0
         val wins           = (stats["winningTrades"] as? Int) ?: 0
         val losses         = (stats["losingTrades"] as? Int) ?: 0
-        val meaningfulTrades = wins + losses
         val winRate        = (stats["winRate"] as? Double) ?: 0.0
         val totalPnlSol    = (stats["totalPnlSol"] as? Double) ?: 0.0
         val phase          = (stats["learningPhase"] as? String) ?: "BOOTSTRAP"
@@ -4922,11 +4934,16 @@ This cannot be undone!
         val TRADES_READY  = 5000
         val TRADES_ALMOST = 1500
 
-        val isProfitable   = totalPnlSol > 0.0
-        val isReady        = meaningfulTrades >= TRADES_READY && winRate >= WR_READY && isProfitable
-        val isAlmostReady  = meaningfulTrades >= TRADES_ALMOST && winRate >= WR_ALMOST
+        // V5.9.387 — progress now counts every alt trade (was wins+losses only,
+        // which caused the gate to never move because scratches dominated and
+        // user saw 0/5000 forever even after 40 alt trades had fired).
+        val gatingTrades = totalTrades
 
-        val tradesScore  = minOf(meaningfulTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 50.0
+        val isProfitable   = totalPnlSol > 0.0
+        val isReady        = gatingTrades >= TRADES_READY && winRate >= WR_READY && isProfitable
+        val isAlmostReady  = gatingTrades >= TRADES_ALMOST && winRate >= WR_ALMOST
+
+        val tradesScore  = minOf(gatingTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 50.0
         val winRateScore = minOf(winRate / WR_READY, 1.0) * 40.0
         val pnlScore     = if (isProfitable) 10.0 else 0.0
         val readinessScore = (tradesScore + winRateScore + pnlScore).toInt().coerceIn(0, 100)
@@ -4972,7 +4989,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
                 val needed = mutableListOf<String>()
-                if (meaningfulTrades < TRADES_READY) needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
                 tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(" · ")}"
@@ -4983,7 +5000,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.setTextColor(Color.WHITE)
                 tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
-                if (meaningfulTrades < TRADES_READY) needed.add("${TRADES_READY - meaningfulTrades} more trades")
+                if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
                 tvReadinessRecommendation.text = "🚫 Alts learning. ${needed.joinToString(" · ")}"
@@ -4992,140 +5009,197 @@ This cannot be undone!
         }
     }
 
-    /** V5.9.348: Perps trader readiness — uses PerpsTraderAI.getLiveReadiness(). */
+    /**
+     * V5.9.387 — PERPS tab now renders the **unified AATE markets**
+     * readiness: a single card that sums Perps + CryptoAlts + TokenizedStocks
+     * + Forex + Metals + Commodities into one readiness score. User asked
+     * for the PERPS tab to represent the entire AATE-markets trader data
+     * combined, instead of only Jupiter Perps (which was always 0 because
+     * nearly every live trade is Alts/Stocks/Metals rather than raw Perps).
+     */
     private fun renderPerpsReadiness() {
-        // V5.9.358 — when the Perps trader is disabled by the master
-        // MARKET_TRADER_KILL_SWITCH, the readiness tab was rendering all
-        // zeros with no explanation. Surface the real reason so the user
-        // knows the data is missing because the trader is off, not broken.
-        val perpsEnabled = try { com.lifecyclebot.perps.PerpsTraderAI.isEnabled() } catch (_: Exception) { false }
-        if (!perpsEnabled) {
-            tvReadinessWinRate.text = "--"
-            tvReadinessWinRate.setTextColor(muted)
-            tvReadinessTrades.text  = "0"
-            tvReadinessTrades.setTextColor(muted)
-            tvReadinessPhase.text   = "DISABLED"
-            tvReadinessPhase.setTextColor(amber)
-            tvReadinessProgress.text = "0%"
-            tvLiveReadinessBadge.text = "OFFLINE"
-            tvLiveReadinessBadge.setTextColor(Color.WHITE)
-            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
-            tvReadinessRecommendation.text = "🔌 Perps trader is OFF — enable Perps in Markets settings to start collecting live readiness data."
-            tvReadinessRecommendation.setTextColor(muted)
-            // Zero the progress bar so it doesn't show stale Meme/Alts width.
-            try {
-                val params = viewReadinessProgressBar.layoutParams
-                params.width = 0
-                viewReadinessProgressBar.layoutParams = params
-            } catch (_: Exception) {}
-            return
-        }
+        data class BucketStats(
+            val emoji: String,
+            val shortLabel: String,
+            val trades: Int,
+            val wins: Int,
+            val pnlSol: Double,
+            val winRate: Double,
+        )
 
-        val r = try { com.lifecyclebot.perps.PerpsTraderAI.getLiveReadiness() } catch (_: Exception) { null }
-        if (r == null) {
-            tvReadinessWinRate.text = "--"
-            tvReadinessTrades.text  = "0"
-            tvReadinessPhase.text   = "LEARNING"
-            tvReadinessProgress.text = "0%"
-            tvLiveReadinessBadge.text = "NOT READY"
-            tvLiveReadinessBadge.setTextColor(Color.WHITE)
-            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
-            tvReadinessRecommendation.text = "📚 Perps engine not initialised yet."
-            tvReadinessRecommendation.setTextColor(muted)
-            return
-        }
+        val buckets = mutableListOf<BucketStats>()
 
-        // V5.9.382 — explicit "waiting for first paper trade" state. Before
-        // this fix the tab silently rendered 0/--/LEARNING with no hint that
-        // the engine was simply waiting for the paper trader to fire its
-        // first trade (a common state right after enabling perps).
-        if (r.paperTrades == 0) {
-            tvReadinessWinRate.text = "--"
-            tvReadinessWinRate.setTextColor(muted)
-            tvReadinessTrades.text  = "0"
-            tvReadinessTrades.setTextColor(muted)
-            tvReadinessPhase.text   = "WAITING"
-            tvReadinessPhase.setTextColor(Color.parseColor("#00BFFF"))
-            tvReadinessProgress.text = "0%"
-            tvLiveReadinessBadge.text = "STANDBY"
-            tvLiveReadinessBadge.setTextColor(Color.WHITE)
-            tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
-            tvReadinessRecommendation.text = "⚡ Perps trader ENABLED — waiting for the first paper trade to open. Check that a PerpsMarket has both funding + price data available."
-            tvReadinessRecommendation.setTextColor(muted)
-            try {
-                val params = viewReadinessProgressBar.layoutParams
-                params.width = 0
-                viewReadinessProgressBar.layoutParams = params
-            } catch (_: Exception) {}
-            return
-        }
+        // Alts
+        try {
+            val s = com.lifecyclebot.perps.CryptoAltTrader.getStats()
+            buckets += BucketStats(
+                emoji = "🪙", shortLabel = "A",
+                trades = (s["totalTrades"] as? Int) ?: 0,
+                wins = (s["winningTrades"] as? Int) ?: 0,
+                pnlSol = (s["totalPnlSol"] as? Double) ?: 0.0,
+                winRate = (s["winRate"] as? Double) ?: 0.0,
+            )
+        } catch (_: Exception) {}
 
-        val winRate  = r.paperWinRate
-        val trades   = r.paperTrades
-        val score    = r.readinessScore
+        // Perps (Jupiter Perps proper)
+        try {
+            val t = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades()
+            val w = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeWins()
+            val l = com.lifecyclebot.perps.PerpsTraderAI.getLifetimeLosses()
+            val pnl = com.lifecyclebot.perps.PerpsTraderAI.getLifetimePnlSol()
+            val wl = w + l
+            buckets += BucketStats(
+                emoji = "⚡", shortLabel = "P",
+                trades = t, wins = w, pnlSol = pnl,
+                winRate = if (wl > 0) w.toDouble() / wl * 100.0 else 0.0,
+            )
+        } catch (_: Exception) {}
 
-        tvReadinessWinRate.text = if (trades > 0) "${winRate.toInt()}%" else "--"
+        // Tokenized Stocks
+        try {
+            buckets += BucketStats(
+                emoji = "📈", shortLabel = "S",
+                trades = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades(),
+                wins = com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades(),
+                pnlSol = com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol(),
+                winRate = com.lifecyclebot.perps.TokenizedStockTrader.getWinRate(),
+            )
+        } catch (_: Exception) {}
+
+        // Forex
+        try {
+            buckets += BucketStats(
+                emoji = "💱", shortLabel = "FX",
+                trades = com.lifecyclebot.perps.ForexTrader.getTotalTrades(),
+                wins = com.lifecyclebot.perps.ForexTrader.getWinningTrades(),
+                pnlSol = com.lifecyclebot.perps.ForexTrader.getTotalPnlSol(),
+                winRate = com.lifecyclebot.perps.ForexTrader.getWinRate(),
+            )
+        } catch (_: Exception) {}
+
+        // Metals
+        try {
+            buckets += BucketStats(
+                emoji = "🥇", shortLabel = "MT",
+                trades = com.lifecyclebot.perps.MetalsTrader.getTotalTrades(),
+                wins = com.lifecyclebot.perps.MetalsTrader.getWinningTrades(),
+                pnlSol = com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol(),
+                winRate = com.lifecyclebot.perps.MetalsTrader.getWinRate(),
+            )
+        } catch (_: Exception) {}
+
+        // Commodities
+        try {
+            buckets += BucketStats(
+                emoji = "🛢️", shortLabel = "CD",
+                trades = com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades(),
+                wins = com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades(),
+                pnlSol = com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol(),
+                winRate = com.lifecyclebot.perps.CommoditiesTrader.getWinRate(),
+            )
+        } catch (_: Exception) {}
+
+        val totalTrades = buckets.sumOf { it.trades }
+        val totalWins   = buckets.sumOf { it.wins }
+        val totalPnlSol = buckets.sumOf { it.pnlSol }
+
+        // Trade-weighted WR — buckets with 0 trades are excluded from both
+        // numerator and denominator so they don't drag WR to 0.
+        val wrActive = buckets.filter { it.trades > 0 }
+        val unifiedWinRate = if (wrActive.isNotEmpty()) {
+            val totalW = wrActive.sumOf { it.trades.toDouble() * it.winRate }
+            val totalT = wrActive.sumOf { it.trades.toDouble() }
+            if (totalT > 0) totalW / totalT else 0.0
+        } else 0.0
+
+        // Unified thresholds (same shape as ALTS so the bar behaviour is
+        // predictable across tabs).
+        val WR_READY      = 52.0
+        val WR_ALMOST     = 48.0
+        val TRADES_READY  = 5000
+        val TRADES_ALMOST = 1500
+
+        val isProfitable  = totalPnlSol > 0.0
+        val isReady       = totalTrades >= TRADES_READY && unifiedWinRate >= WR_READY && isProfitable
+        val isAlmostReady = totalTrades >= TRADES_ALMOST && unifiedWinRate >= WR_ALMOST
+
+        val tradesScore    = minOf(totalTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 50.0
+        val winRateScore   = minOf(unifiedWinRate / WR_READY, 1.0) * 40.0
+        val pnlScore       = if (isProfitable) 10.0 else 0.0
+        val readinessScore = (tradesScore + winRateScore + pnlScore).toInt().coerceIn(0, 100)
+
+        tvReadinessWinRate.text = if (totalTrades > 0) "${unifiedWinRate.toInt()}%" else "--"
         tvReadinessWinRate.setTextColor(when {
-            winRate >= 55.0 -> green
-            winRate >= 45.0 -> amber
-            else            -> red
+            unifiedWinRate >= WR_READY  -> green
+            unifiedWinRate >= WR_ALMOST -> amber
+            else                        -> red
         })
 
-        tvReadinessTrades.text = trades.toString()
+        tvReadinessTrades.text = totalTrades.toString()
         tvReadinessTrades.setTextColor(when {
-            trades >= 100 -> green
-            trades >= 30  -> amber
-            else          -> white
+            totalTrades >= TRADES_READY  -> green
+            totalTrades >= TRADES_ALMOST -> amber
+            else                         -> white
         })
 
-        val phaseLabel = r.phase.name.lowercase().replaceFirstChar { it.uppercase() }
+        // Phase label reflects combined progress for the unified view.
+        val phaseLabel = when {
+            totalTrades < 500  -> "📚 BOOTSTRAP"
+            totalTrades < 1500 -> "🧠 LEARNING"
+            totalTrades < 3000 -> "🔬 VALIDATING"
+            totalTrades < 5000 -> "⚡ MATURING"
+            unifiedWinRate >= WR_READY -> "✅ READY"
+            else               -> "⚡ MATURING"
+        }
         tvReadinessPhase.text = phaseLabel
-        tvReadinessPhase.setTextColor(when (r.phase) {
-            com.lifecyclebot.perps.ReadinessPhase.READY      -> green
-            com.lifecyclebot.perps.ReadinessPhase.PRACTICING -> Color.parseColor("#00BFFF")
-            com.lifecyclebot.perps.ReadinessPhase.CAUTION    -> red
-            else                                              -> amber
-        })
+        tvReadinessPhase.setTextColor(Color.parseColor("#9945FF"))
 
-        tvReadinessProgress.text = "$score%"
+        tvReadinessProgress.text = "$readinessScore%"
         val params = viewReadinessProgressBar.layoutParams
         val parent = viewReadinessProgressBar.parent as? FrameLayout
         if (parent != null) {
             val maxWidth = parent.width
             if (maxWidth > 0) {
-                params.width = (maxWidth * score / 100)
+                params.width = (maxWidth * readinessScore / 100)
                 viewReadinessProgressBar.layoutParams = params
             }
         }
 
-        when (r.phase) {
-            com.lifecyclebot.perps.ReadinessPhase.READY -> {
+        // Per-bucket breakdown shown under the recommendation: A 54t/9% · P 0t/-- · …
+        val breakdown = buckets.joinToString(" · ") { b ->
+            val wr = if (b.trades > 0) "${b.winRate.toInt()}%" else "--"
+            "${b.shortLabel} ${b.trades}t/$wr"
+        }
+
+        when {
+            isReady -> {
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
-                tvReadinessRecommendation.text = r.recommendation
+                tvReadinessRecommendation.text = "✅ AATE markets profitable in paper. Safe for live.\n$breakdown"
                 tvReadinessRecommendation.setTextColor(green)
             }
-            com.lifecyclebot.perps.ReadinessPhase.PRACTICING -> {
+            isAlmostReady -> {
                 tvLiveReadinessBadge.text = "ALMOST"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
-                tvReadinessRecommendation.text = r.recommendation
+                val needed = mutableListOf<String>()
+                if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
+                if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")
+                if (!isProfitable)                 needed.add("positive PnL")
+                tvReadinessRecommendation.text = "⏳ Almost there! ${needed.joinToString(" · ")}\n$breakdown"
                 tvReadinessRecommendation.setTextColor(amber)
-            }
-            com.lifecyclebot.perps.ReadinessPhase.CAUTION -> {
-                tvLiveReadinessBadge.text = "CAUTION"
-                tvLiveReadinessBadge.setTextColor(Color.WHITE)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
-                tvReadinessRecommendation.text = r.recommendation
-                tvReadinessRecommendation.setTextColor(red)
             }
             else -> {
-                tvLiveReadinessBadge.text = "LEARNING"
-                tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
-                tvReadinessRecommendation.text = r.recommendation
-                tvReadinessRecommendation.setTextColor(amber)
+                tvLiveReadinessBadge.text = "NOT READY"
+                tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                val needed = mutableListOf<String>()
+                if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
+                if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")
+                if (!isProfitable)                 needed.add("positive PnL")
+                tvReadinessRecommendation.text = "🚫 AATE markets learning. ${needed.joinToString(" · ")}\n$breakdown"
+                tvReadinessRecommendation.setTextColor(red)
             }
         }
     }
