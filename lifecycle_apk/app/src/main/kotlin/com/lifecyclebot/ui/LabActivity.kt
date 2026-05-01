@@ -23,6 +23,7 @@ import com.lifecyclebot.engine.SentientPersonality
 import com.lifecyclebot.engine.lab.LabApproval
 import com.lifecyclebot.engine.lab.LabApprovalKind
 import com.lifecyclebot.engine.lab.LabApprovalStatus
+import com.lifecyclebot.engine.lab.LabAssetClass
 import com.lifecyclebot.engine.lab.LabPosition
 import com.lifecyclebot.engine.lab.LabPromotedFeed
 import com.lifecyclebot.engine.lab.LabStrategy
