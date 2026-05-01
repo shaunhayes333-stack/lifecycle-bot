@@ -606,6 +606,11 @@ object BehaviorAI {
             append("sentiment=$sentimentClass ")
             if (tiltProtectionActive) append("[TILT PROTECTED ${tiltProtectionRemaining}s] ")
             append("fluid=${if (fluidAdjustment >= 0) "+" else ""}${(fluidAdjustment * 100).toInt()}%")
+            // V5.9.401 — Sentience hook #5: surface latest post-mortem soft rule.
+            try {
+                val hint = com.lifecyclebot.engine.SentienceHooks.lastPostMortemHint
+                if (hint.isNotBlank()) append(" | 🔬 ${hint.take(60)}")
+            } catch (_: Throwable) {}
         }
     }
     

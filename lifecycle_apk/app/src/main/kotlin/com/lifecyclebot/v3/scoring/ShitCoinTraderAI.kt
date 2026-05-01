@@ -465,6 +465,9 @@ object ShitCoinTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
+
+        // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
+        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}
         
         // Record to daily P&L
         val pnlBps = (pnlSol * 100).toLong()

@@ -3146,6 +3146,19 @@ class BotService : Service() {
                 }
             }
 
+            // V5.9.401 — Sentience auto-tune + distrust nomination (rate-limited internally)
+            try {
+                com.lifecyclebot.engine.SentienceHooks.maybeAutoTune(applicationContext)
+                val distrusted = try {
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+                        .filter { (_, rec) -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
+                        .keys.toList()
+                } catch (_: Throwable) { emptyList() }
+                if (distrusted.isNotEmpty()) {
+                    com.lifecyclebot.engine.SentienceHooks.nominateStrategiesToPause(distrusted)
+                }
+            } catch (_: Throwable) {}
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
             // Freeze aggression for this loop cycle to prevent mid-loop mutations

@@ -527,6 +527,9 @@ object QualityTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (_: Exception) {}
+
+        // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
+        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
         
         dailyPnlSol += pnlSol
         totalTrades++

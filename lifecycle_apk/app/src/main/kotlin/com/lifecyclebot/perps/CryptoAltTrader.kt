@@ -2089,6 +2089,9 @@ object CryptoAltTrader {
 
         ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
 
+        // V5.9.401 — Sentience hook #4: cross-engine telegraph (ALTS).
+        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("ALTS", pnlSol, isWin) } catch (_: Exception) {}
+
         try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
 
         // ── BehaviorAI ────────────────────────────────────────────────────────

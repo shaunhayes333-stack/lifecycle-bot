@@ -807,6 +807,9 @@ object MoonshotTraderAI {
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}
+
+        // V5.9.401 — Sentience hook #4: cross-engine telegraph.
+        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
         
         // Update daily stats
         dailyPnlSolBps.addAndGet((pnlSol * 10000).toLong())
@@ -1081,6 +1084,17 @@ object MoonshotTraderAI {
         // V5.9.204: DEAD POSITION FLUSH — >90min & flat <10% → force exit
         if (holdMinutes >= 90 && pnlPct < 10.0 && pnlPct > -50.0) {
             ErrorLogger.warn(TAG, "💀 DEAD POS FLUSH: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+            return ExitSignal.FLAT_EXIT
+        }
+
+        // V5.9.401 — Sentience hook #2: LLM exit override (cached, fail-open).
+        if (com.lifecyclebot.engine.SentienceHooks.shouldExit(
+                symbol = pos.symbol,
+                pnlPct = pnlPct,
+                holdMinutes = holdMinutes,
+                peakPct = pos.peakPnlPct
+            )) {
+            ErrorLogger.info(TAG, "🤖 LLM EXIT OVERRIDE: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.FLAT_EXIT
         }
 

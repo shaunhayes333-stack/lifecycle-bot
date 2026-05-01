@@ -2981,14 +2981,30 @@ class Executor(
                       quality: String = "C",
                       skipGraduated: Boolean = false) {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        
+
+        // V5.9.401 — Sentience hook #1: LLM second-opinion veto (cached, fail-open).
+        if (!com.lifecyclebot.engine.SentienceHooks.preTradeVeto(
+                symbol = ts.symbol, score = score.toInt(), conf = quality.hashCode().rem(100),
+                reasons = "src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()}")) {
+            onLog("🛑 LLM SENTIENCE VETO: ${ts.symbol} blocked by pre-trade LLM check", tradeId.mint)
+            return
+        }
+
+        // V5.9.401 — Sentience hook #7: dynamic size scaling (0.5..1.5×, default 1.0).
+        val sizeMult = try {
+            com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(
+                engine = "MEME", symbol = ts.symbol, regime = ts.source
+            )
+        } catch (_: Throwable) { 1.0 }
+        val effSol = (sol * sizeMult).coerceIn(sol * 0.5, sol * 1.5)
+
         if (cfg().paperMode || wallet == null) {
-            paperBuy(ts, sol, score, tradeId, quality, skipGraduated, wallet, walletSol)
+            paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
             val guard = security.checkBuy(
                 mint         = tradeId.mint,
                 symbol       = tradeId.symbol,
-                solAmount    = sol,
+                solAmount    = effSol,
                 walletSol    = walletSol,
                 currentPrice = getActualPrice(ts),
                 currentVol   = ts.history.lastOrNull()?.vol ?: 0.0,
@@ -3001,24 +3017,24 @@ class Executor(
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, sol, score, quality, "blocked:${guard.reason.take(20)}", wallet, walletSol)
+                        runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", wallet, walletSol)
                     }
                     return
                 }
                 is GuardResult.Allow -> {
                     // V5.9.9: Cross-trader exposure check
-                    if (!WalletPositionLock.canOpen("Meme", sol, walletSol)) {
+                    if (!WalletPositionLock.canOpen("Meme", effSol, walletSol)) {
                         onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
                         if (cfg().shadowPaperEnabled) {
-                            runShadowPaperBuy(ts, sol, score, quality, "exposure_cap", wallet, walletSol)
+                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", wallet, walletSol)
                         }
                         return
                     }
-                    liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality, skipGraduated)
-                    WalletPositionLock.recordOpen("Meme", sol)
+                    liveBuy(ts, effSol, score, wallet, walletSol, tradeId, quality, skipGraduated)
+                    WalletPositionLock.recordOpen("Meme", effSol)
                     
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, sol, score, quality, "parallel", wallet, walletSol)
+                        runShadowPaperBuy(ts, effSol, score, quality, "parallel", wallet, walletSol)
                     }
                 }
             }
