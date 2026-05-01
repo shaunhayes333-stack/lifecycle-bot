@@ -373,35 +373,119 @@ class LabActivity : AppCompatActivity() {
     // ────────────────────────────────────────────────────────────────────
     private fun rebuildActionBar() {
         if (llActionBar.childCount > 0) return  // build once, persist
-        val actions = listOf(
-            Triple("⚡ FORCE SPAWN",   green) { com.lifecyclebot.engine.lab.LlmLabEngine.forceSpawn(); rebuild() },
-            Triple("🧬 MUTATE BEST",  cyan)  { com.lifecyclebot.engine.lab.LlmLabEngine.mutateBest(); rebuild() },
-            Triple("🗑 PURGE ARCHIVE", amber) { com.lifecyclebot.engine.lab.LlmLabEngine.purgeArchived(); rebuild() },
-            Triple("➕ +10◎ TOPUP",    purple){ com.lifecyclebot.engine.lab.LlmLabEngine.topUpBankroll(10.0); rebuild() },
-        )
-        for ((label, color, action) in actions) {
-            val btn = TextView(this).apply {
-                text = label
-                setTextColor(color)
-                textSize = 11f
-                typeface = Typeface.MONOSPACE
-                setTypeface(typeface, Typeface.BOLD)
-                gravity = Gravity.CENTER
-                setPadding(12.dp(), 8.dp(), 12.dp(), 8.dp())
-                background = GradientDrawable().apply {
-                    cornerRadius = 999f
-                    setColor(0xFF0A0814.toInt())
-                    setStroke(1.dp(), color)
-                }
-                isClickable = true; isFocusable = true
-                letterSpacing = 0.08f
-                setOnClickListener { action() }
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 6.dp(), 0) }
+
+        addActionButton("⚡ FORCE SPAWN", green) {
+            val before = LlmLabStore.allStrategies().size
+            LlmLabEngine.forceSpawn()
+            // forceSpawn is async (Gemini call). Show optimistic toast and a
+            // deterministic local fallback if LLM is unreachable.
+            if (!GeminiCopilot.isConfigured() || GeminiCopilot.isAIDegraded()) {
+                spawnRandomStrategy()
+                toast("🧪 LLM offline — minted random fallback strategy")
+            } else {
+                toast("⚡ Spawn requested — new strategy in ~3s")
             }
-            llActionBar.addView(btn)
+            handler.postDelayed({ rebuild() }, 3500L)
+            rebuild()
         }
+        addActionButton("🧬 MUTATE BEST", cyan) {
+            val any = LlmLabStore.allStrategies().any { it.status != LabStrategyStatus.ARCHIVED }
+            if (!any) { toast("🧬 nothing to mutate yet"); return@addActionButton }
+            val proven = LlmLabStore.allStrategies().any { it.paperTrades >= 5 }
+            LlmLabEngine.mutateBest()
+            if (!proven) {
+                // No proven parent — mutate the highest-trade strategy regardless.
+                mutateAnyStrategy()
+            }
+            toast("🧬 Mutation deployed")
+            rebuild()
+        }
+        addActionButton("🗑 PURGE ARCHIVE", amber) {
+            val n = LlmLabEngine.purgeArchived()
+            toast(if (n > 0) "🗑 Purged $n archived" else "🗑 Nothing archived")
+            rebuild()
+        }
+        addActionButton("➕ +10◎ TOPUP", purple) {
+            LlmLabEngine.topUpBankroll(10.0)
+            toast("➕ +10◎ paper bankroll")
+            rebuild()
+        }
+    }
+
+    private fun addActionButton(label: String, color: Int, onClick: () -> Unit) {
+        val btn = TextView(this).apply {
+            text = label
+            setTextColor(color)
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(12.dp(), 8.dp(), 12.dp(), 8.dp())
+            background = GradientDrawable().apply {
+                cornerRadius = 999f
+                setColor(0xFF0A0814.toInt())
+                setStroke(1.dp(), color)
+            }
+            isClickable = true; isFocusable = true
+            letterSpacing = 0.08f
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 6.dp(), 0) }
+        }
+        llActionBar.addView(btn)
+    }
+
+    // Deterministic random-strategy mint — used when Gemini is unavailable so
+    // the FORCE SPAWN button is never silent.
+    private fun spawnRandomStrategy() {
+        val asset = LabAssetClass.values().random()
+        val name = listOf("Wildcard", "Echo", "Glitch", "Phantom", "Drifter", "Cypher", "Mirage", "Nomad").random() +
+                   " " + ('A'..'Z').random()
+        val s = LabStrategy(
+            id = LlmLabStore.newStrategyId(),
+            name = name,
+            rationale = "Locally-minted fallback (LLM offline) — random profile.",
+            asset = asset,
+            entryScoreMin = (45..80).random(),
+            entryRegime = listOf("ANY", "BULL", "CHOP").random(),
+            takeProfitPct = (5..40).random().toDouble(),
+            stopLossPct = -((4..15).random()).toDouble(),
+            maxHoldMins = listOf(15, 30, 45, 60, 90, 120, 180).random(),
+            sizingSol = listOf(0.10, 0.15, 0.20, 0.25, 0.30, 0.40).random(),
+            generation = 1,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(s)
+    }
+
+    // Mutate the most-traded strategy regardless of WR — used when no proven
+    // parent exists so MUTATE BEST is never silent.
+    private fun mutateAnyStrategy() {
+        val parent = LlmLabStore.allStrategies()
+            .filter { it.status != LabStrategyStatus.ARCHIVED }
+            .maxByOrNull { it.paperTrades } ?: return
+        fun jitter(d: Double, pct: Double = 0.20) = d + d * pct * (Math.random() * 2 - 1)
+        val child = LabStrategy(
+            id = LlmLabStore.newStrategyId(),
+            name = parent.name.replaceFirst(Regex("\\s*·\\s*Mut\\d+$"), "") + " · Mut${parent.generation}",
+            rationale = "Local mutation of ${parent.name} (no LLM call).",
+            asset = parent.asset,
+            entryScoreMin = (parent.entryScoreMin + (-5..5).random()).coerceIn(40, 95),
+            entryRegime = parent.entryRegime,
+            takeProfitPct = jitter(parent.takeProfitPct).coerceIn(3.0, 100.0),
+            stopLossPct = jitter(parent.stopLossPct).coerceIn(-50.0, -2.0),
+            maxHoldMins = jitter(parent.maxHoldMins.toDouble()).toInt().coerceIn(15, 480),
+            sizingSol = jitter(parent.sizingSol).coerceIn(0.05, 1.0),
+            parentId = parent.id,
+            generation = parent.generation + 1,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(child)
+    }
+
+    private fun toast(msg: String) {
+        try { Toast.makeText(this, msg, Toast.LENGTH_SHORT).show() } catch (_: Throwable) {}
     }
 
     // ────────────────────────────────────────────────────────────────────
