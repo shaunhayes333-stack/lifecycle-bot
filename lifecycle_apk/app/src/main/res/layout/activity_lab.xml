@@ -2,32 +2,48 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
+    android:background="#FF050508"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
-    <!-- ── TOP BAR ── -->
+    <!-- ═══════════════════════════════════════════════════════════════════
+         HERO BAND — accent gradient sliver across the top of the screen
+         ═══════════════════════════════════════════════════════════════════ -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:background="@drawable/lab_neon_card"/>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         TOP BAR
+         ═══════════════════════════════════════════════════════════════════ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="10dp"
-        android:paddingBottom="8dp"
-        android:background="#0A0A0F">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="10dp">
 
         <TextView
             android:id="@+id/btnLabBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="←"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp"
-            android:paddingEnd="12dp"
+            android:text="‹"
+            android:textColor="#FFA78BFA"
+            android:textSize="28sp"
+            android:paddingEnd="14dp"
+            android:fontFamily="monospace"
             android:clickable="true"
             android:focusable="true"/>
+
+        <!-- Status pulse dot -->
+        <View android:id="@+id/dotLabStatus"
+            android:layout_width="10dp" android:layout_height="10dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/lab_pulse_dot"/>
 
         <LinearLayout
             android:layout_width="0dp"
@@ -37,147 +53,317 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="🧪 LLM Lab"
-                android:textColor="#FFFFFF"
-                android:textSize="16sp"
+                android:text="// LLM_LAB"
+                android:textColor="#FFFFFFFF"
+                android:textSize="17sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
-                android:letterSpacing="0.04"/>
+                android:letterSpacing="0.12"/>
             <TextView android:id="@+id/tvLabSubtitle"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Sandbox · paper-only · proves itself before live"
-                android:textColor="#6B7280"
-                android:textSize="9sp" android:fontFamily="monospace"/>
+                android:text="› sandbox online · proof-required: 100 trades"
+                android:textColor="#FF7C3AED"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.08"/>
         </LinearLayout>
 
         <TextView android:id="@+id/btnLabRefresh"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="↻" android:textColor="#A78BFA" android:textSize="18sp"
-            android:paddingEnd="10dp" android:clickable="true" android:focusable="true"/>
+            android:text="↺" android:textColor="#FF14F195" android:textSize="20sp"
+            android:paddingEnd="12dp" android:clickable="true" android:focusable="true"
+            android:fontFamily="monospace"/>
 
         <TextView android:id="@+id/btnLabToggle"
             android:layout_width="wrap_content" android:layout_height="32dp"
             android:gravity="center"
-            android:text="ON"
-            android:textColor="#000000"
+            android:text="◉ LIVE"
+            android:textColor="#FF000000"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:background="@drawable/pill_bg_green"
+            android:background="@drawable/lab_section_active"
             android:paddingStart="14dp"
             android:paddingEnd="14dp"
             android:clickable="true"
             android:focusable="true"
-            android:fontFamily="monospace"/>
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08"/>
     </LinearLayout>
 
-    <!-- ── HEADLINE STATS BAR ── -->
+    <!-- ═══════════════════════════════════════════════════════════════════
+         HUD CARD — neon-bordered stat readout
+         ═══════════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="8dp"
+        android:padding="14dp"
+        android:background="@drawable/lab_hud_card">
+
+        <!-- Top row: 4 stat columns -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="BANKROLL" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:fontFamily="monospace" android:letterSpacing="0.18"/>
+                <TextView android:id="@+id/tvLabBalance"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="100.00◎"
+                    android:textColor="#FFA78BFA" android:textSize="20sp" android:textStyle="bold"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="PNL" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:fontFamily="monospace" android:letterSpacing="0.18"/>
+                <TextView android:id="@+id/tvLabPnl"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="+0.000◎"
+                    android:textColor="#FF14F195" android:textSize="20sp" android:textStyle="bold"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="ACT/PROM" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:fontFamily="monospace" android:letterSpacing="0.18"/>
+                <TextView android:id="@+id/tvLabActive"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="0/0"
+                    android:textColor="#FFFFFFFF" android:textSize="20sp" android:textStyle="bold"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="QUEUED" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:fontFamily="monospace" android:letterSpacing="0.18"/>
+                <TextView android:id="@+id/tvLabPending"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="#FFF59E0B" android:textSize="20sp" android:textStyle="bold"
+                    android:fontFamily="monospace"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Promotion progress bar — hottest strategy proof status -->
+        <TextView android:id="@+id/tvLabProofLabel"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="› PROOF: idle"
+            android:textColor="#FF7C3AED"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:paddingTop="10dp"/>
+
+        <ProgressBar
+            android:id="@+id/pbLabProof"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:progress="0"
+            android:max="100"
+            android:progressTint="#FF14F195"
+            android:layout_marginTop="4dp"/>
+    </LinearLayout>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         LIVE TICKER — auto-scrolling thought feed
+         ═══════════════════════════════════════════════════════════════════ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingBottom="8dp"
-        android:background="#0A0A0F">
+        android:gravity="center_vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="10dp"
+        android:padding="8dp"
+        android:background="@drawable/lab_terminal_bg">
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <TextView android:id="@+id/tvLabBalance"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="100.00◎"
-                android:textColor="#A78BFA" android:textSize="18sp" android:textStyle="bold"
-                android:fontFamily="monospace"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="paper bank" android:textColor="#6B7280" android:textSize="9sp"
-                android:fontFamily="monospace"/>
-        </LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=" ▌"
+            android:textColor="#FF14F195"
+            android:textSize="11sp"
+            android:fontFamily="monospace"/>
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <TextView android:id="@+id/tvLabPnl"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="+0.000◎"
-                android:textColor="#14F195" android:textSize="18sp" android:textStyle="bold"
-                android:fontFamily="monospace"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="paper PnL" android:textColor="#6B7280" android:textSize="9sp"
-                android:fontFamily="monospace"/>
-        </LinearLayout>
-
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <TextView android:id="@+id/tvLabActive"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="0/0"
-                android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"
-                android:fontFamily="monospace"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="active/promoted" android:textColor="#6B7280" android:textSize="9sp"
-                android:fontFamily="monospace"/>
-        </LinearLayout>
-
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-            <TextView android:id="@+id/tvLabPending"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="0"
-                android:textColor="#F59E0B" android:textSize="18sp" android:textStyle="bold"
-                android:fontFamily="monospace"/>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="awaiting you" android:textColor="#6B7280" android:textSize="9sp"
-                android:fontFamily="monospace"/>
-        </LinearLayout>
+        <TextView android:id="@+id/tvLabTicker"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="awaiting transmission…"
+            android:textColor="#FFA0FFA0"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:ellipsize="end"/>
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
-
-    <!-- ── TABS ── -->
-    <LinearLayout
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SECTOR SWITCHER — pill buttons with active glow
+         ═══════════════════════════════════════════════════════════════════ -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:background="#0A0A0F">
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp">
 
-        <TextView android:id="@+id/tabLabApprovals"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="APPROVALS" android:textColor="#A78BFA" android:textSize="11sp"
-            android:textStyle="bold" android:fontFamily="monospace"
-            android:background="@drawable/tab_active_bg"
-            android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
-        <TextView android:id="@+id/tabLabStrategies"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="STRATEGIES" android:textColor="#6B7280" android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:background="@drawable/tab_inactive_bg"
-            android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
-        <TextView android:id="@+id/tabLabPositions"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="POSITIONS" android:textColor="#6B7280" android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:background="@drawable/tab_inactive_bg"
-            android:clickable="true" android:focusable="true"/>
-    </LinearLayout>
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <TextView android:id="@+id/secApprovals"
+                android:layout_width="wrap_content" android:layout_height="36dp"
+                android:gravity="center"
+                android:text="◈ APPROVALS"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/lab_section_active"
+                android:clickable="true" android:focusable="true"/>
+
+            <TextView android:id="@+id/secStrategies"
+                android:layout_width="wrap_content" android:layout_height="36dp"
+                android:gravity="center"
+                android:text="◇ STRATEGIES"
+                android:textColor="#FF9CA3AF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/lab_section_inactive"
+                android:clickable="true" android:focusable="true"/>
+
+            <TextView android:id="@+id/secPositions"
+                android:layout_width="wrap_content" android:layout_height="36dp"
+                android:gravity="center"
+                android:text="◉ POSITIONS"
+                android:textColor="#FF9CA3AF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/lab_section_inactive"
+                android:clickable="true" android:focusable="true"/>
+
+            <TextView android:id="@+id/secChat"
+                android:layout_width="wrap_content" android:layout_height="36dp"
+                android:gravity="center"
+                android:text="▶ CHAT"
+                android:textColor="#FF9CA3AF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/lab_section_inactive"
+                android:clickable="true" android:focusable="true"/>
+
+            <TextView android:id="@+id/secPersona"
+                android:layout_width="wrap_content" android:layout_height="36dp"
+                android:gravity="center"
+                android:text="✦ PERSONA"
+                android:textColor="#FF9CA3AF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:background="@drawable/lab_section_inactive"
+                android:clickable="true" android:focusable="true"/>
+        </LinearLayout>
+    </HorizontalScrollView>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
+        android:background="#FF1A0F2E"/>
 
-    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+    <ScrollView
+        android:id="@+id/svLabContent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="none">
         <LinearLayout android:id="@+id/llLabContent"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
-            android:paddingTop="8dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="10dp"
             android:paddingBottom="32dp"/>
     </ScrollView>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         CHAT COMPOSER — terminal-style prompt bar (CHAT sector only)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/llLabChatComposer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="10dp"
+        android:background="#FF080812"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="❯"
+            android:textColor="#FF14F195"
+            android:textSize="18sp"
+            android:fontFamily="monospace"
+            android:paddingEnd="8dp"/>
+
+        <EditText android:id="@+id/etLabChat"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="speak to the LLM…"
+            android:textColorHint="#FF374151"
+            android:textColor="#FFE5E7EB"
+            android:textSize="13sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/lab_terminal_bg"
+            android:padding="10dp"
+            android:imeOptions="actionSend"
+            android:inputType="textShortMessage|textCapSentences"
+            android:maxLines="3"/>
+
+        <TextView android:id="@+id/btnLabChatSend"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="TX"
+            android:textColor="#FF000000"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.15"
+            android:background="@drawable/lab_section_active"
+            android:paddingStart="20dp" android:paddingEnd="20dp"
+            android:paddingTop="10dp" android:paddingBottom="10dp"
+            android:layout_marginStart="8dp"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
 </LinearLayout>

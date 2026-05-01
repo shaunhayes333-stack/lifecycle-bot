@@ -29,9 +29,11 @@ object LlmLabStore {
 
     // Defaults
     const val DEFAULT_PAPER_BALANCE_SOL = 100.0
-    const val MIN_TRADES_BEFORE_PROMOTION = 20
+    // V5.9.403 — promotion threshold raised: only after 100 paper trades does a
+    // strategy graduate into the universe (paper-influence + queue-for-live).
+    const val MIN_TRADES_BEFORE_PROMOTION = 100
     const val MIN_WR_FOR_PROMOTION_PCT = 60.0
-    const val ARCHIVE_LOSER_AFTER_TRADES = 25
+    const val ARCHIVE_LOSER_AFTER_TRADES = 50
     const val ARCHIVE_LOSER_BELOW_WR_PCT = 30.0
 
     // ── In-memory caches ────────────────────────────────────────────────────

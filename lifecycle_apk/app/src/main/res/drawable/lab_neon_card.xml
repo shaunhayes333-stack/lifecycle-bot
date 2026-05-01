@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer neon glow -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp"/>
+            <stroke android:width="1dp" android:color="#33A78BFA"/>
+            <solid android:color="#FF14141F"/>
+        </shape>
+    </item>
+    <!-- Inner accent line on top -->
+    <item android:gravity="top" android:height="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#00000000"
+                android:centerColor="#FFA78BFA"
+                android:endColor="#00000000"
+                android:type="linear"
+                android:angle="0"/>
+        </shape>
+    </item>
+</layer-list>
