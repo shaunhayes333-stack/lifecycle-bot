@@ -3200,6 +3200,22 @@ class Executor(
         security.recordTrade(trade)
         
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
+        // V5.9.385 — the GHOST POSITION fix. V5.9.369 added a guard in
+        // GlobalTradeRegistry.removeFromWatchlist that blocks eviction when
+        // `activePositions.containsKey(mint)`. But the guard was a no-op
+        // because NO BUY PATH ever called GlobalTradeRegistry.registerPosition
+        // (only PositionPersistence on startup did). So `activePositions`
+        // was always empty, the guard always returned false, and the
+        // scanner evicted mints we held → no price polling → ghost positions
+        // that sat in the wallet forever. Reported by user 5× across sessions.
+        try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
+                mint = tradeId.mint,
+                symbol = tradeId.symbol,
+                layer = currentLayer,
+                sizeSol = actualSol,
+            )
+        } catch (_: Exception) { /* non-critical */ }
         
         try {
             PositionPersistence.savePosition(ts)
@@ -4165,6 +4181,18 @@ class Executor(
                             tokenAmount = verifiedQty, traderTag = "MEME",
                         )
                         EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
+                        // V5.9.385 — also register with GlobalTradeRegistry.
+                        // See detailed comment above the other registerPosition
+                        // site. Without this the scanner will evict the mint
+                        // and orphan the live position.
+                        try {
+                            com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
+                                mint = verifyTradeMint,
+                                symbol = verifyTradeSymbol,
+                                layer = verifyCurrentLayer,
+                                sizeSol = sol,
+                            )
+                        } catch (_: Exception) { /* non-critical */ }
                         // V5.9.137 — register in SellOptimizationAI only after
                         // on-chain tokens are verified (live path), mirroring
                         // the guardrails pattern above.
@@ -4615,6 +4643,13 @@ class Executor(
         security.recordTrade(trade)
         
         EmergentGuardrails.unregisterPosition(tradeId.mint)
+        // V5.9.385 — match the BUY-side registerPosition by closing the
+        // GlobalTradeRegistry.activePositions entry here. After this call
+        // the scanner eviction guard releases and the mint can be removed
+        // from the watchlist normally (or kept around via cooldown as before).
+        try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
+        } catch (_: Exception) { /* non-critical */ }
         
         onPaperBalanceChange?.invoke(value)
         
@@ -5960,6 +5995,10 @@ class Executor(
             security.recordTrade(trade)
             
             EmergentGuardrails.unregisterPosition(tradeId.mint)
+            // V5.9.385 — live-path close: release the scanner eviction guard.
+            try {
+                com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
+            } catch (_: Exception) { /* non-critical */ }
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
