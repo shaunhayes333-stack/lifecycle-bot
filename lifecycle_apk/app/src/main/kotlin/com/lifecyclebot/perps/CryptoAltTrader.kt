@@ -311,7 +311,7 @@ object CryptoAltTrader {
         try { MoonshotTraderAI.initialize(isPaperMode.get()) }     catch (e: Exception) { ErrorLogger.debug(TAG, "MoonshotAI: ${e.message}") }
         try { ManipulatedTraderAI.init(isPaperMode.get()) }        catch (e: Exception) { ErrorLogger.debug(TAG, "ManipulatedAI: ${e.message}") }
         try { PerpsLearningBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "PerpsLearningBridge: ${e.message}") }
-        try { FluidLearningAI.initMarketsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
+        try { FluidLearningAI.initAltsPrefs(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "FluidLearningAI.initMarketsPrefs: ${e.message}") }
 
         // V5.9.189: Rehydrate persisted positions with staleness guard + cap.
         // Positions older than 4 hours are expired — close them at entry (no loss/win).
@@ -526,7 +526,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
-                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
                                 // V5.9.2: Convert to tradeable AltSignal
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) {
@@ -570,7 +570,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
-                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) {
                                     val bcDir = when {
@@ -611,7 +611,7 @@ object CryptoAltTrader {
                             if (sig.shouldRide) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
-                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
                             }
                         } catch (_: Exception) {}
                     }
@@ -637,7 +637,7 @@ object CryptoAltTrader {
                             if (sig.eligible) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
-                                try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
                                     // V5.9.230: Moonshot is always LONG (looking for explosive upside)
@@ -671,7 +671,7 @@ object CryptoAltTrader {
                         if (sig.shouldEnter) {
                             signals++
                             ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
-                            try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+                            try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {}
                 }
@@ -683,8 +683,8 @@ object CryptoAltTrader {
         // V5.9.2: Execute top DynScan signals — previously these were logged but never acted on
         // Now we convert high-confidence DynToken signals into real AltSignal trades
         if (dynExecutableSignals.isNotEmpty() && positions.size < MAX_POSITIONS) {
-            val scoreThresh = try { FluidLearningAI.getMarketsSpotScoreThreshold() } catch (_: Exception) { 60 }
-            val confThresh  = try { FluidLearningAI.getMarketsSpotConfThreshold() }  catch (_: Exception) { 55 }
+            val scoreThresh = try { FluidLearningAI.getAltsSpotScoreThreshold() } catch (_: Exception) { 60 }
+            val confThresh  = try { FluidLearningAI.getAltsSpotConfThreshold() }  catch (_: Exception) { 55 }
             val topDyn = dynExecutableSignals
                 .filter { it.score >= scoreThresh && it.confidence >= confThresh }
                 .sortedByDescending { it.score }
@@ -713,7 +713,7 @@ object CryptoAltTrader {
         if (scanNum % 10 == 0) {
             saveToSharedPrefs()
             savePersistedState()
-            try { FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
+            try { FluidLearningAI.saveAltsPrefs() } catch (_: Exception) {}
             try { PerpsLearningBridge.save() } catch (_: Exception) {}
         }
 
@@ -787,8 +787,8 @@ object CryptoAltTrader {
 
                 val signal = analyzeAlt(market, data)
                 if (signal != null) {
-                    val scoreThresh = FluidLearningAI.getMarketsSpotScoreThreshold()
-                    val confThresh  = FluidLearningAI.getMarketsSpotConfThreshold()
+                    val scoreThresh = FluidLearningAI.getAltsSpotScoreThreshold()
+                    val confThresh  = FluidLearningAI.getAltsSpotConfThreshold()
 
                     // V5.9.132: V3 IS THE GATE. Fluid score/conf gate is now
                     // only a preliminary sanity check — any signal with score≥45
@@ -1346,8 +1346,8 @@ object CryptoAltTrader {
         }
 
         val tpPct = if (isSpot)
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsSpotTpPct()
+        else com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsLevTpPct()
         val slPctBase  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
         val lev    = if (isSpot) 1.0 else signal.leverage
 
@@ -1483,7 +1483,7 @@ object CryptoAltTrader {
             }
         } catch (_: Exception) {}
 
-        try { FluidLearningAI.recordMarketsTradeStart() } catch (_: Exception) {}
+        try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
         com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", sizeSol)
 
         // ── MetaCognitionAI — entry prediction ───────────────────────────────
@@ -1800,8 +1800,8 @@ object CryptoAltTrader {
                 }
 
                 val tpPct = if (updated.isSpot)
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-                else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsSpotTpPct()
+                else com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsLevTpPct()
 
                 // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
                 val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
@@ -1958,11 +1958,11 @@ object CryptoAltTrader {
         when {
             isWinByPct -> {
                 winningTrades.incrementAndGet()
-                try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordMarketsLiveTrade(true) } catch (_: Exception) {}
+                try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(true) } catch (_: Exception) {}
             }
             isLossByPct -> {
                 losingTrades.incrementAndGet()
-                try { if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordMarketsLiveTrade(false) } catch (_: Exception) {}
+                try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(false) } catch (_: Exception) {}
             }
             else -> {
                 // Scratch: |pnlPct| < 1%. Bump local scratch counter only.
@@ -2128,51 +2128,32 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
 
         // ── PerpsLearningBridge — cross-layer learning from alt trade ─────────
+        // V5.9.395 — route into dedicated ALT lane (not PERPS). This stops
+        // alt outcomes polluting perps trust AND prevents the old
+        // routeLearningToLayer path from training meme sub-traders
+        // (Moonshot/ShitCoin/BlueChip/Quality/Express) on alt trades.
         try {
-            val perpsTrade = PerpsTrade(
-                id          = pos.id,
-                market      = pos.market,
-                direction   = pos.direction,
-                side        = "CLOSE",
-                entryPrice  = pos.entryPrice,
-                exitPrice   = pos.currentPrice,
-                sizeSol     = pos.sizeSol,
-                leverage    = pos.leverage,
-                pnlUsd      = pnlSol * WalletManager.lastKnownSolPrice,
-                pnlPct      = pnlPct,
-                openTime    = pos.openTime,
-                closeTime   = timestamp,
-                closeReason = reason,
-                isPaper     = paper,
-                aiScore     = pos.aiScore,
-                aiConfidence= pos.aiConfidence,
-                riskTier    = if (pos.isSpot) PerpsRiskTier.SNIPER else if (pos.leverage <= 3.0) PerpsRiskTier.TACTICAL else PerpsRiskTier.ASSAULT
+            val contributingLayers = pos.reasons.mapNotNull { r ->
+                when {
+                    r.contains("Momentum")     -> "MomentumPredictorAI"
+                    r.contains("Technical")    -> "PerpsAdvancedAI"
+                    r.contains("NarrativeHeat")-> "NarrativeFlowAI"
+                    r.contains("Trust")        -> "StrategyTrustAI"
+                    r.contains("BehaviorAI")   -> "BehaviorAI"
+                    else                       -> null
+                }
+            }.distinct().ifEmpty { listOf("CryptoAltAI") }
+            PerpsLearningBridge.learnFromAltTrade(
+                symbol = pos.market.symbol,
+                isWin = pnlPct >= 1.0,
+                pnlPct = pnlPct,
+                contributingLayers = contributingLayers,
             )
-            PerpsLearningBridge.learnFromPerpsTrade(
-                trade = perpsTrade,
-                contributingLayers = pos.reasons.mapNotNull { r ->
-                    when {
-                        r.contains("ShitCoin")     -> "ShitCoinTraderAI"
-                        r.contains("BlueChip")     -> "BlueChipTraderAI"
-                        r.contains("Quality")      -> "QualityTraderAI"
-                        r.contains("Express")      -> "ShitCoinExpress"
-                        r.contains("Moonshot")     -> "MoonshotTraderAI"
-                        r.contains("Manip")        -> "ManipulatedTraderAI"
-                        r.contains("Momentum")     -> "MomentumPredictorAI"
-                        r.contains("Technical")    -> "PerpsAdvancedAI"
-                        r.contains("NarrativeHeat")-> "NarrativeFlowAI"
-                        r.contains("Trust")        -> "StrategyTrustAI"
-                        r.contains("BehaviorAI")   -> "BehaviorAI"
-                        else                       -> null
-                    }
-                }.distinct().ifEmpty { listOf("CryptoAltAI") },
-                predictedDirection = pos.direction
-            )
-            ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge: ${pos.market.symbol} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
+            ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge(ALT lane): ${pos.market.symbol} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
         } catch (_: Exception) {}
 
         // ── FluidLearningAI persistence ───────────────────────────────────────
-        try { FluidLearningAI.saveMarketsPrefs() } catch (_: Exception) {}
+        try { FluidLearningAI.saveAltsPrefs() } catch (_: Exception) {}
 
         // V5.9.112: feed live PnL into LiveSafetyCircuitBreaker for session drawdown halt.
         if (!paper) {
@@ -2644,7 +2625,7 @@ object CryptoAltTrader {
     )
 
     private fun getPhaseLabel(): String {
-        val trades = FluidLearningAI.getMarketsTradeCount()
+        val trades = FluidLearningAI.getAltsTradeCount()
         val wr     = getWinRate()
         return when {
             trades < 500  -> "📚 BOOTSTRAP"
@@ -2657,7 +2638,7 @@ object CryptoAltTrader {
     }
 
     /** Whether this trader has met all requirements to go live */
-    fun isLiveReady(): Boolean = FluidLearningAI.getMarketsTradeCount() >= 5000 && getWinRate() >= 52.0
+    fun isLiveReady(): Boolean = FluidLearningAI.getAltsTradeCount() >= 5000 && getWinRate() >= 52.0
 
     /** V5.9.3: Called from MAA when user taps SPOT/LEVERAGE toggle */
     fun setPreferLeverage(lev: Boolean) {

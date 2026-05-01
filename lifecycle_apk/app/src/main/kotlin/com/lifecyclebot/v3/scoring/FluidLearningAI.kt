@@ -2197,7 +2197,127 @@ object FluidLearningAI {
         "memeProgress" to (getLearningProgress() * 100).toInt(),
         "memeWinRate" to getMemeWinRate().toInt(),
         "marketsTrades" to getMarketsTradeCount(),
-        "marketsProgress" to (getMarketsLearningProgress() * 100).toInt()
+        "marketsProgress" to (getMarketsLearningProgress() * 100).toInt(),
+        "altsTrades" to getAltsTradeCount(),
+        "altsProgress" to (getAltsLearningProgress() * 100).toInt()
     )
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.395 — ALTS NAMESPACE (AATE Alts trader, separate from Markets)
+    //
+    // Before V5.9.395 the CryptoAltTrader (AATE Alts) wrote into the MARKETS
+    // namespace — polluting Stocks/Commodities/Metals/Forex counters with
+    // thousands of SPOT alt trades and, worse, pulling its entry thresholds
+    // (score/conf) from Markets progress. This block gives Alts its own
+    // counters, prefs, learning curve and threshold getters so AATE Alts and
+    // AATE Markets evolve completely independently. Wallet + macro data is
+    // still shared; only learning/trust state is isolated.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private val altsSessionTrades = AtomicInteger(0)
+    private val altsSessionWins   = AtomicInteger(0)
+    private val altsLastProgressUpdate = AtomicLong(0)
+    private var altsCachedProgress = 0.0
+    private var altsLiveAccumulator = 0.0
+    private var altsPaperAccumulator = 0.0
+    private val altsAccumulatorLock = Any()
+
+    @Volatile private var altsPrefs: android.content.SharedPreferences? = null
+    private const val ALTS_PREFS_NAME = "fluid_learning_alts"
+    private const val KEY_ALTS_TRADES = "alts_trades"
+    private const val KEY_ALTS_WINS   = "alts_wins"
+
+    fun initAltsPrefs(context: android.content.Context) {
+        val prefs = context.getSharedPreferences(ALTS_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        altsPrefs = prefs
+        val savedTrades = prefs.getInt(KEY_ALTS_TRADES, 0)
+        val savedWins   = prefs.getInt(KEY_ALTS_WINS,   0)
+        if (savedTrades > 0) {
+            altsSessionTrades.set(savedTrades)
+            altsSessionWins.set(savedWins)
+            ErrorLogger.info(TAG, "🪙 Alts counters restored: $savedTrades trades, $savedWins wins")
+        }
+    }
+
+    fun saveAltsPrefs() {
+        altsPrefs?.edit()
+            ?.putInt(KEY_ALTS_TRADES, altsSessionTrades.get())
+            ?.putInt(KEY_ALTS_WINS,   altsSessionWins.get())
+            ?.apply()
+    }
+
+    fun recordAltsTradeStart() {
+        altsCachedProgress = 0.0
+        altsLastProgressUpdate.set(0)
+        saveAltsPrefs()
+        ErrorLogger.debug(TAG, "🪙 Alts trade started | total=${getAltsTradeCount()} | progress=${(getAltsLearningProgress()*100).toInt()}%")
+    }
+
+    fun recordAltsPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        synchronized(altsAccumulatorLock) {
+            altsPaperAccumulator += PAPER_LEARNING_WEIGHT
+            while (altsPaperAccumulator >= 1.0) {
+                altsSessionTrades.incrementAndGet()
+                if (isWin) altsSessionWins.incrementAndGet()
+                altsPaperAccumulator -= 1.0
+            }
+        }
+        saveAltsPrefs()
+    }
+
+    fun recordAltsLiveTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+        synchronized(altsAccumulatorLock) {
+            altsLiveAccumulator += LIVE_LEARNING_WEIGHT
+            while (altsLiveAccumulator >= 1.0) {
+                altsSessionTrades.incrementAndGet()
+                if (isWin) altsSessionWins.incrementAndGet()
+                altsLiveAccumulator -= 1.0
+            }
+        }
+        saveAltsPrefs()
+    }
+
+    fun getAltsTradeCount(): Int = altsSessionTrades.get()
+
+    fun getAltsLearningProgress(): Double {
+        val now = System.currentTimeMillis()
+        if (now - altsLastProgressUpdate.get() < 10_000 && altsCachedProgress > 0) {
+            return altsCachedProgress
+        }
+        val totalTrades = altsSessionTrades.get()
+        val winRate = if (totalTrades > 0) {
+            altsSessionWins.get().toDouble() / totalTrades * 100
+        } else 50.0
+        val baseProgress = when {
+            totalTrades <= BOOTSTRAP_PHASE_END ->
+                (totalTrades.toDouble() / BOOTSTRAP_PHASE_END) * 0.50
+            totalTrades <= MATURE_PHASE_END ->
+                0.50 + ((totalTrades - BOOTSTRAP_PHASE_END).toDouble() / (MATURE_PHASE_END - BOOTSTRAP_PHASE_END)) * 0.30
+            totalTrades <= EXPERT_PHASE_END ->
+                0.80 + ((totalTrades - MATURE_PHASE_END).toDouble() / (EXPERT_PHASE_END - MATURE_PHASE_END)) * 0.20
+            else -> MAX_LEARNING_PROGRESS
+        }
+        val progress = when {
+            winRate > 60 -> (baseProgress * 1.1).coerceAtMost(MAX_LEARNING_PROGRESS)
+            winRate < 40 -> baseProgress * 0.85
+            else -> baseProgress
+        }.coerceAtMost(MAX_LEARNING_PROGRESS)
+        altsCachedProgress = progress
+        altsLastProgressUpdate.set(now)
+        return progress
+    }
+
+    fun lerpAlts(bootstrap: Double, mature: Double): Double {
+        val progress = getAltsLearningProgress()
+        return bootstrap + (mature - bootstrap) * progress
+    }
+
+    // Alts threshold getters — reuse the same bootstrap/mature constants as
+    // Markets but drive from the Alts learning curve so the two engines are
+    // tuned independently.
+    fun getAltsSpotScoreThreshold(): Int = lerpAlts(MARKETS_SPOT_SCORE_BOOTSTRAP.toDouble(), MARKETS_SPOT_SCORE_MATURE.toDouble()).toInt()
+    fun getAltsSpotConfThreshold():  Int = lerpAlts(MARKETS_SPOT_CONF_BOOTSTRAP.toDouble(),  MARKETS_SPOT_CONF_MATURE.toDouble()).toInt()
+    fun getAltsSpotTpPct():          Double = lerpAlts(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
+    fun getAltsLevTpPct():           Double = lerpAlts(MARKETS_TP_BOOTSTRAP * 1.5, MARKETS_TP_MATURE * 1.5)
 
 }

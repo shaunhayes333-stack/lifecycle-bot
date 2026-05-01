@@ -73,7 +73,7 @@ object PerpsLearningBridge {
     //   • "${name}_STOCK" suffix (V5.7.3 legacy)  → mapped to #STOCK lane
     //
     // ═══════════════════════════════════════════════════════════════════════════
-    enum class AssetClass { MEME, PERPS, STOCK, FOREX, METAL, COMMODITY }
+    enum class AssetClass { MEME, PERPS, STOCK, FOREX, METAL, COMMODITY, ALT }
 
     private fun laneKey(layerName: String, asset: AssetClass): String =
         "${layerName}#${asset.name}"
@@ -111,6 +111,17 @@ object PerpsLearningBridge {
         "CashGenerationAI", "SmartMoneyDivergenceAI", "RegimeTransitionAI",
         "MomentumPredictorAI",
     )
+    // V5.9.395 — AATE Alts (CryptoAltTrader) dedicated lane. Explicitly excludes
+    // meme sub-trader layers (Moonshot/ShitCoin/Quality/BlueChip/Express) so alt
+    // trade outcomes never feed the meme brain. Before V5.9.395 Alts routed
+    // through PERPS lane AND fired routeLearningToLayer into meme sub-traders,
+    // directly training the meme trader on alt trades.
+    private val defaultAltLayers = listOf(
+        "FluidLearningAI", "MarketRegimeAI", "VolatilityRegimeAI",
+        "FearGreedAI", "SmartMoneyDivergenceAI", "MomentumPredictorAI",
+        "RegimeTransitionAI", "OrderFlowImbalanceAI", "BehaviorAI",
+        "SocialVelocityAI", "EducationSubLayerAI",
+    )
 
     fun defaultLayersFor(asset: AssetClass): List<String> = when (asset) {
         AssetClass.MEME -> defaultMemeLayers
@@ -122,6 +133,7 @@ object PerpsLearningBridge {
         AssetClass.FOREX -> defaultForexLayers
         AssetClass.METAL -> defaultMetalLayers
         AssetClass.COMMODITY -> defaultCommodityLayers
+        AssetClass.ALT -> defaultAltLayers
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1244,6 +1256,9 @@ object PerpsLearningBridge {
     // V5.9.382 — MEME aggregate counters (for parity with the other 5 classes)
     private val memeTrades = AtomicInteger(0)
     private val memeWins = AtomicInteger(0)
+    // V5.9.395 — ALT aggregate counters (AATE Alts trader, separate from PERPS)
+    private val altTrades = AtomicInteger(0)
+    private val altWins = AtomicInteger(0)
 
     /** V5.9.382 — restore aggregate asset-class counters from prefs so they
      *  don't zero out on every restart. Also reseeds from lane signals when
@@ -1260,6 +1275,8 @@ object PerpsLearningBridge {
         forexWins.set(p.getInt("agg_forexWins", 0))
         memeTrades.set(p.getInt("agg_memeTrades", 0))
         memeWins.set(p.getInt("agg_memeWins", 0))
+        altTrades.set(p.getInt("agg_altTrades", 0))
+        altWins.set(p.getInt("agg_altWins", 0))
 
         // Reseed from lane signal counts when a class has zero aggregate
         // but the lane has accumulated signals (pre-V5.9.382 data recovery).
@@ -1285,6 +1302,7 @@ object PerpsLearningBridge {
         reseedFrom(AssetClass.METAL, metalTrades, metalWins)
         reseedFrom(AssetClass.FOREX, forexTrades, forexWins)
         reseedFrom(AssetClass.MEME, memeTrades, memeWins)
+        reseedFrom(AssetClass.ALT, altTrades, altWins)
     }
 
     /** V5.9.382 — persist aggregate counters. Called from save(). */
@@ -1301,6 +1319,8 @@ object PerpsLearningBridge {
             putInt("agg_forexWins", forexWins.get())
             putInt("agg_memeTrades", memeTrades.get())
             putInt("agg_memeWins", memeWins.get())
+            putInt("agg_altTrades", altTrades.get())
+            putInt("agg_altWins", altWins.get())
             apply()
         }
     }
@@ -1358,13 +1378,39 @@ object PerpsLearningBridge {
         if (isWin) memeWins.incrementAndGet()
         saveAssetCounters()
     }
+
+    /**
+     * V5.9.395 — AATE Alts trade close. Dedicated asset-class lane that
+     * keeps alt outcomes out of the PERPS lane and away from the meme
+     * sub-traders (Moonshot / ShitCoin / BlueChip / Quality / Express).
+     * Before V5.9.395, CryptoAltTrader called learnFromPerpsTrade which
+     * polluted PERPS trust and fired routeLearningToLayer → meme AIs.
+     */
+    fun learnFromAltTrade(
+        symbol: String,
+        isWin: Boolean,
+        pnlPct: Double,
+        contributingLayers: List<String> = emptyList(),
+    ) {
+        altTrades.incrementAndGet()
+        if (isWin) altWins.incrementAndGet()
+        learnFromAssetTrade(
+            asset = AssetClass.ALT,
+            contributingLayers = contributingLayers,
+            isWin = isWin,
+            pnlPct = pnlPct,
+            symbol = symbol,
+        )
+        saveAssetCounters()
+    }
     
     fun getAssetClassStats(): Map<String, Pair<Int, Int>> = mapOf(
         "Memes" to Pair(memeTrades.get(), memeWins.get()),
         "Stocks" to Pair(stockTrades.get(), stockWins.get()),
         "Commodities" to Pair(commodityTrades.get(), commodityWins.get()),
         "Metals" to Pair(metalTrades.get(), metalWins.get()),
-        "Forex" to Pair(forexTrades.get(), forexWins.get())
+        "Forex" to Pair(forexTrades.get(), forexWins.get()),
+        "Alts" to Pair(altTrades.get(), altWins.get())
     )
     
     /**
@@ -1385,11 +1431,13 @@ object PerpsLearningBridge {
         val commodityWr = if (commodityTrades.get() > 0) commodityWins.get() * 100.0 / commodityTrades.get() else 0.0
         val metalWr = if (metalTrades.get() > 0) metalWins.get() * 100.0 / metalTrades.get() else 0.0
         val forexWr = if (forexTrades.get() > 0) forexWins.get() * 100.0 / forexTrades.get() else 0.0
+        val altWr = if (altTrades.get() > 0) altWins.get() * 100.0 / altTrades.get() else 0.0
         sb.appendLine("  💎 Memes: ${memeTrades.get()} trades | ${String.format("%.1f", memeWr)}% WR")
         sb.appendLine("  📈 Stocks: ${stockTrades.get()} trades | ${String.format("%.1f", stockWr)}% WR")
         sb.appendLine("  🛢️ Commodities: ${commodityTrades.get()} trades | ${String.format("%.1f", commodityWr)}% WR")
         sb.appendLine("  🥇 Metals: ${metalTrades.get()} trades | ${String.format("%.1f", metalWr)}% WR")
         sb.appendLine("  💱 Forex: ${forexTrades.get()} trades | ${String.format("%.1f", forexWr)}% WR")
+        sb.appendLine("  🪙 Alts: ${altTrades.get()} trades | ${String.format("%.1f", altWr)}% WR")
         sb.appendLine()
         // V5.9.374 — per-asset lane breakdown. Shows exactly where each
         // layer is getting signal and how accurate it is in each arena.
@@ -1411,6 +1459,7 @@ object PerpsLearningBridge {
                     AssetClass.FOREX -> "💱"
                     AssetClass.METAL -> "🥇"
                     AssetClass.COMMODITY -> "🛢️"
+                    AssetClass.ALT -> "🪙"
                 }
                 sb.appendLine(
                     "    $icon ${asset.name.padEnd(9)} " +
