@@ -450,6 +450,14 @@ object UnifiedModeOrchestrator {
             ModeSpecificGates.TradingModeTag.RANGE -> ExtendedMode.CYCLIC
             ModeSpecificGates.TradingModeTag.MICRO_CAP -> ExtendedMode.MICRO_CAP
             ModeSpecificGates.TradingModeTag.WHALE_FOLLOW -> ExtendedMode.WHALE_FOLLOW
+            // V5.9.409 — meme-specific tags all map to MOONSHOT as the closest
+            // ExtendedMode so the emoji / display layer has a sensible fallback
+            // while FDG still gets the precise meme sub-lane multipliers.
+            ModeSpecificGates.TradingModeTag.SHITCOIN -> ExtendedMode.MOONSHOT
+            ModeSpecificGates.TradingModeTag.MANIPULATED -> ExtendedMode.MOONSHOT
+            ModeSpecificGates.TradingModeTag.CULT -> ExtendedMode.MOONSHOT
+            ModeSpecificGates.TradingModeTag.NARRATIVE -> ExtendedMode.MOONSHOT
+            ModeSpecificGates.TradingModeTag.MEME_GENERIC -> ExtendedMode.MOONSHOT
         }
     }
     
