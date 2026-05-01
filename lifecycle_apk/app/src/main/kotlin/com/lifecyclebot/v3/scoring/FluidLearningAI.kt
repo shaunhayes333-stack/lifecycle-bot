@@ -375,6 +375,10 @@ object FluidLearningAI {
      * @return true if trade should be BLOCKED, false if allowed
      */
     fun shouldBlockBootstrapTrade(score: Int): Boolean {
+        // V5.9.408 — free-range learning mode: never block a candidate
+        // during the first 3000 trades (and up to 5000 if not yet healthy).
+        if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
+
         val totalTrades = getTotalTradeCount()
 
         // V5.9.65: Bypass entirely if the 30-Day Proof Run already has

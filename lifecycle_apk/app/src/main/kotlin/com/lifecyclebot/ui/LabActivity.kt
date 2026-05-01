@@ -376,26 +376,37 @@ class LabActivity : AppCompatActivity() {
         if (llActionBar.childCount > 0) return  // build once, persist
 
         addActionButton("⚡ FORCE SPAWN", green) {
-            val before = LlmLabStore.allStrategies().size
-            LlmLabEngine.forceSpawn()
-            // forceSpawn is async (Gemini call). Show optimistic toast and a
-            // deterministic local fallback if LLM is unreachable.
-            if (!GeminiCopilot.isConfigured() || GeminiCopilot.isAIDegraded()) {
-                spawnRandomStrategy()
-                toast("🧪 LLM offline — minted random fallback strategy")
-            } else {
-                toast("⚡ Spawn requested — new strategy in ~3s")
-            }
-            handler.postDelayed({ rebuild() }, 3500L)
+            // V5.9.408 — ALWAYS mint a local strategy so the user gets
+            // immediate visible feedback. Also nudge the LLM creation cycle
+            // in the background — the LLM strategy will land later.
+            spawnRandomStrategy()
+            try { LlmLabEngine.forceSpawn() } catch (_: Throwable) {}
+            toast("⚡ Spawn deployed · LLM also requested")
             rebuild()
         }
-        addActionButton("🧬 MUTATE BEST", cyan) {
+        addActionButton("🌀 CHAOS", magenta) {
+            // V5.9.408 — Chaos finds dark corners: extreme TP/SL, exotic regimes.
+            spawnChaosStrategy()
+            toast("🌀 Chaos child born — extreme params")
+            rebuild()
+        }
+        addActionButton("🧬 BREED", cyan) {
+            // V5.9.408 — Crossover top 2 paper performers.
+            val top = LlmLabStore.allStrategies()
+                .filter { it.status != LabStrategyStatus.ARCHIVED }
+                .sortedByDescending { it.paperPnlSol }
+                .take(2)
+            if (top.size < 2) { toast("🧬 need 2+ strategies to breed"); return@addActionButton }
+            breedStrategies(top[0], top[1])
+            toast("🧬 Crossover offspring born from ${top[0].name.take(12)} × ${top[1].name.take(12)}")
+            rebuild()
+        }
+        addActionButton("🧬 MUTATE BEST", deepP) {
             val any = LlmLabStore.allStrategies().any { it.status != LabStrategyStatus.ARCHIVED }
             if (!any) { toast("🧬 nothing to mutate yet"); return@addActionButton }
             val proven = LlmLabStore.allStrategies().any { it.paperTrades >= 5 }
             LlmLabEngine.mutateBest()
             if (!proven) {
-                // No proven parent — mutate the highest-trade strategy regardless.
                 mutateAnyStrategy()
             }
             toast("🧬 Mutation deployed")
@@ -411,6 +422,54 @@ class LabActivity : AppCompatActivity() {
             toast("➕ +10◎ paper bankroll")
             rebuild()
         }
+    }
+
+    // V5.9.408 — Chaos: intentionally weird strategy to find dark edges.
+    private fun spawnChaosStrategy() {
+        val asset = LabAssetClass.values().random()
+        val archetypes = listOf(
+            "Razor", "Cliff", "Void", "Storm", "Eclipse", "Mirage", "Spectre", "Tempest"
+        )
+        val name = "Chaos · ${archetypes.random()}"
+        // Extreme params — picks one or two dimensions to push to the limit.
+        val mode = (0..3).random()
+        val s = LabStrategy(
+            id = LlmLabStore.newStrategyId(),
+            name = name,
+            rationale = "Chaos child — testing the edge of param space.",
+            asset = asset,
+            entryScoreMin = if (mode == 0) (85..95).random() else (40..60).random(),
+            entryRegime = listOf("ANY", "BULL", "BEAR", "CHOP").random(),
+            takeProfitPct = if (mode == 1) (40..90).random().toDouble() else (4..10).random().toDouble(),
+            stopLossPct = if (mode == 2) -(20..40).random().toDouble() else -(3..7).random().toDouble(),
+            maxHoldMins = if (mode == 3) listOf(360, 480, 600).random() else listOf(10, 15, 20).random(),
+            sizingSol = listOf(0.05, 0.50, 0.75).random(),
+            generation = 1,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(s)
+    }
+
+    // V5.9.408 — Crossover breeding.
+    private fun breedStrategies(a: LabStrategy, b: LabStrategy) {
+        fun pick(x: Double, y: Double) = if (Math.random() < 0.5) x else y
+        fun pickI(x: Int, y: Int) = if (Math.random() < 0.5) x else y
+        val child = LabStrategy(
+            id = LlmLabStore.newStrategyId(),
+            name = "${a.name.take(8)}×${b.name.take(8)}",
+            rationale = "Crossover of ${a.name} and ${b.name}.",
+            asset = if (Math.random() < 0.5) a.asset else b.asset,
+            entryScoreMin = pickI(a.entryScoreMin, b.entryScoreMin),
+            entryRegime = if (Math.random() < 0.5) a.entryRegime else b.entryRegime,
+            takeProfitPct = pick(a.takeProfitPct, b.takeProfitPct),
+            stopLossPct = pick(a.stopLossPct, b.stopLossPct),
+            maxHoldMins = pickI(a.maxHoldMins, b.maxHoldMins),
+            sizingSol = pick(a.sizingSol, b.sizingSol),
+            parentId = a.id,
+            generation = maxOf(a.generation, b.generation) + 1,
+            status = LabStrategyStatus.ACTIVE,
+        )
+        LlmLabStore.addStrategy(child)
     }
 
     private fun addActionButton(label: String, color: Int, onClick: () -> Unit) {
@@ -666,6 +725,22 @@ class LabActivity : AppCompatActivity() {
                 rebuild()
             })
             card.addView(authRow)
+        }
+
+        // V5.9.408 — per-card KILL button. Lets the user retire any strategy
+        // instantly without waiting for the auto-cull cycle.
+        if (s.status != LabStrategyStatus.ARCHIVED) {
+            val killRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END
+                setPadding(0, 8.dp(), 0, 0)
+            }
+            killRow.addView(neonButton("✕ KILL", red) {
+                LlmLabStore.archiveStrategy(s.id, "manual user kill")
+                toast("✕ ${s.name} retired")
+                rebuild()
+            })
+            card.addView(killRow)
         }
 
         return card

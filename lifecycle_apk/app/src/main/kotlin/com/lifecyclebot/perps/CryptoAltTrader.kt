@@ -2049,7 +2049,7 @@ object CryptoAltTrader {
         // onTradeLoss. Scratches (|pnlPct|<1%) skip personality entirely so
         // SentientPersonality doesn't drift toward false euphoria on
         // fee-band noise. Alts-only — Meme & Perps unchanged.
-        val isWin     = pnlPct >= 1.0
+        val isWin     = pnlPct > 0.0
         val isScratch = pnlPct > -1.0 && pnlPct < 1.0
         val paper     = isPaperMode.get()
         val modeStr   = if (paper) "paper" else "live"
@@ -2174,7 +2174,7 @@ object CryptoAltTrader {
             }.distinct().ifEmpty { listOf("CryptoAltAI") }
             PerpsLearningBridge.learnFromAltTrade(
                 symbol = pos.market.symbol,
-                isWin = pnlPct >= 1.0,
+                isWin = pnlPct > 0.0,
                 pnlPct = pnlPct,
                 contributingLayers = contributingLayers,
             )

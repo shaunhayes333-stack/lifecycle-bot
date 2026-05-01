@@ -34,18 +34,17 @@ object LlmLabEngine {
     private const val TAG = "LlmLabEngine"
 
     // ── Tuning knobs ────────────────────────────────────────────────────────
-    // V5.9.405 — Lab cadence aggressively increased so the LLM is *constantly*
-    // building strategies. User feedback: it should mint multiple per hour, not
-    // wait. Steady = 20min (3/hr) and bootstrap = 4min (15/hr in first 60min).
-    private const val CREATION_INTERVAL_MS         = 20L * 60L * 1000L          // 20min steady (3/hr)
-    private const val CREATION_FAST_INTERVAL_MS    = 4L * 60L * 1000L           // 4min during bootstrap
-    private const val CREATION_FAST_WINDOW_MS      = 60L * 60L * 1000L          // first 60min after install
-    private const val EVAL_INTERVAL_MS             = 30_000L                    // 30s
-    private const val CULL_INTERVAL_MS             = 30L * 60L * 1000L          // 30min
+    // V5.9.408 — cranked aggression: lab trades constantly so promoted ideas
+    // can pass into the main universe quickly.
+    private const val CREATION_INTERVAL_MS         = 12L * 60L * 1000L          // 12min steady (5/hr)
+    private const val CREATION_FAST_INTERVAL_MS    = 3L * 60L * 1000L           // 3min in bootstrap (20/hr)
+    private const val CREATION_FAST_WINDOW_MS      = 90L * 60L * 1000L          // first 90min after install
+    private const val EVAL_INTERVAL_MS             = 10_000L                    // 10s (was 30s) → 3× the trade volume
+    private const val CULL_INTERVAL_MS             = 20L * 60L * 1000L          // 20min
     private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // 60s heartbeat
 
-    private const val MAX_LIVE_STRATEGIES   = 24       // 12 → 24 (more variety)
-    private const val MAX_OPEN_POSITIONS    = 16       // 8 → 16
+    private const val MAX_LIVE_STRATEGIES   = 36       // 24 → 36 (more variety)
+    private const val MAX_OPEN_POSITIONS    = 24       // 16 → 24
     private const val MAX_PER_STRATEGY_OPEN = 1
 
     // ── State ───────────────────────────────────────────────────────────────

@@ -176,7 +176,10 @@ object LlmParameterTuner {
     // Learning (1000-2999 trades): 1 adjustment allowed, step cap halved.
     //   Slight nudges are OK but keep them gentle.
     // Mature/Expert (3000+ trades): Full autonomy (up to 3 adjustments, full step).
-    private const val TUNE_BOOTSTRAP_END = 1000
+    // V5.9.408 — bootstrap end lowered 1000 → 50 to match operator's
+    // "adjustment ability from trade 50 onwards" directive. Learning end
+    // stays at 3000 to align with FreeRangeMode's tuner ramp ceiling.
+    private const val TUNE_BOOTSTRAP_END = 50
     private const val TUNE_LEARNING_END  = 3000
 
     fun extractAndApply(ctx: Context?, llmReply: String): Applied {
@@ -205,8 +208,15 @@ object LlmParameterTuner {
             return Applied(cleanedReply = cleaned, changes = emptyList(), rejected = listOf("locked: bootstrap phase ($totalTrades/$TUNE_BOOTSTRAP_END trades)"))
         }
 
+        // V5.9.408 — FreeRangeMode gates tuner strength. In free-range window
+        // (≤3000 trades, or up to 5000 if unhealthy) the LLM gets a reduced
+        // step cap that ramps linearly from 5 % → 100 % between trade 50 and
+        // trade 3000 so the bot can gather evidence before big swings.
+        val freeRangeScale = try { FreeRangeMode.adjustmentStrength() } catch (_: Throwable) { 1.0 }
+
         val phaseMaxAdj  = if (totalTrades < TUNE_LEARNING_END) 1 else MAX_ADJUSTMENTS_PER_CALL
-        val phaseStepCap = if (totalTrades < TUNE_LEARNING_END) 0.5 else 1.0  // 0.5 = half-steps in learning phase
+        val phaseStepCap = ((if (totalTrades < TUNE_LEARNING_END) 0.5 else 1.0) * freeRangeScale)
+            .coerceAtLeast(0.05)  // never zero out once past bootstrap floor
 
         val (changes, rejected) = parseAndApply(ctx, jsonPayload, phaseMaxAdj, phaseStepCap)
         return Applied(cleanedReply = cleaned, changes = changes, rejected = rejected)

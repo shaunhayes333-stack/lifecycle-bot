@@ -124,10 +124,14 @@ object FinalExecutionPermit {
         sizeSol: Double,
     ): Boolean {
         val now = System.currentTimeMillis()
-        
+
+        // V5.9.408 — Free-range: skip pending-exec lockout so overlapping
+        // layers (Treasury + ShitCoin + BlueChip etc) can all fire.
+        val wideOpen = FreeRangeMode.isWideOpen()
+
         // Check if another execution is pending
         val existing = pendingExecutions[mint]
-        if (existing != null) {
+        if (!wideOpen && existing != null) {
             val elapsed = now - existing.timestamp
             if (elapsed < EXECUTION_COOLDOWN_MS) {
                 ErrorLogger.debug(TAG, "🔒 BLOCKED: $symbol | $layer blocked by pending ${existing.layer} (${elapsed}ms ago)")
@@ -172,7 +176,24 @@ object FinalExecutionPermit {
         hasOpenPosition: Boolean,
     ): PermitResult {
         val now = System.currentTimeMillis()
-        
+
+        // V5.9.408 — Free-range mode: let every layer fire. Only position-open
+        // is still honored (can't stack duplicate positions on one mint).
+        if (FreeRangeMode.isWideOpen()) {
+            if (hasOpenPosition) {
+                return PermitResult(
+                    allowed = false,
+                    reason = "POSITION_OPEN: Already have open position",
+                    blockingLayer = "POSITION",
+                )
+            }
+            return PermitResult(
+                allowed = true,
+                reason = "FREE_RANGE_BYPASS",
+                blockingLayer = null,
+            )
+        }
+
         // V5.2.6: PAPER MODE BYPASS - Allow all layers to trade independently
         // This is critical for learning - each layer needs its own trade data
         if (isPaperMode) {

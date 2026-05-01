@@ -85,6 +85,9 @@ object ReentryGuard {
      * so the bot can chase continuation.
      */
     fun isBlocked(mint: String): Boolean {
+        // V5.9.408 — free-range mode: keep bleeding into every token for
+        // learning exposure. No re-entry lockouts until we have ≥3000 trades.
+        if (FreeRangeMode.isWideOpen()) return false
         cleanupExpired()
         if (isSecondMoonHot(mint)) return false
         return lockouts[mint]?.let { entry ->

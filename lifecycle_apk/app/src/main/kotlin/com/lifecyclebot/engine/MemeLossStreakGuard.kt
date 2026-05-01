@@ -51,6 +51,9 @@ object MemeLossStreakGuard {
 
     /** Returns blocked-until timestamp (0 if not blocked). */
     fun blockedUntilMs(mint: String): Long {
+        // V5.9.408 — free-range mode bypasses meme-loss-streak blocks so
+        // the bot keeps feeding the Treasury during maximum-learning window.
+        if (FreeRangeMode.isWideOpen()) return 0L
         val e = state[mint] ?: return 0L
         val until = e.blockUntilMs
         if (until == 0L) return 0L

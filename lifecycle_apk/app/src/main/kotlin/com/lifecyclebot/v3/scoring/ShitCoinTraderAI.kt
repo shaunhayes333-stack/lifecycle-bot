@@ -502,7 +502,7 @@ object ShitCoinTraderAI {
         
         // Record to FluidLearningAI for maturity
         try {
-            val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0 — counted fee-drag as win)
+            val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold (was 1.0% → killed WR via scratch count)
             if (pos.isPaper) {
                 FluidLearningAI.recordSubTraderTrade(isWin)
             } else {
@@ -514,7 +514,7 @@ object ShitCoinTraderAI {
         
         // V5.9.211: Sentience wiring — all 41 layers + personality memory
         try {
-            val isWin = pnlPct >= 1.0  // V5.9.215 build-fix: redefine in this try scope
+            val isWin = pnlPct > 0.0  // V5.9.408 build-fix: redefine in this try scope
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
                 symbol    = pos.symbol,

@@ -593,7 +593,7 @@ object DipHunterAI {
         // Record to FluidLearningAI
         // V5.9.328 FIX: was pnlSol > 0 (counts any tiny gain as win, ignores fees).
         // Unified to pnlPct >= 1.0 threshold — consistent with ShitCoin/Moonshot/BlueChip.
-        val isWin = pnlPct >= 1.0
+        val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 threshold
         try {
             if (pos.isPaper) {
                 FluidLearningAI.recordSubTraderTrade(isWin)

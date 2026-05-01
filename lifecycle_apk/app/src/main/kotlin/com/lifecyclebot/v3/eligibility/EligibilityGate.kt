@@ -157,6 +157,9 @@ class ExposureGuard(
     fun isTokenAlreadyOpen(mint: String): Boolean = mint in openMints
 
     fun isGlobalExposureMaxed(): Boolean {
+        // V5.9.408 — free-range mode uncaps open-position count and exposure
+        // so the bot can hold every concurrent signal for learning exposure.
+        if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
         return openMints.size >= maxOpenPositions || currentExposurePct >= maxExposurePct
     }
 

@@ -832,7 +832,7 @@ object MoonshotTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
-        val isWin = pnlPct >= 1.0  // V5.9.208: unified 1% threshold (was > 0)
+        val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold (was 1.0% → killed WR via scratch count)
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}

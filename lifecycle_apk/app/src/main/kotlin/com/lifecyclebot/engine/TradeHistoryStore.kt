@@ -47,9 +47,17 @@ object TradeHistoryStore {
     // Journal shows the most recent PAGE_SIZE trades via takeLast().
     private const val MAX_IN_MEMORY_TRADES = 10000  // V5.9.354: was 2000 — too small for active days. Lifetime counters now back-fill stats so this is just for 24h-window queries.
     private const val KEY_LIFETIME_STATS  = "lifetime_stats_json"
+    // V5.9.408: bumped whenever win/loss thresholds change so legacy persisted
+    // counters get back-filled from the raw SELL rows instead of shown stale.
+    private const val KEY_THRESHOLD_VER   = "threshold_version"
+    private const val CURRENT_THRESHOLD_VER = 408
 
-    private const val WIN_THRESHOLD_PCT   = 1.0   // V5.9.218
-    private const val LOSS_THRESHOLD_PCT  = -0.5  // V5.9.204
+    // V5.9.408 — restored pre-V5.9.218 semantics. The "unified 1% threshold"
+    // was silently converting every scratch (0-1% PnL) into a loss on the UI,
+    // which is what produced the 13% displayed WR after ~1000 trades. Any
+    // strictly positive PnL is a win; any strictly negative is a loss.
+    private const val WIN_THRESHOLD_PCT   = 0.0
+    private const val LOSS_THRESHOLD_PCT  = 0.0
 
     // In-memory cache — loaded once at init, mutated synchronously under `lock`
     private val lock   = Any()
@@ -167,6 +175,20 @@ object TradeHistoryStore {
         if (lifetimeSells == 0 && synchronized(lock) { trades.any { it.side == "SELL" } }) {
             backfillLifetimeFromTrades()
         }
+
+        // V5.9.408: one-shot re-backfill whenever win/loss thresholds change,
+        // so the displayed WR isn't stuck on numbers computed against the old
+        // 1% threshold.
+        try {
+            val storedVer = prefs?.getInt(KEY_THRESHOLD_VER, 0) ?: 0
+            if (storedVer != CURRENT_THRESHOLD_VER &&
+                synchronized(lock) { trades.any { it.side == "SELL" } }) {
+                backfillLifetimeFromTrades()
+                prefs?.edit()?.putInt(KEY_THRESHOLD_VER, CURRENT_THRESHOLD_VER)?.apply()
+                ErrorLogger.info("TradeHistoryStore",
+                    "♻️ Threshold version changed ($storedVer → $CURRENT_THRESHOLD_VER) — lifetime stats recomputed.")
+            }
+        } catch (_: Exception) { }
 
         // V5.9.330: Trim in-memory list to most recent MAX_IN_MEMORY_TRADES after load.
         // SQLite retains the full history — Journal pages from it on export.
@@ -639,8 +661,8 @@ object TradeHistoryStore {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private fun isWin(trade: Trade): Boolean  = trade.pnlPct >= WIN_THRESHOLD_PCT
-    private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT
+    private fun isWin(trade: Trade): Boolean  = trade.pnlPct > WIN_THRESHOLD_PCT
+    private fun isLoss(trade: Trade): Boolean = trade.pnlPct < LOSS_THRESHOLD_PCT
 
     private fun midnightTs(): Long {
         val cal = java.util.Calendar.getInstance()

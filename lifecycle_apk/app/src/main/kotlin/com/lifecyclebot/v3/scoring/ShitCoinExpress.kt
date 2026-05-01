@@ -657,7 +657,7 @@ object ShitCoinExpress {
 
         // V5.9.230 — Sentience wiring: Education + PersonalityMemory + SentientPersonality
         try {
-            val isWin = pnlPct >= 1.0
+            val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 threshold
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000.0
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordSimpleTradeOutcome(
                 symbol     = ride.symbol,

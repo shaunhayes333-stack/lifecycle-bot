@@ -94,6 +94,10 @@ class BotService : Service() {
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
+            // V5.9.408 — free-range mode: let every strategy keep shooting
+            // even if trust is poisoned. The whole point of wide-open is to
+            // give bleeding strategies a path to recover via sample size.
+            if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false to "free-range"
             try {
                 val trust = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustRecord(strategy) ?: return false to ""
                 val now = System.currentTimeMillis()
@@ -5441,9 +5445,14 @@ if (deferredCount > 0) {
     //   2. Volume gate        — don't buy dead tokens with no activity
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen) {
+        // V5.9.408 — free-range mode bypass: skip every cooldown / streak /
+        // volume gate below so the bot takes every shot it can get for the
+        // first 3000 trades of learning exposure.
+        val wideOpen = FreeRangeMode.isWideOpen()
+
         // 1. RE-ENTRY COOLDOWN — 5 min for all layers, not just Treasury
         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-        if (closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+        if (!wideOpen && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
             ErrorLogger.debug("BotService", "⏳ [COOLDOWN] ${identity.symbol} | SKIP | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
             return
         }
@@ -5451,7 +5460,7 @@ if (deferredCount > 0) {
         // V5.9.353: 1b. LOSS-STREAK BLOCK — refuse re-entry on a mint whose
         // last 3 closes were all losses (block elapses after 1 hour).
         val lossBlockUntil = MemeLossStreakGuard.blockedUntilMs(ts.mint)
-        if (lossBlockUntil > 0L) {
+        if (!wideOpen && lossBlockUntil > 0L) {
             val remainingMin = (lossBlockUntil - System.currentTimeMillis()) / 60_000L
             ErrorLogger.debug("BotService", "🛑 [LOSS_STREAK] ${identity.symbol} | SKIP | 3-loss streak — blocked ${remainingMin}min more")
             return
@@ -5460,7 +5469,13 @@ if (deferredCount > 0) {
         // 2. VOLUME GATE — no volume = dead token, don't buy
         val lastVolumeH1 = ts.history.lastOrNull()?.volumeH1 ?: 0.0
         val learningPct  = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
-        val minVolumeH1  = if (learningPct < 0.40) 500.0 else 2_000.0
+        // V5.9.408: relaxed floor in wide-open mode so thin-volume meme
+        // tokens still flow to the traders for exposure.
+        val minVolumeH1  = when {
+            wideOpen            -> 100.0
+            learningPct < 0.40  -> 500.0
+            else                -> 2_000.0
+        }
         if (lastVolumeH1 < minVolumeH1) {
             ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
             return
@@ -5732,13 +5747,14 @@ if (deferredCount > 0) {
 
                         // V5.9: Post-close cooldown — prevent immediate re-entry after a close
                         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-                        if (closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+                        if (!FreeRangeMode.isWideOpen() && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
                             ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
                             return
                         }
                         
                         // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
-                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
+                        if (!FreeRangeMode.isWideOpen() &&
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
                             ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
                             return
                         }
@@ -7115,8 +7131,10 @@ if (deferredCount > 0) {
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
                     // V5.9.199: StrategyTrust gate — skip execute if DISTRUSTED, don't return
+                    // V5.9.408: free-range mode bypasses the trust gate entirely.
                     val memeMode = ts.position.tradingMode.ifBlank { identity.phase.ifBlank { "SHITCOIN" } }
-                    val trustAllowed = com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
+                    val trustAllowed = FreeRangeMode.isWideOpen() ||
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
                     if (!trustAllowed) {
                         ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
                     } else {
