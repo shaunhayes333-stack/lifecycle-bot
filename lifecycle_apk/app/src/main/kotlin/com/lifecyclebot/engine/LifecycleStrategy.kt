@@ -493,7 +493,7 @@ class LifecycleStrategy(
             // ── AI CROSS-TALK ────────────────────────────────────────────────
             // Analyze correlated signals across all AI layers for amplified entry
             try {
-                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
                 if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
                     entryScore = (entryScore + crossTalkSignal.entryBoost).coerceIn(0.0, 100.0)
                     if (crossTalkSignal.entryBoost > 5.0) {
@@ -506,7 +506,7 @@ class LifecycleStrategy(
         // ── AI CROSS-TALK FOR EXIT (open positions) ─────────────────────
         if (ts.position.isOpen) {
             try {
-                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = true)
+                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = true)
                 if (crossTalkSignal.exitUrgency > 0) {
                     exitScore = (exitScore + crossTalkSignal.exitUrgency).coerceIn(0.0, 100.0)
                     ErrorLogger.warn("CrossTalk", "🔗 ${ts.symbol}: ${crossTalkSignal.signalType.name} (+${crossTalkSignal.exitUrgency.toInt()} exit urgency) [${crossTalkSignal.participatingAIs.joinToString("+")}]")

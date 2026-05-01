@@ -6210,7 +6210,12 @@ if (deferredCount > 0) {
             // Runs BEFORE ShitCoin (different mcap range, no overlap)
             // Cross-trade promotions: 200%+ gains from other layers graduate here
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
+            // V5.9.409 — V3 is now the meme authority. If V3 is ready, the
+            // parallel Moonshot execution path is suppressed (V3+FDG handle
+            // meme entry). The Moonshot SIGNAL still feeds V3 upstream.
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled() &&
+                !(cfg.v3EngineEnabled && try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false })
+            ) {
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
                     // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
@@ -6378,6 +6383,23 @@ if (deferredCount > 0) {
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+                // V5.9.409 — V3 is now the meme authority. If V3 is enabled,
+                // the parallel ShitCoin execution path is suppressed — V3 +
+                // FDG decide the entry and Executor.v3Buy performs it, with
+                // the ShitCoin sub-trader's signal already blended into V3
+                // scoring upstream. The ShitCoin block remains active only
+                // as a FALLBACK when V3 is disabled / not ready, preserving
+                // backward compatibility.
+                val v3OwnsMemes = try {
+                    cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()
+                } catch (_: Throwable) { false }
+                if (v3OwnsMemes) {
+                    // Tag the token so FDG + cross-talk see the meme lane
+                    // even when V3 handles execution.
+                    if (ts.position.tradingMode.isBlank()) {
+                        ts.position.tradingMode = "SHITCOIN"
+                    }
+                } else {
                 // V5.7.8: ShitCoin runs independently — Treasury positions don't block it
                 try {
                     // V4.0 FIX: Check execution permit first
@@ -6682,6 +6704,7 @@ if (deferredCount > 0) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
                 }
+                } // V5.9.409: close else-branch of v3OwnsMemes (ShitCoin legacy path)
             }
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin evaluation
@@ -6692,7 +6715,12 @@ if (deferredCount > 0) {
             // Enters tokens OTHER layers BLOCK: bundles, wash trades, whale pumps
             // Hard 4-minute time exit — manipulators don't wait
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
+            // V5.9.409 — V3 is now the meme authority. Same V3-ready gate
+            // as Moonshot — the Manipulated signal still feeds V3 upstream
+            // but V3+FDG own execution when enabled.
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled() &&
+                !(cfg.v3EngineEnabled && try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false })
+            ) {
                 try {
                     val manipTokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
@@ -7258,7 +7286,9 @@ if (deferredCount > 0) {
                             // Execute the trade
                             val proposedSize = result.sizeSol
                             val modeTag = try {
-                                modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+                                // V5.9.409 — per-token lane wins over global bot mode
+                                ModeSpecificGates.fromTradingMode(ts.position.tradingMode)
+                                    ?: modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
                             } catch (e: Exception) { null }
                             
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
@@ -7684,8 +7714,15 @@ if (deferredCount > 0) {
         TradeLifecycle.proposed(identity.mint)
         
         // Get trading mode tag for FDG mode-specific thresholds
+        // V5.9.409 — per-token tradingMode WINS over the global auto-mode so
+        // meme sub-phases (SHITCOIN / MANIPULATED / MOONSHOT_* / CULT /
+        // NARRATIVE) reach FDG with their proper multipliers. Previously
+        // FDG only ever saw the global BotMode and fell back to DEFAULT for
+        // every meme trade, starving all 24 symbolic channels of lane data.
         val tradingModeTag = try {
-            modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
+            val tokenMode = ts.position.tradingMode
+            ModeSpecificGates.fromTradingMode(tokenMode)
+                ?: modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
         } catch (e: Exception) {
             null
         }

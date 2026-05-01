@@ -307,14 +307,38 @@ object V3EngineManager {
                     holderConcentration = ts.topHolderPct ?: 20.0
                 )
 
+            // V5.9.409 — V3 is AUTHORITY for memes again. Previously this
+            // early-rejected every shitcoin candidate ("handled by ShitCoin
+            // layer"), punting meme decisions to a TradeAuthorizer path that
+            // bypassed FDG, SymbolicContext, and the 24-channel symbolic
+            // nervous system. The meme sub-traders (ShitCoinTraderAI /
+            // MoonshotTraderAI / ManipulatedTraderAI / MemeNarrativeAI /
+            // CultMomentumAI) remain plugged in as scoring inputs to V3;
+            // V3 now blends their signal into its EXECUTE/WATCH/REJECT
+            // output, and FDG uses the per-token tradingMode tag to apply
+            // meme-lane multipliers.
+            //
+            // We still tag the candidate as MEME for downstream systems
+            // (cross-talk weights, trust isolation, learning separation).
             if (isShitCoinCandidate && !isQualityLowCap) {
-                return V3Decision.rejected(
-                    "SHITCOIN_CANDIDATE: mcap=\$${(ts.lastMcap / 1_000).toInt()}K - handled by ShitCoin layer"
-                )
+                // Mark the token so BotService / cross-talk / trust routing
+                // can treat it correctly. Idempotent — cheap to set every
+                // cycle.
+                if (ts.position.tradingMode.isBlank() ||
+                    com.lifecyclebot.engine.LaneTag.fromTradingMode(ts.position.tradingMode)
+                        == com.lifecyclebot.engine.LaneTag.Lane.UNKNOWN
+                ) {
+                    ts.position.tradingMode = "SHITCOIN"
+                }
+                // FALL THROUGH — V3 scores the meme below.
             }
 
+            // V5.9.409 — MCAP_TOO_LOW rejection only blocks non-memes. Memes
+            // are legitimately tiny by design; the meme-lane multipliers
+            // (SHITCOIN / MOONSHOT / MANIPULATED / etc.) already tighten
+            // rugcheck/liquidity where appropriate for safety.
             val minMcap = com.lifecyclebot.v3.scoring.LayerTransitionManager.V3_MIN_MCAP
-            if (ts.lastMcap < minMcap && !isQualityLowCap) {
+            if (!isShitCoinCandidate && ts.lastMcap < minMcap && !isQualityLowCap) {
                 return V3Decision.rejected(
                     "MCAP_TOO_LOW: \$${(ts.lastMcap / 1_000).toInt()}K < \$${(minMcap / 1_000).toInt()}K"
                 )

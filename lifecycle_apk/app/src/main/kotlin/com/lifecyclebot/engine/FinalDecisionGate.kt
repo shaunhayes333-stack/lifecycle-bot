@@ -2217,7 +2217,7 @@ object FinalDecisionGate {
         }
 
         val crossTalkSignal = try {
-            AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+            AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
         } catch (_: Exception) {
             null
         }

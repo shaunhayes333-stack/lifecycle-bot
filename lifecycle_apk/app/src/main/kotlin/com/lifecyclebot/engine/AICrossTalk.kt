@@ -80,8 +80,50 @@ object AICrossTalk {
     private val crossTalkCache = ConcurrentHashMap<String, CachedCrossTalk>()
     private const val CACHE_TTL_MS = 5000L
 
-    fun analyzeCrossTalk(mint: String, symbol: String, isOpenPosition: Boolean): CrossTalkSignal {
-        val cacheKey = "${mint}_${isOpenPosition}"
+    fun analyzeCrossTalk(mint: String, symbol: String, isOpenPosition: Boolean): CrossTalkSignal =
+        analyzeCrossTalk(mint = mint, symbol = symbol, isOpenPosition = isOpenPosition, lane = null)
+
+    /**
+     * V5.9.409 — TokenState convenience overload. Pulls the per-token
+     * trading-mode tag directly from `ts.position.tradingMode` so every
+     * call site that has a `ts` handle gets lane-aware scaling for free.
+     */
+    fun analyzeCrossTalk(ts: com.lifecyclebot.data.TokenState, isOpenPosition: Boolean): CrossTalkSignal =
+        analyzeCrossTalk(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            isOpenPosition = isOpenPosition,
+            lane = ts.position.tradingMode.ifBlank { null },
+        )
+
+    /**
+     * V5.9.409 — lane-aware cross-talk.
+     *
+     * Previously this signal hub cached & blended identically across every
+     * asset class — a tokenized stock's whale activity and a pump.fun
+     * shitcoin's whale activity shared the same cache bucket and the same
+     * score weighting.  That pollution is a key reason the proven-meme
+     * win-rate collapsed after stocks/alts/perps joined the pipeline.
+     *
+     * Now:
+     *   - Cache key includes the lane, so meme signals never reuse stock
+     *     signals (and vice versa).
+     *   - The final entryBoost / exitUrgency / confidenceBoost are scaled
+     *     by a per-lane weight profile from {@link LaneTag}.  Weights are
+     *     calibrated so the meme lane keeps its historical whale /
+     *     momentum / narrative emphasis, while stocks/perps/forex use
+     *     regime + liquidity profiles more appropriate for their class.
+     *
+     *   - `lane = null` preserves exact pre-V5.9.409 behaviour for any
+     *     call sites that haven't been retro-fitted.
+     */
+    fun analyzeCrossTalk(
+        mint: String,
+        symbol: String,
+        isOpenPosition: Boolean,
+        lane: String?,
+    ): CrossTalkSignal {
+        val cacheKey = "${mint}_${lane ?: "_"}_${isOpenPosition}"
         val now = System.currentTimeMillis()
         val cached = crossTalkCache[cacheKey]
 
@@ -465,7 +507,7 @@ object AICrossTalk {
             ErrorLogger.debug("CrossTalk", "LiquidityCycle check error: ${e.message}")
         }
 
-        val best = candidates
+        val rawBest = candidates
             .sortedWith(compareByDescending<SignalCandidate> { it.priority }.thenByDescending { it.score })
             .firstOrNull()
             ?.signal
@@ -479,6 +521,11 @@ object AICrossTalk {
                 participatingAIs = emptyList(),
                 correlationStrength = 0.0,
             )
+
+        // V5.9.409 — scale signal by lane weights so memes keep their
+        // whale/momentum/narrative emphasis without stocks/perps diluting
+        // them (or being amplified by meme-tuned weights).
+        val best = applyLaneWeights(rawBest, lane)
 
         when (best.signalType) {
             SignalType.SMART_MONEY_PUMP ->
@@ -504,6 +551,46 @@ object AICrossTalk {
             (abs(signal.sizeMultiplier - 1.0) * 25.0)
 
         return SignalCandidate(signal = signal, priority = priority, score = score)
+    }
+
+    /**
+     * V5.9.409 — apply per-lane weight profile to the winning signal.
+     * `lane == null` preserves pre-V5.9.409 behaviour (no scaling).
+     * Each signal type has a natural "owner" weight (whale, momentum,
+     * liquidity, narrative, regime) that the lane profile modulates.
+     */
+    private fun applyLaneWeights(raw: CrossTalkSignal, lane: String?): CrossTalkSignal {
+        if (lane.isNullOrBlank()) return raw
+        val w = try { LaneTag.crossTalkWeights(lane) } catch (_: Throwable) { return raw }
+        val mult = when (raw.signalType) {
+            SignalType.SMART_MONEY_PUMP,
+            SignalType.LIQUIDITY_WHALE_ALERT,
+            SignalType.SMART_MONEY_DIVERGENCE        -> w.whale
+            SignalType.COORDINATED_DUMP,
+            SignalType.FLOW_DIVERGENCE,
+            SignalType.VOLATILITY_SQUEEZE_BREAKOUT,
+            SignalType.RUNNER_SETUP                  -> w.momentum
+            SignalType.DRY_LIQUIDITY_WARNING         -> w.liquidity
+            SignalType.NARRATIVE_MOMENTUM,
+            SignalType.GOLDEN_HOUR_SETUP             -> w.narrative
+            SignalType.REGIME_AMPLIFIED_BULL,
+            SignalType.REGIME_DAMPENED_BEAR          -> w.regime
+            SignalType.BEHAVIOR_PATTERN_MATCH,
+            SignalType.META_COGNITION_BOOST,
+            SignalType.META_COGNITION_WARNING,
+            SignalType.MODE_SWITCH_RECOMMENDED,
+            SignalType.NO_CORRELATION                -> 1.0
+        }
+        if (mult == 1.0) return raw
+        return raw.copy(
+            entryBoost       = raw.entryBoost * mult,
+            exitUrgency      = raw.exitUrgency * mult,
+            confidenceBoost  = raw.confidenceBoost * mult,
+            // sizeMultiplier re-centred around 1.0 so a 1.3× lane weight
+            // on a 0.5× size signal becomes 0.35× (more dampening), not
+            // a 0.65× size which would paradoxically reduce urgency.
+            sizeMultiplier   = 1.0 + (raw.sizeMultiplier - 1.0) * mult,
+        )
     }
 
     private fun cacheAndReturn(cacheKey: String, timestamp: Long, signal: CrossTalkSignal): CrossTalkSignal {

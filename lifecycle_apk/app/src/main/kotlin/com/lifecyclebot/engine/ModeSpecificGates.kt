@@ -33,6 +33,14 @@ object ModeSpecificGates {
         RANGE,           // Range-bound trading
         MICRO_CAP,       // Ultra-small mcap tokens
         WHALE_FOLLOW,    // Following smart money
+        // V5.9.409 — meme-lane-specific tags so FDG receives the correct
+        // per-token context instead of falling back to DEFAULT for every
+        // meme trade.
+        SHITCOIN,        // Sub-cent launch-pad tokens
+        MANIPULATED,     // Intentionally risky pumps (TradeAuthorizer bypass pre-V5.9.409)
+        CULT,            // Community-coin lane
+        NARRATIVE,       // Narrative-momentum lane
+        MEME_GENERIC,    // Any other classified-meme token
     }
     
     /**
@@ -193,7 +201,80 @@ object ModeSpecificGates {
                     rugcheckMultiplier = 0.95,
                     liquidityMultiplier = 1.0,
                 )
-                
+
+                // ═══════════════════════════════════════════════════════
+                // V5.9.409 — Meme-lane multipliers.
+                // Calibrated toward the user's pre-markets proven-meme
+                // setup (loose entry bar, wide stops, narrow trailing
+                // once profitable, low liquidity tolerance). Each meme
+                // sub-lane has slightly different personality so FDG's
+                // 24 channels can re-tune per sub-phase.
+                // ═══════════════════════════════════════════════════════
+                TradingModeTag.SHITCOIN -> ModeMultipliers(
+                    entryScoreMultiplier = 0.65,      // very low bar — take the shot
+                    exitScoreMultiplier = 0.90,       // quick exits
+                    confidenceMultiplier = 0.70,      // low conf ok
+                    positionSizeMultiplier = 0.55,    // small sizes, high freq
+                    stopLossMultiplier = 0.70,        // wide stops (vol)
+                    trailingStopMultiplier = 1.25,    // tight trail once in profit
+                    minHoldMultiplier = 0.30,
+                    maxHoldMultiplier = 0.60,
+                    rugcheckMultiplier = 0.65,        // lenient — shitcoins ARE risky
+                    liquidityMultiplier = 0.50,       // accept thin liquidity
+                )
+
+                TradingModeTag.MANIPULATED -> ModeMultipliers(
+                    entryScoreMultiplier = 0.70,
+                    exitScoreMultiplier = 0.85,
+                    confidenceMultiplier = 0.75,
+                    positionSizeMultiplier = 0.50,
+                    stopLossMultiplier = 0.60,
+                    trailingStopMultiplier = 1.30,
+                    minHoldMultiplier = 0.30,
+                    maxHoldMultiplier = 0.50,
+                    rugcheckMultiplier = 0.50,        // MANIPULATED book bypasses rugcheck
+                    liquidityMultiplier = 0.45,
+                )
+
+                TradingModeTag.CULT -> ModeMultipliers(
+                    entryScoreMultiplier = 0.78,
+                    exitScoreMultiplier = 1.15,       // let community runs breathe
+                    confidenceMultiplier = 0.85,
+                    positionSizeMultiplier = 0.70,
+                    stopLossMultiplier = 0.75,
+                    trailingStopMultiplier = 0.90,
+                    minHoldMultiplier = 1.00,
+                    maxHoldMultiplier = 2.00,
+                    rugcheckMultiplier = 0.85,
+                    liquidityMultiplier = 0.70,
+                )
+
+                TradingModeTag.NARRATIVE -> ModeMultipliers(
+                    entryScoreMultiplier = 0.80,
+                    exitScoreMultiplier = 1.10,
+                    confidenceMultiplier = 0.85,
+                    positionSizeMultiplier = 0.75,
+                    stopLossMultiplier = 0.80,
+                    trailingStopMultiplier = 0.95,
+                    minHoldMultiplier = 0.80,
+                    maxHoldMultiplier = 1.50,
+                    rugcheckMultiplier = 0.85,
+                    liquidityMultiplier = 0.75,
+                )
+
+                TradingModeTag.MEME_GENERIC -> ModeMultipliers(
+                    entryScoreMultiplier = 0.75,
+                    exitScoreMultiplier = 1.00,
+                    confidenceMultiplier = 0.80,
+                    positionSizeMultiplier = 0.65,
+                    stopLossMultiplier = 0.75,
+                    trailingStopMultiplier = 1.10,
+                    minHoldMultiplier = 0.50,
+                    maxHoldMultiplier = 1.00,
+                    rugcheckMultiplier = 0.80,
+                    liquidityMultiplier = 0.65,
+                )
+
                 TradingModeTag.RANGE, TradingModeTag.STANDARD, null -> ModeMultipliers.DEFAULT
             }
         } catch (e: Exception) {
@@ -203,6 +284,36 @@ object ModeSpecificGates {
         }
     }
     
+    /**
+     * V5.9.409 — per-token mapper. Priority over fromBotMode() when the
+     * token has a specific lane / sub-phase set. Returns null if the
+     * string doesn't match a known tag, letting callers fall back to
+     * the global bot-mode mapper.
+     */
+    fun fromTradingMode(tradingMode: String?): TradingModeTag? {
+        if (tradingMode.isNullOrBlank()) return null
+        val m = tradingMode.trim().uppercase()
+        return when {
+            m.startsWith("MOONSHOT")         -> TradingModeTag.MOONSHOT
+            m == "SHITCOIN"                   -> TradingModeTag.SHITCOIN
+            m == "MANIPULATED"                -> TradingModeTag.MANIPULATED
+            m == "CULT"                       -> TradingModeTag.CULT
+            m == "NARRATIVE"                  -> TradingModeTag.NARRATIVE
+            m == "MEME" || m == "MEME_GENERIC" -> TradingModeTag.MEME_GENERIC
+            m == "MICRO_CAP"                  -> TradingModeTag.MICRO_CAP
+            m == "PUMP_SNIPER"                -> TradingModeTag.PUMP_SNIPER
+            m == "BLUE_CHIP" || m == "BLUECHIP" -> TradingModeTag.BLUE_CHIP
+            m == "LONG_HOLD"                  -> TradingModeTag.LONG_HOLD
+            m == "DEFENSIVE"                  -> TradingModeTag.DEFENSIVE
+            m == "AGGRESSIVE"                 -> TradingModeTag.AGGRESSIVE
+            m == "SNIPE"                      -> TradingModeTag.SNIPE
+            m == "RANGE"                      -> TradingModeTag.RANGE
+            m == "WHALE_FOLLOW"               -> TradingModeTag.WHALE_FOLLOW
+            m == "COPY_TRADE" || m == "COPY"  -> TradingModeTag.COPY_TRADE
+            else -> null
+        }
+    }
+
     /**
      * Convert AutoModeEngine.BotMode to TradingModeTag.
      * Safe conversion with default fallback.

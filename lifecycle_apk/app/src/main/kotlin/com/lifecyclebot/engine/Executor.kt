@@ -1870,7 +1870,7 @@ class Executor(
 
         try {
             if (heldSecs >= 45 && AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {
-                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = true)
+                val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = true)
                 onLog("🔗🚨 CROSSTALK: ${ts.symbol} COORDINATED DUMP | ${crossTalkSignal.participatingAIs.joinToString("+")} | ${crossTalkSignal.reason}", ts.mint)
                 TradeStateMachine.startCooldown(ts.mint)
                 return "crosstalk_coordinated_dump"
@@ -5460,7 +5460,7 @@ class Executor(
         } catch (_: Exception) {}
         
         try {
-            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
             if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnlP > 0)
             }
@@ -6659,7 +6659,7 @@ class Executor(
         } catch (_: Exception) {}
         
         try {
-            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts.mint, ts.symbol, isOpenPosition = false)
+            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
             if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
                 AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)  // V5.9.195: was 3x
             }
