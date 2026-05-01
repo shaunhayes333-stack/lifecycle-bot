@@ -3063,7 +3063,9 @@ class Executor(
 
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false,
-                 wallet: SolanaWallet? = null, walletSol: Double = 0.0) {
+                 wallet: SolanaWallet? = null, walletSol: Double = 0.0,
+                 layerTag: String = "",            // V5.9.386 — override BUY trade tradingMode for sub-trader journal tagging
+                 layerTagEmoji: String = "") {     // V5.9.386 — matching emoji for the sub-trader tag
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
@@ -3166,8 +3168,11 @@ class Executor(
             entryLiquidityUsd = ts.lastLiquidityUsd,
             entryMcap    = ts.lastMcap,
             isPaperPosition = true,
-            tradingMode  = currentMode.name,
-            tradingModeEmoji = currentMode.emoji,
+            // V5.9.386 — use sub-trader tag when provided; caller still may
+            // overwrite ts.position.tradingMode post-buy (e.g., Quality path
+            // overrides "BLUE_CHIP" → "QUALITY"), but default is now correct.
+            tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+            tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
         )
@@ -3193,8 +3198,11 @@ class Executor(
             price = price, 
             ts = System.currentTimeMillis(), 
             score = score,
-            tradingMode = currentMode.name,
-            tradingModeEmoji = currentMode.emoji,
+            // V5.9.386 — sub-trader tag overrides ExtendedMode when provided
+            // so Journal shows SHITCOIN/QUALITY/BLUE_CHIP/MOONSHOT/TREASURY
+            // on the BUY leg (SELL leg already correct via ts.position.tradingMode).
+            tradingMode = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+            tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
@@ -3437,7 +3445,9 @@ class Executor(
                 quality = "TREASURY",
                 skipGraduated = true,
                 wallet = wallet,
-                walletSol = walletSol
+                walletSol = walletSol,
+                layerTag = "TREASURY",        // V5.9.386 — journal tag
+                layerTagEmoji = "💰",
             )
         } else {
             if (wallet == null) {
@@ -3457,7 +3467,9 @@ class Executor(
                 walletSol = walletSol,
                 identity = identity,
                 quality = "TREASURY",
-                skipGraduated = true
+                skipGraduated = true,
+                layerTag = "TREASURY",        // V5.9.386
+                layerTagEmoji = "💰",
             )
         }
         
@@ -3504,7 +3516,10 @@ class Executor(
         takeProfitPct: Double,
         stopLossPct: Double,
         wallet: SolanaWallet?,
-        isPaper: Boolean
+        isPaper: Boolean,
+        // V5.9.386 — allow callers (Quality path) to override journal tag.
+        layerTag: String = "BLUE_CHIP",
+        layerTagEmoji: String = "🔵",
     ) {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
@@ -3524,7 +3539,9 @@ class Executor(
                 quality = "BLUE_CHIP",
                 skipGraduated = true,
                 wallet = wallet,
-                walletSol = walletSol
+                walletSol = walletSol,
+                layerTag = layerTag,             // V5.9.386
+                layerTagEmoji = layerTagEmoji,
             )
         } else {
             if (wallet == null) {
@@ -3539,13 +3556,17 @@ class Executor(
                 walletSol = walletSol,
                 identity = identity,
                 quality = "BLUE_CHIP",
-                skipGraduated = true
+                skipGraduated = true,
+                layerTag = layerTag,             // V5.9.386
+                layerTagEmoji = layerTagEmoji,
             )
         }
         
-        ts.position.tradingMode = "BLUE_CHIP"
-        ts.position.tradingModeEmoji = "🔵"
-        ts.position.isBlueChipPosition = true
+        // V5.9.386 — default "BLUE_CHIP", but Quality caller passes "QUALITY"/"⭐"
+        // so ts.position.tradingMode reflects the correct layer from the start.
+        ts.position.tradingMode = layerTag
+        ts.position.tradingModeEmoji = layerTagEmoji
+        ts.position.isBlueChipPosition = (layerTag == "BLUE_CHIP")
         
         ts.position.blueChipTakeProfit = takeProfitPct
         ts.position.blueChipStopLoss = stopLossPct
@@ -3608,7 +3629,9 @@ class Executor(
                 quality = "SHITCOIN",
                 skipGraduated = true,
                 wallet = wallet,
-                walletSol = walletSol
+                walletSol = walletSol,
+                layerTag = "SHITCOIN",          // V5.9.386 — journal tag
+                layerTagEmoji = "💩",
             )
         } else {
             if (wallet == null) {
@@ -3623,7 +3646,9 @@ class Executor(
                 walletSol = walletSol,
                 identity = identity,
                 quality = "SHITCOIN",
-                skipGraduated = true
+                skipGraduated = true,
+                layerTag = "SHITCOIN",          // V5.9.386 — journal tag
+                layerTagEmoji = "💩",
             )
         }
         
@@ -3676,14 +3701,16 @@ class Executor(
 
         if (isPaper) {
             paperBuy(ts = ts, sol = sizeSol, score = score, identity = identity,
-                quality = spaceModeName, skipGraduated = true, wallet = wallet, walletSol = walletSol)
+                quality = spaceModeName, skipGraduated = true, wallet = wallet, walletSol = walletSol,
+                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" })  // V5.9.386
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🚀 [MOONSHOT] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
                 return
             }
             liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
-                walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true)
+                walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true,
+                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" })  // V5.9.386
         }
 
         ts.position.tradingMode = "MOONSHOT_$spaceModeName"
@@ -3694,7 +3721,9 @@ class Executor(
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
                         quality: String = "C",
-                        skipGraduated: Boolean = false) {
+                        skipGraduated: Boolean = false,
+                        layerTag: String = "",           // V5.9.386 — sub-trader journal tag
+                        layerTagEmoji: String = "") {    // V5.9.386 — matching emoji
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
@@ -3946,8 +3975,9 @@ class Executor(
                 entryLiquidityUsd = ts.lastLiquidityUsd,
                 entryMcap    = ts.lastMcap,
                 isPaperPosition = false,
-                tradingMode  = currentMode.name,
-                tradingModeEmoji = currentMode.emoji,
+                // V5.9.386 — sub-trader tag carries through live buy too.
+                tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+                tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
                 pendingVerify = true,  // V5.9.15: phantom guard — hidden from UI until tokens verified on-chain
             )
             val trade = Trade(
@@ -3958,8 +3988,9 @@ class Executor(
                 ts = System.currentTimeMillis(),
                 score = score, 
                 sig = sig,
-                tradingMode = currentMode.name,
-                tradingModeEmoji = currentMode.emoji,
+                // V5.9.386 — sub-trader tag in journal
+                tradingMode = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+                tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)

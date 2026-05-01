@@ -445,10 +445,10 @@ object ShitCoinTraderAI {
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug(TAG, "Failed to release ShitCoin lock: ${e.message}")
         }
-        
+
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
-        
+
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTrade(pnlPct, pos.isPaper) } catch (_: Exception) {}
         

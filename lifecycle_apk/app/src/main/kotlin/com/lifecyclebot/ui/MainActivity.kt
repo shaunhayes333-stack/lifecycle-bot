@@ -1808,8 +1808,18 @@ for legal compliance.
             val memeWrRT      = if (memeDecisive > 0) (memeWinsRT * 100.0) / memeDecisive else 0.0
             
             // 24H trades from persisted journal
+            // V5.9.386 — On MEME tab, match the 30-Day Proof Run card byte-for-byte:
+            // use RunTracker30D.totalTrades (same field the card shows) so the
+            // top-bar number aligns with the card directly below it. Prior
+            // 24h-window source always drifted from the 30-day cumulative count.
             val trades24h = persistedStats.trades24h
-            tvStats24hTrades.text = "$trades24h"
+            val topBarTradeCount = when (currentReadinessTab) {
+                "MEME"  -> if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) com.lifecyclebot.engine.RunTracker30D.totalTrades else trades24h
+                "ALTS"  -> try { (com.lifecyclebot.perps.CryptoAltTrader.getStats()["totalTrades"] as? Int) ?: trades24h } catch (_: Exception) { trades24h }
+                "PERPS" -> try { com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades() } catch (_: Exception) { trades24h }
+                else    -> trades24h
+            }
+            tvStats24hTrades.text = "$topBarTradeCount"
             
             // Win rate: Use RunTracker30D meme-trader-specific WR.
             val winRate = when {
@@ -1946,14 +1956,29 @@ for legal compliance.
         cardPositionPnl.visibility = View.GONE
 
         // ── open positions panel ─────────────────────────────────
+        // V5.9.386 — unified view: aggregate meme base + every sub-trader
+        // (ShitCoin, Quality, BlueChip, Moonshot, Treasury) so the card
+        // matches the top-bar "open positions" count byte-for-byte. The
+        // individual sub-trader cards below still render their own panels
+        // for per-layer P&L, but the Open Positions card is now the single
+        // source-of-truth list the user asked for.
         val openPos = state.openPositions
-        cardOpenPositions.visibility = if (openPos.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-        if (openPos.isNotEmpty()) {
-            tvTotalExposure.text = "%.3f◎ at risk".format(state.totalExposureSol)
+        val subTraderExposure = try {
+            (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().sumOf { it.entrySol }) +
+            (com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().sumOf { it.entrySol }) +
+            (com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().sumOf { it.entrySol }) +
+            (com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().sumOf { it.entrySol }) +
+            (com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().sumOf { it.entrySol })
+        } catch (_: Exception) { 0.0 }
+        val hasAnyOpen = openPos.isNotEmpty() || subTraderExposure > 0.0
+        cardOpenPositions.visibility = if (hasAnyOpen) android.view.View.VISIBLE else android.view.View.GONE
+        if (hasAnyOpen) {
+            tvTotalExposure.text = "%.3f◎ at risk".format(state.totalExposureSol + subTraderExposure)
             val upnl = state.totalUnrealisedPnlSol
             tvTotalUnrealisedPnl.text = "%+.4f◎".format(upnl)
             tvTotalUnrealisedPnl.setTextColor(if (upnl >= 0) green else red)
             renderOpenPositions(openPos)
+            try { appendSubTraderPositions() } catch (_: Exception) {}
         }
         
         // ── V4.0: Treasury positions panel ─────────────────────────────────
@@ -2510,6 +2535,102 @@ for legal compliance.
     }
 
     // ── trades ────────────────────────────────────────────────────────
+
+    // V5.9.386 — unified open-positions card: append a row for every
+    // sub-trader holding (ShitCoin/Quality/BlueChip/Moonshot/Treasury).
+    // Keeps the per-layer panels below intact, but gives the user a single
+    // "everything we're holding right now" list that matches the top-bar
+    // aggregate count.
+    private fun appendSubTraderPositions() {
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        data class SubTraderRow(
+            val emoji: String,
+            val layer: String,
+            val symbol: String,
+            val entrySol: Double,
+            val entryPrice: Double,
+            val entryTime: Long,
+            val pnlPct: Double,
+        )
+        val rows = mutableListOf<SubTraderRow>()
+        try {
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach {
+                rows += SubTraderRow("💩", "SHITCOIN", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach {
+                rows += SubTraderRow("⭐", "QUALITY", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach {
+                rows += SubTraderRow("🔵", "BLUE_CHIP", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach {
+                rows += SubTraderRow("🚀", "MOONSHOT", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().forEach {
+                val pnl = if (it.currentPrice > 0 && it.entryPrice > 0) (it.currentPrice - it.entryPrice) / it.entryPrice * 100.0 else 0.0
+                rows += SubTraderRow("💰", "TREASURY", it.symbol, it.entrySol, it.entryPrice, it.entryTime, pnl)
+            }
+        } catch (_: Exception) {}
+
+        if (rows.isEmpty()) return
+
+        rows.sortedByDescending { it.entryTime }.forEach { r ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 10, 0, 10)
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            // Left colour bar — purple for sub-traders to distinguish from base memes
+            row.addView(View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT)
+                    .also { it.marginEnd = 12 }
+                setBackgroundColor(0xFFA855F7.toInt())
+            })
+
+            val info = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            info.addView(TextView(this).apply {
+                text = "${r.emoji} ${r.symbol} · ${r.layer}"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                setTextColor(white)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            info.addView(TextView(this).apply {
+                text = "Entry: ${r.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(r.entryTime))}"
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            info.addView(TextView(this).apply {
+                text = "Size: %.4f◎".format(r.entrySol)
+                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+            })
+            row.addView(info)
+
+            val pnlView = TextView(this).apply {
+                text = if (r.pnlPct != 0.0) "%+.1f%%".format(r.pnlPct) else "—"
+                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setTextColor(if (r.pnlPct >= 0) green else red)
+                gravity = android.view.Gravity.END
+            }
+            row.addView(pnlView)
+
+            llOpenPositions.addView(row)
+        }
+    }
 
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()

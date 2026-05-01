@@ -5908,12 +5908,17 @@ if (deferredCount > 0) {
                                     takeProfitPct = qualityTp,
                                     stopLossPct = qualitySignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode
+                                    isPaper = cfg.paperMode,
+                                    // V5.9.386 — tag the BUY trade as QUALITY in the
+                                    // journal (was showing as BLUE_CHIP / ExtendedMode).
+                                    layerTag = "QUALITY",
+                                    layerTagEmoji = "⭐",
                                 )
 
                                 // V5.8: Override tradingMode — blueChipBuy() sets "BLUE_CHIP" by default,
                                 // breaking Quality exit routing (SL/TP checks gate on tradingMode == "QUALITY")
                                 ts.position.tradingMode = "QUALITY"
+                                ts.position.tradingModeEmoji = "⭐"
 
                                 // Record Quality position
                                 com.lifecyclebot.v3.scoring.QualityTraderAI.addPosition(
