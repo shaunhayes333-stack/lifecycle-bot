@@ -4779,6 +4779,17 @@ class Executor(
         if (pnl > 0) sounds?.playCashRegister() else sounds?.playWarningSiren()
         if (pnl > 0) sounds?.playMilestone(pnlP)
         SmartSizer.recordTrade(pnl > 0, isPaperMode = true)
+
+        // V5.9.399 — flat 30% of realized profit goes to Treasury on every
+        // green meme sell (no milestone gate). Losing/scratch sells contribute
+        // nothing — principal is preserved, treasury grows only from wins.
+        if (pnl > 0) {
+            try {
+                TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "Treasury 70/30 split error (paper): ${e.message}")
+            }
+        }
         
         if (pnl > 0) {
             try {
@@ -6127,6 +6138,17 @@ class Executor(
 
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
+
+            // V5.9.399 — flat 30% of realized profit to Treasury on green
+            // meme sells (live mode mirror of the paper-mode hook). Losing
+            // sells contribute nothing.
+            if (pnl > 0) {
+                try {
+                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Treasury 70/30 split error (live): ${e.message}")
+                }
+            }
             
             if (pnl > 0) {
                 try {

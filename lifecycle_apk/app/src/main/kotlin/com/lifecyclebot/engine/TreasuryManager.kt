@@ -243,6 +243,90 @@ object TreasuryManager {
     
     private fun Double.fmtX() = "%.1f".format(this)
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.399 — 70/30 MEME SELL CONTRIBUTION (option B: profit-only)
+    // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // Every winning meme sell now routes 30% of REALIZED PROFIT into the
+    // treasury, regardless of whether a wallet milestone has been hit.
+    // The remaining 70% stays in the trading wallet (handled by the existing
+    // onPaperBalanceChange / on-chain proceeds flow — we only siphon the 30%
+    // here). Losing or scratch sells contribute nothing — principal is
+    // protected, only green pays in.
+    //
+    // Companion: backFundPaperWalletIfLow() pulls treasury back into the
+    // paper wallet when the wallet drops below a floor, so the bot can
+    // self-cycle indefinitely on a chronically losing streak.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** V5.9.399 — fraction of realized profit siphoned into treasury per meme sell. */
+    const val MEME_SELL_TREASURY_PCT = 0.30
+
+    /**
+     * Called from Executor.paperSell / liveSell when a meme position closes.
+     * Splits realized profit 70/30: 70% remains in trading wallet (already
+     * credited by paperSell/liveSell), 30% is siphoned into the treasury.
+     * No milestone gate — every green meme trade contributes.
+     *
+     * @param realizedProfitSol  net profit on the closed trade (negative → no-op)
+     * @param solPrice           current SOL/USD price (for USD bookkeeping + events)
+     * @return amount actually moved to treasury (0 if profit was non-positive)
+     */
+    fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double): Double {
+        if (realizedProfitSol <= 0.0 || solPrice <= 0.0) return 0.0
+        val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT
+        if (contribSol < 0.0001) return 0.0
+        val contribUsd = contribSol * solPrice
+        treasurySol += contribSol
+        treasuryUsd += contribUsd
+        lifetimeLocked += contribSol
+        ErrorLogger.info("Treasury",
+            "🪙 70/30 SPLIT: profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
+            "(30%) | balance=${treasurySol.fmtSol()}◎"
+        )
+        addEvent(TreasuryEvent(
+            type = TreasuryEventType.PROFIT_LOCKED,
+            amountSol = contribSol,
+            description = "70/30 split: locked 30% of +${realizedProfitSol.fmtSol()}◎ realized",
+            walletUsd = peakWalletUsd,
+            solPrice = solPrice,
+        ))
+        return contribSol
+    }
+
+    /**
+     * V5.9.399 — paper-mode back-fund. When the paper trading wallet falls
+     * below `floorSol`, pull up to `(floorSol - walletSol)` from the treasury
+     * (capped at half the treasury balance so we never drain it dry).
+     * Returns the amount pulled (caller should credit the paper wallet).
+     *
+     * Live mode is intentionally NOT supported — moving SOL between a treasury
+     * vault and the trading wallet on-chain is a separate flow.
+     */
+    fun backFundPaperWalletIfLow(walletSol: Double, floorSol: Double, solPrice: Double): Double {
+        if (walletSol >= floorSol) return 0.0
+        if (treasurySol <= 0.0001) return 0.0
+        val deficit = floorSol - walletSol
+        val maxPull = treasurySol * 0.50   // never drain more than half in one shot
+        val pull = minOf(deficit, maxPull)
+        if (pull < 0.0001) return 0.0
+        treasurySol -= pull
+        treasuryUsd -= pull * solPrice
+        lifetimeWithdrawn += pull
+        ErrorLogger.info("Treasury",
+            "💸 BACK-FUND: wallet=${walletSol.fmtSol()}◎ < floor=${floorSol.fmtSol()}◎ " +
+            "→ pulled ${pull.fmtSol()}◎ from treasury (now ${treasurySol.fmtSol()}◎)"
+        )
+        addEvent(TreasuryEvent(
+            type = TreasuryEventType.WITHDRAWAL,
+            amountSol = pull,
+            description = "Back-fund: wallet hit floor, pulled ${pull.fmtSol()}◎",
+            walletUsd = peakWalletUsd,
+            solPrice = solPrice,
+        ))
+        return pull
+    }
+
     // ── Withdrawal ────────────────────────────────────────────────────
 
     /**

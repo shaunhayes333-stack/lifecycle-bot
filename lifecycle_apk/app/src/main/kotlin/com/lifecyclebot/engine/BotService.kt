@@ -1640,7 +1640,14 @@ class BotService : Service() {
                             // floors ($250-$1500) so V5.9.363 widening continues to pay off,
                             // but cuts the $3K-$5K rug-zone overlap. Multi-scanner bypass
                             // remains in effect — confirmed alpha can still come in below $5K.
-                            val paperMinLiquidity = 5000.0
+                            // V5.9.399 — user request: "open the gates on the watchlist
+                            // and Scanner in the meme trader. let it see everything.
+                            // upstream will adjudicate." Paper floor dropped from $5K to
+                            // $500 so tiny-liq fresh launches reach downstream sub-traders
+                            // (ShitCoin/Quality/BlueChip/Moonshot). Each sub-trader still
+                            // applies its own MIN_LIQUIDITY_USD (3K typically), so this
+                            // change adds VISIBILITY without forcing entries.
+                            val paperMinLiquidity = 500.0
                             val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0
@@ -4154,6 +4161,29 @@ class BotService : Service() {
                         // V5.6.15: Sync RunTracker30D balance with actual paper wallet every 10 loops
                         if (cfg.paperMode && loopCount % 10 == 0) {
                             RunTracker30D.syncBalance(balanceSol)
+                        }
+
+                        // V5.9.399 — back-fund the paper wallet from treasury
+                        // when it dries up. Only paper mode (live treasury is
+                        // on-chain locked, not auto-pullable). Floor = 10% of
+                        // configured starting capital. Runs every 5 loops to
+                        // smooth out churn.
+                        if (cfg.paperMode && loopCount % 5 == 0) {
+                            try {
+                                val floor = (cfg.paperSimulatedBalance * 0.10).coerceAtLeast(1.0)
+                                val pulled = TreasuryManager.backFundPaperWalletIfLow(
+                                    walletSol = balanceSol,
+                                    floorSol  = floor,
+                                    solPrice  = solPx,
+                                )
+                                if (pulled > 0.0) {
+                                    executor.onPaperBalanceChange?.invoke(pulled)
+                                    addLog("💸 Treasury back-fund → +${"%.4f".format(pulled)} SOL credited to paper wallet (floor=${"%.2f".format(floor)})", "treasury")
+                                    TreasuryManager.save(applicationContext)
+                                }
+                            } catch (e: Exception) {
+                                ErrorLogger.debug("BotService", "Treasury back-fund check error: ${e.message}")
+                            }
                         }
 
                         // V5.9.220: Wire DrawdownCircuitAI — feed it real balance every loop.
