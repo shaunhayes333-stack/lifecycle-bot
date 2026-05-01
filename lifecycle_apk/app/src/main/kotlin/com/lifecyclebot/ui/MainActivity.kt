@@ -1969,29 +1969,28 @@ for legal compliance.
         cardPositionPnl.visibility = View.GONE
 
         // ── open positions panel ─────────────────────────────────
-        // V5.9.386 — unified view: aggregate meme base + every sub-trader
-        // (ShitCoin, Quality, BlueChip, Moonshot, Treasury) so the card
-        // matches the top-bar "open positions" count byte-for-byte. The
-        // individual sub-trader cards below still render their own panels
-        // for per-layer P&L, but the Open Positions card is now the single
-        // source-of-truth list the user asked for.
-        val openPos = state.openPositions
-        val subTraderExposure = try {
-            (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().sumOf { it.entrySol }) +
-            (com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().sumOf { it.entrySol }) +
-            (com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().sumOf { it.entrySol }) +
-            (com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().sumOf { it.entrySol }) +
-            (com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().sumOf { it.entrySol })
-        } catch (_: Exception) { 0.0 }
-        val hasAnyOpen = openPos.isNotEmpty() || subTraderExposure > 0.0
-        cardOpenPositions.visibility = if (hasAnyOpen) android.view.View.VISIBLE else android.view.View.GONE
-        if (hasAnyOpen) {
-            tvTotalExposure.text = "%.3f◎ at risk".format(state.totalExposureSol + subTraderExposure)
-            val upnl = state.totalUnrealisedPnlSol
-            tvTotalUnrealisedPnl.text = "%+.4f◎".format(upnl)
-            tvTotalUnrealisedPnl.setTextColor(if (upnl >= 0) green else red)
+        // V5.9.389 — unified render (fixes V5.9.386 regression where sub-
+        // trader positions were tacked on below in a stripped-down second
+        // list with missing P&L / size / TP-SL). Now every holding —
+        // meme-base AND sub-trader (ShitCoin / Quality / BlueChip /
+        // Moonshot / Treasury) — flows through the SAME renderOpenPositions
+        // row builder in ONE pass, so format + columns + colour bar are
+        // identical across the whole card. Deduplication: if a mint is
+        // already in state.openPositions it's NOT synthesized a second
+        // time, even if a sub-trader also holds it.
+        val openPos = buildUnifiedOpenPositions(state)
+        cardOpenPositions.visibility = if (openPos.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+        if (openPos.isNotEmpty()) {
+            val totalExposure = openPos.sumOf { it.position.costSol }
+            val totalUpnl = openPos.sumOf { ts ->
+                val ref = ts.ref
+                val pos = ts.position
+                if (pos.entryPrice > 0 && ref > 0) pos.costSol * (ref - pos.entryPrice) / pos.entryPrice else 0.0
+            }
+            tvTotalExposure.text = "%.3f◎ at risk".format(totalExposure)
+            tvTotalUnrealisedPnl.text = "%+.4f◎".format(totalUpnl)
+            tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
             renderOpenPositions(openPos)
-            try { appendSubTraderPositions() } catch (_: Exception) {}
         }
         
         // ── V4.0: Treasury positions panel ─────────────────────────────────
@@ -2549,100 +2548,93 @@ for legal compliance.
 
     // ── trades ────────────────────────────────────────────────────────
 
-    // V5.9.386 — unified open-positions card: append a row for every
-    // sub-trader holding (ShitCoin/Quality/BlueChip/Moonshot/Treasury).
-    // Keeps the per-layer panels below intact, but gives the user a single
-    // "everything we're holding right now" list that matches the top-bar
-    // aggregate count.
-    private fun appendSubTraderPositions() {
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
-        data class SubTraderRow(
-            val emoji: String,
-            val layer: String,
-            val symbol: String,
-            val entrySol: Double,
-            val entryPrice: Double,
-            val entryTime: Long,
-            val pnlPct: Double,
-        )
-        val rows = mutableListOf<SubTraderRow>()
+    // V5.9.389 — merge base meme + sub-trader holdings into one TokenState
+    // list so renderOpenPositions can paint every row in the SAME format.
+    // State.openPositions already holds tokens that were evicted AFTER
+    // V5.9.385 properly (those stay). For each sub-trader (ShitCoin /
+    // Quality / BlueChip / Moonshot / Treasury) we inspect its own
+    // paperPositions map and SYNTHESIZE a TokenState for any mint that
+    // isn't already represented — this rescues ghost positions that were
+    // evicted from status.tokens before V5.9.385 shipped but still live in
+    // the sub-trader's own position map. Live P&L populates whenever the
+    // sub-trader tracker has a recent price; otherwise falls back to
+    // entry price (0% line) rather than the misleading "—".
+    private fun buildUnifiedOpenPositions(state: com.lifecyclebot.data.BotStatus): List<TokenState> {
+        val merged = state.openPositions.toMutableList()
+        val alreadyRendered = merged.map { it.mint }.toMutableSet()
+
+        fun upsert(mint: String, symbol: String, layer: String, emoji: String,
+                   entryPrice: Double, entrySol: Double, entryTime: Long,
+                   peakPct: Double, currentPrice: Double) {
+            if (mint.isBlank() || alreadyRendered.contains(mint)) return
+            val synth = TokenState(mint = mint, symbol = symbol)
+            // Seed a complete Position so renderOpenPositions shows entry,
+            // size, token qty, P&L%, SOL PnL, USD value, peak/lock badge.
+            synth.position = com.lifecyclebot.data.Position(
+                qtyToken        = if (entryPrice > 0) entrySol / entryPrice else 0.0,
+                entryPrice      = entryPrice,
+                entryTime       = entryTime.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                costSol         = entrySol,
+                highestPrice    = if (peakPct > 0 && entryPrice > 0) entryPrice * (1.0 + peakPct / 100.0) else entryPrice,
+                entryPhase      = "sub_trader",
+                entryScore      = 0.0,
+                isPaperPosition = true,
+                tradingMode     = layer,
+                tradingModeEmoji = emoji,
+                peakGainPct     = peakPct,
+                isShitCoinPosition = (layer == "SHITCOIN"),
+                isBlueChipPosition = (layer == "BLUE_CHIP"),
+                isTreasuryPosition = (layer == "TREASURY"),
+            )
+            synth.lastPrice = if (currentPrice > 0) currentPrice else entryPrice
+            synth.lastPriceUpdate = System.currentTimeMillis()
+            merged += synth
+            alreadyRendered += mint
+        }
+
         try {
             com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach {
-                rows += SubTraderRow("💩", "SHITCOIN", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+                upsert(it.mint, it.symbol, "SHITCOIN", "💩",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
+                    currentPrice = 0.0)
             }
         } catch (_: Exception) {}
         try {
             com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach {
-                rows += SubTraderRow("⭐", "QUALITY", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+                upsert(it.mint, it.symbol, "QUALITY", "⭐",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
+                    currentPrice = 0.0)
             }
         } catch (_: Exception) {}
         try {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach {
-                rows += SubTraderRow("🔵", "BLUE_CHIP", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+                upsert(it.mint, it.symbol, "BLUE_CHIP", "🔵",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
+                    currentPrice = 0.0)
             }
         } catch (_: Exception) {}
         try {
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach {
-                rows += SubTraderRow("🚀", "MOONSHOT", it.symbol, it.entrySol, it.entryPrice, it.entryTime, it.peakPnlPct)
+                upsert(it.mint, it.symbol, "MOONSHOT", "🚀",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
+                    currentPrice = it.currentPrice)
             }
         } catch (_: Exception) {}
         try {
             com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().forEach {
-                val pnl = if (it.currentPrice > 0 && it.entryPrice > 0) (it.currentPrice - it.entryPrice) / it.entryPrice * 100.0 else 0.0
-                rows += SubTraderRow("💰", "TREASURY", it.symbol, it.entrySol, it.entryPrice, it.entryTime, pnl)
+                val peakPct = if (it.entryPrice > 0) ((it.highWaterMark - it.entryPrice) / it.entryPrice * 100.0).coerceAtLeast(0.0) else 0.0
+                upsert(it.mint, it.symbol, "TREASURY", "💰",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = peakPct,
+                    currentPrice = it.currentPrice)
             }
         } catch (_: Exception) {}
 
-        if (rows.isEmpty()) return
-
-        rows.sortedByDescending { it.entryTime }.forEach { r ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 10, 0, 10)
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-            // Left colour bar — purple for sub-traders to distinguish from base memes
-            row.addView(View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT)
-                    .also { it.marginEnd = 12 }
-                setBackgroundColor(0xFFA855F7.toInt())
-            })
-
-            val info = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            info.addView(TextView(this).apply {
-                text = "${r.emoji} ${r.symbol} · ${r.layer}"
-                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(white)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-            })
-            info.addView(TextView(this).apply {
-                text = "Entry: ${r.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(r.entryTime))}"
-                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-            info.addView(TextView(this).apply {
-                text = "Size: %.4f◎".format(r.entrySol)
-                textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(muted)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-            row.addView(info)
-
-            val pnlView = TextView(this).apply {
-                text = if (r.pnlPct != 0.0) "%+.1f%%".format(r.pnlPct) else "—"
-                textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                setTextColor(if (r.pnlPct >= 0) green else red)
-                gravity = android.view.Gravity.END
-            }
-            row.addView(pnlView)
-
-            llOpenPositions.addView(row)
-        }
+        return merged.sortedByDescending { it.position.entryTime }
     }
 
     private fun renderOpenPositions(positions: List<TokenState>) {
