@@ -2559,7 +2559,7 @@ for legal compliance.
     // the sub-trader's own position map. Live P&L populates whenever the
     // sub-trader tracker has a recent price; otherwise falls back to
     // entry price (0% line) rather than the misleading "—".
-    private fun buildUnifiedOpenPositions(state: com.lifecyclebot.data.BotStatus): List<TokenState> {
+    private fun buildUnifiedOpenPositions(state: UiState): List<TokenState> {
         val merged = state.openPositions.toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
 
@@ -2621,7 +2621,7 @@ for legal compliance.
                 upsert(it.mint, it.symbol, "MOONSHOT", "🚀",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = it.currentPrice)
+                    currentPrice = 0.0)
             }
         } catch (_: Exception) {}
         try {
