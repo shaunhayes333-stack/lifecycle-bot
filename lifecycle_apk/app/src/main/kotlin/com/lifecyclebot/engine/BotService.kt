@@ -4746,6 +4746,16 @@ if (deferredCount > 0) {
             
             // Check token state
             if (ts != null) {
+                // V5.9.413 — HELD-POSITION STICKY GUARD (defense in depth).
+                // Skip every eviction predicate below when we hold this mint.
+                // The outer removals loop also guards, but short-circuiting
+                // here also prevents spurious GlobalTradeRegistry.registerRejection
+                // calls that would pollute the rejection cache for a mint
+                // we're actively managing.
+                if (GlobalTradeRegistry.hasOpenPosition(mint)) {
+                    continue
+                }
+
                 val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
                 val age = now - lastUpdate
                 val timeInWatchlist = now - ts.addedToWatchlistAt
@@ -4833,20 +4843,42 @@ if (deferredCount > 0) {
         
         // V4.0: Apply removals via GlobalTradeRegistry (NOT ConfigStore directly)
         if (tokensToRemove.isNotEmpty()) {
-            for (mint in tokensToRemove) {
+            // V5.9.413 — HELD-POSITION STICKY GUARD.
+            // Before this, `status.tokens.remove(mint)` fired unconditionally
+            // even when GlobalTradeRegistry.removeFromWatchlist refused the
+            // eviction because the mint had an active position. Result: the
+            // per-token bot loop stopped iterating the held mint → ts.ref
+            // went stale → pos.lastSeenPrice never updated → UI showed
+            // "stale / no live feed" and, worse, checkExit never fired
+            // (TP/SL/trailing never triggered) — the user's 7 held Quality
+            // positions showing dead data was the visible symptom, but every
+            // held layer was at risk.
+            val stillHeld = tokensToRemove.filter {
+                GlobalTradeRegistry.hasOpenPosition(it)
+            }
+            val safeToEvict = tokensToRemove.filterNot {
+                GlobalTradeRegistry.hasOpenPosition(it)
+            }
+            if (stillHeld.isNotEmpty()) {
+                ErrorLogger.info(
+                    "BotService",
+                    "🛡️ Held-position sticky: kept ${stillHeld.size} mints in status.tokens (eviction blocked)"
+                )
+            }
+            for (mint in safeToEvict) {
                 GlobalTradeRegistry.removeFromWatchlist(mint, "CLEANUP")
             }
-            
-            // Also remove from status.tokens
-            tokensToRemove.forEach { mint ->
+
+            // Also remove from status.tokens — but ONLY the non-held ones.
+            safeToEvict.forEach { mint ->
                 synchronized(status.tokens) {
                     status.tokens.remove(mint)
                 }
             }
-            
+
             val newSize = GlobalTradeRegistry.size()
-            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${tokensToRemove.size} tokens, now $newSize remaining (GlobalTradeRegistry)")
-            addLog("🧹 Cleanup: -${tokensToRemove.size} | now $newSize")
+            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${safeToEvict.size} tokens, now $newSize remaining (GlobalTradeRegistry)")
+            addLog("🧹 Cleanup: -${safeToEvict.size} | now $newSize")
         }
     }
 
@@ -5042,6 +5074,13 @@ if (deferredCount > 0) {
         // In paper mode, we want to keep trading banned tokens for learning
         // ═══════════════════════════════════════════════════════════════════
         if (!cfg.paperMode && BannedTokens.isBanned(mint)) {
+            // V5.9.413 — sticky held-position guard. Even banned mints must
+            // stay in status.tokens if we hold an open position, otherwise
+            // we can never price-check or close the bag.
+            if (GlobalTradeRegistry.hasOpenPosition(mint)) {
+                ErrorLogger.debug("BotService", "🛡️ Banned token ${ts.symbol} kept — held position")
+                return
+            }
             // Remove from watchlist to stop wasting resources
             synchronized(status.tokens) {
                 status.tokens.remove(mint)
