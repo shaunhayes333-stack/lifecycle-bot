@@ -4900,10 +4900,27 @@ if (deferredCount > 0) {
             // positions showing dead data was the visible symptom, but every
             // held layer was at risk.
             val stillHeld = tokensToRemove.filter {
-                GlobalTradeRegistry.hasOpenPosition(it)
+                // V5.9.423 — defense-in-depth. GlobalTradeRegistry is the
+                // primary source of truth but Quality-layer positions were
+                // showing up stale in the UI despite being held. Also check
+                // each sub-trader's own `.hasPosition(mint)` so a missed
+                // registerPosition() call can never evict a live bag.
+                GlobalTradeRegistry.hasOpenPosition(it) ||
+                com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(it)
             }
             val safeToEvict = tokensToRemove.filterNot {
-                GlobalTradeRegistry.hasOpenPosition(it)
+                GlobalTradeRegistry.hasOpenPosition(it) ||
+                com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(it) ||
+                com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(it)
             }
             if (stillHeld.isNotEmpty()) {
                 ErrorLogger.info(
@@ -9752,6 +9769,23 @@ if (deferredCount > 0) {
      * when Dexscreener doesn't have the pair.
      * Returns true if data was fetched successfully.
      */
+    // V5.9.423 — broadcast a successfully-resolved fallback price to every
+    // sub-trader that actually holds this mint. Previously tryFallbackPriceData
+    // only updated ts.lastPrice, so sub-trader rows (esp. Quality) still
+    // showed "— stale · no live feed 16m" because their per-position
+    // lastSeenPrice / lastPriceUpdateMs never got touched even when Birdeye
+    // or pump.fun had fresh data. Each updateLivePrice is a no-op for
+    // traders that don't hold the mint, so it's safe to fan out blindly.
+    private fun broadcastFallbackPrice(mint: String, priceUsd: Double) {
+        if (priceUsd <= 0) return
+        try { com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
+        // CashGenerationAI / ManipulatedTraderAI / ShitCoinExpress don't
+        // expose updateLivePrice — they derive lastSeenPrice inside checkExit.
+    }
+
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
         // Try Birdeye first
         try {
@@ -9775,13 +9809,58 @@ if (deferredCount > 0) {
                         if (ts.history.size > 300) ts.history.removeFirst()
                     }
                 }
+                broadcastFallbackPrice(mint, ov.priceUsd)   // V5.9.423
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
         } catch (_: Exception) {}
-        
+
+        // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
+        // different endpoint, different cache). When the pair-based call fails
+        // this token-address call often still returns — DexScreener caches
+        // token-level and pair-level data independently.
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+            try {
+                val priceUsd = kotlinx.coroutines.runBlocking {
+                    com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
+                }
+                if (priceUsd != null && priceUsd > 0) {
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                    }
+                    broadcastFallbackPrice(mint, priceUsd)
+                    addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
+                    return true
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
+        // used above, which is overview-focused; this one is price-focused and
+        // hits a separate rate-limit bucket).
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+            try {
+                val priceUsd = kotlinx.coroutines.runBlocking {
+                    com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
+                }
+                if (priceUsd != null && priceUsd > 0) {
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                    }
+                    broadcastFallbackPrice(mint, priceUsd)
+                    addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
+                    return true
+                }
+            } catch (_: Throwable) {}
+        }
+
         // Try pump.fun API
-        if (ts.lastPrice <= 0) {
+        // V5.9.423 — also retry pump.fun if the last successful price is >120s
+        // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
+        // was only consulted on brand-new holds that had never been priced.
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -9820,6 +9899,7 @@ if (deferredCount > 0) {
                                 }
                             }
                             addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
+                            broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
                             return true
                         }
                     }
