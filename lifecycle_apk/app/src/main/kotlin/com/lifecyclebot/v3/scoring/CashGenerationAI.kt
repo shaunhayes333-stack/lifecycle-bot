@@ -893,6 +893,14 @@ object CashGenerationAI {
         return currentPrices[mint]
     }
 
+    /**
+     * V5.9.415 — return the wall-clock ms of the last successful
+     * updatePrice() call for this mint, or null if we have no record.
+     * Used by the UI to label rows as 'stale' when no tick has arrived
+     * recently, even if the last tracked price happens to equal entry.
+     */
+    fun getLastPriceUpdateMs(mint: String): Long? = lastPriceUpdate[mint]
+
     fun clearAllPositions() {
         synchronized(activePositions) {
             val count = activePositions.size

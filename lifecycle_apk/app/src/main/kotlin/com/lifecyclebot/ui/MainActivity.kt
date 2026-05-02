@@ -2854,9 +2854,18 @@ for legal compliance.
             // Tier 2: CashGenerationAI tracked price — fed from BotService scanner loop
             // Tier 3: entryPrice — last resort (will show +0.0% but won't crash)
             val currentPrice = try {
-                val fromScanner  = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
-                val fromTreasury = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-                val resolved = fromScanner ?: fromTreasury
+                // V5.9.415 — 4-tier price lookup. Previous code returned
+                // pos.entryPrice when Tier 1 (scanner) and Tier 2 (Treasury
+                // tracked-prices map) were both empty for a given mint —
+                // producing a screen full of '+0.0%' when 13/14 Treasury
+                // positions had no live feed in either source. The
+                // TreasuryPosition itself carries a `currentPrice` field
+                // that's stamped on every successful updatePrice() call,
+                // so use that as Tier 3 before falling back to entry.
+                val fromScanner   = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                val fromTreasury  = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
+                val fromPosObj    = pos.currentPrice.takeIf { it > 0.0 }
+                val resolved = fromScanner ?: fromTreasury ?: fromPosObj
                 if (resolved == null || resolved <= 0.0) {
                     com.lifecyclebot.engine.ErrorLogger.debug("MainActivity",
                         "[Treasury] No live price for ${pos.symbol} (${pos.mint.take(8)}), using entry")
@@ -2864,8 +2873,20 @@ for legal compliance.
                 } else resolved
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol = pos.entrySol * gainPct / 100.0
+            // V5.9.415 — true stale detection: a row is stale ONLY if we
+            // have NO recent tick (>60s since last updatePrice for this
+            // mint) AND the scanner has no entry for it either. A price
+            // that legitimately equals entry is NOT stale (just unchanged).
+            val now = System.currentTimeMillis()
+            val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
+            val scannerHasMint = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.let { it > 0.0 } == true
+            val hasFresh = scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L)
+            val gainCol = when {
+                !hasFresh    -> muted
+                gainPct >= 0 -> green
+                else         -> red
+            }
+            val pnlSol = if (hasFresh) pos.entrySol * gainPct / 100.0 else 0.0
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2932,14 +2953,14 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             }
             right.addView(TextView(this).apply {
-                text = "%+.1f%%".format(gainPct)
+                text = if (hasFresh) "%+.1f%%".format(gainPct) else "— stale"
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
-                text = "%+.4f◎".format(pnlSol)
+                text = if (hasFresh) "%+.4f◎".format(pnlSol) else "no live feed"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -3066,23 +3087,25 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
         positions.forEach { pos ->
-            // V5.9.411: Quality position card was showing dead "+0.0%" data on
-            // every row when the held mint was no longer in the active scanner
-            // map (BotService.status.tokens). Previous logic fell back to
-            // pos.entryPrice → gainPct = 0% forever. Now read the
-            // QualityTraderAI-maintained `lastSeenPrice` (updated every
-            // checkExit() tick) FIRST, then `ts.ref`, and only fall back to
-            // entryPrice as a true last resort. Track whether we have any
-            // fresh data so we can grey out the "stale" rows on the UI.
+            // V5.9.411/415 — true-freshness display. We declare a row stale
+            // ONLY when no tick has arrived recently (>60s since the last
+            // updateLivePrice / checkExit) AND the scanner has no entry for
+            // the mint. A current price that legitimately equals entry is
+            // NOT stale (just unchanged). Previous heuristic (current ==
+            // entry → stale) gave false positives that wiped real 0% rows.
             val tsRef = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
             } catch (_: Exception) { 0.0 }
+            val now = System.currentTimeMillis()
+            val lastTick = try {
+                com.lifecyclebot.v3.scoring.QualityTraderAI.getLastPriceUpdateMs(pos.mint) ?: 0L
+            } catch (_: Exception) { 0L }
             val hasFresh = (tsRef > 0.0) ||
-                (pos.lastSeenPrice > 0.0 && pos.lastSeenPrice != pos.entryPrice)
+                (lastTick > 0L && (now - lastTick) < 60_000L)
             val currentPrice = when {
-                tsRef > 0.0                                                -> tsRef
-                pos.lastSeenPrice > 0.0 && pos.lastSeenPrice != pos.entryPrice -> pos.lastSeenPrice
-                else                                                       -> pos.entryPrice
+                tsRef > 0.0                       -> tsRef
+                pos.lastSeenPrice > 0.0           -> pos.lastSeenPrice
+                else                              -> pos.entryPrice
             }
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = when {

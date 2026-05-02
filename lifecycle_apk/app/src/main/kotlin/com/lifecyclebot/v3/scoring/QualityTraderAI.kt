@@ -193,6 +193,10 @@ object QualityTraderAI {
         var partialRungsTaken: Int = 0,
         // V5.9.392 — latest price for unified open-positions card.
         var lastSeenPrice: Double = entryPrice,
+        // V5.9.415 — wall-clock ms of the last updateLivePrice / checkExit
+        // tick. UI uses this to label rows as truly "stale" (no fresh tick
+        // for >60s) instead of confusing same-as-entry with no-data.
+        var lastPriceUpdateMs: Long = 0L,
     )
     
     data class QualitySignal(
@@ -403,6 +407,7 @@ object QualityTraderAI {
     ): ExitSignal {
         val pos = activePositions[mint] ?: return ExitSignal.HOLD
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
+        pos.lastPriceUpdateMs = System.currentTimeMillis()  // V5.9.415 — true freshness
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
@@ -570,8 +575,15 @@ object QualityTraderAI {
     /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
     fun updateLivePrice(mint: String, price: Double) {
         if (price <= 0) return
-        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+        synchronized(activePositions) { activePositions[mint] }?.let {
+            it.lastSeenPrice = price
+            it.lastPriceUpdateMs = System.currentTimeMillis()
+        }
     }
+
+    /** V5.9.415 — wall-clock ms of last successful price tick for `mint`, or null. */
+    fun getLastPriceUpdateMs(mint: String): Long? =
+        synchronized(activePositions) { activePositions[mint] }?.lastPriceUpdateMs?.takeIf { it > 0L }
     
     /**
      * V5.2.12: Clear all positions (both paper and live)

@@ -6249,12 +6249,17 @@ if (deferredCount > 0) {
             // Runs BEFORE ShitCoin (different mcap range, no overlap)
             // Cross-trade promotions: 200%+ gains from other layers graduate here
             // ═══════════════════════════════════════════════════════════════════
-            // V5.9.409 — V3 is now the meme authority. If V3 is ready, the
-            // parallel Moonshot execution path is suppressed (V3+FDG handle
-            // meme entry). The Moonshot SIGNAL still feeds V3 upstream.
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled() &&
-                !(cfg.v3EngineEnabled && try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false })
-            ) {
+            // V5.9.416 — Moonshot un-muted. V5.9.409's v3OwnsMemes gate
+            // suppressed the parallel Moonshot evaluator whenever V3 was
+            // ready, but V3 rarely returns EXECUTE on a launch-pad rocket
+            // (it weighs source/holders/structure heavily, and most fresh
+            // moons have those numbers very thin). Result: Moonshot went
+            // silent for hours. MoonshotTraderAI has unique launch-pad
+            // signal logic V3 does NOT replicate (mcap-velocity, liquidity-
+            // ramp, top-holder distribution gradient). Let it fire its own
+            // evaluator independently. FinalExecutionPermit + the per-mint
+            // GlobalTradeRegistry guard prevent V3+Moonshot double entries.
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
                     // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)
