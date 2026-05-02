@@ -7478,16 +7478,17 @@ if (deferredCount > 0) {
                                 return
                             }
 
-                            // V5.9.421 — TRIPLE-DANGER HARD GATE.
-                            // Activates once FreeRangeMode has emergency-graduated
-                            // (WR<15% after 500+ trades). If all three of
-                            // (TimeAI.isDangerZone, MemeNarrativeAI "Unknown cold"
-                            // narrative, ts.liquidityUsd < $100K) fire on the same
-                            // token, hard-block the entry. Previously each was only
-                            // a -6pt score deduction — together they bled the bot
-                            // at 2-5 AM local on unknown tokens in thin pools.
-                            val emergencyGraduated = try { com.lifecyclebot.engine.FreeRangeMode.emergencyGraduated() } catch (_: Throwable) { false }
-                            if (emergencyGraduated) {
+                            // V5.9.421 → V5.9.422 — TRIPLE-DANGER HARD GATE.
+                            // Activates when QualityLadder.tier() >= 1 (bot is
+                            // underperforming its phase target). If all three
+                            // of (TimeAI.isDangerZone, MemeNarrativeAI UNKNOWN
+                            // cluster, ts.lastLiquidityUsd < $100K) fire on the
+                            // same token we hard-block the entry — previously
+                            // each was only a -6pt score deduction. Only fires
+                            // in defensive tiers so the discovery-tier (Tier 0)
+                            // flow is untouched.
+                            val ladderTier = try { com.lifecyclebot.engine.QualityLadder.tier() } catch (_: Throwable) { 0 }
+                            if (ladderTier >= 1) {
                                 val dangerZone = try { com.lifecyclebot.engine.TimeOptimizationAI.isDangerZone() } catch (_: Throwable) { false }
                                 val coldNarrative = try {
                                     com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(
@@ -7499,9 +7500,9 @@ if (deferredCount > 0) {
                                 if (dangerZone && coldNarrative && thinLiquidity) {
                                     ErrorLogger.warn(
                                         "BotService",
-                                        "🛑 [V3|TRIPLE_DANGER] ${identity.symbol} | danger_zone+cold_narrative+thin_liq (\$${"%.0f".format(tsLiquidity)}) — SKIP execute (emergency-graduated)"
+                                        "🛑 [V3|TRIPLE_DANGER] ${identity.symbol} | danger_zone+cold_narrative+thin_liq (\$${"%.0f".format(tsLiquidity)}) tier=$ladderTier — SKIP execute"
                                     )
-                                    addLog("🛑 TRIPLE DANGER: ${identity.symbol} | dead-hour rug setup", ts.mint)
+                                    addLog("🛑 TRIPLE DANGER: ${identity.symbol} | dead-hour rug setup (tier $ladderTier)", ts.mint)
                                     return
                                 }
                             }
@@ -7541,11 +7542,16 @@ if (deferredCount > 0) {
                                     regime = regimeHint,
                                 )
                             } catch (_: Throwable) { 1.0 }
+                            // V5.9.422 — progressive size trim from the QualityLadder.
+                            // Tier 0 → 1.00, Tier 5 → 0.50. Never below 0.5 so
+                            // volume is preserved even at maximum caution.
+                            val ladderSizeMult = try { com.lifecyclebot.engine.QualityLadder.sizeMultiplier() } catch (_: Throwable) { 1.0 }
                             val sizeBefore = proposedSize
                             proposedSize = (proposedSize *
                                 modeMultipliers.positionSizeMultiplier *
                                 symSizeAdj *
-                                llmSizeMult
+                                llmSizeMult *
+                                ladderSizeMult
                             ).coerceIn(0.005, 1.0)
                             if (kotlin.math.abs(proposedSize - sizeBefore) > 0.0005) {
                                 ErrorLogger.info(
@@ -7553,8 +7559,9 @@ if (deferredCount > 0) {
                                     "[V3|SIZE_CASCADE] ${identity.symbol} | base=${sizeBefore.fmt(4)}◎ × " +
                                     "mode=${"%.2f".format(modeMultipliers.positionSizeMultiplier)} × " +
                                     "sym=${"%.2f".format(symSizeAdj)} × " +
-                                    "llm=${"%.2f".format(llmSizeMult)} → ${proposedSize.fmt(4)}◎ " +
-                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
+                                    "llm=${"%.2f".format(llmSizeMult)} × " +
+                                    "ladder=${"%.2f".format(ladderSizeMult)} → ${proposedSize.fmt(4)}◎ " +
+                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)} tier=$ladderTier)"
                                 )
                             }
 

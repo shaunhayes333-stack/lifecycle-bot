@@ -71,40 +71,24 @@ object FreeRangeMode {
     fun isWideOpen(): Boolean {
         if (operatorForceOn)  return true
         if (operatorForceOff) return false
-        return try {
-            val snap = TradeHistoryStore.getLifetimeStats()
-            val trades = snap.totalSells
-            // V5.9.421 — Emergency-graduate. Must fire BEFORE the floor check
-            // or we'd be stuck below 3000 with a catastrophic WR forever.
-            if (trades >= EMERGENCY_MIN_TRADES && snap.winRate < EMERGENCY_MAX_WR_PCT) {
-                return false
-            }
-            when {
-                trades < WIDE_OPEN_FLOOR_TRADES  -> true
-                trades >= WIDE_OPEN_CEIL_TRADES  -> false
-                // 3000 <= trades < 5000 — graduate only if super healthy
-                else -> !(snap.winRate >= GRADUATE_WIN_RATE_PCT &&
-                          snap.realizedPnlSol >= GRADUATE_MIN_PNL_SOL)
-            }
-        } catch (_: Throwable) {
-            // Fail-open: a broken trade store should NOT clamp the bot.
-            true
-        }
+        // V5.9.422 — single source of truth is now QualityLadder.
+        // Tier 0 = wide-open (free-range active). Any positive tier means
+        // the bot is underperforming its phase target and at least one
+        // defensive guard is armed. The 3000-floor / 5000-ceil numerics
+        // still live inside QualityLadder's tier bands for operator
+        // intuition, but we no longer short-circuit on raw trade count.
+        return try { QualityLadder.tier() == 0 } catch (_: Throwable) { true }
     }
 
     /**
-     * V5.9.421 — true iff the emergency-graduate rule is what's keeping
-     * us out of wide-open mode (as opposed to the 3000-floor / 5000-ceil
-     * logic). Exposed so callers (UI badges, post-mortem logs, the
-     * RugPreFilter paper-mode bypass) can distinguish "bot graduated
-     * voluntarily" from "bot was forced to stop by the panic brake".
+     * V5.9.421 → V5.9.422 — retained as a thin alias over
+     * `QualityLadder.tier() >= 1` so existing callers (HardRugPreFilter,
+     * BotService triple-danger gate) keep compiling while the ladder
+     * takes over. Anything new should consult QualityLadder directly.
      */
     fun emergencyGraduated(): Boolean {
         if (operatorForceOn || operatorForceOff) return false
-        return try {
-            val snap = TradeHistoryStore.getLifetimeStats()
-            snap.totalSells >= EMERGENCY_MIN_TRADES && snap.winRate < EMERGENCY_MAX_WR_PCT
-        } catch (_: Throwable) { false }
+        return try { QualityLadder.tier() >= 1 } catch (_: Throwable) { false }
     }
 
     /**
@@ -131,16 +115,15 @@ object FreeRangeMode {
 
     /**
      * Human-readable status string for the UI / logs. Never throws.
+     * V5.9.422 — defers to QualityLadder for the detailed pipeline view
+     * and prepends the legacy free-range icon so existing log scrapers
+     * still see "🔓 FREE-RANGE" or "🔒 DISCIPLINED".
      */
     fun statusLine(): String {
         return try {
-            val snap = TradeHistoryStore.getLifetimeStats()
-            val trades = snap.totalSells
-            val wr = snap.winRate.let { "%.1f".format(it) }
-            val pnl = snap.realizedPnlSol.let { "%.2f".format(it) }
             val mode = if (isWideOpen()) "🔓 FREE-RANGE" else "🔒 DISCIPLINED"
-            val tuner = "%.0f".format(adjustmentStrength() * 100)
-            "$mode · $trades trades · WR=${wr}% · PnL=${pnl}◎ · tuner=${tuner}%"
+            val ladder = try { QualityLadder.statusLine() } catch (_: Throwable) { "" }
+            if (ladder.isNotBlank()) "$mode · $ladder" else mode
         } catch (_: Throwable) {
             "🔓 FREE-RANGE · (history unavailable)"
         }
