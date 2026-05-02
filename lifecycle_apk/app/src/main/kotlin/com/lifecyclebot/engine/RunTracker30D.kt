@@ -210,8 +210,12 @@ object RunTracker30D {
      */
     fun classifyTrade(pnlPct: Double): String {
         return when {
-            pnlPct >= 1.0 -> "WIN"  // V5.9.185: was 5% — unified with fee-adjusted floor
-            pnlPct <= -1.0 -> "LOSS"  // V5.9.185: was -5%
+            // V5.9.421 — tighten meme/global scratch band ±1.0% → ±0.1%
+            // (matches V5.9.419 Alts change). 715 of 1462 meme trades were
+            // being bucketed as scratches at ±1%, which hid a real win/loss
+            // signal and produced a grotesque 49%-scratch UI.
+            pnlPct >= 0.1 -> "WIN"
+            pnlPct <= -0.1 -> "LOSS"
             else -> "SCRATCH"
         }
     }

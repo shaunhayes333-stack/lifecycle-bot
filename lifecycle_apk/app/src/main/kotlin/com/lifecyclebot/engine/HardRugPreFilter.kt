@@ -84,7 +84,14 @@ object HardRugPreFilter {
         // V5.2 FIX: PAPER MODE BYPASS - Skip pre-filter to maximize learning
         // V5.9.47: proven-edge live runs ALSO bypass — they've earned it.
         val lenient = ModeLeniency.useLenientGates(isPaperMode)
-        if (lenient) {
+        // V5.9.421 — once FreeRangeMode has emergency-graduated (500+ trades
+        // AND WR<15%), stop letting paper mode skip the full pre-filter.
+        // The whole point of emergency-graduate is to put the guardrails back
+        // up; leaving rug pre-filter permanently off in paper defeats that.
+        val emergencyGraduated = try {
+            com.lifecyclebot.engine.FreeRangeMode.emergencyGraduated()
+        } catch (_: Throwable) { false }
+        if (lenient && !emergencyGraduated) {
             // Even in lenient mode, block tokens with literally zero liquidity (can't trade)
             // But only if they've had enough time to get polled (grace period above handles new tokens)
             if (ts.lastLiquidityUsd <= 0) {

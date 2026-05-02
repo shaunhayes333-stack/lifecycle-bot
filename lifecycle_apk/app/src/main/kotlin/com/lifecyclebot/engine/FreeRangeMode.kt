@@ -44,6 +44,16 @@ object FreeRangeMode {
     private const val TUNER_RAMP_START       = 50      // adjustments begin here
     private const val TUNER_RAMP_END         = 3000    // adjustments reach full strength here
 
+    // V5.9.421 — EMERGENCY-GRADUATE thresholds.
+    // User approved: the 3000-trade floor was causing meme-lane to bleed at
+    // 10% WR / 668L / 715S for 1462 trades straight. If the bot is clearly
+    // drowning (≥500 trades AND WR <15%), force free-range OFF so the
+    // normal guards, rug filter, and loss-streak brakes come back online
+    // BEFORE we hit 3000 trades. This preserves the original operator
+    // intent ("wide open for learning") while bounding the downside.
+    private const val EMERGENCY_MIN_TRADES   = 500
+    private const val EMERGENCY_MAX_WR_PCT   = 15.0
+
     // ── Operator override (UI "KILL FREE-RANGE" button can flip this) ─
     @Volatile private var operatorForceOff: Boolean = false
     @Volatile private var operatorForceOn:  Boolean = false
@@ -64,6 +74,11 @@ object FreeRangeMode {
         return try {
             val snap = TradeHistoryStore.getLifetimeStats()
             val trades = snap.totalSells
+            // V5.9.421 — Emergency-graduate. Must fire BEFORE the floor check
+            // or we'd be stuck below 3000 with a catastrophic WR forever.
+            if (trades >= EMERGENCY_MIN_TRADES && snap.winRate < EMERGENCY_MAX_WR_PCT) {
+                return false
+            }
             when {
                 trades < WIDE_OPEN_FLOOR_TRADES  -> true
                 trades >= WIDE_OPEN_CEIL_TRADES  -> false
@@ -75,6 +90,21 @@ object FreeRangeMode {
             // Fail-open: a broken trade store should NOT clamp the bot.
             true
         }
+    }
+
+    /**
+     * V5.9.421 — true iff the emergency-graduate rule is what's keeping
+     * us out of wide-open mode (as opposed to the 3000-floor / 5000-ceil
+     * logic). Exposed so callers (UI badges, post-mortem logs, the
+     * RugPreFilter paper-mode bypass) can distinguish "bot graduated
+     * voluntarily" from "bot was forced to stop by the panic brake".
+     */
+    fun emergencyGraduated(): Boolean {
+        if (operatorForceOn || operatorForceOff) return false
+        return try {
+            val snap = TradeHistoryStore.getLifetimeStats()
+            snap.totalSells >= EMERGENCY_MIN_TRADES && snap.winRate < EMERGENCY_MAX_WR_PCT
+        } catch (_: Throwable) { false }
     }
 
     /**

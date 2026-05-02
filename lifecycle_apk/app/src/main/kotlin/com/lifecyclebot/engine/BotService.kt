@@ -7478,6 +7478,34 @@ if (deferredCount > 0) {
                                 return
                             }
 
+                            // V5.9.421 — TRIPLE-DANGER HARD GATE.
+                            // Activates once FreeRangeMode has emergency-graduated
+                            // (WR<15% after 500+ trades). If all three of
+                            // (TimeAI.isDangerZone, MemeNarrativeAI "Unknown cold"
+                            // narrative, ts.liquidityUsd < $100K) fire on the same
+                            // token, hard-block the entry. Previously each was only
+                            // a -6pt score deduction — together they bled the bot
+                            // at 2-5 AM local on unknown tokens in thin pools.
+                            val emergencyGraduated = try { com.lifecyclebot.engine.FreeRangeMode.emergencyGraduated() } catch (_: Throwable) { false }
+                            if (emergencyGraduated) {
+                                val dangerZone = try { com.lifecyclebot.engine.TimeOptimizationAI.isDangerZone() } catch (_: Throwable) { false }
+                                val coldNarrative = try {
+                                    com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(
+                                        symbol = identity.symbol, name = identity.symbol,
+                                    ).cluster == com.lifecyclebot.v3.scoring.MemeNarrativeAI.Cluster.UNKNOWN
+                                } catch (_: Throwable) { false }
+                                val tsLiquidity = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+                                val thinLiquidity = tsLiquidity > 0.0 && tsLiquidity < 100_000.0
+                                if (dangerZone && coldNarrative && thinLiquidity) {
+                                    ErrorLogger.warn(
+                                        "BotService",
+                                        "🛑 [V3|TRIPLE_DANGER] ${identity.symbol} | danger_zone+cold_narrative+thin_liq (\$${"%.0f".format(tsLiquidity)}) — SKIP execute (emergency-graduated)"
+                                    )
+                                    addLog("🛑 TRIPLE DANGER: ${identity.symbol} | dead-hour rug setup", ts.mint)
+                                    return
+                                }
+                            }
+
                             // Sentience hook #6 — personality-driven filter.
                             // If the user's recent chat said "avoid SHITCOIN" / "avoid memes",
                             // skip this entry. Best-effort, fail-open.
