@@ -2093,13 +2093,14 @@ for legal compliance.
             if (showManip) {
                 tvManipExposure.text = "%.3f◎".format(manipPositions.sumOf { it.entrySol })
                 val manipDailyPnl = manipStats.dailyPnlSol
-                tvManipPnl.text = "%+.4f◎".format(manipDailyPnl)
-                tvManipPnl.setTextColor(if (manipDailyPnl >= 0) green else red)
+                // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
+                val manipUnrealized = renderManipPositions(manipPositions)
+                tvManipPnl.text = "%+.4f◎".format(manipUnrealized)
+                tvManipPnl.setTextColor(if (manipUnrealized >= 0) green else red)
                 tvManipWinRate.text = "${manipStats.dailyWins}W/${manipStats.dailyLosses}L"
                 tvManipDailyPnl.text = "Day: %+.3f◎".format(manipDailyPnl)
                 tvManipDailyPnl.setTextColor(if (manipDailyPnl >= 0) green else red)
                 tvManipCaught.text = "Caught: ${manipStats.totalManipCaught}"
-                renderManipPositions(manipPositions)
             }
         } catch (_: Exception) {}
 
@@ -3129,6 +3130,7 @@ for legal compliance.
                 else         -> red
             }
             val pnlSol = pos.entrySol * gainPct / 100.0
+            childrenUnrealizedSum += if (hasFresh) pnlSol else 0.0
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
             val row = LinearLayout(this).apply {
@@ -3460,9 +3462,11 @@ for legal compliance.
     }
 
     // ☠️ Render Manipulated positions into the Manip card
-    private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>) {
+    private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>): Double {
         llManipPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        // V5.9.420 — accumulate children unrealized PnL for header parity.
+        var childrenUnrealizedSum = 0.0
         positions.forEach { pos ->
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = try {
@@ -3557,6 +3561,7 @@ for legal compliance.
             llManipPositions.addView(row)
             llManipPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
 
     // V5.2: Render Moonshot positions
