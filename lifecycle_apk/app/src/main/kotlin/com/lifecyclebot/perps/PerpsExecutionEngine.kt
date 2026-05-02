@@ -59,6 +59,9 @@ object PerpsExecutionEngine {
     
     // Counters for logging
     private val scanCount = AtomicLong(0)
+
+    // V5.9.419 — one-shot diagnostic latch for zero-execution dump
+    @Volatile private var perpsZeroExecDumped: Boolean = false
     
     // Job references
     private var scanJob: Job? = null
@@ -168,6 +171,44 @@ object PerpsExecutionEngine {
                 if (scanNum % 6 == 0L) {  // Log every minute (6 x 10s)
                     ErrorLogger.info(TAG, "⚡ PERPS HEARTBEAT #$scanNum | running=${isRunning.get()} paused=${isPaused.get()} enabled=${PerpsTraderAI.isEnabled()}")
                 }
+
+                // V5.9.419 — DIAGNOSTIC DUMP after 5 min of 0 successful executions.
+                // Fires exactly once per engine lifetime so the user can see why
+                // Perps is "always 0 trades" even though heartbeat says enabled.
+                // Dumps: scanner result counts by priority, last signal scores,
+                // size-rejected attempts, current balance + recommended size.
+                if (!perpsZeroExecDumped &&
+                    scanNum >= 30 &&                        // ≥5 min of 10s scans
+                    successfulExecutions.get() == 0 &&
+                    isRunning.get() &&
+                    !isPaused.get() &&
+                    PerpsTraderAI.isEnabled()
+                ) {
+                    perpsZeroExecDumped = true
+                    try {
+                        val isPaperDbg = PerpsTraderAI.isPaperMode
+                        val balDbg = PerpsTraderAI.getBalance(isPaperDbg)
+                        val results = PerpsMarketScanners.runAllScanners(isPaperDbg)
+                        val withSig = results.filter { it.signal != null }
+                        val priCounts = withSig.groupBy { it.priority }
+                            .mapValues { it.value.size }
+                            .toSortedMap()
+                            .entries.joinToString(", ") { "p${it.key}=${it.value}" }
+                        val topSig = withSig.sortedByDescending { it.signal!!.score }
+                            .take(5)
+                            .joinToString(" · ") {
+                                "${it.signal!!.market.symbol} sc=${it.signal!!.score} cf=${it.signal!!.confidence} pr=${it.priority} szPct=${"%.1f".format(it.signal!!.recommendedSizePct)}%"
+                            }
+                        ErrorLogger.warn(TAG,
+                            "⚠️ PERPS_ZERO_EXEC_DUMP after $scanNum scans | bal=${balDbg.fmt(3)}◎ paper=$isPaperDbg | " +
+                            "scanners returned ${results.size} results, ${withSig.size} with signals (priCounts=$priCounts) | " +
+                            "exec stats: success=${successfulExecutions.get()} fail=${failedExecutions.get()} attempted=${executionCount.get()} | " +
+                            "top5 signals: $topSig"
+                        )
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn(TAG, "PERPS_ZERO_EXEC_DUMP failed: ${e.message}")
+                    }
+                }
                 
                 if (!isPaused.get() && PerpsTraderAI.isEnabled()) {
                     val isPaper = PerpsTraderAI.isPaperMode
@@ -180,7 +221,12 @@ object PerpsExecutionEngine {
                     
                     // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
                     // In live mode, require priority >= 5 for safety
-                    val priorityThreshold = if (isPaper) 1 else 5  // V5.9.5: paper trades on ANY signal
+                    // V5.9.419 — paper threshold dropped from 1 → 0 so even
+                    // priority-0 scanner signals fire (matches free-range mode
+                    // doctrine; we already had heaps of paper signals being
+                    // silently dropped because the scanner never tagged them
+                    // priority>=1).
+                    val priorityThreshold = if (isPaper) 0 else 5
                     val highPrioritySignals = scanResults.filter { it.priority >= priorityThreshold && it.signal != null }
                     
                     if (highPrioritySignals.isNotEmpty()) {
@@ -369,8 +415,8 @@ object PerpsExecutionEngine {
             val sizeSol = (rawSizeSol * symSizeAdj).coerceAtLeast(0.0)
             val effectiveLeverage = (signal.recommendedLeverage * symLevCapMult).coerceAtLeast(1.0)
 
-            if (sizeSol < 0.05) {
-                ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj)")
+            if (sizeSol < (if (isPaper) 0.01 else 0.05)) {
+                ErrorLogger.warn(TAG, "Position size too small: $sizeSol SOL (raw=$rawSizeSol × sym=$symSizeAdj) [floor=${if (isPaper) 0.01 else 0.05}]")
                 failedExecutions.incrementAndGet()
                 return
             }

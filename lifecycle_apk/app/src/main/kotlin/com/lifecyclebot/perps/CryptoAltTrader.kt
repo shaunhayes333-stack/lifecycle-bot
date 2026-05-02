@@ -1982,8 +1982,14 @@ object CryptoAltTrader {
         // boolean (FluidLearning markets counters, SentientPersonality)
         // gets a more honest signal but the same API.
         val pnlPctForWin = pos.getPnlPct()
-        val isWinByPct   = pnlPctForWin >= 1.0
-        val isLossByPct  = pnlPctForWin <= -1.0
+        // V5.9.419 — tighten win/loss threshold from ±1.0% → ±0.1%.
+        // The old ±1.0% gate was bucketing 307 of 311 paper alt trades into
+        // "scratch", leaving the UI showing W/L/S = 3/1/307 even though the
+        // engine's effective directional accuracy was much higher. ±0.1%
+        // matches the meme/Moonshot scratch gate and produces honest W/L
+        // counts for the 30-Day card without polluting FluidLearning.
+        val isWinByPct   = pnlPctForWin >= 0.1
+        val isLossByPct  = pnlPctForWin <= -0.1
         totalTrades.incrementAndGet()
         when {
             isWinByPct -> {
@@ -2649,6 +2655,7 @@ object CryptoAltTrader {
         "totalTrades"    to totalTrades.get(),
         "winningTrades"  to winningTrades.get(),
         "losingTrades"   to losingTrades.get(),
+        "scratchTrades"  to scratchTrades.get(),   // V5.9.419 — expose for UI W/L/S parity
         "winRate"        to getWinRate(),
         "totalPnlSol"    to totalPnlSol,
         "openPositions"  to positions.size,

@@ -4617,6 +4617,9 @@ for legal compliance.
         val totalTrades   = (stats["totalTrades"]    as? Int)    ?: 0
         val wins          = (stats["winningTrades"]  as? Int)    ?: 0
         val losses        = (stats["losingTrades"]   as? Int)    ?: 0
+        // V5.9.419 — show real scratches (default 0 if older getStats build).
+        val scratches     = (stats["scratchTrades"]  as? Int)
+            ?: (totalTrades - wins - losses).coerceAtLeast(0)
         val paperBalance  = (stats["paperBalance"]   as? Double) ?: 0.0
         val openPositions = (stats["openPositions"]  as? Int)    ?: 0
         val phaseLabel    = (stats["learningPhase"]  as? String) ?: "BOOTSTRAP"
@@ -4633,7 +4636,7 @@ for legal compliance.
         tv30DayDrawdown.setTextColor(muted)
 
         tv30DayTrades.text = totalTrades.toString()
-        tv30DayWLS.text = "$wins / $losses / 0"
+        tv30DayWLS.text = "$wins / $losses / $scratches"
 
         val meaningful = wins + losses
         val winRate = if (meaningful > 0) (wins * 100 / meaningful) else 0
@@ -4683,29 +4686,24 @@ for legal compliance.
         try {
             trades += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
             wins   += com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades()
-            losses += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() -
-                      com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades()
+            // V5.9.419 — no getLosingTrades() on this trader → don't fake
+            // losses as (total-wins) (was lumping scratches in as losses).
+            // The residual will surface as scratches in the W/L/S display.
             aggPnlSol += com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol()
         } catch (_: Exception) {}
         try {
             trades += com.lifecyclebot.perps.ForexTrader.getTotalTrades()
             wins   += com.lifecyclebot.perps.ForexTrader.getWinningTrades()
-            losses += com.lifecyclebot.perps.ForexTrader.getTotalTrades() -
-                      com.lifecyclebot.perps.ForexTrader.getWinningTrades()
             aggPnlSol += com.lifecyclebot.perps.ForexTrader.getTotalPnlSol()
         } catch (_: Exception) {}
         try {
             trades += com.lifecyclebot.perps.MetalsTrader.getTotalTrades()
             wins   += com.lifecyclebot.perps.MetalsTrader.getWinningTrades()
-            losses += com.lifecyclebot.perps.MetalsTrader.getTotalTrades() -
-                      com.lifecyclebot.perps.MetalsTrader.getWinningTrades()
             aggPnlSol += com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol()
         } catch (_: Exception) {}
         try {
             trades += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades()
             wins   += com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades()
-            losses += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() -
-                      com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades()
             aggPnlSol += com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol()
         } catch (_: Exception) {}
 
@@ -4738,7 +4736,11 @@ for legal compliance.
         })
 
         tv30DayTrades.text = trades.toString()
-        tv30DayWLS.text = "$wins / $losses / 0"
+        // V5.9.419 — show real scratches as the residual (trades not flagged
+        // as wins or losses, i.e. tiny scratch trades + sub-traders without
+        // a separate getLosingTrades() exposing). Was hardcoded to "0".
+        val scratches = (trades - wins - losses).coerceAtLeast(0)
+        tv30DayWLS.text = "$wins / $losses / $scratches"
 
         val meaningful = wins + losses
         val winRate = if (meaningful > 0) (wins * 100 / meaningful) else 0
