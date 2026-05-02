@@ -845,7 +845,11 @@ object CryptoAltTrader {
                         ErrorLogger.warn(TAG, "🪙 ${market.symbol}: below prefilter (${signal.score}<45)")
                     }
                 } else {
-                    ErrorLogger.warn(TAG, "🪙 ${market.symbol}: analyzeAlt returned null")
+                    // V5.9.412 — demote to debug. analyzeAlt returns null when
+                    // a momentum/RSI gate trips or data is missing — that's
+                    // routine, not warn-worthy log noise (it was firing on
+                    // every flat-ranging alt, multiple per minute).
+                    ErrorLogger.debug(TAG, "🪙 ${market.symbol}: analyzeAlt skipped (gate or missing data)")
                 }
 
             } catch (e: CancellationException) { throw e }

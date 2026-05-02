@@ -21,6 +21,12 @@ object CloudLearningSync {
     private const val KEY_USE_COMMUNITY = "use_community_weights"
     private const val KEY_COMMUNITY_WEIGHTS = "cached_community_weights"
     private const val KEY_SCHEMA_READY = "schema_ready"
+    // V5.9.412 — bump whenever the schema layout changes so older cloud
+    // tables get dropped+recreated. Fixes "no such column: instance_id"
+    // pipeline errors caused by a Turso schema that was created before
+    // the V5.9.404-era columns existed.
+    private const val KEY_SCHEMA_VERSION = "schema_version"
+    private const val CURRENT_SCHEMA_VERSION = 2
 
     // TURSO CONFIG
     // NOTE: You exposed this token in chat. Rotate it after using this file.
@@ -153,6 +159,22 @@ object CloudLearningSync {
         if (!isConfigured()) return@withContext false
 
         try {
+            // V5.9.412 — schema-version drift recovery. If the persisted
+            // CURRENT_SCHEMA_VERSION doesn't match, DROP the legacy collective_*
+            // tables so the CREATE IF NOT EXISTS below seeds them clean. This
+            // unsticks instances whose Turso DB was created against an older
+            // column layout (the "no such column: instance_id" pipeline error).
+            val storedVer = prefs?.getInt(KEY_SCHEMA_VERSION, 0) ?: 0
+            if (storedVer != CURRENT_SCHEMA_VERSION) {
+                val dropRequests = JSONArray().apply {
+                    put(exec("DROP TABLE IF EXISTS collective_feature_weights"))
+                    put(exec("DROP TABLE IF EXISTS collective_patterns"))
+                    put(exec("DROP TABLE IF EXISTS collective_instances"))
+                    put(closeReq())
+                }
+                pipeline(dropRequests) // best-effort
+                ErrorLogger.info("CloudSync", "Schema version $storedVer → $CURRENT_SCHEMA_VERSION — collective_* tables reset.")
+            }
             // Phase 1: Create tables (IF NOT EXISTS won't modify existing tables)
             val createRequests = JSONArray().apply {
                 put(
@@ -238,6 +260,8 @@ object CloudLearningSync {
 
             schemaReady = true
             saveState()
+            // V5.9.412 — pin the version so we don't re-drop on every boot.
+            prefs?.edit()?.putInt(KEY_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION)?.apply()
             ErrorLogger.info("CloudSync", "Turso schema ready")
             true
         } catch (e: Exception) {

@@ -2522,7 +2522,7 @@ class Executor(
             // entryScore / sizing earlier in the pipeline.
             
             if (size < 0.001) {
-                ErrorLogger.error("Executor", "❌ ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
+                ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
                 onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
                 return
             }
@@ -2810,7 +2810,7 @@ class Executor(
         }
         
         if (size < 0.001) {
-            ErrorLogger.error("Executor", "❌ ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
+            ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
             onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
             return
         }

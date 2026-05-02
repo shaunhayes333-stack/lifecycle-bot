@@ -69,13 +69,27 @@ class FatalRiskChecker(
      * - FATAL suppression (rugged/honeypot - V3 MIGRATION)
      */
     fun check(candidate: CandidateSnapshot, ctx: TradingContext): FatalRiskResult {
+        // V5.9.412 — Free-range learning bypass for rug-score fatals.
+        // The user's pre-markets-pre-LLM proven meme edge included taking
+        // entries on tokens that rugcheck-style scorers flag as risky;
+        // those entries were managed via small position sizes + fast exits.
+        // V3's strict 0..5 / ≥90 fatal rules were nuking ~every fresh meme
+        // launch the moment rugcheck.xyz returned a non-trivial number,
+        // even when a hard FATAL_SUPPRESSION (rugged/honeypot) was NOT
+        // confirmed.  In free-range mode we skip the *score-based* fatal
+        // blocks but keep the truly un-tradeable ones (liquidity collapse,
+        // unsellable, invalid pair, confirmed fatal suppression).
+        val wideOpen = try {
+            com.lifecyclebot.engine.FreeRangeMode.isWideOpen()
+        } catch (_: Throwable) { false }
+
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: EXTREME_RUG_CRITICAL block for rugcheck score ≤ 5
         // This replaces the Strategy PRE-BLOCK path for rugcheck critical.
         // Placement in FatalRiskChecker is the correct architecture.
         // ═══════════════════════════════════════════════════════════════════
         val rawRugcheckScore = candidate.rawRiskScore ?: 100
-        if (rawRugcheckScore in 0..5) {
+        if (!wideOpen && rawRugcheckScore in 0..5) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
         }
         
@@ -108,7 +122,10 @@ class FatalRiskChecker(
         
         // Extreme rug risk only (RugModel calculation)
         val rugScore = rugModel.score(candidate, ctx)
-        if (rugScore >= config.fatalRugThreshold) {
+        // V5.9.412 — free-range bypass: keep RugModel scoring for telemetry
+        // but don't FATAL on it. Symbolic / sizing / fast-exit handles the
+        // residual risk via small position sizes during the learning window.
+        if (!wideOpen && rugScore >= config.fatalRugThreshold) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
         }
         

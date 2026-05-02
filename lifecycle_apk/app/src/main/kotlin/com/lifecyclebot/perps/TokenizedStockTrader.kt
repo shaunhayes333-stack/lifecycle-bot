@@ -679,10 +679,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                     // DISTRUSTED (WR < threshold after sufficient trades), halt new entries.
                     // This prevents the bot from continuing to open losing trades after the
                     // AI has already concluded the strategy is broken.
+                    // V5.9.412 — FreeRangeMode bypass: stocks are at 0% WR in
+                    // the user's session, distrusted, and starved of new trades
+                    // because of this gate. Wide-open mode lets them keep firing
+                    // so trust can recover via fresh data.
+                    val wideOpen = try {
+                        com.lifecyclebot.engine.FreeRangeMode.isWideOpen()
+                    } catch (_: Throwable) { false }
                     val trustLevel = try {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel("TokenizedStockAI")
                     } catch (_: Exception) { null }
-                    if (trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                    if (!wideOpen && trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
                         ErrorLogger.warn(TAG, "📈 ${market.symbol}: TRUST_GATE — TokenizedStockAI DISTRUSTED, skipping entry")
                         continue
                     }

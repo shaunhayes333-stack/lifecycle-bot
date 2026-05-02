@@ -181,7 +181,11 @@ object SmartSizer {
         // once the reserve is scaled down. Still blocks truly empty ones.
         // V5.9.212: raise floor from 0.002 → 0.01 to cover fees on live trades
         if (tradeable < if (isPaperMode) 0.002 else 0.01) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: tradeable $tradeable < ${if (isPaperMode) 0.002 else 0.01} floor | paper=$isPaperMode")
+            // V5.9.412 — demote from `error` to `debug`: this is a normal
+            // wallet-exposure-cap condition (sim balance == sim exposure)
+            // that pollutes the error log unnecessarily. The bot is just
+            // saying "no room left, sit this one out".
+            ErrorLogger.debug("SmartSizer", "🪫 NO_HEADROOM: tradeable $tradeable < ${if (isPaperMode) 0.002 else 0.01} floor | paper=$isPaperMode")
             return SizeResult(0.0, "insufficient", 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, "reserve",
                 "Wallet below reserve floor — no trades (treasury: ${treasuryFloor.fmt(4)}◎ locked)")
         }
