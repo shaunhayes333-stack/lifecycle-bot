@@ -95,10 +95,17 @@ object CryptoAltTrader {
     // V5.9.221: Stagnant + loser eviction thresholds
     // V5.9.221: STAGNANT/LOSER eviction — DEEP REVISION
     // V5.9.304: V5.9.190-198 ERA RESTORATION — only TRULY DEAD positions evicted.
-    // 10min/±0.5% was scratch-killing live setups that were quietly building.
-    // Now: 15min hold AND ±0.3% band — only stone-dead positions get evicted.
-    private const val STAGNANT_MIN_HOLD_MS  = 15 * 60 * 1000L  // V5.9.304: 10→15 min — let setups develop
-    private const val STAGNANT_MAX_PNL_PCT  = 0.3              // V5.9.304: 0.5→0.3 — only TRULY flat = stagnant
+    // V5.9.424: 15min/±0.3% was still scratch-killing real setups (logs showed WR
+    // tank to 14% with hundreds of STAGNANT closes). Lifted to 25min and tightened
+    // to ±0.2% so only stone-dead positions evict; healthy chop survives.
+    private const val STAGNANT_MIN_HOLD_MS  = 25 * 60 * 1000L  // V5.9.424: 15→25 min — let setups develop
+    private const val STAGNANT_MAX_PNL_PCT  = 0.2              // V5.9.424: 0.3→0.2 — only TRULY flat = stagnant
+    // V5.9.424: MICROWIN_LOCK only fires after 25min AND if momentum is dead
+    // (pnlPct moved < 0.2% in the last 2min). Stops capping winners that are
+    // still building.
+    private const val MICROWIN_HOLD_MS      = 25 * 60 * 1000L
+    private const val MICROWIN_DEAD_WINDOW_MS = 2 * 60 * 1000L
+    private const val MICROWIN_DEAD_DELTA   = 0.2              // %
     private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
     private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
     private const val DEADWEIGHT_HOLD_MS    = 20 * 60 * 1000L  // V5.9.272: 30→20 min — cap max hold for stale alts
@@ -135,6 +142,9 @@ object CryptoAltTrader {
     private val positions        = ConcurrentHashMap<String, AltPosition>()
     private val spotPositions    = ConcurrentHashMap<String, AltPosition>()
     private val leveragePositions= ConcurrentHashMap<String, AltPosition>()
+    // V5.9.424 — MICROWIN_LOCK momentum snapshot (id -> ts ms, pnlPct).
+    // Used to detect "no movement in last 2min" before booking a small win.
+    private val momentumSnapshots = ConcurrentHashMap<String, Pair<Long, Double>>()
     // V5.7.7: Closed positions archive — retained so Positions tab shows real win rate + history
     private val closedPositions  = java.util.concurrent.CopyOnWriteArrayList<AltPosition>()
     private val MAX_CLOSED_HISTORY = 500
@@ -1704,14 +1714,24 @@ object CryptoAltTrader {
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
-            // V5.9.358 — MICROWIN_LOCK (Alts-only): book +1–5% wins after
-            // 15 min instead of letting them sit and round-trip into losers.
-            // Larger winners (>5%) keep running so we never cap real
-            // breakouts. This is the small-win-lock path the user asked for.
-            if (pnlPct >= 1.0 && pnlPct < 5.0 && holdMs >= STAGNANT_MIN_HOLD_MS) {
-                closePosition(id, "MICROWIN_LOCK: +${"%.1f".format(pnlPct)}% after ${holdMs/60000}min — book the small win")
-                ErrorLogger.info(TAG, "🪙 🔒 MICROWIN_LOCK ${pos.market.symbol} (+${"%.1f".format(pnlPct)}%)")
-                continue
+            // V5.9.358 / V5.9.424 — MICROWIN_LOCK (Alts-only): only book +1–5%
+            // wins after 25min AND only if momentum is dead (pnlPct moved
+            // <0.2% in the last 2min). Larger winners (>5%) keep running so
+            // we never cap real breakouts. This stops the 15-min cap that
+            // was force-closing climbing positions.
+            if (pnlPct >= 1.0 && pnlPct < 5.0 && holdMs >= MICROWIN_HOLD_MS) {
+                val snap = momentumSnapshots[id]
+                val momentumDead = snap != null &&
+                    (now - snap.first) >= MICROWIN_DEAD_WINDOW_MS &&
+                    Math.abs(pnlPct - snap.second) < MICROWIN_DEAD_DELTA
+                if (snap == null || (now - snap.first) >= MICROWIN_DEAD_WINDOW_MS) {
+                    momentumSnapshots[id] = now to pnlPct
+                }
+                if (momentumDead) {
+                    closePosition(id, "MICROWIN_LOCK: +${"%.1f".format(pnlPct)}% after ${holdMs/60000}min — momentum dead")
+                    ErrorLogger.info(TAG, "🪙 🔒 MICROWIN_LOCK ${pos.market.symbol} (+${"%.1f".format(pnlPct)}%) — flat 2min")
+                    continue
+                }
             }
 
             // V5.9.229: protect ANY winning position — even small gains deserve to run
@@ -1904,6 +1924,8 @@ object CryptoAltTrader {
         val pos = positions.remove(positionId) ?: return
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
+        // V5.9.424 — drop momentum snapshot so the map stays bounded.
+        momentumSnapshots.remove(positionId)
         // V5.9.178 — persist the map without this position.
         persistAltPositions()
         // V5.9.171 — clear from local orphan store since capital is being

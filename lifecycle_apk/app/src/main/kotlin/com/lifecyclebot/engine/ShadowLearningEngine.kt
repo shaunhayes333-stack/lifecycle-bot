@@ -161,6 +161,34 @@ object ShadowLearningEngine {
     @Volatile var blockedCorrectBlocks = 0  // Blocks that prevented losses
     @Volatile var blockedMissedWins = 0     // Blocks that prevented wins (overly strict)
 
+    // V5.9.424 — Batched 2-min summary state (replaces per-outcome info spam).
+    // Per-outcome lines are demoted to debug; one rolled-up info line emits
+    // every 2 minutes summarising tracked / correct / missed / scratch.
+    private val SHADOW_SUMMARY_INTERVAL_MS = 2 * 60 * 1000L
+    @Volatile private var lastShadowSummaryMs: Long = 0L
+    private val pendingTracked      = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingCorrectBlock = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingMissedWin    = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingMissedGain   = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingAvoidedLoss  = java.util.concurrent.atomic.AtomicInteger(0)
+    private val pendingScratch      = java.util.concurrent.atomic.AtomicInteger(0)
+
+    private fun maybeEmitShadowSummary() {
+        val now = System.currentTimeMillis()
+        if (lastShadowSummaryMs == 0L) { lastShadowSummaryMs = now; return }
+        if (now - lastShadowSummaryMs < SHADOW_SUMMARY_INTERVAL_MS) return
+        val t  = pendingTracked.getAndSet(0)
+        val cb = pendingCorrectBlock.getAndSet(0)
+        val mw = pendingMissedWin.getAndSet(0)
+        val mg = pendingMissedGain.getAndSet(0)
+        val al = pendingAvoidedLoss.getAndSet(0)
+        val sc = pendingScratch.getAndSet(0)
+        lastShadowSummaryMs = now
+        if (t + cb + mw + mg + al + sc == 0) return
+        ErrorLogger.info("ShadowLearning",
+            "🧠 Shadow 2m: tracked=$t · correctBlock=$cb · missedWin=$mw · missedGain=$mg · avoidedLoss=$al · scratch=$sc")
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ══════════════════════════════════════════════════════════════════
@@ -434,8 +462,10 @@ object ShadowLearningEngine {
         
         blockedTradeShadows[mint] = shadow
         blockedTradesTracked++
-        
-        ErrorLogger.info("ShadowLearning", "📊 TRACKING BLOCKED: $symbol | $blockReason | " +
+        pendingTracked.incrementAndGet()
+        maybeEmitShadowSummary()
+
+        ErrorLogger.debug("ShadowLearning", "📊 TRACKING BLOCKED: $symbol | $blockReason | " +
             "price=$currentPrice | quality=$quality | Will track outcome...")
     }
     
@@ -491,7 +521,8 @@ object ShadowLearningEngine {
                 shadow.exitReason = "WOULD_HIT_STOP"
                 blockedWouldHaveLost++
                 blockedCorrectBlocks++
-                ErrorLogger.info("ShadowLearning", "✅ CORRECT BLOCK: ${shadow.symbol} | " +
+                pendingCorrectBlock.incrementAndGet()
+                ErrorLogger.debug("ShadowLearning", "✅ CORRECT BLOCK: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
                 // V4.0: Record to FluidLearning with DISCOUNTED weight (0.025 per trade)
@@ -506,7 +537,8 @@ object ShadowLearningEngine {
                 shadow.exitReason = "WOULD_HIT_TP"
                 blockedWouldHaveWon++
                 blockedMissedWins++
-                ErrorLogger.info("ShadowLearning", "⚠️ MISSED WIN: ${shadow.symbol} | " +
+                pendingMissedWin.incrementAndGet()
+                ErrorLogger.debug("ShadowLearning", "⚠️ MISSED WIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
                 // V4.0: Record to FluidLearning with DISCOUNTED weight
@@ -521,7 +553,8 @@ object ShadowLearningEngine {
                 shadow.exitReason = "MODERATE_GAIN"
                 blockedWouldHaveWon++
                 blockedMissedWins++
-                ErrorLogger.info("ShadowLearning", "⚠️ MISSED GAIN: ${shadow.symbol} | " +
+                pendingMissedGain.incrementAndGet()
+                ErrorLogger.debug("ShadowLearning", "⚠️ MISSED GAIN: ${shadow.symbol} | " +
                     "Would have gained ${shadow.peakPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
                 // V4.0: Record to FluidLearning with DISCOUNTED weight
@@ -536,7 +569,8 @@ object ShadowLearningEngine {
                 shadow.exitReason = "MODERATE_LOSS"
                 blockedWouldHaveLost++
                 blockedCorrectBlocks++
-                ErrorLogger.info("ShadowLearning", "✅ AVOIDED LOSS: ${shadow.symbol} | " +
+                pendingAvoidedLoss.incrementAndGet()
+                ErrorLogger.debug("ShadowLearning", "✅ AVOIDED LOSS: ${shadow.symbol} | " +
                     "Would have lost ${shadow.troughPnlPct.toInt()}% | Block: ${shadow.blockReason}")
                 
                 // V4.0: Record to FluidLearning with DISCOUNTED weight
@@ -549,11 +583,14 @@ object ShadowLearningEngine {
                 shadow.wouldHaveBeenWin = null
                 shadow.hypotheticalPnlPct = ((shadow.currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
                 shadow.exitReason = "SCRATCH"
-                ErrorLogger.info("ShadowLearning", "📊 SCRATCH: ${shadow.symbol} | " +
+                pendingScratch.incrementAndGet()
+                ErrorLogger.debug("ShadowLearning", "📊 SCRATCH: ${shadow.symbol} | " +
                     "Would have been ~${shadow.hypotheticalPnlPct.toInt()}%")
                 // Don't record scratch trades to FluidLearning - they're noise
             }
         }
+        // V5.9.424 — emit batched 2-min roll-up after any outcome.
+        maybeEmitShadowSummary()
     }
     
     /**
