@@ -216,7 +216,12 @@ object ModeSpecificGates {
                     confidenceMultiplier = 0.70,      // low conf ok
                     positionSizeMultiplier = 0.55,    // small sizes, high freq
                     stopLossMultiplier = 0.70,        // wide stops (vol)
-                    trailingStopMultiplier = 1.25,    // tight trail once in profit
+                    // V5.9.417 — LOOSENED. Was 1.25 (TIGHT trail) which was
+                    // killing trades at -1.9% in 1-2m before they could
+                    // breathe. Memes pump-and-pull-back aggressively in
+                    // their first few minutes; a tight trail front-runs
+                    // the very moves we want to capture.
+                    trailingStopMultiplier = 0.70,
                     minHoldMultiplier = 0.30,
                     maxHoldMultiplier = 0.60,
                     rugcheckMultiplier = 0.65,        // lenient — shitcoins ARE risky
@@ -229,7 +234,8 @@ object ModeSpecificGates {
                     confidenceMultiplier = 0.75,
                     positionSizeMultiplier = 0.50,
                     stopLossMultiplier = 0.60,
-                    trailingStopMultiplier = 1.30,
+                    // V5.9.417 — LOOSENED 1.30 → 0.70.
+                    trailingStopMultiplier = 0.70,
                     minHoldMultiplier = 0.30,
                     maxHoldMultiplier = 0.50,
                     rugcheckMultiplier = 0.50,        // MANIPULATED book bypasses rugcheck
@@ -242,7 +248,8 @@ object ModeSpecificGates {
                     confidenceMultiplier = 0.85,
                     positionSizeMultiplier = 0.70,
                     stopLossMultiplier = 0.75,
-                    trailingStopMultiplier = 0.90,
+                    // V5.9.417 — LOOSENED 0.90 → 0.75.
+                    trailingStopMultiplier = 0.75,
                     minHoldMultiplier = 1.00,
                     maxHoldMultiplier = 2.00,
                     rugcheckMultiplier = 0.85,
@@ -255,7 +262,8 @@ object ModeSpecificGates {
                     confidenceMultiplier = 0.85,
                     positionSizeMultiplier = 0.75,
                     stopLossMultiplier = 0.80,
-                    trailingStopMultiplier = 0.95,
+                    // V5.9.417 — LOOSENED 0.95 → 0.80.
+                    trailingStopMultiplier = 0.80,
                     minHoldMultiplier = 0.80,
                     maxHoldMultiplier = 1.50,
                     rugcheckMultiplier = 0.85,
@@ -268,7 +276,8 @@ object ModeSpecificGates {
                     confidenceMultiplier = 0.80,
                     positionSizeMultiplier = 0.65,
                     stopLossMultiplier = 0.75,
-                    trailingStopMultiplier = 1.10,
+                    // V5.9.417 — LOOSENED 1.10 → 0.75.
+                    trailingStopMultiplier = 0.75,
                     minHoldMultiplier = 0.50,
                     maxHoldMultiplier = 1.00,
                     rugcheckMultiplier = 0.80,

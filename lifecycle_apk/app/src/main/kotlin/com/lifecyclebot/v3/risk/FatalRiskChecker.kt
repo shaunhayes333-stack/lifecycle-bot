@@ -89,6 +89,13 @@ class FatalRiskChecker(
         // Placement in FatalRiskChecker is the correct architecture.
         // ═══════════════════════════════════════════════════════════════════
         val rawRugcheckScore = candidate.rawRiskScore ?: 100
+        // V5.9.417 — only bypass the MIDDLE band (3..5) under FreeRangeMode.
+        // Score 0..2 means rugcheck is screaming 'rugged/honeypot' and the
+        // user's -48 % Day-1 PnL on V5.9.412 showed unconditional bypass
+        // was too aggressive. Keep the absolute-bottom block always on.
+        if (rawRugcheckScore in 0..2) {
+            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
+        }
         if (!wideOpen && rawRugcheckScore in 0..5) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
         }
@@ -122,9 +129,12 @@ class FatalRiskChecker(
         
         // Extreme rug risk only (RugModel calculation)
         val rugScore = rugModel.score(candidate, ctx)
-        // V5.9.412 — free-range bypass: keep RugModel scoring for telemetry
-        // but don't FATAL on it. Symbolic / sizing / fast-exit handles the
-        // residual risk via small position sizes during the learning window.
+        // V5.9.417 — split the threshold: keep rugScore >= 95 blocked even
+        // in free-range (those are 'all 4 extras flagged' candidates that
+        // bled the bot to -48 % on Day 1). Only bypass the 90..94 band.
+        if (rugScore >= 95) {
+            return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
+        }
         if (!wideOpen && rugScore >= config.fatalRugThreshold) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
         }

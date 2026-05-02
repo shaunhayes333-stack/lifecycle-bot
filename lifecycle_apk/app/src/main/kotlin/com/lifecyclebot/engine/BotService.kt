@@ -5193,6 +5193,49 @@ if (deferredCount > 0) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // V5.9.417 — HARD STOP-LOSS BACKSTOP
+    //
+    // Manfred-style bug: a held meme position drifts to -27 % while its
+    // declared SL is -20 % and never closes because the sub-trader's
+    // checkExit() (Moonshot / ShitCoin / Quality) is operating on a stale
+    // internal lastSeenPrice and returns HOLD. The position bleeds until
+    // the user manually closes or the bag goes to zero.
+    //
+    // This backstop reads the FRESH price directly from `pair.candle`
+    // (next step of the cycle) — but that step is below us, so we use the
+    // best price we already have on `ts` (lastPrice → most-recent history
+    // → entryPrice fallback). If realised draw-down ≥ HARD_SL_FLOOR (-25%
+    // for memes, -30 % for non-memes) we force-close immediately,
+    // bypassing every sub-trader so a stuck-state can never bleed past
+    // the panic floor again.
+    // ═══════════════════════════════════════════════════════════════════
+    if (ts.position.isOpen && ts.position.entryPrice > 0.0) {
+        val livePrice = ts.lastPrice.takeIf { it > 0.0 }
+            ?: ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0.0 }
+            ?: 0.0
+        if (livePrice > 0.0) {
+            val pnlPct = (livePrice - ts.position.entryPrice) / ts.position.entryPrice * 100.0
+            val isMeme = com.lifecyclebot.engine.LaneTag.isMeme(ts.position.tradingMode)
+            val hardFloor = if (isMeme) -25.0 else -30.0
+            if (pnlPct <= hardFloor) {
+                ErrorLogger.warn(
+                    "BotService",
+                    "🚨 HARD_SL_BACKSTOP: ${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ≤ ${hardFloor}% " +
+                    "— closing regardless of sub-trader state (mode=${ts.position.tradingMode})"
+                )
+                addLog("🚨 HARD-SL: ${ts.symbol} ${"%.1f".format(pnlPct)}% — backstop close")
+                try {
+                    executor.requestSell(ts, "HARD_SL_BACKSTOP_${"%.0f".format(pnlPct)}", wallet,
+                        status.getEffectiveBalance(cfg.paperMode))
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "HARD_SL_BACKSTOP requestSell failed for ${ts.symbol}: ${e.message}")
+                }
+                return
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
     // ═══════════════════════════════════════════════════════════════════
     val curveState = BondingCurveTracker.evaluate(ts)
