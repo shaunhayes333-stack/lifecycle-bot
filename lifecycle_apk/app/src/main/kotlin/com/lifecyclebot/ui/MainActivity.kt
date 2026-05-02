@@ -4659,18 +4659,72 @@ for legal compliance.
     private fun render30DayPerps() {
         card30DayRun.visibility = View.VISIBLE
         val perps = com.lifecyclebot.perps.PerpsTraderAI
-        val trades       = try { perps.getLifetimeTrades() } catch (_: Exception) { 0 }
-        val wins         = try { perps.getLifetimeWins() } catch (_: Exception) { 0 }
-        val losses       = try { perps.getLifetimeLosses() } catch (_: Exception) { 0 }
+        // V5.9.418 — UNIFIED PERPS STAT PARITY.
+        // Was: only PerpsTraderAI lifetime stats → top-bar (which sums every
+        // markets bucket) and the 30-Day card disagreed (top-bar showed 12
+        // trades, card showed 0). Now we sum every markets trader the same
+        // way renderPerpsReadiness() and the top-bar do, so all three views
+        // tell the same story.
+        val jupiterTrades = try { perps.getLifetimeTrades() } catch (_: Exception) { 0 }
+        val jupiterWins   = try { perps.getLifetimeWins() } catch (_: Exception) { 0 }
+        val jupiterLosses = try { perps.getLifetimeLosses() } catch (_: Exception) { 0 }
+        val jupiterPnl    = try { perps.getLifetimePnlSol() } catch (_: Exception) { 0.0 }
+        var trades = jupiterTrades
+        var wins   = jupiterWins
+        var losses = jupiterLosses
+        var aggPnlSol = jupiterPnl
+        try {
+            val s = com.lifecyclebot.perps.CryptoAltTrader.getStats()
+            trades += (s["totalTrades"]   as? Int)    ?: 0
+            wins   += (s["winningTrades"] as? Int)    ?: 0
+            losses += (s["losingTrades"]  as? Int)    ?: 0
+            aggPnlSol += (s["totalPnlSol"] as? Double) ?: 0.0
+        } catch (_: Exception) {}
+        try {
+            trades += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
+            wins   += com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades()
+            losses += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() -
+                      com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades()
+            aggPnlSol += com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol()
+        } catch (_: Exception) {}
+        try {
+            trades += com.lifecyclebot.perps.ForexTrader.getTotalTrades()
+            wins   += com.lifecyclebot.perps.ForexTrader.getWinningTrades()
+            losses += com.lifecyclebot.perps.ForexTrader.getTotalTrades() -
+                      com.lifecyclebot.perps.ForexTrader.getWinningTrades()
+            aggPnlSol += com.lifecyclebot.perps.ForexTrader.getTotalPnlSol()
+        } catch (_: Exception) {}
+        try {
+            trades += com.lifecyclebot.perps.MetalsTrader.getTotalTrades()
+            wins   += com.lifecyclebot.perps.MetalsTrader.getWinningTrades()
+            losses += com.lifecyclebot.perps.MetalsTrader.getTotalTrades() -
+                      com.lifecyclebot.perps.MetalsTrader.getWinningTrades()
+            aggPnlSol += com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol()
+        } catch (_: Exception) {}
+        try {
+            trades += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades()
+            wins   += com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades()
+            losses += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() -
+                      com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades()
+            aggPnlSol += com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol()
+        } catch (_: Exception) {}
+
         val balance      = try { perps.getBalance() } catch (_: Exception) { 0.0 }
         val learningPct  = try { perps.getLearningProgress() } catch (_: Exception) { 0 }
         val discipline   = try { perps.getDisciplineScore() } catch (_: Exception) { 0 }
         val readiness    = try { perps.getLiveReadiness() } catch (_: Exception) { null }
 
-        tv30DayCounter.text = "⚡ PERPS · LIFETIME"
+        tv30DayCounter.text = "⚡ AATE MARKETS · LIFETIME"
         tv30DayBalance.text = String.format("%.4f SOL", balance)
 
-        val returnPct = readiness?.paperPnlPct ?: 0.0
+        // Trade-weighted return: prefer aggregate PnL across all market buckets
+        // when present, fall back to Jupiter-perps readiness pct for parity
+        // with prior builds.
+        val returnPct = if (aggPnlSol != 0.0 && balance > 0.0) {
+            (aggPnlSol / balance) * 100.0
+        } else {
+            readiness?.paperPnlPct ?: 0.0
+        }
         val sign = if (returnPct >= 0) "+" else ""
         tv30DayReturn.text = "$sign${String.format("%.2f", returnPct)}%"
         tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)

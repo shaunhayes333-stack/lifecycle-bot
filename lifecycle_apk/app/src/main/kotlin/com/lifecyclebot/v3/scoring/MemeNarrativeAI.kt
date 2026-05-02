@@ -96,12 +96,27 @@ object MemeNarrativeAI {
             bestKwLen >= 3 -> 55
             else           -> 40
         }
-        return NarrativeMatch(
+        val match = NarrativeMatch(
             cluster = best,
             baseBonus = best.baseBonus,
             matchedKeyword = bestKw,
             confidence = confidence,
         )
+
+        // V5.9.418 — Sentience hook: surface high-confidence narrative matches
+        // to the LLM so the chat / persona layer can act on them (e.g. "frog
+        // cluster is alive — open a small paper meme buy"). Pure log/telegraph
+        // — actual entries still flow through the normal Executor + V3 path.
+        if (confidence >= 70 && best != Cluster.UNKNOWN) {
+            try {
+                com.lifecyclebot.engine.SentienceHooks.requestLlmMemeBuy(
+                    symbol  = symbol,
+                    sizeSol = 0.0,   // narrative-only signal; no size proposed
+                    reason  = "${best.emoji} ${best.name} cluster (kw=$bestKw conf=$confidence)",
+                )
+            } catch (_: Throwable) { /* fail-open */ }
+        }
+        return match
     }
 
     private val UNKNOWN_MATCH = NarrativeMatch(Cluster.UNKNOWN, 0, "", 0)

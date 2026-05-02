@@ -1252,7 +1252,21 @@ object ShitCoinTraderAI {
             ErrorLogger.info(TAG, "💩💰 EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT
         }
-        
+
+        // V5.9.418 — Sentience hook: LLM exit override (cached, fail-open).
+        // Mirrors the wiring in MoonshotTraderAI.checkExit so the LLM can
+        // pull stuck/dead-flat ShitCoin bags the sub-trader's deterministic
+        // rules would otherwise hold forever.
+        if (com.lifecyclebot.engine.SentienceHooks.shouldExit(
+                symbol  = pos.symbol,
+                pnlPct  = pnlPct,
+                holdMinutes = holdMinutes,
+                peakPct = pos.peakPnlPct,
+            )) {
+            ErrorLogger.info(TAG, "💩🤖 LLM EXIT OVERRIDE: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
+            return ExitSignal.TIME_EXIT
+        }
+
         // 7. HOLD - Let it ride! No time caps.
         return ExitSignal.HOLD
     }

@@ -5240,6 +5240,17 @@ if (deferredCount > 0) {
     // ═══════════════════════════════════════════════════════════════════
     val curveState = BondingCurveTracker.evaluate(ts)
     val whaleState = WhaleDetector.evaluate(mint, ts)
+
+    // V5.9.418 — REFRESH SYMBOLIC CONTEXT PER MEME CYCLE.
+    // SymbolicContext.refresh() is internally throttled (2s) so calling it
+    // here every cycle is cheap; this guarantees that the 24-channel
+    // symbolic nervous system has *this* token's symbol/mint stamped on
+    // its latest snapshot before V3 / FDG / sub-traders read it. Without
+    // this, the per-token signals (CrossRegime, LeadLag, Fragility,
+    // PortfolioHeat, …) were only being refreshed once per outer botLoop
+    // cycle from the global symbol — meme entries on hot launches got the
+    // BTC/SOL signal map instead of their own.
+    try { com.lifecyclebot.engine.SymbolicContext.refresh(ts.symbol, ts.mint) } catch (_: Throwable) {}
     
     // ═══════════════════════════════════════════════════════════════════
     // STEP 1: HARD RUG PRE-FILTER
@@ -7371,13 +7382,108 @@ if (deferredCount > 0) {
                             identity.v3Execute(result.score, result.band, result.sizeSol)
                             
                             // Execute the trade
-                            val proposedSize = result.sizeSol
+                            var proposedSize = result.sizeSol
                             val modeTag = try {
                                 // V5.9.409 — per-token lane wins over global bot mode
                                 ModeSpecificGates.fromTradingMode(ts.position.tradingMode)
                                     ?: modeConf?.mode?.let { ModeSpecificGates.fromBotMode(it) }
                             } catch (e: Exception) { null }
-                            
+
+                            // ═══════════════════════════════════════════════════════════════
+                            // V5.9.418 — V3-MEME SENTIENCE & SYMBOLIC RE-WIRE.
+                            // Before V5.9.418 the V3 Execute path went straight to
+                            // executor.v3Buy() — bypassing FDG entirely — which meant
+                            // (a) the 24-channel SymbolicContext never adjusted size on
+                            // memes, (b) ModeSpecificGates.ModeMultipliers were computed
+                            // but never applied, and (c) SentienceHooks.shouldFilterByPersonality
+                            // was dead code. The legacy CORE/Treasury/Quality paths
+                            // still flow through FDG.evaluate() so they were fine —
+                            // only the meme V3-authority path lost the symbolic nervous
+                            // system.
+                            //
+                            // We do NOT re-run full FDG.evaluate() here (heavy, would
+                            // double-log) — instead we apply the same 4 surgical inputs
+                            // FDG would: refresh SymbolicContext, read ModeMultipliers,
+                            // honour the symbolic universe block, and apply size
+                            // adjustments + personality + cross-engine bias before
+                            // executor.v3Buy fires.
+                            // ═══════════════════════════════════════════════════════════════
+                            val symRefreshed = try {
+                                com.lifecyclebot.engine.SymbolicContext.refresh(ts.symbol, ts.mint)
+                                true
+                            } catch (_: Throwable) { false }
+                            val symMood = try { com.lifecyclebot.engine.SymbolicContext.emotionalState } catch (_: Throwable) { "NEUTRAL" }
+                            val symGreenLight = try { com.lifecyclebot.engine.SymbolicContext.getEntryGreenLight() } catch (_: Throwable) { 0.5 }
+                            val symSizeAdj = try { com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment() } catch (_: Throwable) { 1.0 }
+                            val symCircuitBreaking = try { com.lifecyclebot.engine.SymbolicContext.isCircuitBreaking() } catch (_: Throwable) { false }
+
+                            // Mirror FDG's SYMBOLIC_UNIVERSE_BLOCK (LIVE only).
+                            // Paper-mode keeps learning even in panic/circuit states.
+                            if (!cfg.paperMode &&
+                                symGreenLight < 0.20 &&
+                                symMood in listOf("PANIC", "FEARFUL") &&
+                                symCircuitBreaking
+                            ) {
+                                ErrorLogger.warn(
+                                    "BotService",
+                                    "🌌 [V3|SYMBOLIC_BLOCK] ${identity.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true (LIVE) — SKIP execute"
+                                )
+                                addLog("🌌 SYMBOLIC BLOCK: ${identity.symbol} | $symMood / circuit-breaking", ts.mint)
+                                return
+                            }
+
+                            // Sentience hook #6 — personality-driven filter.
+                            // If the user's recent chat said "avoid SHITCOIN" / "avoid memes",
+                            // skip this entry. Best-effort, fail-open.
+                            val regimeHint = ts.position.tradingMode.ifBlank { modeConf?.mode?.name ?: "" }
+                            val personalityVeto = try {
+                                com.lifecyclebot.engine.SentienceHooks.shouldFilterByPersonality(
+                                    symbol = identity.symbol,
+                                    regime = regimeHint,
+                                )
+                            } catch (_: Throwable) { false }
+                            if (personalityVeto) {
+                                ErrorLogger.info(
+                                    "BotService",
+                                    "🧠 [V3|PERSONALITY_VETO] ${identity.symbol} | regime=$regimeHint — user persona said skip"
+                                )
+                                addLog("🧠 PERSONA VETO: ${identity.symbol} (regime=$regimeHint)", ts.mint)
+                                return
+                            }
+
+                            // Apply the size cascade FDG would have applied:
+                            //   ModeSpecificGates.positionSizeMultiplier (per-lane, e.g.
+                            //   memes = looser cap) × SymbolicContext.getSizeAdjustment()
+                            //   × SentienceHooks.suggestSizeMultiplier() (cross-engine bias).
+                            val modeMultipliers = try {
+                                com.lifecyclebot.engine.ModeSpecificGates.getMultipliers(modeTag)
+                            } catch (_: Throwable) {
+                                com.lifecyclebot.engine.ModeSpecificGates.ModeMultipliers.DEFAULT
+                            }
+                            val llmSizeMult = try {
+                                com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(
+                                    engine = "MEME",
+                                    symbol = identity.symbol,
+                                    regime = regimeHint,
+                                )
+                            } catch (_: Throwable) { 1.0 }
+                            val sizeBefore = proposedSize
+                            proposedSize = (proposedSize *
+                                modeMultipliers.positionSizeMultiplier *
+                                symSizeAdj *
+                                llmSizeMult
+                            ).coerceIn(0.005, 1.0)
+                            if (kotlin.math.abs(proposedSize - sizeBefore) > 0.0005) {
+                                ErrorLogger.info(
+                                    "BotService",
+                                    "[V3|SIZE_CASCADE] ${identity.symbol} | base=${sizeBefore.fmt(4)}◎ × " +
+                                    "mode=${"%.2f".format(modeMultipliers.positionSizeMultiplier)} × " +
+                                    "sym=${"%.2f".format(symSizeAdj)} × " +
+                                    "llm=${"%.2f".format(llmSizeMult)} → ${proposedSize.fmt(4)}◎ " +
+                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
+                                )
+                            }
+
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -8333,9 +8439,7 @@ if (deferredCount > 0) {
         // Check if position should transition to a higher layer
         // ═══════════════════════════════════════════════════════════════════
         try {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             val transition = com.lifecyclebot.v3.scoring.LayerTransitionManager.checkTransition(
                 mint = ts.mint,
@@ -8398,9 +8502,7 @@ if (deferredCount > 0) {
             // V5.2.12: Debug - entering Treasury exit check
             ErrorLogger.debug("BotService", "💰 [TREASURY ENTER] ${ts.symbol} | isTreasury=${ts.position.isTreasuryPosition} | mode=${ts.position.tradingMode}")
             
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             // V5.2.12: Debug - show price being used
             ErrorLogger.debug("BotService", "💰 [TREASURY PRICE] ${ts.symbol} | " +
@@ -8545,9 +8647,7 @@ if (deferredCount > 0) {
         // Check SECOND after treasury since shitcoins need fast reactions
         // ═══════════════════════════════════════════════════════════════════
         if (ts.position.isShitCoinPosition || ts.position.tradingMode == "SHITCOIN") {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
             val currentPnlPct = if (ts.position.entryPrice > 0) {
@@ -8694,9 +8794,7 @@ if (deferredCount > 0) {
         // 💩🚂 SHITCOIN EXPRESS EXIT CHECK
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(ts.mint)) {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             val currentMomentum = ts.momentum ?: 0.0
             
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinExpress.checkExit(
@@ -8766,7 +8864,7 @@ if (deferredCount > 0) {
         // Hard 4-minute time exit — manipulators have already left
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(ts.mint)) {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             val exitSignal = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "Manipulated:${exitSignal.name}") } catch (_: Exception) {}
@@ -8812,9 +8910,7 @@ if (deferredCount > 0) {
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint) || 
             ts.position.tradingMode?.startsWith("MOONSHOT") == true) {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             // V5.9.204: MOONSHOT RECOVERY — after restart activePositions is empty
             // MoonshotTraderAI.checkExit returns HOLD for unregistered positions.
@@ -8924,9 +9020,7 @@ if (deferredCount > 0) {
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(ts.mint) || 
             ts.position.tradingMode == "QUALITY") {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             val currentMcap = ts.lastMcap.takeIf { it > 0 } ?: 0.0
             
             // V5.9.251: DEAD PRICE EXIT — if the price feed has gone completely
@@ -9096,9 +9190,7 @@ if (deferredCount > 0) {
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(ts.mint) || 
             ts.position.tradingMode == "BLUE_CHIP") {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.170 — firehose learning feedback.
@@ -9151,9 +9243,7 @@ if (deferredCount > 0) {
         // 📉🎯 DIP HUNTER EXIT CHECK
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(ts.mint) || ts.position.tradingMode == "DIP_HUNTER") {
-            val currentPrice = ts.lastPrice.takeIf { it > 0 } 
-                ?: ts.history.lastOrNull()?.priceUsd 
-                ?: ts.position.entryPrice
+            val currentPrice = resolveLivePrice(ts)
             
             val exitSignal = com.lifecyclebot.v3.scoring.DipHunterAI.checkExit(
                 ts.mint, currentPrice, ts.lastLiquidityUsd
@@ -10002,8 +10092,38 @@ if (deferredCount > 0) {
 
 // Extension function for formatting doubles
 private fun Double.fmt(decimals: Int = 4) = "%.${decimals}f".format(this)
+
+// V5.9.418 — Resolve a live price for a held token in the SAME priority order
+// that the unified Open Positions card uses, so sub-trader checkExit() can
+// never disagree with the UI by falling back to entryPrice (and returning
+// HOLD forever) while the card shows -27%. Source order:
+//   1. ts.lastPrice            (most recent dex/oracle tick)
+//   2. ts.history.last         (last persisted candle)
+//   3. sub-trader lastSeenPrice (ShitCoin / Moonshot / Quality / BlueChip)
+//   4. ts.position.entryPrice  (final fallback — same as old behaviour)
+internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
+    val tsPrice = ts.lastPrice.takeIf { it > 0.0 }
+        ?: ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0.0 }
+    if (tsPrice != null && tsPrice > 0.0) return tsPrice
+
+    val mint = ts.mint
+    val subPrice = try {
+        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+            .firstOrNull { it.mint == mint }?.lastSeenPrice?.takeIf { it > 0.0 }
+            ?: com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+                .firstOrNull { it.mint == mint }?.lastSeenPrice?.takeIf { it > 0.0 }
+            ?: com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+                .firstOrNull { it.mint == mint }?.lastSeenPrice?.takeIf { it > 0.0 }
+            ?: com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+                .firstOrNull { it.mint == mint }?.lastSeenPrice?.takeIf { it > 0.0 }
+    } catch (_: Throwable) { null }
+    if (subPrice != null && subPrice > 0.0) return subPrice
+
+    return ts.position.entryPrice
+}
 // Build trigger 1774627618
 // Build trigger 1774842659
+// Build trigger V5.9.418
 
 
 
