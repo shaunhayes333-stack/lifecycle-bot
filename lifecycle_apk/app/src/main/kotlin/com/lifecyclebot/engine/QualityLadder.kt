@@ -111,17 +111,19 @@ object QualityLadder {
         else         -> 5
     }
 
-    private fun computeTier(): Int = try {
-        val snap = TradeHistoryStore.getLifetimeStats()
-        val trades = snap.totalSells
-        if (trades < 500) return 0
-        val target = targetWrForTrades(trades)
-        val actual = snap.winRate
-        if (actual >= target) return 0                        // earned freedom
-        val cap = phaseCap(trades)
-        kotlin.math.min(gapTier(target - actual), cap)
-    } catch (_: Throwable) {
-        0  // fail-open
+    private fun computeTier(): Int {
+        return try {
+            val snap = TradeHistoryStore.getLifetimeStats()
+            val trades = snap.totalSells
+            if (trades < 500) return 0
+            val target = targetWrForTrades(trades)
+            val actual = snap.winRate
+            if (actual >= target) return 0                        // earned freedom
+            val cap = phaseCap(trades)
+            kotlin.math.min(gapTier(target - actual), cap)
+        } catch (_: Throwable) {
+            0  // fail-open
+        }
     }
 
     private fun lerp(a: Double, b: Double, t: Double): Double =
