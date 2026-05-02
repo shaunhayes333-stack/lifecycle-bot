@@ -474,6 +474,16 @@ object EducationSubLayerAI {
 
         REGISTERED_LAYERS.forEach { layerName ->
             try {
+                // V5.9.414 — LANE GATING. Single-purpose layers (FundingRate
+                // for perps, NewsShock for stocks, MEV for memes, etc.) only
+                // learn from trades in their lane. GENERIC / multi-lane
+                // layers (BehaviorLearning, MetaCognition, FluidLearning,
+                // EdgeLearning, MarketRegime, etc.) keep seeing every trade.
+                // Stops the "outer ring starvation + inner ring pollution"
+                // architecture leak the user spotted on the neural-net page.
+                if (!LayerLaneRegistry.shouldLearn(layerName, outcome.tradingMode)) {
+                    return@forEach
+                }
                 val score = snappedScores[layerName] ?: 0
                 if (abs(score) > REAL_ACCURACY_NEUTRAL_THRESHOLD && !isScratchOutcome) {
                     // Layer had a real directional opinion AND outcome was decisive — score it
@@ -917,19 +927,23 @@ object EducationSubLayerAI {
                 } catch (_: Exception) {}
 
                 // TokenDNAClusteringAI: needs the entry-time CandidateSnapshot
-                if (cand != null) {
+                // V5.9.414 — meme-only layer, gate by lane.
+                if (cand != null && LayerLaneRegistry.shouldLearn("TokenDNAClusteringAI", outcome.tradingMode)) {
                     try { TokenDNAClusteringAI.recordOutcome(cand, outcome.isWin) } catch (_: Exception) {}
                 }
 
                 // OperatorFingerprintAI: creator from CandidateSnapshot.extra OR
                 // fallback to DataOrchestrator's tokenDevWallets registry.
-                try {
-                    val creator = cand?.extraString("creator")?.takeIf { it.isNotBlank() }
-                        ?: com.lifecyclebot.engine.OperatorRegistry.getDevWallet(outcome.mint)
-                    if (!creator.isNullOrBlank()) {
-                        OperatorFingerprintAI.recordOutcome(creator, outcome.isWin)
-                    }
-                } catch (_: Exception) {}
+                // V5.9.414 — meme-only layer, gate by lane.
+                if (LayerLaneRegistry.shouldLearn("OperatorFingerprintAI", outcome.tradingMode)) {
+                    try {
+                        val creator = cand?.extraString("creator")?.takeIf { it.isNotBlank() }
+                            ?: com.lifecyclebot.engine.OperatorRegistry.getDevWallet(outcome.mint)
+                        if (!creator.isNullOrBlank()) {
+                            OperatorFingerprintAI.recordOutcome(creator, outcome.isWin)
+                        }
+                    } catch (_: Exception) {}
+                }
             }
         } catch (_: Exception) {}
 
