@@ -3066,16 +3066,30 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
         positions.forEach { pos ->
-            // V5.9.251: Guard against dead price feed (ref=0 when token rugs/dies).
-            // Without this guard: gainPct = (0 - entryPrice)/entryPrice*100 = -100%
-            // even though the position hasn't been closed yet. Use entryPrice fallback
-            // when ref is zero so the display shows ~0% while the bot forces an exit.
-            val currentPrice = try {
-                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                if (ref > 0.0) ref else pos.entryPrice
-            } catch (_: Exception) { pos.entryPrice }
+            // V5.9.411: Quality position card was showing dead "+0.0%" data on
+            // every row when the held mint was no longer in the active scanner
+            // map (BotService.status.tokens). Previous logic fell back to
+            // pos.entryPrice → gainPct = 0% forever. Now read the
+            // QualityTraderAI-maintained `lastSeenPrice` (updated every
+            // checkExit() tick) FIRST, then `ts.ref`, and only fall back to
+            // entryPrice as a true last resort. Track whether we have any
+            // fresh data so we can grey out the "stale" rows on the UI.
+            val tsRef = try {
+                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+            } catch (_: Exception) { 0.0 }
+            val hasFresh = (tsRef > 0.0) ||
+                (pos.lastSeenPrice > 0.0 && pos.lastSeenPrice != pos.entryPrice)
+            val currentPrice = when {
+                tsRef > 0.0                                                -> tsRef
+                pos.lastSeenPrice > 0.0 && pos.lastSeenPrice != pos.entryPrice -> pos.lastSeenPrice
+                else                                                       -> pos.entryPrice
+            }
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
+            val gainCol = when {
+                !hasFresh    -> muted             // stale → grey, no false-zero green
+                gainPct >= 0 -> green
+                else         -> red
+            }
             val pnlSol = pos.entrySol * gainPct / 100.0
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
@@ -3140,14 +3154,14 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             }
             right.addView(TextView(this).apply {
-                text = "%+.1f%%".format(gainPct)
+                text = if (hasFresh) "%+.1f%%".format(gainPct) else "— stale"
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
-                text = "%+.4f◎  ${holdMins}m".format(pnlSol)
+                text = if (hasFresh) "%+.4f◎  ${holdMins}m".format(pnlSol) else "no live feed  ${holdMins}m"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE
