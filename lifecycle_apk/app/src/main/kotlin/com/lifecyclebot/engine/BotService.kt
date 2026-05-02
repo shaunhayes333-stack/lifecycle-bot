@@ -3194,6 +3194,52 @@ class BotService : Service() {
                             regime = regime,
                         ))
                     }
+
+                    // V5.9.420 — feed non-MEME asset prices into the Lab universe.
+                    // Prior to this, the lab feed only emitted MEME ticks, so any
+                    // strategy with `asset = LabAssetClass.ALT` (or STOCK/MARKETS/
+                    // FOREX/METAL/COMMODITY) had no price data → its open Lab
+                    // positions never got a checkExit() and its UI rows showed
+                    // "entry → live" with the same price forever. Source per
+                    // asset: each markets-trader's open positions carry a fresh
+                    // `currentPrice` field updated every cycle.
+                    fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {
+                        if (price <= 0.0 || symbol.isBlank()) return
+                        list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
+                            symbol = symbol, mint = mint, asset = asset,
+                            price = price, score = 50, regime = regime,
+                        ))
+                    }
+                    try {
+                        com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.perps.TokenizedStockTrader.getActivePositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.STOCK, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.perps.PerpsTraderAI.getActivePositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.MARKETS, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.perps.ForexTrader.getAllPositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.FOREX, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.perps.MetalsTrader.getAllPositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.METAL, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.perps.CommoditiesTrader.getAllPositions().forEach { p ->
+                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.COMMODITY, p.currentPrice)
+                        }
+                    } catch (_: Throwable) {}
                     list
                 }
             } catch (_: Throwable) {}

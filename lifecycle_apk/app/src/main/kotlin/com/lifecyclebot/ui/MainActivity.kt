@@ -2000,10 +2000,13 @@ for legal compliance.
             if (treasuryPositions.isNotEmpty()) {
                 val treasuryExposure = treasuryPositions.sumOf { it.entrySol }
                 tvTreasuryExposure.text = "%.3f◎".format(treasuryExposure)
-                val treasuryDailyPnl = com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol()
-                tvTreasuryPnl.text = "%+.4f◎".format(treasuryDailyPnl)
-                tvTreasuryPnl.setTextColor(if (treasuryDailyPnl >= 0) green else red)
-                renderTreasuryPositions(treasuryPositions)
+                // V5.9.420 — header PnL was showing realized day-PnL while child
+                // rows showed open unrealized → parent and children disagreed
+                // (e.g. header -0.1700◎ while all 3 rows said +0.0000◎). Now we
+                // sum the children's unrealized PnL during render and use that.
+                val treasuryUnrealized = renderTreasuryPositions(treasuryPositions)
+                tvTreasuryPnl.text = "%+.4f◎".format(treasuryUnrealized)
+                tvTreasuryPnl.setTextColor(if (treasuryUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
         
@@ -2014,10 +2017,9 @@ for legal compliance.
             if (blueChipPositions.isNotEmpty()) {
                 val blueChipExposure = blueChipPositions.sumOf { it.entrySol }
                 tvBlueChipExposure.text = "%.3f◎".format(blueChipExposure)
-                val blueChipDailyPnl = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getDailyPnlSol()
-                tvBlueChipPnl.text = "%+.4f◎".format(blueChipDailyPnl)
-                tvBlueChipPnl.setTextColor(if (blueChipDailyPnl >= 0) green else red)
-                renderBlueChipPositions(blueChipPositions)
+                val blueChipUnrealized = renderBlueChipPositions(blueChipPositions)  // V5.9.420
+                tvBlueChipPnl.text = "%+.4f◎".format(blueChipUnrealized)
+                tvBlueChipPnl.setTextColor(if (blueChipUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
         
@@ -2027,10 +2029,9 @@ for legal compliance.
             cardQualityPositions.visibility = if (qualityPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (qualityPositions.isNotEmpty()) {
                 tvQualityExposure.text = "%.3f◎".format(qualityPositions.sumOf { it.entrySol })
-                val qualityPnl = com.lifecyclebot.v3.scoring.QualityTraderAI.getDailyPnl()
-                tvQualityPnl.text = "%+.4f◎".format(qualityPnl)
-                tvQualityPnl.setTextColor(if (qualityPnl >= 0) green else red)
-                renderQualityPositions(qualityPositions)
+                val qualityUnrealized = renderQualityPositions(qualityPositions)  // V5.9.420
+                tvQualityPnl.text = "%+.4f◎".format(qualityUnrealized)
+                tvQualityPnl.setTextColor(if (qualityUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
 
@@ -2043,8 +2044,11 @@ for legal compliance.
             if (showShitCoin) {
                 tvShitCoinExposure.text = "%.3f◎".format(shitCoinPositions.sumOf { it.entrySol })
                 val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
-                tvShitCoinPnl.text = "%+.4f◎".format(shitCoinDailyPnl)
-                tvShitCoinPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
+                // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
+                // The "Day:" sub-label below still shows daily realized PnL.
+                val shitCoinUnrealized = renderShitCoinPositions(shitCoinPositions)
+                tvShitCoinPnl.text = "%+.4f◎".format(shitCoinUnrealized)
+                tvShitCoinPnl.setTextColor(if (shitCoinUnrealized >= 0) green else red)
                 val modeEmoji = when (shitCoinStats.mode) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📊"
@@ -2056,8 +2060,8 @@ for legal compliance.
                 tvShitCoinWinRate.text = "${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L"
                 tvShitCoinDailyPnl.text = "Day: %+.3f◎".format(shitCoinDailyPnl)
                 tvShitCoinDailyPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
-                // Always re-render (clears stale rows when positions close but dailyTradeCount > 0)
-                renderShitCoinPositions(shitCoinPositions)
+                // V5.9.420 — renderShitCoinPositions() already invoked above to
+                // compute the unrealized sum; second call removed.
             }
         } catch (_: Exception) {}
 
@@ -2070,13 +2074,13 @@ for legal compliance.
             if (showExpress) {
                 tvExpressExposure.text = "%.3f◎".format(expressRides.sumOf { it.entrySol })
                 val expressDailyPnl = expressStats.dailyPnlSol
-                tvExpressPnl.text = "%+.4f◎".format(expressDailyPnl)
-                tvExpressPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
+                // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
+                val expressUnrealized = renderExpressRides(expressRides)
+                tvExpressPnl.text = "%+.4f◎".format(expressUnrealized)
+                tvExpressPnl.setTextColor(if (expressUnrealized >= 0) green else red)
                 tvExpressWinRate.text = "${expressStats.dailyWins}W/${expressStats.dailyLosses}L"
                 tvExpressDailyPnl.text = "Day: %+.3f◎".format(expressDailyPnl)
                 tvExpressDailyPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
-                // Always re-render (clears stale rows when rides close but dailyRides > 0)
-                renderExpressRides(expressRides)
             }
         } catch (_: Exception) {}
 
@@ -2843,10 +2847,13 @@ for legal compliance.
     }
     
     // V4.0: Render Treasury Mode positions
-    private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>) {
+    private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
         llTreasuryPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
+        // V5.9.420 — accumulate children unrealized PnL so the card header
+        // matches the visible rows below (was showing daily realized PnL).
+        var childrenUnrealizedSum = 0.0
         
         positions.forEach { pos ->
             // V5.9.188c (fix): 3-tier price lookup for Treasury positions
@@ -2887,6 +2894,7 @@ for legal compliance.
                 else         -> red
             }
             val pnlSol = if (hasFresh) pos.entrySol * gainPct / 100.0 else 0.0
+            childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2976,12 +2984,15 @@ for legal compliance.
             llTreasuryPositions.addView(row)
             llTreasuryPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
     
     // V4.0: Render Blue Chip positions
-    private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>) {
+    private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         llBlueChipPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        // V5.9.420 — accumulate children unrealized PnL for header parity.
+        var childrenUnrealizedSum = 0.0
         
         positions.forEach { pos ->
             // V5.8: Use live token price from BotService (consistent with other windows)
@@ -2993,6 +3004,7 @@ for legal compliance.
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
+            childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -3079,12 +3091,15 @@ for legal compliance.
             llBlueChipPositions.addView(row)
             llBlueChipPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
     
     // Render Quality positions ($100K-$1M mcap)
-    private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>) {
+    private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>): Double {
         llQualityPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        // V5.9.420 — accumulate children unrealized PnL for header parity.
+        var childrenUnrealizedSum = 0.0
 
         positions.forEach { pos ->
             // V5.9.411/415 — true-freshness display. We declare a row stale
@@ -3200,12 +3215,15 @@ for legal compliance.
             llQualityPositions.addView(row)
             llQualityPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
 
     // V4.0: Render ShitCoin Positions with platform icons
-    private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>) {
+    private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>): Double {
         llShitCoinPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        // V5.9.420 — accumulate children unrealized PnL for header parity.
+        var childrenUnrealizedSum = 0.0
         
         positions.forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
@@ -3218,6 +3236,7 @@ for legal compliance.
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
+            childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -3326,12 +3345,15 @@ for legal compliance.
             llShitCoinPositions.addView(row)
             llShitCoinPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
     
     // V5.9: Render ShitCoinExpress active rides into dedicated Express card
-    private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>) {
+    private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>): Double {
         llExpressPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        // V5.9.420 — accumulate children unrealized PnL for header parity.
+        var childrenUnrealizedSum = 0.0
         rides.forEach { ride ->
             if (ride.entryPrice <= 0 || ride.entrySol <= 0 || ride.mint.isBlank()) return@forEach
             val currentPrice = try {
@@ -3342,6 +3364,7 @@ for legal compliance.
             val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = ride.entrySol * gainPct / 100.0
+            childrenUnrealizedSum += pnlSol
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000
 
             val row = LinearLayout(this).apply {
@@ -3433,6 +3456,7 @@ for legal compliance.
             llExpressPositions.addView(row)
             llExpressPositions.addView(div)
         }
+        return childrenUnrealizedSum
     }
 
     // ☠️ Render Manipulated positions into the Manip card
@@ -3448,6 +3472,7 @@ for legal compliance.
             val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = if (gainPct >= 0) green else red
             val pnlSol = pos.entrySol * gainPct / 100.0
+            childrenUnrealizedSum += pnlSol
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
             val row = LinearLayout(this).apply {
