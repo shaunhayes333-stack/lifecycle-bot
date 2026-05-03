@@ -53,7 +53,7 @@ object ManipulatedTraderAI {
     // Realistic scores: bundle 40%=20 + bp 70%=15 + pump.fun=10 = 45 max typical
     // Many tokens will score 20-35, so we need LOW thresholds
     private const val MIN_MANIP_SCORE_BOOTSTRAP = 11        // V5.9.266: moderate (was 9 at V5.9.263)
-    private const val MIN_MANIP_SCORE_MATURE = 28           // V5.6.8: Still very permissive when experienced
+    private const val MIN_MANIP_SCORE_MATURE = 22           // V5.9.442: 28→22 — user reported Manipulated rarely firing
     
     // Market cap range
     private const val MIN_MARKET_CAP_USD = 5_000.0          // $5K minimum

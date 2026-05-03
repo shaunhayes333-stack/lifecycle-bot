@@ -44,19 +44,15 @@ object ProjectSniperAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Target acquisition window
-    private const val MAX_TOKEN_AGE_SECONDS = 180      // Only snipe tokens < 3 min old
-    private const val MIN_TOKEN_AGE_SECONDS = 30       // Wait 30s to confirm not instant rug
-    
-    // Market requirements
-    private const val MIN_LIQUIDITY_USD = 3_000.0      // Minimum liquidity to engage
-    private const val MAX_LIQUIDITY_USD = 100_000.0    // Too big = already pumped
-    private const val MIN_MCAP_USD = 5_000.0           // Floor
-    private const val MAX_MCAP_USD = 200_000.0         // Ceiling - catch them early
-    
-    // Entry requirements
-    private const val MIN_BUY_PRESSURE_PCT = 52.0      // Must have more buys than sells
+    private const val MAX_TOKEN_AGE_SECONDS = 600      // V5.9.442: 180→600s — 3min window was too tight, user reports 0 missions
+    private const val MIN_TOKEN_AGE_SECONDS = 15       // V5.9.442: 30→15s — fresher launches OK with tighter TP
+    private const val MIN_LIQUIDITY_USD = 2_000.0      // V5.9.442: 3k→2k
+    private const val MAX_LIQUIDITY_USD = 250_000.0    // V5.9.442: 100k→250k — most sniper targets pass this now
+    private const val MIN_MCAP_USD = 3_000.0           // V5.9.442: 5k→3k
+    private const val MAX_MCAP_USD = 500_000.0         // V5.9.442: 200k→500k — catch later-stage snipes too
+    private const val MIN_BUY_PRESSURE_PCT = 48.0      // V5.9.442: 52→48 — allow balanced books
     private const val MIN_PRICE_CHANGE_PCT = -5.0      // Can't be dumping hard
-    private const val MAX_PRICE_CHANGE_PCT = 50.0      // Can't have already mooned
+    private const val MAX_PRICE_CHANGE_PCT = 80.0      // V5.9.442: 50→80 — catch stronger early runs
     
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08         // Base snipe size

@@ -1028,7 +1028,7 @@ object FluidLearningAI {
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
     private const val TREASURY_SCORE_BOOTSTRAP = 11    // V5.9.266: moderate (was 9 at V5.9.263)
-    private const val TREASURY_SCORE_MATURE = 32       // V5.5b: Modest raise from 30
+    private const val TREASURY_SCORE_MATURE = 25       // V5.9.442: 32→25 — user reported CashGen/Treasury rarely firing
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()
     fun getTreasuryMinLiquidity(): Double = lerp(TREASURY_LIQ_BOOTSTRAP, TREASURY_LIQ_MATURE)

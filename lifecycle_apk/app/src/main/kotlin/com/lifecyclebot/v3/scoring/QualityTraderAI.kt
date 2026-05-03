@@ -362,7 +362,7 @@ object QualityTraderAI {
         // Score breakdown: mcap(max 25) + liq(max 20) + age(max 15) + buy(max 20) + V3(0-20) = 100
         // At bootstrap: minScore=20 means liq+buy alone can get us in. At mature: 40 requires 3+ signals
         // V5.9.191: bootstrap 20→15, mature 40→35 — easier entry during learning phase
-        val minScore = (10 + learningProgress * 15).toInt().coerceIn(10, 25)  // V5.9.335: loosened (was 15+20 → 15..35)
+        val minScore = (8 + learningProgress * 12).toInt().coerceIn(8, 20)  // V5.9.442: loosened from (10..25) — Quality rarely firing per user
 
         // V5.9.316: REMOVED V5.9.218 HARD_GATE for buy pressure < 50%.
         // Build #1941 era used soft scoring — qualityScore already includes

@@ -707,7 +707,7 @@ object ShitCoinExpress {
     // Now correctly starts permissive in bootstrap and tightens as bot learns
     // V5.6.8: LOWERED for bootstrap learning - need to see EXPRESS actually trade!
     private const val EXPRESS_SCORE_BOOTSTRAP = 5   // V5.9.343: walk-back to pre-V5.9.194 for trade-from-start
-    private const val EXPRESS_SCORE_MATURE = 25     // Was 30 - still permissive when experienced
+    private const val EXPRESS_SCORE_MATURE = 20     // V5.9.442: 25→20 — user reported Express rarely firing
     
     private fun getFluidScoreThreshold(): Int {
         val progress = FluidLearningAI.getLearningProgress()
