@@ -6899,6 +6899,8 @@ if (deferredCount > 0) {
                                             devWallet = null,
                                             bundlePct = bundlePct,
                                             socialScore = shitCoinSignal.socialScore,
+                                            // V5.9.435 — preserve entry score for outcome attribution
+                                            entryScore = shitCoinSignal.entryScore,
                                         )
                                     )
                                 } else {

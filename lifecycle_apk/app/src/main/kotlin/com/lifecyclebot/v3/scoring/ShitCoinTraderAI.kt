@@ -223,6 +223,9 @@ object ShitCoinTraderAI {
         var firstTakeDone: Boolean = false,  // V4.1.3: Track if first partial take was done
         var partialRungsTaken: Int = 0,      // V5.9.163: laddered partial-take index
         var peakPnlPct: Double = 0.0,        // V5.9.163: track peak for floor-lock
+        // V5.9.435 — entry score preserved on the position so closePosition()
+        // can attribute the realised pnlPct back to the bucket that produced it.
+        val entryScore: Int = 0,
         // V5.9.392 — latest price seen by checkExit(); lets the unified
         // open-positions card render live P&L for shitcoin bags that live
         // only in paperPositions (no status.tokens entry).
@@ -243,6 +246,9 @@ object ShitCoinTraderAI {
         val socialScore: Int = 0,
         val bundleWarning: Boolean = false,
         val graduationImminent: Boolean = false,
+        // V5.9.435 — entry score so caller can stash it on the Position
+        // for outcome-attribution by ScoreExpectancyTracker on close.
+        val entryScore: Int = 0,
     )
     
     data class RugRecord(
@@ -472,8 +478,13 @@ object ShitCoinTraderAI {
                 entryPrice = pos.entryPrice, exitPrice = exitPrice,
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaper, layer = "SHITCOIN",
-                exitReason = exitReason.name,
-            )
+                exitReason = exitReason.name,            )
+        } catch (_: Exception) {}
+
+        // V5.9.435 — feed score-bucket expectancy tracker so future entries
+        // in this score range are biased toward profitable outcomes.
+        try {
+            com.lifecyclebot.engine.ScoreExpectancyTracker.record(pos.entryScore, pnlPct)
         } catch (_: Exception) {}
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
@@ -949,6 +960,33 @@ object ShitCoinTraderAI {
                 graduationImminent = graduationImminent,
             )
         }
+
+        // V5.9.435 — SCORE-EXPECTANCY SOFT GATE
+        // Closes the open feedback loop: if this score's bucket has been
+        // bleeding money on average over the last N closed trades, skip.
+        // Stays exploratory until the bucket has 25+ samples (see tracker).
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject(shitScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean(shitScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(shitScore)
+            ErrorLogger.info(TAG, "💩📉 EXPECTANCY_REJECT: $symbol | score=$shitScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
+            return ShitCoinSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = shitConfidence,
+                reason = "EXPECTANCY_REJECT: score=$shitScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
+                mode = mode,
+                isPaperMode = isPaperMode,
+                launchPlatform = launchPlatform,
+                riskLevel = riskLevel,
+                socialScore = socialBonus,
+                bundleWarning = bundleWarning,
+                graduationImminent = graduationImminent,
+                entryScore = shitScore,
+            )
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // ═══════════════════════════════════════════════════════════════════
@@ -1101,6 +1139,7 @@ object ShitCoinTraderAI {
             socialScore = socialBonus,
             bundleWarning = bundleWarning,
             graduationImminent = graduationImminent,
+            entryScore = shitScore,
         )
     }
     
