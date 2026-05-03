@@ -36,6 +36,7 @@ object ExitReasonTracker {
                 w.addLast(pnlPct)
                 while (w.size > WINDOW) w.removeFirst()
             }
+            LearningPersistence.onRecord()  // V5.9.438 — durable save
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "record error: ${e.message}")
         }
@@ -64,4 +65,18 @@ object ExitReasonTracker {
     }
 
     fun reset() { windows.clear() }
+
+    // V5.9.438 — durable persistence hooks.
+    fun exportState(): Map<String, List<Double>> {
+        val out = mutableMapOf<String, List<Double>>()
+        windows.forEach { (k, w) -> synchronized(w) { out[k] = w.toList() } }
+        return out
+    }
+    fun importState(snapshot: Map<String, List<Double>>) {
+        snapshot.forEach { (k, pnls) ->
+            val q = ArrayDeque<Double>(pnls.size + 1)
+            pnls.forEach { q.addLast(it) }
+            windows[k] = q
+        }
+    }
 }

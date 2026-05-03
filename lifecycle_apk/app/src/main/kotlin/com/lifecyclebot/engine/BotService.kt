@@ -388,6 +388,9 @@ class BotService : Service() {
         // Initialize TradeHistoryStore for persistent trade stats
         TradeHistoryStore.init(applicationContext)
 
+        // V5.9.438 — durable outcome-learning trackers across restarts.
+        try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+
         // V5.9.69: Initialize PatternClassifier — online logistic-regression
         // pattern brain that learns from every closed trade.
         try { PatternClassifier.init(applicationContext) } catch (_: Exception) {}
@@ -874,6 +877,9 @@ class BotService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         ErrorLogger.warn("BotService", "onDestroy() called - service being destroyed")
+
+        // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
+        try { LearningPersistence.saveAll() } catch (_: Exception) {}
         
         // Try to close open positions if bot was running and closePositionsOnStop is enabled
         if (status.running) {

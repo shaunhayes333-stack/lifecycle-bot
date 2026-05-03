@@ -435,6 +435,14 @@ object BlueChipTraderAI {
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
         if (currentPrice > pos.highWaterMark) pos.highWaterMark = currentPrice
 
+        // V5.9.438 — HARD PEAK-DRAWDOWN LOCK (unconditional backstop).
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "🔵🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.toInt()}% " +
+                "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.166 — SHARED LADDERED PROFIT-LOCK
         // BlueChip runs up to 5x-ish historically, but nothing stops a

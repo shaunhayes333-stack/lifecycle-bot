@@ -472,6 +472,8 @@ class MainActivity : AppCompatActivity() {
         try {
             com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
             com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized")
+            // V5.9.438 — persist outcome-learning trackers across restarts.
+            com.lifecyclebot.engine.LearningPersistence.init(applicationContext)
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore init failed: ${e.message}")
         }

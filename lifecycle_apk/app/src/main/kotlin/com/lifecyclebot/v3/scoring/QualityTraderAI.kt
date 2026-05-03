@@ -439,6 +439,14 @@ object QualityTraderAI {
         // V5.9.166 — SHARED LADDERED PROFIT-LOCK
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
 
+        // V5.9.438 — HARD PEAK-DRAWDOWN LOCK (unconditional backstop).
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "💎🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.toInt()}% " +
+                "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]

@@ -1169,7 +1169,23 @@ object ShitCoinTraderAI {
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
-        
+
+        // V5.9.438 — Update peak FIRST (was buried below ladder block).
+        // Ensures every downstream lock/floor reads an up-to-date peak.
+        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
+
+        // V5.9.438 — HARD PEAK-DRAWDOWN LOCK. Runs BEFORE every other
+        // gate so nothing below can keep a catastrophic bag open.
+        // Reported: Kenny moonshot peaked +326%, lock computed at +314%,
+        // position stayed open all the way down to +108% because the
+        // partial-take return short-circuited the floor check.
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "💩🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
+                "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
@@ -1241,9 +1257,8 @@ object ShitCoinTraderAI {
         }
         
         // V5.9.163 — LADDERED PARTIAL TAKES (same engine as Moonshot).
-        // Update peak + walk the ladder. Each rung fires ONE partial sell.
-        if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
-
+        // Walk the ladder. Each rung fires ONE partial sell.
+        // (Peak update moved to top of checkExit in V5.9.438.)
         val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]

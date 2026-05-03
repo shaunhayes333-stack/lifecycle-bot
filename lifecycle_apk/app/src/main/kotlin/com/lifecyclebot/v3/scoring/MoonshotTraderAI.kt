@@ -1054,7 +1054,18 @@ object MoonshotTraderAI {
         if (pnlPct > pos.peakPnlPct) {
             pos.peakPnlPct = pnlPct
         }
-        
+
+        // V5.9.438 — HARD PEAK-DRAWDOWN LOCK (unconditional backstop).
+        // Runs before every other gate. Catches catastrophic cases where
+        // the fluid profit floor was somehow bypassed. User reported Kenny
+        // peaked +326%, floor +314%, stayed open all the way to +108%.
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "🚀🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
+                "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice
