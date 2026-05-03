@@ -4971,7 +4971,7 @@ if (deferredCount > 0) {
                     // the meme trader's canonical -20% floor. Partial/trail
                     // logic still runs on normal cycles when pair succeeds.
                     if (refreshed && ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
-                        runFallbackSafetyExit(ts, cfg)
+                        runFallbackSafetyExit(ts, cfg, wallet)
                     }
                 }
                 return  // skip full cycle — but we may have added fallback data
@@ -9801,35 +9801,84 @@ if (deferredCount > 0) {
     }
 
     // V5.9.426 — EXIT SAFETY NET helper.
-    // Fires a deterministic hard-floor SL at -20% (matches the meme trader's
-    // canonical HARD_FLOOR_STOP_PCT) when processTokenCycle is about to return
-    // early because DexScreener has no pair. Uses the freshest price we have
-    // (just refreshed by tryFallbackPriceData). Bypasses sub-trader routing so
-    // a position with broken trader registration still exits. Partial/trail
-    // logic continues to run on normal cycles.
-    private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig) {
+    // V5.9.427 — extended from a simple -20% hard-floor-only check to a full
+    // delegation to each meme sub-trader's canonical checkExit() with the
+    // freshly-refreshed fallback price. This means trail exits, profit-floor
+    // locks, partial-take rungs, rug detection AND the hard-floor SL all fire
+    // on cycles where the primary DexScreener feed is down and
+    // processTokenCycle would otherwise return early. Covers ShitCoinTraderAI
+    // and MoonshotTraderAI (the meme lanes). A final hard-floor fallback runs
+    // if neither sub-trader has the position registered (orphaned ts.position).
+    private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
             val price = ts.lastPrice
             if (price <= 0.0 || ts.position.entryPrice <= 0.0) return
-            val pnlPct = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
-            val HARD_FLOOR_PCT = -20.0
-            if (pnlPct <= HARD_FLOOR_PCT) {
-                ErrorLogger.warn("BotService",
-                    "🛑 [FALLBACK_SAFETY_SL] ${ts.symbol} | ${pnlPct.toInt()}% (hard-floor ${HARD_FLOOR_PCT.toInt()}%) — " +
-                    "DexScreener pair down; firing via fallback price \$${price}")
-                if (cfg.paperMode) {
-                    executor.paperSell(ts, "FALLBACK_SAFETY_SL_${pnlPct.toInt()}PCT")
-                } else {
-                    // live sell routing — stays paused when not paper to avoid
-                    // wallet-side races; live exits flow through the normal
-                    // pipeline once DexScreener recovers. Paper is the mode
-                    // where the user saw the bleed.
-                    ErrorLogger.debug("BotService",
-                        "[FALLBACK_SAFETY_SL] skipped live exit (${ts.symbol}) — live pipeline handles it")
+            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+
+            // ── ShitCoinTraderAI delegation ─────────────────────────────
+            if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint)) {
+                val sig = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, price)
+                if (sig != com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.HOLD) {
+                    ErrorLogger.warn("BotService",
+                        "🛡️ [FALLBACK_EXIT][SHITCOIN] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
+                    if (sig == com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.PARTIAL_TAKE) {
+                        executor.requestPartialSell(
+                            ts = ts, sellPercentage = 0.25,
+                            reason = "FALLBACK_SHITCOIN_PARTIAL_TAKE",
+                            wallet = wallet, walletBalance = effectiveBalance,
+                        )
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
+                    } else {
+                        executor.requestSell(
+                            ts = ts,
+                            reason = "FALLBACK_SHITCOIN_${sig.name}",
+                            wallet = wallet, walletSol = effectiveBalance,
+                        )
+                    }
+                    return
                 }
             }
+
+            // ── MoonshotTraderAI delegation ─────────────────────────────
+            if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)) {
+                val sig = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, price)
+                if (sig != com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.HOLD) {
+                    ErrorLogger.warn("BotService",
+                        "🛡️ [FALLBACK_EXIT][MOONSHOT] ${ts.symbol} | signal=$sig | price=$price (DexScreener down)")
+                    if (sig == com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.PARTIAL_TAKE) {
+                        val partialPct = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getPartialSellPct(ts.mint)
+                        executor.requestPartialSell(
+                            ts = ts, sellPercentage = partialPct,
+                            reason = "FALLBACK_MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
+                            wallet = wallet, walletBalance = effectiveBalance,
+                        )
+                    } else {
+                        executor.requestSell(
+                            ts = ts,
+                            reason = "FALLBACK_MOONSHOT_${sig.name}",
+                            wallet = wallet, walletSol = effectiveBalance,
+                        )
+                    }
+                    return
+                }
+            }
+
+            // ── Last-resort hard-floor (orphaned position) ──────────────
+            // If neither sub-trader has this mint registered (e.g. state
+            // wasn't rehydrated after restart), still fire the canonical
+            // -20% meme hard-floor to stop catastrophic bleed.
+            val pnlPct = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            if (pnlPct <= -20.0) {
+                ErrorLogger.warn("BotService",
+                    "🛑 [FALLBACK_SAFETY_SL][ORPHAN] ${ts.symbol} | ${pnlPct.toInt()}% — no sub-trader has mint; firing hard-floor")
+                executor.requestSell(
+                    ts = ts,
+                    reason = "FALLBACK_ORPHAN_HARD_FLOOR_${pnlPct.toInt()}PCT",
+                    wallet = wallet, walletSol = effectiveBalance,
+                )
+            }
         } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "[FALLBACK_SAFETY_SL] error: ${e.message}")
+            ErrorLogger.debug("BotService", "[FALLBACK_SAFETY] error: ${e.message}")
         }
     }
 
