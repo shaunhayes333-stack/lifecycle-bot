@@ -160,6 +160,8 @@ object CashGenerationAI {
         val isPaper: Boolean,
         // V5.9.270: expose current price for LLM context PnL computation
         var currentPrice: Double = 0.0,
+        // V5.9.436 — entry treasury score for outcome attribution.
+        val entryScore: Int = 0,
     )
 
     data class TreasurySignal(
@@ -171,6 +173,8 @@ object CashGenerationAI {
         val reason: String,
         val mode: TreasuryMode,
         val isPaperMode: Boolean,
+        // V5.9.436 — entry treasury score so caller can stash on Position.
+        val entryScore: Int = 0,
     )
 
     enum class TreasuryMode {
@@ -623,6 +627,15 @@ object CashGenerationAI {
             rejectionReasons.add("max_positions_reached ($MAX_CONCURRENT_POSITIONS)")
         }
 
+        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        // Even if all hard gates pass, skip when this score bucket has
+        // been net-losing over the last 25+ closed treasury trades.
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CASHGEN", treasuryScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("CASHGEN", treasuryScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("CASHGEN", treasuryScore)
+            rejectionReasons.add("expectancy_reject_score_${treasuryScore}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+        }
+
         if (rejectionReasons.isNotEmpty()) {
             ErrorLogger.info(TAG, "💰 TREASURY SKIP: $symbol | ${rejectionReasons.joinToString(", ")}")
             return TreasurySignal(
@@ -797,6 +810,7 @@ object CashGenerationAI {
             reason = "TREASURY_ENTRY: score=$treasuryScore (${scoreReasons.joinToString(",")})",
             mode = mode,
             isPaperMode = isPaperMode,
+            entryScore = treasuryScore,
         )
     }
 
@@ -811,6 +825,7 @@ object CashGenerationAI {
         positionSol: Double,
         takeProfitPct: Double,
         stopLossPct: Double,
+        entryScore: Int = 0,  // V5.9.436 — for outcome attribution
     ) {
         val targetPrice = entryPrice * (1 + takeProfitPct / 100)
         val stopPrice = entryPrice * (1 + stopLossPct / 100)
@@ -833,6 +848,7 @@ object CashGenerationAI {
             highWaterMark = entryPrice,
             trailingStop = stopPrice,
             isPaper = isPaperMode,
+            entryScore = entryScore,
         )
 
         synchronized(activePositions) {
@@ -1095,10 +1111,12 @@ object CashGenerationAI {
 
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe (was only
         // showing ~300 of 4791 because V3 sub-traders bypassed Executor).
+        // V5.9.436 — recorder also feeds outcome-attribution trackers.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -1106,6 +1124,8 @@ object CashGenerationAI {
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaper, layer = "CASHGEN",
                 exitReason = exitReason.name,
+                entryScore = pos.entryScore,
+                holdMinutes = holdMinutesLong,
             )
         } catch (_: Exception) {}
 

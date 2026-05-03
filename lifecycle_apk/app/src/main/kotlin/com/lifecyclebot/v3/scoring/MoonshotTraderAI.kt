@@ -555,6 +555,16 @@ object MoonshotTraderAI {
         if (score < minScore) {
             return MoonshotScore(false, score, 0.0, "score_${score}_below_${minScore}")
         }
+
+        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        // If MOONSHOT trades in this score bucket have been net-losing over
+        // the last 25+ closes, skip. Stays exploratory under-sampled.
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("MOONSHOT", score)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("MOONSHOT", score)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("MOONSHOT", score)
+            return MoonshotScore(false, score, 0.0,
+                "expectancy_reject_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+        }
         
         // Calculate confidence
         val confidence = min(100.0, (score.toDouble() / 120) * 100 + (v3Confidence * 0.2))
@@ -833,8 +843,10 @@ object MoonshotTraderAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold (was 1.0% → killed WR via scratch count)
+        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 Moonshot close so it shows in Journal
+        // V5.9.436 — recorder also feeds outcome-attribution trackers.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = mint,
@@ -842,6 +854,8 @@ object MoonshotTraderAI {
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaperMode, layer = "MOONSHOT",
                 exitReason = exitReason.name,
+                entryScore = pos.entryScore.toInt(),
+                holdMinutes = holdMinutesLong,
             )
         } catch (_: Exception) {}
         

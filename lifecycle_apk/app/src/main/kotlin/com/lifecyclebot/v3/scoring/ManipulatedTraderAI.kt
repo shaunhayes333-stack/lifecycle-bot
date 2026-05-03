@@ -264,6 +264,13 @@ object ManipulatedTraderAI {
         val minScore = getFluidScoreThreshold()
         if (score < minScore) return noEnter("SCORE_TOO_LOW_${score}<${minScore}")
 
+        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("MANIPULATED", score)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("MANIPULATED", score)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("MANIPULATED", score)
+            return noEnter("EXPECTANCY_REJECT_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+        }
+
         val positionSizeSol = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
         val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
@@ -358,9 +365,11 @@ object ManipulatedTraderAI {
         val pnlSol = pos.entrySol * (pnlPct / 100.0)
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
+        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe.
+        // V5.9.436 — recorder also feeds outcome-attribution trackers.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -368,6 +377,8 @@ object ManipulatedTraderAI {
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaper, layer = "MANIPULATED",
                 exitReason = reason.name,
+                entryScore = pos.manipScore,
+                holdMinutes = holdMinutesLong,
             )
         } catch (_: Exception) {}
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold

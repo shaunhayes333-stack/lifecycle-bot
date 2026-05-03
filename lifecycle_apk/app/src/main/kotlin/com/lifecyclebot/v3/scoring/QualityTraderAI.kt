@@ -197,6 +197,8 @@ object QualityTraderAI {
         // tick. UI uses this to label rows as truly "stale" (no fresh tick
         // for >60s) instead of confusing same-as-entry with no-data.
         var lastPriceUpdateMs: Long = 0L,
+        // V5.9.436 — entry quality score for outcome attribution.
+        val entryScore: Int = 0,
     )
     
     data class QualitySignal(
@@ -370,6 +372,19 @@ object QualityTraderAI {
         if (qualityScore < minScore) {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
         }
+
+        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("QUALITY", qualityScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("QUALITY", qualityScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("QUALITY", qualityScore)
+            ErrorLogger.info(TAG, "⭐📉 EXPECTANCY_REJECT: $symbol | score=$qualityScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
+            return QualitySignal(
+                shouldEnter = false,
+                reason = "EXPECTANCY_REJECT: score=$qualityScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
+                qualityScore = qualityScore,
+            )
+        }
         
         // Calculate position size based on quality
         val sizeMultiplier = when {
@@ -529,9 +544,11 @@ object QualityTraderAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
+        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe.
+        // V5.9.436 — recorder also feeds outcome-attribution trackers.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
@@ -539,6 +556,8 @@ object QualityTraderAI {
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = isPaperMode, layer = "QUALITY",
                 exitReason = exitSignal.name,
+                entryScore = pos.entryScore,
+                holdMinutes = holdMinutesLong,
             )
         } catch (_: Exception) {}
 

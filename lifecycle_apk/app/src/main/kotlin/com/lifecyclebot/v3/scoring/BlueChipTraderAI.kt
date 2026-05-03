@@ -161,6 +161,8 @@ object BlueChipTraderAI {
         var partialRungsTaken: Int = 0,
         // V5.9.392 — latest price for unified open-positions card.
         var lastSeenPrice: Double = entryPrice,
+        // V5.9.436 — entry score preserved for outcome attribution.
+        val entryScore: Int = 0,
     )
     
     // Evaluation result
@@ -172,7 +174,9 @@ object BlueChipTraderAI {
         val confidence: Int,
         val reason: String,
         val mode: BlueChipMode,
-        val isPaperMode: Boolean
+        val isPaperMode: Boolean,
+        // V5.9.436 — entry score so caller can stash it on the Position.
+        val entryScore: Int = 0,
     )
     
     enum class BlueChipMode {
@@ -358,8 +362,10 @@ object BlueChipTraderAI {
             ((exitPrice - pos.entryPrice) / pos.entryPrice * 100).coerceIn(-100.0, 10_000.0)
         } else 0.0
         val pnlSol = pos.entrySol * pnlPct / 100
+        val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 BlueChip close so it shows in Journal
+        // V5.9.436 — recorder also feeds outcome-attribution trackers.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = mint,
@@ -367,6 +373,8 @@ object BlueChipTraderAI {
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaper, layer = "BLUECHIP",
                 exitReason = exitReason.name,
+                entryScore = pos.entryScore,
+                holdMinutes = holdMinutesLong,
             )
         } catch (_: Exception) {}
 
@@ -681,6 +689,25 @@ object BlueChipTraderAI {
                 isPaperMode = isPaperMode
             )
         }
+
+        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("BLUECHIP", blueChipScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("BLUECHIP", blueChipScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("BLUECHIP", blueChipScore)
+            ErrorLogger.info(TAG, "🔵📉 EXPECTANCY_REJECT: $symbol | score=$blueChipScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
+            return BlueChipSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = blueChipConfidence,
+                reason = "EXPECTANCY_REJECT: score=$blueChipScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
+                mode = mode,
+                isPaperMode = isPaperMode,
+                entryScore = blueChipScore,
+            )
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // POSITION SIZING
@@ -724,7 +751,8 @@ object BlueChipTraderAI {
             confidence = blueChipConfidence,
             reason = "QUALIFIED: ${scoreReasons.joinToString(" ")}",
             mode = mode,
-            isPaperMode = isPaperMode
+            isPaperMode = isPaperMode,
+            entryScore = blueChipScore,
         )
     }
     

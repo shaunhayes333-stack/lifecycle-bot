@@ -468,23 +468,23 @@ object ShitCoinTraderAI {
 
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe (was only
         // showing ~300 of 4791 because V3 sub-traders bypassed Executor).
+        // V5.9.436 — recorder now also feeds Score/HoldDuration/ExitReason
+        // expectancy trackers for outcome-based learning.
         try {
             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
                 symbol = pos.symbol, mint = pos.mint,
                 entryPrice = pos.entryPrice, exitPrice = exitPrice,
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = pos.isPaper, layer = "SHITCOIN",
-                exitReason = exitReason.name,            )
-        } catch (_: Exception) {}
-
-        // V5.9.435 — feed score-bucket expectancy tracker so future entries
-        // in this score range are biased toward profitable outcomes.
-        try {
-            com.lifecyclebot.engine.ScoreExpectancyTracker.record(pos.entryScore, pnlPct)
+                exitReason = exitReason.name,
+                entryScore = pos.entryScore,
+                holdMinutes = holdMinutes,
+            )
         } catch (_: Exception) {}
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
@@ -965,9 +965,9 @@ object ShitCoinTraderAI {
         // Closes the open feedback loop: if this score's bucket has been
         // bleeding money on average over the last N closed trades, skip.
         // Stays exploratory until the bucket has 25+ samples (see tracker).
-        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject(shitScore)) {
-            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean(shitScore)
-            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples(shitScore)
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("SHITCOIN", shitScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("SHITCOIN", shitScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("SHITCOIN", shitScore)
             ErrorLogger.info(TAG, "💩📉 EXPECTANCY_REJECT: $symbol | score=$shitScore | " +
                 "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
             return ShitCoinSignal(

@@ -6121,7 +6121,8 @@ if (deferredCount > 0) {
                                     entryPrice = treasuryEntryPrice,  // Treasury's own raw price
                                     positionSol = adjustedSize,
                                     takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
-                                    stopLossPct = effectiveSlPct      // V5.2.8: Use effective SL
+                                    stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
+                                    entryScore = treasurySignal.entryScore,  // V5.9.436
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards of new position
@@ -6279,7 +6280,8 @@ if (deferredCount > 0) {
                                         entryTime = System.currentTimeMillis(),
                                         entryMcap = ts.lastMcap,
                                         takeProfitPct = qualityTp,
-                                        stopLossPct = qualitySignal.stopLossPct
+                                        stopLossPct = qualitySignal.stopLossPct,
+                                        entryScore = qualitySignal.qualityScore,  // V5.9.436
                                     )
                                 )
                                 
@@ -6390,7 +6392,8 @@ if (deferredCount > 0) {
                                         liquidityUsd = ts.lastLiquidityUsd,
                                         isPaper = cfg.paperMode,
                                         takeProfitPct = blueChipTp,
-                                        stopLossPct = blueChipSignal.stopLossPct
+                                        stopLossPct = blueChipSignal.stopLossPct,
+                                        entryScore = blueChipSignal.entryScore,  // V5.9.436
                                     )
                                 )
                                 
