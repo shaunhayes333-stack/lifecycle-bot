@@ -6236,14 +6236,21 @@ class Executor(
             SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
 
-            // V5.9.399 — flat 30% of realized profit to Treasury on green
-            // meme sells (live mode mirror of the paper-mode hook). Losing
+            // V5.9.399 / V5.9.428 — treasury split (live-mode mirror of paperSell).
+            // Live can't retroactively deduct from the on-chain wallet (SOL
+            // already returned by Jupiter at full value); this is bookkeeping
+            // only until an on-chain transfer to a dedicated treasury wallet
+            // is wired up. Meme wins → 30%. Treasury scalps → 100%. Losing
             // sells contribute nothing.
             if (pnl > 0) {
                 try {
-                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+                    if (ts.position.isTreasuryPosition || ts.position.tradingMode == "TREASURY") {
+                        TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice)
+                    } else {
+                        TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+                    }
                 } catch (e: Exception) {
-                    ErrorLogger.debug("Executor", "Treasury 70/30 split error (live): ${e.message}")
+                    ErrorLogger.debug("Executor", "Treasury split error (live): ${e.message}")
                 }
             }
             

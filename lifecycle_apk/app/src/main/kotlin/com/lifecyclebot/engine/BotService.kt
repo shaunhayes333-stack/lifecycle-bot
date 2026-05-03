@@ -8545,7 +8545,62 @@ if (deferredCount > 0) {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "RugSafetyNet check failed: ${e.message}", e)
         }
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.429 — UNIVERSAL HARD-FLOOR SL (ALWAYS-ON, SUB-TRADER AGNOSTIC)
+        //
+        // The sub-trader checkExit functions (ShitCoinTraderAI, MoonshotTraderAI,
+        // QualityTraderAI, BlueChipTraderAI, CashGenerationAI, etc.) each have
+        // their own HARD_FLOOR_STOP_PCT at -20%, but they ONLY fire if the
+        // position is registered in that sub-trader's activePositions map.
+        // If a position exists on ts.position.qtyToken > 0 but isn't in ANY
+        // sub-trader's map (e.g. mode-flag mismatch after rehydration,
+        // tradingMode set to a string that no dispatch matches, or silent
+        // recovery failure), NO exit check runs and the position bleeds
+        // past -20% indefinitely. User's screenshot showed GOBLININU at
+        // -97.7% with SL -20% label but no fire, alongside SPEEDRUN -16%,
+        // PALESTINE -19.7%. The RUG SAFETY NET above only catches ≤-99.5%.
+        //
+        // This block fires a deterministic paper-side sell at -20% using
+        // the freshest available price. Runs BEFORE any sub-trader dispatch
+        // so it's redundant with — never in conflict with — their own SL.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val pos = ts.position
+            if (pos.qtyToken > 0.0 && pos.entryPrice > 0.0) {
+                val price = resolveLivePrice(ts)
+                if (price > 0.0) {
+                    val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
+                    val HARD_FLOOR = -20.0
+                    if (pnlPct <= HARD_FLOOR) {
+                        ErrorLogger.warn("BotService",
+                            "🛑 [UNIVERSAL_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% (floor ${HARD_FLOOR.toInt()}%) | " +
+                            "mode=${pos.tradingMode} — forcing exit (sub-traders missed it)")
+                        addLog("🛑 HARD FLOOR: ${ts.symbol} ${pnlPct.toInt()}% — forced exit", ts.mint)
+                        try {
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT",
+                                wallet = wallet,
+                                walletSol = effectiveBalance,
+                            )
+                        } catch (e: Exception) {
+                            ErrorLogger.error("BotService", "UNIVERSAL_HARD_FLOOR sell error: ${e.message}", e)
+                        }
+                        // Drop sub-trader registrations so the UI doesn't
+                        // continue rendering the position after the exit.
+                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                        return
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "UniversalHardFloor check failed: ${e.message}", e)
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP
         // Check if position should transition to a higher layer
