@@ -476,12 +476,21 @@ object EducationSubLayerAI {
             try {
                 // V5.9.414 — LANE GATING. Single-purpose layers (FundingRate
                 // for perps, NewsShock for stocks, MEV for memes, etc.) only
-                // learn from trades in their lane. GENERIC / multi-lane
-                // layers (BehaviorLearning, MetaCognition, FluidLearning,
-                // EdgeLearning, MarketRegime, etc.) keep seeing every trade.
-                // Stops the "outer ring starvation + inner ring pollution"
-                // architecture leak the user spotted on the neural-net page.
-                if (!LayerLaneRegistry.shouldLearn(layerName, outcome.tradingMode)) {
+                // learn ACCURACY from trades in their lane. GENERIC /
+                // multi-lane layers (BehaviorLearning, MetaCognition,
+                // FluidLearning, EdgeLearning, MarketRegime, etc.) keep
+                // seeing every trade.
+                //
+                // V5.9.440 — but we STILL touch lastRecordedTimestamp so the
+                // outer-ring lane-specific layers don't render as "dormant"
+                // on the Neural Network view when the current session is
+                // heavy in another lane. User report: "why is the outside
+                // rings still blank? surely they see data?" Previous
+                // return@forEach skipped the activity-touch as well.
+                val laneMatches = LayerLaneRegistry.shouldLearn(layerName, outcome.tradingMode)
+                if (!laneMatches) {
+                    val m = layerPerformance.getOrPut(layerName) { LayerPerformanceMetrics(layerName) }
+                    m.lastRecordedTimestamp = System.currentTimeMillis()
                     return@forEach
                 }
                 val score = snappedScores[layerName] ?: 0
