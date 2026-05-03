@@ -4959,7 +4959,21 @@ if (deferredCount > 0) {
             // Primary price source: Dexscreener
             val pair = dex.getBestPair(mint) ?: run {
                 val ts = status.tokens[mint]
-                if (ts != null) tryFallbackPriceData(mint, ts)
+                if (ts != null) {
+                    val refreshed = tryFallbackPriceData(mint, ts)
+                    // V5.9.426 — EXIT SAFETY NET.
+                    // processTokenCycle used to return here unconditionally when
+                    // DexScreener had no pair, which meant exit checks (SL/TP/trail)
+                    // never ran for tokens whose primary feed went dead. Rugged
+                    // meme coins (ChadMogman -98%, MOGGING -93% in screenshots)
+                    // would sit bleeding forever. When fallback price is fresh
+                    // and the position is open, run a direct hard-floor SL at
+                    // the meme trader's canonical -20% floor. Partial/trail
+                    // logic still runs on normal cycles when pair succeeds.
+                    if (refreshed && ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
+                        runFallbackSafetyExit(ts, cfg)
+                    }
+                }
                 return  // skip full cycle — but we may have added fallback data
             }
 
@@ -9784,6 +9798,39 @@ if (deferredCount > 0) {
         try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
         // CashGenerationAI / ManipulatedTraderAI / ShitCoinExpress don't
         // expose updateLivePrice — they derive lastSeenPrice inside checkExit.
+    }
+
+    // V5.9.426 — EXIT SAFETY NET helper.
+    // Fires a deterministic hard-floor SL at -20% (matches the meme trader's
+    // canonical HARD_FLOOR_STOP_PCT) when processTokenCycle is about to return
+    // early because DexScreener has no pair. Uses the freshest price we have
+    // (just refreshed by tryFallbackPriceData). Bypasses sub-trader routing so
+    // a position with broken trader registration still exits. Partial/trail
+    // logic continues to run on normal cycles.
+    private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig) {
+        try {
+            val price = ts.lastPrice
+            if (price <= 0.0 || ts.position.entryPrice <= 0.0) return
+            val pnlPct = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            val HARD_FLOOR_PCT = -20.0
+            if (pnlPct <= HARD_FLOOR_PCT) {
+                ErrorLogger.warn("BotService",
+                    "🛑 [FALLBACK_SAFETY_SL] ${ts.symbol} | ${pnlPct.toInt()}% (hard-floor ${HARD_FLOOR_PCT.toInt()}%) — " +
+                    "DexScreener pair down; firing via fallback price \$${price}")
+                if (cfg.paperMode) {
+                    executor.paperSell(ts, "FALLBACK_SAFETY_SL_${pnlPct.toInt()}PCT")
+                } else {
+                    // live sell routing — stays paused when not paper to avoid
+                    // wallet-side races; live exits flow through the normal
+                    // pipeline once DexScreener recovers. Paper is the mode
+                    // where the user saw the bleed.
+                    ErrorLogger.debug("BotService",
+                        "[FALLBACK_SAFETY_SL] skipped live exit (${ts.symbol}) — live pipeline handles it")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "[FALLBACK_SAFETY_SL] error: ${e.message}")
+        }
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
