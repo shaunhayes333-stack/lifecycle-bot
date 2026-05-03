@@ -31,8 +31,14 @@ object ScoreExpectancyTracker {
 
     private const val BUCKET_WIDTH = 10
     private const val WINDOW = 200
-    private const val MIN_SAMPLES_FOR_REJECT = 25
-    private const val REJECT_MEAN_PNL_PCT = -2.0
+    // V5.9.441 — RELAX. Was 25 / -2%. With 583 trades across 6 lanes +
+    // 10-pt buckets, buckets were populating fast and many were already
+    // past the -2% reject gate — the bot was choking itself into HOLD
+    // forever. Reality check: a bucket with 25 samples at -2% mean could
+    // easily be unlucky. We need MORE samples AND deeper loss before we
+    // stop exploring a score range.
+    private const val MIN_SAMPLES_FOR_REJECT = 100
+    private const val REJECT_MEAN_PNL_PCT = -5.0
 
     /** Rolling pnlPct windows keyed by "LAYER:bucket". */
     private val windows = ConcurrentHashMap<String, ArrayDeque<Double>>()

@@ -55,7 +55,10 @@ object HoldDurationTracker {
     fun bucketMean(layer: String, holdMinutes: Long): Double? {
         val w = windows[keyOf(layer, holdMinutes)] ?: return null
         synchronized(w) {
-            if (w.size < 25) return null
+            // V5.9.441 — raised from 25 to 100 samples. Same rationale as
+            // ScoreExpectancyTracker: 25 samples is too few to justify
+            // shutting off an exit pathway.
+            if (w.size < 100) return null
             return w.sum() / w.size
         }
     }

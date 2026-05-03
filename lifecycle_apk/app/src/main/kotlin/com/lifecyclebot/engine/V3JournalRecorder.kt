@@ -44,6 +44,7 @@ object V3JournalRecorder {
         holdMinutes: Long = 0L,
     ) {
         // 1. Persist to the on-device SQLite Journal so the user UI sees it.
+        var wrote = false
         try {
             val t = Trade(
                 side       = "SELL",
@@ -68,14 +69,29 @@ object V3JournalRecorder {
                 mint       = mint,
             )
             TradeHistoryStore.recordTrade(t)
+            wrote = true
+            // V5.9.441 — always-on log so user can verify every V3 exit
+            // lands in the Journal in real time.
+            ErrorLogger.info("V3JournalRecorder",
+                "📓 [$layer] $symbol ${exitReason} | " +
+                "pnl=${"%+.2f".format(pnlPct)}% (${"%+.4f".format(pnlSol)} SOL) | " +
+                "score=${entryScore} hold=${holdMinutes}m")
         } catch (e: Exception) {
-            ErrorLogger.debug("V3JournalRecorder", "journal error ($symbol): ${e.message}")
+            // V5.9.441 — promoted from debug→error. If journal writes are
+            // failing we MUST see it in the log instead of silently losing
+            // trades.
+            ErrorLogger.error("V3JournalRecorder",
+                "⚠️ JOURNAL WRITE FAILED for $symbol ($layer/${exitReason}): ${e.message}", e)
         }
 
         // 2. V5.9.436 — feed all three outcome-attribution trackers.
-        //    Each tracker is fail-open and thread-safe.
-        try { ScoreExpectancyTracker.record(layer, entryScore, pnlPct) } catch (_: Exception) {}
-        try { HoldDurationTracker.record(layer, holdMinutes, pnlPct) } catch (_: Exception) {}
-        try { ExitReasonTracker.record(layer, exitReason, pnlPct) } catch (_: Exception) {}
+        //    Each tracker is fail-open and thread-safe. Only feed when the
+        //    journal write actually landed so trackers don't diverge from
+        //    the on-disk truth.
+        if (wrote) {
+            try { ScoreExpectancyTracker.record(layer, entryScore, pnlPct) } catch (_: Exception) {}
+            try { HoldDurationTracker.record(layer, holdMinutes, pnlPct) } catch (_: Exception) {}
+            try { ExitReasonTracker.record(layer, exitReason, pnlPct) } catch (_: Exception) {}
+        }
     }
 }

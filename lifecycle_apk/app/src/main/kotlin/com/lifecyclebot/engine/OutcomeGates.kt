@@ -28,14 +28,26 @@ package com.lifecyclebot.engine
  */
 object OutcomeGates {
 
-    /** pnl% below which SL logic already handles the bag. */
-    private const val FLAT_LO = -3.0
+    /**
+     * pnl% below which SL logic already handles the bag.
+     * V5.9.441 — tightened from -3 to -1 so the early-exit band is
+     * narrower. We only cut flat-to-slightly-up bags, never anything
+     * in meaningful negative territory (those belong to SL).
+     */
+    private const val FLAT_LO = -1.0
 
-    /** pnl% above which TP logic already handles the bag. */
-    private const val FLAT_HI = 3.0
+    /**
+     * pnl% above which TP logic already handles the bag.
+     * V5.9.441 — tightened from 3 to 1.
+     */
+    private const val FLAT_HI = 1.0
 
-    /** Bucket mean must be below this to classify as "provably losing". */
-    private const val LOSING_BUCKET_PNL = -2.0
+    /**
+     * Bucket mean must be below this to classify as "provably losing".
+     * V5.9.441 — loosened from -2% to -4%. With 100-sample minimum the
+     * bar for "provably losing" is now genuinely statistical.
+     */
+    private const val LOSING_BUCKET_PNL = -4.0
 
     /** Extend time-exit deadline by this factor when biased on a winner. */
     private const val WINNER_EXTENSION_MULT = 1.5

@@ -30,8 +30,13 @@ object PeakDrawdownLock {
     /** Peak must exceed this pnl% before the lock arms. */
     const val ARM_THRESHOLD_PCT = 20.0
 
-    /** Fraction of peak that must have been given back before firing. */
-    const val DRAWDOWN_TRIGGER_FRAC = 0.30
+    /**
+     * Fraction of peak that must have been given back before firing.
+     * V5.9.441 — loosened from 0.30 to 0.40. A meme peaking +50% and
+     * consolidating back to +30% is NORMAL market breathing — 30%
+     * drawdown was cutting winners way too early.
+     */
+    const val DRAWDOWN_TRIGGER_FRAC = 0.40
 
     /**
      * @return true when the position has given back ≥30% of its peak
