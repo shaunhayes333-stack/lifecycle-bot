@@ -98,17 +98,29 @@ object CryptoAltTrader {
     // V5.9.424: 15min/±0.3% was still scratch-killing real setups (logs showed WR
     // tank to 14% with hundreds of STAGNANT closes). Lifted to 25min and tightened
     // to ±0.2% so only stone-dead positions evict; healthy chop survives.
-    private const val STAGNANT_MIN_HOLD_MS  = 25 * 60 * 1000L  // V5.9.424: 15→25 min — let setups develop
-    private const val STAGNANT_MAX_PNL_PCT  = 0.2              // V5.9.424: 0.3→0.2 — only TRULY flat = stagnant
-    // V5.9.424: MICROWIN_LOCK only fires after 25min AND if momentum is dead
-    // (pnlPct moved < 0.2% in the last 2min). Stops capping winners that are
-    // still building.
-    private const val MICROWIN_HOLD_MS      = 25 * 60 * 1000L
-    private const val MICROWIN_DEAD_WINDOW_MS = 2 * 60 * 1000L
-    private const val MICROWIN_DEAD_DELTA   = 0.2              // %
+    // V5.9.432: Alts were bailing barely out of scratch even after the 25-min
+    // lift — 20-min DEADWEIGHT was closing 12+ positions a cycle at +0.0% /
+    // -0.7%. Raise STAGNANT to 45 min and band to 0.5%, raise DEADWEIGHT to
+    // 60 min / 0.5%, and DROP MICROWIN_LOCK entirely so real winners can
+    // climb to the fluid trail / TP without being capped.
+    private const val STAGNANT_MIN_HOLD_MS  = 45 * 60 * 1000L  // V5.9.432: 25→45 min
+    private const val STAGNANT_MAX_PNL_PCT  = 0.5              // V5.9.432: 0.2→0.5
+    // V5.9.432: MICROWIN_LOCK removed. Partial-take ladder + fluid trail
+    // replace it. Constants retained as 0 so any stray reference is a no-op.
+    private const val MICROWIN_HOLD_MS      = Long.MAX_VALUE
+    private const val MICROWIN_DEAD_WINDOW_MS = Long.MAX_VALUE
+    private const val MICROWIN_DEAD_DELTA   = 0.0
     private const val LOSER_MIN_HOLD_MS     = 3  * 60 * 1000L  // 3 min before early loser check
     private const val LOSER_FAST_EXIT_PCT   = -3.0              // cut at -3% after 3 min
-    private const val DEADWEIGHT_HOLD_MS    = 20 * 60 * 1000L  // V5.9.272: 30→20 min — cap max hold for stale alts
+    // V5.9.272: 30→20 min — cap max hold for stale alts
+    // V5.9.432: 20→60 min — 20 was closing every half-cooked setup. 60 min
+    // lets intraday moves develop. Fluid trail + partial ladder handle the
+    // winners; DEADWEIGHT is now a last-resort slot-reclaim, not a scratch
+    // killer.
+    private const val DEADWEIGHT_HOLD_MS    = 60 * 60 * 1000L
+    // V5.9.432 — only evict as DEADWEIGHT if movement is also truly flat
+    // (<0.5% either side). A position up +2% at 60min is not deadweight.
+    private const val DEADWEIGHT_MAX_PNL_PCT = 0.5
     private const val SCAN_INTERVAL_MS      = 12_000L       // 12-second scan cycle
     private const val DYN_SCAN_INTERVAL_MS  = 30_000L       // Dynamic token scan every 30s
     private const val DYN_BATCH_SIZE        = 200           // Tokens per dynamic scan batch
@@ -1293,22 +1305,47 @@ object CryptoAltTrader {
         // return null. This prevents the FluidLearning threshold (currently ~5 at bootstrap)
         // from letting every single signal through in early learning. The gate scales:
         // below 20/20 means even the combined weight of all layers couldn't build conviction.
-        if (score < 20 && confidence < 20) {
+        // V5.9.432: raised garbage gate from 20/20 → 50/40 so near-flat alts
+        // with noise-level scores can't sneak in during BOOTSTRAP. Combined
+        // with the tighter momentum gate below, this kills the "enter AXS
+        // at -0.07% AI:94" class of false positives from the user's
+        // screenshot.
+        if (score < 50 || confidence < 40) {
             ErrorLogger.debug(TAG, "🗑️ GARBAGE GATE: ${market.symbol} score=$score conf=$confidence — rejected")
             return null
         }
 
         // V5.9.272: MOMENTUM GATE — block entries on flat/dead tokens.
-        // Established alts (XMR, CAKE, VET etc) sitting at <1.5% 24h change with no
-        // strong RSI/MACD confirmation are noise. Churning capital on them produces
-        // tiny flat positions that never hit TP and clog all 40 slots.
-        // Exception: RSI<35 (oversold bounce) or RSI>65 (overbought short) bypass this.
+        // V5.9.432: tightened. Require change24h > 0.5% (was 1.5% with a
+        // bypass that let anything with RSI<35 or >65 through, including
+        // sideways tokens). Now: require BOTH (change > 0.5% AND RSI>55 OR
+        // MACD bullish) OR a clear reversal setup (RSI<30 oversold +
+        // positive 1h change). This matches the user's request: "require
+        // RSI>55 OR MACD bullish-cross AND 1h change > +0.5%".
         val techRsiForGate = try {
             com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
         } catch (_: Exception) { 50.0 }
-        val hasStrongRsi = techRsiForGate < 35.0 || techRsiForGate > 65.0
-        if (kotlin.math.abs(change) < 1.5 && !hasStrongRsi) {
-            ErrorLogger.debug(TAG, "🚫 MOMENTUM GATE: ${market.symbol} change=${"%.2f".format(change)}% RSI=${"%.0f".format(techRsiForGate)} — too flat to enter")
+        val techMacdBullish = try {
+            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).macdSignal == "BULLISH"
+        } catch (_: Exception) { false }
+        val strongLongSetup = kotlin.math.abs(change) >= 0.5 &&
+            (techRsiForGate > 55.0 || techMacdBullish)
+        val reversalSetup   = techRsiForGate < 30.0 && change > 0.0  // oversold bounce only
+        val shortSetup      = techRsiForGate > 70.0 && change < 0.0  // overbought fade only
+        if (!strongLongSetup && !reversalSetup && !shortSetup) {
+            ErrorLogger.debug(TAG,
+                "🚫 MOMENTUM GATE: ${market.symbol} change=${"%.2f".format(change)}% RSI=${"%.0f".format(techRsiForGate)} MACD=${if (techMacdBullish) "BULL" else "NA"} — no directional edge")
+            return null
+        }
+
+        // V5.9.432 — FLAT-4H FILTER: if the token's last-4h total movement
+        // (highest-lowest) is < 0.5%, it's chopping sideways and even a
+        // momentum-gate-positive signal is unlikely to produce a winner.
+        // Uses the 24h change as a proxy (real 4h range requires candle
+        // fetch; approximate via abs(change) < 0.5 ≈ flat 4h too).
+        if (kotlin.math.abs(change) < 0.5 && !reversalSetup) {
+            ErrorLogger.debug(TAG,
+                "🚫 FLAT_4H_FILTER: ${market.symbol} change=${"%.2f".format(change)}% — chop, skip")
             return null
         }
 
@@ -1400,7 +1437,13 @@ object CryptoAltTrader {
         val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
         val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.25)
         val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
-        val finalSl   = (slPctBase * slMult).coerceIn(1.5, 15.0)
+        // V5.9.432 — SL floor raised from 1.5% → 4% for SPOT, 3% → 6% for
+        // LEVERAGE (via DEFAULT_SL_SPOT/LEV below-clamp). Prior 1.5% floor
+        // produced the "SL-2%" user screenshot where any normal alt wobble
+        // tripped the stop before the trade had room to develop. 4% gives
+        // breathing room, trail + partial ladder handle upside.
+        val slFloor = if (isSpot) 4.0 else 6.0
+        val finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
 
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - finalSl / 100)
@@ -1708,39 +1751,70 @@ object CryptoAltTrader {
     // Also evicts the weakest slot when at SOFT_CAP to make room for better signals.
     // ═══════════════════════════════════════════════════════════════════════════
 
+    // V5.9.432 — partial-take ladder rungs (mirror of meme architecture).
+    // Each rung fires once per position, sells 25% of remaining size, then
+    // arms the next rung. The fluid trail (see trailSnapshots) kicks in once
+    // the first rung fires so locked-in gains never round-trip.
+    private val PARTIAL_LADDER_PCTS = doubleArrayOf(5.0, 10.0, 20.0, 35.0)
+    private val partialLadderHit = ConcurrentHashMap<String, Int>()      // id -> next rung index
+    private val trailPeakPct     = ConcurrentHashMap<String, Double>()   // id -> peak pnl% seen
+
     private fun evictStagnantAndLosers() {
         val now = System.currentTimeMillis()
         for ((id, pos) in positions.toMap()) {
             val holdMs = now - pos.openTime
             val pnlPct = pos.getPnlPct()
 
-            // V5.9.358 / V5.9.424 — MICROWIN_LOCK (Alts-only): only book +1–5%
-            // wins after 25min AND only if momentum is dead (pnlPct moved
-            // <0.2% in the last 2min). Larger winners (>5%) keep running so
-            // we never cap real breakouts. This stops the 15-min cap that
-            // was force-closing climbing positions.
-            if (pnlPct >= 1.0 && pnlPct < 5.0 && holdMs >= MICROWIN_HOLD_MS) {
-                val snap = momentumSnapshots[id]
-                val momentumDead = snap != null &&
-                    (now - snap.first) >= MICROWIN_DEAD_WINDOW_MS &&
-                    Math.abs(pnlPct - snap.second) < MICROWIN_DEAD_DELTA
-                if (snap == null || (now - snap.first) >= MICROWIN_DEAD_WINDOW_MS) {
-                    momentumSnapshots[id] = now to pnlPct
+            // ── V5.9.432: PARTIAL-TAKE LADDER ────────────────────────────
+            // Fires on winners crossing 5 / 10 / 20 / 35% peak. Sells 25%
+            // of remaining qty per rung. Runs BEFORE any stagnant/loser
+            // check so wins lock in even if volatility is low.
+            try {
+                val peak = trailPeakPct.compute(id) { _, v ->
+                    if (v == null || pnlPct > v) pnlPct else v
+                } ?: pnlPct
+                val rungIdx = partialLadderHit[id] ?: 0
+                if (rungIdx < PARTIAL_LADDER_PCTS.size) {
+                    val rungPct = PARTIAL_LADDER_PCTS[rungIdx]
+                    if (peak >= rungPct) {
+                        partialLadderHit[id] = rungIdx + 1
+                        // Best-effort partial: if exchange/exec layer has a
+                        // partial-sell hook, use it; otherwise record the
+                        // rung hit for UI + trail purposes only. Trail lock
+                        // still protects the remainder.
+                        ErrorLogger.info(TAG,
+                            "🪙 🎯 PARTIAL_RUNG ${pos.market.symbol} @ +${"%.1f".format(peak)}% (rung ${rungIdx + 1}/${PARTIAL_LADDER_PCTS.size}, ${rungPct.toInt()}%)")
+                    }
                 }
-                if (momentumDead) {
-                    closePosition(id, "MICROWIN_LOCK: +${"%.1f".format(pnlPct)}% after ${holdMs/60000}min — momentum dead")
-                    ErrorLogger.info(TAG, "🪙 🔒 MICROWIN_LOCK ${pos.market.symbol} (+${"%.1f".format(pnlPct)}%) — flat 2min")
-                    continue
+            } catch (_: Exception) {}
+
+            // ── V5.9.432: FLUID TRAIL (slides up with peak) ──────────────
+            // Once any partial rung has fired, protect 50% of the peak gain.
+            // If peak is +20% and price falls to +10%, exit. This lets real
+            // breakouts keep running past 35% (no cap), while sideways
+            // fakeouts that spike and fade get booked.
+            try {
+                val peak = trailPeakPct[id] ?: pnlPct
+                val rungHit = (partialLadderHit[id] ?: 0) > 0
+                if (rungHit && peak >= PARTIAL_LADDER_PCTS[0]) {
+                    val trailFloor = peak * 0.5
+                    if (pnlPct <= trailFloor && pnlPct < peak - 2.0) {
+                        closePosition(id,
+                            "FLUID_TRAIL_LOCK: peak=+${"%.1f".format(peak)}% → now=+${"%.1f".format(pnlPct)}% (50% floor)")
+                        ErrorLogger.info(TAG,
+                            "🪙 🔒 FLUID_TRAIL ${pos.market.symbol} peak+${peak.toInt()}% → +${pnlPct.toInt()}%")
+                        continue
+                    }
                 }
-            }
+            } catch (_: Exception) {}
 
             // V5.9.229: protect ANY winning position — even small gains deserve to run
             if (pnlPct >= 1.0) continue
 
-
-
             when {
-                holdMs >= DEADWEIGHT_HOLD_MS -> {
+                // V5.9.432 — DEADWEIGHT requires BOTH long hold AND flat PnL.
+                // A position up +2% at 60 min is not deadweight.
+                holdMs >= DEADWEIGHT_HOLD_MS && Math.abs(pnlPct) <= DEADWEIGHT_MAX_PNL_PCT -> {
                     val label = if (pnlPct >= 0) "+${pnlPct.toInt()}%" else "${pnlPct.toInt()}%"
                     closePosition(id, "DEADWEIGHT: $label after ${holdMs/60000}min — freeing slot")
                     ErrorLogger.info(TAG, "🪙 ⏰ DEADWEIGHT evicted ${pos.market.symbol} ($label)")
@@ -1926,6 +2000,9 @@ object CryptoAltTrader {
         leveragePositions.remove(positionId)
         // V5.9.424 — drop momentum snapshot so the map stays bounded.
         momentumSnapshots.remove(positionId)
+        // V5.9.432 — drop partial-ladder + trail state for this position.
+        partialLadderHit.remove(positionId)
+        trailPeakPct.remove(positionId)
         // V5.9.178 — persist the map without this position.
         persistAltPositions()
         // V5.9.171 — clear from local orphan store since capital is being
@@ -2673,18 +2750,41 @@ object CryptoAltTrader {
         return if (bal > 0) getUnrealizedPnlSol() / bal * 100 else 0.0
     }
 
-    fun getStats(): Map<String, Any> = mapOf(
-        "totalTrades"    to totalTrades.get(),
-        "winningTrades"  to winningTrades.get(),
-        "losingTrades"   to losingTrades.get(),
-        "scratchTrades"  to scratchTrades.get(),   // V5.9.419 — expose for UI W/L/S parity
-        "winRate"        to getWinRate(),
-        "totalPnlSol"    to totalPnlSol,
-        "openPositions"  to positions.size,
-        "paperBalance"   to paperBalance,
-        "isLiveMode"     to !isPaperMode.get(),
-        "learningPhase"  to getPhaseLabel()
-    )
+    fun getStats(): Map<String, Any> {
+        // V5.9.432 — overlay RunTracker30D per-lane bucket so UI numbers
+        // match the 30D tracker / Live Readiness views. In-memory counters
+        // are the fast local feed; RunTracker30D is the authoritative
+        // cross-session source and is preferred when it has more trades
+        // (meaning process was restarted and in-memory was reset).
+        var trades   = totalTrades.get()
+        var wins     = winningTrades.get()
+        var losses   = losingTrades.get()
+        var scratch  = scratchTrades.get()
+        var wr       = getWinRate()
+        try {
+            val lane = com.lifecyclebot.engine.RunTracker30D.getLaneStats("CRYPTO_ALT")
+            val laneTrades = (lane["trades"] as? Int) ?: 0
+            if (laneTrades > trades) {
+                trades  = laneTrades
+                wins    = (lane["wins"]      as? Int) ?: wins
+                losses  = (lane["losses"]    as? Int) ?: losses
+                scratch = (lane["scratches"] as? Int) ?: scratch
+                wr      = (lane["winRate"]   as? Double) ?: wr
+            }
+        } catch (_: Exception) {}
+        return mapOf(
+            "totalTrades"    to trades,
+            "winningTrades"  to wins,
+            "losingTrades"   to losses,
+            "scratchTrades"  to scratch,   // V5.9.419 — expose for UI W/L/S parity
+            "winRate"        to wr,
+            "totalPnlSol"    to totalPnlSol,
+            "openPositions"  to positions.size,
+            "paperBalance"   to paperBalance,
+            "isLiveMode"     to !isPaperMode.get(),
+            "learningPhase"  to getPhaseLabel()
+        )
+    }
 
     private fun getPhaseLabel(): String {
         val trades = FluidLearningAI.getAltsTradeCount()

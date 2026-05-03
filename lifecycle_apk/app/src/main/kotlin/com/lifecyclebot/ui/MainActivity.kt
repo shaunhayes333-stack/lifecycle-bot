@@ -4665,7 +4665,7 @@ for legal compliance.
         val phaseLabel    = (stats["learningPhase"]  as? String) ?: "BOOTSTRAP"
         val initialBalance = try { com.lifecyclebot.perps.CryptoAltTrader.getInitialBalance() } catch (_: Exception) { paperBalance }
 
-        tv30DayCounter.text = "🪙 ALTS · LIFETIME"
+        tv30DayCounter.text = "🪙 CRYPTO · LIFETIME"
         tv30DayBalance.text = String.format("%.4f SOL", paperBalance)
         val returnPct = if (initialBalance > 0) ((paperBalance - initialBalance) / initialBalance) * 100 else 0.0
         val sign = if (returnPct >= 0) "+" else ""
@@ -4875,7 +4875,7 @@ This cannot be undone!
             // confusion is impossible — user can read at a glance which
             // trader's stats are showing.
             tvLiveReadinessTitle?.text = when (currentReadinessTab) {
-                "ALTS"  -> "🚀 Live Readiness · 🪙 ALTS"
+                "ALTS"  -> "🚀 Live Readiness · 🪙 CRYPTO"
                 "PERPS" -> "🚀 Live Readiness · ⚡ AATE MARKETS"  // V5.9.387 — unified view
                 else    -> "🚀 Live Readiness · 💎 MEME"
             }

@@ -392,7 +392,7 @@ class CryptoAltActivity : AppCompatActivity() {
         tvAutoMode.text = phaseShort
 
         // Toggle button
-        btnToggle.text = if (running) "Stop Alt Trader" else "Start Alt Trader"
+        btnToggle.text = if (running) "Stop Crypto Trader" else "Start Crypto Trader"
         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(
             if (running) 0xFFEF4444.toInt() else 0xFF9945FF.toInt()
         )
@@ -3145,7 +3145,7 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildSettingsTab() {
         // ── Engine Controls ────────────────────────────────────────────────────
         addSectionHeader("⚙️ Engine Controls", 0xFF9CA3AF.toInt())
-        addToggleRow("🤖 Alt Trader Running", CryptoAltTrader.isRunning()) { on ->
+        addToggleRow("🤖 Crypto Trader Running", CryptoAltTrader.isRunning()) { on ->
             if (on) CryptoAltTrader.start() else CryptoAltTrader.stop(); selectTab(3)
         }
         addToggleRow("💰 Live Mode (real money)", CryptoAltTrader.isLiveMode()) { on ->
@@ -3240,7 +3240,7 @@ class CryptoAltActivity : AppCompatActivity() {
         addInfoRow("Scan Interval",   "30s dynamic + 12s PerpsMarket")
 
         // ── Overall Performance ────────────────────────────────────────────────
-        addSectionHeader("📊 Alt Trader Performance", purple)
+        addSectionHeader("📊 Crypto Trader Performance", purple)
         addInfoRow("Balance",      "◎${"%.4f".format(CryptoAltTrader.getBalance())}")
         addInfoRow("Total PnL",    "${if (CryptoAltTrader.getTotalPnlSol() >= 0) "+" else ""}${"%.4f".format(CryptoAltTrader.getTotalPnlSol())}◎")
         addInfoRow("Win Rate",     "${CryptoAltTrader.getWinRate().toInt()}%")

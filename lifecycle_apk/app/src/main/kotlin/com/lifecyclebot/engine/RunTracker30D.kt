@@ -70,6 +70,27 @@ object RunTracker30D {
     val forexBucket  = AssetBucket()
     val metalsBucket = AssetBucket()
     val commodBucket = AssetBucket()
+
+    /**
+     * V5.9.432 — unified per-lane stats accessor so UI (Alt Trader card,
+     * Live Readiness tab, 30D tracker) can all read from ONE source instead
+     * of drifting apart across three stores.
+     *   keys: "MEME" | "ALT"/"ALTS"/"CRYPTO_ALT" | "PERPS" | "STOCKS"
+     *         "FOREX" | "METALS" | "COMMODITIES"
+     */
+    fun getLaneStats(lane: String): Map<String, Any> {
+        val b = bucketFor(lane)
+        val decisive = b.wins + b.losses
+        return mapOf(
+            "trades"    to b.trades,
+            "wins"      to b.wins,
+            "losses"    to b.losses,
+            "scratches" to b.scratches,
+            "winRate"   to b.winRate(),
+            "pnlSol"    to b.pnlSol,
+            "decisive"  to decisive,
+        )
+    }
     
     @Volatile var peakBalance: Double = 0.0
     @Volatile var maxDrawdown: Double = 0.0  // Stored as negative percentage

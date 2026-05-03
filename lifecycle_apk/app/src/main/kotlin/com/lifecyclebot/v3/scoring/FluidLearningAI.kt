@@ -1043,9 +1043,14 @@ object FluidLearningAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // SPOT trading thresholds — V5.9.300: floor inversion — per-trader gates strict (was 28/30 at V5.9.266)
-    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 30
+    // V5.9.432 — raised bootstrap from 30/30 → 50/45. At 30/30 the lerp let
+    // noise signals through in early BOOTSTRAP which produced the alt
+    // scratch-spam (AXS -0.07% AI:94, VIRTUAL -0.09% AI:100 etc). 50/45
+    // means a token must be at least half-conviction before capital goes in;
+    // mature 60/65 unchanged.
+    private const val MARKETS_SPOT_SCORE_BOOTSTRAP = 50
     private const val MARKETS_SPOT_SCORE_MATURE = 60
-    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 30
+    private const val MARKETS_SPOT_CONF_BOOTSTRAP = 45
     private const val MARKETS_SPOT_CONF_MATURE = 65
     
     // LEVERAGE trading thresholds — V5.9.300: floor inversion — leverage demands tighter gate (was 30/32)

@@ -945,6 +945,17 @@ object SentientPersonality {
             )
         } catch (_: Throwable) { "express: ?" }
 
+        // V5.9.432 — CRYPTO (alt) lane was invisible to the LLM persona; it
+        // only saw meme layers. Now surfaces live alt positions + lane stats
+        // so Sentient / Gemini can reason about crypto trades too.
+        val cryptoLine = try {
+            val stats = com.lifecyclebot.perps.CryptoAltTrader.getStats()
+            val open  = (stats["openPositions"] as? Int) ?: 0
+            val wr    = (stats["winRate"]       as? Double) ?: 0.0
+            val tr    = (stats["totalTrades"]   as? Int) ?: 0
+            "crypto(alt): open=$open · wr=${fmt1(wr)}% · lifetime=$tr · phase=${stats["learningPhase"] ?: "?"}"
+        } catch (_: Throwable) { "crypto(alt): ?" }
+
         // Aggregate count for the summary line so the LLM has a number it
         // cannot misquote.
         val allLayerCount = try {
@@ -954,7 +965,9 @@ object SentientPersonality {
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size +
                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().size +
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().size +
-                BotService.status.openPositions.size
+                BotService.status.openPositions.size +
+                // V5.9.432 — include CRYPTO (alt) lane in the layer count
+                ((com.lifecyclebot.perps.CryptoAltTrader.getStats()["openPositions"] as? Int) ?: 0)
         } catch (_: Throwable) { -1 }
         val totalsLine = "total open across all layers: " +
             (if (allLayerCount >= 0) allLayerCount.toString() else "?")
@@ -1004,6 +1017,8 @@ object SentientPersonality {
             append(manipLine)
             append('\n')
             append(expressLine)
+            append('\n')
+            append(cryptoLine)  // V5.9.432 — crypto (alt) lane now visible to LLM
             append('\n')
             append(totalsLine)
             append('\n')
