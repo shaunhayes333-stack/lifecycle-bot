@@ -80,7 +80,16 @@ object OperatorFingerprintAI {
     }
 
     fun score(candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
-        val creator = candidate.extraString("creator")
+        val rawCreator = candidate.extraString("creator")
+        // V5.9.446 — FALLBACK CREATOR PROXY.
+        // Scanner rarely populates candidate.extra["creator"] for pump.fun tokens
+        // (no public deployer field on DexScreener's /latest endpoint) which kept
+        // this layer 100% DEAD (z=1530 nz=0). Use the first 8 chars of the mint
+        // as a coarse operator proxy — pump.fun mints carry a "pump" suffix and
+        // share prefixes per deployer in many cases; worst case we cluster by
+        // mint-family. Once the real scanner wires creator we auto-prefer it.
+        val creator = if (rawCreator.isNotBlank()) rawCreator
+                      else candidate.mint.takeIf { it.length >= 8 }?.take(8).orEmpty()
         if (creator.isBlank()) return ScoreComponent("OperatorFingerprintAI", 0, "NO_CREATOR")
         val rec = records[creator] ?: return ScoreComponent("OperatorFingerprintAI", 0, "NEW_OPERATOR")
         val v = rec.scoreHint()

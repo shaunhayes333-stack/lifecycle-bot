@@ -944,10 +944,14 @@ object EducationSubLayerAI {
                 // OperatorFingerprintAI: creator from CandidateSnapshot.extra OR
                 // fallback to DataOrchestrator's tokenDevWallets registry.
                 // V5.9.414 — meme-only layer, gate by lane.
+                // V5.9.446 — also fall back to mint-prefix proxy so the layer
+                // learns even when neither scanner nor OperatorRegistry knows
+                // the deployer. Matches the proxy used in OperatorFingerprintAI.score.
                 if (LayerLaneRegistry.shouldLearn("OperatorFingerprintAI", outcome.tradingMode)) {
                     try {
                         val creator = cand?.extraString("creator")?.takeIf { it.isNotBlank() }
                             ?: com.lifecyclebot.engine.OperatorRegistry.getDevWallet(outcome.mint)
+                            ?: outcome.mint.takeIf { it.length >= 8 }?.take(8)
                         if (!creator.isNullOrBlank()) {
                             OperatorFingerprintAI.recordOutcome(creator, outcome.isWin)
                         }

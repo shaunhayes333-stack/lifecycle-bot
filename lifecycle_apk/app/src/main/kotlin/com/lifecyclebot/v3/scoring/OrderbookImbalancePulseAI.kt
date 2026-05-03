@@ -61,14 +61,15 @@ object OrderbookImbalancePulseAI {
         try { pushTick(candidate.mint, candidate.buyPressurePct) } catch (_: Exception) {}
 
         val pulse = getRecentPulse(candidate.mint)
-        // V5.9.357 — warmup mute: until this mint has at least 3 samples in
-        // the 30s window, suppress the vote so a single first-tick spike
-        // can't sway entry decisions on cold history.
+        // V5.9.446 — warmup relaxed 3→2 samples. Previous 3-sample requirement
+        // kept this layer 99% DEAD on every trade because most candidates are
+        // only scored once or twice before entry. Two samples is enough to
+        // measure a delta while still muting pure cold-starts.
         val dq = history[candidate.mint]
         val samples = if (dq == null) 0 else synchronized(dq) { dq.size }
-        if (samples < 3) {
+        if (samples < 2) {
             return ScoreComponent("OrderbookImbalancePulseAI", 0,
-                "📊 warming ($samples/3 samples)")
+                "📊 warming ($samples/2 samples)")
         }
         val value = when {
             pulse >  25.0 -> +5

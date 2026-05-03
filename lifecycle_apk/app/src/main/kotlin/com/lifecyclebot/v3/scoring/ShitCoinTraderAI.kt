@@ -87,8 +87,8 @@ object ShitCoinTraderAI {
     // Mature TP=20%: known-good patterns run further. Expert (via FluidLearning 1.0) = 20%.
     private const val TAKE_PROFIT_BOOTSTRAP = 12.0    // V5.9.194: 8% too tight — token must move 12% from entry
     private const val TAKE_PROFIT_MATURE = 20.0       // V5.9: 20% — proven patterns can run further
-    private const val STOP_LOSS_BOOTSTRAP = -8.0      // V5.9.194: -5% was too tight — meme wicks hit SL instantly
-    private const val STOP_LOSS_MATURE = -6.0         // V5.9: Tighter SL as entries improve with patterns
+    private const val STOP_LOSS_BOOTSTRAP = -5.0      // V5.9.446: -8→-5. User request: cut losers at -4%, not -15%. Wicks still need a little room.
+    private const val STOP_LOSS_MATURE = -4.0         // V5.9.446: -6→-4. Tight mature stop to drag WR up from 17%.
     private const val TRAILING_STOP_PCT = 8.0         // Tighter trailing for volatile moves
     // V5.2: REMOVED max hold time - ShitCoins can moon anytime, let them run!
     private const val FLAT_EXIT_MINUTES = 8           // V5.9.197: 6→8 mins — allow runs more time to develop
@@ -1250,7 +1250,10 @@ object ShitCoinTraderAI {
         
         // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS
         // This should NEVER be exceeded, regardless of other conditions
-        val HARD_FLOOR_STOP_PCT = -20.0  // V5.9.316: REVERT V5.9.218 -12→-20 — meme wicks need room (build #1941)
+        // V5.9.446: -20→-10 emergency tightening. Meme WR=17% on shit lane
+        // because we were letting -12% to -20% losers bleed. Hard cap at
+        // -10% means even if every other gate fails, loss is capped.
+        val HARD_FLOOR_STOP_PCT = -10.0
         if (pnlPct <= HARD_FLOOR_STOP_PCT) {
             ErrorLogger.warn(TAG, "💩🛑 HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
             return ExitSignal.STOP_LOSS
@@ -1325,8 +1328,8 @@ object ShitCoinTraderAI {
         val timeExitMaxMult = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
             layer = "SHITCOIN", exitReason = "TIME_EXIT", pnlPct = pnlPct,
         )
-        val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.293: 6min→7min, -3%→-5%
-        val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // keep: deep loss emergency
+        val timeExitEarlyBad  = holdMinutes >= 5  && pnlPct < -3.0    // V5.9.446: 7min/-5% → 5min/-3% — WR emergency brake
+        val timeExitDeepLoss  = holdMinutes >= 3  && pnlPct < -4.0    // V5.9.446: 5min/-6% → 3min/-4% — cut losers fast
         val timeExitMaxHold   = holdMinutes >= (35 * timeExitMaxMult).toLong() && pnlPct < -0.5    // keep: flat cap
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
@@ -1400,14 +1403,23 @@ object ShitCoinTraderAI {
         return SC_CONF_BOOST_MAX * (1.0 - progress).coerceIn(0.0, 1.0)
     }
     
-    fun getFluidScoreThreshold(): Int = lerp(SC_SCORE_BOOTSTRAP.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
-    
+    fun getFluidScoreThreshold(): Int {
+        val base = lerp(SC_SCORE_BOOTSTRAP.toDouble(), SC_SCORE_MATURE.toDouble()).toInt()
+        // V5.9.446 — Meme WR emergency brake: +15 to score floor when meme
+        // WR < 30% over last 200 closes. Raises the entry bar until WR recovers.
+        return base + try { com.lifecyclebot.engine.MemeWREmergencyBrake.scoreBoost() } catch (_: Throwable) { 0 }
+    }
+
     fun getFluidConfidenceThreshold(): Int {
         val baseConf = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble())
         val boost = getBootstrapConfBoost()
+        // V5.9.446 — WR brake also raises confidence bar +10 when engaged.
+        val brakeBoost = try {
+            if (com.lifecyclebot.engine.MemeWREmergencyBrake.isEngaged()) 10 else 0
+        } catch (_: Throwable) { 0 }
         // During bootstrap: 25% base + 10% boost = 35% effective
         // At maturity: 50% base + 0% boost = 50% effective
-        return (baseConf + boost).toInt()
+        return (baseConf + boost).toInt() + brakeBoost
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)

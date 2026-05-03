@@ -624,10 +624,18 @@ class Executor(
         if (result.solAmount <= 0.0) {
             onLog("📊 AI Sizer blocked: ${result.explanation}", "sizing")
         } else {
-            val finalSol = result.solAmount * patternSizeMult
+            // V5.9.446 — meme WR emergency brake halves sizing when engaged
+            // (meme WR < 30% after 500+ trades). Releases automatically at 35%.
+            val brakeMult = try {
+                com.lifecyclebot.engine.MemeWREmergencyBrake.sizingMultiplier()
+            } catch (_: Throwable) { 1.0 }
+            val finalSol = result.solAmount * patternSizeMult * brakeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
+            }
+            if (brakeMult != 1.0) {
+                onLog("🚨 WR-brake mult: ${"%.2f".format(brakeMult)}x (meme WR low — halving risk)", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
