@@ -358,6 +358,18 @@ object ManipulatedTraderAI {
         val pnlSol = pos.entrySol * (pnlPct / 100.0)
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
+
+        // V5.9.434 — journal every V3 sub-trader close so the persistent
+        // Trade Journal reflects ALL trades across the universe.
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = pos.mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = pos.isPaper, layer = "MANIPULATED",
+                exitReason = reason.name,
+            )
+        } catch (_: Exception) {}
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (_: Exception) {}
         if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (_: Exception) {}

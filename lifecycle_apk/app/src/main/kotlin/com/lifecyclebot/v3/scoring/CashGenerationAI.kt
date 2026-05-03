@@ -1096,6 +1096,19 @@ object CashGenerationAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
 
+        // V5.9.434 — journal every V3 sub-trader close so the persistent
+        // Trade Journal reflects ALL trades across the universe (was only
+        // showing ~300 of 4791 because V3 sub-traders bypassed Executor).
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = pos.mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = pos.isPaper, layer = "CASHGEN",
+                exitReason = exitReason.name,
+            )
+        } catch (_: Exception) {}
+
         recentExits[mint] = System.currentTimeMillis()
         val oneMinuteAgo = System.currentTimeMillis() - 60_000
         recentExits.entries.removeIf { it.value < oneMinuteAgo }

@@ -530,6 +530,18 @@ object QualityTraderAI {
         val pnlSol = pos.entrySol * pnlPct / 100
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
 
+        // V5.9.434 — journal every V3 sub-trader close so the persistent
+        // Trade Journal reflects ALL trades across the universe.
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = pos.mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = isPaperMode, layer = "QUALITY",
+                exitReason = exitSignal.name,
+            )
+        } catch (_: Exception) {}
+
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (_: Exception) {}
 

@@ -833,6 +833,17 @@ object MoonshotTraderAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold (was 1.0% → killed WR via scratch count)
+
+        // V5.9.434 — journal every V3 Moonshot close so it shows in Journal
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = pos.isPaperMode, layer = "MOONSHOT",
+                exitReason = exitReason.name,
+            )
+        } catch (_: Exception) {}
         
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}

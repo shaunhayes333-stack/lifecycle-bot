@@ -358,7 +358,18 @@ object BlueChipTraderAI {
             ((exitPrice - pos.entryPrice) / pos.entryPrice * 100).coerceIn(-100.0, 10_000.0)
         } else 0.0
         val pnlSol = pos.entrySol * pnlPct / 100
-        
+
+        // V5.9.434 — journal every V3 BlueChip close so it shows in Journal
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = pos.isPaper, layer = "BLUECHIP",
+                exitReason = exitReason.name,
+            )
+        } catch (_: Exception) {}
+
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "BLUECHIP") } catch (_: Exception) {}
 
