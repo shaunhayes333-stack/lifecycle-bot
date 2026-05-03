@@ -1496,6 +1496,58 @@ class BotService : Service() {
                 addLog("⚠️ Position restore failed: ${e.message}")
             }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.430 — START-UP HARD-FLOOR CATCH-UP SWEEP
+        //
+        // Before the scan loop begins, iterate every restored/open position
+        // and force-exit anything already at <= -20% PnL. This clears the
+        // backlog of stuck underwater positions (GOBLININU -97.7%, SPEEDRUN
+        // -16%, etc.) on the first tick after installing this APK, rather
+        // than waiting for the next scan cycle to walk every token.
+        //
+        // Uses the same resolveLivePrice fan-out as the in-loop universal
+        // hard floor (V5.9.429). Runs once per startBot() — does not repeat.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+            val wallet = null as com.lifecyclebot.data.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
+            val snapshot = synchronized(status.tokens) { status.tokens.values.toList() }
+            var swept = 0
+            for (ts in snapshot) {
+                try {
+                    val pos = ts.position
+                    if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) continue
+                    val price = resolveLivePrice(ts)
+                    if (price <= 0.0) continue
+                    val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
+                    if (pnlPct <= -20.0) {
+                        ErrorLogger.warn("BotService",
+                            "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% — closing stale underwater position")
+                        addLog("🛑 STARTUP SWEEP: ${ts.symbol} ${pnlPct.toInt()}% — forced exit")
+                        executor.requestSell(
+                            ts = ts,
+                            reason = "STARTUP_SWEEP_HARD_FLOOR_${pnlPct.toInt()}PCT",
+                            wallet = wallet,
+                            walletSol = effectiveBalance,
+                        )
+                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                        swept++
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "startup-sweep error for ${ts.symbol}: ${e.message}")
+                }
+            }
+            if (swept > 0) {
+                addLog("🧹 Startup sweep: force-closed $swept underwater position(s) below -20%")
+                ErrorLogger.info("BotService", "Startup hard-floor sweep cleared $swept stuck positions")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Startup hard-floor sweep failed: ${e.message}", e)
+        }
+
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
 
