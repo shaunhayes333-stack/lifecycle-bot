@@ -4532,7 +4532,25 @@ class Executor(
                 mint             = ts.mint,
             )
             recordTrade(ts, trade)
-            onPaperBalanceChange?.invoke(soldValueSol + profitSol)
+            // V5.9.428 — treasury split on partial sells too (same model as
+            // full paperSell): meme wins 70/30, treasury scalps 100%, losers
+            // contribute nothing. soldValueSol includes principal+profit share
+            // of the sold slice; we deduct treasuryShare before crediting.
+            val partialTreasuryShare = if (profitSol > 0) {
+                try {
+                    if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                        com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
+                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                    } else {
+                        com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Treasury split error (partial paper): ${e.message}")
+                    0.0
+                }
+            } else 0.0
+            onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
             TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
 
@@ -4807,8 +4825,29 @@ class Executor(
         try {
             com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
         } catch (_: Exception) { /* non-critical */ }
-        
-        onPaperBalanceChange?.invoke(value)
+
+        // V5.9.428 — treasury split BEFORE wallet credit (was double-counting).
+        // Previously: wallet got `value` (principal + 100% profit) AND treasury
+        // got 30% on top — inflating both balances and leaving treasury a
+        // phantom counter. Now: compute treasuryShare first, credit wallet
+        // with (value - treasuryShare) so capital accounting is honest.
+        //   • Losing/scratch sells           → treasuryShare = 0 (unchanged)
+        //   • Treasury-scalp wins            → 100% of profit → treasury
+        //   • All other meme wins            → 30% of profit  → treasury
+        val treasuryShare = if (pnl > 0) {
+            try {
+                if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                    TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice)
+                } else {
+                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "Treasury split error (paper): ${e.message}")
+                0.0
+            }
+        } else 0.0
+
+        onPaperBalanceChange?.invoke(value - treasuryShare)
         
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)
@@ -4845,17 +4884,10 @@ class Executor(
             }
         } catch (_: Exception) {}
 
-        // V5.9.399 — flat 30% of realized profit goes to Treasury on every
-        // green meme sell (no milestone gate). Losing/scratch sells contribute
-        // nothing — principal is preserved, treasury grows only from wins.
-        if (pnl > 0) {
-            try {
-                TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
-            } catch (e: Exception) {
-                ErrorLogger.debug("Executor", "Treasury 70/30 split error (paper): ${e.message}")
-            }
-        }
-        
+        // V5.9.399 / V5.9.428 — treasury split moved above and integrated with
+        // wallet credit so accounting is honest (no double-counting). Losing
+        // sells still contribute nothing.
+
         if (pnl > 0) {
             try {
                 val drawdownPct = SmartSizer.getCurrentDrawdownPct(isPaper = true)

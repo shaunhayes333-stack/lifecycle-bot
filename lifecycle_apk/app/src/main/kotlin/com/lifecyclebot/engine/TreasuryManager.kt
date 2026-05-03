@@ -263,6 +263,33 @@ object TreasuryManager {
     const val MEME_SELL_TREASURY_PCT = 0.30
 
     /**
+     * V5.9.428 — 100% of realized profit from a treasury-scalp sell goes to
+     * the treasury wallet (not split). Principal stays with the trading
+     * wallet; only the profit is siphoned. Caller is expected to deduct this
+     * amount from the wallet credit so accounting stays consistent.
+     */
+    fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double): Double {
+        if (realizedProfitSol <= 0.0) return 0.0
+        if (realizedProfitSol < 1e-6) return 0.0
+        val safePx = if (solPrice > 0.0) solPrice else 0.0
+        treasurySol += realizedProfitSol
+        treasuryUsd += realizedProfitSol * safePx
+        lifetimeLocked += realizedProfitSol
+        ErrorLogger.info("Treasury",
+            "💰 TREASURY SCALP 100%: profit=${realizedProfitSol.fmtSol()}◎ → treasury " +
+            "+${realizedProfitSol.fmtSol()}◎ | balance=${treasurySol.fmtSol()}◎"
+        )
+        addEvent(TreasuryEvent(
+            type = TreasuryEventType.PROFIT_LOCKED,
+            amountSol = realizedProfitSol,
+            description = "Treasury scalp: locked 100% of +${realizedProfitSol.fmtSol()}◎ realized",
+            walletUsd = peakWalletUsd,
+            solPrice = safePx,
+        ))
+        return realizedProfitSol
+    }
+
+    /**
      * Called from Executor.paperSell / liveSell when a meme position closes.
      * Splits realized profit 70/30: 70% remains in trading wallet (already
      * credited by paperSell/liveSell), 30% is siphoned into the treasury.

@@ -2760,6 +2760,13 @@ for legal compliance.
             // live values from FluidLearningAI so the UI matches the exit
             // engine. Falls back to the stored static TP/SL if fluid math
             // can't compute (very early position, no peak yet).
+            // V5.9.428 — peak fix: sub-traders (Moonshot / ShitCoin) maintain
+            // their own internal peakPnlPct but never mirror it back to
+            // pos.peakGainPct, so the "🎯 Peak +X%" badge displayed a stale
+            // peak (e.g. +252% on a +3198% runner) and the fluid lock was
+            // calculated from the stale value. Sync inline on every render
+            // so peak always reflects the live high-water mark.
+            if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
             val holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
             val vol = ts.volatility ?: 50.0
             val fluidStop = try {
