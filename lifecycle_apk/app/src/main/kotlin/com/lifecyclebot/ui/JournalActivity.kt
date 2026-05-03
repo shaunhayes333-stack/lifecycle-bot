@@ -70,6 +70,15 @@ class JournalActivity : AppCompatActivity() {
         setContentView(R.layout.activity_journal)
         supportActionBar?.hide()
 
+        // V5.9.431 — belt-and-braces: ensure SQLite-backed trade store is
+        // open even if Journal is the first activity after a cold start and
+        // something skipped AATEApp init. The store's own lazy-init also
+        // covers this, but calling explicitly here guarantees the persisted
+        // trades load synchronously before buildJournal runs.
+        try {
+            com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
+        } catch (_: Exception) {}
+
         journal = try {
             BotService.instance?.tradeJournal ?: TradeJournal(applicationContext)
         } catch (_: Exception) {

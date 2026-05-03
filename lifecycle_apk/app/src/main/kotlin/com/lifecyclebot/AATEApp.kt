@@ -41,6 +41,20 @@ class AATEApp : Application() {
             android.util.Log.e("AATEApp", "Failed to init ErrorLogger: ${e.message}", e)
         }
 
+        // V5.9.431 — Initialize TradeHistoryStore EARLY so the journal starts
+        // logging immediately regardless of whether the bot is running or the
+        // user opens JournalActivity before MainActivity. Prior to this, the
+        // SQLite store only initialized inside BotService.startBot() (line
+        // 389) and MainActivity.onCreate, which meant any trade recorded
+        // before those ran was silently dropped by the null ioHandler, and a
+        // user opening Journal while the bot was OFF saw an empty list.
+        try {
+            com.lifecyclebot.engine.TradeHistoryStore.init(this)
+            ErrorLogger.info("App", "TradeHistoryStore initialized — journal persistence active")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "TradeHistoryStore init failed: ${e.message}", e)
+        }
+
         // V5.9.14: Initialize SymbolicContext — loads persisted mood/edge state
         try {
             com.lifecyclebot.engine.SymbolicContext.init(this)

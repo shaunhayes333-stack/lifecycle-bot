@@ -204,7 +204,25 @@ object TradeHistoryStore {
 
     // ── Public API ───────────────────────────────────────────────────
 
+    /**
+     * V5.9.431 — guarantee init() has run before any write, so a trade can
+     * never be silently dropped by a null ioHandler/db. Lazy-inits using
+     * AATEApp.appContextOrNull() if nothing else did yet.
+     */
+    private fun ensureInitialized() {
+        if (db != null && ioHandler != null) return
+        try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
+            init(ctx)
+            ErrorLogger.warn("TradeHistoryStore",
+                "Lazy init triggered — recordTrade called before explicit init(). Journal persistence restored.")
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "Lazy init failed: ${e.message}")
+        }
+    }
+
     fun recordTrade(trade: Trade) {
+        ensureInitialized()
         synchronized(lock) {
             trades.add(trade)
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
@@ -224,6 +242,7 @@ object TradeHistoryStore {
     }
 
     fun recordTrades(newTrades: List<Trade>) {
+        ensureInitialized()
         val existingKeys = synchronized(lock) {
             trades.map { "${it.ts}_${it.mint}" }.toSet()
         }
@@ -236,7 +255,10 @@ object TradeHistoryStore {
         }
     }
 
-    fun getAllTrades(): List<Trade> = synchronized(lock) { trades.toList() }
+    fun getAllTrades(): List<Trade> {
+        ensureInitialized()
+        return synchronized(lock) { trades.toList() }
+    }
 
     /** MANUAL CLEAR — only clears visual journal rows; lifetime counters preserved. */
     fun clearAllTrades() {
@@ -271,6 +293,7 @@ object TradeHistoryStore {
     fun getTotalTradeCount(): Int = synchronized(lock) { trades.size }
 
     fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
+        ensureInitialized()
         val partialTrade = Trade(
             side  = "PARTIAL_SELL",
             mode  = "paper",
