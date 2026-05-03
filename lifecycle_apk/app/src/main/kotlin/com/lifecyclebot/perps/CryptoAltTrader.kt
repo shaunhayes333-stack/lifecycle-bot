@@ -1326,7 +1326,9 @@ object CryptoAltTrader {
             com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).rsi
         } catch (_: Exception) { 50.0 }
         val techMacdBullish = try {
-            com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).macdSignal == "BULLISH"
+            val sig = com.lifecyclebot.perps.PerpsAdvancedAI.analyzeTechnicals(market).macdSignal
+            sig == com.lifecyclebot.perps.PerpsAdvancedAI.MacdSignal.BULLISH ||
+                sig == com.lifecyclebot.perps.PerpsAdvancedAI.MacdSignal.BULLISH_CROSS
         } catch (_: Exception) { false }
         val strongLongSetup = kotlin.math.abs(change) >= 0.5 &&
             (techRsiForGate > 55.0 || techMacdBullish)
