@@ -518,9 +518,13 @@ object CommoditiesTrader {
             }
         } catch (_: Exception) {}
         
-        // V5.9.199: Raised floor 35/30 → 50/40 (matches CryptoAlt fix)
-        if (score < 50) score = 50
-        if (confidence < 40) confidence = 40
+        // V5.9.445 — CONFLUENCE GATE. Require ≥2 layerVotes so starved
+        // signals (only Momentum voting) don't reach execution. See
+        // TokenizedStockTrader for writeup. Also drop the legacy 50/40
+        // score floor since it was artificially inflating defaults.
+        if (layerVotes.size < 2) {
+            return null
+        }
         // V5.9.328: Removed ALWAYS_TRADE label — quality-gated now.
         reasons.add("📚 Learning: quality-gated mode")
         

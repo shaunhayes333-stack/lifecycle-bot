@@ -110,6 +110,13 @@ object PerpsUnifiedScorerBridge {
         mcapUsd: Double,
         priceChangePct: Double,
         direction: String,   // "LONG" | "SHORT"
+        // V5.9.445 — caller-supplied confluence count. Default 2 means the
+        // non-meme TECH-GATE requires at least 2 independent layer votes
+        // (Momentum is always 1; need a Technical/Volume/Sector/etc. to pair it).
+        // Traders that don't track layerVotes pass 2 implicitly so they're
+        // unaffected; TokenizedStock/Forex/Metals/Commodities pass their
+        // real layerVotes.size.
+        contributingLayers: Int = 2,
     ): V3Verdict {
         // V5.9.366 — non-meme asset short-circuit.
         //
@@ -125,22 +132,35 @@ object PerpsUnifiedScorerBridge {
         //   (60% technical + 40% V3) below blendedFloor and silently vetoing
         //   every Markets-layer trade.
         //
-        // FIX: For STOCK / FOREX / METAL / COMMODITY / PERP_INDEX asset
-        //   classes, gate on technicalScore + technicalConfidence directly
-        //   (the gates the trader's own analyzer already validated) and
-        //   skip the meme-tuned V3 stack. ALT (CryptoAlts) and meme paths
-        //   keep the original blended gate.
+        // FIX (V5.9.366): For STOCK / FOREX / METAL / COMMODITY / PERP_INDEX
+        //   asset classes, gate on technicalScore + technicalConfidence directly
+        //   and skip the meme-tuned V3 stack.
+        //
+        // V5.9.445 tightening: the previous 45/35 floor allowed every single
+        // analyzeStock() default (score=50, conf=50) to pass the gate — which
+        // is how the bot was opening 4 stock trades per loop at 22% WR.
+        // Raise the floor ABOVE the neutral default (50/50) AND require
+        // ≥2 confluence layers, so pure-default/starved signals are vetoed.
         val isMemeOrAlt = assetClass.equals("ALT", ignoreCase = true) ||
                           assetClass.equals("MEME", ignoreCase = true) ||
                           assetClass.equals("CRYPTO", ignoreCase = true)
         if (!isMemeOrAlt) {
-            // Pure technical gate for real-world assets. Floor is the same
-            // 45/35 baseline V3 used as its fallback path — known-good defaults.
-            val techOk = technicalScore >= 45 && technicalConfidence >= 35
+            // Fluid floor: 55 at bootstrap → 65 at maturity. >50 ensures
+            // the pure-neutral default never passes. Confidence floor mirrors
+            // this so one-sided signals (score high / conf low) also fail.
+            val lpNm = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            } catch (_: Exception) { 1.0 }
+            val scoreFloor = (55 + (lpNm * 10)).toInt().coerceIn(55, 65)
+            val confFloor  = (50 + (lpNm * 10)).toInt().coerceIn(50, 60)
+            val confluenceOk = contributingLayers >= 2
+            val techOk = technicalScore >= scoreFloor &&
+                         technicalConfidence >= confFloor &&
+                         confluenceOk
             if (techOk) {
-                ErrorLogger.info(TAG, "[$assetClass] $symbol: TECH-GATE PASS score=$technicalScore conf=$technicalConfidence (V3 bypass — non-meme asset)")
+                ErrorLogger.info(TAG, "[$assetClass] $symbol: TECH-GATE PASS score=$technicalScore≥$scoreFloor conf=$technicalConfidence≥$confFloor layers=$contributingLayers (V3 bypass — non-meme asset)")
             } else {
-                ErrorLogger.debug(TAG, "[$assetClass] $symbol: TECH-GATE veto score=$technicalScore<45 or conf=$technicalConfidence<35")
+                ErrorLogger.debug(TAG, "[$assetClass] $symbol: TECH-GATE veto score=$technicalScore<$scoreFloor | conf=$technicalConfidence<$confFloor | layers=$contributingLayers<2")
             }
             return V3Verdict(
                 v3Score = 0,

@@ -566,10 +566,23 @@ object TreasuryManager {
         lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
         peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
         
-        // Safety check: if no milestones were ever hit but treasury has a value,
-        // this is corrupted state - reset it
-        if (highestMilestoneHit < 0 && treasurySol > 0) {
-            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones. Resetting.")
+        // V5.9.445 — the old "corruption" guard (milestone<0 && treasury>0)
+        // was wiping the legitimate $500 seed on every reload: the seed
+        // path at the bottom of loadOrInit() sets treasurySol without
+        // setting a milestone (because the seed itself *is* the milestone
+        // floor, not a profit-lock event). The wipe → reseed → wipe loop
+        // was destroying any accumulated treasury between app restarts.
+        //
+        // FIX: only treat as corrupted when the stored value is clearly
+        // above the seed floor ( > 2× seed ) AND no lifetime_locked or
+        // milestones were ever recorded. Seed state (treasury~5.88, lifetime=5.88)
+        // and any state with real lock history are now preserved.
+        val SEED_SOL = 5.8824
+        val looksLikeSeed  = kotlin.math.abs(treasurySol - SEED_SOL) < 0.01 &&
+                             kotlin.math.abs(lifetimeLocked - SEED_SOL) < 0.01
+        val hasLockHistory = lifetimeLocked > 0.0 || lifetimeWithdrawn > 0.0
+        if (highestMilestoneHit < 0 && treasurySol > SEED_SOL * 2.0 && !hasLockHistory && !looksLikeSeed) {
+            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones/history. Resetting.")
             treasurySol = 0.0
             treasuryUsd = 0.0
         }

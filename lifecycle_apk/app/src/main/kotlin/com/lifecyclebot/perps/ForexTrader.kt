@@ -517,6 +517,13 @@ object ForexTrader {
             }
         } catch (_: Exception) {}
         
+        // V5.9.445 — CONFLUENCE GATE. Require ≥2 layerVotes so starved
+        // signals (only ForexStrategy + Momentum voting, technicals at
+        // neutral defaults) don't reach execution. See TokenizedStockTrader
+        // for the root-cause writeup.
+        if (layerVotes.size < 2) {
+            return null
+        }
         // Floor for paper mode learning
         // V5.9.328: Removed score/confidence floors — inflating scores was injecting
         // blind NEUTRAL signals. Quality gate in runScanCycle handles thresholds.

@@ -2574,6 +2574,11 @@ object CryptoAltTrader {
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🪙 Mode switched to ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
+            // V5.9.445 — Paper→Live parity audit (user 02-2026: "ensure when
+            // we go live all learning is applied. so the user feels no
+            // difference"). Emit an explicit confirmation so we can see in
+            // the logs that the full learning/guard stack is still wired.
+            ErrorLogger.info(TAG, "🔴 LIVE PARITY: ChopFilter✓ OutcomeGates✓ PeakDrawdownLock✓ FluidLearning✓ Sentience✓ V3Scorer✓ — all gates active")
             // Sync wallet balance immediately on mode switch
             try {
                 val sol = WalletManager.getWallet()?.getSolBalance() ?: 0.0

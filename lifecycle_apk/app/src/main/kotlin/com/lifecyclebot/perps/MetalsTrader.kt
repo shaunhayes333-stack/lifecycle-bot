@@ -514,6 +514,12 @@ object MetalsTrader {
             }
         } catch (_: Exception) {}
         
+        // V5.9.445 — CONFLUENCE GATE. Require ≥2 layerVotes so starved
+        // signals (only Momentum voting, technicals at neutral defaults)
+        // don't reach execution. See TokenizedStockTrader for writeup.
+        if (layerVotes.size < 2) {
+            return null
+        }
         // V5.9.328: Removed score/confidence floors — inflating scores past fluid thresholds
         // was injecting blind signals with RSI=50/MACD=NEUTRAL into live trading.
         reasons.add("📚 Learning: quality-gated mode")

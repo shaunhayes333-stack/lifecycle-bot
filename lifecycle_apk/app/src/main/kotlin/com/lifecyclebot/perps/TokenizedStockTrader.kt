@@ -720,6 +720,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                                 mcapUsd = 1_000_000_000.0,
                                 priceChangePct = signal.priceChange24h,
                                 direction = signal.direction.name,
+                                contributingLayers = signal.layerVotes.size,
                             )
                             if (verdict.shouldEnter) {
                                 ErrorLogger.info(TAG, "📈 V3-OVERRIDE: ${market.symbol} (score=${signal.score}/${signal.confidence} vs fluid ${scoreThresh}/${confThresh}) → v3=${verdict.v3Score} blended=${verdict.blendedScore}")
@@ -1004,6 +1005,15 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             }
         } catch (_: Exception) {}
         
+        // V5.9.445 — CONFLUENCE GATE. If only Momentum (or zero) contributed,
+        // every indicator is at neutral defaults → this is a starved signal,
+        // not edge. Return null so it never reaches the bridge. User 02-2026:
+        // "meme trader at 22% WR after 1,175 trades" — root-caused to stock
+        // trades opened at score=50/conf=50/RSI=50/MACD=NEUTRAL with only
+        // Momentum voting. Require ≥2 layerVotes.
+        if (layerVotes.size < 2) {
+            return null
+        }
         // V5.9.328: Removed forced score >= 35 floor — it was pushing genuinely bad
         // signals over the prefilter gate (score >= 45 → V3) and injecting noise trades.
         // Real signals that don't meet the threshold should be REJECTED, not inflated.

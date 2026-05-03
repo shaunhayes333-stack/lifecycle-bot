@@ -907,7 +907,12 @@ object PerpsAdvancedAI {
     ) {
         if (currentPrice <= 0.0) return
         val history = priceHistory.getOrPut(market) { mutableListOf() }
-        if (history.size >= 14) return                   // already warm
+        // V5.9.445 — RSI needs 28 (period*2) and MACD needs 26. Only skip if
+        // we already have a REAL warm history (≥28 real ticks), not the old
+        // 14-point threshold that left RSI=50/MACD=NEUTRAL stuck until we'd
+        // accumulated another dozen live ticks per symbol. That starvation
+        // is what was causing every stock to fire at score=50/conf=50.
+        if (history.size >= 28) return                   // already warm
         if (high24h <= 0.0 || low24h <= 0.0 || high24h < low24h) return
         val now = System.currentTimeMillis()
         history.clear()
@@ -922,7 +927,11 @@ object PerpsAdvancedAI {
         // This gives RSI≈60-70 for bullish assets and RSI≈30-40 for bearish ones.
         val mid = (high24h + low24h) / 2.0
         val isBullish = currentPrice >= mid
-        val tapeSize = 14
+        // V5.9.445 — 30 points so calculateRSI (needs ≥28) and calculateMACD
+        // (needs ≥26) both compute real values immediately on first analyze.
+        // Previously 14, which left both stuck at neutral defaults — the
+        // root cause of "RSI=50 MACD=NEUTRAL" on every stock in the logs.
+        val tapeSize = 30
         val tape = (0 until tapeSize).map { idx ->
             val t = idx.toDouble() / (tapeSize - 1)  // 0.0 → 1.0
             if (isBullish) {
