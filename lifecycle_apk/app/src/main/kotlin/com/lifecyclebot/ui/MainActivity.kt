@@ -4876,7 +4876,7 @@ This cannot be undone!
             // trader's stats are showing.
             tvLiveReadinessTitle?.text = when (currentReadinessTab) {
                 "ALTS"  -> "🚀 Live Readiness · 🪙 CRYPTO"
-                "PERPS" -> "🚀 Live Readiness · ⚡ AATE MARKETS"  // V5.9.387 — unified view
+                "PERPS" -> "🚀 Live Readiness · 📈 MARKETS"  // V5.9.433 — renamed from AATE MARKETS
                 else    -> "🚀 Live Readiness · 💎 MEME"
             }
             when (currentReadinessTab) {
@@ -5106,7 +5106,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
-                tvReadinessRecommendation.text = "✅ Crypto Alts profitable in paper. Safe for live."
+                tvReadinessRecommendation.text = "✅ Crypto profitable in paper. Safe for live."
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
@@ -5128,7 +5128,7 @@ This cannot be undone!
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
-                tvReadinessRecommendation.text = "🚫 Alts learning. ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.text = "🚫 Crypto learning. ${needed.joinToString(" · ")}"
                 tvReadinessRecommendation.setTextColor(red)
             }
         }

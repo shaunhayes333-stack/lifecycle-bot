@@ -55,6 +55,18 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "TradeHistoryStore init failed: ${e.message}", e)
         }
 
+        // V5.9.433 — restore TreasuryManager here too, so the 70/30 splits
+        // and 100% scalp deposits can auto-persist (cachedCtx is seeded on
+        // restore). Previously only BotService.startBot did this, which
+        // meant contributions before startBot would land in memory-only and
+        // get wiped on process kill. Restore is idempotent.
+        try {
+            com.lifecyclebot.engine.TreasuryManager.restore(this)
+            ErrorLogger.info("App", "TreasuryManager restored — treasury persistence active")
+        } catch (e: Exception) {
+            ErrorLogger.error("App", "TreasuryManager restore failed: ${e.message}", e)
+        }
+
         // V5.9.14: Initialize SymbolicContext — loads persisted mood/edge state
         try {
             com.lifecyclebot.engine.SymbolicContext.init(this)

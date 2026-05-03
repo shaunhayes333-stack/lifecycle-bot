@@ -695,7 +695,7 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="🌐" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Alts" android:textColor="#A78BFA" android:textSize="8sp"
+                        android:text="Crypto" android:textColor="#A78BFA" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvCryptoAltsStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -810,7 +810,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🪙 Alts"
+                        android:text="🪙 Crypto"
                         android:gravity="center"
                         android:textColor="#9CA3AF"
                         android:background="@drawable/pill_bg"
@@ -826,7 +826,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="⚡ Perps"
+                        android:text="📈 Markets"
                         android:gravity="center"
                         android:textColor="#9CA3AF"
                         android:background="@drawable/pill_bg"
@@ -1531,7 +1531,7 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📊" android:textSize="16sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Perps" android:textColor="#FF6B6B" android:textSize="8sp"
+                        android:text="Markets" android:textColor="#FF6B6B" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvPerpsStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"

@@ -91,8 +91,7 @@ object TreasuryManager {
     // ── In-memory state ───────────────────────────────────────────────
 
     /** Total SOL locked in treasury (never traded) */
-    @Volatile var treasurySol: Double = 0.0
-        private set
+    @Volatile var treasurySol: Double = 0.0        private set
 
     /** USD value of treasury at time of locking (informational) */
     @Volatile var treasuryUsd: Double = 0.0
@@ -120,6 +119,25 @@ object TreasuryManager {
     /** History of treasury events for display */
     private val _events = ArrayDeque<TreasuryEvent>(50)
     val events: List<TreasuryEvent> get() = _events.toList().reversed()
+
+    // V5.9.433 — cached Context so contribute* / lock* / withdraw* helpers
+    // can persist state immediately instead of waiting for BotService to
+    // call save() on the next cycle. Set on restore() and on save() from
+    // BotService/Activity; cleared on reset(). Always checked non-null
+    // before use (best-effort; falls back to next explicit save()).
+    @Volatile private var cachedCtx: Context? = null
+    @Volatile private var lastAutoSaveMs: Long = 0L
+    private const val AUTO_SAVE_MIN_INTERVAL_MS = 5_000L  // avoid IO spam
+
+    private fun autoSave() {
+        val ctx = cachedCtx ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastAutoSaveMs < AUTO_SAVE_MIN_INTERVAL_MS) return
+        lastAutoSaveMs = now
+        try { save(ctx) } catch (e: Exception) {
+            ErrorLogger.debug("Treasury", "autoSave failed: ${e.message}")
+        }
+    }
 
     // ── Core update logic ─────────────────────────────────────────────
 
@@ -201,6 +219,7 @@ object TreasuryManager {
                 walletUsd = peakWalletUsd,
                 solPrice = solPrice,
             ))
+            autoSave()   // V5.9.433 — persist milestone locks immediately
         }
     }
     
@@ -286,6 +305,7 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
+        autoSave()   // V5.9.433 — persist immediately so reboots don't wipe the gain
         return realizedProfitSol
     }
 
@@ -324,6 +344,7 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
+        autoSave()   // V5.9.433 — persist 30% splits immediately
         return contribSol
     }
 
@@ -443,6 +464,7 @@ object TreasuryManager {
     // ── Persistence ───────────────────────────────────────────────────
 
     fun save(ctx: Context) {
+        cachedCtx = ctx   // V5.9.433 — cache for autoSave() after contribute*/lock*/withdraw*
         // V5.6.17: Save to both encrypted AND regular prefs for redundancy
         val obj = JSONObject().apply {
             put("treasury_sol",        treasurySol)
@@ -479,6 +501,7 @@ object TreasuryManager {
     }
 
     fun restore(ctx: Context) {
+        cachedCtx = ctx   // V5.9.433 — cache for autoSave()
         var restored = false
         
         // Try primary: Encrypted SharedPreferences
