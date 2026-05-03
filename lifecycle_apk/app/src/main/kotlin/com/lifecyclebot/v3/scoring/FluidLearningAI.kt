@@ -2329,4 +2329,35 @@ object FluidLearningAI {
     fun getAltsSpotTpPct():          Double = lerpAlts(MARKETS_TP_BOOTSTRAP, MARKETS_TP_MATURE)
     fun getAltsLevTpPct():           Double = lerpAlts(MARKETS_TP_BOOTSTRAP * 1.5, MARKETS_TP_MATURE * 1.5)
 
+    // ═════════════════════════════════════════════════════════════════════
+    // V5.9.439 — DURABLE BRAIN-STATE EXPORT/IMPORT
+    //
+    // Memes session counters + behavior/aggression modifiers were reset on
+    // every reboot because only Markets/Alts had their own SharedPreferences.
+    // LearningPersistence calls these to mirror state to the central
+    // learning_kv SQLite table so the FULL brain survives restarts.
+    // ═════════════════════════════════════════════════════════════════════
+    fun exportState(): String {
+        return try {
+            val obj = org.json.JSONObject()
+            obj.put("sessionTrades", sessionTrades.get())
+            obj.put("sessionWins",   sessionWins.get())
+            obj.put("behaviorModifier",   behaviorModifier)
+            obj.put("aggressionModifier", aggressionModifier)
+            obj.put("liveTradeAccumulator", liveTradeAccumulator)
+            obj.toString()
+        } catch (_: Exception) { "{}" }
+    }
+
+    fun importState(json: String) {
+        try {
+            val obj = org.json.JSONObject(json)
+            sessionTrades.set(obj.optInt("sessionTrades", 0))
+            sessionWins.set(obj.optInt("sessionWins",   0))
+            behaviorModifier      = obj.optDouble("behaviorModifier",      0.0)
+            aggressionModifier    = obj.optDouble("aggressionModifier",    0.0)
+            liveTradeAccumulator  = obj.optDouble("liveTradeAccumulator",  0.0)
+        } catch (_: Exception) { /* fail-open */ }
+    }
+
 }

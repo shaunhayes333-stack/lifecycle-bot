@@ -83,6 +83,9 @@ object LearningPersistence {
             saveTracker(d, "SCORE", ScoreExpectancyTracker.exportState())
             saveTracker(d, "HOLD",  HoldDurationTracker.exportState())
             saveTracker(d, "EXIT",  ExitReasonTracker.exportState())
+            // V5.9.439 — generic brain-state blobs.
+            putBlob("FLUID_LEARNING", com.lifecyclebot.v3.scoring.FluidLearningAI.exportState())
+            putBlob("SENTIENCE",      com.lifecyclebot.engine.SentienceOrchestrator.exportState())
             d.setTransactionSuccessful()
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveAll error: ${e.message}")
@@ -97,6 +100,43 @@ object LearningPersistence {
         ScoreExpectancyTracker.importState(loadTracker(d, "SCORE"))
         HoldDurationTracker.importState(loadTracker(d, "HOLD"))
         ExitReasonTracker.importState(loadTracker(d, "EXIT"))
+        // V5.9.439 — restore every brain-state blob.
+        getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) }
+        getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // V5.9.439 — GENERIC BRAIN-STATE KV API
+    //   Any object can mirror its in-memory state to disk by providing
+    //   a JSON string via exportState()/importState() and piggy-backing
+    //   on this shared kv table instead of its own SQLiteOpenHelper.
+    //   Used for FluidLearningAI meme counters + SentienceOrchestrator
+    //   reflection log so the full brain survives reboots.
+    // ═════════════════════════════════════════════════════════════════
+
+    private fun putBlob(name: String, json: String) {
+        val d = db ?: return
+        try {
+            d.execSQL("DELETE FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(name))
+            d.execSQL(
+                "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
+                arrayOf(name, json, System.currentTimeMillis()),
+            )
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "putBlob($name) error: ${e.message}")
+        }
+    }
+
+    private fun getBlob(name: String): String? {
+        val d = db ?: return null
+        try {
+            d.rawQuery("SELECT payload FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(name)).use { c ->
+                if (c.moveToNext()) return c.getString(0)
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "getBlob($name) error: ${e.message}")
+        }
+        return null
     }
 
     private fun saveTracker(d: SQLiteDatabase, tracker: String, state: Map<String, List<Double>>) {

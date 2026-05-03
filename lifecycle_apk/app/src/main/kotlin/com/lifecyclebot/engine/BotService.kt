@@ -3862,6 +3862,27 @@ class BotService : Service() {
                 // LifecycleStrategy.shouldTradeBase / FinalDecisionGate.
                 try { com.lifecyclebot.engine.TradingCopilot.update() } catch (_: Exception) {}
 
+                // V5.9.439 — LEARNING TRANSPARENCY LOG (~every 5 min).
+                // Surfaces the live snapshots of the three outcome-attribution
+                // trackers so the user can see the brain narrowing toward
+                // profitable buckets in real time. Fires only when the cheap
+                // snapshot has at least one populated bucket.
+                try {
+                    val score = com.lifecyclebot.engine.ScoreExpectancyTracker.snapshot()
+                    val hold  = com.lifecyclebot.engine.HoldDurationTracker.snapshot()
+                    val exit  = com.lifecyclebot.engine.ExitReasonTracker.snapshot()
+                    if (score != "no samples yet" || hold != "no samples yet" || exit != "no samples yet") {
+                        ErrorLogger.info("BotService",
+                            "🧠 LEARNING SNAPSHOT\n" +
+                            "   score    : $score\n" +
+                            "   hold     : $hold\n" +
+                            "   exit     : $exit")
+                    }
+                } catch (_: Exception) {}
+
+                // V5.9.439 — flush learning state to disk periodically.
+                try { com.lifecyclebot.engine.LearningPersistence.saveAll() } catch (_: Exception) {}
+
                 // V5.9.318: LIVE WALLET RECONCILE SWEEP (~every 5 min, LIVE only).
                 // ROOT CAUSE: Sub-traders (ShitCoin/Moonshot/Quality/BlueChip
                 // /Manip) closePosition() paths only update in-memory PnL —

@@ -608,4 +608,43 @@ Omit zero fields. Only emit what you actually want to change.
 
     private fun fmtSigned(v: Double): String =
         if (v >= 0) "+${"%.3f".format(v)}" else "${"%.3f".format(v)}"
+
+    // ═════════════════════════════════════════════════════════════════════
+    // V5.9.439 — DURABLE SENTIENCE MEMORY
+    //
+    // Reflection log was in-memory only — every reboot threw away the
+    // monologue history the bot uses to build continuity of self.
+    // LearningPersistence calls these to mirror the last N reflections
+    // to the learning_kv SQLite table.
+    // ═════════════════════════════════════════════════════════════════════
+    fun exportState(): String {
+        return try {
+            val arr = org.json.JSONArray()
+            // Cap at most recent 50 entries to keep blob small (~50 × ~400B ≈ 20KB).
+            log.toList().takeLast(50).forEach { r ->
+                arr.put(
+                    org.json.JSONObject()
+                        .put("ts",  r.timestamp)
+                        .put("mon", r.monologue)
+                        .put("mut", r.mutationsApplied)
+                )
+            }
+            arr.toString()
+        } catch (_: Exception) { "[]" }
+    }
+
+    fun importState(json: String) {
+        try {
+            val arr = org.json.JSONArray(json)
+            log.clear()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                log.add(Reflection(
+                    timestamp        = o.optLong("ts", 0L),
+                    monologue        = o.optString("mon", ""),
+                    mutationsApplied = o.optString("mut", ""),
+                ))
+            }
+        } catch (_: Exception) { /* fail-open */ }
+    }
 }
