@@ -1617,9 +1617,12 @@ for legal compliance.
                 ?: 130.0  // Reasonable fallback if all else fails
             
             if (isPaper) {
-                // In paper mode, show the CashGenerationAI paper treasury balance
-                trs = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true)
-                trsUsd = trs * solPrice
+                // V5.9.425 — paper mode previously read CashGenerationAI's separate
+                // auto-compound counter, which hid the 70/30 meme-sell splits that
+                // land in TreasuryManager.treasurySol. Unified both modes on the
+                // canonical TreasuryManager counter so the 70/30 splits are visible.
+                trs = com.lifecyclebot.engine.TreasuryManager.treasurySol
+                trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             } else {
                 // In live mode, show the TreasuryManager live treasury
                 trs = ws.treasurySol

@@ -608,8 +608,17 @@ object PerpsMarketDataFetcher {
                             )
                         }
                     } else {
-                        // Stock, ETF, metal, commodity, forex — stale Pyth must fall through
-                        ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol} (${if(market.isMetal)"METAL" else if(market.isETF)"ETF" else if(market.isStock)"STOCK" else "OTHER"}) — using PriceAggregator")
+                        // Stock, ETF, metal, commodity, forex — stale Pyth must fall through.
+                        // V5.9.425 — suppress stale log for stocks/ETFs when US equity market
+                        // is closed (expected behaviour; fallback always succeeds). Keep the
+                        // log for metals/commodities/forex which trade ~24h.
+                        val isEquity = market.isStock || market.isETF
+                        val marketClosed = isEquity && runCatching {
+                            !com.lifecyclebot.perps.TokenizedStockTrader.isStockMarketOpen()
+                        }.getOrDefault(false)
+                        if (!marketClosed) {
+                            ErrorLogger.debug(TAG, "📊 Pyth stale for ${market.symbol} (${if(market.isMetal)"METAL" else if(market.isETF)"ETF" else if(market.isStock)"STOCK" else "OTHER"}) — using PriceAggregator")
+                        }
                     }
                 }
             } else {

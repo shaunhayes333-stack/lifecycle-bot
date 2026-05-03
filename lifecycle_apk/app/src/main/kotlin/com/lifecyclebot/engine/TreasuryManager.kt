@@ -273,10 +273,16 @@ object TreasuryManager {
      * @return amount actually moved to treasury (0 if profit was non-positive)
      */
     fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double): Double {
-        if (realizedProfitSol <= 0.0 || solPrice <= 0.0) return 0.0
+        if (realizedProfitSol <= 0.0) return 0.0
         val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT
-        if (contribSol < 0.0001) return 0.0
-        val contribUsd = contribSol * solPrice
+        // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
+        // negligible rounding (<1e-6) is the only thing skipped.
+        if (contribSol < 1e-6) return 0.0
+        // V5.9.425 — don't silently drop on missing SOL price (cold-start before
+        // WalletManager populates lastKnownSolPrice). Use 0 for USD bookkeeping;
+        // the SOL-side ledger is the source of truth.
+        val safePx = if (solPrice > 0.0) solPrice else 0.0
+        val contribUsd = contribSol * safePx
         treasurySol += contribSol
         treasuryUsd += contribUsd
         lifetimeLocked += contribSol
@@ -289,7 +295,7 @@ object TreasuryManager {
             amountSol = contribSol,
             description = "70/30 split: locked 30% of +${realizedProfitSol.fmtSol()}◎ realized",
             walletUsd = peakWalletUsd,
-            solPrice = solPrice,
+            solPrice = safePx,
         ))
         return contribSol
     }

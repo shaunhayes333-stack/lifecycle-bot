@@ -46,6 +46,12 @@ object PerpsAdvancedAI {
     
     private val priceHistory = ConcurrentHashMap<PerpsMarket, MutableList<PricePoint>>()
     private const val MAX_HISTORY_SIZE = 100  // Keep last 100 price points per asset
+
+    // V5.9.425 — memoize RSI/MACD debug lines per symbol for 30s so the same
+    // (symbol, rsi, macd, trend) tuple doesn't print 5× per scan when multiple
+    // lanes/traders call analyzeTechnicals() on the same cycle.
+    private val lastSignalLog = ConcurrentHashMap<String, Pair<Long, String>>()
+    private const val SIGNAL_LOG_WINDOW_MS = 30_000L
     
     data class PricePoint(
         val price: Double,
@@ -208,7 +214,16 @@ object PerpsAdvancedAI {
             else -> null
         }
         
-        ErrorLogger.debug(TAG, "📊 ${market.symbol} RSI=${"%.1f".format(rsi)} MACD=$macdSignal trend=${"%.0f".format(trendStrength)}")
+        // V5.9.425 — only emit once per (symbol, signature) per 30s window.
+        val signature = "RSI=${"%.1f".format(rsi)} MACD=$macdSignal trend=${"%.0f".format(trendStrength)}"
+        val sym = market.symbol
+        val prev = lastSignalLog[sym]
+        val now = System.currentTimeMillis()
+        val fresh = prev == null || (now - prev.first) >= SIGNAL_LOG_WINDOW_MS || prev.second != signature
+        if (fresh) {
+            lastSignalLog[sym] = now to signature
+            ErrorLogger.debug(TAG, "📊 $sym $signature")
+        }
         
         return TechnicalSignal(
             rsi = rsi,
