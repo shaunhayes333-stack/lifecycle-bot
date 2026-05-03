@@ -6517,12 +6517,11 @@ if (deferredCount > 0) {
                             )
 
                             // V5.9.443 — CHOP FILTER for Moonshot lane.
-                            // Squash eligibility when (DEX_BOOSTED/TRENDING × early_unknown/pre_pump)
-                            // AND score below chop-gate 60. Same rationale as ShitCoin gate.
+                            // V5.9.444 — fluid penalty (scales with learning progress).
                             if (moonshotScore.eligible &&
                                 ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
                                 ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
-                                val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.CHOP_SCORE_PENALTY
+                                val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.chopPenalty()
                                 if (moonshotScore.score < chopFloor) {
                                     ErrorLogger.info("BotService",
                                         "🔪 CHOP_REJECT[moonshot]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +
@@ -6773,14 +6772,15 @@ if (deferredCount > 0) {
 
                         // V5.9.443 — CHOP FILTER. Log-driven: 82% of trades
                         // were chop stop-outs on DEX_BOOSTED/TRENDING in
-                        // early_unknown/pre_pump. Require +10 extra score
-                        // on that combo (chop-gate = 50+10 = 60) to keep
-                        // the bot out of the knife pool.
+                        // early_unknown/pre_pump.
+                        // V5.9.444 — fluid penalty (scales with learning
+                        // progress) + fluid chop-gate (rises as the brain
+                        // matures, relaxes during bootstrap).
                         if (shitCoinSignal.shouldEnter &&
                             ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
                             ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
                             val rawScore = shitCoinSignal.entryScore
-                            val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.CHOP_SCORE_PENALTY
+                            val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.chopPenalty()
                             if (rawScore < chopFloor) {
                                 ErrorLogger.info("BotService",
                                     "🔪 CHOP_REJECT[shitcoin]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +

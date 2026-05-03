@@ -4714,23 +4714,20 @@ for legal compliance.
         val jupiterWins   = try { perps.getLifetimeWins() } catch (_: Exception) { 0 }
         val jupiterLosses = try { perps.getLifetimeLosses() } catch (_: Exception) { 0 }
         val jupiterPnl    = try { perps.getLifetimePnlSol() } catch (_: Exception) { 0.0 }
+        // V5.9.444 — start from Jupiter Perps ONLY. Alts was being added into
+        // Markets totals which made CRYPTO and MARKETS tabs show identical
+        // numbers when alts was the only sub-trader with trades (user report:
+        // both tabs showed 197t / 31% WR / 35/75/87 byte-for-byte). Markets
+        // now aggregates Perps + Stocks + Forex + Metals + Commodities only.
         var trades = jupiterTrades
         var wins   = jupiterWins
         var losses = jupiterLosses
         var aggPnlSol = jupiterPnl
         try {
-            val s = com.lifecyclebot.perps.CryptoAltTrader.getStats()
-            trades += (s["totalTrades"]   as? Int)    ?: 0
-            wins   += (s["winningTrades"] as? Int)    ?: 0
-            losses += (s["losingTrades"]  as? Int)    ?: 0
-            aggPnlSol += (s["totalPnlSol"] as? Double) ?: 0.0
-        } catch (_: Exception) {}
-        try {
             trades += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
             wins   += com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades()
             // V5.9.419 — no getLosingTrades() on this trader → don't fake
-            // losses as (total-wins) (was lumping scratches in as losses).
-            // The residual will surface as scratches in the W/L/S display.
+            // losses as (total-wins). The residual surfaces as scratches.
             aggPnlSol += com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol()
         } catch (_: Exception) {}
         try {
@@ -5156,17 +5153,11 @@ This cannot be undone!
 
         val buckets = mutableListOf<BucketStats>()
 
-        // Alts
-        try {
-            val s = com.lifecyclebot.perps.CryptoAltTrader.getStats()
-            buckets += BucketStats(
-                emoji = "🪙", shortLabel = "A",
-                trades = (s["totalTrades"] as? Int) ?: 0,
-                wins = (s["winningTrades"] as? Int) ?: 0,
-                pnlSol = (s["totalPnlSol"] as? Double) ?: 0.0,
-                winRate = (s["winRate"] as? Double) ?: 0.0,
-            )
-        } catch (_: Exception) {}
+        // V5.9.444 — Alts REMOVED from Markets aggregation. CRYPTO tab owns
+        // alts stats entirely (see renderAltsReadiness). Markets tab now
+        // reflects Perps + Stocks + Forex + Metals + Commodities only, so
+        // the two tabs stop showing byte-identical numbers when alts is the
+        // only bucket with activity.
 
         // Perps (Jupiter Perps proper)
         try {
