@@ -6502,7 +6502,7 @@ if (deferredCount > 0) {
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)
                             
-                            val moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
+                            var moonshotScore = com.lifecyclebot.v3.scoring.MoonshotTraderAI.scoreToken(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 marketCapUsd = ts.lastMcap,
@@ -6515,6 +6515,24 @@ if (deferredCount > 0) {
                                 phase = ts.phase,
                                 isPaper = cfg.paperMode,
                             )
+
+                            // V5.9.443 — CHOP FILTER for Moonshot lane.
+                            // Squash eligibility when (DEX_BOOSTED/TRENDING × early_unknown/pre_pump)
+                            // AND score below chop-gate 60. Same rationale as ShitCoin gate.
+                            if (moonshotScore.eligible &&
+                                ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
+                                ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
+                                val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.CHOP_SCORE_PENALTY
+                                if (moonshotScore.score < chopFloor) {
+                                    ErrorLogger.info("BotService",
+                                        "🔪 CHOP_REJECT[moonshot]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +
+                                        "score=${moonshotScore.score.toInt()} < chop-gate=$chopFloor")
+                                    moonshotScore = moonshotScore.copy(
+                                        eligible = false,
+                                        rejectReason = "CHOP_REJECT: src=${ts.source} phase=${ts.phase} score=${moonshotScore.score.toInt()}<$chopFloor",
+                                    )
+                                }
+                            }
                             
                             if (!moonshotScore.eligible) {
                                 // V5.9.244: Log moonshot rejections at INFO so we can diagnose silence
@@ -6727,7 +6745,7 @@ if (deferredCount > 0) {
                             )
                         } else {
 
-                        val shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
+                        var shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
                             currentPrice = ts.ref,
@@ -6752,7 +6770,29 @@ if (deferredCount > 0) {
                             isCopyCat = isCopyCat,
                             graduationProgress = graduationProgress,
                         )
-                        
+
+                        // V5.9.443 — CHOP FILTER. Log-driven: 82% of trades
+                        // were chop stop-outs on DEX_BOOSTED/TRENDING in
+                        // early_unknown/pre_pump. Require +10 extra score
+                        // on that combo (chop-gate = 50+10 = 60) to keep
+                        // the bot out of the knife pool.
+                        if (shitCoinSignal.shouldEnter &&
+                            ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
+                            ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
+                            val rawScore = shitCoinSignal.entryScore
+                            val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.CHOP_SCORE_PENALTY
+                            if (rawScore < chopFloor) {
+                                ErrorLogger.info("BotService",
+                                    "🔪 CHOP_REJECT[shitcoin]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +
+                                    "score=$rawScore < chop-gate=$chopFloor — skipping known chop pool")
+                                shitCoinSignal = shitCoinSignal.copy(
+                                    shouldEnter = false,
+                                    reason = "CHOP_REJECT: src=${ts.source} phase=${ts.phase} score=$rawScore<$chopFloor",
+                                )
+                            }
+                        }
+
+
                         // ═══════════════════════════════════════════════════════════════════
                         // V4.1 COLD-START FIX: Check for bootstrap forced entry
                         // Use raw signal score, not shitCoinSignal.confidence which may be low

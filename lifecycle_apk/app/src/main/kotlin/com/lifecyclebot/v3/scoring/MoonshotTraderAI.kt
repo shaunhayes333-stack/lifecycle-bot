@@ -1049,7 +1049,16 @@ object MoonshotTraderAI {
         
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
-        
+
+        // V5.9.443 — EARLY-DEATH STOP. Same rationale as ShitCoin: cut
+        // at -1.5% inside 60s to reduce avg loss per chop trade from
+        // -2.8% down toward -1.5%.
+        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
+        if (holdSeconds < 60 && pnlPct < -1.5) {
+            ErrorLogger.info(TAG, "🚀⚡ EARLY-DEATH STOP: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s")
+            return ExitSignal.STOP_LOSS
+        }
+
         // Update peak P&L
         if (pnlPct > pos.peakPnlPct) {
             pos.peakPnlPct = pnlPct

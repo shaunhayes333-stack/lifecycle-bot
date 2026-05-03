@@ -1170,6 +1170,18 @@ object ShitCoinTraderAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
 
+        // V5.9.443 — EARLY-DEATH STOP.
+        // Log analysis showed MID_STOPPED_OUT was 42% of trades at avg
+        // -2.8% in 1.37min. If the position bleeds -1.5% inside the first
+        // 60 seconds it's a knife — cut BEFORE it hits the full -2% SL
+        // so the avg loss per chopping trade drops. Only fires when we
+        // are in the very short, very red zone.
+        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
+        if (holdSeconds < 60 && pnlPct < -1.5) {
+            ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH STOP: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s")
+            return ExitSignal.STOP_LOSS
+        }
+
         // V5.9.438 — Update peak FIRST (was buried below ladder block).
         // Ensures every downstream lock/floor reads an up-to-date peak.
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
