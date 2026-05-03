@@ -91,7 +91,8 @@ object TreasuryManager {
     // ── In-memory state ───────────────────────────────────────────────
 
     /** Total SOL locked in treasury (never traded) */
-    @Volatile var treasurySol: Double = 0.0        private set
+    @Volatile var treasurySol: Double = 0.0
+        private set
 
     /** USD value of treasury at time of locking (informational) */
     @Volatile var treasuryUsd: Double = 0.0
