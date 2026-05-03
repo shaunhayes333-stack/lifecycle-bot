@@ -337,6 +337,16 @@ object ManipulatedTraderAI {
         val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(pos.peakPnlPct)
         if (pnlPct < profitFloor) return ManipExitSignal.TRAILING_STOP
 
+        // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Manipulated bags
+        // whose hold-duration bucket has proven net-losing expectancy.
+        // Manipulated is very time-sensitive (manipulators dump fast) so
+        // this acts as an extra safety catch.
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "MANIPULATED", holdMinutes = holdMinutes.toLong(), pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "☠️🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${"%.1f".format(pnlPct)}% — bucket bleeds")
+            return ManipExitSignal.TIME_EXIT
+        }
+
         // 1. Take profit
         if (pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
 
@@ -344,7 +354,10 @@ object ManipulatedTraderAI {
         if (pnlPct <= pos.stopLossPct) return ManipExitSignal.STOP_LOSS
 
         // 3. Hard time exit — manipulators have already left
-        if (holdMinutes >= FORCE_EXIT_MINUTES) return ManipExitSignal.TIME_EXIT
+        // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
+        val manipTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "MANIPULATED", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+        if (holdMinutes >= FORCE_EXIT_MINUTES * manipTimeExt) return ManipExitSignal.TIME_EXIT
 
         // 4. Trailing stop — only activates once we've hit +10% pnl
         if (pnlPct >= TRAILING_STOP_ACTIVATION_PCT) {

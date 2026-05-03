@@ -456,6 +456,14 @@ object BlueChipTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale BlueChip bags
+        // whose hold-duration bucket has proven net-losing expectancy.
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "BLUECHIP", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "🔵🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min — history bleeds")
+            return ExitSignal.TIME_EXIT
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // STANDARD EXIT CONDITIONS (below the ladder)
         // ═══════════════════════════════════════════════════════════════════
@@ -473,7 +481,11 @@ object BlueChipTraderAI {
         }
 
         // 3. TIME EXIT - max hold exceeded and not significantly profitable
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 8.0) {
+        // V5.9.437 — extend window for winners when TIME_EXIT historically bleeds this lane.
+        val timeExitExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "BLUECHIP", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+        val effectiveMaxHold = (MAX_HOLD_MINUTES * timeExitExt).toLong()
+        if (holdMinutes >= effectiveMaxHold && pnlPct < 8.0) {
             ErrorLogger.info(TAG, "🔵 TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }

@@ -980,8 +980,17 @@ object CashGenerationAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.437 — LIVE HOLD-BUCKET GATE (paper).
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "CASHGEN", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            return ExitSignal.TIME_EXIT
+        }
+
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Now exit if below TP floor too.
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < TAKE_PROFIT_PCT_PAPER) {
+        // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
+        val cgTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "CASHGEN", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+        if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExt).toLong() && pnlPct < TAKE_PROFIT_PCT_PAPER) {
             return ExitSignal.TIME_EXIT
         }
 
@@ -1078,8 +1087,18 @@ object CashGenerationAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.437 — LIVE HOLD-BUCKET GATE (live).
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "CASHGEN", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "💰🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket bleeds")
+            return ExitSignal.TIME_EXIT
+        }
+
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Exit if below TP floor.
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < TAKE_PROFIT_PCT_LIVE) {
+        // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
+        val cgTimeExtLive = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "CASHGEN", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+        if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExtLive).toLong() && pnlPct < TAKE_PROFIT_PCT_LIVE) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
         }

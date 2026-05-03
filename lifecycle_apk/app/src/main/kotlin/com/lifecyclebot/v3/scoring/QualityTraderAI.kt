@@ -453,6 +453,14 @@ object QualityTraderAI {
             ErrorLogger.info(TAG, "💎🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → +${pnlPct.toInt()}% < +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
         }
+
+        // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Quality bags
+        // whose hold-duration bucket has proven net-losing expectancy.
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "QUALITY", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "⭐🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — history bleeds")
+            return ExitSignal.TIME_EXIT
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // PROMOTION CHECKS - Quality → BlueChip/Moonshot
@@ -520,7 +528,11 @@ object QualityTraderAI {
             return ExitSignal.TIME_EXIT
         }
         // Max hold time - only exit if not profitable
-        if (holdMinutes >= MAX_HOLD_MINUTES && pnlPct < 5) {
+        // V5.9.437 — extend max-hold for winners when TIME_EXIT historically bleeds this lane.
+        val qualityTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "QUALITY", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+        val effectiveQualityMaxHold = (MAX_HOLD_MINUTES * qualityTimeExt).toLong()
+        if (holdMinutes >= effectiveQualityMaxHold && pnlPct < 5) {
             ErrorLogger.info(TAG, "⏰ QUALITY TIME: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes.toInt()}min")
             return ExitSignal.TIME_EXIT
         }

@@ -1261,6 +1261,15 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.437 — LIVE HOLD-BUCKET GATE. If this hold-duration bucket
+        // has proven net-losing expectancy (≥25 closes μ<-2%) and we're
+        // flat, cut now. Never fires in SL or TP zones.
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "SHITCOIN", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "💩🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — history says this bucket bleeds")
+            return ExitSignal.TIME_EXIT
+        }
+
         // 4. TRAILING STOP - The moonshot catcher!
         // V5.5: Activate from entry (not after 15% profit) — stop trails from open price.
         // Prevents giving back gains that were never locked. Fires any time price
@@ -1281,9 +1290,16 @@ object ShitCoinTraderAI {
         //   < -6%  at  5min → deep loss, emergency cut
         //   < -0.5% at 35min → flat/small-loss extended cap
         //
+        // V5.9.437 — TIME_EXIT winner-extension: when TIME_EXIT has proven
+        // net-losing for this lane AND we're currently in profit, extend
+        // the 35min cap by 50% so winners get more runway. Never extends
+        // the loss-side branches.
+        val timeExitMaxMult = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "SHITCOIN", exitReason = "TIME_EXIT", pnlPct = pnlPct,
+        )
         val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.293: 6min→7min, -3%→-5%
         val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // keep: deep loss emergency
-        val timeExitMaxHold   = holdMinutes >= 35 && pnlPct < -0.5    // keep: flat cap
+        val timeExitMaxHold   = holdMinutes >= (35 * timeExitMaxMult).toLong() && pnlPct < -0.5    // keep: flat cap
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"

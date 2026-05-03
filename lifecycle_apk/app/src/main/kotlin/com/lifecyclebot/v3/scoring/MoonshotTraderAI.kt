@@ -1124,6 +1124,14 @@ object MoonshotTraderAI {
             ErrorLogger.info(TAG, "🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
         }
+
+        // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Moonshot bags
+        // whose hold-duration bucket has proven net-losing expectancy.
+        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+                layer = "MOONSHOT", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+            ErrorLogger.info(TAG, "🧠⏱️ HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket history bleeds")
+            return ExitSignal.FLAT_EXIT
+        }
         
         // 4. TRAILING STOP - locks in gains while letting it run
         if (pnlPct > 30.0 && currentPrice <= pos.trailingStop) {
@@ -1133,14 +1141,21 @@ object MoonshotTraderAI {
         
         // 5. FLAT EXIT — V5.9.397 baseline (V5.9.304 era).
         // hold ≥ maxHold/2, pnl in [-2%, +5%].
-        val flatExitMins = pos.spaceMode.maxHold / 2
+        // V5.9.437 — extend window for winners when FLAT_EXIT historically bleeds this lane.
+        val flatExitExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "MOONSHOT", exitReason = "FLAT_EXIT", pnlPct = pnlPct)
+        val flatExitMins = ((pos.spaceMode.maxHold / 2) * flatExitExt).toLong()
         if (holdMinutes >= flatExitMins && pnlPct > -2.0 && pnlPct < 5.0) {
             ErrorLogger.info(TAG, "😐 FLAT EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min (truly flat, half-maxHold)")
             return ExitSignal.FLAT_EXIT
         }
         
         // 6. TIMEOUT - only if not significantly profitable
-        if (holdMinutes >= pos.spaceMode.maxHold && pnlPct < 50.0) {
+        // V5.9.437 — extend for winners when TIMEOUT historically bleeds this lane.
+        val timeoutExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
+            layer = "MOONSHOT", exitReason = "TIMEOUT", pnlPct = pnlPct)
+        val timeoutMins = (pos.spaceMode.maxHold * timeoutExt).toLong()
+        if (holdMinutes >= timeoutMins && pnlPct < 50.0) {
             ErrorLogger.info(TAG, "⏰ TIMEOUT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIMEOUT
         }
