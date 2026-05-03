@@ -1510,7 +1510,7 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════════
         try {
             val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-            val wallet = null as com.lifecyclebot.data.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
+            val wallet = null as com.lifecyclebot.network.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
             val snapshot = synchronized(status.tokens) { status.tokens.values.toList() }
             var swept = 0
             for (ts in snapshot) {
