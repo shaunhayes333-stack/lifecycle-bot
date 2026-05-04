@@ -315,15 +315,25 @@ object StrategyTrustAI {
 
     fun getTrustMultiplier(strategy: String): Double {
         val score = getTrustScore(strategy)
+        // V5.9.463 — SENTIENT-FLUID RETUNE. Operator directive:
+        //   "nothing should really get to a distrusted state. we have
+        //    full loop learning. ensure that's integrated everywhere".
+        //
+        // Previously score < 0.2 returned 0.0 (VETOED — strategy fully
+        // blocked from trading), breaking the full-loop learning contract
+        // because a blocked strategy generates no outcomes and therefore
+        // can never recover. The new policy mirrors FreeRangeMode: trust
+        // only SHAPES sizing, never eliminates it. Every strategy keeps
+        // feeding the learner — struggling ones at small size, winners
+        // at full size. Recovery is always possible.
         val base = when {
-            score < 0.2 -> 0.0    // Vetoed
-            score < 0.35 -> 0.3   // Heavily suppressed
-            score < 0.5 -> 0.6    // Suppressed
-            score < 0.65 -> 0.85  // Slightly suppressed
-            score < 0.8 -> 1.0    // Normal
-            else -> 1.15          // Boosted
+            score < 0.15 -> 0.20  // was 0.0 (vetoed) — coaching-floor, keeps trading + learning
+            score < 0.35 -> 0.35  // was 0.30 — slight lift so coaching has data to work with
+            score < 0.50 -> 0.60
+            score < 0.65 -> 0.85
+            score < 0.80 -> 1.00
+            else         -> 1.15
         }
-        if (base == 0.0) return 0.0  // Vetoed stays vetoed
 
         // V5.9.12: Symbolic fragility feedback — market risk/edge shapes trust mult.
         // High risk → suppress further; strong edge + confidence → modest boost.
@@ -335,11 +345,20 @@ object StrategyTrustAI {
             (1.0 - (risk - 0.3).coerceAtLeast(0.0) * 0.35 + (edge - 0.5).coerceAtLeast(0.0) * 0.15)
                 .coerceIn(0.7, 1.2)
         } catch (_: Exception) { 1.0 }
-        return (base * symFactor).coerceIn(0.0, 1.25)
+        // V5.9.463 — clamp floor raised from 0.0 → 0.15 so no path can
+        // collapse a strategy to zero even on a perfect storm of bad
+        // symbolic signals.
+        return (base * symFactor).coerceIn(0.15, 1.25)
     }
 
-    fun isStrategyAllowed(strategy: String): Boolean =
-        getTrustLevel(strategy) != TrustLevel.DISTRUSTED
+    fun isStrategyAllowed(strategy: String): Boolean {
+        // V5.9.463 — always allow. Distrust is now a sizing signal that
+        // feeds the coaching loop, not a trading blocker. Kept as a
+        // function so existing call-sites still compile; treated as a
+        // tautology until the Next Generation scoring pipeline replaces
+        // those calls with getTrustMultiplier() reads.
+        return true
+    }
 
     fun restoreTrustRecord(record: StrategyTrustRecord) {
         trustRecords[record.strategyName] = record

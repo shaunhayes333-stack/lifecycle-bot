@@ -817,13 +817,20 @@ class BotService : Service() {
             )
             for (name in candidates) {
                 val lvl = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(name)
-                if (lvl == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
-                    !com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(name)) {
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.setQuarantine(
-                        strategy   = name,
-                        durationMs = 72L * 3_600_000L,
-                        reason     = "V5.9.366_v3_bypass_recovery_window",
-                    )
+                // V5.9.463 — SENTIENT-FLUID RETUNE. Do NOT auto-quarantine
+                // DISTRUSTED markets traders on boot. Per operator:
+                // "nothing should really get to a distrusted state. we
+                //  have full loop learning". Distrust → coaching, not
+                // pause. A quarantine would stop trades → no outcomes →
+                // no learning → the strategy can never rebuild trust.
+                // We leave the trust record intact; getTrustMultiplier
+                // (V5.9.463) shapes sizing at 0.20x floor for heavily
+                // underperforming strategies so they keep feeding the
+                // learner at low risk.
+                if (lvl == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED) {
+                    ErrorLogger.info("BotService",
+                        "🧠 COACHING MODE (was V5.9.366 quarantine): $name stays active at " +
+                        "coaching-floor size — sentient-fluid learning loop will rebuild trust.")
                 }
             }
         } catch (e: Exception) {

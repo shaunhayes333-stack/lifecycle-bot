@@ -165,6 +165,38 @@ object EducationSubLayerAI {
     fun getCurrentLearningWeight(): Double {
         return getCurrentCurriculumLevel().learningWeight
     }
+
+    /**
+     * V5.9.463 — SENTIENT COACHING AMPLIFIER.
+     *
+     * Operator directive: "nothing should really get to a distrusted
+     * state. we have full loop learning." When a specific layer is
+     * underperforming, amplify the gradient it receives on every trade
+     * outcome so it learns FASTER instead of being quietly suppressed
+     * or quarantined. The amplifier is bounded (1.0 → 2.5) to preserve
+     * the overall bot's learning rate while giving struggling layers
+     * the extra nudge they need to recover.
+     *
+     *   acc ≥ 0.55 (winning)         → 1.0x  (normal learning)
+     *   acc ≥ 0.45 (breakeven)       → 1.3x  (mild coaching)
+     *   acc ≥ 0.35 (struggling)      → 1.8x  (active coaching)
+     *   acc <  0.35 (drowning)       → 2.5x  (intensive coaching)
+     *
+     * Combined with the rest of the curriculum weight, this gives the
+     * full-loop learning the symbolic reasoning it needs: bad layers
+     * don't get punished, they get TAUGHT harder.
+     */
+    fun getLayerCoachingMultiplier(layerName: String): Double {
+        return try {
+            val m = getLayerMaturity(layerName) ?: return 1.0
+            if (m.signalsGiven < 20) 1.0 else when {
+                m.smoothedAccuracy >= 0.55 -> 1.0
+                m.smoothedAccuracy >= 0.45 -> 1.3
+                m.smoothedAccuracy >= 0.35 -> 1.8
+                else                       -> 2.5
+            }
+        } catch (_: Throwable) { 1.0 }
+    }
     
     /**
      * Check if bot has reached Mega Brain status (post-PhD).

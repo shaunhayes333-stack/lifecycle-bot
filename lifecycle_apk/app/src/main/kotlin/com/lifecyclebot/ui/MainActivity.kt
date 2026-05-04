@@ -1638,29 +1638,30 @@ for legal compliance.
                     com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
                 } catch (_: Throwable) { 0 }
                 val distrustPauses = try {
-                    // V5.9.462 — 'distrust pauses' means CURRENTLY
-                    // quarantined strategies (time-bounded trade pauses).
-                    // Previously this also counted trustLevel=DISTRUSTED
-                    // which is a long-term low-trust state, not an active
-                    // pause — inflating the count (user saw '7 distrust
-                    // pauses' with only a handful of strategies actually
-                    // quarantined).
+                    // V5.9.463 — SENTIENT-FLUID RETUNE. Quarantine is now a
+                    // rare, soft signal (legacy pre-V5.9.463 data can still
+                    // set one; V5.9.463 onwards we don't auto-quarantine).
+                    // Displayed as 'cooling' so the user doesn't see it as
+                    // a blacklist.
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().keys
                         .count { strat -> com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(strat) }
                 } catch (_: Throwable) { 0 }
-                val distrustedCount = try {
-                    // Surfaced separately for transparency.
+                val coachingCount = try {
+                    // V5.9.463 — was 'distrustedCount'. Reframed: strategies
+                    // with trustLevel=DISTRUSTED are now in INTENSIVE
+                    // COACHING, not blacklisted. getTrustMultiplier floors
+                    // them at 0.20x so they keep trading and learning.
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values
                         .count { rec -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
                 } catch (_: Throwable) { 0 }
-                if (streakBlocks == 0 && distrustPauses == 0 && distrustedCount == 0) {
+                if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0) {
                     gs.text = "🛡 Guards: clear"
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
                     val parts = mutableListOf<String>()
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
-                    if (distrustPauses > 0) parts += "$distrustPauses active pause${if (distrustPauses == 1) "" else "s"}"
-                    if (distrustedCount > 0) parts += "$distrustedCount distrusted"
+                    if (distrustPauses > 0) parts += "$distrustPauses cooling"
+                    if (coachingCount > 0) parts += "$coachingCount coaching"
                     gs.text = "🛡 Guards: " + parts.joinToString(" · ")
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }

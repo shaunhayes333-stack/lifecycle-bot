@@ -917,8 +917,20 @@ object PerpsLearningBridge {
             corr.lastUpdate = System.currentTimeMillis()
 
             val currentTrust = layerPerpsTrust[key] ?: (cfg?.trustWeight ?: 0.5)
-            val trustDelta = if (layerCorrect) 0.01 else -0.01
-            layerPerpsTrust[key] = (currentTrust + trustDelta).coerceIn(0.1, 1.0)
+            // V5.9.463 — SENTIENT COACHING AMPLIFIER. A struggling layer
+            // (low historical accuracy) gets a LARGER trust delta per trade
+            // in either direction — so it either rebounds faster on a win
+            // or learns faster from a loss. Winners keep their normal
+            // delta. This is the operator's "full-loop learning"
+            // directive: teach harder, don't distrust.
+            val coachMult = try {
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                    .getLayerCoachingMultiplier(layerName)
+            } catch (_: Throwable) { 1.0 }
+            val trustDelta = (if (layerCorrect) 0.01 else -0.01) * coachMult
+            // V5.9.463 — floor raised 0.1 → 0.15 to match the sentient-fluid
+            // retune in StrategyTrustAI (no full-veto anywhere).
+            layerPerpsTrust[key] = (currentTrust + trustDelta).coerceIn(0.15, 1.0)
         }
 
         crossLayerSyncs.incrementAndGet()
