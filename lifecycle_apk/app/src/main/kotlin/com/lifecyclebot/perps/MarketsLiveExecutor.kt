@@ -316,6 +316,31 @@ object MarketsLiveExecutor {
             }
 
             market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
+                // V5.9.464 — OPERATOR-REPORTED BUG: 'it's never made a leverage
+                // trade anywhere in the markets universe ever'. RCA (expert
+                // troubleshoot agent, V5.9.463 baseline): there is NO code
+                // path in MarketsLiveExecutor that executes a leverage trade
+                // for non-crypto symbols. `executeFlashTradePerps` is only
+                // reachable when `market.isCrypto == true`. Stocks /
+                // commodities / metals / forex hit this branch and the
+                // `leverage` parameter is silently discarded, degrading to
+                // spot swaps via Jupiter.
+                //
+                // This is a HONEST-DEGRADATION fix: we now LOG clearly when
+                // a leverage request was downgraded to spot so users see
+                // the real capability gap instead of believing leverage
+                // worked. Fixing the real cause requires a non-crypto
+                // leverage provider (Drift synthetic perps, Parcl for RWAs,
+                // Mango v4 for FX/metals, or a broker bridge). That's a
+                // new third-party integration and is queued for operator
+                // approval.
+                if (leverage > 1.0) {
+                    ErrorLogger.warn(TAG,
+                        "⚠️ LEVERAGE NOT AVAILABLE for ${market.symbol} " +
+                        "(asset class=${if (market.isStock) "STOCK" else if (market.isCommodity) "COMMODITY" else if (market.isMetal) "METAL" else "FOREX"}): " +
+                        "${"%.1fx".format(leverage)} requested but Markets universe has no leverage provider wired. " +
+                        "Degrading to SPOT at 1x. [V5.9.464: needs Drift/Parcl/Mango integration].")
+                }
                 val mint = TokenizedAssetRegistry.mintFor(market.symbol)
                 if (mint != null) {
                     // Real tokenized asset on-chain (xStocks / PAXG / EURC) — Jupiter swap
