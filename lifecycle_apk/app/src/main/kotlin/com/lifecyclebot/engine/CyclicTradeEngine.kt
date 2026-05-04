@@ -23,6 +23,8 @@ object CyclicTradeEngine {
     private const val TAG = "CyclicTrade"
     private const val PREFS_FILE = "cyclic_trade_prefs"
     private const val RING_SIZE_USD = 500.0
+    // V5.9.451 — TP/SL now adapt (see adaptiveTpSl()). Constants are the
+    // default mature-phase levels; bootstrap and loss-streak modes override.
     private const val DEFAULT_TP_PCT = 15.0
     private const val DEFAULT_SL_PCT = 5.0
     private const val MIN_SCORE_TO_ENTER = 55.0
@@ -33,6 +35,15 @@ object CyclicTradeEngine {
     private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 30.0
     private const val COOLDOWN_MS = 30_000L    // 30s between cycles
     private const val MAX_HOLD_MS = 90 * 60 * 1000L  // 90 min max hold
+
+    // V5.9.451 — loss-streak back-off window (user: "needs loop learning
+    // and AI assistance symbolic reasoning and sentience etc for more
+    // success"). After 3 consecutive losses we pause 5 min and tighten
+    // SL / widen TP until the next win.
+    private const val LOSS_STREAK_BREAK_COUNT    = 3
+    private const val LOSS_STREAK_BREAK_PAUSE_MS = 5 * 60 * 1000L
+    @Volatile private var consecutiveLosses: Int = 0
+    @Volatile private var pauseUntilMs: Long = 0L
 
     // ── State ─────────────────────────────────────────────────────────────────
     @Volatile var ringBalanceSol: Double = 0.0
@@ -126,12 +137,13 @@ object CyclicTradeEngine {
                 ((currentPrice - entryPriceSol) / entryPriceSol) * 100.0
             } else 0.0
 
+            val (tpPct, slPct) = adaptiveTpSl()
             val holdMs = System.currentTimeMillis() - entryTimeMs
             val timedOut = holdMs >= MAX_HOLD_MS
-            val hitTP    = pnlPct >= DEFAULT_TP_PCT
-            val hitSL    = pnlPct <= -DEFAULT_SL_PCT
+            val hitTP    = pnlPct >= tpPct
+            val hitSL    = pnlPct <= -slPct
 
-            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | ${if (isLiveMode) "LIVE" else "PAPER"}"
+            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | TP${tpPct.toInt()}/SL${slPct.toInt()} | ${if (isLiveMode) "LIVE" else "PAPER"}"
 
             when {
                 hitTP -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TP", solPrice)
@@ -141,18 +153,41 @@ object CyclicTradeEngine {
             return
         }
 
-        // ── 2. Not in position — cooldown check ───────────────────────────────
-        val sinceLastCycle = System.currentTimeMillis() - lastCycleEndMs
+        // ── 2. Not in position — cooldown + loss-streak-pause check ───────────
+        val now = System.currentTimeMillis()
+        if (now < pauseUntilMs) {
+            val remainingSec = (pauseUntilMs - now) / 1000
+            statusMessage = "🧠 WR brake: ${consecutiveLosses} losses → pausing ${remainingSec}s (relearning)"
+            return
+        }
+        val sinceLastCycle = now - lastCycleEndMs
         if (sinceLastCycle < COOLDOWN_MS) return
 
-        // ── 3. Pick best token ─────────────────────────────────────────────────
-        // V5.9.240: Use a lower score floor during bootstrap because lastV3Score
-        // is rarely populated until FluidLearningAI has enough trade history.
-        // Fall back to entryScore (raw momentum signal) during that phase.
+        // ── 2a. V5.9.451 — SENTIENCE + SYMBOLIC + PERSONALITY veto stack ──────
+        // User: "needs the loop learning and AI assistance symbolic reasoning
+        // and sentience etc for more success".
+        try {
+            // Personality filter — if user told the bot to avoid e.g. memes in chat,
+            // skip the cycle entirely while personality says no.
+            if (SentienceHooks.shouldFilterByPersonality("CYCLIC", "spot")) {
+                statusMessage = "🧠 Personality filter: paused by user intent"
+                return
+            }
+        } catch (_: Throwable) {}
+
+        // ── 3. Pick best token ────────────────────────────────────────────────
+        // V5.9.240: Use a lower score floor during bootstrap.
+        // V5.9.451: ALSO tighten the floor if we're on a loss streak — the
+        // loop-learning + sentience feedback into entry quality.
         val isBootstrapPhase = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
         } catch (_: Exception) { false }
-        val effectiveMinScore = if (isBootstrapPhase) MIN_SCORE_TO_ENTER_BOOTSTRAP else MIN_SCORE_TO_ENTER
+        var effectiveMinScore = if (isBootstrapPhase) MIN_SCORE_TO_ENTER_BOOTSTRAP else MIN_SCORE_TO_ENTER
+        if (consecutiveLosses > 0) {
+            // Each recent loss raises the bar +5 (caps at +15). Loop-learning
+            // the ring's own outcomes into entry quality.
+            effectiveMinScore += (consecutiveLosses * 5).coerceAtMost(15)
+        }
         val best = tokens.values
             .filter { ts ->
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
@@ -160,12 +195,33 @@ object CyclicTradeEngine {
                     && ts.lastPrice > 0.0
                     && tokenScore >= effectiveMinScore
                     && ts.mint != currentMint   // don't immediately re-enter same token
+                    // V5.9.451 — TokenBlacklist + MemeLossStreakGuard respect.
+                    // The ring cycles $500 through trades, it should respect
+                    // every guard the main bot uses so a known-bad setup
+                    // can't bleed the ring.
+                    && !TokenBlacklist.isBlocked(ts.mint)
+                    && !MemeLossStreakGuard.isBlocked(ts.mint)
             }
             .maxByOrNull { (it.lastV3Score ?: 0) + it.entryScore.toInt() }
             ?: run {
-                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (isBootstrapPhase) " [BOOT]" else ""})"
+                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""})"
                 return
             }
+
+        // ── 3a. V5.9.451 — ChopFilter (phase/source) — skip the known chop pool.
+        try {
+            val src = best.source.uppercase()
+            val phase = best.phase.lowercase()
+            if (src in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
+                phase in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
+                val gate = 50 + ChopFilter.chopPenalty()
+                val tokenScore = (best.lastV3Score ?: best.entryScore.toInt())
+                if (tokenScore < gate) {
+                    statusMessage = "🔪 ChopFilter: ${best.symbol} score=$tokenScore < $gate (src=$src phase=$phase)"
+                    return
+                }
+            }
+        } catch (_: Throwable) {}
 
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
         val sizeSol = ringBalanceSol
@@ -178,12 +234,13 @@ object CyclicTradeEngine {
             }
         }
 
+        val (tpPctEntry, slPctEntry) = adaptiveTpSl()
         val entered = executor.treasuryBuy(
             ts          = best,
             sizeSol     = sizeSol,
             walletSol   = walletSol,
-            takeProfitPct = DEFAULT_TP_PCT,
-            stopLossPct   = DEFAULT_SL_PCT,
+            takeProfitPct = tpPctEntry,
+            stopLossPct   = slPctEntry,
             wallet      = if (isLiveMode) wallet else null,
             isPaper     = !isLiveMode
         )
@@ -195,10 +252,39 @@ object CyclicTradeEngine {
             entryPriceSol = best.lastPrice
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
-            statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
-            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0}")
+            statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
+            ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0} | TP=${tpPctEntry.toInt()}% SL=${slPctEntry.toInt()}%")
+            // V5.9.451 — journal BUY via V3JournalRecorder so the cycle
+            // shows in the user's Journal alongside main-bot trades and
+            // feeds ScoreExpectancyTracker/HoldDurationTracker/ExitReasonTracker.
+            try {
+                V3JournalRecorder.recordOpen(
+                    symbol = best.symbol, mint = best.mint,
+                    entryPrice = best.lastPrice, sizeSol = sizeSol,
+                    isPaper = !isLiveMode, layer = "CYCLIC",
+                    entryScore = best.lastV3Score ?: best.entryScore.toInt(),
+                    entryReason = "RING_ENTRY_TP${tpPctEntry.toInt()}SL${slPctEntry.toInt()}",
+                )
+            } catch (_: Throwable) {}
             save(context)
         }
+    }
+
+    /**
+     * V5.9.451 — adaptive TP/SL driven by learning progress + loss streak.
+     *
+     * Bootstrap (<40% learning): patient TP=12, tight SL=6 — ring only
+     *   pulls when there's clear signal, doesn't bleed on noise.
+     * Mature: default 15/5.
+     * On loss streak (≥2 consecutive losses): widen TP to 20, tighten SL
+     *   to 3 — hunt fatter moves, exit mediocre setups faster.
+     */
+    private fun adaptiveTpSl(): Pair<Double, Double> {
+        val lp = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Throwable) { 1.0 }
+        val (baseTp, baseSl) = if (lp < 0.40) Pair(12.0, 6.0) else Pair(DEFAULT_TP_PCT, DEFAULT_SL_PCT)
+        return if (consecutiveLosses >= 2) Pair(20.0, 3.0) else Pair(baseTp, baseSl)
     }
 
     // ── Close a cycle ─────────────────────────────────────────────────────────
@@ -226,7 +312,35 @@ object CyclicTradeEngine {
         ringBalanceUsd = ringBalanceSol * solPrice
         totalPnlSol   += pnlSol
         cycleCount++
-        if (pnlPct > 0) winCount++ else lossCount++
+        val won = pnlPct > 0
+        if (won) {
+            winCount++
+            consecutiveLosses = 0    // V5.9.451 — reset streak on win
+        } else {
+            lossCount++
+            consecutiveLosses++
+            // V5.9.451 — engage pause after N consecutive losses (loop-learning brake)
+            if (consecutiveLosses >= LOSS_STREAK_BREAK_COUNT) {
+                pauseUntilMs = System.currentTimeMillis() + LOSS_STREAK_BREAK_PAUSE_MS
+                ErrorLogger.warn(TAG, "🧠 Loss-streak brake ENGAGED: $consecutiveLosses consecutive losses — pausing ${LOSS_STREAK_BREAK_PAUSE_MS / 60000}min")
+            }
+        }
+
+        // V5.9.451 — journal SELL via V3JournalRecorder so the cycle close
+        // shows in the user's Journal and feeds outcome-attribution trackers
+        // (ScoreExpectancyTracker / HoldDurationTracker / ExitReasonTracker).
+        try {
+            val holdMins = if (entryTimeMs > 0) (System.currentTimeMillis() - entryTimeMs) / 60_000L else 0L
+            V3JournalRecorder.recordClose(
+                symbol = ts.symbol, mint = ts.mint,
+                entryPrice = entryPriceSol, exitPrice = ts.lastPrice,
+                sizeSol = ringBalanceSol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = !isLiveMode, layer = "CYCLIC",
+                exitReason = reason,
+                entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
+                holdMinutes = holdMins,
+            )
+        } catch (_: Throwable) {}
 
         lastCycleEndMs = System.currentTimeMillis()
         isInPosition   = false

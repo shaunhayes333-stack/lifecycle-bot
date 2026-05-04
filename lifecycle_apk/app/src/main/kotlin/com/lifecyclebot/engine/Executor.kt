@@ -7316,23 +7316,68 @@ class Executor(
         isPaper: Boolean,
     ): Boolean {
         val c = cfg()
-        
-        // Safety: force paper mode if configured
+
+        // Safety: force paper mode if user hasn't opted into live but signal requested live
         if (!isPaper && c.paperMode) {
             onLog("📡 Network signal buy rejected: paper mode only", mint)
             return false
         }
-        
-        // V5.7.3: Stub implementation - network auto-buy infrastructure pending
-        onLog("📡 NETWORK SIGNAL: $symbol | size=${sizePct}% | $reason (auto-buy disabled)", mint)
-        onNotify(
-            "📡 Network Signal",
-            "$symbol signal received (auto-buy disabled)",
-            NotificationHistory.NotifEntry.NotifType.INFO
-        )
-        
-        // Return false until full infrastructure is wired
-        return false
+
+        // V5.9.451 — REAL IMPLEMENTATION (was a stub returning false since V5.7.3).
+        // Looks up the current TokenState from BotService's watchlist so we
+        // piggyback on every existing paperBuy/live-buy safety rail
+        // (cap, duplicate-open guard, journal, sizing, anti-wash, etc.).
+        val ts = try {
+            val status = com.lifecyclebot.engine.BotService.instance?.status
+            if (status != null) synchronized(status.tokens) { status.tokens[mint] } else null
+        } catch (_: Exception) { null }
+
+        if (ts == null) {
+            onLog("📡 Network signal buy rejected: $symbol not in watchlist yet", mint)
+            return false
+        }
+        if (ts.position.isOpen) {
+            onLog("📡 Network signal buy skipped: $symbol already open", mint)
+            return false
+        }
+        if (ts.lastPrice <= 0.0) {
+            onLog("📡 Network signal buy skipped: $symbol has no price", mint)
+            return false
+        }
+
+        // Resolve wallet balance for sizing (paper uses unified wallet)
+        val walletSol = try {
+            com.lifecyclebot.engine.BotService.instance?.status?.getEffectiveBalance(isPaper) ?: 0.0
+        } catch (_: Exception) { 0.0 }
+        val sizeSol = (walletSol * (sizePct / 100.0)).coerceAtLeast(0.001)
+        if (sizeSol > walletSol) {
+            onLog("📡 Network signal buy skipped: insufficient balance ${walletSol.fmt(3)} < ${sizeSol.fmt(3)}", mint)
+            return false
+        }
+
+        return try {
+            if (isPaper) {
+                paperBuy(
+                    ts = ts, sol = sizeSol, score = 60.0,
+                    layerTag = "NETWORK_SIGNAL",
+                    layerTagEmoji = "📡",
+                )
+            } else {
+                // Live fallthrough: queue a real buy via the standard doBuy path
+                // which handles wallet/signer wiring and safety gates uniformly.
+                doBuy(ts, sizeSol, 60.0, null)
+            }
+            onLog("📡 NETWORK SIGNAL AUTO-BUY EXECUTED: $symbol size=${sizeSol.fmt(3)}◎ | $reason", mint)
+            onNotify(
+                "📡 Network Signal",
+                "$symbol auto-buy ${sizeSol.fmt(3)}◎",
+                NotificationHistory.NotifEntry.NotifType.INFO,
+            )
+            true
+        } catch (e: Exception) {
+            ErrorLogger.error("Executor", "Network signal buy failed for $symbol: ${e.message}", e)
+            false
+        }
     }
 
     private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
