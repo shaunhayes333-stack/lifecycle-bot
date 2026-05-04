@@ -5840,7 +5840,27 @@ class Executor(
         var tokenUnits = resolveSellUnits(ts, pos.qtyToken)
         onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
-        try {
+        // V5.9.458 — SELL LATENCY FIX (operator directive: 'meme trader
+        // should make live sells as fast as it makes live buys').
+        // Buys go straight to quote; sells previously did a synchronous
+        // wallet.getTokenAccountsWithDecimals() network call first and,
+        // on a stale RPC indexer, silently bailed via the zero-balance
+        // gate — turning a TP/SL trigger into an orphan loop.
+        //
+        // Trust the tracker qty for the first 60s after a verified BUY.
+        // The buy pipeline already verified token arrival via
+        // TX-PARSE (BUY_VERIFIED_LANDED), so tokens are definitively
+        // on-chain; a zero reading this early is indexer lag, not
+        // reality. After 60s we fall back to the on-chain sanity
+        // check to keep orphan protection for genuinely rugged tokens.
+        val ageMs = System.currentTimeMillis() - pos.entryTime
+        val skipOnChainCheck = (ageMs < 60_000L) && tokenUnits > 0L
+        if (skipOnChainCheck) {
+            onLog("⚡ FAST PATH: tokens verified on buy ${ageMs / 1000}s ago — skipping on-chain " +
+                  "balance pre-check (tracker qty=$tokenUnits)", tradeId.mint)
+        }
+
+        if (!skipOnChainCheck) try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             val onChainBalances = wallet.getTokenAccountsWithDecimals()
             val tokenData = onChainBalances[ts.mint]
@@ -5874,6 +5894,14 @@ class Executor(
                         "${ts.symbol}: on-chain balance 0 for $retryCount polls. No swap was sent. " +
                         "Clear manually from the positions panel.",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    // V5.9.458 — forensics: make this terminal state VISIBLE so
+                    // users see why the sell died instead of 'SELL_START · 1 event'.
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "ORPHAN — on-chain balance 0 for $retryCount polls. Tokens likely rugged. Position kept OPEN for manual release.",
+                        traderTag = "MEME",
+                    )
                     // IMPORTANT: do NOT call tradeId.closed(...) here. The bot
                     // claiming a trade it never made is what burned the user
                     // in V5.9.71 and earlier.
@@ -5884,6 +5912,16 @@ class Executor(
                       "for ${ts.symbol} (retry $retryCount/20)", tradeId.mint)
                 ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} " +
                     "${if (mapEmpty) "RPC_EMPTY_MAP" else "ONCHAIN_ZERO"} (retry $retryCount/20)")
+                // V5.9.458 — forensics: this was the PRIMARY silent-kill path
+                // the user saw as 'SELL_START · 1 event'. Every attempt now
+                // logs a phase so the forensics card shows exactly why.
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    if (mapEmpty) "RPC returned EMPTY balance map (retry $retryCount/20) — will retry next tick"
+                    else "On-chain balance = 0 (retry $retryCount/20) — will retry next tick",
+                    traderTag = "MEME",
+                )
                 return SellResult.FAILED_RETRYABLE
             }
             
@@ -5913,6 +5951,14 @@ class Executor(
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 ErrorLogger.warn("Executor", "STUCK POSITION: ${ts.symbol} — dust (${actualBalanceUi} tokens) — " +
                     "left open, no swap broadcast.")
+                // V5.9.458 — forensics: surface dust-position aborts so the
+                // user sees why a sell never broadcast.
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "DUST+DEEP_LOSS — balance=${"%.4f".format(actualBalanceUi)} (~${"%.6f".format(currentValueEstimate)} SOL), Jupiter can't route. Tokens remain on-chain.",
+                    tokenAmount = actualBalanceUi, traderTag = "MEME",
+                )
                 return SellResult.FAILED_RETRYABLE
             }
             
@@ -6007,6 +6053,13 @@ class Executor(
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 ErrorLogger.warn("Executor", "SELL STUCK: ${ts.symbol} — Jupiter quote exhausted; " +
                     "NOT closing position, NOT claiming sell PnL.")
+                // V5.9.458 — terminal forensics so the user sees the sell died on quote exhaustion.
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "QUOTE EXHAUSTED — all ${slippageLevels.size * 2} attempts failed. Position kept OPEN.",
+                    traderTag = "MEME",
+                )
                 return SellResult.FAILED_RETRYABLE
             }
 
