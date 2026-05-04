@@ -85,7 +85,11 @@ object QualityLadder {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    internal fun targetWrForTrades(trades: Int): Double = when {
+    // V5.9.462 — promoted from internal → public so UI callers can compute
+    // the target WR against alternative trade-count sources (e.g. the
+    // RunTracker30D counter used by the MEME Live Readiness card). No
+    // behaviour change — same formula, wider visibility.
+    fun targetWrForTrades(trades: Int): Double = when {
         trades < 500  -> 0.0
         trades < 1500 -> lerp(15.0, 25.0, (trades - 500).toDouble() / 1000.0)
         trades < 3000 -> lerp(25.0, 35.0, (trades - 1500).toDouble() / 1500.0)

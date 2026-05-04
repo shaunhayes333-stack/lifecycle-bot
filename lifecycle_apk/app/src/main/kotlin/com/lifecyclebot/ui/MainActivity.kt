@@ -1598,15 +1598,34 @@ for legal compliance.
         try {
             val lp = findViewById<TextView>(R.id.tvLadderPill)
             if (lp != null) {
-                val line = com.lifecyclebot.engine.QualityLadder.statusLine()
+                // V5.9.462 — data-consistency fix. User reported the ladder
+                // pill's WR (20.7% / 719 trades from TradeHistoryStore
+                // getLifetimeStats) disagreed with the big WR/Trades
+                // rendered on the SAME card (18% / 586 from RunTracker30D).
+                // Per V5.9.371 the big block intentionally mirrors the
+                // 30-Day Proof Run. Align the ladder pill to the same
+                // source so both halves of the card always agree.
+                val rt = com.lifecyclebot.engine.RunTracker30D
+                val trades = rt.totalTrades
+                val meaningful = rt.wins + rt.losses
+                val actual = if (meaningful > 0) rt.wins * 100.0 / meaningful else 0.0
+                val target = com.lifecyclebot.engine.QualityLadder.targetWrForTrades(trades)
                 val tier = com.lifecyclebot.engine.QualityLadder.tier()
+                val sizeMult = com.lifecyclebot.engine.QualityLadder.sizeMultiplier()
+                val icon = when (tier) {
+                    0    -> "🔓"
+                    1, 2 -> "🟡"
+                    3, 4 -> "🟠"
+                    else -> "🔴"
+                }
+                lp.text = "$icon TIER $tier · $trades trades · WR=${"%.1f".format(actual)}% " +
+                    "(target ${"%.1f".format(target)}%) · size×${"%.2f".format(sizeMult)}"
                 val color = when (tier) {
                     0    -> 0xFF6B7280.toInt()
                     1, 2 -> 0xFFFFD700.toInt()
                     3, 4 -> 0xFFFFAA00.toInt()
                     else -> 0xFFFF4444.toInt()
                 }
-                lp.text = line
                 lp.setTextColor(color)
                 lp.visibility = android.view.View.VISIBLE
             }
@@ -1619,20 +1638,31 @@ for legal compliance.
                     com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
                 } catch (_: Throwable) { 0 }
                 val distrustPauses = try {
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values.count { rec ->
-                        com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(rec.strategyName) ||
-                        rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED
-                    }
+                    // V5.9.462 — 'distrust pauses' means CURRENTLY
+                    // quarantined strategies (time-bounded trade pauses).
+                    // Previously this also counted trustLevel=DISTRUSTED
+                    // which is a long-term low-trust state, not an active
+                    // pause — inflating the count (user saw '7 distrust
+                    // pauses' with only a handful of strategies actually
+                    // quarantined).
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().keys
+                        .count { strat -> com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(strat) }
                 } catch (_: Throwable) { 0 }
-                if (streakBlocks == 0 && distrustPauses == 0) {
+                val distrustedCount = try {
+                    // Surfaced separately for transparency.
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values
+                        .count { rec -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
+                } catch (_: Throwable) { 0 }
+                if (streakBlocks == 0 && distrustPauses == 0 && distrustedCount == 0) {
                     gs.text = "🛡 Guards: clear"
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
                     val parts = mutableListOf<String>()
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
-                    if (distrustPauses > 0) parts += "$distrustPauses distrust pause${if (distrustPauses == 1) "" else "s"}"
+                    if (distrustPauses > 0) parts += "$distrustPauses active pause${if (distrustPauses == 1) "" else "s"}"
+                    if (distrustedCount > 0) parts += "$distrustedCount distrusted"
                     gs.text = "🛡 Guards: " + parts.joinToString(" · ")
-                    gs.setTextColor(0xFFFFAA00.toInt())
+                    gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
             }
