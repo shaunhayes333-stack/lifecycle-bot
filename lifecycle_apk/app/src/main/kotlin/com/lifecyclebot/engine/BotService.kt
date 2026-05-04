@@ -1811,9 +1811,43 @@ class BotService : Service() {
                             
                             // Check 2b: Blacklist (always check in live, optional in paper)
                             if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
-                                TradeLifecycle.ineligible(identity.mint, "Blacklisted")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
-                                return@SolanaMarketScanner
+                                // V5.9.473 — auto-rehabilitate false blacklists.
+                                //
+                                // Operator-reported bug: tokens with healthy
+                                // liquidity ($25k-$240k) showing as blacklisted
+                                // because a transient API hiccup (DexScreener
+                                // returning liq=0 momentarily) triggered the
+                                // DATA_CONFLICT path which became HARD_BLOCK
+                                // in live mode. Once blacklisted in-memory, the
+                                // token stays blocked for the entire session.
+                                //
+                                // The TokenSafetyChecker fix (V5.9.473) prevents
+                                // NEW false blacklists by ignoring liq<=1.0
+                                // readings, but the existing in-memory blacklist
+                                // is already polluted. This auto-prunes the
+                                // pollution without requiring a restart.
+                                //
+                                // Conservative criteria for rehabilitation:
+                                //   - Current liquidity ≥ $5,000  (clearly healthy)
+                                //   - Block reason starts with 'Safety: DATA_CONFLICT'
+                                //     (the specific false-positive class)
+                                //   - Real rug reasons (honeypot / scam / mint /
+                                //     2+ losses / etc) are NOT rehabilitated.
+                                //
+                                // BannedTokens (the permanent ban list) is
+                                // separate and unaffected.
+                                val blockReason = TokenBlacklist.getBlockReason(identity.mint)
+                                val isFalsePositive = blockReason.startsWith("Safety: DATA_CONFLICT", ignoreCase = true)
+                                if (isFalsePositive && liquidityUsd >= 5000.0) {
+                                    TokenBlacklist.unblock(identity.mint)
+                                    ErrorLogger.info("BotService", "🩹 REHABILITATED ${identity.symbol}: liq now \$${liquidityUsd.toInt()} — was falsely blacklisted via DATA_CONFLICT (API hiccup). Unblocking.")
+                                    addLog("🩹 REHABILITATED ${identity.symbol}: liq=\$${liquidityUsd.toInt()} healthy, was false-blacklisted from API hiccup")
+                                    // Fall through — continue eligibility checks
+                                } else {
+                                    TradeLifecycle.ineligible(identity.mint, "Blacklisted")
+                                    ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
+                                    return@SolanaMarketScanner
+                                }
                             }
                             
                             // Check 2c: Minimum score threshold (now unified)

@@ -130,6 +130,37 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         ConcurrentHashMap<String, MutableList<Pair<Long, Double>>>()
 
     fun checkLiquidityConflict(mint: String, currentLiquidity: Double): Pair<Boolean, String> {
+        // V5.9.473 — operator-reported false-blacklist bug.
+        //
+        // Symptom: scanner logs showed dozens of healthy tokens (TROLL liq=$241K,
+        // IMOUT liq=$194K, VGT liq=$125K, SPIRIT2.0 liq=$25K) marked
+        // 'INELIGIBLE: <symbol> - blacklisted' even though their current
+        // liquidity was healthy. Operator: 'its banning tokens for null
+        // information due to failing apis not returning token data'.
+        //
+        // Root cause: DexScreener / GeckoTerminal occasionally return
+        // partial responses where pair.liquidity is 0 (transient API
+        // hiccup, race with indexer, 429 rate-limit fallback). That 0
+        // reading was being recorded into liquidityHistory and compared
+        // against maxRecent (~$25k), producing a 100% 'drop'. The check
+        // returned hasConflict=true with reason 'DATA_CONFLICT: Liquidity
+        // dropped 100%'. In live mode that conflict was added to `hard`
+        // (HARD_BLOCK) and TokenBlacklist.block() permanently blacklisted
+        // a perfectly healthy token.
+        //
+        // Fix: do NOT record currentLiquidity==0 into history at all.
+        // A zero reading is almost always an API hiccup, not a real rug.
+        // If liquidity actually crashes to zero on-chain, multiple
+        // consecutive non-zero readings will eventually show genuinely
+        // low values and the conflict check will fire correctly.
+        // If it's an API hiccup, the next reading restores the healthy
+        // value and we never miss a beat.
+        if (currentLiquidity <= 1.0) {
+            // Don't pollute history with API hiccups.
+            // Don't fire conflict either — we have no real signal here.
+            return false to ""
+        }
+
         val history = liquidityHistory.getOrPut(mint) { mutableListOf() }
         val now = System.currentTimeMillis()
 
