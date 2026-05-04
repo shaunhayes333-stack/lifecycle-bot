@@ -1595,9 +1595,23 @@ for legal compliance.
             }
         } catch (_: Exception) {}
 
+        // V5.9.471 — TIER pill / Guards strip / Top-3 leaderboard are
+        // ALL meme-trader specific (RunTracker30D, MemeLossStreakGuard,
+        // StrategyTrustAI all read from the meme-only data store).
+        // Operator: 'the tier information on the live readiness tab is
+        // for memes only.' On Crypto / Markets tabs, hide them entirely
+        // rather than show MEME numbers under those tabs and mislead the
+        // user into thinking they're lane-specific. (When per-lane
+        // ladders / guards exist they can render here; for now those
+        // lanes don't have an equivalent system.)
+        val isMemeTab = currentReadinessTab != "ALTS" && currentReadinessTab != "PERPS"
+
         try {
             val lp = findViewById<TextView>(R.id.tvLadderPill)
             if (lp != null) {
+                if (!isMemeTab) {
+                    lp.visibility = android.view.View.GONE
+                } else {
                 // V5.9.462 — data-consistency fix. User reported the ladder
                 // pill's WR (20.7% / 719 trades from TradeHistoryStore
                 // getLifetimeStats) disagreed with the big WR/Trades
@@ -1628,12 +1642,16 @@ for legal compliance.
                 }
                 lp.setTextColor(color)
                 lp.visibility = android.view.View.VISIBLE
+                }
             }
         } catch (_: Exception) {}
 
         try {
             val gs = findViewById<TextView>(R.id.tvGuardsStrip)
             if (gs != null) {
+                if (!isMemeTab) {
+                    gs.visibility = android.view.View.GONE
+                } else {
                 val streakBlocks = try {
                     com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
                 } catch (_: Throwable) { 0 }
@@ -1666,12 +1684,16 @@ for legal compliance.
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
+                }
             }
         } catch (_: Exception) {}
 
         try {
             val lb = findViewById<TextView>(R.id.tvStrategyLeaderboard)
             if (lb != null) {
+                if (!isMemeTab) {
+                    lb.visibility = android.view.View.GONE
+                } else {
                 val rows = try {
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
                         .values
@@ -1687,6 +1709,7 @@ for legal compliance.
                     }
                     lb.text = "🏆 Top-3: $txt"
                     lb.visibility = android.view.View.VISIBLE
+                }
                 }
             }
         } catch (_: Exception) {}
@@ -2749,14 +2772,9 @@ for legal compliance.
                     currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
-        try {
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach {
-                upsert(it.mint, it.symbol, "BLUE_CHIP", "🔵",
-                    entryPrice = it.entryPrice, entrySol = it.entrySol,
-                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
-                    currentPrice = it.lastSeenPrice)
-            }
-        } catch (_: Exception) {}
+        // V5.9.471 — BlueChip skipped here; it has its own dedicated
+        // cardBlueChipPositions card. Listing it both places was a
+        // double-count (same mint rendered twice with same entry/size).
         try {
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach {
                 upsert(it.mint, it.symbol, "MOONSHOT", "🚀",
@@ -2765,15 +2783,17 @@ for legal compliance.
                     currentPrice = it.lastSeenPrice)
             }
         } catch (_: Exception) {}
-        try {
-            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().forEach {
-                val peakPct = if (it.entryPrice > 0) ((it.highWaterMark - it.entryPrice) / it.entryPrice * 100.0).coerceAtLeast(0.0) else 0.0
-                upsert(it.mint, it.symbol, "TREASURY", "💰",
-                    entryPrice = it.entryPrice, entrySol = it.entrySol,
-                    entryTime = it.entryTime, peakPct = peakPct,
-                    currentPrice = it.currentPrice)
-            }
-        } catch (_: Exception) {}
+        // V5.9.471 — DO NOT pull TREASURY or BLUE_CHIP positions into the
+        // unified Open Positions list. Operator-reported double-count:
+        // MINDFAK appeared in BOTH 'Open Positions' (with 💰 icon) AND
+        // 'Treasury Scalps' card with identical entry / size — same mint
+        // rendered twice in the same view. Same risk for BlueChip if it
+        // had positions. Both layers already have their own dedicated
+        // cards (cardTreasuryPositions, cardBlueChipPositions) further
+        // down the screen, so listing them here as well was pure
+        // duplication. The unified Open Positions card now shows ONLY
+        // sub-traders that don't have a dedicated card: ShitCoin /
+        // Quality / Moonshot.
 
         return merged.sortedByDescending { it.position.entryTime }
     }
