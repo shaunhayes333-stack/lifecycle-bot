@@ -5956,13 +5956,37 @@ class Executor(
                 for (attempt in 1..2) {
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
+                        // V5.9.456 — forensics: emit SELL_QUOTE_TRY before Jupiter
+                        // call so the Live Trade Forensics no longer goes dark
+                        // for 30-90s between SELL_START and SELL_TX_BUILT.
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                            "Quote attempt @ ${slipLevel}bps try=$attempt",
+                            slippageBps = slipLevel,
+                            traderTag = "MEME",
+                        )
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                            tokenUnits, slipLevel.coerceAtMost(500), isBuy = false)
                         onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_QUOTE_OK,
+                            "Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}%",
+                            slippageBps = slipLevel,
+                            traderTag = "MEME",
+                        )
                         break
                     } catch (e: Exception) {
                         lastError = e
                         onLog("SELL: Quote failed slippage=${slipLevel}bps: ${e.message?.take(50)}", ts.mint)
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                            "Quote ${slipLevel}bps FAILED: ${e.message?.take(80) ?: "?"}",
+                            slippageBps = slipLevel,
+                            traderTag = "MEME",
+                        )
                         if (attempt < 2) Thread.sleep(300)
                     }
                 }

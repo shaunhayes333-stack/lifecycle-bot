@@ -871,11 +871,17 @@ object CashGenerationAI {
     }
 
     fun hasPosition(mint: String): Boolean {
-        return synchronized(activePositions) { activePositions.containsKey(mint) }
+        // V5.9.456 — check BOTH maps so callers don't double-open an
+        // already-held orphan across a mode toggle.
+        return synchronized(paperPositions) { paperPositions.containsKey(mint) } ||
+            synchronized(livePositions) { livePositions.containsKey(mint) }
     }
 
     fun getActivePosition(mint: String): TreasuryPosition? {
-        return synchronized(activePositions) { activePositions[mint] }
+        // V5.9.456 — find the position wherever it lives (either map).
+        synchronized(activePositions) { activePositions[mint]?.let { return it } }
+        val otherMap = if (isPaperMode) livePositions else paperPositions
+        return synchronized(otherMap) { otherMap[mint] }
     }
 
     /**
@@ -900,8 +906,11 @@ object CashGenerationAI {
         if (price > 0) {
             currentPrices[mint] = price
             lastPriceUpdate[mint] = System.currentTimeMillis()
-            // V5.9.270: stamp onto position object so getActivePositions() returns live PnL
-            synchronized(activePositions) { activePositions[mint]?.currentPrice = price }
+            // V5.9.270: stamp onto position object so getActivePositions() returns live PnL.
+            // V5.9.456 — stamp on BOTH maps so a mode-mismatched position still
+            // shows fresh pnl in the UI and checkExit's internal use.
+            synchronized(paperPositions) { paperPositions[mint]?.currentPrice = price }
+            synchronized(livePositions) { livePositions[mint]?.currentPrice = price }
         }
     }
 
@@ -1000,12 +1009,34 @@ object CashGenerationAI {
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         updatePrice(mint, currentPrice)
 
-        val pos = synchronized(activePositions) { activePositions[mint] }
+        // V5.9.456 — MODE-COHERENCE SELL FIX (expert RCA, live money bug).
+        // Previously this only looked in the current-mode map. When the
+        // config flipped between PAPER and LIVE (deliberately or via a UI
+        // state race), every position that had been opened in the OTHER
+        // mode became invisible here — checkExit returned HOLD, the tick
+        // never called executor.requestSell, and LIVE positions ran past
+        // TP / SL indefinitely (grok hit +31.8% on a +4% target with no
+        // sell firing). Fallback: if we don't find the mint in the active
+        // map, search the other map and honour the exit signal anyway.
+        var pos = synchronized(activePositions) { activePositions[mint] }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap[mint] }
+            if (pos != null) {
+                ErrorLogger.warn(
+                    TAG,
+                    "💰⚠ TREASURY MODE MISMATCH: ${pos.symbol} found in " +
+                        "${if (isPaperMode) "LIVE" else "PAPER"} map while cfg.paperMode=$isPaperMode " +
+                        "— evaluating exit from OTHER map so TP/SL can still fire.",
+                )
+            }
+        }
 
         if (pos == null) {
             ErrorLogger.warn(
                 TAG,
-                "💰 TREASURY CHECK: Position NOT FOUND for ${mint.take(8)}... | activePositions.size=${activePositions.size}",
+                "💰 TREASURY CHECK: Position NOT FOUND for ${mint.take(8)}... | " +
+                    "paper.size=${paperPositions.size} live.size=${livePositions.size}",
             )
             return ExitSignal.HOLD
         }
@@ -1115,7 +1146,25 @@ object CashGenerationAI {
     }
 
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
+        // V5.9.456 — MODE-COHERENCE CLOSE FIX.
+        // If the position lives in the OTHER mode's map (because cfg was
+        // toggled after entry), activePositions.remove() would have found
+        // nothing and closePosition would silently no-op — leaving the
+        // orphan position open forever. Search both maps and remove from
+        // wherever it actually lives.
+        var pos = synchronized(activePositions) { activePositions.remove(mint) }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap.remove(mint) }
+            if (pos != null) {
+                ErrorLogger.warn(
+                    TAG,
+                    "💰⚠ TREASURY CLOSE MODE MISMATCH: ${pos.symbol} removed from " +
+                        "${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)",
+                )
+            }
+        }
+        if (pos == null) return
 
         try {
             com.lifecyclebot.engine.TradeAuthorizer.releasePosition(
