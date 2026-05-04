@@ -7327,9 +7327,9 @@ class Executor(
         // Looks up the current TokenState from BotService's watchlist so we
         // piggyback on every existing paperBuy/live-buy safety rail
         // (cap, duplicate-open guard, journal, sizing, anti-wash, etc.).
-        val ts = try {
-            val status = com.lifecyclebot.engine.BotService.instance?.status
-            if (status != null) synchronized(status.tokens) { status.tokens[mint] } else null
+        val ts: TokenState? = try {
+            val s = com.lifecyclebot.engine.BotService.status
+            synchronized(s.tokens) { s.tokens[mint] }
         } catch (_: Exception) { null }
 
         if (ts == null) {
@@ -7347,7 +7347,7 @@ class Executor(
 
         // Resolve wallet balance for sizing (paper uses unified wallet)
         val walletSol = try {
-            com.lifecyclebot.engine.BotService.instance?.status?.getEffectiveBalance(isPaper) ?: 0.0
+            com.lifecyclebot.engine.BotService.status.getEffectiveBalance(isPaper)
         } catch (_: Exception) { 0.0 }
         val sizeSol = (walletSol * (sizePct / 100.0)).coerceAtLeast(0.001)
         if (sizeSol > walletSol) {
@@ -7363,9 +7363,11 @@ class Executor(
                     layerTagEmoji = "📡",
                 )
             } else {
-                // Live fallthrough: queue a real buy via the standard doBuy path
-                // which handles wallet/signer wiring and safety gates uniformly.
-                doBuy(ts, sizeSol, 60.0, null)
+                // Live fallthrough via standard doBuy path (handles wallet + safety gates).
+                doBuy(
+                    ts = ts, sol = sizeSol, score = 60.0,
+                    wallet = null, walletSol = walletSol,
+                )
             }
             onLog("📡 NETWORK SIGNAL AUTO-BUY EXECUTED: $symbol size=${sizeSol.fmt(3)}◎ | $reason", mint)
             onNotify(
