@@ -5864,8 +5864,49 @@ class Executor(
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             val onChainBalances = wallet.getTokenAccountsWithDecimals()
             val tokenData = onChainBalances[ts.mint]
-            
-            if (tokenData == null || tokenData.first <= 0.0) {
+            val mapEmpty = onChainBalances.isEmpty()
+
+            // V5.9.467 — RPC-EMPTY RESCUE (operator-reported sell-kill bug).
+            //
+            // Symptom from user forensics: BUY_VERIFIED_LANDED qty=587.4548
+            // at 23:37:19 → LIVE SELL START 23:39:19 → SELL_FAILED "RPC
+            // returned EMPTY balance map (retry 1/20) — will retry next
+            // tick" for 20+ retries. Tokens were definitively on-chain
+            // (verified via TX-PARSE at buy) but every sell attempt was
+            // silently blocked because the RPC's getTokenAccountsByOwner
+            // call returned no accounts at all (not a zero for this mint,
+            // the entire map was empty — classic Helius/Triton overload
+            // response).
+            //
+            // Old behaviour: mapEmpty=true → BLOCK SELL → retry next tick
+            // (forever, across app restarts). This silently strands the
+            // position across any RPC blip longer than the 60s tracker
+            // trust window.
+            //
+            // New behaviour: mapEmpty=true AND tokenUnits>0 (from verified
+            // buy) → proceed with tracker qty. The RPC being broken does
+            // NOT mean the tokens are gone. The Jupiter quote + swap call
+            // will fail cleanly if the tokens are genuinely missing, so
+            // we don't risk false sells. The orphan-alert path (line
+            // below) still fires when the map is NON-EMPTY but this mint
+            // is absent — that's the real "externally sold/rugged" case.
+            val rpcRescue = mapEmpty && tokenUnits > 0L
+            if (rpcRescue) {
+                val heldSec = (System.currentTimeMillis() - pos.entryTime) / 1000
+                onLog("🛟 RPC RESCUE: empty balance map blip — trusting tracker qty=$tokenUnits " +
+                      "from verified buy (${heldSec}s ago). Tokens on-chain, RPC is the problem.",
+                      tradeId.mint)
+                ErrorLogger.info("Executor", "RPC_RESCUE: ${ts.symbol} empty map → using tracker qty=$tokenUnits")
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.INFO,
+                    "🛟 RPC empty-map rescue — tracker qty=$tokenUnits from verified buy (${heldSec}s ago)",
+                    traderTag = "MEME",
+                )
+                zeroBalanceRetries.remove(ts.mint)
+                // Fall through past the zero-balance and refinement blocks
+                // below — tokenUnits from the tracker is authoritative.
+            } else if (tokenData == null || tokenData.first <= 0.0) {
                 // V5.9.72 CRITICAL FIX: previous logic force-closed the position
                 // after 5 "zero balance" reads, calling tradeId.closed(...) and
                 // returning CONFIRMED even though NO swap was broadcast. If the
@@ -5874,57 +5915,42 @@ class Executor(
                 // marked them "sold at -100%", ate the PnL accounting, and
                 // walked away. User saw: tokens remain on-chain, no SOL back.
                 //
-                // New behaviour:
-                //   - If the on-chain map came back NON-EMPTY and this mint is
-                //     simply absent/zero → tokens are genuinely gone (rug,
-                //     honeypot, external sell). We surface that as an orphan
-                //     alert, leave the position open, and let the user clear
-                //     it manually via the UI. We do NOT claim a sell PnL.
-                //   - If the map is EMPTY / threw → RPC is broken, tokens
-                //     are almost certainly still there. Retry with backoff,
-                //     never close.
-                val mapEmpty = onChainBalances.isEmpty()
+                // V5.9.467: the map-empty branch is now handled above by
+                // RPC-RESCUE. Only reach this path when the RPC returned
+                // a NON-EMPTY map and this specific mint was absent/zero
+                // — i.e. tokens genuinely gone (rug, honeypot, external
+                // sell). Surface as orphan alert, leave position OPEN,
+                // never claim a sell PnL.
                 val retryCount = zeroBalanceRetries.merge(ts.mint, 1) { old, _ -> old + 1 } ?: 1
 
-                if (!mapEmpty && retryCount >= 20) {
+                if (retryCount >= 20) {
                     onLog("🚨 ORPHAN ALERT: ${ts.symbol} — on-chain balance has been 0 for $retryCount " +
-                          "consecutive reads. Tokens likely rugged / externally sold. Position kept OPEN for " +
-                          "manual release.", tradeId.mint)
+                          "consecutive reads (map non-empty, mint absent). Tokens likely rugged / externally sold. " +
+                          "Position kept OPEN for manual release.", tradeId.mint)
                     onNotify("🚨 Orphan Position",
                         "${ts.symbol}: on-chain balance 0 for $retryCount polls. No swap was sent. " +
                         "Clear manually from the positions panel.",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    // V5.9.458 — forensics: make this terminal state VISIBLE so
-                    // users see why the sell died instead of 'SELL_START · 1 event'.
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_FAILED,
                         "ORPHAN — on-chain balance 0 for $retryCount polls. Tokens likely rugged. Position kept OPEN for manual release.",
                         traderTag = "MEME",
                     )
-                    // IMPORTANT: do NOT call tradeId.closed(...) here. The bot
-                    // claiming a trade it never made is what burned the user
-                    // in V5.9.71 and earlier.
                     return SellResult.FAILED_RETRYABLE
                 }
 
-                onLog("SELL BLOCKED: ${if (mapEmpty) "RPC returned empty balance map" else "balance=0"} " +
-                      "for ${ts.symbol} (retry $retryCount/20)", tradeId.mint)
-                ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} " +
-                    "${if (mapEmpty) "RPC_EMPTY_MAP" else "ONCHAIN_ZERO"} (retry $retryCount/20)")
-                // V5.9.458 — forensics: this was the PRIMARY silent-kill path
-                // the user saw as 'SELL_START · 1 event'. Every attempt now
-                // logs a phase so the forensics card shows exactly why.
+                onLog("SELL BLOCKED: on-chain balance=0 for ${ts.symbol} (retry $retryCount/20) — mint absent from non-empty map",
+                      tradeId.mint)
+                ErrorLogger.warn("Executor", "LIVE SELL BLOCKED: ${ts.symbol} ONCHAIN_ZERO (retry $retryCount/20)")
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_FAILED,
-                    if (mapEmpty) "RPC returned EMPTY balance map (retry $retryCount/20) — will retry next tick"
-                    else "On-chain balance = 0 (retry $retryCount/20) — will retry next tick",
+                    "On-chain balance = 0 (retry $retryCount/20) — will retry next tick",
                     traderTag = "MEME",
                 )
                 return SellResult.FAILED_RETRYABLE
-            }
-            
+            } else {
             val actualBalanceUi = tokenData.first
             val actualDecimals = tokenData.second
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
@@ -5974,6 +6000,7 @@ class Executor(
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)
             onLog("📊 SELL DEBUG: Final tokenUnits to sell = $tokenUnits", tradeId.mint)
+            } // end else (tokenData non-null refinement branch) — V5.9.467
             
         } catch (e: Exception) {
             onLog("⚠️ SELL DEBUG: Balance check failed: ${e.message?.take(60)}", tradeId.mint)
