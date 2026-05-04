@@ -1191,10 +1191,26 @@ object MarketsLiveExecutor {
 
         val (inputMint, amountUnits) = try {
             val balances = wallet.getTokenAccountsWithDecimals()
+            // V5.9.475 — RPC RESCUE for Markets close path (mirrors V5.9.467
+            // in Executor.liveSell). Operator: 'stocks land in host wallet
+            // but never complete a sell.' When DexScreener/Triton/Helius
+            // return an empty balance map (transient RPC failure), the old
+            // code conflated this with 'mint absent from non-empty map'
+            // (genuine 'tokens not held') and silently aborted with a
+            // misleading 'No <symbol> balance to close — skipping.' log.
+            // The token IS in the wallet — the RPC is just broken right
+            // now. Returning (false,null) here makes the caller retry,
+            // which is correct behaviour, but the log was deceptive.
+            // Emit a clearer warn so the operator can distinguish RPC
+            // hiccups from genuine empty wallets.
+            if (balances.isEmpty()) {
+                ErrorLogger.warn(TAG, "🛟 Markets close RPC blip for ${market.symbol}: balance map EMPTY — RPC degraded, will retry next tick (NOT a real 'no balance')")
+                return@withContext Pair(false, null)
+            }
             if (useTokenized) {
                 val tokenData = balances[targetMint!!]
                 if (tokenData == null || tokenData.first <= 0) {
-                    ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — skipping.")
+                    ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — non-empty map, mint genuinely absent. Skipping (token not held).")
                     return@withContext Pair(false, null)
                 }
                 val decimals = tokenData.second

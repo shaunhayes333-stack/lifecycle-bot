@@ -2038,19 +2038,23 @@ for legal compliance.
             
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT
-            // V5.9.343 — Aggregate across the base memetrader AND every
-            // specialist trader that holds its own paperPositions map.
-            // Previously this only counted state.openPositions (base tokens),
-            // so the counter was mis-reporting real exposure when Moonshot,
-            // ShitCoin, Quality, BlueChip or Treasury had active positions.
-            // ═══════════════════════════════════════════════════════════════════
-            val memeOpen     = state.openPositions.size
-            val shitOpen     = try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
-            val qualityOpen  = try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
-            val blueOpen     = try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
-            val moonOpen     = try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size } catch (_: Exception) { 0 }
-            val treasuryOpen = try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size } catch (_: Exception) { 0 }
-            val openCount    = memeOpen + shitOpen + qualityOpen + blueOpen + moonOpen + treasuryOpen
+            // V5.9.475 — DEDUPLICATED count fix. Operator: 'main meme ui open
+            // positions counter is wrong.' Was naive sum:
+            //   memeOpen + shitOpen + qualityOpen + blueOpen + moonOpen + treasuryOpen
+            // ShitCoin / Quality / BlueChip / Moonshot ALL mirror their
+            // positions onto ts.position when they take a trade, so they
+            // appear BOTH in state.openPositions AND their private maps.
+            // Naive sum double-counted every one of them — operator saw
+            // '5 Open' when only 2 visible. Now we union the mint sets and
+            // take size, so each mint is counted exactly once.
+            val openMints = mutableSetOf<String>()
+            try { state.openPositions.forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            val openCount = openMints.size
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             

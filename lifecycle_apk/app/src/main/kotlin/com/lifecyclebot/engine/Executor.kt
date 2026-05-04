@@ -492,6 +492,101 @@ class Executor(
         )
     }
 
+    /**
+     * V5.9.475 — POSITION-STORE REHYDRATION (P1 sell-kill fix).
+     *
+     * Operator-reported bug: 'nothing sell wise in the meme trader fires in
+     * the host wallet. the transaction has never made it to that point.'
+     *
+     * Root cause: CashGenerationAI / ShitCoinTraderAI / QualityTraderAI /
+     * BlueChipTraderAI / MoonshotTraderAI all keep positions in their OWN
+     * private maps and do NOT write back to ts.position when they take
+     * ownership. So when an auto-exit fires (Treasury TP, profit-lock,
+     * normal exit, manual sell), the sell path checks
+     * ts.position.isOpen → qtyToken=0 → returns ALREADY_CLOSED. The actual
+     * Jupiter swap never gets called. Tokens stay in the host wallet
+     * forever and the bot reports the position 'closed' with no PnL.
+     *
+     * This helper scans every sub-trader store. If any has the mint AND
+     * ts.position is empty, we copy the cost basis + entry price + paper
+     * flag back onto ts.position and synthesise qtyToken = entrySol /
+     * entryPrice. After this, the isOpen guard passes and the sell flows
+     * end-to-end through the existing live-sell pipeline (V5.9.467 RPC
+     * rescue → V5.9.468 binding-order quote → V5.9.470/472 slippage
+     * escalation → V5.9.474 forensics) just like a non-rehydrated sell.
+     *
+     * Returns true if a rehydration occurred. Safe to call repeatedly —
+     * skips work if ts.position already has positive qty.
+     */
+    private fun rehydratePositionFromSubTraders(ts: TokenState): Boolean {
+        // Already valid — nothing to do.
+        if (ts.position.qtyToken > 0.0) return false
+
+        val mint = ts.mint
+        // Local helper: stamp the rehydrated values onto ts.position.
+        fun applyRehydrate(entrySol: Double, entryPrice: Double, entryTime: Long, isPaper: Boolean, sourceTag: String): Boolean {
+            if (entrySol <= 0.0 || entryPrice <= 0.0) return false
+            val qty = entrySol / entryPrice
+            if (qty <= 0.0 || !qty.isFinite()) return false
+            synchronized(ts) {
+                ts.position = ts.position.copy(
+                    qtyToken = qty,
+                    costSol = entrySol,
+                    entryPrice = entryPrice,
+                    entryTime = entryTime,
+                    isPaperPosition = isPaper,
+                    pendingVerify = false,
+                )
+            }
+            ErrorLogger.info("Executor",
+                "🩹 REHYDRATE [${sourceTag}] ${ts.symbol}: qty=$qty entrySol=$entrySol entryPrice=$entryPrice " +
+                "(isPaper=$isPaper) — sub-trader had position but ts.position was empty")
+            return true
+        }
+
+        // Treasury (CashGenerationAI) — most common case for the operator's bug.
+        try {
+            val tp = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(mint)
+            if (tp != null && applyRehydrate(tp.entrySol, tp.entryPrice, tp.entryTime, tp.isPaper, "Treasury")) {
+                return true
+            }
+        } catch (_: Exception) {}
+
+        // ShitCoin
+        try {
+            val sp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().find { it.mint == mint }
+            if (sp != null && applyRehydrate(sp.entrySol, sp.entryPrice, sp.entryTime, sp.isPaper, "ShitCoin")) {
+                return true
+            }
+        } catch (_: Exception) {}
+
+        // Quality (no isPaper field — infer from cfg().paperMode)
+        try {
+            val qp = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().find { it.mint == mint }
+            if (qp != null && applyRehydrate(qp.entrySol, qp.entryPrice, qp.entryTime, cfg().paperMode, "Quality")) {
+                return true
+            }
+        } catch (_: Exception) {}
+
+        // BlueChip
+        try {
+            val bp = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().find { it.mint == mint }
+            if (bp != null && applyRehydrate(bp.entrySol, bp.entryPrice, bp.entryTime, bp.isPaper, "BlueChip")) {
+                return true
+            }
+        } catch (_: Exception) {}
+
+        // Moonshot (uses isPaperMode field name — same semantics)
+        try {
+            val mp = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().find { it.mint == mint }
+            if (mp != null && applyRehydrate(mp.entrySol, mp.entryPrice, mp.entryTime, mp.isPaperMode, "Moonshot")) {
+                return true
+            }
+        } catch (_: Exception) {}
+
+        return false
+    }
+
     private fun resolveSellUnitsForMint(
         mint: String,
         qty: Double,
@@ -1569,6 +1664,12 @@ class Executor(
         walletSol: Double,
     ) {
         val c = cfg()
+        // V5.9.475 — rehydrate ts.position from sub-trader maps if it's
+        // empty. Sub-traders (Treasury, ShitCoin, etc.) keep positions in
+        // private maps and don't always mirror to ts.position. Without
+        // this, profit-lock sells would compute sellQty = 0 * fraction =
+        // 0 and silently no-op the entire sell.
+        rehydratePositionFromSubTraders(ts)
         val pos = ts.position
         
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
@@ -4594,6 +4695,12 @@ class Executor(
         val pct = sellPercentage.coerceIn(0.0, 1.0)
         if (pct <= 0) return
         
+        // V5.9.475 — rehydrate ts.position from sub-trader maps if empty.
+        // Without this, partial-sell would compute originalHolding = 0
+        // because sub-traders keep positions in private maps and don't
+        // mirror back to ts.position.qtyToken.
+        rehydratePositionFromSubTraders(ts)
+
         val originalHolding = ts.position.qtyToken
         val sellAmount = originalHolding * pct
         val remainingAmount = originalHolding - sellAmount
@@ -4886,6 +4993,14 @@ class Executor(
         }
 
         try {
+
+        // V5.9.475 — REHYDRATE before the isOpen check so sub-trader positions
+        // (Treasury, ShitCoin, Quality, BlueChip, Moonshot) that never wrote
+        // back to ts.position can still be sold. Was the primary cause of
+        // 'meme sells never reach the host wallet': sub-traders kept positions
+        // in private maps, ts.position.isOpen=false, doSell returned
+        // ALREADY_CLOSED, swap never fired.
+        rehydratePositionFromSubTraders(ts)
 
         val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
