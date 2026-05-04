@@ -319,12 +319,16 @@ object BlueChipTraderAI {
         }
     }
     
-    fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+    fun hasPosition(mint: String): Boolean =
+        // V5.9.457 — mode-orphan fix: check BOTH maps.
+        paperPositions.containsKey(mint) || livePositions.containsKey(mint)
 
     /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
     fun updateLivePrice(mint: String, price: Double) {
         if (price <= 0) return
-        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+        // V5.9.457 — stamp on BOTH maps so orphans still show fresh pnl.
+        synchronized(paperPositions) { paperPositions[mint]?.lastSeenPrice = price }
+        synchronized(livePositions) { livePositions[mint]?.lastSeenPrice = price }
     }
     
     fun addPosition(position: BlueChipPosition) {
@@ -341,7 +345,19 @@ object BlueChipTraderAI {
     }
     
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
+        // V5.9.457 — mode-orphan fix: if mint isn't in the current-mode
+        // map, fall back to the OTHER map so the actual close happens
+        // even when cfg was toggled between paper/live after entry.
+        var pos = synchronized(activePositions) { activePositions.remove(mint) }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap.remove(mint) }
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "🔵⚠ BLUECHIP CLOSE MODE MISMATCH: ${pos.symbol} " +
+                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)")
+            }
+        }
+        if (pos == null) return
         
         // ═══════════════════════════════════════════════════════════════════
         // V5.2 FIX: RELEASE TRADE AUTHORIZER LOCK
@@ -425,7 +441,18 @@ object BlueChipTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        // V5.9.457 — mode-orphan fix: search both maps so TP/SL still fire
+        // on positions opened in the opposite mode.
+        var pos = synchronized(activePositions) { activePositions[mint] }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap[mint] }
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "🔵⚠ BLUECHIP MODE MISMATCH: ${pos.symbol} found in " +
+                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
+            }
+        }
+        if (pos == null) return ExitSignal.HOLD
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
 
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100

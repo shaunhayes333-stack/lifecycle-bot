@@ -394,7 +394,9 @@ object ShitCoinTraderAI {
         }
     }
     
-    fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+    fun hasPosition(mint: String): Boolean =
+        // V5.9.457 — mode-orphan fix: check BOTH maps.
+        paperPositions.containsKey(mint) || livePositions.containsKey(mint)
 
     /**
      * V5.9.398 — Push a live price into the position without firing exit
@@ -404,11 +406,16 @@ object ShitCoinTraderAI {
      */
     fun updateLivePrice(mint: String, price: Double) {
         if (price <= 0) return
-        synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
+        // V5.9.457 — stamp BOTH maps so mode-mismatched orphans still
+        // show fresh P&L and don't go dark on the open-positions card.
+        synchronized(paperPositions) { paperPositions[mint]?.lastSeenPrice = price }
+        synchronized(livePositions) { livePositions[mint]?.lastSeenPrice = price }
     }
     // Called by BotService after executing a PARTIAL_TAKE sell to confirm the flag is set
     fun markFirstTakeDone(mint: String) {
         synchronized(activePositions) { activePositions[mint] }?.firstTakeDone = true
+        val otherMap = if (isPaperMode) livePositions else paperPositions
+        synchronized(otherMap) { otherMap[mint] }?.firstTakeDone = true
     }
 
     /**
@@ -447,7 +454,18 @@ object ShitCoinTraderAI {
     }
     
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
-        val pos = synchronized(activePositions) { activePositions.remove(mint) } ?: return
+        // V5.9.457 — mode-orphan fix: fall back to other map so closes
+        // actually happen across paper/live mode toggles.
+        var pos = synchronized(activePositions) { activePositions.remove(mint) }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap.remove(mint) }
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "💩⚠ SHITCOIN CLOSE MODE MISMATCH: ${pos.symbol} " +
+                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map (cfg.paperMode=$isPaperMode)")
+            }
+        }
+        if (pos == null) return
         
         // V4.1.3: Stop rug monitoring
         UltraFastRugDetectorAI.stopMonitoring(mint)
@@ -1163,7 +1181,17 @@ object ShitCoinTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
-        val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
+        // V5.9.457 — mode-orphan fix: search both maps so TP/SL still fire.
+        var pos = synchronized(activePositions) { activePositions[mint] }
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = synchronized(otherMap) { otherMap[mint] }
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "💩⚠ SHITCOIN MODE MISMATCH: ${pos.symbol} found in " +
+                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
+            }
+        }
+        if (pos == null) return ExitSignal.HOLD
         // V5.9.392 — stash latest price for unified open-positions card.
         pos.lastSeenPrice = currentPrice
         

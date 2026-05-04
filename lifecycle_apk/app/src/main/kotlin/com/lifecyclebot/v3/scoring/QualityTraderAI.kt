@@ -420,7 +420,17 @@ object QualityTraderAI {
         currentPrice: Double,
         currentMcap: Double = 0.0,
     ): ExitSignal {
-        val pos = activePositions[mint] ?: return ExitSignal.HOLD
+        // V5.9.457 — mode-orphan fix: search both maps.
+        var pos = activePositions[mint]
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = otherMap[mint]
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "📊⚠ QUALITY MODE MISMATCH: ${pos.symbol} found in " +
+                    "${if (isPaperMode) "LIVE" else "PAPER"} map — evaluating exit anyway")
+            }
+        }
+        if (pos == null) return ExitSignal.HOLD
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
         pos.lastPriceUpdateMs = System.currentTimeMillis()  // V5.9.415 — true freshness
         
@@ -559,7 +569,17 @@ object QualityTraderAI {
     }
     
     fun closePosition(mint: String, exitPrice: Double, exitSignal: ExitSignal) {
-        val pos = activePositions.remove(mint) ?: return
+        // V5.9.457 — mode-orphan fix: fall back to other map.
+        var pos = activePositions.remove(mint)
+        if (pos == null) {
+            val otherMap = if (isPaperMode) livePositions else paperPositions
+            pos = otherMap.remove(mint)
+            if (pos != null) {
+                ErrorLogger.warn(TAG, "📊⚠ QUALITY CLOSE MODE MISMATCH: ${pos.symbol} " +
+                    "removed from ${if (isPaperMode) "LIVE" else "PAPER"} map")
+            }
+        }
+        if (pos == null) return
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
@@ -621,12 +641,20 @@ object QualityTraderAI {
         return if (isPaper) paperPositions.values.toList() else livePositions.values.toList()
     }
     
-    fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+    fun hasPosition(mint: String): Boolean =
+        // V5.9.457 — mode-orphan fix: check BOTH maps.
+        paperPositions.containsKey(mint) || livePositions.containsKey(mint)
 
     /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
     fun updateLivePrice(mint: String, price: Double) {
         if (price <= 0) return
-        synchronized(activePositions) { activePositions[mint] }?.let {
+        // V5.9.457 — stamp BOTH maps so mode-mismatched orphans still show
+        // fresh pnl on the unified open-positions card.
+        synchronized(paperPositions) { paperPositions[mint] }?.let {
+            it.lastSeenPrice = price
+            it.lastPriceUpdateMs = System.currentTimeMillis()
+        }
+        synchronized(livePositions) { livePositions[mint] }?.let {
             it.lastSeenPrice = price
             it.lastPriceUpdateMs = System.currentTimeMillis()
         }
