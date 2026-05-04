@@ -7639,7 +7639,7 @@ if (deferredCount > 0) {
                                     "sym=${"%.2f".format(symSizeAdj)} × " +
                                     "llm=${"%.2f".format(llmSizeMult)} × " +
                                     "ladder=${"%.2f".format(ladderSizeMult)} → ${proposedSize.fmt(4)}◎ " +
-                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)} tier=$ladderTier)"
+                                    "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
                                 )
                             }
 
