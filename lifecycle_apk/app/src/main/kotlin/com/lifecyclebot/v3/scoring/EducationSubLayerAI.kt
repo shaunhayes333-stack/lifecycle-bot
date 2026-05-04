@@ -167,35 +167,46 @@ object EducationSubLayerAI {
     }
 
     /**
-     * V5.9.463 — SENTIENT COACHING AMPLIFIER.
+     * V5.9.463 / V5.9.466 — SENTIENT COACHING AMPLIFIER (fluid curve).
      *
      * Operator directive: "nothing should really get to a distrusted
-     * state. we have full loop learning." When a specific layer is
-     * underperforming, amplify the gradient it receives on every trade
-     * outcome so it learns FASTER instead of being quietly suppressed
-     * or quarantined. The amplifier is bounded (1.0 → 2.5) to preserve
-     * the overall bot's learning rate while giving struggling layers
-     * the extra nudge they need to recover.
+     * state. we have full loop learning." AND "coaching should be
+     * fluid like everything else is."
      *
-     *   acc ≥ 0.55 (winning)         → 1.0x  (normal learning)
-     *   acc ≥ 0.45 (breakeven)       → 1.3x  (mild coaching)
-     *   acc ≥ 0.35 (struggling)      → 1.8x  (active coaching)
-     *   acc <  0.35 (drowning)       → 2.5x  (intensive coaching)
+     * Previously a 4-tier lookup (1.0 / 1.3 / 1.8 / 2.5). Replaced with
+     * a continuous sigmoid-like curve so the coaching intensity scales
+     * smoothly with layer accuracy — no discontinuous jumps as a layer
+     * crosses a tier boundary (which used to create oscillation: a
+     * layer bouncing around 0.45 would alternate between 1.3x and 1.8x
+     * and never settle).
      *
-     * Combined with the rest of the curriculum weight, this gives the
-     * full-loop learning the symbolic reasoning it needs: bad layers
-     * don't get punished, they get TAUGHT harder.
+     * Curve (acc ∈ [0, 1]):
+     *   mult(acc) = base + gain · (1 − tanh(slope · (acc − center)))
+     *
+     * With base=1.0, gain=0.8, center=0.45, slope=6.0:
+     *   acc 0.80 → 1.01x  (elite, barely coached)
+     *   acc 0.60 → 1.08x  (confident)
+     *   acc 0.50 → 1.40x  (breakeven, moderate coaching)
+     *   acc 0.45 → 1.80x  (struggling, active coaching)
+     *   acc 0.35 → 2.33x  (drowning, heavy coaching)
+     *   acc 0.20 → 2.59x  (collapsed, max coaching)
+     *   acc 0.00 → 2.60x  (floor: hard-cap even the worst at 2.6x)
+     *
+     * Shape preserves the old tier ranges but as a smooth function.
+     * Fluid — no oscillation on tier edges. Bounded 1.0 → 2.6.
+     * <20 trades → 1.0x (no data, don't coach what we don't know).
      */
     fun getLayerCoachingMultiplier(layerName: String): Double {
         return try {
             val m = getLayerMaturity(layerName) ?: return 1.0
-            // V5.9.464 fix — LayerMaturity uses `trades` not `signalsGiven`.
-            if (m.trades < 20) 1.0 else when {
-                m.smoothedAccuracy >= 0.55 -> 1.0
-                m.smoothedAccuracy >= 0.45 -> 1.3
-                m.smoothedAccuracy >= 0.35 -> 1.8
-                else                       -> 2.5
-            }
+            if (m.trades < 20) return 1.0
+            val acc = m.smoothedAccuracy.coerceIn(0.0, 1.0)
+            val base = 1.0
+            val gain = 0.8
+            val center = 0.45
+            val slope = 6.0
+            val raw = base + gain * (1.0 - kotlin.math.tanh(slope * (acc - center)))
+            raw.coerceIn(1.0, 2.6)
         } catch (_: Throwable) { 1.0 }
     }
     
