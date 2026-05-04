@@ -6011,19 +6011,41 @@ class Executor(
         var pnlP = 0.0
 
         try {
-            val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
-            onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits", tradeId.mint)
+            // V5.9.470 — slippage escalation across BROADCAST retries (not just quote retries).
+            // Operator forensics on TROLLA (pump.fun graduated meme) showed:
+            //   SELL_QUOTE_OK @ 200bps (quote accepted by Metis aggregator)
+            //   SELL_TX_BUILT → SELL_BROADCAST → SELL_FAILED 0x1788 (slippage)
+            //   ... attempt 2: same 200bps quote, same 0x1788 broadcast failure
+            // Pump.fun bonding-curve memes are volatile; the price moves between
+            // quote acceptance and on-chain execution, so the original 200bps
+            // tolerance gets exceeded at the swap program. Old loop only
+            // escalated slippage on QUOTE failure, never on BROADCAST failure,
+            // so subsequent ticks kept retrying at 200bps forever.
+            // Now: per-mint broadcastRetries counter increases the BASE slippage
+            // for retries (200 → 300 → 500 → 800 → 1000bps cap) so the 3rd+
+            // attempt has a real chance against pump.fun-class price drift.
+            val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
+            val baseSlippage = (c.slippageBps * 2).coerceAtMost(500)
+            val sellSlippage = when (priorBroadcastRetries) {
+                0    -> baseSlippage              // first attempt — normal 200bps
+                1    -> 400                        // 2nd attempt — moderate bump
+                2    -> 600                        // 3rd attempt — meme-volatility tolerance
+                else -> 1000                       // 4th+ attempt — pump.fun freefall protection
+            }.coerceAtMost(1000)
+            onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits | broadcastRetries=$priorBroadcastRetries", tradeId.mint)
             
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastError: Exception? = null
             
             // V5.7.8: Aggressive sell — try normal slippage, then 2x, then 5x, then max
-            // V5.9.103: all slippage levels hard-capped at 500 bps (5%).
-            // Previous panic-escalation went to 5000 bps (50%) which would
-            // accept selling a rugged token at half price — unacceptable for
-            // a fee-paying swap. If 5% can't fill, abort the sell and let
-            // the reconciler handle the stuck position on next startup.
-            val slippageLevels = listOf(sellSlippage, 300, 500).distinct()
+            // V5.9.103: previously hard-capped at 500 bps. V5.9.470: lifted to
+            // 1000bps but ONLY for tokens that have already failed broadcast
+            // multiple times — first attempts still use the safe 200bps and
+            // escalate within this loop only if the quote itself can't fill.
+            // This preserves the V5.9.103 'don't sell rugs at half price' intent
+            // while letting genuinely volatile pump.fun memes complete after 2-3
+            // 0x1788 retries.
+            val slippageLevels = listOf(sellSlippage, 600, 1000).distinct()
             
             for (slipLevel in slippageLevels) {
                 for (attempt in 1..2) {
@@ -6454,9 +6476,17 @@ class Executor(
             // insufficient-funds failure, so the user can immediately see
             // the class of problem.
             val failureClass = when {
-                safe.contains("insufficient", ignoreCase = true) ||
-                safe.contains("rent", ignoreCase = true) ||
-                safe.contains("0x1", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
+                // V5.9.470 — fix misclassification observed in operator forensics:
+                // pump.fun / Raydium bonding-curve programs throw 0x1788 (6024 =
+                // 'TooLittleSolReceived' / 'SlippageExceeded') when on-chain
+                // price drifts past the quote tolerance. Was previously bucketed
+                // as INSUFFICIENT_FUNDS (because the generic '0x1' substring
+                // match was too greedy) which sent the user looking at their
+                // wallet balance instead of the slippage cap.
+                safe.contains("0x1788", ignoreCase = true) ||
+                safe.contains("TooLittleSolReceived", ignoreCase = true) ||
+                safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
+
                 safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
                 safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
                 safe.contains("blockhash", ignoreCase = true) ||
@@ -6464,6 +6494,12 @@ class Executor(
                 safe.contains("rate limit", ignoreCase = true) ||
                 safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
                 safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
+                // Insufficient SOL for tx fees / rent. Be more specific than
+                // before — only match on actual rent / 0x1 (token program
+                // 'InsufficientFunds') / explicit 'insufficient' wording.
+                safe.contains("InsufficientFunds", ignoreCase = true) ||
+                safe.contains("insufficient lamports", ignoreCase = true) ||
+                safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
                 safe.contains("buildSwapTx", ignoreCase = true) ||
                 safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
                 else -> "BROADCAST_FAILED"
