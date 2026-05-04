@@ -2550,6 +2550,36 @@ class BotService : Service() {
             
             if (cfg.closePositionsOnStop) {
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+
+                // V5.9.454 — STOP-PATH WALLET RECOVERY.
+                // On live stop, the local `wallet` var may have been
+                // nulled by an earlier RPC hiccup (see WalletManager
+                // preservation fix) or by the old launchWalletConnect
+                // race. If it's null here, held tokens would stay
+                // stranded in the host wallet because closeAllPositions
+                // and liveSweepWalletTokens both need a live wallet.
+                //
+                // Do one synchronous attemptReconnect before giving up
+                // so the user's positions actually liquidate.
+                if (!cfg.paperMode && wallet == null) {
+                    try {
+                        ErrorLogger.warn("BotService",
+                            "🚨 STOP: live wallet is null — attempting reconnect so held tokens can be swept")
+                        addLog("🚨 STOP: reconnecting wallet to sell held tokens…")
+                        val recovered = com.lifecyclebot.engine.WalletManager.attemptReconnect()
+                        if (recovered != null) {
+                            wallet = recovered
+                            addLog("✅ Wallet reconnected for shutdown sweep")
+                            ErrorLogger.info("BotService", "✅ STOP: wallet recovered for shutdown sweep")
+                        } else {
+                            ErrorLogger.error("BotService",
+                                "❌ STOP: wallet reconnect failed — held tokens will remain in host wallet")
+                            addLog("❌ STOP: wallet reconnect failed — held tokens will NOT be sold")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.error("BotService", "STOP reconnect threw: ${e.message}", e)
+                    }
+                }
                 
                 // Get a synchronized copy of tokens to avoid ConcurrentModificationException
                 val tokensCopy = synchronized(status.tokens) {
@@ -3179,6 +3209,26 @@ class BotService : Service() {
         while (status.running) {
           try {
             loopCount++
+
+            // V5.9.454 — WALLET RE-SYNC FIX.
+            // BotService's local `wallet` var previously only updated
+            // from inside launchWalletConnect's callback. When
+            // Executor.doSell successfully reconnected the WalletManager
+            // singleton via attemptReconnect(), the new wallet was never
+            // propagated back to this local var — so the NEXT tick still
+            // passed `wallet=null` to the Executor and the sell hit
+            // "CRITICAL: Live mode sell attempted but WALLET IS NULL!"
+            // again, forever.
+            //
+            // Fix: in live mode, re-sync from the singleton every tick.
+            // Cheap read (returns a cached ref), no network call.
+            if (!ConfigStore.load(applicationContext).paperMode) {
+                val fresh = walletManager.getWallet()
+                if (fresh != null && fresh !== wallet) {
+                    wallet = fresh
+                    ErrorLogger.info("BotService", "🔄 wallet re-synced from singleton — sells unblocked")
+                }
+            }
 
             // V5.9.362 — Regime pulse (every 60s, side-effect-only, never blocks)
             if (System.currentTimeMillis() - lastRegimePulseAt > regimePulseIntervalMs) {

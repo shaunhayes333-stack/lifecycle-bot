@@ -67,6 +67,11 @@ object PerpsExecutionEngine {
     private var scanJob: Job? = null
     private var positionMonitorJob: Job? = null
     private var engineScope: CoroutineScope? = null
+
+    // V5.9.454 — retain the app context so the scan loop can read the
+    // current lane toggles from ConfigStore without plumbing it through
+    // every call site.
+    @Volatile private var appContext: android.content.Context? = null
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
@@ -97,6 +102,7 @@ object PerpsExecutionEngine {
         // Initialize all perps components
         PerpsTraderAI.init(context)
         PerpsLearningBridge.init(context)
+        appContext = context.applicationContext
         
         isRunning.set(true)
         isPaused.set(false)
@@ -218,7 +224,46 @@ object PerpsExecutionEngine {
                     
                     // Run all scanners
                     val scanResults = PerpsMarketScanners.runAllScanners(isPaper)
-                    
+
+                    // V5.9.454 — LANE-TOGGLE FILTER.
+                    // Previously runAllScanners returned signals across the
+                    // FULL universe (all cryptos + stocks + commodities +
+                    // metals + forex) regardless of the user's lane
+                    // toggles in Settings. That caused "all the universe
+                    // starts whether it's selected or not". Now we drop
+                    // every signal whose asset class the user has
+                    // disabled before the priority filter runs.
+                    val laneFilteredResults = try {
+                        val ctx = appContext
+                        if (ctx == null) {
+                            scanResults
+                        } else {
+                            val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                            scanResults.filter { r ->
+                                val m = r.signal?.market ?: return@filter true
+                                when {
+                                    m.isStock     -> cfg.stocksEnabled
+                                    m.isCommodity -> cfg.commoditiesEnabled
+                                    m.isMetal     -> cfg.metalsEnabled
+                                    m.isForex     -> cfg.forexEnabled
+                                    m.isCrypto    -> cfg.perpsEnabled
+                                    else          -> true
+                                }
+                            }.also { kept ->
+                                val dropped = scanResults.size - kept.size
+                                if (dropped > 0) {
+                                    ErrorLogger.debug(TAG,
+                                        "⚡ LANE GATE: dropped $dropped/${scanResults.size} signals for disabled lanes " +
+                                        "(perps=${cfg.perpsEnabled} stocks=${cfg.stocksEnabled} " +
+                                        "comm=${cfg.commoditiesEnabled} metals=${cfg.metalsEnabled} forex=${cfg.forexEnabled})")
+                                }
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn(TAG, "Lane filter failed, passing through: ${e.message}")
+                        scanResults
+                    }
+
                     // V5.7.3: In paper mode, lower threshold to priority >= 3 for learning
                     // In live mode, require priority >= 5 for safety
                     // V5.9.419 — paper threshold dropped from 1 → 0 so even
@@ -227,13 +272,13 @@ object PerpsExecutionEngine {
                     // silently dropped because the scanner never tagged them
                     // priority>=1).
                     val priorityThreshold = if (isPaper) 0 else 5
-                    val highPrioritySignals = scanResults.filter { it.priority >= priorityThreshold && it.signal != null }
+                    val highPrioritySignals = laneFilteredResults.filter { it.priority >= priorityThreshold && it.signal != null }
                     
                     if (highPrioritySignals.isNotEmpty()) {
                         ErrorLogger.info(TAG, "⚡ PERPS SIGNALS: ${highPrioritySignals.size} signals above threshold (>=$priorityThreshold)")
                     } else {
                         // Log what we got even if no high priority
-                        val anySignals = scanResults.filter { it.signal != null }
+                        val anySignals = laneFilteredResults.filter { it.signal != null }
                         if (anySignals.isNotEmpty()) {
                             val maxPriority = anySignals.maxOfOrNull { it.priority } ?: 0
                             ErrorLogger.debug(TAG, "⚡ PERPS: ${anySignals.size} signals found but max priority=$maxPriority (need >=$priorityThreshold)")

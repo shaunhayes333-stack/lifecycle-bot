@@ -174,22 +174,38 @@ class WalletManager private constructor(private val ctx: Context) {
         }
         rpcsToTry.addAll(FALLBACK_RPCS)
         
+        // V5.9.454 — WALLET PRESERVATION FIX.
+        // Previously this function nulled the `wallet` field on *every*
+        // catch (lines 210 + 219 of the old version) which meant a single
+        // transient RPC hiccup during a retry destroyed the previously-
+        // working wallet reference. Downstream sells then hit the
+        // "CRITICAL: Live mode sell attempted but WALLET IS NULL!" loop
+        // and could never recover.
+        //
+        // New behaviour: stage candidate wallets in a local `candidate`
+        // var. Only commit to `this.wallet` on a successful connect.
+        // If every RPC fails, leave the existing `this.wallet` alone —
+        // the prior good wallet stays usable for sells.
+        val previousWallet = wallet
+        var candidate: SolanaWallet? = null
+
         // Try each RPC until one works
         var lastError: String = "Unknown error"
         for (tryRpc in rpcsToTry) {
             ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(50)}...")
             try {
                 ErrorLogger.debug("Wallet", "Creating SolanaWallet with key length: ${privateKeyB58.length}")
-                wallet = SolanaWallet(privateKeyB58, tryRpc)
-                val pubkey = wallet!!.publicKeyB58
+                candidate = SolanaWallet(privateKeyB58, tryRpc)
+                val pubkey = candidate.publicKeyB58
                 ErrorLogger.debug("Wallet", "Wallet created, pubkey: ${pubkey.take(12)}...")
                 
                 // Test the connection by getting balance
                 ErrorLogger.debug("Wallet", "Testing connection with getBalance...")
-                val testBalance = wallet!!.getSolBalance()
+                val testBalance = candidate.getSolBalance()
                 
                 ErrorLogger.info("Wallet", "SUCCESS! Connected via ${tryRpc.take(35)}! Balance: $testBalance SOL")
                 currentRpcUrl = tryRpc
+                wallet = candidate                 // commit only on success
                 
                 // Also fetch SOL price for USD conversion
                 val solPrice = fetchSolPrice()
@@ -205,7 +221,9 @@ class WalletManager private constructor(private val ctx: Context) {
                 )
                 return true
             } catch (e: IllegalArgumentException) {
-                // Invalid key format - don't try other RPCs
+                // Invalid key format - don't try other RPCs.
+                // A bad key can never yield a usable wallet, so it IS
+                // correct to drop the previous one here.
                 ErrorLogger.error("Wallet", "INVALID KEY FORMAT: ${e.message}", e)
                 wallet = null
                 _state.value = _state.value.copy(
@@ -216,16 +234,22 @@ class WalletManager private constructor(private val ctx: Context) {
             } catch (e: Exception) {
                 lastError = e.message ?: "Unknown"
                 ErrorLogger.warn("Wallet", "RPC FAILED [${tryRpc.take(35)}]: $lastError")
-                wallet = null
-                // Continue to next RPC
+                candidate = null
+                // Continue to next RPC — DO NOT null `this.wallet`; the
+                // previous wallet may still be usable for sells.
             }
         }
         
-        // All RPCs failed
-        ErrorLogger.error("Wallet", "ALL ${rpcsToTry.size} RPCs FAILED. Last error: $lastError")
+        // All RPCs failed — preserve the previous wallet so in-flight
+        // live sells can still succeed if RPC transiently fails.
+        ErrorLogger.error("Wallet",
+            "ALL ${rpcsToTry.size} RPCs FAILED. Last error: $lastError" +
+            (if (previousWallet != null) " — preserving previous wallet for in-flight sells" else ""))
         _state.value = _state.value.copy(
-            connectionState = WalletConnectionState.ERROR,
-            errorMessage    = "All RPC endpoints failed: $lastError",
+            connectionState = if (previousWallet != null) WalletConnectionState.CONNECTED
+                              else                         WalletConnectionState.ERROR,
+            errorMessage    = if (previousWallet != null) ""
+                              else                         "All RPC endpoints failed: $lastError",
         )
         return false
     }
