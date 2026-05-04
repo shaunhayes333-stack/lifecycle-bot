@@ -2096,7 +2096,9 @@ for legal compliance.
             // livePositions in the map, hide the card so they don't see
             // phantom positions they can't actually sell (0 SOL = can't pay gas).
             val cfgNow = com.lifecyclebot.data.ConfigStore.load(this@MainActivity)
-            val liveSol = try { walletManager.state.value.solBalance } catch (_: Throwable) { 0.0 }
+            val liveSol = try {
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
+            } catch (_: Throwable) { 0.0 }
             val hideForDrainedLive = !cfgNow.paperMode && liveSol < 0.001
             val treasuryPositions = if (hideForDrainedLive) emptyList() else com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
             cardTreasuryPositions.visibility = if (treasuryPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
