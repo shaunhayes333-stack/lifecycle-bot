@@ -69,6 +69,17 @@ object MemeLossStreakGuard {
     /** Convenience: are we blocked right now? */
     fun isBlocked(mint: String): Boolean = blockedUntilMs(mint) > 0L
 
+    /** V5.9.453: number of mints currently blocked by a 3-loss streak. */
+    fun activeBlockCount(): Int {
+        if (FreeRangeMode.isWideOpen()) return 0
+        val now = System.currentTimeMillis()
+        var n = 0
+        for (e in state.values) {
+            if (e.blockUntilMs > now) n++
+        }
+        return n
+    }
+
     fun clear(mint: String) {
         state.remove(mint)
     }

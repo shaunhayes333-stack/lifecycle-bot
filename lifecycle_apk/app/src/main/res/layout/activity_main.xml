@@ -399,6 +399,24 @@
                     android:fontFamily="monospace"
                     android:layout_marginStart="8dp"/>
 
+                <!-- V5.9.453: Brain Health pill — STEADY/DRIFTING/POISONED/EXCELLENT -->
+                <TextView
+                    android:id="@+id/tvBrainHealthPill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🧠 STEADY"
+                    android:textColor="#9CA3AF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/section_card_bg"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:layout_marginStart="8dp"
+                    android:visibility="gone"/>
+
                 <TextView
                     android:id="@+id/tvSymHomeStats"
                     android:layout_width="0dp"
@@ -529,227 +547,239 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 QUICK ACTIONS BAR
+                 QUICK ACTIONS BAR (V5.9.453: split into 2 rows so tiles
+                 stop clipping off-screen on phones — Row 1: core actions,
+                 Row 2: trading surfaces.)
                  ═══════════════════════════════ -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
+                android:orientation="vertical"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
                 android:layout_marginBottom="12dp">
 
-                <!-- Wallet -->
+                <!-- ─── Row 1: Wallet · Journal · Settings · Logs · Tuning ─── -->
                 <LinearLayout
-                    android:id="@+id/btnQuickWallet"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="👛" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Wallet" android:textColor="#6B7280" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <!-- Wallet -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickWallet"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="👛" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Wallet" android:textColor="#6B7280" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Journal -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickJournal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="📊" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Journal" android:textColor="#6B7280" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Alerts (kept gone to preserve wiring) -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickAlerts"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:visibility="gone">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🔔" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Alerts" android:textColor="#6B7280" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Settings -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickSettings"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="⚙️" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Settings" android:textColor="#6B7280" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- Error Logs -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickLogs"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🐛" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Logs" android:textColor="#6B7280" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <!-- V5.2: Behavior Tuning Tile -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickBehavior"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🎚️" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Tuning" android:textColor="#00FF88" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
                 </LinearLayout>
 
-                <!-- Journal -->
+                <!-- ─── Row 2: Markets · Crypto · Persona · Lab ─── -->
                 <LinearLayout
-                    android:id="@+id/btnQuickJournal"
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
+                    android:orientation="horizontal"
                     android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Journal" android:textColor="#6B7280" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                    android:layout_marginTop="8dp">
 
-                <!-- Alerts -->
-                <LinearLayout
-                    android:id="@+id/btnQuickAlerts"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginEnd="6dp"
-                    android:clickable="true"
-                    android:focusable="true"
-        android:visibility="gone">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔔" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Alerts" android:textColor="#6B7280" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                    <!-- V5.7.6: Multi-Asset Markets Tile -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickMarkets"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="📊" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Markets" android:textColor="#FFD700" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
 
-                <!-- Settings -->
-                <LinearLayout
-                    android:id="@+id/btnQuickSettings"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚙️" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Settings" android:textColor="#6B7280" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                    <!-- V1.0: Crypto Alts Meme Tile — Cross-chain alts -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickCryptoAlts"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🌐" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Crypto" android:textColor="#A78BFA" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvCryptoAltsStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0/0" android:textColor="#7C3AED" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
 
-                <!-- Error Logs -->
-                <LinearLayout
-                    android:id="@+id/btnQuickLogs"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🐛" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Logs" android:textColor="#6B7280" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
+                    <!-- V5.9.359: Persona Studio Tile -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickPersona"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🎭" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Persona" android:textColor="#F472B6" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
 
-                <!-- V5.2: Behavior Tuning Tile -->
-                <LinearLayout
-                    android:id="@+id/btnQuickBehavior"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🎚️" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Tuning" android:textColor="#00FF88" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- V5.7.6: Multi-Asset Markets Tile -->
-                <LinearLayout
-                    android:id="@+id/btnQuickMarkets"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Markets" android:textColor="#FFD700" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-                <!-- V1.0: Crypto Alts Meme Tile — Cross-chain alts (BNB memes, Polygon, ETH alts, SOL alts) -->
-                <LinearLayout
-                    android:id="@+id/btnQuickCryptoAlts"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🌐" android:textSize="16sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Crypto" android:textColor="#A78BFA" android:textSize="8sp"
-                        android:layout_marginTop="1dp"/>
-                    <TextView android:id="@+id/tvCryptoAltsStats"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0" android:textColor="#7C3AED" android:textSize="6sp"
-                        android:fontFamily="monospace"/>
-                </LinearLayout>
-
-                <!-- V5.9.359: Persona Studio Tile — traits, milestone timeline,
-                     chat replay, and the new MP3 sound-swap with drag-and-drop +
-                     share-target + long-press preview. Was hidden behind a
-                     long-press on Tuning; surfacing it as a real tile so the
-                     new MP3 features are discoverable. -->
-                <LinearLayout
-                    android:id="@+id/btnQuickPersona"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🎭" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Persona" android:textColor="#F472B6" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                </LinearLayout>
-
-                <!-- V5.9.402: LLM Lab Tile — sandbox where the LLM invents and proves its own strategies -->
-                <LinearLayout
-                    android:id="@+id/btnQuickLab"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="10dp"
-                    android:background="@drawable/section_card_bg"
-                    android:layout_marginStart="6dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🧪" android:textSize="20sp"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Lab" android:textColor="#A78BFA" android:textSize="10sp"
-                        android:layout_marginTop="2dp"/>
-                    <TextView android:id="@+id/tvLabTileStats"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="0/0"
-                        android:textColor="#7C3AED" android:textSize="6sp"
-                        android:fontFamily="monospace"/>
+                    <!-- V5.9.402: LLM Lab Tile -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickLab"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🧪" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Lab" android:textColor="#A78BFA" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvLabTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0/0"
+                            android:textColor="#7C3AED" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
                 </LinearLayout>
 
             </LinearLayout>
@@ -893,6 +923,41 @@
                         android:paddingTop="3dp"
                         android:paddingBottom="3dp"/>
                 </LinearLayout>
+
+                <!-- V5.9.453: Ladder pill + Guards strip + Strategy Leaderboard -->
+                <TextView
+                    android:id="@+id/tvLadderPill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔓 TIER 0 · wide open"
+                    android:textColor="#9CA3AF"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="6dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/tvGuardsStrip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🛡 Guards: idle"
+                    android:textColor="#6B7280"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="4dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/tvStrategyLeaderboard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🏆 Strategy Leaderboard: —"
+                    android:textColor="#A78BFA"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="4dp"
+                    android:singleLine="false"
+                    android:visibility="gone"/>
 
                 <!-- Stats Row -->
                 <LinearLayout

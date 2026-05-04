@@ -1570,6 +1570,96 @@ for legal compliance.
                 "health ${(sc.marketHealth * 100).toInt()}%"
         } catch (_: Exception) {}
 
+        // V5.9.453: Brain Health pill + Ladder pill + Guards strip + Leaderboard.
+        // Each block is fail-soft so a single broken refresh can't choke
+        // the whole UI update path.
+        try {
+            val pill = findViewById<TextView>(R.id.tvBrainHealthPill)
+            if (pill != null) {
+                val d = com.lifecyclebot.engine.TradingCopilot.current()
+                val ageMs = System.currentTimeMillis() - com.lifecyclebot.engine.TradingCopilot.lastUpdated()
+                // Only surface once copilot has emitted at least one directive.
+                if (com.lifecyclebot.engine.TradingCopilot.lastUpdated() > 0 && ageMs < 30L * 60_000L) {
+                    val (label, color) = when (d.learningHealth) {
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "🧠 EXCELLENT" to 0xFF00FF88.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "🧠 STEADY"    to 0xFF9CA3AF.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "🧠 DRIFTING"  to 0xFFFFAA00.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.POISONED  -> "🧠 POISONED"  to 0xFFFF4444.toInt()
+                    }
+                    pill.text = label
+                    pill.setTextColor(color)
+                    pill.visibility = android.view.View.VISIBLE
+                } else {
+                    pill.visibility = android.view.View.GONE
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val lp = findViewById<TextView>(R.id.tvLadderPill)
+            if (lp != null) {
+                val line = com.lifecyclebot.engine.QualityLadder.statusLine()
+                val tier = com.lifecyclebot.engine.QualityLadder.tier()
+                val color = when (tier) {
+                    0    -> 0xFF6B7280.toInt()
+                    1, 2 -> 0xFFFFD700.toInt()
+                    3, 4 -> 0xFFFFAA00.toInt()
+                    else -> 0xFFFF4444.toInt()
+                }
+                lp.text = line
+                lp.setTextColor(color)
+                lp.visibility = android.view.View.VISIBLE
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val gs = findViewById<TextView>(R.id.tvGuardsStrip)
+            if (gs != null) {
+                val streakBlocks = try {
+                    com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
+                } catch (_: Throwable) { 0 }
+                val distrustPauses = try {
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values.count { rec ->
+                        com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(rec.strategyName) ||
+                        rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED
+                    }
+                } catch (_: Throwable) { 0 }
+                if (streakBlocks == 0 && distrustPauses == 0) {
+                    gs.text = "🛡 Guards: clear"
+                    gs.setTextColor(0xFF6B7280.toInt())
+                } else {
+                    val parts = mutableListOf<String>()
+                    if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
+                    if (distrustPauses > 0) parts += "$distrustPauses distrust pause${if (distrustPauses == 1) "" else "s"}"
+                    gs.text = "🛡 Guards: " + parts.joinToString(" · ")
+                    gs.setTextColor(0xFFFFAA00.toInt())
+                }
+                gs.visibility = android.view.View.VISIBLE
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val lb = findViewById<TextView>(R.id.tvStrategyLeaderboard)
+            if (lb != null) {
+                val rows = try {
+                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+                        .values
+                        .filter { it.expectancy.isFinite() }
+                        .sortedByDescending { it.expectancy }
+                        .take(3)
+                } catch (_: Throwable) { emptyList() }
+                if (rows.isEmpty()) {
+                    lb.visibility = android.view.View.GONE
+                } else {
+                    val txt = rows.joinToString(" · ") { r ->
+                        "${r.strategyName} ${"%+.2f".format(r.expectancy)}R"
+                    }
+                    lb.text = "🏆 Top-3: $txt"
+                    lb.visibility = android.view.View.VISIBLE
+                }
+            }
+        } catch (_: Exception) {}
+
         // V5.9.320: COPILOT COACHING RIBBON — surface the live life-coach
         // directive on the home screen so the user can SEE the AI thinking.
         // Hidden when no trades observed yet OR mood is plain NORMAL with
