@@ -189,7 +189,8 @@ object EducationSubLayerAI {
     fun getLayerCoachingMultiplier(layerName: String): Double {
         return try {
             val m = getLayerMaturity(layerName) ?: return 1.0
-            if (m.signalsGiven < 20) 1.0 else when {
+            // V5.9.464 fix — LayerMaturity uses `trades` not `signalsGiven`.
+            if (m.trades < 20) 1.0 else when {
                 m.smoothedAccuracy >= 0.55 -> 1.0
                 m.smoothedAccuracy >= 0.45 -> 1.3
                 m.smoothedAccuracy >= 0.35 -> 1.8
