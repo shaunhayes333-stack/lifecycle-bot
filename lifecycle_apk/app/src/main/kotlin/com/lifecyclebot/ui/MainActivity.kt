@@ -2090,7 +2090,15 @@ for legal compliance.
         
         // ── V4.0: Treasury positions panel ─────────────────────────────────
         try {
-            val treasuryPositions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
+            // V5.9.458 — operator directive: 'treasury when connected and in
+            // LIVE mode should display 0 if the balance is 0'. If the user
+            // toggled back to live after a previous session left stale
+            // livePositions in the map, hide the card so they don't see
+            // phantom positions they can't actually sell (0 SOL = can't pay gas).
+            val cfgNow = com.lifecyclebot.data.ConfigStore.load(this@MainActivity)
+            val liveSol = try { walletManager.state.value.solBalance } catch (_: Throwable) { 0.0 }
+            val hideForDrainedLive = !cfgNow.paperMode && liveSol < 0.001
+            val treasuryPositions = if (hideForDrainedLive) emptyList() else com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
             cardTreasuryPositions.visibility = if (treasuryPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (treasuryPositions.isNotEmpty()) {
                 val treasuryExposure = treasuryPositions.sumOf { it.entrySol }
