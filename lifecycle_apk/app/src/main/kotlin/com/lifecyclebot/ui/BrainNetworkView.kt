@@ -222,11 +222,25 @@ class BrainNetworkView @JvmOverloads constructor(
             "OrderbookImbalancePulseAI" to "OB_PULSE",
             "AITrustNetworkAI" to "TRUST",
             "ReflexAI" to "REFLEX",
+            // V5.9.461 — neural-network coverage fix. Bridge already tracks
+            // per-asset accuracy for these seven layers, but they weren't on
+            // the UI so the user could never see their activation. Adding
+            // them to the outer ring completes visibility: 41 → 48 nodes,
+            // matching the Bridge's tracked-layer set exactly.
+            "BehaviorAI" to "TILT",
+            "SocialVelocityAI" to "SOCIAL",
+            "UltraFastRugDetectorAI" to "RUGSHIELD",
+            "RegimeTransitionAI" to "TRANSIT",
+            "EducationSubLayerAI" to "EDU",
+            "QualityTraderAI" to "QUALITY",
+            "ProjectSniperAI" to "SNIPER",
+            "ShitCoinExpress" to "💩🚂",
         )
         
         aiLayers.clear()
         
-        // V5.9.123: 3-ring distribution — 12 in inner, 13 in middle, remainder outer.
+        // V5.9.461 — 3-ring distribution rebalanced for 48 nodes:
+        // 12 inner · 13 middle · 23 outer.
         val innerRing  = layerDefs.take(12)
         val middleRing = layerDefs.drop(12).take(13)
         val outerRing  = layerDefs.drop(25)

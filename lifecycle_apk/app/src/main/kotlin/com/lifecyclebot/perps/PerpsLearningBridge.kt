@@ -83,6 +83,14 @@ object PerpsLearningBridge {
      *  historically only bumped aggregate counters). These are the layers most
      *  likely to have materially influenced a trade in each lane. Callers that
      *  know the exact voting list SHOULD pass it explicitly. */
+    // V5.9.461 — MEME lane expanded from 25 → 48 layers so every UI node
+    // actually receives signals on a meme trade. Prior to this, 23 outer-
+    // ring layers (MEV, OP_FP, SESSION, DNA, PEER, NEWS, OB_PULSE, TRUST,
+    // REFLEX, CAP_EFF, EXEC_COST, DD_CIRC, CORREL, EXIT_PATH, STABLE,
+    // NARRATIVE, TIME, LIQUIDITY, ADAPT, EDGE, MEMORY, BEHAVIOR, HIVE-outer)
+    // were registered but never added to this default list — UI showed
+    // them as dim outlines forever because the Bridge never counted their
+    // signals. Strictly additive: no existing layer removed or reordered.
     private val defaultMemeLayers = listOf(
         "BehaviorAI", "FluidLearningAI", "MomentumPredictorAI", "QualityTraderAI",
         "VolatilityRegimeAI", "LiquidityCycleAI", "FearGreedAI", "MarketRegimeAI",
@@ -92,24 +100,48 @@ object PerpsLearningBridge {
         "WhaleTrackerAI", "UltraFastRugDetectorAI", "OrderFlowImbalanceAI",
         "CollectiveIntelligenceAI", "MoonshotTraderAI", "ShitCoinTraderAI",
         "ShitCoinExpress", "BlueChipTraderAI", "ProjectSniperAI",
+        // V5.9.461 — outer-ring layers now wired into meme signals.
+        "NarrativeDetectorAI", "TimeOptimizationAI", "LiquidityDepthAI",
+        "AdaptiveLearningEngine", "EdgeLearning", "TokenWinMemory",
+        "BehaviorLearning", "CorrelationHedgeAI", "LiquidityExitPathAI",
+        "MEVDetectionAI", "StablecoinFlowAI", "OperatorFingerprintAI",
+        "SessionEdgeAI", "ExecutionCostPredictorAI", "DrawdownCircuitAI",
+        "CapitalEfficiencyAI", "TokenDNAClusteringAI", "PeerAlphaVerificationAI",
+        "NewsShockAI", "OrderbookImbalancePulseAI", "AITrustNetworkAI",
+        "ReflexAI",
     )
     private val defaultForexLayers = listOf(
         "MarketRegimeAI", "VolatilityRegimeAI", "RegimeTransitionAI",
         "FluidLearningAI", "EducationSubLayerAI", "MetaCognitionAI",
         "FearGreedAI", "BehaviorAI", "CashGenerationAI",
         "SmartMoneyDivergenceAI", "MomentumPredictorAI",
+        // V5.9.461 — cross-asset learners now connected to forex lane.
+        "AdaptiveLearningEngine", "EdgeLearning", "TokenWinMemory",
+        "SessionEdgeAI", "NewsShockAI", "DrawdownCircuitAI",
+        "CapitalEfficiencyAI", "ExecutionCostPredictorAI", "AITrustNetworkAI",
+        "ReflexAI", "OrderbookImbalancePulseAI",
     )
     private val defaultMetalLayers = listOf(
         "MarketRegimeAI", "VolatilityRegimeAI", "FluidLearningAI",
         "EducationSubLayerAI", "MetaCognitionAI", "BehaviorAI",
         "CashGenerationAI", "RegimeTransitionAI", "QualityTraderAI",
         "MomentumPredictorAI",
+        // V5.9.461 — cross-asset learners now connected to metals lane.
+        "AdaptiveLearningEngine", "EdgeLearning", "TokenWinMemory",
+        "SessionEdgeAI", "NewsShockAI", "DrawdownCircuitAI",
+        "CapitalEfficiencyAI", "ExecutionCostPredictorAI", "AITrustNetworkAI",
+        "ReflexAI", "OrderbookImbalancePulseAI",
     )
     private val defaultCommodityLayers = listOf(
         "MarketRegimeAI", "VolatilityRegimeAI", "FluidLearningAI",
         "EducationSubLayerAI", "MetaCognitionAI", "BehaviorAI",
         "CashGenerationAI", "SmartMoneyDivergenceAI", "RegimeTransitionAI",
         "MomentumPredictorAI",
+        // V5.9.461 — cross-asset learners now connected to commodities lane.
+        "AdaptiveLearningEngine", "EdgeLearning", "TokenWinMemory",
+        "SessionEdgeAI", "NewsShockAI", "DrawdownCircuitAI",
+        "CapitalEfficiencyAI", "ExecutionCostPredictorAI", "AITrustNetworkAI",
+        "ReflexAI", "OrderbookImbalancePulseAI",
     )
     // V5.9.395 — AATE Alts (CryptoAltTrader) dedicated lane. Explicitly excludes
     // meme sub-trader layers (Moonshot/ShitCoin/Quality/BlueChip/Express) so alt
@@ -121,6 +153,11 @@ object PerpsLearningBridge {
         "FearGreedAI", "SmartMoneyDivergenceAI", "MomentumPredictorAI",
         "RegimeTransitionAI", "OrderFlowImbalanceAI", "BehaviorAI",
         "SocialVelocityAI", "EducationSubLayerAI",
+        // V5.9.461 — cross-asset learners now connected to alts lane.
+        "AdaptiveLearningEngine", "EdgeLearning", "TokenWinMemory",
+        "CorrelationHedgeAI", "ExecutionCostPredictorAI", "DrawdownCircuitAI",
+        "CapitalEfficiencyAI", "AITrustNetworkAI", "ReflexAI",
+        "LiquidityDepthAI", "LiquidityCycleAI",
     )
 
     fun defaultLayersFor(asset: AssetClass): List<String> = when (asset) {

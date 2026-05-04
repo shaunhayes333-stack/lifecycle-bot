@@ -555,6 +555,20 @@ object EducationSubLayerAI {
         "OrderbookImbalancePulseAI",
         "AITrustNetworkAI",
         "ReflexAI",
+        // V5.9.461 — aligning EducationSubLayerAI registry with the
+        // BrainNetworkView UI registry AND the PerpsLearningBridge default
+        // lane lists, so every tracked layer gets maturity telemetry +
+        // outcome recording + UI activation visibility. These seven were
+        // already tracked by the Bridge but missing from this registry, so
+        // they were silent in the maturity UI despite firing real signals.
+        "BehaviorAI",
+        "SocialVelocityAI",
+        "UltraFastRugDetectorAI",
+        "RegimeTransitionAI",
+        "EducationSubLayerAI",
+        "QualityTraderAI",
+        "ProjectSniperAI",
+        "ShitCoinExpress",
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
