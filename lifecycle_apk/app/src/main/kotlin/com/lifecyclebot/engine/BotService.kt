@@ -81,6 +81,30 @@ class BotService : Service() {
                 "metals=${cfg.metalsEnabled} forex=${cfg.forexEnabled} alts=${cfg.cryptoAltsEnabled}")
         }
 
+        /**
+         * V5.9.469 — single source of truth for "should the Markets lane run?".
+         *
+         * Operator-reported bug: Markets engine kept starting in live whether
+         * the toggle was switched on or not. Root cause: the previous formula
+         * was `marketsTraderEnabled || tradingMode==1 || tradingMode==2`. With
+         * tradingMode defaulting to 2 (BOTH), the OR made the master toggle
+         * silently ineffective — flipping marketsTraderEnabled=false had no
+         * effect because the tradingMode==2 branch overrode it. Watchdog
+         * loop kept restarting the engine on every 10th tick.
+         *
+         * Fix: AND semantics. The master toggle has authority; the trading
+         * mode just decides whether the Markets lane is even applicable
+         * (mode 0 = MEMES_ONLY → markets off; modes 1/2 → master toggle
+         * decides).
+         *
+         * Safe at startup AND in the watchdog. Used in both places below.
+         */
+        fun isMarketsLaneEnabled(cfg: com.lifecyclebot.data.BotConfig): Boolean {
+            return !MARKET_TRADER_KILL_SWITCH &&
+                   cfg.marketsTraderEnabled &&
+                   (cfg.tradingMode == 1 || cfg.tradingMode == 2)
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // V5.9.353: Strategy distrust pause
         //
@@ -587,65 +611,88 @@ class BotService : Service() {
         // Commodities / Metals / Forex, but EXEMPT CryptoAlts so it resumes
         // full operation. Alts has a separate scanner + its own trust hooks
         // and was producing +52% WR in the Strategy Trust log pre-kill.
+        // V5.9.469: Markets lane gate uses isMarketsLaneEnabled — operator
+        // reported "markets keeps starting whether the toggle is on or not";
+        // root cause was an OR formula that let tradingMode=2 (default) bypass
+        // the marketsTraderEnabled toggle. Now AND semantics: toggle has
+        // authority. PerpsExecutionEngine + sub-traders only start when
+        // isMarketsLaneEnabled(cfg) AND the per-lane toggle is true.
         val marketsStartCfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
         val marketsKill = MARKET_TRADER_KILL_SWITCH
+        val marketsLaneOn = isMarketsLaneEnabled(marketsStartCfg)
         if (marketsKill) {
             ErrorLogger.warn("BotService", "🛑 MARKET_TRADER_KILL_SWITCH=ON (excl. Alts) — Perps/Stocks/Commodities/Metals/Forex forced OFF")
             addLog("🛑 Market Trader disabled (kill-switch) — Alts re-enabled per user directive")
         }
-        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(!marketsKill && marketsStartCfg.perpsEnabled)
-        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(!marketsKill && marketsStartCfg.stocksEnabled)
-        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(!marketsKill && marketsStartCfg.commoditiesEnabled)
-        com.lifecyclebot.perps.MetalsTrader.setEnabled(!marketsKill && marketsStartCfg.metalsEnabled)
-        com.lifecyclebot.perps.ForexTrader.setEnabled(!marketsKill && marketsStartCfg.forexEnabled)
+        if (!marketsLaneOn) {
+            ErrorLogger.info("BotService", "📴 Markets lane OFF at startup " +
+                "(toggle=${marketsStartCfg.marketsTraderEnabled} mode=${marketsStartCfg.tradingMode}) — " +
+                "skipping PerpsExecutionEngine + Stocks/Commodities/Metals/Forex starts")
+            addLog("📴 Markets lane OFF — Perps/Stocks/Commodities/Metals/Forex will not run this session")
+        }
+        com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsLaneOn && marketsStartCfg.perpsEnabled)
+        com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsLaneOn && marketsStartCfg.stocksEnabled)
+        com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsLaneOn && marketsStartCfg.commoditiesEnabled)
+        com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsLaneOn && marketsStartCfg.metalsEnabled)
+        com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled)
         // V5.9.345: Alts bypasses kill-switch — user wants it running.
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
 
-        try {
-            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-            ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
+        if (marketsLaneOn) {
+            try {
+                com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "PerpsExecutionEngine start error: ${e.message}", e)
+            }
         }
 
         // V5.7.5: Start TokenizedStockTrader - DEDICATED stock trading engine
-        try {
-            com.lifecyclebot.perps.TokenizedStockTrader.init()
-            com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
-            com.lifecyclebot.perps.TokenizedStockTrader.start()
-            ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
+        if (marketsLaneOn && marketsStartCfg.stocksEnabled) {
+            try {
+                com.lifecyclebot.perps.TokenizedStockTrader.init()
+                com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
+                com.lifecyclebot.perps.TokenizedStockTrader.start()
+                ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
+            }
         }
 
         // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
-        try {
-            com.lifecyclebot.perps.CommoditiesTrader.initialize()
-            com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
-            com.lifecyclebot.perps.CommoditiesTrader.start()
-            ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
+        if (marketsLaneOn && marketsStartCfg.commoditiesEnabled) {
+            try {
+                com.lifecyclebot.perps.CommoditiesTrader.initialize()
+                com.lifecyclebot.perps.CommoditiesTrader.setLiveMode(!cfg.paperMode)
+                com.lifecyclebot.perps.CommoditiesTrader.start()
+                ErrorLogger.info("BotService", "🛢️ CommoditiesTrader STARTED - Oil, Gas, Agriculture ACTIVE")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "CommoditiesTrader start error: ${e.message}", e)
+            }
         }
 
         // V5.7.6: Start MetalsTrader - Precious & Industrial metals
-        try {
-            com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
-            com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
-            com.lifecyclebot.perps.MetalsTrader.start()
-            ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
+        if (marketsLaneOn && marketsStartCfg.metalsEnabled) {
+            try {
+                com.lifecyclebot.perps.MetalsTrader.initialize(applicationContext)
+                com.lifecyclebot.perps.MetalsTrader.setLiveMode(!cfg.paperMode)
+                com.lifecyclebot.perps.MetalsTrader.start()
+                ErrorLogger.info("BotService", "🥇 MetalsTrader STARTED - Gold, Silver, Industrial Metals ACTIVE")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "MetalsTrader start error: ${e.message}", e)
+            }
         }
 
         // V5.7.6: Start ForexTrader - Currency pairs
-        try {
-            com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
-            com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
-            com.lifecyclebot.perps.ForexTrader.start()
-            ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
+        if (marketsLaneOn && marketsStartCfg.forexEnabled) {
+            try {
+                com.lifecyclebot.perps.ForexTrader.initialize(applicationContext)
+                com.lifecyclebot.perps.ForexTrader.setLiveMode(!cfg.paperMode)
+                com.lifecyclebot.perps.ForexTrader.start()
+                ErrorLogger.info("BotService", "💱 ForexTrader STARTED - Major, Cross, EM Pairs ACTIVE")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "ForexTrader start error: ${e.message}", e)
+            }
         }
 
         // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
@@ -3503,7 +3550,19 @@ class BotService : Service() {
             if (!memeEnabled) {
                 // Meme trader disabled — still run markets watchdog before sleeping
                 try {
-                    val marketsEnabled = !MARKET_TRADER_KILL_SWITCH && (cfg.marketsTraderEnabled || cfg.tradingMode == 1 || cfg.tradingMode == 2)
+                    // V5.9.469 — AND-semantics gate (was OR-semantics; tradingMode=2
+                    // bypassed the toggle, restarting markets every 10 ticks even
+                    // when the user had toggled the master Markets switch off).
+                    val marketsEnabled = isMarketsLaneEnabled(cfg)
+
+                    // V5.9.469 — if user just toggled Markets off mid-session,
+                    // STOP the engine instead of letting it run unattended.
+                    if (!marketsEnabled && com.lifecyclebot.perps.PerpsExecutionEngine.isRunning()) {
+                        ErrorLogger.info("BotService", "📴 [meme-off] Markets toggled OFF mid-session — stopping PerpsExecutionEngine")
+                        addLog("📴 Markets toggled OFF — stopping engine")
+                        try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
+                    }
+
                     if (marketsEnabled && loopCount % 10 == 0) {
                         val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
                         if (!healthy) {
@@ -3749,15 +3808,34 @@ class BotService : Service() {
                 try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
 
                 try {
-                    // PerpsExecutionEngine watchdog — ALWAYS runs
-                    val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
-                    if (!healthy) {
-                        ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
-                        addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
-                        com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-                        delay(500)
-                        com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                        addLog("⚡ Markets engine restarted by watchdog")
+                    // V5.9.469 — gate ALL Markets watchdogs by the master toggle.
+                    // Was previously "ALWAYS runs" which caused the operator-reported
+                    // "Markets keeps starting in live whether the toggle is on or not"
+                    // bug — the engine got restarted every 10 ticks regardless of
+                    // marketsTraderEnabled. Now: when Markets is toggled OFF, we
+                    // STOP the engine if it was running and skip the watchdogs entirely.
+                    val marketsLaneOn = isMarketsLaneEnabled(cfg)
+                    if (!marketsLaneOn && com.lifecyclebot.perps.PerpsExecutionEngine.isRunning()) {
+                        ErrorLogger.info("BotService", "📴 Markets toggled OFF mid-session — stopping PerpsExecutionEngine + sub-traders")
+                        addLog("📴 Markets toggled OFF — stopping engine + sub-traders")
+                        try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.CommoditiesTrader.stop() } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.MetalsTrader.stop() } catch (_: Exception) {}
+                        try { com.lifecyclebot.perps.ForexTrader.stop() } catch (_: Exception) {}
+                    }
+
+                    // PerpsExecutionEngine watchdog — only when Markets toggle is ON
+                    if (marketsLaneOn) {
+                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                        if (!healthy) {
+                            ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
+                            addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
+                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                            delay(500)
+                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                            addLog("⚡ Markets engine restarted by watchdog")
+                        }
                     }
                     // CryptoAltTrader watchdog — only if enabled (V5.9.345: exempt from kill-switch)
                     if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
@@ -3765,24 +3843,24 @@ class BotService : Service() {
                         addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.CryptoAltTrader.start()
                     }
-                    // TokenizedStockTrader watchdog — only if stocks enabled
-                    if (!MARKET_TRADER_KILL_SWITCH && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                    // TokenizedStockTrader watchdog — only if Markets+stocks enabled
+                    if (marketsLaneOn && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
                         addLog("📈 Stock trader watchdog: unhealthy, restarting…")
                         com.lifecyclebot.perps.TokenizedStockTrader.start()
                     }
-                    // CommoditiesTrader watchdog — only if commodities enabled
-                    if (!MARKET_TRADER_KILL_SWITCH && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                    // CommoditiesTrader watchdog — only if Markets+commodities enabled
+                    if (marketsLaneOn && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.CommoditiesTrader.start()
                     }
-                    // MetalsTrader watchdog — only if metals enabled
-                    if (!MARKET_TRADER_KILL_SWITCH && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                    // MetalsTrader watchdog — only if Markets+metals enabled
+                    if (marketsLaneOn && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.MetalsTrader.start()
                     }
-                    // ForexTrader watchdog — only if forex enabled
-                    if (!MARKET_TRADER_KILL_SWITCH && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                    // ForexTrader watchdog — only if Markets+forex enabled
+                    if (marketsLaneOn && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
                         ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
                         com.lifecyclebot.perps.ForexTrader.start()
                     }
