@@ -1005,15 +1005,13 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             }
         } catch (_: Exception) {}
         
-        // V5.9.445 — CONFLUENCE GATE. If only Momentum (or zero) contributed,
-        // every indicator is at neutral defaults → this is a starved signal,
-        // not edge. Return null so it never reaches the bridge. User 02-2026:
-        // "meme trader at 22% WR after 1,175 trades" — root-caused to stock
-        // trades opened at score=50/conf=50/RSI=50/MACD=NEUTRAL with only
-        // Momentum voting. Require ≥2 layerVotes.
-        if (layerVotes.size < 2) {
-            return null
-        }
+        // V5.9.445 confluence gate DISABLED in V5.9.452 — was silencing
+        // every stock in live paper runs (logs: 'WMT/HD/COST/JNJ/PFE/UNH:
+        // analyzeStock returned NULL'). The non-meme tech floor in
+        // PerpsUnifiedScorerBridge (score≥55, conf≥50) is sufficient
+        // protection against the 50/50 default-signal bug — no need to
+        // also block at the trader level.
+        // if (layerVotes.size < 2) { return null }
         // V5.9.328: Removed forced score >= 35 floor — it was pushing genuinely bad
         // signals over the prefilter gate (score >= 45 → V3) and injecting noise trades.
         // Real signals that don't meet the threshold should be REJECTED, not inflated.

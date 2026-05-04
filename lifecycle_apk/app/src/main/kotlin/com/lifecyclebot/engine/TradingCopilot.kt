@@ -249,7 +249,15 @@ object TradingCopilot {
             val protectWrMinTrades   = if (isBootstrap) 30 else 8         // bootstrap: need more trades before WR gate fires
 
             val mood = when {
-                lossStreak >= emergencySteakThresh || biggestLoss <= -60.0 -> TradeMood.EMERGENCY_BRAKE
+                // V5.9.452 — require loss-streak confirmation alongside deep loss.
+                // Previously a single -63% trade still in the rolling window
+                // locked the ENTIRE universe into EMERGENCY_BRAKE (0.25× sizing,
+                // conf≥25% only, LifecycleStrategy:1142 hard-blocks every entry)
+                // even with 0 consecutive losses since. User (build 2316):
+                // 'meme trader has 2 positions on ffs … completely choked'.
+                // Fix: the deep-loss brake must co-occur with an active loss
+                // streak ≥3 so winning trades can release the brake.
+                lossStreak >= emergencySteakThresh || (biggestLoss <= -60.0 && lossStreak >= 3) -> TradeMood.EMERGENCY_BRAKE
                 lossStreak >= protectStreakThresh || (wrPct < protectWrThresh && tradesObserved >= protectWrMinTrades) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL

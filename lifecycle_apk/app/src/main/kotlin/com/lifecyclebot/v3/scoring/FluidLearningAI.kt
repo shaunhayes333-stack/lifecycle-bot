@@ -1019,7 +1019,7 @@ object FluidLearningAI {
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
     private const val TREASURY_LIQ_BOOTSTRAP = 2000.0    // V5.9.266: moderate (was 1500 at V5.9.263)
-    private const val TREASURY_LIQ_MATURE = 10000.0      // Raise threshold as we learn
+    private const val TREASURY_LIQ_MATURE = 2500.0       // V5.9.452: 10000→2500 — user reported universe-wide silence, log showed 'TREASURY SKIP: HEXOR | liq=$3274<$6000'. Pump.fun memes sit $2-8K, $10K mature was over-choking.
     
     private const val TREASURY_TOP_HOLDER_BOOTSTRAP = 45.0  // V5.9.266: moderate (was 50 at V5.9.263)
     private const val TREASURY_TOP_HOLDER_MATURE = 25.0     // Tighten as we learn

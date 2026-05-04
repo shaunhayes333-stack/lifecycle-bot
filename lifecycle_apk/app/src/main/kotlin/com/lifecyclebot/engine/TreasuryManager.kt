@@ -378,20 +378,21 @@ object TreasuryManager {
      */
     fun backFundPaperWalletIfLow(walletSol: Double, floorSol: Double, solPrice: Double): Double {
         if (walletSol >= floorSol) return 0.0
-        // V5.9.448 — HARD treasury floor. Back-fund must NEVER pull the
-        // treasury below the $500 seed floor. Was halving the treasury
-        // every cycle (5.88 → 2.94 → 1.47 → … → 0.011 SOL after 9 pulls,
-        // exactly what the user saw as "$1 LOCKED"). User intent is the
-        // $500 default treasury is sacrosanct — it's the rainy-day
-        // capital that should NEVER be drained, not a back-fund pool.
-        val available = (treasurySol - SEED_FLOOR_SOL).coerceAtLeast(0.0)
+        // V5.9.448 + V5.9.452 — BACK-FUND can ONLY draw from UNLOCKED portion.
+        // User (explicit, 10x): "$581 treasury could grab $81; $2000 treasury
+        // with $1500 locked → take $500". Locked floor = max(SEED_FLOOR_SOL,
+        // lifetimeLocked). SEED_FLOOR keeps the original $500 default sacred;
+        // lifetimeLocked rises with milestone-hit profit locks and the
+        // back-fund must never touch those either.
+        val effectiveFloor = maxOf(SEED_FLOOR_SOL, lifetimeLocked)
+        val available = (treasurySol - effectiveFloor).coerceAtLeast(0.0)
         if (available <= 0.0001) {
             ErrorLogger.debug("Treasury",
-                "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ at/below $500 floor")
+                "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ ≤ locked-floor ${effectiveFloor.fmtSol()}◎ (seed=${SEED_FLOOR_SOL.fmtSol()} lifetime=${lifetimeLocked.fmtSol()})")
             return 0.0
         }
         val deficit = floorSol - walletSol
-        val maxPull = available * 0.50    // never drain more than half of the *available* (above-floor) treasury
+        val maxPull = available * 0.50    // never drain more than half of the *available* (unlocked) treasury
         val pull = minOf(deficit, maxPull, available)
         if (pull < 0.0001) return 0.0
         treasurySol -= pull
@@ -399,7 +400,8 @@ object TreasuryManager {
         lifetimeWithdrawn += pull
         ErrorLogger.info("Treasury",
             "💸 BACK-FUND: wallet=${walletSol.fmtSol()}◎ < floor=${floorSol.fmtSol()}◎ " +
-            "→ pulled ${pull.fmtSol()}◎ from treasury (now ${treasurySol.fmtSol()}◎, $500 floor preserved)"
+            "→ pulled ${pull.fmtSol()}◎ from UNLOCKED portion " +
+            "(treasury ${treasurySol.fmtSol()}◎, locked-floor ${effectiveFloor.fmtSol()}◎ preserved)"
         )
         addEvent(TreasuryEvent(
             type = TreasuryEventType.WITHDRAWAL,
@@ -577,29 +579,33 @@ object TreasuryManager {
 
     // V5.9.448 — HEALING SEED. Always ensure treasury is at or above the
     // $500 floor on every restore, regardless of whether state was
-    // restored or not. This auto-heals the back-fund-drained state the
-    // user saw (treasury at $1 / 0.011 SOL after 9 cycles of half-pulls).
-    // Once healed, the new back-fund floor (also at SEED_FLOOR_SOL) keeps
-    // it from happening again.
+    // restored or not. V5.9.452 — ALSO ensure lifetimeLocked >= seed so
+    // the UI LOCKED row + back-fund floor both see the $500 default even
+    // from pre-V5.9.448 states.
     if (treasurySol < SEED_FLOOR_SOL) {
-        val deficit = SEED_FLOOR_SOL - treasurySol
         if (treasurySol <= 0.0) {
             // Pure seed (first run or wiped state)
             treasurySol     = SEED_FLOOR_SOL
             treasuryUsd     = SEED_FLOOR_USD
-            lifetimeLocked  = SEED_FLOOR_SOL
             ErrorLogger.info("Treasury",
                 "🏦 Seeded starting treasury: ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} USD)")
         } else {
             // Heal-up: state was below floor (back-fund drain). Top up
             // to the floor so the user always retains the $500 default.
+            val before = treasurySol
             treasurySol = SEED_FLOOR_SOL
             treasuryUsd = SEED_FLOOR_USD
             ErrorLogger.warn("Treasury",
-                "🏦 HEAL-UP: treasury was below floor (${(SEED_FLOOR_SOL - deficit).fmtSol()}◎) — " +
+                "🏦 HEAL-UP: treasury was below floor (${before.fmtSol()}◎) — " +
                 "topping up to ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} default).")
         }
         save(ctx)
+    }
+    if (lifetimeLocked < SEED_FLOOR_SOL) {
+        lifetimeLocked = SEED_FLOOR_SOL
+        save(ctx)
+        ErrorLogger.info("Treasury",
+            "🔒 lifetimeLocked floored at ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} — the default seed is permanently locked).")
     }
     }
     
