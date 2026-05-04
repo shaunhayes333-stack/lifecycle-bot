@@ -1364,11 +1364,6 @@ class BotService : Service() {
         if (mint.isBlank()) return false to "No token selected"
         if (!::executor.isInitialized) return false to "Bot not started"
 
-        val ts = status.tokens[mint] ?: return false to "Token not in watchlist: ${mint.take(8)}"
-        if (!ts.position.isOpen) {
-            return false to "No open position for ${ts.symbol}"
-        }
-
         val cfgNow = ConfigStore.load(applicationContext)
         val isPaper = cfgNow.paperMode
         val w = wallet
@@ -1377,19 +1372,111 @@ class BotService : Service() {
         } else {
             try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
         }
-
         if (!isPaper && w == null) return false to "Live wallet not connected"
 
-        return try {
-            ErrorLogger.info("BotService",
-                "👆 MANUAL SELL: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
-            addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
-            val result = executor.doSell(ts, "MANUAL", w, walletSol)
-            true to "Sell submitted (${result.name})"
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
-            false to "Error: ${e.message ?: e.javaClass.simpleName}"
+        // V5.9.474 — operator-reported manual-SELL store-mismatch bug.
+        //
+        // Symptom: DMC visible in 'Treasury Scalps' card with +4.1% PnL but
+        // pressing manual SELL toasted "No open position to sell" because
+        // the old code only inspected `status.tokens[mint].position.isOpen`.
+        // CashGenerationAI / ShitCoinTraderAI / QualityTraderAI /
+        // BlueChipTraderAI / MoonshotTraderAI all maintain their OWN position
+        // maps and (a) do NOT always set ts.position.isOpen=true on the
+        // shared TokenState, (b) sometimes the mint isn't in status.tokens
+        // at all (cleanup races, reboot rehydration). The sub-trader cards
+        // were reading from those private maps but the sell button was
+        // reading from the main one — visibility/action mismatch.
+        //
+        // Fix: scan ALL position stores in priority order. If found:
+        //   1. ts.position.isOpen=true  → use main executor.doSell path
+        //      (works for ShitCoin / Quality / BlueChip / Moonshot since
+        //      those layers DO mirror to ts.position when buying).
+        //   2. Treasury-only position (CashGen has it, ts.position closed)
+        //      → call CashGenerationAI.closePosition directly so the
+        //      strategy bookkeeping clears even if the swap path is busy.
+        //   3. None of the above → return a meaningful error listing every
+        //      store we checked so the operator knows it's truly absent.
+        val ts = status.tokens[mint]
+
+        // Path 1: main TokenState says open → use existing fast path.
+        if (ts != null && ts.position.isOpen) {
+            return try {
+                ErrorLogger.info("BotService",
+                    "👆 MANUAL SELL [main]: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
+                addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
+                val result = executor.doSell(ts, "MANUAL", w, walletSol)
+                true to "Sell submitted (${result.name})"
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
+                false to "Error: ${e.message ?: e.javaClass.simpleName}"
+            }
         }
+
+        // Path 2: scan sub-trader stores. Each holds its own position map.
+        // If any of them has the mint we route the sell through it.
+        val symbol = ts?.symbol ?: mint.take(8)
+
+        try {
+            val tp = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(mint)
+            if (tp != null) {
+                val price = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(mint)
+                    ?: tp.entryPrice
+                ErrorLogger.info("BotService", "👆 MANUAL SELL [Treasury]: ${tp.symbol} @ \$${price}")
+                addLog("👆 Manual SELL (Treasury): ${tp.symbol}")
+                // If we also have a TokenState, run the swap; close the
+                // treasury bookkeeping regardless so the card disappears.
+                val realTs = ts
+                val sellResult = if (realTs != null) {
+                    try { executor.doSell(realTs, "MANUAL_TREASURY", w, walletSol).name } catch (_: Exception) { "TREASURY_BOOKKEEP_ONLY" }
+                } else "TREASURY_BOOKKEEP_ONLY (no TokenState)"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                    mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT)
+                return true to "Treasury position closed ($sellResult)"
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "manualSell Treasury check error: ${e.message}")
+        }
+
+        // ShitCoin / Quality / BlueChip / Moonshot all keep their positions
+        // in private activePositions maps. They DO mirror to ts.position
+        // when buying so the Path 1 branch above usually catches them. If
+        // we got here, the main flag fell out of sync — list them so the
+        // operator can see which store has it and we still attempt the
+        // swap via doSell when a TokenState exists.
+        if (ts != null) {
+            data class StoreHit(val name: String, val symbol: String)
+            val hits = mutableListOf<StoreHit>()
+            try {
+                if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().any { it.mint == mint })
+                    hits += StoreHit("ShitCoin", ts.symbol)
+            } catch (_: Exception) {}
+            try {
+                if (com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().any { it.mint == mint })
+                    hits += StoreHit("Quality", ts.symbol)
+            } catch (_: Exception) {}
+            try {
+                if (com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().any { it.mint == mint })
+                    hits += StoreHit("BlueChip", ts.symbol)
+            } catch (_: Exception) {}
+            try {
+                if (com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(mint))
+                    hits += StoreHit("Moonshot", ts.symbol)
+            } catch (_: Exception) {}
+            if (hits.isNotEmpty()) {
+                ErrorLogger.info("BotService",
+                    "👆 MANUAL SELL [sub-trader resync]: ${ts.symbol} found in ${hits.joinToString(",") { it.name }} — forcing doSell")
+                addLog("👆 Manual SELL (${hits.first().name}): ${ts.symbol}")
+                return try {
+                    val result = executor.doSell(ts, "MANUAL_${hits.first().name.uppercase()}", w, walletSol)
+                    true to "Sell submitted via ${hits.first().name} (${result.name})"
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "manualSell sub-trader error for ${ts.symbol}", e)
+                    false to "Error: ${e.message ?: e.javaClass.simpleName}"
+                }
+            }
+        }
+
+        return false to "No open position found for ${symbol} in any store (main/Treasury/ShitCoin/Quality/BlueChip/Moonshot)"
     }
 
 

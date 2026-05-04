@@ -1579,18 +1579,80 @@ class Executor(
         
         val sellQty = pos.qtyToken * sellFraction
         val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
-        
+        // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
+        // for the profit-lock / capital-recovery sell path. Operator's screenshot
+        // showed sells labelled 'profit_lock_86.2x' / 'capital_recovery_86.2x'
+        // executing but never appearing in Live Trade Forensics — this entire
+        // function was emitting onLog only and bypassed LiveTradeLogStore.
+        val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
+        val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
+        // Per-broadcast-retry slippage escalation (mirrors V5.9.470 in liveSell)
+        val sellSlippage = when (priorBroadcastRetries) {
+            0    -> (c.slippageBps * 2)
+            1    -> 400
+            2    -> 600
+            else -> 1000
+        }.coerceAtMost(1000)
+
+        LiveTradeLogStore.log(
+            sellTradeKey, ts.mint, ts.symbol, "SELL",
+            LiveTradeLogStore.Phase.SELL_START,
+            "executeProfitLockSell: $reason | sellFraction=${(sellFraction*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | broadcastRetries=$priorBroadcastRetries",
+            tokenAmount = sellQty,
+            slippageBps = sellSlippage,
+            traderTag = "MEME",
+        )
+
         try {
-            val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
-            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                "Quote try @ ${sellSlippage}bps",
+                slippageBps = sellSlippage,
+                traderTag = "MEME",
+            )
+            // V5.9.468 — pass wallet pubkey as taker so the quote is a binding
+            // Ultra-v2 order. RFQ rejections surface here, not silently in build.
+            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits,
+                                                   sellSlippage, isBuy = false,
+                                                   sellTaker = wallet.publicKeyB58)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_QUOTE_OK,
+                "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                slippageBps = sellSlippage,
+                traderTag = "MEME",
+            )
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute}",
+                traderTag = "MEME",
+            )
             security.enforceSignDelay()
             
             val useJito = c.jitoEnabled && !quote.isUltra
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_BROADCAST,
+                "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                traderTag = "MEME",
+            )
             val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                "Sig confirmed: ${sig.take(20)}…",
+                sig = sig,
+                traderTag = "MEME",
+            )
+            // Reset broadcast retry counter on success
+            zeroBalanceRetries.remove(ts.mint + "_broadcast")
+
             val solBack = quote.outAmount / 1_000_000_000.0
             val pnlSol = solBack - pos.costSol * sellFraction
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
@@ -1656,14 +1718,51 @@ class Executor(
             if (pnlSol > 0) {
                 TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
             }
-            
+
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
+                "Profit lock landed | ${solBack.fmt(4)} SOL | net ${netPnl.fmt(4)} | ${if (pnlSol > 0) "+" else ""}${pnlPct.fmt(2)}%",
+                sig = sig,
+                solAmount = solBack,
+                traderTag = "MEME",
+            )
             onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${sig.take(16)}…", ts.mint)
             onNotify("✅ Profit Locked",
                 "${ts.symbol} secured ${solBack.fmt(3)} SOL",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 
         } catch (e: Exception) {
-            onLog("❌ Profit lock sell FAILED: ${security.sanitiseForLog(e.message ?: "unknown")} — will retry next tick", ts.mint)
+            // V5.9.474 — classified post-quote forensics for profit-lock catch
+            // (mirrors V5.9.468 outer-catch in liveSell). Was: onLog-only silent kill.
+            val safe = security.sanitiseForLog(e.message ?: "unknown")
+            val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
+            val failureClass = when {
+                safe.contains("0x1788", ignoreCase = true) ||
+                safe.contains("TooLittleSolReceived", ignoreCase = true) ||
+                safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
+                safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
+                safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
+                safe.contains("blockhash", ignoreCase = true) ||
+                safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
+                safe.contains("rate limit", ignoreCase = true) ||
+                safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
+                safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
+                safe.contains("InsufficientFunds", ignoreCase = true) ||
+                safe.contains("insufficient lamports", ignoreCase = true) ||
+                safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
+                safe.contains("buildSwapTx", ignoreCase = true) ||
+                safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
+                else -> "BROADCAST_FAILED"
+            }
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_FAILED,
+                "$failureClass — ${e.javaClass.simpleName}: ${safe.take(120)} (attempt $broadcastRetries)",
+                traderTag = "MEME",
+            )
+            ErrorLogger.warn("Executor", "PROFIT-LOCK SELL POST-QUOTE FAILURE: ${ts.symbol} class=$failureClass exc=${e.javaClass.simpleName} retry=$broadcastRetries")
+            onLog("❌ Profit lock sell FAILED: $failureClass — ${safe.take(80)} (retry $broadcastRetries)", ts.mint)
         }
     }
 
@@ -4612,14 +4711,55 @@ class Executor(
                     val newSoldPct = pos.partialSoldPct + (pct * 100)
                     
                     val sellUnits = resolveSellUnits(ts, sellQty, wallet = activeWallet)
-                    val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
+                    // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
+                    // for the LIVE partial-sell path. Was: NO LiveTradeLogStore emissions,
+                    // 500bps slippage hard-cap, no taker-bound binding order — i.e. all
+                    // of liveSell's bug surface preserved here. Now mirrors V5.9.470/472.
+                    val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
+                    val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast_partial"] ?: 0
+                    val sellSlippage = when (priorBroadcastRetries) {
+                        0    -> (c.slippageBps * 2)
+                        1    -> 400
+                        2    -> 600
+                        else -> 1000
+                    }.coerceAtMost(1000)
+
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_START,
+                        "requestPartialSell LIVE: ${(pct*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | retries=$priorBroadcastRetries",
+                        tokenAmount = sellQty,
+                        slippageBps = sellSlippage,
+                        traderTag = "MEME",
+                    )
                     
                     onLog("📊 LIVE PARTIAL: Getting quote for $sellUnits units @ ${sellSlippage}bps slippage", ts.mint)
                     
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                        "Quote try @ ${sellSlippage}bps",
+                        slippageBps = sellSlippage,
+                        traderTag = "MEME",
+                    )
                     val quote = getQuoteWithSlippageGuard(
-                        ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+                        ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false,
+                        sellTaker = activeWallet.publicKeyB58)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_QUOTE_OK,
+                        "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                        slippageBps = sellSlippage,
+                        traderTag = "MEME",
+                    )
                     
                     val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                        "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute}",
+                        traderTag = "MEME",
+                    )
                     security.enforceSignDelay()
                     
                     val useJito = c.jitoEnabled && !quote.isUltra
@@ -4627,7 +4767,21 @@ class Executor(
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
                     
                     onLog("📊 LIVE PARTIAL: Signing and broadcasting tx...", ts.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BROADCAST,
+                        "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                        traderTag = "MEME",
+                    )
                     val sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                        "Sig confirmed: ${sig.take(20)}…",
+                        sig = sig,
+                        traderTag = "MEME",
+                    )
+                    zeroBalanceRetries.remove(ts.mint + "_broadcast_partial")
                     
                     val solBack = quote.outAmount / 1_000_000_000.0
                     val livePnl = solBack - pos.costSol * pct
@@ -4665,6 +4819,15 @@ class Executor(
                             FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt5 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_v2_w2")
                         }
                     }
+
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
+                        "Partial sold ${(pct*100).toInt()}% | got ${solBack.fmt(4)} SOL | net ${netPnl.fmt(4)}",
+                        sig = sig,
+                        solAmount = solBack,
+                        traderTag = "MEME",
+                    )
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
@@ -4674,8 +4837,36 @@ class Executor(
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                         
                 } catch (e: Exception) {
-                    ErrorLogger.error("Executor", "❌ LIVE PARTIAL SELL FAILED: ${ts.symbol} | ${e.message}")
-                    onLog("❌ Live partial sell FAILED: ${security.sanitiseForLog(e.message?:"err")}", ts.mint)
+                    // V5.9.474 — classified post-quote forensics for partial-sell catch
+                    val sellTradeKey2 = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
+                    val safe = security.sanitiseForLog(e.message ?: "unknown")
+                    val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast_partial", 1) { old, _ -> old + 1 } ?: 1
+                    val failureClass = when {
+                        safe.contains("0x1788", ignoreCase = true) ||
+                        safe.contains("TooLittleSolReceived", ignoreCase = true) ||
+                        safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
+                        safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
+                        safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
+                        safe.contains("blockhash", ignoreCase = true) ||
+                        safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
+                        safe.contains("rate limit", ignoreCase = true) ||
+                        safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
+                        safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
+                        safe.contains("InsufficientFunds", ignoreCase = true) ||
+                        safe.contains("insufficient lamports", ignoreCase = true) ||
+                        safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
+                        safe.contains("buildSwapTx", ignoreCase = true) ||
+                        safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
+                        else -> "BROADCAST_FAILED"
+                    }
+                    LiveTradeLogStore.log(
+                        sellTradeKey2, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "$failureClass — ${e.javaClass.simpleName}: ${safe.take(120)} (partial-sell attempt $broadcastRetries)",
+                        traderTag = "MEME",
+                    )
+                    ErrorLogger.error("Executor", "❌ LIVE PARTIAL SELL FAILED: ${ts.symbol} | class=$failureClass | ${e.message}")
+                    onLog("❌ Live partial sell FAILED: $failureClass — ${safe.take(80)} (retry $broadcastRetries)", ts.mint)
                 }
             }
         }
