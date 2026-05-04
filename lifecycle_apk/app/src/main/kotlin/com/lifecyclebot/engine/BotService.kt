@@ -308,8 +308,15 @@ class BotService : Service() {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
-            // V5.9.402 — LLM Lab: load strategies, paper bankroll, approval queue
-            try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
+            // V5.9.455 — ANR FIX.
+            // Previously LlmLabEngine.start() ran synchronously on the main
+            // thread during onCreate and opened SQLite + seeded strategies,
+            // which contributed to the ~2-minute freeze users reported on
+            // "Start Live". It's fully optional to the critical boot path
+            // (the tick consumer is null-safe via ctxRef) so defer it.
+            scope.launch {
+                try { com.lifecyclebot.engine.lab.LlmLabEngine.start(applicationContext) } catch (_: Throwable) {}
+            }
             ErrorLogger.info("BotService", "onCreate starting")
 
 
@@ -365,7 +372,13 @@ class BotService : Service() {
             },
             onLog = { msg -> addLog(msg) }
         )
-        copyTradeEngine.loadWallets()
+        // V5.9.455 — loadWallets() does SharedPreferences + JSON parsing.
+        // Cheap in isolation but historically contributed to the onCreate
+        // main-thread cost on users with many tracked copy wallets. The
+        // engine returns null-safely when queried before this completes.
+        scope.launch {
+            try { copyTradeEngine.loadWallets() } catch (_: Exception) {}
+        }
         securityGuard   = SecurityGuard(
             ctx       = applicationContext,
             cfg       = { ConfigStore.load(applicationContext) },
@@ -398,13 +411,21 @@ class BotService : Service() {
         // V5.9.75: Initialize VoiceManager (mute-by-default).
         try { VoiceManager.init(applicationContext) } catch (_: Exception) {}
         
-        // V5.6.28e: Initialize BehaviorAI with context for persistence, then load from history
-        try {
-            com.lifecyclebot.v3.scoring.BehaviorAI.init(applicationContext)
-            com.lifecyclebot.v3.scoring.BehaviorAI.loadFromHistory()
-            ErrorLogger.info("BotService", "BehaviorAI initialized and loaded from trade history")
-        } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "BehaviorAI init/load error: ${e.message}")
+        // V5.9.455 — ANR FIX.
+        // BehaviorAI.loadFromHistory() scans every historical trade from
+        // SQLite + rebuilds the rolling behaviour vector. On a 4000+ trade
+        // history this can take multiple seconds and used to run on the
+        // main thread during onCreate. Move it off-main; the tick loop is
+        // tolerant of a not-yet-loaded BehaviorAI (its query paths all
+        // return neutral defaults until loaded).
+        scope.launch {
+            try {
+                com.lifecyclebot.v3.scoring.BehaviorAI.init(applicationContext)
+                com.lifecyclebot.v3.scoring.BehaviorAI.loadFromHistory()
+                ErrorLogger.info("BotService", "BehaviorAI initialized and loaded from trade history (off-main)")
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "BehaviorAI init/load error: ${e.message}")
+            }
         }
         
         // Initialize GeminiCopilot with API key from config

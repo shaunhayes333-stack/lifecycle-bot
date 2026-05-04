@@ -6031,9 +6031,18 @@ class Executor(
             )
             
             try {
-                // V5.9.196: Fee = 0.5% of actual sell proceeds (quoted outAmount), not entry cost
-                val sellValueSol = (quote.outAmount / 1_000_000_000.0).coerceAtLeast(pos.costSol * 0.01)
-                val feeAmountSol = sellValueSol * MEME_TRADING_FEE_PERCENT
+                // V5.9.455 — FEE FAIRNESS FIX.
+                // Previously this computed fee as 0.5% of the SELL PROCEEDS
+                // (quote.outAmount), which meant losing sells paid far less
+                // than winning sells and total-loss rugs paid ≈0 SOL because
+                // the feeAmountSol >= 0.0001 guard rounded it away. Every
+                // other fee path (profit-lock, partial-sell v1/v2, buy)
+                // already uses pos.costSol as the basis. Align this path:
+                // fee = 0.5% of ENTRY BASIS, applied to every live sell
+                // whether it was profitable or not. Operator directive:
+                // "live transaction fees should be on all sells profitable
+                // or not."
+                val feeAmountSol = pos.costSol * MEME_TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
@@ -6047,8 +6056,8 @@ class Executor(
                         wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
                     }
                     
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of sell) split 50/50", tradeId.mint)
-                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets")
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
+                    ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
