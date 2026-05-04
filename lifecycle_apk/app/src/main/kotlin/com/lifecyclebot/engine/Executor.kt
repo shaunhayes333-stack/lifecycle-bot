@@ -4838,7 +4838,7 @@ class Executor(
                         
                 } catch (e: Exception) {
                     // V5.9.474 — classified post-quote forensics for partial-sell catch
-                    val sellTradeKey2 = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
+                    val sellTradeKey2 = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
                     val safe = security.sanitiseForLog(e.message ?: "unknown")
                     val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast_partial", 1) { old, _ -> old + 1 } ?: 1
                     val failureClass = when {
