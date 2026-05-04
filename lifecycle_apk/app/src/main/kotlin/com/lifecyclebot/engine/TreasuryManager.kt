@@ -279,6 +279,24 @@ object TreasuryManager {
     // self-cycle indefinitely on a chronically losing streak.
     // ═══════════════════════════════════════════════════════════════════════════
 
+    /**
+     * V5.9.448 — explicit constant for the $500 seed floor. Used in three
+     * places:
+     *  1. `restore()` seed (treasury starts at this value)
+     *  2. `restore()` re-seed top-up (any state below the floor on restore
+     *     is healed back UP to the floor — the $500 default is a hard floor)
+     *  3. `backFundPaperWalletIfLow()` floor (back-fund will refuse to pull
+     *     below this so the user always retains the $500 default minimum)
+     *
+     * User (build 2316, multiple requests): "the treasury balance not
+     * increasing and why isn't it persisting … its meant to have $500 by
+     * default". Root cause was back-fund halving the treasury every cycle
+     * the wallet dipped below floor — 9 pulls = 5.8824 × 0.5^9 ≈ 0.011 SOL,
+     * exactly what the user saw on screen ($1).
+     */
+    const val SEED_FLOOR_SOL = 5.8824    // ≈ $500 USD at $85/SOL
+    const val SEED_FLOOR_USD = 500.0
+
     /** V5.9.399 — fraction of realized profit siphoned into treasury per meme sell. */
     const val MEME_SELL_TREASURY_PCT = 0.30
 
@@ -360,17 +378,28 @@ object TreasuryManager {
      */
     fun backFundPaperWalletIfLow(walletSol: Double, floorSol: Double, solPrice: Double): Double {
         if (walletSol >= floorSol) return 0.0
-        if (treasurySol <= 0.0001) return 0.0
+        // V5.9.448 — HARD treasury floor. Back-fund must NEVER pull the
+        // treasury below the $500 seed floor. Was halving the treasury
+        // every cycle (5.88 → 2.94 → 1.47 → … → 0.011 SOL after 9 pulls,
+        // exactly what the user saw as "$1 LOCKED"). User intent is the
+        // $500 default treasury is sacrosanct — it's the rainy-day
+        // capital that should NEVER be drained, not a back-fund pool.
+        val available = (treasurySol - SEED_FLOOR_SOL).coerceAtLeast(0.0)
+        if (available <= 0.0001) {
+            ErrorLogger.debug("Treasury",
+                "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ at/below $500 floor")
+            return 0.0
+        }
         val deficit = floorSol - walletSol
-        val maxPull = treasurySol * 0.50   // never drain more than half in one shot
-        val pull = minOf(deficit, maxPull)
+        val maxPull = available * 0.50    // never drain more than half of the *available* (above-floor) treasury
+        val pull = minOf(deficit, maxPull, available)
         if (pull < 0.0001) return 0.0
         treasurySol -= pull
         treasuryUsd -= pull * solPrice
         lifetimeWithdrawn += pull
         ErrorLogger.info("Treasury",
             "💸 BACK-FUND: wallet=${walletSol.fmtSol()}◎ < floor=${floorSol.fmtSol()}◎ " +
-            "→ pulled ${pull.fmtSol()}◎ from treasury (now ${treasurySol.fmtSol()}◎)"
+            "→ pulled ${pull.fmtSol()}◎ from treasury (now ${treasurySol.fmtSol()}◎, $500 floor preserved)"
         )
         addEvent(TreasuryEvent(
             type = TreasuryEventType.WITHDRAWAL,
@@ -546,12 +575,30 @@ object TreasuryManager {
             ErrorLogger.warn("Treasury", "No treasury state found - starting fresh")
         }
 
-    // V5.9.7: Seed treasury with $500 USD starting capital if empty
-    if (treasurySol <= 0.0) {
-        treasurySol = 5.8824  // $500 USD / $85 SOL price
-        treasuryUsd = 500.00
-        lifetimeLocked = 5.8824
-        ErrorLogger.info("Treasury", "🏦 Seeded starting treasury: 5.8824 SOL ($500 USD)")
+    // V5.9.448 — HEALING SEED. Always ensure treasury is at or above the
+    // $500 floor on every restore, regardless of whether state was
+    // restored or not. This auto-heals the back-fund-drained state the
+    // user saw (treasury at $1 / 0.011 SOL after 9 cycles of half-pulls).
+    // Once healed, the new back-fund floor (also at SEED_FLOOR_SOL) keeps
+    // it from happening again.
+    if (treasurySol < SEED_FLOOR_SOL) {
+        val deficit = SEED_FLOOR_SOL - treasurySol
+        if (treasurySol <= 0.0) {
+            // Pure seed (first run or wiped state)
+            treasurySol     = SEED_FLOOR_SOL
+            treasuryUsd     = SEED_FLOOR_USD
+            lifetimeLocked  = SEED_FLOOR_SOL
+            ErrorLogger.info("Treasury",
+                "🏦 Seeded starting treasury: ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} USD)")
+        } else {
+            // Heal-up: state was below floor (back-fund drain). Top up
+            // to the floor so the user always retains the $500 default.
+            treasurySol = SEED_FLOOR_SOL
+            treasuryUsd = SEED_FLOOR_USD
+            ErrorLogger.warn("Treasury",
+                "🏦 HEAL-UP: treasury was below floor (${(SEED_FLOOR_SOL - deficit).fmtSol()}◎) — " +
+                "topping up to ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} default).")
+        }
         save(ctx)
     }
     }
@@ -566,23 +613,14 @@ object TreasuryManager {
         lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
         peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
         
-        // V5.9.445 — the old "corruption" guard (milestone<0 && treasury>0)
-        // was wiping the legitimate $500 seed on every reload: the seed
-        // path at the bottom of loadOrInit() sets treasurySol without
-        // setting a milestone (because the seed itself *is* the milestone
-        // floor, not a profit-lock event). The wipe → reseed → wipe loop
-        // was destroying any accumulated treasury between app restarts.
-        //
-        // FIX: only treat as corrupted when the stored value is clearly
-        // above the seed floor ( > 2× seed ) AND no lifetime_locked or
-        // milestones were ever recorded. Seed state (treasury~5.88, lifetime=5.88)
-        // and any state with real lock history are now preserved.
-        val SEED_SOL = 5.8824
-        val looksLikeSeed  = kotlin.math.abs(treasurySol - SEED_SOL) < 0.01 &&
-                             kotlin.math.abs(lifetimeLocked - SEED_SOL) < 0.01
+        // V5.9.445 / V5.9.448 — keep the corruption guard for clearly-bogus
+        // states (wildly inflated treasury with no lock history), but the
+        // $500 healing seed in restore() handles the common drain/wipe case.
+        val looksLikeSeed  = kotlin.math.abs(treasurySol - SEED_FLOOR_SOL) < 0.01 &&
+                             kotlin.math.abs(lifetimeLocked - SEED_FLOOR_SOL) < 0.01
         val hasLockHistory = lifetimeLocked > 0.0 || lifetimeWithdrawn > 0.0
-        if (highestMilestoneHit < 0 && treasurySol > SEED_SOL * 2.0 && !hasLockHistory && !looksLikeSeed) {
-            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones/history. Resetting.")
+        if (highestMilestoneHit < 0 && treasurySol > SEED_FLOOR_SOL * 2.0 && !hasLockHistory && !looksLikeSeed) {
+            ErrorLogger.warn("Treasury", "Corrupted state detected: treasury=${treasurySol} but no milestones/history. Resetting (heal-up will reseed).")
             treasurySol = 0.0
             treasuryUsd = 0.0
         }
