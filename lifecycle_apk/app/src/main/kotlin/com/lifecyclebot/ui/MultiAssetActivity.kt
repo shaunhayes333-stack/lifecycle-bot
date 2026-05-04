@@ -898,27 +898,28 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateQuickStats() {
         try {
-            // V5.9.5: Aggregate across ALL Markets traders — combined totals
+            // V5.9.450: MARKETS = Perps+Stocks+Forex+Metals+Commodities ONLY.
+            // CryptoAlt has its own "Crypto" tab on MainActivity and is NOT a
+            // market lane on this screen (title: "AATE MARKETS · Perps · Stocks
+            // · Commodities · Metals · Forex"). Including it was producing the
+            // 820-trades/30%-WR/56-open mismatch vs MainActivity Live Readiness.
             val allTrades = TokenizedStockTrader.getTotalTrades() +
                 CommoditiesTrader.getTotalTrades() +
                 MetalsTrader.getTotalTrades() +
                 ForexTrader.getTotalTrades() +
-                PerpsTraderAI.getLifetimeTrades() +
-                CryptoAltTrader.getTotalTrades()
+                PerpsTraderAI.getLifetimeTrades()
 
             val allWins = TokenizedStockTrader.getWinningTrades() +
                 CommoditiesTrader.getWinningTrades() +
                 MetalsTrader.getWinningTrades() +
                 ForexTrader.getWinningTrades() +
-                PerpsTraderAI.getLifetimeWins() +
-                CryptoAltTrader.getWinCount()
+                PerpsTraderAI.getLifetimeWins()
 
             val allPnlSol = TokenizedStockTrader.getTotalPnlSol() +
                 CommoditiesTrader.getTotalPnlSol() +
                 MetalsTrader.getTotalPnlSol() +
                 ForexTrader.getTotalPnlSol() +
-                PerpsTraderAI.getLifetimePnlSol() +
-                CryptoAltTrader.getTotalPnlSol()
+                PerpsTraderAI.getLifetimePnlSol()
 
             tvStats24hTrades.text = allTrades.toString()
 
@@ -1049,12 +1050,14 @@ class MultiAssetActivity : AppCompatActivity() {
         // V5.7.6b: Use Markets-specific counters (separate from Meme mode)
         // V5.9.6: Count actual completed trades from all traders — not the weighted FluidLearningAI
         // accumulator (which needs 10 paper trades to count 1, so always shows near-zero)
+        // V5.9.450: Markets = Perps+Stocks+Forex+Metals+Commodities ONLY (NOT CryptoAlt).
+        // Matches MainActivity Live Readiness definition and the page title
+        // "AATE MARKETS · Perps · Stocks · Commodities · Metals · Forex".
         val paperTrades = try {
             com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
                 com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
                 com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
                 com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades() +
                 PerpsTraderAI.getLifetimeTrades()
         } catch (_: Exception) { 0 }
 
@@ -1064,7 +1067,6 @@ class MultiAssetActivity : AppCompatActivity() {
                 com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
                 com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
                 com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getWinCount() +
                 PerpsTraderAI.getLifetimeWins()
         } catch (_: Exception) { 0 }
         val winRate = if (paperTrades > 0) allWins.toDouble() * 100.0 / paperTrades else 0.0
@@ -1345,13 +1347,13 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateSummaryCards() {
         // V5.9.5: Total open across ALL traders
+        // V5.9.450: Markets excludes CryptoAlt (it has its own Crypto tab).
         val positions = try {
             PerpsExecutionEngine.getActivePositions().size +
                 TokenizedStockTrader.getAllPositions().size +
                 CommoditiesTrader.getSpotPositions().size + CommoditiesTrader.getLeveragePositions().size +
                 MetalsTrader.getSpotPositions().size + MetalsTrader.getLeveragePositions().size +
-                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size +
-                CryptoAltTrader.getAllPositions().count { it.closeTime == null }
+                ForexTrader.getSpotPositions().size + ForexTrader.getLeveragePositions().size
         } catch (_: Exception) { 0 }
         tvActivePositions.text = positions.toString()
         
@@ -1366,17 +1368,16 @@ class MultiAssetActivity : AppCompatActivity() {
         tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
         
         // Win rate — aggregate across ALL Markets traders
+        // V5.9.450: Markets excludes CryptoAlt (own Crypto tab).
         try {
             val allWins = com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades() +
                 com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades() +
                 com.lifecyclebot.perps.MetalsTrader.getWinningTrades() +
-                com.lifecyclebot.perps.ForexTrader.getWinningTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getWinCount()
+                com.lifecyclebot.perps.ForexTrader.getWinningTrades()
             val allTrades = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades() +
                 com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades() +
                 com.lifecyclebot.perps.MetalsTrader.getTotalTrades() +
-                com.lifecyclebot.perps.ForexTrader.getTotalTrades() +
-                com.lifecyclebot.perps.CryptoAltTrader.getTotalTrades()
+                com.lifecyclebot.perps.ForexTrader.getTotalTrades()
             val wr = if (allTrades > 0) allWins * 100 / allTrades else 0
             tvWinRate.text = if (wr > 0) "$wr%" else "--"
         } catch (_: Exception) {
@@ -2536,13 +2537,13 @@ class MultiAssetActivity : AppCompatActivity() {
 
     /** Total realised PnL across ALL traders — used for the P&L summary tile. */
     private fun getAllTradersTotalPnlSol(): Double {
+        // V5.9.450: Markets PnL excludes CryptoAlt (has its own Crypto tab).
         return try {
             TokenizedStockTrader.getTotalPnlSol() +
                 CommoditiesTrader.getTotalPnlSol() +
                 MetalsTrader.getTotalPnlSol() +
                 ForexTrader.getTotalPnlSol() +
-                PerpsTraderAI.getLifetimePnlSol() +
-                CryptoAltTrader.getTotalPnlSol()
+                PerpsTraderAI.getLifetimePnlSol()
         } catch (_: Exception) { 0.0 }
     }
     
