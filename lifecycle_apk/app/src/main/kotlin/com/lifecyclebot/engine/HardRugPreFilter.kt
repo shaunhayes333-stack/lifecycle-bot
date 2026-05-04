@@ -83,15 +83,12 @@ object HardRugPreFilter {
         
         // V5.2 FIX: PAPER MODE BYPASS - Skip pre-filter to maximize learning
         // V5.9.47: proven-edge live runs ALSO bypass — they've earned it.
+        // V5.9.449: REMOVED V5.9.421 ladder-tier turn-off. Build-1941 era
+        // kept the bypass unconditional in paper mode — that's the
+        // learning-rich path that produced the 60% WR. The QualityLadder
+        // tier check was choking the paper feedback loop.
         val lenient = ModeLeniency.useLenientGates(isPaperMode)
-        // V5.9.421 → V5.9.422 — paper-mode bypass turns off once the
-        // QualityLadder has escalated to tier >= 2 (bot is underperforming
-        // its phase target by 5-10pp or more). Tier 1 alone keeps the bypass
-        // on — we only arm the rug pre-filter in paper when the ladder has
-        // already confirmed the performance problem is structural, not a
-        // 50-trade hiccup.
-        val ladderTier = try { com.lifecyclebot.engine.QualityLadder.tier() } catch (_: Throwable) { 0 }
-        if (lenient && ladderTier < 2) {
+        if (lenient) {
             // Even in lenient mode, block tokens with literally zero liquidity (can't trade)
             // But only if they've had enough time to get polled (grace period above handles new tokens)
             if (ts.lastLiquidityUsd <= 0) {

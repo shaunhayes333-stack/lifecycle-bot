@@ -5349,47 +5349,16 @@ if (deferredCount > 0) {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // V5.9.417 — HARD STOP-LOSS BACKSTOP
-    //
-    // Manfred-style bug: a held meme position drifts to -27 % while its
-    // declared SL is -20 % and never closes because the sub-trader's
-    // checkExit() (Moonshot / ShitCoin / Quality) is operating on a stale
-    // internal lastSeenPrice and returns HOLD. The position bleeds until
-    // the user manually closes or the bag goes to zero.
-    //
-    // This backstop reads the FRESH price directly from `pair.candle`
-    // (next step of the cycle) — but that step is below us, so we use the
-    // best price we already have on `ts` (lastPrice → most-recent history
-    // → entryPrice fallback). If realised draw-down ≥ HARD_SL_FLOOR (-25%
-    // for memes, -30 % for non-memes) we force-close immediately,
-    // bypassing every sub-trader so a stuck-state can never bleed past
-    // the panic floor again.
+    // V5.9.449 — REMOVED V5.9.417 HARD_SL_BACKSTOP (-25% memes / -30% others).
+    // The backstop was killing winners that wicked past -25% before they
+    // could recover — exactly the meme runners that produced build-1941's
+    // 60% WR + 500% trades. Build-1941 era trusted each sub-trader's own
+    // HARD_FLOOR (ShitCoin -20, Quality SL ladder, Moonshot -20) and let
+    // wicks survive. With ShitCoinTraderAI.HARD_FLOOR_STOP_PCT now back
+    // at -20 (V5.9.449 revert) and the universal back-fund still in place
+    // (TreasuryManager $500 floor + MemeWREmergencyBrake), the backstop
+    // is redundant choke pressure. See V5.9.449 deep-dive write-up.
     // ═══════════════════════════════════════════════════════════════════
-    if (ts.position.isOpen && ts.position.entryPrice > 0.0) {
-        val livePrice = ts.lastPrice.takeIf { it > 0.0 }
-            ?: ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0.0 }
-            ?: 0.0
-        if (livePrice > 0.0) {
-            val pnlPct = (livePrice - ts.position.entryPrice) / ts.position.entryPrice * 100.0
-            val isMeme = com.lifecyclebot.engine.LaneTag.isMeme(ts.position.tradingMode)
-            val hardFloor = if (isMeme) -25.0 else -30.0
-            if (pnlPct <= hardFloor) {
-                ErrorLogger.warn(
-                    "BotService",
-                    "🚨 HARD_SL_BACKSTOP: ${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ≤ ${hardFloor}% " +
-                    "— closing regardless of sub-trader state (mode=${ts.position.tradingMode})"
-                )
-                addLog("🚨 HARD-SL: ${ts.symbol} ${"%.1f".format(pnlPct)}% — backstop close")
-                try {
-                    executor.requestSell(ts, "HARD_SL_BACKSTOP_${"%.0f".format(pnlPct)}", wallet,
-                        status.getEffectiveBalance(cfg.paperMode))
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "HARD_SL_BACKSTOP requestSell failed for ${ts.symbol}: ${e.message}")
-                }
-                return
-            }
-        }
-    }
 
     // ═══════════════════════════════════════════════════════════════════
     // STEP 0: CORE EVALUATIONS (needed by subsequent steps)
@@ -6516,22 +6485,12 @@ if (deferredCount > 0) {
                                 isPaper = cfg.paperMode,
                             )
 
-                            // V5.9.443 — CHOP FILTER for Moonshot lane.
-                            // V5.9.444 — fluid penalty (scales with learning progress).
-                            if (moonshotScore.eligible &&
-                                ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
-                                ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
-                                val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.chopPenalty()
-                                if (moonshotScore.score < chopFloor) {
-                                    ErrorLogger.info("BotService",
-                                        "🔪 CHOP_REJECT[moonshot]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +
-                                        "score=${moonshotScore.score.toInt()} < chop-gate=$chopFloor")
-                                    moonshotScore = moonshotScore.copy(
-                                        eligible = false,
-                                        rejectReason = "CHOP_REJECT: src=${ts.source} phase=${ts.phase} score=${moonshotScore.score.toInt()}<$chopFloor",
-                                    )
-                                }
-                            }
+                            // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for Moonshot.
+                            // The filter blocked exactly the fresh-launch DEX_BOOSTED/
+                            // DEX_TRENDING entries in early_unknown/pre_pump phases that
+                            // produced build-1941's 500% Moonshot runners. Soft scoring
+                            // (V3 + UnifiedScorer + MetaCognition) already weighs these
+                            // signals — adding a hard score<60 floor was choke pressure.
                             
                             if (!moonshotScore.eligible) {
                                 // V5.9.244: Log moonshot rejections at INFO so we can diagnose silence
@@ -6770,27 +6729,12 @@ if (deferredCount > 0) {
                             graduationProgress = graduationProgress,
                         )
 
-                        // V5.9.443 — CHOP FILTER. Log-driven: 82% of trades
-                        // were chop stop-outs on DEX_BOOSTED/TRENDING in
-                        // early_unknown/pre_pump.
-                        // V5.9.444 — fluid penalty (scales with learning
-                        // progress) + fluid chop-gate (rises as the brain
-                        // matures, relaxes during bootstrap).
-                        if (shitCoinSignal.shouldEnter &&
-                            ts.source.uppercase() in setOf("DEX_BOOSTED", "DEX_TRENDING") &&
-                            ts.phase.lowercase() in setOf("early_unknown", "pre_pump", "unknown", "scanning", "idle")) {
-                            val rawScore = shitCoinSignal.entryScore
-                            val chopFloor = 50 + com.lifecyclebot.engine.ChopFilter.chopPenalty()
-                            if (rawScore < chopFloor) {
-                                ErrorLogger.info("BotService",
-                                    "🔪 CHOP_REJECT[shitcoin]: ${ts.symbol} | src=${ts.source} phase=${ts.phase} | " +
-                                    "score=$rawScore < chop-gate=$chopFloor — skipping known chop pool")
-                                shitCoinSignal = shitCoinSignal.copy(
-                                    shouldEnter = false,
-                                    reason = "CHOP_REJECT: src=${ts.source} phase=${ts.phase} score=$rawScore<$chopFloor",
-                                )
-                            }
-                        }
+                        // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for ShitCoin.
+                        // The filter blocked DEX_BOOSTED/DEX_TRENDING entries in
+                        // early_unknown/pre_pump phases at score<60 — exactly the
+                        // fresh pump.fun launches with sparse data that produced
+                        // build-1941's WR-in-the-60s. Soft scoring already weighs
+                        // these signals; the hard floor was choke pressure.
 
 
                         // ═══════════════════════════════════════════════════════════════════
@@ -7633,34 +7577,13 @@ if (deferredCount > 0) {
                                 return
                             }
 
-                            // V5.9.421 → V5.9.422 — TRIPLE-DANGER HARD GATE.
-                            // Activates when QualityLadder.tier() >= 1 (bot is
-                            // underperforming its phase target). If all three
-                            // of (TimeAI.isDangerZone, MemeNarrativeAI UNKNOWN
-                            // cluster, ts.lastLiquidityUsd < $100K) fire on the
-                            // same token we hard-block the entry — previously
-                            // each was only a -6pt score deduction. Only fires
-                            // in defensive tiers so the discovery-tier (Tier 0)
-                            // flow is untouched.
-                            val ladderTier = try { com.lifecyclebot.engine.QualityLadder.tier() } catch (_: Throwable) { 0 }
-                            if (ladderTier >= 1) {
-                                val dangerZone = try { com.lifecyclebot.engine.TimeOptimizationAI.isDangerZone() } catch (_: Throwable) { false }
-                                val coldNarrative = try {
-                                    com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(
-                                        symbol = identity.symbol, name = identity.symbol,
-                                    ).cluster == com.lifecyclebot.v3.scoring.MemeNarrativeAI.Cluster.UNKNOWN
-                                } catch (_: Throwable) { false }
-                                val tsLiquidity = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
-                                val thinLiquidity = tsLiquidity > 0.0 && tsLiquidity < 100_000.0
-                                if (dangerZone && coldNarrative && thinLiquidity) {
-                                    ErrorLogger.warn(
-                                        "BotService",
-                                        "🛑 [V3|TRIPLE_DANGER] ${identity.symbol} | danger_zone+cold_narrative+thin_liq (\$${"%.0f".format(tsLiquidity)}) tier=$ladderTier — SKIP execute"
-                                    )
-                                    addLog("🛑 TRIPLE DANGER: ${identity.symbol} | dead-hour rug setup (tier $ladderTier)", ts.mint)
-                                    return
-                                }
-                            }
+                            // V5.9.449 — REMOVED V5.9.421 TRIPLE-DANGER hard gate.
+                            // The combination (TimeAI.isDangerZone + cold MemeNarrative
+                            // cluster + liquidity<$100K) blocked exactly the dead-hour
+                            // fresh-launch / sparse-data tokens that produced
+                            // build-1941's 500% runners. Each component still
+                            // contributes -6pts to the soft score; that's the
+                            // build-1941 baseline behaviour.
 
                             // Sentience hook #6 — personality-driven filter.
                             // If the user's recent chat said "avoid SHITCOIN" / "avoid memes",
@@ -8671,59 +8594,18 @@ if (deferredCount > 0) {
         }
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.9.429 — UNIVERSAL HARD-FLOOR SL (ALWAYS-ON, SUB-TRADER AGNOSTIC)
+        // V5.9.449 — REMOVED V5.9.429 UNIVERSAL_HARD_FLOOR_SL.
         //
-        // The sub-trader checkExit functions (ShitCoinTraderAI, MoonshotTraderAI,
-        // QualityTraderAI, BlueChipTraderAI, CashGenerationAI, etc.) each have
-        // their own HARD_FLOOR_STOP_PCT at -20%, but they ONLY fire if the
-        // position is registered in that sub-trader's activePositions map.
-        // If a position exists on ts.position.qtyToken > 0 but isn't in ANY
-        // sub-trader's map (e.g. mode-flag mismatch after rehydration,
-        // tradingMode set to a string that no dispatch matches, or silent
-        // recovery failure), NO exit check runs and the position bleeds
-        // past -20% indefinitely. User's screenshot showed GOBLININU at
-        // -97.7% with SL -20% label but no fire, alongside SPEEDRUN -16%,
-        // PALESTINE -19.7%. The RUG SAFETY NET above only catches ≤-99.5%.
-        //
-        // This block fires a deterministic paper-side sell at -20% using
-        // the freshest available price. Runs BEFORE any sub-trader dispatch
-        // so it's redundant with — never in conflict with — their own SL.
+        // The pre-dispatch -20% force-close was firing earlier (and stricter)
+        // than each sub-trader's own HARD_FLOOR check, which build-1941 era
+        // intentionally ran AFTER partial-sell / profit-lock / trailing logic
+        // so wicks could recover. Removing the universal block restores the
+        // sub-trader-owned exit-priority chain. The RUG_SAFETY_NET above
+        // still catches ≤-99.5% catastrophic rugs, and each sub-trader's
+        // HARD_FLOOR_STOP_PCT (now back at -20 in ShitCoin via V5.9.449)
+        // catches the orphaned-position cases this block was meant to
+        // backstop — without killing winners that wick.
         // ═══════════════════════════════════════════════════════════════════
-        try {
-            val pos = ts.position
-            if (pos.qtyToken > 0.0 && pos.entryPrice > 0.0) {
-                val price = resolveLivePrice(ts)
-                if (price > 0.0) {
-                    val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
-                    val HARD_FLOOR = -20.0
-                    if (pnlPct <= HARD_FLOOR) {
-                        ErrorLogger.warn("BotService",
-                            "🛑 [UNIVERSAL_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% (floor ${HARD_FLOOR.toInt()}%) | " +
-                            "mode=${pos.tradingMode} — forcing exit (sub-traders missed it)")
-                        addLog("🛑 HARD FLOOR: ${ts.symbol} ${pnlPct.toInt()}% — forced exit", ts.mint)
-                        try {
-                            executor.requestSell(
-                                ts = ts,
-                                reason = "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT",
-                                wallet = wallet,
-                                walletSol = effectiveBalance,
-                            )
-                        } catch (e: Exception) {
-                            ErrorLogger.error("BotService", "UNIVERSAL_HARD_FLOOR sell error: ${e.message}", e)
-                        }
-                        // Drop sub-trader registrations so the UI doesn't
-                        // continue rendering the position after the exit.
-                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
-                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,
-                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
-                        return
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "UniversalHardFloor check failed: ${e.message}", e)
-        }
 
         // ═══════════════════════════════════════════════════════════════════
         // LAYER TRANSITION CHECK - Upgrade positions on the way UP
