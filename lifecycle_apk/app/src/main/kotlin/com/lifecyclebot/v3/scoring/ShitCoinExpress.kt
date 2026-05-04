@@ -540,7 +540,20 @@ object ShitCoinExpress {
         }
         dailyRides.incrementAndGet()
         recentRides[mint] = System.currentTimeMillis()
-        
+
+        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Express was previously a
+        // silent execution lane that never wrote to TradeHistoryStore. Now
+        // every boardRide writes a BUY row so the user's Journal reflects
+        // every Express ride taken.
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordOpen(
+                symbol = symbol, mint = mint,
+                entryPrice = entryPrice, sizeSol = entrySol,
+                isPaper = isPaper, layer = "EXPRESS",
+                entryReason = "BOARDED",
+            )
+        } catch (_: Exception) {}
+
         ErrorLogger.info(TAG, "💩🎫 BOARDED: $symbol | " +
             "entry=${entryPrice.fmtPrice()} | " +
             "size=${entrySol.fmt(4)} SOL | " +
@@ -631,7 +644,22 @@ object ShitCoinExpress {
         
         val pnlPct = (exitPrice - ride.entryPrice) / ride.entryPrice * 100
         val pnlSol = ride.entrySol * pnlPct / 100
-        
+
+        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Every Express exit now
+        // writes a SELL row so the user can see all Express closes with
+        // PnL in the Journal. Was previously a silent lane.
+        try {
+            val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000L
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = ride.symbol, mint = ride.mint,
+                entryPrice = ride.entryPrice, exitPrice = exitPrice,
+                sizeSol = ride.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = ride.isPaper, layer = "EXPRESS",
+                exitReason = exitSignal.name,
+                holdMinutes = holdMins,
+            )
+        } catch (_: Exception) {}
+
         // Record P&L
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)

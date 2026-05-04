@@ -46,6 +46,17 @@ object LlmLabTrader {
         // Mark strategy as last-evaluated
         LlmLabStore.updateStrategy(strategy.copy(lastEvaluatedAt = System.currentTimeMillis()))
 
+        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Lab paper trades now show
+        // up in the user's Journal alongside main-bot trades.
+        try {
+            com.lifecyclebot.engine.V3JournalRecorder.recordOpen(
+                symbol = tick.symbol, mint = tick.mint,
+                entryPrice = tick.price, sizeSol = sizeSol,
+                isPaper = true, layer = "LAB",
+                entryReason = strategy.name.take(24),
+            )
+        } catch (_: Throwable) {}
+
         ErrorLogger.info(TAG, "🧪 OPEN ${strategy.name} → ${tick.symbol} ${"%.6f".format(tick.price)} size=${"%.4f".format(sizeSol)}◎ (asset=${tick.asset})")
     }
 
@@ -98,6 +109,22 @@ object LlmLabTrader {
 
         // Telegraph into the universe so Symbiosis/cross-engine biases see Lab too.
         try { SentienceHooks.recordEngineOutcome("LAB", pnlSol, isWin) } catch (_: Throwable) {}
+
+        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Every Lab close now writes
+        // a SELL row to TradeHistoryStore so the user's Journal reflects
+        // Lab P&L too. (Lab live trades flow through the main Executor and
+        // are journaled there.)
+        try {
+            val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000L
+            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                symbol = pos.symbol, mint = pos.mint,
+                entryPrice = pos.entryPrice, exitPrice = exitPrice,
+                sizeSol = pos.sizeSol, pnlPct = pnlPct, pnlSol = pnlSol,
+                isPaper = !pos.isLive, layer = "LAB",
+                exitReason = reason,
+                holdMinutes = holdMins,
+            )
+        } catch (_: Throwable) {}
 
         ErrorLogger.info(TAG, "🧪 CLOSE ${strategy?.name ?: pos.strategyId} → ${pos.symbol} ${reason} " +
             "pnl=${"%+.2f".format(pnlPct)}% (${"%+.4f".format(pnlSol)}◎) hold=${(System.currentTimeMillis() - pos.entryTime) / 60_000L}min " +

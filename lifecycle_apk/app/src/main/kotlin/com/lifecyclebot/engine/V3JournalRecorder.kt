@@ -13,6 +13,20 @@ import com.lifecyclebot.data.Trade
  *   - HoldDurationTracker     (per-layer hold-time-bucket P&L)
  *   - ExitReasonTracker       (per-layer exit-reason P&L)
  *
+ * V5.9.447 — UNIVERSAL JOURNAL COVERAGE.
+ * User (build 2316): "all trades processed by the bot in the full universe
+ * must be logged in the journal. no exceptions"
+ *
+ * Audit found 3 silent execution paths that bypassed the Journal:
+ *   1. ShitCoinExpress.boardRide / exitRide — never journaled
+ *   2. LlmLabTrader.openPaper / closePosition — never journaled
+ *   3. PositionPersistence 60-day stale refund — silent SOL credit
+ *
+ * Added recordOpen(...) below so any sub-trader executing its own buys
+ * (i.e. NOT routing through Executor) can journal a BUY row directly.
+ * Together with recordClose(...) every universe path now lands in
+ * TradeHistoryStore.
+ *
  * Sub-traders soft-reject incoming entries by querying these trackers,
  * closing the open feedback loop that left WR stuck at 30% over 5000
  * trades (no actual outcome attribution to entry score / hold time /
@@ -26,6 +40,63 @@ import com.lifecyclebot.data.Trade
  * Journal, so with 4791 bot trades the Journal had only ~300 rows.
  */
 object V3JournalRecorder {
+
+    /**
+     * V5.9.447 — record a BUY (entry) row in the Journal for sub-traders
+     * whose entry path bypasses the main Executor. Use recordClose() for
+     * the matching SELL row when the position closes.
+     */
+    fun recordOpen(
+        symbol: String,
+        mint: String,
+        entryPrice: Double,
+        sizeSol: Double,
+        isPaper: Boolean,
+        layer: String,
+        entryScore: Int = 0,
+        entryReason: String = "",
+    ) {
+        try {
+            val t = Trade(
+                side       = "BUY",
+                mode       = if (isPaper) "paper" else "live",
+                sol        = sizeSol,
+                price      = entryPrice,
+                ts         = System.currentTimeMillis(),
+                reason     = if (entryReason.isBlank()) "${layer}_ENTRY" else "${layer}_$entryReason",
+                pnlSol     = 0.0,
+                pnlPct     = 0.0,
+                netPnlSol  = 0.0,
+                score      = entryScore.toDouble(),
+                tradingMode = layer,
+                tradingModeEmoji = layerEmoji(layer),
+                mint       = mint,
+            )
+            TradeHistoryStore.recordTrade(t)
+            ErrorLogger.info("V3JournalRecorder",
+                "📓 [$layer] BUY $symbol @ ${"%.6f".format(entryPrice)} | size=${"%.4f".format(sizeSol)}◎ | score=$entryScore")
+        } catch (e: Exception) {
+            ErrorLogger.error("V3JournalRecorder",
+                "⚠️ JOURNAL OPEN FAILED for $symbol ($layer): ${e.message}", e)
+        }
+    }
+
+    private fun layerEmoji(layer: String): String = when (layer.uppercase()) {
+        "SHITCOIN"          -> "💩"
+        "SHITCOINEXPRESS",
+        "EXPRESS"           -> "🎫"
+        "MOONSHOT"          -> "🚀"
+        "BLUECHIP"          -> "💎"
+        "CASHGEN",
+        "CASHGENERATION"    -> "💰"
+        "MANIPULATED"       -> "🎭"
+        "QUALITY"           -> "⭐"
+        "LAB",
+        "LLMLAB"            -> "🧪"
+        "STALE_REFUND",
+        "EXPIRED_REFUND"    -> "♻️"
+        else                -> "📈"
+    }
 
     fun recordClose(
         symbol: String,
@@ -57,15 +128,7 @@ object V3JournalRecorder {
                 pnlPct     = pnlPct,
                 netPnlSol  = pnlSol,
                 tradingMode = layer,
-                tradingModeEmoji = when (layer) {
-                    "SHITCOIN"    -> "💩"
-                    "MOONSHOT"    -> "🚀"
-                    "BLUECHIP"    -> "💎"
-                    "CASHGEN"     -> "💰"
-                    "MANIPULATED" -> "🎭"
-                    "QUALITY"     -> "⭐"
-                    else          -> "📈"
-                },
+                tradingModeEmoji = layerEmoji(layer),
                 mint       = mint,
             )
             TradeHistoryStore.recordTrade(t)

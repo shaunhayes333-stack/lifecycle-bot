@@ -227,6 +227,21 @@ object PositionPersistence {
                     BotService.creditUnifiedPaperSol(saved.costSol,
                         source = "stale_paper_refund[${saved.symbol}]")
                 } catch (_: Exception) { /* non-fatal */ }
+                // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Record a synthetic
+                // SELL row so this stale-paper refund shows up in the user's
+                // Journal as a 0% scratch close. Without this the cost-basis
+                // SOL silently rematerialises in the wallet with no audit trail.
+                try {
+                    com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                        symbol = saved.symbol, mint = saved.mint,
+                        entryPrice = saved.entryPrice, exitPrice = saved.entryPrice,
+                        sizeSol = saved.costSol, pnlPct = 0.0, pnlSol = 0.0,
+                        isPaper = true,
+                        layer = saved.tradingMode.takeIf { it.isNotBlank() } ?: "STALE_REFUND",
+                        exitReason = "EXPIRED_60D_REFUND",
+                        holdMinutes = (ageHours * 60).toLong(),
+                    )
+                } catch (_: Exception) { /* non-fatal */ }
                 continue
             }
             

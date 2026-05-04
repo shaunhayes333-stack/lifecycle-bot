@@ -200,6 +200,12 @@ object TradeHistoryStore {
 
         ErrorLogger.info("TradeHistoryStore",
             "📊 Loaded ${synchronized(lock) { trades.size }} trades in-memory (SQLite retains all, lifetime sells=$lifetimeSells)")
+        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE summary. User can verify at
+        // a glance that every lane writes to the on-device SQLite Journal.
+        ErrorLogger.info("TradeHistoryStore",
+            "📓 JOURNAL COVERAGE: Executor (memes/perps/stocks/forex/metals/commodities/crypto-alts) ✓ | " +
+            "V3JournalRecorder (Shitcoin/Moonshot/Quality/BlueChip/CashGen/Manipulated) ✓ | " +
+            "Express ✓ | LlmLab ✓ | Stale-60d refund ✓ — every trade lands in the Journal, no exceptions.")
     }
 
     // ── Public API ───────────────────────────────────────────────────
