@@ -114,6 +114,57 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     /**
+     * V5.9.468 — TAKER-BOUND BINDING ORDER for execution.
+     *
+     * Operator-reported RCA: Jupiter Ultra v2 has a 2-phase design.
+     * Phase 1: /order WITHOUT taker = non-binding quote (always succeeds
+     *          even when RFQ provider would reject the trade).
+     * Phase 2: /order WITH taker = binding order. THIS is where iris /
+     *          dflow / okx RFQ providers can refuse to take the other
+     *          side (e.g. when the token is in RAPID_CATASTROPHE_STOP
+     *          freefall).
+     *
+     * Old flow: getQuote (no taker) → SUCCESS → buildSwapTx (with taker)
+     *           → FAIL → silent kill (forensics frozen at SELL_QUOTE_OK).
+     * New flow: getQuoteWithTaker (with taker) → SUCCESS or FAIL surfaces
+     *           AT QUOTE TIME → user sees SELL_QUOTE_FAIL with the real
+     *           reason. If it succeeds, the binding tx + requestId are
+     *           already on the SwapQuote → buildSwapTx short-circuits.
+     *
+     * Falls back to the legacy v6 quote on RFQ rejection so the slippage
+     * escalation loop can still try non-RFQ routes (Metis).
+     */
+    fun getQuoteWithTaker(
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
+        taker: String,
+    ): SwapQuote {
+        require(inputMint.isNotBlank()) { "inputMint blank" }
+        require(outputMint.isNotBlank()) { "outputMint blank" }
+        require(amountRaw > 0L) { "amountRaw must be > 0" }
+        require(taker.isNotBlank()) { "taker blank" }
+
+        return try {
+            getUltraOrder(
+                inputMint = inputMint,
+                outputMint = outputMint,
+                amountRaw = amountRaw,
+                taker = taker,
+            )
+        } catch (e: Exception) {
+            log("⚠️ v2 binding order failed (${e.message?.take(80)}), falling back to v6 quote (no RFQ)")
+            getQuoteV6(
+                inputMint = inputMint,
+                outputMint = outputMint,
+                amountRaw = amountRaw,
+                slippageBps = slippageBps,
+            )
+        }
+    }
+
+    /**
      * Quote only, no taker. Good for estimation.
      */
     private fun getUltraQuote(
@@ -327,6 +378,22 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     private fun buildUltraTx(quote: SwapQuote, userPublicKey: String): SwapTxResult {
+        // V5.9.468 — SHORT-CIRCUIT: if the quote is already a binding
+        // taker-bound order (requestId + swapTransaction populated by
+        // getQuoteWithTaker / getUltraOrder), use it directly. Avoids
+        // a second /order roundtrip that previously failed silently
+        // when the RFQ provider rejected the trade post-quote.
+        if (quote.requestId.isNotBlank() && quote.swapTransaction.isNotBlank()) {
+            log("✅ V2 BUILD (cached binding order): reqId=${quote.requestId.take(12)}... " +
+                "txLen=${quote.swapTransaction.length} router=${quote.router} rfq=${quote.isRfqRoute}")
+            return SwapTxResult(
+                txBase64 = quote.swapTransaction,
+                requestId = quote.requestId,
+                router = quote.router,
+                isRfqRoute = quote.isRfqRoute,
+            )
+        }
+
         val inputMint = quote.inputMint.ifBlank {
             quote.raw.optString("inputMint", "")
         }

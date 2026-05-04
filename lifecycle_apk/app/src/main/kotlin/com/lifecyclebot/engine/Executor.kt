@@ -6040,12 +6040,14 @@ class Executor(
                             traderTag = "MEME",
                         )
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                           tokenUnits, slipLevel.coerceAtMost(500), isBuy = false)
-                        onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}%", tradeId.mint)
+                                                           tokenUnits, slipLevel.coerceAtMost(500),
+                                                           isBuy = false,
+                                                           sellTaker = wallet.publicKeyB58)
+                        onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}% | router=${quote.router} rfq=${quote.isRfqRoute} | reqId=${quote.requestId.take(12)}", tradeId.mint)
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                            "Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}%",
+                            "Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
                             slippageBps = slipLevel,
                             traderTag = "MEME",
                         )
@@ -6195,7 +6197,8 @@ class Executor(
                         try {
                             val remainingUnits = resolveSellUnits(ts, remainingTokens, wallet = wallet)
                             val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                       remainingUnits, 1500, isBuy = false)
+                                                                       remainingUnits, 1500, isBuy = false,
+                                                                       sellTaker = wallet.publicKeyB58)
                             val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
                             val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports, 
                                 if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
@@ -6254,7 +6257,8 @@ class Executor(
                             try {
                                 val retryUnits = resolveSellUnits(ts, retryRemaining, wallet = wallet)
                                 val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                           retryUnits, 2000, isBuy = false)
+                                                                           retryUnits, 2000, isBuy = false,
+                                                                           sellTaker = wallet.publicKeyB58)
                                 val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
                                 val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports,
                                     if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
@@ -6427,23 +6431,69 @@ class Executor(
             // wallet, bot forgot them. Now: always return FAILED_RETRYABLE so
             // the position stays open and the next tick gets another chance.
             val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
+
+            // V5.9.468 — CRITICAL FORENSICS FIX (operator-reported sell silent-kill).
+            //
+            // Operator screenshot showed SELL_QUOTE_OK firing repeatedly with
+            // no SELL_TX_BUILT / SELL_BROADCAST / SELL_FAILED phase ever
+            // logged after it — only a toast 'SELL FAILED: Normie (attempt 3)'.
+            // Root cause: this catch handles every post-quote failure (Jupiter
+            // build-tx / sign / Ultra execute / RFQ-only-path / awaitConfirm)
+            // but only emitted onLog + onToast, never a LiveTradeLogStore phase.
+            // The forensics tile therefore froze at SELL_QUOTE_OK and the user
+            // had no way to see WHY the sell died. Real silent-kill bug.
+            //
+            // Now: every post-quote failure surfaces a SELL_FAILED phase with
+            // the exception class + sanitised message so the forensics card
+            // ALWAYS terminates in a visible failure reason. The bot still
+            // returns FAILED_RETRYABLE (position stays open, no fake CONFIRMED)
+            // — only the visibility was missing.
+            //
+            // We also extract whether the failure was likely a Jupiter API
+            // build/execute failure vs an RPC simulation failure vs a rent /
+            // insufficient-funds failure, so the user can immediately see
+            // the class of problem.
+            val failureClass = when {
+                safe.contains("insufficient", ignoreCase = true) ||
+                safe.contains("rent", ignoreCase = true) ||
+                safe.contains("0x1", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
+                safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
+                safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
+                safe.contains("blockhash", ignoreCase = true) ||
+                safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
+                safe.contains("rate limit", ignoreCase = true) ||
+                safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
+                safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
+                safe.contains("buildSwapTx", ignoreCase = true) ||
+                safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
+                else -> "BROADCAST_FAILED"
+            }
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_FAILED,
+                "$failureClass — ${e.javaClass.simpleName}: ${safe.take(120)} (attempt $broadcastRetries)",
+                traderTag = "MEME",
+            )
+            ErrorLogger.warn("Executor", "SELL POST-QUOTE FAILURE: ${ts.symbol} class=$failureClass " +
+                "exc=${e.javaClass.simpleName} msg=${safe.take(80)} retry=$broadcastRetries")
+
             if (broadcastRetries >= 5 && broadcastRetries % 5 == 0) {
                 // Louder notification every 5 consecutive failures — but we
                 // still don't close. User decides when to give up.
                 onLog("🚨 SELL BROADCAST STUCK: ${ts.symbol} — $broadcastRetries consecutive " +
                       "broadcast failures. Tokens still in wallet. Position remains OPEN.", tradeId.mint)
                 onNotify("🚨 Sell Stuck",
-                    "${ts.symbol}: $broadcastRetries broadcast attempts failed. Tokens remain. " +
-                    "Retry continues; clear manually if you want to stop.",
+                    "${ts.symbol}: $broadcastRetries broadcast attempts failed ($failureClass). " +
+                    "Tokens remain. Retry continues; clear manually if you want to stop.",
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 ErrorLogger.warn("Executor", "SELL BROADCAST STUCK: ${ts.symbol} after $broadcastRetries retries — " +
                     "position kept OPEN, no fake CONFIRMED.")
             }
 
             onNotify("Sell Failed",
-                "${ts.symbol}: ${safe.take(80)} (retry $broadcastRetries, position still open)",
+                "${ts.symbol}: $failureClass — ${safe.take(80)} (retry $broadcastRetries)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            onToast("SELL FAILED: ${ts.symbol} (attempt $broadcastRetries)")
+            onToast("SELL FAILED: ${ts.symbol} ($failureClass · attempt $broadcastRetries)")
             return SellResult.FAILED_RETRYABLE
         }
 
@@ -7299,9 +7349,22 @@ class Executor(
         inMint: String, outMint: String, amount: Long, slippageBps: Int,
         inputSol: Double = 0.0,
         isBuy: Boolean = true,
+        sellTaker: String? = null,  // V5.9.468 — pubkey for taker-bound binding sell order
     ): com.lifecyclebot.network.SwapQuote {
         if (!isBuy) {
-            return jupiter.getQuote(inMint, outMint, amount, slippageBps)
+            // V5.9.468 — RCA fix: previously called getQuote() (non-binding /order
+            // without taker) which always succeeded for RFQ providers even when
+            // they would reject the binding order, leaving the sell to fail
+            // silently in buildSwapTx. Now we request the binding order at
+            // quote time when we have the taker pubkey, so RFQ rejections
+            // surface as SELL_QUOTE_FAIL rather than ghosting the trade.
+            return if (!sellTaker.isNullOrBlank()) {
+                jupiter.getQuoteWithTaker(inMint, outMint, amount, slippageBps, sellTaker)
+            } else {
+                // Legacy callers that don't have the taker — keep old behaviour
+                // (quote-only). Adds no regression risk.
+                jupiter.getQuote(inMint, outMint, amount, slippageBps)
+            }
         }
         val validated = slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol)
         if (!validated.isValid) {
@@ -7316,8 +7379,14 @@ class Executor(
         return try {
             jupiter.buildSwapTx(quote, pubkey)
         } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "⚠️ buildSwapTx attempt 1 failed: ${e.javaClass.simpleName} | ${e.message?.take(120)}")
             Thread.sleep(1000)
-            jupiter.buildSwapTx(quote, pubkey)
+            try {
+                jupiter.buildSwapTx(quote, pubkey)
+            } catch (e2: Exception) {
+                ErrorLogger.error("Executor", "❌ buildSwapTx attempt 2 ALSO failed: ${e2.javaClass.simpleName} | ${e2.message?.take(120)}")
+                throw e2
+            }
         }
     }
 
