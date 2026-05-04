@@ -6062,7 +6062,7 @@ class Executor(
                             traderTag = "MEME",
                         )
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                           tokenUnits, slipLevel.coerceAtMost(500),
+                                                           tokenUnits, slipLevel,
                                                            isBuy = false,
                                                            sellTaker = wallet.publicKeyB58)
                         onLog("SELL: Quote OK | out=${quote.outAmount} | impact=${quote.priceImpactPct}% | router=${quote.router} rfq=${quote.isRfqRoute} | reqId=${quote.requestId.take(12)}", tradeId.mint)
