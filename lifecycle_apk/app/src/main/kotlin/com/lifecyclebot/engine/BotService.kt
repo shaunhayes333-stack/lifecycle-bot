@@ -1873,8 +1873,17 @@ class BotService : Service() {
                             // (ShitCoin/Quality/BlueChip/Moonshot). Each sub-trader still
                             // applies its own MIN_LIQUIDITY_USD (3K typically), so this
                             // change adds VISIBILITY without forcing entries.
+                            //
+                            // V5.9.495e — operator (Feb 2026): "luce Scanner should be
+                            // wide open like the paper scanner. upstream will do the
+                            // work". Live floor unified down from $1000 → $500 to match
+                            // paper exactly. The Final Decision Gate, sub-trader
+                            // MIN_LIQUIDITY_USD checks, multi-scanner bypass, and
+                            // safety-checker still enforce risk on the live path —
+                            // dropping the scanner gate just gives them more candidates
+                            // to learn from instead of pre-filtering at the funnel mouth.
                             val paperMinLiquidity = 500.0
-                            val liveStrictMinLiquidity = 1000.0   // reduced from 2000; FDG still gates the actual trade
+                            val liveStrictMinLiquidity = 500.0   // V5.9.495e: was 1000 — now matches paper
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0
                             
