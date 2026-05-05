@@ -1740,7 +1740,7 @@ class Executor(
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback (${quote.ultraRejectedReason.take(60)})" else ""}",
                 slippageBps = sellSlippage,
                 traderTag = "MEME",
             )
@@ -4951,7 +4951,7 @@ class Executor(
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                        "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                        "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback (${quote.ultraRejectedReason.take(60)})" else ""}",
                         slippageBps = sellSlippage,
                         traderTag = "MEME",
                     )
@@ -6529,7 +6529,7 @@ class Executor(
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                            "Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                            "Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback" else ""}",
                             slippageBps = slipLevel,
                             traderTag = "MEME",
                         )
@@ -6656,7 +6656,7 @@ class Executor(
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                                "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}",
+                                "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED" else ""}",
                                 slippageBps = currentSlip, traderTag = "MEME",
                             )
                         } catch (qex: Exception) {

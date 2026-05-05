@@ -29,6 +29,13 @@ data class SwapQuote(
     // route metadata
     val router: String = "unknown",
     val isRfqRoute: Boolean = false,
+
+    // V5.9.481 — when an Ultra binding-order request was rejected by the
+    // RFQ market makers and we fell back to v6, this carries the reason
+    // string so callers can surface it in forensics ('Ultra rejected →
+    // Metis fallback') instead of leaving the operator wondering why the
+    // sell didn't go through Ultra like the buy did.
+    val ultraRejectedReason: String = "",
 )
 
 data class SwapTxResult(
@@ -146,22 +153,45 @@ class JupiterApi(private val apiKey: String = "") {
         require(amountRaw > 0L) { "amountRaw must be > 0" }
         require(taker.isNotBlank()) { "taker blank" }
 
-        return try {
-            getUltraOrder(
-                inputMint = inputMint,
-                outputMint = outputMint,
-                amountRaw = amountRaw,
-                taker = taker,
-            )
-        } catch (e: Exception) {
-            log("⚠️ v2 binding order failed (${e.message?.take(80)}), falling back to v6 quote (no RFQ)")
-            getQuoteV6(
-                inputMint = inputMint,
-                outputMint = outputMint,
-                amountRaw = amountRaw,
-                slippageBps = slippageBps,
-            )
+        // V5.9.481 — try Ultra binding order TWICE before falling back to v6.
+        // RFQ providers (iris/dflow/okx) are bursty under load; a one-shot
+        // failure is often network-side. Double-tap Ultra so we don't dump
+        // every sell to the slippage-vulnerable Metis path.
+        var lastUltraEx: Exception? = null
+        for (attempt in 1..2) {
+            try {
+                return getUltraOrder(
+                    inputMint = inputMint,
+                    outputMint = outputMint,
+                    amountRaw = amountRaw,
+                    taker = taker,
+                )
+            } catch (e: Exception) {
+                lastUltraEx = e
+                if (attempt == 1) {
+                    log("⚠️ Ultra binding order attempt 1 failed (${e.message?.take(80)}) — retrying once before v6 fallback…")
+                    Thread.sleep(250)
+                }
+            }
         }
+
+        // Both Ultra attempts failed — RFQ providers truly declined. Surface
+        // this in callers' forensics by tagging the returned v6 quote so the
+        // sell ladder logs 'router=metis (Ultra rejected)' instead of just
+        // 'router=metis'. This answers the operator question 'is it not
+        // trying to sell via Ultra?': yes, but Ultra's market makers refuse
+        // to take dumping-meme inventory, so we land on Metis v6 every
+        // time on volatile sells.
+        log("⚠️ Ultra REJECTED both attempts (${lastUltraEx?.message?.take(80)}) — falling back to Metis v6 (no RFQ MM willing to take side)")
+        val v6Quote = getQuoteV6(
+            inputMint = inputMint,
+            outputMint = outputMint,
+            amountRaw = amountRaw,
+            slippageBps = slippageBps,
+        )
+        return v6Quote.copy(
+            ultraRejectedReason = lastUltraEx?.message?.take(120) ?: "RFQ MM declined",
+        )
     }
 
     /**
