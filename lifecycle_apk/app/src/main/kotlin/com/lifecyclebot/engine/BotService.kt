@@ -3991,17 +3991,28 @@ class BotService : Service() {
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // PENDING SELL QUEUE PROCESSING - every 10 loops (~50 seconds) in live mode
-            // V5.9.321: Changed loopCount % 1 → % 10.
-            // Solana tx confirmation takes 20-30s. With % 1 (every ~5s), a sell queued
-            // from a first FAILED_RETRYABLE would be re-fired 5-6 times before the
-            // original liveSell had even received its on-chain confirmation — producing
-            // the double SELL_START / PENDING_RETRY_1 pattern seen in Live Trade Forensics.
-            // The sellInProgress guard prevents concurrent double-execution, but the
-            // retries still pile up in logs and waste RPC calls. 50s gives a safe
-            // margin beyond the maximum realistic Solana confirmation window (30-40s).
+            // PENDING SELL QUEUE PROCESSING — every loop tick (~5s) in live mode
+            // V5.9.478: bumped from `% 10` (50-80s) → `% 1` (every tick).
+            // Operator: '80 seconds is dumb and way to long the price will
+            // always have moved plus we will miss quick pump spikes — it
+            // needs to be as fast as the buys are aka instant.'
+            //
+            // Concurrency safety: liveSell's per-mint `sellInProgress` guard
+            // + the `getAndClear()` semantics (queue is drained, processed,
+            // failures are re-added) prevent double-fire on the same mint.
+            // V5.9.478 also adds an in-line slippage escalation ladder
+            // (200→400→600→1000bps within ONE liveSell call) so most retries
+            // resolve before this loop iteration even completes; this fast
+            // tick is the safety net for non-slippage failures (RPC blips,
+            // rate-limits, RFQ outages).
+            //
+            // Historical context (V5.9.321): the previous %10 was set to
+            // avoid double SELL_START / PENDING_RETRY_1 patterns when the
+            // first liveSell hadn't yet received its on-chain confirmation.
+            // With sellInProgress, this cannot happen — the second tick
+            // sees the guard set and skips re-entry.
             // ═══════════════════════════════════════════════════════════════════
-            if (!cfg.paperMode && loopCount % 10 == 0 && wallet != null && PendingSellQueue.hasPending()) {
+            if (!cfg.paperMode && loopCount % 1 == 0 && wallet != null && PendingSellQueue.hasPending()) {
                 scope.launch {
                     try {
                         val pendingSells = PendingSellQueue.getAndClear()
