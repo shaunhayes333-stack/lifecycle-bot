@@ -8927,6 +8927,29 @@ class Executor(
                 traderTag = traderTag,
             )
 
+            // V5.9.495f — PHANTOM-POSITION GUARD. PumpPortal returns HTTP
+            // 400 'Bad Request' when amount="100%" but the wallet ATA is
+            // empty (e.g. a previously-sold position the bot still thinks
+            // is open). Operator forensics (06 May 2026 STRIKE PROFIT-LOCK
+            // run): 5 Jupiter slippage retries + 2 PumpPortal 400s burned
+            // 30s + tx fees on a token that wasn't even in the wallet.
+            // Skip both PumpPortal AND Jupiter on phantom — close the
+            // position locally instead so the UI clears.
+            if (preTokenQty in 0.0..1e-9) {
+                onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = 0 — skipping sell ladder", ts.mint)
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "👻 PHANTOM: wallet ATA empty (preTokenBal=0) — local close, no broadcast",
+                    traderTag = traderTag,
+                )
+                // Return a synthetic sentinel sig so the caller treats it
+                // as 'sold' and the position records close locally. The
+                // string starts with 'PHANTOM_' so downstream auditors can
+                // distinguish from real on-chain sells in TradeHistoryStore.
+                return "PHANTOM_${System.currentTimeMillis().toString(16)}"
+            }
+
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -9025,11 +9048,11 @@ class Executor(
             sig
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-            onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
+            onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(180)}) — falling through to Jupiter Ultra", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,
-                "PUMP-FIRST [$labelTag] failed: ${safe.take(80)} — falling back to Jupiter Ultra",
+                "PUMP-FIRST [$labelTag] failed: ${safe.take(240)} — falling back to Jupiter Ultra",
                 traderTag = traderTag,
             )
             null
