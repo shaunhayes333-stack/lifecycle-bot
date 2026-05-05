@@ -828,6 +828,25 @@ class Executor(
         //   AI predictions at entry → Trade outcome → Update layer accuracy
         // ═══════════════════════════════════════════════════════════════════
         if (trade.side == "SELL") {
+            // V5.9.486 — fire-and-forget LLM exit narration. Opt-in (no-op
+            // unless operator pasted a personal sk-ant-… key). The default
+            // fail-open string ("Exited X on REASON (Y%)") is what shows up
+            // when LLM is disabled or errored — same operator-friendly format
+            // the in-app log viewer expects.
+            try {
+                val holdMin = if (ts.position.entryTime > 0)
+                    ((System.currentTimeMillis() - ts.position.entryTime) / 60_000L).toInt()
+                else 0
+                com.lifecyclebot.network.EmergentLlmClient.narrateExitAsync(
+                    symbol      = ts.symbol,
+                    reason      = trade.reason.ifBlank { "unknown" },
+                    pnlPct      = trade.pnlPct,
+                    holdMinutes = holdMin,
+                ) { narration ->
+                    try { onLog("🪶 ${ts.symbol}: $narration", ts.mint) } catch (_: Exception) {}
+                }
+            } catch (_: Throwable) {}
+
             // V5.9.390 — MetaCognition is meme-specific (its accuracy stats
             // drive the meme-brain signal quality estimator). Non-meme sells
             // MUST NOT pollute it. Gate inline on tradingMode. Sub-trader
@@ -3291,6 +3310,44 @@ class Executor(
             onLog("🛑 LLM SENTIENCE VETO: ${ts.symbol} blocked by pre-trade LLM check", tradeId.mint)
             return
         }
+
+        // V5.9.485 — Final pre-trade gate via EmergentLlmClient (Claude
+        // Sonnet 4.5). OPT-IN: only fires when operator pasted a personal
+        // sk-ant-… key into BotConfig.geminiApiKey; otherwise this whole
+        // block is a no-op (`isEnabled() == false` → "PROCEED"). Calls have
+        // an 8s read timeout so a slow LLM response cannot stall the bot.
+        try {
+            if (com.lifecyclebot.network.EmergentLlmClient.isEnabled()) {
+                val recentPnl = try {
+                    val s = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+                    // Use 24h win-rate as the "recent performance %" the LLM
+                    // sees — directly comparable across sessions, and the
+                    // validator prompt uses it as a sanity check on whether
+                    // we're on a hot streak vs a losing run.
+                    s.winRate24h.toDouble()
+                } catch (_: Exception) { 50.0 }
+                val verdict = com.lifecyclebot.network.EmergentLlmClient.validateTradeSignal(
+                    symbol      = ts.symbol,
+                    side        = "BUY",
+                    confidence  = quality.hashCode().rem(100),
+                    score       = score.toInt(),
+                    traderTag   = "MEME/${ts.source}",
+                    sizeSol     = sol,
+                    recentPnlPct= recentPnl,
+                )
+                when {
+                    verdict.startsWith("BLOCK", ignoreCase = true) -> {
+                        onLog("🧠 LLM BLOCK: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)}", tradeId.mint)
+                        return
+                    }
+                    verdict.startsWith("CAUTION", ignoreCase = true) -> {
+                        onLog("⚠️ LLM CAUTION: ${ts.symbol} | ${verdict.removePrefix("CAUTION:").trim().take(60)}", tradeId.mint)
+                        // Fall through — caution is informational only.
+                    }
+                    // PROCEED or unrecognised → allow.
+                }
+            }
+        } catch (_: Throwable) { /* fail open */ }
 
         // V5.9.401 — Sentience hook #7: dynamic size scaling (0.5..1.5×, default 1.0).
         val sizeMult = try {

@@ -46,8 +46,8 @@ object EmergentLlmClient {
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
             .build()
     }
 
@@ -107,6 +107,28 @@ object EmergentLlmClient {
                   "vivid imagery, no jargon. No quotes."
         val user = "Exit $symbol after ${holdMinutes}m, reason=$reason, pnl=${"%.1f".format(pnlPct)}%."
         return runChat(sys, user, maxTokens = 80) ?: "Exited $symbol on $reason (${"%.1f".format(pnlPct)}%)"
+    }
+
+    /**
+     * V5.9.486 — fire-and-forget async narration. Invokes [callback] on a
+     * background thread once the LLM responds (or with a fail-open default
+     * if disabled / errored). Never blocks the caller.
+     */
+    fun narrateExitAsync(
+        symbol: String,
+        reason: String,
+        pnlPct: Double,
+        holdMinutes: Int,
+        callback: (String) -> Unit,
+    ) {
+        Thread {
+            try {
+                val text = narrateExit(symbol, reason, pnlPct, holdMinutes)
+                callback(text)
+            } catch (_: Exception) {
+                callback("Exited $symbol on $reason (${"%.1f".format(pnlPct)}%)")
+            }
+        }.apply { isDaemon = true }.start()
     }
 
     /** Generic single-turn chat. Returns null on any error (caller decides fallback). */
