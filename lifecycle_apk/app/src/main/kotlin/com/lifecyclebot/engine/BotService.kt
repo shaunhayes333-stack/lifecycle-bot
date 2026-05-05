@@ -2582,6 +2582,15 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "LocalOrphanStore init failed: ${e.message}", e)
         }
         
+        // V5.9.484 — wire 4 new push-data integrations (PumpPortal WS for new
+        // pump.fun launches, Helius Enhanced WS for whale-wallet txs, Pyth
+        // Hermes SSE for ~400ms pricing on SOL/BTC/ETH, and the LLM client
+        // for trade-decision validation). Each one fails open: the bot
+        // continues running on REST polling if any of these fail to start.
+        try { wireExternalStreams(cfg) } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "wireExternalStreams error: ${e.message}")
+        }
+
         addLog("Bot started — paper=${cfg.paperMode} auto=${cfg.autoTrade} sounds=${cfg.soundEnabled}")
         ErrorLogger.info("BotService", "Bot started successfully")
         
@@ -3054,6 +3063,8 @@ class BotService : Service() {
         orchestrator?.stop()
         orchestrator = null
         marketScanner?.stop(); marketScanner = null
+        // V5.9.484 — disconnect external push streams + LLM client
+        try { unwireExternalStreams() } catch (_: Exception) {}
         networkCallback?.let {
             (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
                 .unregisterNetworkCallback(it)
@@ -3240,6 +3251,137 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "Keep-alive alarm cancelled")
     }
 
+    // ── V5.9.484 — external push-data streams + LLM ───────────────────
+
+    /**
+     * Wire the four push integrations introduced in V5.9.484:
+     *   • PumpPortal WS  → pump.fun new launches + migrations (5–30s before
+     *                      DexScreener/Birdeye see them)
+     *   • Helius LaserStream → push notifications for whale-wallet txs
+     *                      (replaces InsiderWalletTracker REST polling)
+     *   • Pyth Hermes SSE → ~400ms price updates for SOL/BTC/ETH (drives
+     *                      faster trailing-stop and profit-lock triggers)
+     *   • EmergentLlmClient → Claude-Sonnet-4.5 risk validator + exit
+     *                      narrator (opt-in: requires a personal sk-ant-…
+     *                      key in cfg.geminiApiKey; the Emergent universal
+     *                      key cannot be used directly from a native Kotlin
+     *                      HTTP client because the proxy only ships in the
+     *                      Python emergentintegrations SDK)
+     *
+     * Each stream fails open: if any one cannot start, the bot continues on
+     * its existing REST-based pipelines. Safe to call multiple times — the
+     * inner objects all guard against double-start.
+     */
+    private fun wireExternalStreams(cfg: com.lifecyclebot.data.BotConfig) {
+        // 1) PumpPortal WS — new pump.fun launches + migrations
+        try {
+            com.lifecyclebot.network.PumpFunWS.start(
+                onNewToken = { mint, symbol, name, mcapSol ->
+                    try {
+                        if (cfg.autoAddNewTokens) {
+                            // Forward to scanner's new-mint queue. The Scanner
+                            // already de-duplicates against seenMints/rejectedMints
+                            // so a duplicate from REST polling is a no-op.
+                            val mcapUsd = mcapSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                                .takeIf { it > 0.0 } ?: 150.0)
+                            com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(
+                                mint = mint,
+                                symbol = symbol,
+                                addedBy = "PUMP_PORTAL_WS",
+                                source = "PUMP_PORTAL",
+                                initialMcap = mcapUsd,
+                            )
+                            ErrorLogger.info("BotService",
+                                "🆕 PumpPortal: $symbol ($name) mcap=${mcapSol.toInt()}SOL → watchlist")
+                        }
+                    } catch (_: Exception) {}
+                },
+                onMigration = { mint ->
+                    ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
+                },
+            )
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "PumpFunWS start failed: ${e.message}")
+        }
+
+        // 2) Helius Enhanced WS — push whale-wallet activity
+        try {
+            if (cfg.heliusApiKey.isNotBlank()) {
+                val whaleAddrs = try {
+                    com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets()
+                        .map { it.address }
+                        .filter { it.isNotBlank() }
+                } catch (_: Exception) { emptyList() }
+                if (whaleAddrs.isNotEmpty()) {
+                    com.lifecyclebot.network.HeliusEnhancedWS.start(
+                        heliusApiKey = cfg.heliusApiKey,
+                        watchAccounts = whaleAddrs,
+                    ) { sig, accounts, _ ->
+                        // Touch the existing tracker so its UI stats keep
+                        // ticking. Real-time tx interpretation is left to the
+                        // existing REST-based scanForSignals() pass — this WS
+                        // is a fast notifier so the bot doesn't sleep on a
+                        // whale move while waiting for the next 5-min poll.
+                        try {
+                            ErrorLogger.info("BotService",
+                                "🐳 PUSH: whale tx ${sig.take(10)}… (${accounts.size} accounts)")
+                            scope.launch {
+                                try { com.lifecyclebot.perps.InsiderWalletTracker.scanForSignals() }
+                                catch (_: Exception) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                } else {
+                    ErrorLogger.info("BotService",
+                        "HeliusEnhancedWS skipped — no tracked whale wallets to subscribe to")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "HeliusEnhancedWS start failed: ${e.message}")
+        }
+
+        // 3) Pyth Hermes SSE — ~400ms SOL/BTC/ETH price stream
+        try {
+            val solFeed = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d"
+            val btcFeed = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+            val ethFeed = "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+            com.lifecyclebot.network.PythHermesStream.subscribe(
+                feedHexIds = listOf(solFeed, btcFeed, ethFeed),
+            ) { feedId, priceUsd, _, _ ->
+                try {
+                    when (feedId) {
+                        solFeed -> com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = priceUsd
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "PythHermesStream start failed: ${e.message}")
+        }
+
+        // 4) EmergentLlmClient — Claude Sonnet 4.5 (opt-in, personal key only)
+        try {
+            val key = cfg.geminiApiKey.trim()
+            if (key.startsWith("sk-ant-")) {
+                com.lifecyclebot.network.EmergentLlmClient.configure(apiKey = key)
+            } else {
+                ErrorLogger.info("BotService",
+                    "EmergentLlmClient disabled — paste a personal Anthropic key (sk-ant-…) into " +
+                    "BotConfig.geminiApiKey to enable Claude trade-risk validation. The Emergent " +
+                    "universal sk-emergent-… key cannot be used from native Kotlin (proxy is " +
+                    "Python-SDK only).")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "EmergentLlmClient configure failed: ${e.message}")
+        }
+    }
+
+    private fun unwireExternalStreams() {
+        try { com.lifecyclebot.network.PumpFunWS.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.network.HeliusEnhancedWS.stop() } catch (_: Exception) {}
+        try { com.lifecyclebot.network.PythHermesStream.unsubscribeAll() } catch (_: Exception) {}
+        // EmergentLlmClient is request-scoped — nothing to disconnect.
+    }
+
     // ── main loop ──────────────────────────────────────────
 
     /**
@@ -3248,10 +3390,15 @@ class BotService : Service() {
      * This catches catastrophic losses that the main loop (5-10sec cycle) might miss.
      */
     private suspend fun rapidStopLossMonitor() {
-        ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STARTED (500ms cycle)")
+        ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STARTED (adaptive 500ms / 5s cycle)")
         
         val HARD_FLOOR_STOP_PCT = 15.0  // ABSOLUTE MAX LOSS - NEVER EXCEEDED
-        val CHECK_INTERVAL_MS = 500L    // Check every 500ms
+        val CHECK_INTERVAL_MS = 500L      // Check every 500ms when positions are open
+        // V5.9.484 — BATTERY: when zero positions are open, sleep 5s instead
+        // of busy-looping at 500ms. Catastrophe protection only matters when
+        // there is actually capital at risk; before any BUY the rapid-stop
+        // monitor was burning ~7,200 tight cycles/hour for nothing.
+        val IDLE_INTERVAL_MS = 5_000L
         
         while (status.running) {
             try {
@@ -3261,6 +3408,11 @@ class BotService : Service() {
                 // Get all open positions
                 val openPositions = synchronized(status.tokens) {
                     status.tokens.values.filter { it.position.isOpen }.toList()
+                }
+                // V5.9.484 — adaptive idle sleep when no positions are open
+                if (openPositions.isEmpty()) {
+                    kotlinx.coroutines.delay(IDLE_INTERVAL_MS)
+                    continue
                 }
                 
                 for (ts in openPositions) {

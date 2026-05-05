@@ -1001,7 +1001,6 @@ class SolanaMarketScanner(
                 onLog("🌐 Scan #$scanRotation$tn - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
 
-                System.gc()
 
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
                 runScan("scanPumpFunDirect") { scanPumpFunDirect() }
@@ -1036,7 +1035,6 @@ class SolanaMarketScanner(
                 delay(100)
                 runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
 
-                System.gc()
                 onLog("✅ Scan cycle #$scanRotation complete")
 
                 cleanupSeenMaps()
@@ -1063,7 +1061,6 @@ class SolanaMarketScanner(
                     saturatedMints.clear()
                 }
 
-                System.gc()
             } catch (e: OutOfMemoryError) {
                 oomCount++
                 memorySafeMode = true
@@ -1161,7 +1158,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpFunActive error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanPumpFunDirect() {
@@ -1271,7 +1267,6 @@ class SolanaMarketScanner(
         if (totalFound > 0) {
             onLog("🚀 Pump.fun direct: $totalFound new tokens found")
         }
-        System.gc()
     }
 
     private suspend fun scanPumpFunVolume() {
@@ -1346,7 +1341,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpFunVolume error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanFreshLaunches() {
@@ -1432,7 +1426,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanFreshLaunches error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanDexTrending() {
@@ -1499,7 +1492,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexTrending error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanDexGainers() {
@@ -1607,7 +1599,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexGainers error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanDexBoosted() {
@@ -1653,7 +1644,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanDexBoosted error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanPumpGraduates() {
@@ -1742,7 +1732,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanPumpGraduates error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanBirdeyeTrending() {
@@ -1784,7 +1773,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanBirdeye error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanTopVolumeTokens() {
@@ -1859,7 +1847,6 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanTopVolume error: ${e.message}")
         }
-        System.gc()
     }
 
     private suspend fun scanCoinGeckoTrending() {
