@@ -1834,25 +1834,26 @@ class Executor(
             // FIRST (fast path), fall through to Jupiter ladder on failure;
             // a final PUMP-RESCUE retry at higher slip fires after Jupiter
             // exhaustion if PUMP-FIRST was rejected the first time.
-            run {
-                val pumpSlip = if (isDrainExit) 75 else 30
-                val pumpJito = c.jitoEnabled
-                val pumpTip = com.lifecyclebot.network.JitoTipFetcher
-                    .getDynamicTip(c.jitoTipLamports)
-                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
-                sig = tryPumpPortalSell(
-                    ts = ts,
-                    wallet = wallet,
-                    tokenUnits = sellUnits,
-                    slipPct = pumpSlip,
-                    priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
-                    useJito = pumpJito,
-                    jitoTipLamports = pumpTip,
-                    sellTradeKey = sellTradeKey,
-                    traderTag = "MEME",
-                    labelTag = "PROFIT-LOCK",
-                )
-            }
+            //
+            // Inlined (no `run { }` lambda) so Kotlin smart-cast on `sig`
+            // still works downstream — closures break flow analysis.
+            val pfPumpSlip = if (isDrainExit) 75 else 30
+            val pfPumpJito = c.jitoEnabled
+            val pfPumpTip = com.lifecyclebot.network.JitoTipFetcher
+                .getDynamicTip(c.jitoTipLamports)
+                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+            sig = tryPumpPortalSell(
+                ts = ts,
+                wallet = wallet,
+                tokenUnits = sellUnits,
+                slipPct = pfPumpSlip,
+                priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
+                useJito = pfPumpJito,
+                jitoTipLamports = pfPumpTip,
+                sellTradeKey = sellTradeKey,
+                traderTag = "MEME",
+                labelTag = "PROFIT-LOCK",
+            )
             // V5.9.495 — skip Jupiter ladder if PumpPortal already landed.
             for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
@@ -7020,7 +7021,8 @@ class Executor(
             var sig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
-            // V5.9.495 — UNIVERSAL PUMP-FIRST routing.
+            // V5.9.495 — UNIVERSAL PUMP-FIRST routing (inlined — no `run { }`
+            // lambda so Kotlin smart-cast on `sig` still works downstream).
             // V5.9.492 added PUMP-FIRST for pump.fun mints only. Operator
             // directive (Feb 2026): "we now know what works ie pumpfun for
             // the entire sol network basically the Jupiter Ultra then the
@@ -7030,67 +7032,24 @@ class Executor(
             // suffix mints. We try PumpPortal FIRST for every sell. If it
             // 400s (un-routable: deep-graduated Orca-only, insufficient
             // liquidity, etc.) we fall through to the Jupiter Ultra → Metis
-            // ladder, then to a final post-Jupiter PumpPortal retry as
-            // before. pumpFirstTried gates the post-Jupiter fallback so we
-            // don't double-attempt on the same call.
-            var pumpFirstTried = false
-            run {
-                pumpFirstTried = true
-                try {
-                    val pumpSlip = if (isDrainExit) 75 else 30
-                    val pumpTag = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
-                        "pump.fun" else "universal-auto"
-                    onLog("🚀 PUMP-FIRST [$pumpTag]: ${ts.symbol} → PumpPortal @ ${pumpSlip}% slip (skipping Jupiter on success)", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
-                        "🚀 PUMP-FIRST @ ${pumpSlip}% slip (pump.fun mint — bypassing Jupiter)",
-                        traderTag = "MEME",
-                    )
-                    val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
-                        publicKeyB58    = wallet.publicKeyB58,
-                        mint            = ts.mint,
-                        tokenAmount     = tokenUnits,
-                        slippagePercent = pumpSlip,
-                        priorityFeeSol  = if (isDrainExit) 0.0005 else 0.0001,
-                    )
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                        "Tx built | router=PUMP_DIRECT | slip=${pumpSlip}% (pump.fun program)",
-                        traderTag = "MEME",
-                    )
-                    val useJito = c.jitoEnabled
-                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
-                        .getDynamicTip(c.jitoTipLamports)
-                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
-                    onLog("⚡ Broadcasting PUMP-FIRST sell @ ${pumpSlip}% slip${if (useJito) " (Jito)" else ""}…", ts.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_BROADCAST,
-                        "Broadcasting PUMP-FIRST @ ${pumpSlip}% | route=${if (useJito) "JITO" else "RPC"}",
-                        traderTag = "MEME",
-                    )
-                    sig = wallet.signAndSend(built.txBase64, useJito, jitoTip)
-                    onLog("✅ PUMP-FIRST SELL CONFIRMED: sig=${sig?.take(20) ?: "?"}…", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                        "✅ Sell tx confirmed via pump.fun program @ ${pumpSlip}% slip (PUMP-FIRST routing)",
-                        sig = sig, traderTag = "MEME",
-                    )
-                } catch (pumpEx: Exception) {
-                    val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-                    onLog("⚠️ PUMP-FIRST failed (${safe.take(80)}) — falling through to Jupiter ladder", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_FAILED,
-                        "PUMP-FIRST failed: ${safe.take(80)} — falling back to Jupiter",
-                        traderTag = "MEME",
-                    )
-                    // sig stays null → Jupiter ladder runs next.
-                }
-            }
+            // ladder, then to a final PUMP-RESCUE retry at higher slip.
+            val lsPumpSlip = if (isDrainExit) 75 else 30
+            val lsPumpJito = c.jitoEnabled
+            val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
+                .getDynamicTip(c.jitoTipLamports)
+                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+            sig = tryPumpPortalSell(
+                ts = ts,
+                wallet = wallet,
+                tokenUnits = tokenUnits,
+                slipPct = lsPumpSlip,
+                priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
+                useJito = lsPumpJito,
+                jitoTipLamports = lsPumpTip,
+                sellTradeKey = sellTradeKey,
+                traderTag = "MEME",
+                labelTag = if (isDrainExit) "EXIT-DRAIN" else "EXIT",
+            )
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
             for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
@@ -7250,60 +7209,30 @@ class Executor(
             // If all Jupiter slippage tiers failed and PUMP-FIRST didn't
             // already try (V5.9.492), invoke the direct-route fallback as
             // a last attempt. Drain-exit gets 75% slippage, normal 30%.
-            if (sig == null && !pumpFirstTried) {
-                try {
-                    val pumpSlip = if (isDrainExit) 75 else 30
-                    onLog("🚀 PUMP DIRECT FALLBACK: ${ts.symbol} (Jupiter exhausted) — trying pump.fun program @ ${pumpSlip}% slip…", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
-                        "🚀 PUMP DIRECT FALLBACK @ ${pumpSlip}% slip (Jupiter exhausted)",
-                        traderTag = "MEME",
-                    )
-                    val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
-                        publicKeyB58    = wallet.publicKeyB58,
-                        mint            = ts.mint,
-                        tokenAmount     = tokenUnits,
-                        slippagePercent = pumpSlip,
-                        priorityFeeSol  = if (isDrainExit) 0.0005 else 0.0001,
-                    )
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                        "Tx built | router=PUMP_DIRECT | slip=${pumpSlip}% (pump.fun program)",
-                        traderTag = "MEME",
-                    )
-                    val useJito = c.jitoEnabled
-                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
-                        .getDynamicTip(c.jitoTipLamports)
-                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
-                    onLog("⚡ Broadcasting PUMP DIRECT sell @ ${pumpSlip}% slip${if (useJito) " (Jito)" else ""}…", ts.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_BROADCAST,
-                        "Broadcasting PUMP DIRECT @ ${pumpSlip}% | route=${if (useJito) "JITO" else "RPC"}",
-                        traderTag = "MEME",
-                    )
-                    sig = wallet.signAndSend(built.txBase64, useJito, jitoTip)
-                    onLog("✅ PUMP DIRECT SELL CONFIRMED: sig=${sig?.take(20) ?: "?"}…", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                        "✅ Sell tx confirmed via pump.fun program @ ${pumpSlip}% slip (Jupiter exhausted, direct route)",
-                        sig = sig, traderTag = "MEME",
-                    )
-                } catch (pumpEx: Exception) {
-                    val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-                    onLog("❌ PUMP DIRECT FALLBACK FAILED: ${safe.take(120)}", tradeId.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_FAILED,
-                        "PUMP DIRECT failed: ${safe.take(80)}",
-                        traderTag = "MEME",
-                    )
-                    // Keep lastBroadcastException as the original Jupiter
-                    // failure so retry classification stays consistent.
-                }
+            // V5.9.495 — PUMP RESCUE retry. If both PUMP-FIRST and the
+            // entire Jupiter ladder failed, take one more shot at PumpPortal
+            // with bumped slippage (50% normal / 90% drain). PumpPortal's
+            // pool="auto" router covers bonding curve + PumpSwap + Raydium,
+            // so a tighter market might land here when Jupiter and the
+            // initial PUMP-FIRST attempt couldn't.
+            if (sig == null) {
+                val rescueSlip = if (isDrainExit) 90 else 50
+                val rescueJito = c.jitoEnabled
+                val rescueTip = com.lifecyclebot.network.JitoTipFetcher
+                    .getDynamicTip(c.jitoTipLamports)
+                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                sig = tryPumpPortalSell(
+                    ts = ts,
+                    wallet = wallet,
+                    tokenUnits = tokenUnits,
+                    slipPct = rescueSlip,
+                    priorityFeeSol = if (isDrainExit) 0.0008 else 0.0003,
+                    useJito = rescueJito,
+                    jitoTipLamports = rescueTip,
+                    sellTradeKey = sellTradeKey,
+                    traderTag = "MEME",
+                    labelTag = if (isDrainExit) "EXIT-DRAIN-RESCUE" else "EXIT-RESCUE",
+                )
             }
 
             if (sig == null) {
