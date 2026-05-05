@@ -500,24 +500,39 @@ class JupiterApi(private val apiKey: String = "") {
             put("dynamicComputeUnitLimit", true)
             put("prioritizationFeeLamports", "auto")
 
-            // V5.9.480 — JUPITER DYNAMIC SLIPPAGE.
-            // V5.9.482 — caller now sends WIDE bounds from attempt 1 so
-            // Jupiter's simulation has real room to pick a sensible
-            // slippageBps.
-            // V5.9.487 — CRITICAL: minBps was hard-coded to 50, which let
-            // Jupiter's simulation IGNORE the operator's escalation ladder.
-            // On every retry (200/400/600/1000/2000bps) Jupiter kept
-            // picking ~80bps because [50, maxBps] gave it freedom to lowball.
-            // The on-chain instruction then reverted with 0x1788 because the
-            // pool moved >0.8% between simulation and landing.
+            // V5.9.490 — DROP dynamicSlippage on aggressive escalations.
             //
-            // FIX: floor minBps at the quote's own slippageBps. Jupiter is
-            // now forced to pick somewhere in [escalated_bps, maxBps] —
-            // guaranteed at least our intended escalation level. The simulator
-            // can still pick HIGHER if the pool is volatile, but it can never
-            // pick lower than what we explicitly asked for.
-            if (dynamicSlippageMaxBps != null && dynamicSlippageMaxBps > 0) {
-                val quoteSlipBps = quote.raw.optInt("slippageBps", 50)
+            // Operator forensics (V5.9.487 build): attempts 1-2 honoured the
+            // minBps floor (picked=200bps, picked=400bps), but starting at
+            // attempt 3 Jupiter's Metis simulator silently CAPPED picked at
+            // 500bps regardless of our minBps=600/1000/2000. The on-chain
+            // tx then reverted 0x1788 because the pool moved >5% between
+            // simulation and landing.
+            //
+            // Root cause: Jupiter's dynamicSlippage simulator has an internal
+            // hardcap (~500bps) on Metis-routed memecoin sells. minBps is
+            // accepted but ignored when the simulator decides the pool 'looks
+            // healthy enough' for tighter slip. There's no way to override
+            // this from the public API.
+            //
+            // FIX: when the operator's escalation ladder reaches ≥600bps,
+            // STOP using dynamicSlippage entirely. Pass slippageBps as a
+            // top-level field so Jupiter computes minOutAmount = quote.outAmount
+            // × (1 - slippageBps/10000) and enforces it LITERALLY on-chain
+            // — no simulator, no override. This is exactly what the operator
+            // intended when they widened the ladder to 600/1000/2000bps.
+            //
+            // Below 600bps we keep dynamicSlippage on (it's safer for
+            // healthy pairs), so attempts 1-2 still benefit from Jupiter's
+            // pool-aware simulation.
+            val quoteSlipBps = quote.raw.optInt("slippageBps", 50)
+            val useStaticSlip = quoteSlipBps >= 600
+            if (useStaticSlip) {
+                // No dynamicSlippage — Jupiter falls back to honouring the
+                // quote's own slippageBps literally (minOutAmount in the
+                // swap is computed from quote.outAmount × (1 - quoteSlipBps/10000)).
+                // The on-chain instruction enforces that bound directly.
+            } else if (dynamicSlippageMaxBps != null && dynamicSlippageMaxBps > 0) {
                 val effectiveMin = quoteSlipBps.coerceAtLeast(50)
                 val effectiveMax = dynamicSlippageMaxBps.coerceAtMost(9999)
                     .coerceAtLeast(effectiveMin)  // never collapse the band
@@ -530,7 +545,11 @@ class JupiterApi(private val apiKey: String = "") {
         }
 
         log("🔧 V6 BUILD TX for ${userPublicKey.take(8)}... " +
-            "${if (dynamicSlippageMaxBps != null) "[dynamicSlippage maxBps=$dynamicSlippageMaxBps minBps=${quote.raw.optInt("slippageBps", 50).coerceAtLeast(50)}]" else ""}")
+            (if (quote.raw.optInt("slippageBps", 0) >= 600)
+                "[STATIC slip=${quote.raw.optInt("slippageBps", 0)}bps  V5.9.490]"
+             else if (dynamicSlippageMaxBps != null)
+                "[dynamicSlippage maxBps=$dynamicSlippageMaxBps minBps=${quote.raw.optInt("slippageBps", 50).coerceAtLeast(50)}]"
+             else ""))
         val body = postOrThrow("$BASE_V6/swap", payload.toString())
         val elapsed = System.currentTimeMillis() - startMs
         val json = JSONObject(body)

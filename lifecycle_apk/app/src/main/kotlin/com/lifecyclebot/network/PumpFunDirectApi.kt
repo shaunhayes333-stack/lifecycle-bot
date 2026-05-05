@@ -64,22 +64,34 @@ object PumpFunDirectApi {
     /**
      * Build an unsigned pump.fun SELL transaction.
      *
+     * V5.9.490 — operator forensics show V5.9.488 was returning HTTP 400
+     * 'Bad Request' from PumpPortal. Two issues identified:
+     *   1) `denominatedInSol` was a STRING ("false") — PumpPortal's docs
+     *      say boolean. Some payloads are accepted, others 400. Switched
+     *      to a real JSON boolean.
+     *   2) Absolute token amount was being passed in 9-decimal lamport
+     *      scale (Jupiter convention) but pump.fun tokens use 6 decimals
+     *      natively. The mismatch was sending "26023201291000" → PumpPortal
+     *      interprets as 26023201.29 tokens → exceeds wallet balance →
+     *      400 'insufficient'.
+     *
+     * Since the fallback only fires after Jupiter has fully exhausted, we
+     * always want to dump the entire bag. The `tokenAmount` parameter is
+     * kept on the API for future granular use but we now ALWAYS pass
+     * "100%" to PumpPortal — bullet-proof and matches operator intent.
+     *
      * @param publicKeyB58 wallet public key in base58
      * @param mint pump.fun token mint
-     * @param tokenAmount integer token units to sell (NOT SOL).
-     *        Pass null to use `"100%"` (sell entire wallet balance).
+     * @param tokenAmount currently IGNORED — we always send "100%". Kept
+     *        on the signature for backward compatibility.
      * @param slippagePercent int in [1, 99]. Percentage tolerance —
      *        pump.fun uses percent, not bps like Jupiter.
      * @param priorityFeeSol optional priority fee in SOL.
-     *
-     * @return BuiltTx with the base64-encoded unsigned versioned tx
-     *         ready for SolanaWallet.signAndSend(...).
-     * @throws RuntimeException with a human-readable reason on failure.
      */
     fun buildSellTx(
         publicKeyB58: String,
         mint: String,
-        tokenAmount: Long?,
+        @Suppress("UNUSED_PARAMETER") tokenAmount: Long?,
         slippagePercent: Int,
         priorityFeeSol: Double = 0.0001,
     ): BuiltTx {
@@ -88,8 +100,8 @@ object PumpFunDirectApi {
             put("publicKey", publicKeyB58)
             put("action", "sell")
             put("mint", mint)
-            put("amount", tokenAmount?.toString() ?: "100%")
-            put("denominatedInSol", "false")
+            put("amount", "100%")             // V5.9.490 — always drain
+            put("denominatedInSol", false)    // V5.9.490 — boolean, not string
             put("slippage", slip)
             put("priorityFee", priorityFeeSol)
             put("pool", "auto")
@@ -103,26 +115,33 @@ object PumpFunDirectApi {
             .build()
 
         ErrorLogger.info(TAG,
-            "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=${tokenAmount ?: "100%"} slip=$slip%")
+            "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=100% slip=$slip%")
 
         httpClient.newCall(req).execute().use { resp ->
             val body = resp.body
             if (body == null) {
                 throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             }
-            // Successful response is raw VersionedTransaction bytes.
-            // Errors come back as JSON ({"errors": [...]}).
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
-            if (!resp.isSuccessful) {
-                val text = body.string().take(200)
-                throw RuntimeException("PumpPortal HTTP ${resp.code}: $text")
-            }
-            // PumpPortal returns octet-stream on success and JSON on error.
-            // Read bytes once, then decide.
+            // Read bytes once. PumpPortal returns octet-stream on success
+            // and JSON (or plain text) on error. resp.code is the discriminator.
             val bytes = body.bytes()
+            if (!resp.isSuccessful) {
+                // V5.9.490 — surface FULL response body (up to 500 chars)
+                // so the operator's forensics actually shows WHY PumpPortal
+                // 400'd instead of just "Bad Request".
+                val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
+                ErrorLogger.warn(TAG,
+                    "PumpPortal HTTP ${resp.code} payload=${payload.toString().take(200)}  body=${text.take(300)}")
+                throw RuntimeException(
+                    "PumpPortal HTTP ${resp.code}: ${text.take(180).ifBlank { resp.message }}"
+                )
+            }
+            // 2xx but maybe still JSON error (PumpPortal occasionally returns 200
+            // with an error JSON body — handle defensively).
             if (ct.contains("json") || (bytes.isNotEmpty() && bytes[0].toInt() == '{'.code)) {
-                val text = String(bytes).take(300)
-                throw RuntimeException("PumpPortal JSON error: $text")
+                val text = try { String(bytes) } catch (_: Throwable) { "<binary>" }
+                throw RuntimeException("PumpPortal JSON error (HTTP 200): ${text.take(300)}")
             }
             if (bytes.size < 64) {
                 throw RuntimeException("PumpPortal returned tx too small (${bytes.size} bytes)")
