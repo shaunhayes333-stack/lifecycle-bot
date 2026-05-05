@@ -6842,6 +6842,82 @@ class Executor(
                 }
             }
 
+            // V5.9.488 — PUMP.FUN DIRECT FALLBACK.
+            //
+            // If all Jupiter slippage tiers failed AND this is a pump.fun
+            // mint (suffix 'pump'), try one final direct sell via PumpPortal
+            // Lightning local-trading API. This bypasses Jupiter entirely
+            // and routes through pump.fun's own bonding curve / PumpSwap
+            // AMM — the venue that originally minted and listed the token.
+            //
+            // Why this works when Jupiter doesn't: pump.fun's program
+            // accepts the SELL side natively (Jupiter RFQ providers refuse
+            // it, and Metis dynamicSlippage simulator consistently lowballs
+            // the picked slip on illiquid memes). The pump.fun program
+            // computes minSolOut = expected * (1 - slippagePercent/100)
+            // and that's the only on-chain bound — no oracle, no
+            // simulation gap.
+            //
+            // We use a HIGH slippage percent (drain-exit: 75%, normal: 30%)
+            // because the operator has just exhausted 5 Jupiter attempts
+            // and is far past caring about "fair" execution — they need
+            // the bag out of the wallet at any price.
+            if (sig == null && com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)) {
+                try {
+                    val pumpSlip = if (isDrainExit) 75 else 30
+                    onLog("🚀 PUMP DIRECT FALLBACK: ${ts.symbol} (Jupiter exhausted) — trying pump.fun program @ ${pumpSlip}% slip…", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                        "🚀 PUMP DIRECT FALLBACK @ ${pumpSlip}% slip (Jupiter exhausted)",
+                        traderTag = "MEME",
+                    )
+                    val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
+                        publicKeyB58    = wallet.publicKeyB58,
+                        mint            = ts.mint,
+                        tokenAmount     = tokenUnits,
+                        slippagePercent = pumpSlip,
+                        priorityFeeSol  = if (isDrainExit) 0.0005 else 0.0001,
+                    )
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                        "Tx built | router=PUMP_DIRECT | slip=${pumpSlip}% (pump.fun program)",
+                        traderTag = "MEME",
+                    )
+                    val useJito = c.jitoEnabled
+                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
+                        .getDynamicTip(c.jitoTipLamports)
+                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                    onLog("⚡ Broadcasting PUMP DIRECT sell @ ${pumpSlip}% slip${if (useJito) " (Jito)" else ""}…", ts.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BROADCAST,
+                        "Broadcasting PUMP DIRECT @ ${pumpSlip}% | route=${if (useJito) "JITO" else "RPC"}",
+                        traderTag = "MEME",
+                    )
+                    sig = wallet.signAndSend(built.txBase64, useJito, jitoTip)
+                    onLog("✅ PUMP DIRECT SELL CONFIRMED: sig=${sig?.take(20) ?: "?"}…", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                        "✅ Sell tx confirmed via pump.fun program @ ${pumpSlip}% slip (Jupiter exhausted, direct route)",
+                        sig = sig, traderTag = "MEME",
+                    )
+                } catch (pumpEx: Exception) {
+                    val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
+                    onLog("❌ PUMP DIRECT FALLBACK FAILED: ${safe.take(120)}", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "PUMP DIRECT failed: ${safe.take(80)}",
+                        traderTag = "MEME",
+                    )
+                    // Keep lastBroadcastException as the original Jupiter
+                    // failure so retry classification stays consistent.
+                }
+            }
+
             if (sig == null) {
                 // All in-line slippage tiers exhausted — re-throw to outer
                 // catch so we get a classified SELL_FAILED + PendingSellQueue
