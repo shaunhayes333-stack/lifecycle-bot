@@ -2127,6 +2127,21 @@ class Executor(
                 ts.position.lowestPrice = currentPrice
         }
 
+        // V5.9.495i — POST-BUY SETTLE-IN GRACE.
+        // Operator (06 May 2026): "its doing it on head tokens as well tho.
+        // it buys them then 5 seconds later it sells them". Universal exit
+        // sweep + STRICT SL FLOOR were stacking on FRESH positions: a new
+        // launch's first 5-30s of price are wildly volatile (initial
+        // dexscreener tick is mid-block, partial fills push impact ±25%
+        // in normal range), and the floor force-exited within seconds of
+        // entry. Now no exit predicate runs in the first 45s — gives the
+        // candle to stabilise so we exit on REAL stops, not noise.
+        val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
+        val SETTLE_IN_MS = 45_000L
+        if (posAgeMs < SETTLE_IN_MS) {
+            return  // silent grace — no spammy logs
+        }
+
         // V5.9.495b — STRICT PER-POSITION SL FLOOR.
         // Operator forensics (Feb 2026, screenshot): position JOHN sat at
         // -26.1% with displayed SL of -20% but never exited. The previous

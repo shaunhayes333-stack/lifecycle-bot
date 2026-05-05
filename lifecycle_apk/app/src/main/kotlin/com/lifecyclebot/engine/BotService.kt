@@ -5376,6 +5376,11 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 if (signal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) return@forEach
                 val ts = synchronized(status.tokens) { status.tokens[mint] }
                     ?: synthesizeTreasuryTokenState(mint) ?: return@forEach
+                // V5.9.495i — POST-BUY SETTLE-IN GRACE for treasury sweeps
+                // too. Operator: "it buys them then 5 seconds later it
+                // sells them". 45s breathing room before any exit fires.
+                val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
+                if (posAgeMs < 45_000L) return@forEach
                 val pnlPct = if (ts.position.entryPrice > 0)
                     ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
                 else 0.0
