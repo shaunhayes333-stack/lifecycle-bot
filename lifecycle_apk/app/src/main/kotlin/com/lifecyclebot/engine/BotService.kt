@@ -5222,7 +5222,7 @@ if (deferredCount > 0) {
 // sat at +161% (target +4%) and never exited. This sweep guarantees
 // any open Treasury / sub-trader position is checked every loop,
 // independent of scanner visibility.
-sweepUniversalExits(cfg, wallet, effectiveBalance)
+sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             if (cfg.shadowPaperEnabled && !cfg.paperMode) {
