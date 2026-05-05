@@ -5075,11 +5075,36 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
     ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)
 }
 
-val otherMints = prioritizedWatchlist.filterNot { mint ->
-    mint in openPositionMints
+// V5.9.494 — UNIVERSAL OPEN-POSITION COVERAGE.
+// Operator forensics: VENIS Treasury sat at +161% (target +4%) and
+// V3 VENIS at +29% with lock at +23% — neither sold because the
+// scanner had stopped returning fresh data for those mints, so
+// processTokenCycle never fired the exit checks. Treasury / ShitCoin /
+// Quality / Moonshot / BlueChip all hold positions in their OWN
+// stores; their mints can drop off the scanner radar even while
+// those positions are still ACTIVELY losing money.
+//
+// Force-include every open position from sub-trader stores PLUS the
+// V3 lane (status.tokens). Any mint with a live position somewhere
+// is processed every tick, irrespective of scanner visibility.
+val subTraderOpenMints: List<String> = try {
+    val out = mutableSetOf<String>()
+    out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI
+        .getActivePositionsSnapshot().map { it.mint })
+    out.toList()
+} catch (_: Exception) { emptyList() }
+
+val v3OpenMints: List<String> = synchronized(status.tokens) {
+    status.tokens.values.filter { it.position.isOpen }.map { it.mint }
 }
 
-val orderedMints = (openPositionMints + otherMints).distinct()
+val forcedOpenMints = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
+
+val otherMints = prioritizedWatchlist.filterNot { mint ->
+    mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
+}
+
+val orderedMints = (forcedOpenMints + otherMints).distinct()
 
 val maxBatchMillis = 25_000L
 val perTokenTimeoutMs = 2_500L
@@ -5188,6 +5213,16 @@ if (deferredCount > 0) {
         "Watchlist processing deferred $deferredCount token(s); processed=$processedCount total=${orderedMints.size}"
     )
 }
+
+// V5.9.494 — UNIVERSAL EXIT SWEEP (every loop, last-resort safety).
+// Runs AFTER per-token cycles. Catches Treasury / sub-trader exits that
+// processTokenCycle missed (e.g. mint dropped off DexScreener feed,
+// scanner deferred the mint due to load, or sub-trader keeps the
+// position outside status.tokens). Operator forensics: VENIS Treasury
+// sat at +161% (target +4%) and never exited. This sweep guarantees
+// any open Treasury / sub-trader position is checked every loop,
+// independent of scanner visibility.
+sweepUniversalExits(cfg, wallet, effectiveBalance)
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             if (cfg.shadowPaperEnabled && !cfg.paperMode) {
@@ -5288,6 +5323,130 @@ if (deferredCount > 0) {
      * - IDLE too long without getting a buy signal
      * - Underperforming (flat price with no buys)
      */
+    /**
+     * V5.9.494 — UNIVERSAL EXIT SWEEP.
+     *
+     * Operator: 'where are the fluid stops and dynamic profit lockers?
+     * nothing should rip 35% out of us! ensure all trading tools layers
+     * etc are wired correctly for live trading.'
+     *
+     * Runs at the end of every main loop tick. Hits two coverage gaps
+     * that processTokenCycle leaves open:
+     *
+     *   1) CashGenerationAI Treasury positions whose mints aren't in
+     *      status.tokens (or whose ts.position.isTreasuryPosition is
+     *      stale). The treasury exit signal at line ~9246 only fires
+     *      when ts is found AND tagged as treasury — for older bot
+     *      restarts or sub-trader-private positions, that gate misses.
+     *
+     *   2) V3 lane open positions (status.tokens with isOpen=true)
+     *      where the scanner stopped returning fresh quotes. The
+     *      V5.9.426 fallback path catches some of these but doesn't
+     *      run profit-lock or partial-sell logic — only hard SL.
+     *
+     * For (1) we ask CashGenerationAI for any non-HOLD signals and
+     * route them through executor.requestSell, synthesising a
+     * TokenState if the mint isn't in status.tokens.
+     *
+     * For (2) we iterate every open V3 position and call
+     * executor.runManageOnly() which executes:
+     *      checkProfitLock → checkPartialSell → riskCheck (fluid stops)
+     * once. Cheap on the happy path (returns immediately if no
+     * trigger), and finally fires the sells we keep missing.
+     */
+    private fun sweepUniversalExits(
+        cfg: com.lifecyclebot.data.BotConfig,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        effectiveBalance: Double,
+    ) {
+        // Part 1 — Treasury sub-trader exits (any mint, with or without ts).
+        try {
+            val treasuryExits = com.lifecyclebot.v3.scoring.CashGenerationAI
+                .checkAllPositionsForExit()
+            treasuryExits.forEach { (mint, signal) ->
+                if (signal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.HOLD) return@forEach
+                val ts = synchronized(status.tokens) { status.tokens[mint] }
+                    ?: synthesizeTreasuryTokenState(mint) ?: return@forEach
+                val pnlPct = if (ts.position.entryPrice > 0)
+                    ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+                else 0.0
+                ErrorLogger.warn(
+                    "BotService",
+                    "🧹 SWEEP TREASURY-EXIT: ${ts.symbol} | $signal | pnl=${pnlPct.toInt()}% — mint missed processTokenCycle",
+                )
+                try {
+                    val r = executor.requestSell(
+                        ts        = ts,
+                        reason    = "TREASURY_${signal.name}_SWEEP",
+                        wallet    = wallet,
+                        walletSol = effectiveBalance,
+                    )
+                    if (r == com.lifecyclebot.engine.Executor.SellResult.CONFIRMED ||
+                        r == com.lifecyclebot.engine.Executor.SellResult.PAPER_CONFIRMED) {
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                            mint, ts.lastPrice, signal,
+                        )
+                        addLog("🧹 [SWEEP] TREASURY ${ts.symbol}: ${signal.name} +${pnlPct.toInt()}% | result=$r")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.warn("BotService", "Sweep treasury sell error: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "Sweep treasury error: ${e.message}")
+        }
+
+        // Part 2 — V3 lane: ensure profit-lock + partial + risk fire on
+        // every open position, not just those with fresh scanner data.
+        try {
+            val openTokens = synchronized(status.tokens) {
+                status.tokens.values.filter { it.position.isOpen }.toList()
+            }
+            openTokens.forEach { ts ->
+                try { executor.runManageOnly(ts, wallet, effectiveBalance) }
+                catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Sweep manage(${ts.symbol}): ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "Sweep V3-manage error: ${e.message}")
+        }
+    }
+
+    /**
+     * Build a minimal TokenState from a TreasuryPosition so the sell
+     * pipeline can dump it even when the V3 lane never registered
+     * the mint. Best-effort — entry price, qty and lastPrice are
+     * pulled from the treasury record so executor.requestSell has
+     * everything it needs to compute size + minOut.
+     */
+    private fun synthesizeTreasuryTokenState(mint: String): com.lifecyclebot.data.TokenState? {
+        val pos = try {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePosition(mint)
+        } catch (_: Exception) { null } ?: return null
+        val ts = com.lifecyclebot.data.TokenState(
+            mint   = mint,
+            symbol = pos.symbol,
+            source = "TREASURY_SYNTH",
+        )
+        ts.position = ts.position.copy(
+            entryPrice         = pos.entryPrice,
+            costSol            = pos.entrySol,
+            entryTime          = pos.entryTime,
+            qtyToken           = if (pos.entryPrice > 0) pos.entrySol / pos.entryPrice else 0.0,
+            isTreasuryPosition = true,
+            tradingMode        = "TREASURY",
+            isPaperPosition    = pos.isPaper,
+        )
+        ts.lastPrice = if (pos.currentPrice > 0) pos.currentPrice else pos.entryPrice
+        synchronized(status.tokens) {
+            if (!status.tokens.containsKey(mint)) {
+                status.tokens[mint] = ts
+            }
+        }
+        return ts
+    }
+
     private suspend fun cleanupWatchlist() {
         // V4.0: Use GlobalTradeRegistry as the source of truth
         val registryWatchlist = GlobalTradeRegistry.getWatchlist()

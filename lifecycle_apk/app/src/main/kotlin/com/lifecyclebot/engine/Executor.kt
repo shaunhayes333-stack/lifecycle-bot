@@ -2042,6 +2042,42 @@ class Executor(
 
     // ── partial sell ─────────────────────────────────────────────────
 
+    /**
+     * V5.9.494 — public manage-only path used by BotService.sweepUniversalExits.
+     * Runs the in-position management triad on EVERY open position once
+     * per loop tick, regardless of scanner visibility:
+     *   1) checkProfitLock — dynamic profit-lock + trailing
+     *   2) checkPartialSell — TP1/TP2 partial profit-taking
+     *   3) Catastrophic floor — last-resort SL via FluidLearning floor
+     *
+     * Idempotent: if no trigger fires, this is three cheap conditionals.
+     * Operator: 'where are the fluid stops and dynamic profit lockers?
+     * nothing should rip 35% out of us!' — this guarantees they fire
+     * even when DexScreener misses a tick.
+     */
+    fun runManageOnly(ts: TokenState, wallet: SolanaWallet?, walletSol: Double) {
+        if (!ts.position.isOpen) return
+        val currentPrice = getActualPrice(ts)
+        if (currentPrice > 0.0) {
+            ts.position.highestPrice = maxOf(ts.position.highestPrice, currentPrice)
+            if (ts.position.lowestPrice == 0.0 || currentPrice < ts.position.lowestPrice)
+                ts.position.lowestPrice = currentPrice
+        }
+        if (checkProfitLock(ts, wallet, walletSol)) return
+        if (ts.position.isOpen) checkPartialSell(ts, wallet, walletSol)
+        if (ts.position.isOpen) {
+            val pnlPct = if (ts.position.entryPrice > 0)
+                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+            else 0.0
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
+            } catch (_: Throwable) { -25.0 }
+            if (pnlPct <= floor && currentPrice > 0.0) {
+                doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
+            }
+        }
+    }
+
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c   = cfg()
         normalizePositionScaleIfNeeded(ts)
