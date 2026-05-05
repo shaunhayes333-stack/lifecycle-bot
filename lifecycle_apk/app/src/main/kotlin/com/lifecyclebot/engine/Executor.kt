@@ -1693,12 +1693,32 @@ class Executor(
             1    -> 400
             2    -> 600
             else -> 1000
-        }.coerceAtMost(1000)
+        }.coerceAtMost(2000)
+
+        // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder mirroring
+        // V5.9.478 in liveSell. Profit-lock sells previously did a single
+        // broadcast attempt and on 0x1788 only escalated across ticks (slow).
+        // Now: a profit-lock fail at 200bps immediately re-tries at the next
+        // tier in this same call.
+        val isDrainExit = reason.contains("drain", ignoreCase = true) ||
+                          reason.contains("rug", ignoreCase = true) ||
+                          reason.contains("collapse", ignoreCase = true) ||
+                          reason.contains("emergency", ignoreCase = true) ||
+                          reason.contains("liquidity_collapse", ignoreCase = true)
+        val broadcastSlipLadder = if (isDrainExit) {
+            listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+                .map { it.coerceAtLeast(sellSlippage) }
+                .distinct()
+        } else {
+            listOf(sellSlippage, 400, 600, 1000, 2000)
+                .map { it.coerceAtLeast(sellSlippage) }
+                .distinct()
+        }
 
         LiveTradeLogStore.log(
             sellTradeKey, ts.mint, ts.symbol, "SELL",
             LiveTradeLogStore.Phase.SELL_START,
-            "executeProfitLockSell: $reason | sellFraction=${(sellFraction*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | broadcastRetries=$priorBroadcastRetries",
+            "executeProfitLockSell: $reason | sellFraction=${(sellFraction*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | ladder=${broadcastSlipLadder.joinToString(",")}${if (isDrainExit) " [DRAIN-EXIT]" else ""}",
             tokenAmount = sellQty,
             slippageBps = sellSlippage,
             traderTag = "MEME",
@@ -1714,7 +1734,7 @@ class Executor(
             )
             // V5.9.468 — pass wallet pubkey as taker so the quote is a binding
             // Ultra-v2 order. RFQ rejections surface here, not silently in build.
-            val quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits,
+            var quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits,
                                                    sellSlippage, isBuy = false,
                                                    sellTaker = wallet.publicKeyB58)
             LiveTradeLogStore.log(
@@ -1724,35 +1744,94 @@ class Executor(
                 slippageBps = sellSlippage,
                 traderTag = "MEME",
             )
-            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute}",
-                traderTag = "MEME",
-            )
-            security.enforceSignDelay()
-            
-            val useJito = c.jitoEnabled && !quote.isUltra
-            val jitoTip = c.jitoTipLamports
-            val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_BROADCAST,
-                "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
-                traderTag = "MEME",
-            )
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                "Sig confirmed: ${sig.take(20)}…",
-                sig = sig,
-                traderTag = "MEME",
-            )
+
+            // V5.9.479 — IN-LINE broadcast escalation loop (matches V5.9.478 in liveSell)
+            var sig: String? = null
+            var lastBroadcastException: Exception? = null
+            var broadcastAttempts = 0
+            for (currentSlip in broadcastSlipLadder) {
+                broadcastAttempts++
+                try {
+                    if (broadcastAttempts > 1) {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                            "⚡ ESCALATION re-quote @ ${currentSlip}bps (attempt $broadcastAttempts)${if (isDrainExit) " [DRAIN-EXIT]" else ""}",
+                            slippageBps = currentSlip, traderTag = "MEME",
+                        )
+                        try {
+                            quote = getQuoteWithSlippageGuard(
+                                ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
+                                isBuy = false, sellTaker = wallet.publicKeyB58)
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_QUOTE_OK,
+                                "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}",
+                                slippageBps = currentSlip, traderTag = "MEME",
+                            )
+                        } catch (qex: Exception) {
+                            lastBroadcastException = qex
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                                "Re-quote ${currentSlip}bps FAILED: ${qex.message?.take(80) ?: "?"}",
+                                slippageBps = currentSlip, traderTag = "MEME",
+                            )
+                            continue
+                        }
+                    }
+                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                        "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)",
+                        traderTag = "MEME",
+                    )
+                    security.enforceSignDelay()
+
+                    val useJito = c.jitoEnabled && !quote.isUltra
+                    val jitoTip = c.jitoTipLamports
+                    val ultraReqId = if (quote.isUltra) txResult.requestId else null
+
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BROADCAST,
+                        "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
+                        traderTag = "MEME",
+                    )
+                    sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                        "✅ Sig confirmed @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
+                        sig = sig, traderTag = "MEME",
+                    )
+                    break
+                } catch (broadcastEx: Exception) {
+                    lastBroadcastException = broadcastEx
+                    val safe = security.sanitiseForLog(broadcastEx.message ?: "unknown")
+                    val isSlippage = safe.contains("0x1788", ignoreCase = true) ||
+                                     safe.contains("TooLittleSolReceived", ignoreCase = true) ||
+                                     safe.contains("Slippage", ignoreCase = true) ||
+                                     safe.contains("SlippageToleranceExceeded", ignoreCase = true)
+                    if (!isSlippage) throw broadcastEx
+                    val brc = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "SLIPPAGE @ ${currentSlip}bps (in-line attempt $broadcastAttempts) — escalating${if (isDrainExit) " [DRAIN-EXIT]" else ""} (lifetime=$brc)",
+                        slippageBps = currentSlip, traderTag = "MEME",
+                    )
+                }
+            }
+            if (sig == null) {
+                throw lastBroadcastException ?: RuntimeException(
+                    "${ts.symbol}: profit-lock in-line broadcast retries exhausted at ${broadcastSlipLadder.last()}bps")
+            }
             // Reset broadcast retry counter on success
             zeroBalanceRetries.remove(ts.mint + "_broadcast")
+            // V5.9.479 — capture non-null sig for downstream Trade record + log calls
+            val finalSig: String = sig!!
 
             val solBack = quote.outAmount / 1_000_000_000.0
             val pnlSol = solBack - pos.costSol * sellFraction
@@ -1776,7 +1855,7 @@ class Executor(
             
             val trade = Trade("SELL", "live", solBack, getActualPrice(ts),
                 System.currentTimeMillis(), reason,
-                pnlSol, pnlPct, sig = sig, feeSol = feeSol, netPnlSol = netPnl)
+                pnlSol, pnlPct, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl)
             recordTrade(ts, trade)
             security.recordTrade(trade)
             SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
@@ -1824,11 +1903,11 @@ class Executor(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
                 "Profit lock landed | ${solBack.fmt(4)} SOL | net ${netPnl.fmt(4)} | ${if (pnlSol > 0) "+" else ""}${pnlPct.fmt(2)}%",
-                sig = sig,
+                sig = finalSig,
                 solAmount = solBack,
                 traderTag = "MEME",
             )
-            onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${sig.take(16)}…", ts.mint)
+            onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${finalSig.take(16)}…", ts.mint)
             onNotify("✅ Profit Locked",
                 "${ts.symbol} secured ${solBack.fmt(3)} SOL",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
@@ -4829,12 +4908,29 @@ class Executor(
                         1    -> 400
                         2    -> 600
                         else -> 1000
-                    }.coerceAtMost(1000)
+                    }.coerceAtMost(2000)
+
+                    // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder
+                    // (mirrors V5.9.478 in liveSell + V5.9.479 in profit-lock).
+                    val isDrainExit = reason.contains("drain", ignoreCase = true) ||
+                                      reason.contains("rug", ignoreCase = true) ||
+                                      reason.contains("collapse", ignoreCase = true) ||
+                                      reason.contains("emergency", ignoreCase = true) ||
+                                      reason.contains("liquidity_collapse", ignoreCase = true)
+                    val broadcastSlipLadder = if (isDrainExit) {
+                        listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+                            .map { it.coerceAtLeast(sellSlippage) }
+                            .distinct()
+                    } else {
+                        listOf(sellSlippage, 400, 600, 1000, 2000)
+                            .map { it.coerceAtLeast(sellSlippage) }
+                            .distinct()
+                    }
 
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_START,
-                        "requestPartialSell LIVE: ${(pct*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | retries=$priorBroadcastRetries",
+                        "requestPartialSell LIVE: ${(pct*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | ladder=${broadcastSlipLadder.joinToString(",")}${if (isDrainExit) " [DRAIN-EXIT]" else ""}",
                         tokenAmount = sellQty,
                         slippageBps = sellSlippage,
                         traderTag = "MEME",
@@ -4849,7 +4945,7 @@ class Executor(
                         slippageBps = sellSlippage,
                         traderTag = "MEME",
                     )
-                    val quote = getQuoteWithSlippageGuard(
+                    var quote = getQuoteWithSlippageGuard(
                         ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false,
                         sellTaker = activeWallet.publicKeyB58)
                     LiveTradeLogStore.log(
@@ -4859,36 +4955,94 @@ class Executor(
                         slippageBps = sellSlippage,
                         traderTag = "MEME",
                     )
-                    
-                    val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                        "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute}",
-                        traderTag = "MEME",
-                    )
-                    security.enforceSignDelay()
-                    
-                    val useJito = c.jitoEnabled && !quote.isUltra
-                    val jitoTip = c.jitoTipLamports
-                    val ultraReqId = if (quote.isUltra) txResult.requestId else null
-                    
-                    onLog("📊 LIVE PARTIAL: Signing and broadcasting tx...", ts.mint)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_BROADCAST,
-                        "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
-                        traderTag = "MEME",
-                    )
-                    val sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                        "Sig confirmed: ${sig.take(20)}…",
-                        sig = sig,
-                        traderTag = "MEME",
-                    )
+
+                    // V5.9.479 — IN-LINE broadcast escalation loop (mirrors V5.9.478 in liveSell).
+                    var sig: String? = null
+                    var lastBroadcastException: Exception? = null
+                    var broadcastAttempts = 0
+                    for (currentSlip in broadcastSlipLadder) {
+                        broadcastAttempts++
+                        try {
+                            if (broadcastAttempts > 1) {
+                                LiveTradeLogStore.log(
+                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                    LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                                    "⚡ ESCALATION re-quote @ ${currentSlip}bps (attempt $broadcastAttempts)${if (isDrainExit) " [DRAIN-EXIT]" else ""}",
+                                    slippageBps = currentSlip, traderTag = "MEME",
+                                )
+                                try {
+                                    quote = getQuoteWithSlippageGuard(
+                                        ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
+                                        isBuy = false, sellTaker = activeWallet.publicKeyB58)
+                                    LiveTradeLogStore.log(
+                                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                        LiveTradeLogStore.Phase.SELL_QUOTE_OK,
+                                        "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}",
+                                        slippageBps = currentSlip, traderTag = "MEME",
+                                    )
+                                } catch (qex: Exception) {
+                                    lastBroadcastException = qex
+                                    LiveTradeLogStore.log(
+                                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                        LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                                        "Re-quote ${currentSlip}bps FAILED: ${qex.message?.take(80) ?: "?"}",
+                                        slippageBps = currentSlip, traderTag = "MEME",
+                                    )
+                                    continue
+                                }
+                            }
+                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58)
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                                "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)",
+                                traderTag = "MEME",
+                            )
+                            security.enforceSignDelay()
+
+                            val useJito = c.jitoEnabled && !quote.isUltra
+                            val jitoTip = c.jitoTipLamports
+                            val ultraReqId = if (quote.isUltra) txResult.requestId else null
+
+                            onLog("📊 LIVE PARTIAL: Signing and broadcasting @ ${currentSlip}bps (attempt $broadcastAttempts)...", ts.mint)
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_BROADCAST,
+                                "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
+                                traderTag = "MEME",
+                            )
+                            sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                                "✅ Sig confirmed @ ${currentSlip}bps (attempt $broadcastAttempts): ${sig.take(20)}…",
+                                sig = sig, traderTag = "MEME",
+                            )
+                            break
+                        } catch (broadcastEx: Exception) {
+                            lastBroadcastException = broadcastEx
+                            val safe = security.sanitiseForLog(broadcastEx.message ?: "unknown")
+                            val isSlippage = safe.contains("0x1788", ignoreCase = true) ||
+                                             safe.contains("TooLittleSolReceived", ignoreCase = true) ||
+                                             safe.contains("Slippage", ignoreCase = true) ||
+                                             safe.contains("SlippageToleranceExceeded", ignoreCase = true)
+                            if (!isSlippage) throw broadcastEx
+                            val brc = zeroBalanceRetries.merge(ts.mint + "_broadcast_partial", 1) { old, _ -> old + 1 } ?: 1
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_FAILED,
+                                "SLIPPAGE @ ${currentSlip}bps (in-line attempt $broadcastAttempts) — escalating${if (isDrainExit) " [DRAIN-EXIT]" else ""} (lifetime=$brc)",
+                                slippageBps = currentSlip, traderTag = "MEME",
+                            )
+                        }
+                    }
+                    if (sig == null) {
+                        throw lastBroadcastException ?: RuntimeException(
+                            "${ts.symbol}: partial-sell in-line broadcast retries exhausted at ${broadcastSlipLadder.last()}bps")
+                    }
                     zeroBalanceRetries.remove(ts.mint + "_broadcast_partial")
+                    // V5.9.479 — capture non-null sig for downstream Trade record + log calls
+                    val finalSig: String = sig!!
                     
                     val solBack = quote.outAmount / 1_000_000_000.0
                     val livePnl = solBack - pos.costSol * pct
@@ -4900,7 +5054,7 @@ class Executor(
                     
                     val liveTrade = Trade("SELL", "live", solBack, currentPrice,
                         System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
-                        livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
+                        livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                     
                     recordTrade(ts, liveTrade)
@@ -4931,13 +5085,13 @@ class Executor(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
                         "Partial sold ${(pct*100).toInt()}% | got ${solBack.fmt(4)} SOL | net ${netPnl.fmt(4)}",
-                        sig = sig,
+                        sig = finalSig,
                         solAmount = solBack,
                         traderTag = "MEME",
                     )
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
-                          "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
+                          "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)
                     
                     onNotify("💰 Live Partial Sell",
                         "${ts.symbol}  +${pnlPct.toInt()}%  sold ${(pct*100).toInt()}%",
@@ -6426,29 +6580,58 @@ class Executor(
             }
 
             // V5.9.478 — IN-LINE BROADCAST RETRY for 0x1788 / SLIPPAGE_EXCEEDED.
+            // V5.9.479 — DRAIN-EXIT EMERGENCY MODE + raised default cap.
             //
-            // Operator directive: "80 seconds is dumb and way to long the
-            // price will always have moved plus we will miss quick pump
-            // spikes it needs to be as fast as the buys are aka instant".
+            // Operator directive (V5.9.478): "80 seconds is dumb and way to
+            // long the price will always have moved plus we will miss quick
+            // pump spikes it needs to be as fast as the buys are aka instant".
             //
-            // Old behaviour: broadcast fails 0x1788 → outer catch → return
-            // FAILED_RETRYABLE → PendingSellQueue waits ~50-80s before
-            // calling liveSell again. By the time attempt 2 fires, pump.fun
-            // memes have moved 5-15% more so the next slippage tier still
-            // fails. Net effect: sells stuck for hours / never landing.
+            // Operator forensics (V5.9.479, Goonman/3gV9Yghi…): a token in
+            // 'drain_exit_liquidity_collapse' kept failing 0x1788 even at
+            // 1000bps. The token's price was collapsing >10% per second so
+            // even 10% slippage tolerance was insufficient. For drain / rug
+            // / collapse exits we accept catastrophic slippage to escape
+            // a position that may be worth $0 in 30 seconds.
             //
-            // New behaviour: when broadcast fails with SLIPPAGE_EXCEEDED,
-            // re-quote at the next slippage tier (200→400→600→1000bps)
-            // IN-LINE within the same liveSell call. ~3-5 seconds between
-            // attempts (Jupiter quote latency only). All four broadcast
-            // attempts complete within ~15-20s vs 4 minutes. All other
-            // failure modes (SIM, RFQ, RATE_LIMITED, TX_EXPIRED, …) keep
-            // re-throwing to the outer catch unchanged — only SLIPPAGE
-            // escalates inline. zeroBalanceRetries[mint+"_broadcast"] is
-            // still bumped per failure for forensics + cross-call state.
-            val broadcastSlipLadder = listOf(sellSlippage, 400, 600, 1000)
-                .map { it.coerceAtLeast(sellSlippage) }
-                .distinct()
+            // Default ladder cap also bumped from 1000 → 2000bps because
+            // pump.fun memes routinely move 8-15% per tx in normal (non-rug)
+            // conditions and the V5.9.478 1000bps cap was tripping on
+            // healthy positions too.
+            //
+            // When broadcast fails with SLIPPAGE_EXCEEDED, re-quote at the
+            // next slippage tier IN-LINE within the same liveSell call.
+            // ~3-5 seconds between tiers (Jupiter quote latency only). All
+            // tiers complete within ~15-25s vs 4 minutes through the queue.
+            // All other failure modes (SIM, RFQ, RATE_LIMITED, TX_EXPIRED,
+            // INSUFFICIENT_FUNDS, JUPITER_BUILD_FAILED) re-throw to the outer
+            // catch unchanged — only SLIPPAGE escalates inline.
+            // zeroBalanceRetries[mint+"_broadcast"] is still bumped per
+            // failure for forensics + cross-call state.
+            val isDrainExit = reason.contains("drain", ignoreCase = true) ||
+                              reason.contains("rug", ignoreCase = true) ||
+                              reason.contains("collapse", ignoreCase = true) ||
+                              reason.contains("emergency", ignoreCase = true) ||
+                              reason.contains("liquidity_collapse", ignoreCase = true)
+            val broadcastSlipLadder = if (isDrainExit) {
+                // Emergency: 5% / 20% / 50% / 90% — accept whatever to escape
+                listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+                    .map { it.coerceAtLeast(sellSlippage) }
+                    .distinct()
+            } else {
+                // Normal escalation: 2% / 4% / 6% / 10% / 20%
+                listOf(sellSlippage, 400, 600, 1000, 2000)
+                    .map { it.coerceAtLeast(sellSlippage) }
+                    .distinct()
+            }
+            if (isDrainExit) {
+                onLog("🚨 DRAIN-EXIT mode for ${ts.symbol} ($reason): ladder=${broadcastSlipLadder.joinToString(",")}bps", tradeId.mint)
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_START,
+                    "🚨 DRAIN-EXIT mode | ladder=${broadcastSlipLadder.joinToString(",")}bps",
+                    traderTag = "MEME",
+                )
+            }
             var sig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
