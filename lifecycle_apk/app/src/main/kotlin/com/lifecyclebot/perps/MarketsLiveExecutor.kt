@@ -316,43 +316,64 @@ object MarketsLiveExecutor {
             }
 
             market.isStock || market.isCommodity || market.isMetal || market.isForex -> {
-                // V5.9.464 — OPERATOR-REPORTED BUG: 'it's never made a leverage
-                // trade anywhere in the markets universe ever'. RCA (expert
-                // troubleshoot agent, V5.9.463 baseline): there is NO code
-                // path in MarketsLiveExecutor that executes a leverage trade
-                // for non-crypto symbols. `executeFlashTradePerps` is only
-                // reachable when `market.isCrypto == true`. Stocks /
-                // commodities / metals / forex hit this branch and the
-                // `leverage` parameter is silently discarded, degrading to
-                // spot swaps via Jupiter.
+                // V5.9.477 — SPOT-SCALE LEVERAGE for non-crypto markets.
                 //
-                // This is a HONEST-DEGRADATION fix: we now LOG clearly when
-                // a leverage request was downgraded to spot so users see
-                // the real capability gap instead of believing leverage
-                // worked. Fixing the real cause requires a non-crypto
-                // leverage provider (Drift synthetic perps, Parcl for RWAs,
-                // Mango v4 for FX/metals, or a broker bridge). That's a
-                // new third-party integration and is queued for operator
-                // approval.
-                if (leverage > 1.0) {
-                    ErrorLogger.warn(TAG,
-                        "⚠️ LEVERAGE NOT AVAILABLE for ${market.symbol} " +
-                        "(asset class=${if (market.isStock) "STOCK" else if (market.isCommodity) "COMMODITY" else if (market.isMetal) "METAL" else "FOREX"}): " +
-                        "${"%.1fx".format(leverage)} requested but Markets universe has no leverage provider wired. " +
-                        "Degrading to SPOT at 1x. [V5.9.464: needs Drift/Parcl/Mango integration].")
-                }
+                // Operator chose option (a): real economic exposure via
+                // scaled-spot, no phantom P&L multipliers. Solana has no
+                // on-chain perps DEX for stocks / forex / metals /
+                // commodities — Drift / Jupiter Perps / Mango / Adrena /
+                // Zeta are crypto-only, and Backed Finance xStocks / PAXG
+                // / EURC / SLVx are SPOT-only SPL tokens.
+                //
+                // Approach: when a trader asks for Nx leverage with sizeSol
+                // margin, open a SPOT position of size (sizeSol × N). The
+                // wallet temporarily commits Nx capital. On close, wallet
+                // receives Nx × (1 + priceDiff) back. Net wallet change =
+                // sizeSol × N × priceDiff = exactly what the trader's P&L
+                // formula `priceDiff × leverage × 100 / 100 × sizeSol`
+                // predicts on `sizeSol` margin. Honest, no synthetic
+                // multipliers, no phantom funding fees. Zero liquidation
+                // risk beyond the principal we put in.
+                //
+                // If the wallet doesn't have enough liquid SOL for the
+                // scaled size, we REJECT the trade — better to skip than
+                // silently downgrade (would create a tracker / wallet
+                // mismatch where the trader thinks it has 3x exposure but
+                // only got 1x).
                 val mint = TokenizedAssetRegistry.mintFor(market.symbol)
-                if (mint != null) {
-                    // Real tokenized asset on-chain (xStocks / PAXG / EURC) — Jupiter swap
-                    executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
-                } else {
-                    // No verified on-chain route for this symbol. Do NOT execute a fake/proxy
-                    // trade — that would silently move funds without real market exposure.
-                    // Log clearly and return null so the caller skips this trade.
+                if (mint == null) {
+                    // No verified on-chain route for this symbol. Do NOT execute a
+                    // fake/proxy trade — that would silently move funds without
+                    // real market exposure.
                     ErrorLogger.warn(TAG,
                         "⛔ LIVE skipped for ${market.symbol}: no on-chain route. " +
                         "Register a real Solana mint via TokenizedAssetRegistry.register() to enable live trading.")
                     null
+                } else if (leverage > 1.0) {
+                    // SPOT-SCALE: open a (sizeSol × leverage) SPOT position.
+                    val effectiveSpotSizeSol = sizeSol * leverage
+                    val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
+                    val rentReserveSol = 0.015 // tx fee + ATA rent + small buffer
+                    val needSol = effectiveSpotSizeSol + rentReserveSol + feeAmountSol
+                    if (walletSol < needSol) {
+                        ErrorLogger.warn(TAG,
+                            "⛔ SPOT-SCALE LEVERAGE rejected for ${market.symbol}: " +
+                            "${"%.1fx".format(leverage)} × ${"%.4f".format(sizeSol)} SOL margin = " +
+                            "${"%.4f".format(effectiveSpotSizeSol)} SOL principal needed, wallet has only " +
+                            "${"%.4f".format(walletSol)} SOL (need ${"%.4f".format(needSol)} incl. fees+rent). " +
+                            "Skipping — operator can reduce leverage or fund the wallet.")
+                        null
+                    } else {
+                        ErrorLogger.info(TAG,
+                            "⚡ SPOT-SCALE LEVERAGE: ${market.symbol} ${"%.1fx".format(leverage)} → " +
+                            "${"%.4f".format(effectiveSpotSizeSol)} SOL spot principal " +
+                            "(margin=${"%.4f".format(sizeSol)} SOL × ${"%.1fx".format(leverage)}). " +
+                            "Real economic exposure via Jupiter swap — no synthetic perps.")
+                        executeTokenizedAssetTrade(wallet, walletAddress, market, direction, effectiveSpotSizeSol, mint)
+                    }
+                } else {
+                    // SPOT 1x — no scaling needed
+                    executeTokenizedAssetTrade(wallet, walletAddress, market, direction, sizeSol, mint)
                 }
             }
 
