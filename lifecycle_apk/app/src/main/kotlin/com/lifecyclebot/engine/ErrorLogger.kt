@@ -111,6 +111,25 @@ object ErrorLogger {
             }
         } catch (_: Throwable) { /* never let logcat failures propagate */ }
 
+        // V5.9.476 — BATTERY-USE FIX: skip the SQLite write for DEBUG-level
+        // logs.
+        //
+        // Operator: 'users are complaining about very heavy battery use.'
+        //
+        // Root cause: 700+ ErrorLogger.debug call sites in the codebase,
+        // each one queueing a SQLite INSERT into error_logs every loop tick
+        // (8s default). At ~50 debug events per cycle that's ~22,000 DB
+        // writes/hour just for traces nobody reads — keeps disk active and
+        // ioHandler thread spinning, which prevents the CPU from settling
+        // into deep sleep states. Plus MAX_LOGS=500 means a DELETE pass
+        // every few minutes adding more writes.
+        //
+        // DEBUG logs are still emitted to logcat (free, only there if a
+        // developer is attached) but no longer hit the DB. INFO/WARN/ERROR/
+        // CRASH still write — those are the levels the in-app log viewer
+        // shows by default and are the meaningful events.
+        if (level == Level.DEBUG) return
+
         // Capture values that we need off-thread (throwable stack must be
         // rendered on the caller thread in case it gets mutated).
         val ts = System.currentTimeMillis()

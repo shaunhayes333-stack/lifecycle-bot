@@ -83,6 +83,25 @@ object TradeHistoryStore {
     private var ioThread:  HandlerThread?  = null
     private var ioHandler: Handler?        = null
 
+    // V5.9.476 — JOURNAL UNIQUE-KEY COLLISION FIX.
+    //
+    // Operator: 'journal issue still persists. it works and then stops
+    // recoding sells altogether. ensure there is no limits.'
+    //
+    // Root cause: schema declares `dedup_key TEXT UNIQUE` and the value
+    // was '${ts}_${mint}_${side}'. When two sells fire on the SAME mint
+    // in the SAME millisecond (partial sell + immediate full-sell, or
+    // back-to-back ticks) the dedup_key collides and SQLite's
+    // CONFLICT_IGNORE silently DROPS the second row. Once a token has
+    // partial sells the user never sees the second one in the journal.
+    //
+    // Fix: append a monotonically-increasing AtomicLong to every
+    // dedup_key. Same trade, same ms, same mint, same side → unique
+    // key always. Per-process counter is fine — SQLite UNIQUE only
+    // enforces uniqueness within the table, and ts already varies
+    // across processes so cross-process collisions are impossible.
+    private val tradeSeq = java.util.concurrent.atomic.AtomicLong(0L)
+
     // SharedPreferences (kept alive only for one-time migration)
     private var prefs: SharedPreferences? = null
 
@@ -529,7 +548,7 @@ object TradeHistoryStore {
         put("trading_emoji", t.tradingModeEmoji)
         put("fee_sol",       t.feeSol)
         put("net_pnl_sol",   t.netPnlSol)
-        put("dedup_key",     "${t.ts}_${t.mint}_${t.side}")
+        put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
     private fun loadTradesFromDb() {
