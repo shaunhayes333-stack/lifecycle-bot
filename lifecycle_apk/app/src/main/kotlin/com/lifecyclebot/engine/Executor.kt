@@ -1780,11 +1780,19 @@ class Executor(
                             continue
                         }
                     }
-                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
+                    val dynSlipCap = when {
+                        isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
+                        else -> when (broadcastAttempts) {
+                            1 -> 2000
+                            2 -> 5000
+                            else -> 9999
+                        }
+                    }.coerceAtLeast(currentSlip)
+                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                        "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)",
+                        "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                         traderTag = "MEME",
                     )
                     security.enforceSignDelay()
@@ -1811,6 +1819,7 @@ class Executor(
                     lastBroadcastException = broadcastEx
                     val safe = security.sanitiseForLog(broadcastEx.message ?: "unknown")
                     val isSlippage = safe.contains("0x1788", ignoreCase = true) ||
+                                     safe.contains("0x1789", ignoreCase = true) ||
                                      safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                                      safe.contains("Slippage", ignoreCase = true) ||
                                      safe.contains("SlippageToleranceExceeded", ignoreCase = true)
@@ -1919,6 +1928,7 @@ class Executor(
             val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
             val failureClass = when {
                 safe.contains("0x1788", ignoreCase = true) ||
+                safe.contains("0x1789", ignoreCase = true) ||
                 safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                 safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
                 safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
@@ -4991,11 +5001,19 @@ class Executor(
                                     continue
                                 }
                             }
-                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
+                            val dynSlipCap = when {
+                                isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
+                                else -> when (broadcastAttempts) {
+                                    1 -> 2000
+                                    2 -> 5000
+                                    else -> 9999
+                                }
+                            }.coerceAtLeast(currentSlip)
+                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                                "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)",
+                                "Tx built | router=${txResult.router} rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                                 traderTag = "MEME",
                             )
                             security.enforceSignDelay()
@@ -5104,6 +5122,7 @@ class Executor(
                     val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast_partial", 1) { old, _ -> old + 1 } ?: 1
                     val failureClass = when {
                         safe.contains("0x1788", ignoreCase = true) ||
+                        safe.contains("0x1789", ignoreCase = true) ||
                         safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                         safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
                         safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
@@ -6673,12 +6692,27 @@ class Executor(
                     }
 
                     onLog("📊 SELL DEBUG: Building transaction (slip=${currentSlip}bps attempt=$broadcastAttempts)...", tradeId.mint)
-                    val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
+                    // V5.9.482 — widen dynamicSlippageMaxBps so Jupiter's simulation has
+                    // real room to pick a sensible slippageBps. Static currentSlip
+                    // (e.g. 200bps) was too tight for Jupiter to encode anything
+                    // useful — every tier failed at simulation. Now: 2000bps cap
+                    // on normal sells, 9999bps on drain-exit, ramping up across
+                    // in-line retries. Jupiter's simulation picks the actual
+                    // value within bounds based on real pool state.
+                    val dynSlipCap = when {
+                        isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
+                        else -> when (broadcastAttempts) {
+                            1 -> 2000
+                            2 -> 5000
+                            else -> 9999
+                        }
+                    }.coerceAtLeast(currentSlip)
+                    val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                        "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)",
+                        "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                         traderTag = "MEME",
                     )
                     security.enforceSignDelay()
@@ -6715,6 +6749,7 @@ class Executor(
                     lastBroadcastException = broadcastEx
                     val safe = security.sanitiseForLog(broadcastEx.message ?: "unknown")
                     val isSlippage = safe.contains("0x1788", ignoreCase = true) ||
+                                     safe.contains("0x1789", ignoreCase = true) ||
                                      safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                                      safe.contains("Slippage", ignoreCase = true) ||
                                      safe.contains("SlippageToleranceExceeded", ignoreCase = true)
@@ -7079,6 +7114,7 @@ class Executor(
                 // match was too greedy) which sent the user looking at their
                 // wallet balance instead of the slippage cap.
                 safe.contains("0x1788", ignoreCase = true) ||
+                safe.contains("0x1789", ignoreCase = true) ||
                 safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                 safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
 
@@ -7942,7 +7978,7 @@ class Executor(
                     }
                     // Got a quote at this tier — try to broadcast.
                     try {
-                        val txResultSweep = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = slip)
+                        val txResultSweep = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = (slip * 5).coerceIn(slip, 9999))
                         security.enforceSignDelay()
                         val useJito = c.jitoEnabled && !quote.isUltra
                         val ultraReqId = if (quote.isUltra) txResultSweep.requestId else null
@@ -7955,6 +7991,7 @@ class Executor(
                         sweepLastEx = bex
                         val safeSweep = security.sanitiseForLog(bex.message ?: "unknown")
                         val isSweepSlip = safeSweep.contains("0x1788", ignoreCase = true) ||
+                                          safeSweep.contains("0x1789", ignoreCase = true) ||
                                           safeSweep.contains("TooLittleSolReceived", ignoreCase = true) ||
                                           safeSweep.contains("Slippage", ignoreCase = true)
                         if (isSweepSlip) {

@@ -43,6 +43,11 @@ data class SwapTxResult(
     val requestId: String = "",
     val router: String = "unknown",
     val isRfqRoute: Boolean = false,
+    // V5.9.482 — surface Jupiter's dynamicSlippageReport so callers can
+    // log into LiveTradeLogStore (Forensics tile). picked = the slippageBps
+    // Jupiter chose via simulation; incurred = the actual simulated slip.
+    val dynSlipPickedBps: Int = -1,
+    val dynSlipIncurredBps: Int = -1,
 )
 
 class JupiterApi(private val apiKey: String = "") {
@@ -406,11 +411,14 @@ class JupiterApi(private val apiKey: String = "") {
             return buildUltraTx(quote, userPublicKey)
         }
 
+        val v6 = buildSwapTxV6Detailed(quote, userPublicKey, dynamicSlippageMaxBps)
         return SwapTxResult(
-            txBase64 = buildSwapTxV6(quote, userPublicKey, dynamicSlippageMaxBps),
+            txBase64 = v6.first,
             requestId = "",
             router = "metis",
             isRfqRoute = false,
+            dynSlipPickedBps = v6.second,
+            dynSlipIncurredBps = v6.third,
         )
     }
 
@@ -470,7 +478,19 @@ class JupiterApi(private val apiKey: String = "") {
         quote: SwapQuote,
         userPublicKey: String,
         dynamicSlippageMaxBps: Int? = null,
-    ): String {
+    ): String = buildSwapTxV6Detailed(quote, userPublicKey, dynamicSlippageMaxBps).first
+
+    /**
+     * V5.9.482 — same as buildSwapTxV6 but returns Triple(txBase64, dynSlipPickedBps, dynSlipIncurredBps).
+     * Jupiter's response includes a `dynamicSlippageReport` JSON when dynamicSlippage was requested;
+     * we extract `slippageBps` (picked) + `simulatedIncurredSlippageBps` for forensics. Returns -1 / -1
+     * when dynamicSlippage was not requested or the report is missing.
+     */
+    private fun buildSwapTxV6Detailed(
+        quote: SwapQuote,
+        userPublicKey: String,
+        dynamicSlippageMaxBps: Int? = null,
+    ): Triple<String, Int, Int> {
         val startMs = System.currentTimeMillis()
 
         val payload = JSONObject().apply {
@@ -481,31 +501,11 @@ class JupiterApi(private val apiKey: String = "") {
             put("prioritizationFeeLamports", "auto")
 
             // V5.9.480 — JUPITER DYNAMIC SLIPPAGE.
-            //
-            // Operator: 'look at the information from the rpc endpoints
-            // aka their documents and match how they want slippage etc
-            // handled. your trying to force it and its not working!'
-            //
-            // RCA: forensics on `pippin` showed every static-tier broadcast
-            // (1000/2000/5000/9000bps) failing 0x1788 — even at 90%
-            // tolerance the on-chain swap rejected. Quote.outAmount stayed
-            // identical across tiers; the issue was Jupiter's static
-            // `slippageBps` is encoded as a fixed minOut at quote time, but
-            // the volatile pump.fun pool moved more than even 90% between
-            // simulation and on-chain landing.
-            //
-            // Fix per Jupiter v6 docs (lite-api.jup.ag/swap/v1/swap):
-            // pass `dynamicSlippage: { minBps, maxBps }`. Jupiter then runs
-            // a real simulation and picks an optimal slippage WITHIN the
-            // bounds, encoding the simulated incurred slippage into the
-            // serialized tx. This is the maker-recommended path for
-            // volatile/illiquid memes; static slippage is meant for
-            // stablecoin-grade pairs.
-            //
-            // Caller supplies the upper bound (e.g. 2000bps for normal,
-            // 9000bps for drain-exit). Lower bound stays at 50bps so we
-            // never pay catastrophic slippage on a healthy pair just
-            // because the cap was wide.
+            // V5.9.482 — caller now sends WIDE bounds from attempt 1 so
+            // Jupiter's simulation has real room to pick a sensible
+            // slippageBps. Lower bound stays 50bps so we never pay
+            // catastrophic slippage on a healthy pair just because the
+            // cap was wide.
             if (dynamicSlippageMaxBps != null && dynamicSlippageMaxBps > 0) {
                 val ds = JSONObject().apply {
                     put("minBps", 50)
@@ -531,17 +531,12 @@ class JupiterApi(private val apiKey: String = "") {
             throw RuntimeException("Jupiter v6 returned empty swapTransaction")
         }
 
-        // V5.9.480 — log the simulated slippage Jupiter actually picked
-        // (visible only when dynamicSlippage was requested). Operator gets
-        // ground-truth on what slippage landed on-chain.
         val dsReport = json.optJSONObject("dynamicSlippageReport")
-        val dsLog = if (dsReport != null) {
-            val picked = dsReport.optInt("slippageBps", -1)
-            val incurred = dsReport.optInt("simulatedIncurredSlippageBps", -1)
-            " | dyn-slip picked=${picked}bps incurred=${incurred}bps"
-        } else ""
+        val picked = dsReport?.optInt("slippageBps", -1) ?: -1
+        val incurred = dsReport?.optInt("simulatedIncurredSlippageBps", -1) ?: -1
+        val dsLog = if (dsReport != null) " | dyn-slip picked=${picked}bps incurred=${incurred}bps" else ""
         log("✅ V6 BUILD TX OK: txLen=${swapTx.length} (${elapsed}ms)$dsLog")
-        return swapTx
+        return Triple(swapTx, picked, incurred)
     }
 
     /**
