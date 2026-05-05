@@ -5513,6 +5513,37 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     continue
                 }
 
+                // V5.9.495h — FRESH-CANDIDATE GRACE PERIOD.
+                // Operator forensics (06 May 2026 export): 90 tokens nuked
+                // in a single cleanup pass — "sweep is killing tokens as
+                // soon as they land nothing can run. its too aggressive."
+                // Many were fresh PumpPortal arrivals in their first 60s
+                // before ModeRouter / EdgeLearning / LiquidityAI had time
+                // to build initial state. Phase classification ran early
+                // on 1-2 data points and labelled them "dying"/"distribution"
+                // → instant evict → registered as REJECTED for 8s →
+                // scanner re-rejected on next cycle.
+                //
+                // Grant a 90s grace where ONLY safety-blacklist + zero-liq
+                // can evict. Phase, stale, flat, idle predicates are all
+                // skipped during grace. This gives scanners + AI layers
+                // time to do their work upstream (operator's directive).
+                val ageInWatchlist = now - ts.addedToWatchlistAt
+                val GRACE_MS = 90_000L  // 90s breathing room
+                val isInGrace = ageInWatchlist < GRACE_MS
+                if (isInGrace) {
+                    // Hard-fail evictions still apply (catastrophic only):
+                    //  - liquidity literally 0 in live mode
+                    //  - explicit token blacklist (already handled above)
+                    if (!isPaperMode && ts.lastLiquidityUsd in 0.0..0.5) {
+                        tokensToRemove.add(mint)
+                        addLog("🛑 GRACE-DEAD: ${ts.symbol} (ZERO_LIQ within ${GRACE_MS/1000}s)", mint)
+                        marketScanner?.markTokenRejected(mint)
+                        GlobalTradeRegistry.registerRejection(mint, ts.symbol, "zero_liq_grace", "CLEANUP")
+                    }
+                    continue   // grace: skip phase/stale/flat/idle/wait predicates
+                }
+
                 val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
                 val age = now - lastUpdate
                 val timeInWatchlist = now - ts.addedToWatchlistAt
@@ -5527,8 +5558,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     continue
                 }
                 
-                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases immediately
-                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution")) {
+                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases —
+                // V5.9.495h — but ONLY after we have ≥3 candle observations.
+                // Earlier classifications on 1-2 ticks were misfiring on
+                // fresh launches (phase classifier defaults to "distribution"
+                // when buy/sell ratio is undefined on tick #1). Operator:
+                // "sweep is killing tokens as soon as they land". Letting
+                // the AI layers see at least 3 candles before pulling the
+                // trigger removes the false-positive evictions.
+                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution") && ts.history.size >= 3) {
                     tokensToRemove.add(mint)
                     addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
                     marketScanner?.markTokenRejected(mint)

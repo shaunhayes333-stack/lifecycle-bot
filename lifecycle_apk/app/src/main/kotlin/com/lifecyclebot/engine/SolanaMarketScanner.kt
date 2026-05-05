@@ -721,7 +721,13 @@ class SolanaMarketScanner(
     private fun getSeenTtl(): Long = 12_000L
 
     private val rejectedMints = ConcurrentHashMap<String, Long>()
-    private fun getRejectedTtl(): Long = 8_000L
+    // V5.9.495h — operator forensics: 8s TTL was too short. A rejected
+    // token re-appeared in the very next scan, hit phase=distribution on
+    // tick 1-2 again, got re-rejected. Operator: "sweep is killing tokens
+    // as soon as they land nothing can run". 60s TTL gives the upstream
+    // rejection a meaningful cooldown without permanently banishing a
+    // mint that might genuinely turn around within a couple of cycles.
+    private fun getRejectedTtl(): Long = 60_000L
 
     private val cooldownHitCount = ConcurrentHashMap<String, Int>()
     private val saturatedMints = ConcurrentHashMap<String, Long>()
