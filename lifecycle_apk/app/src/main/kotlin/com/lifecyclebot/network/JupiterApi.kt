@@ -503,20 +503,34 @@ class JupiterApi(private val apiKey: String = "") {
             // V5.9.480 — JUPITER DYNAMIC SLIPPAGE.
             // V5.9.482 — caller now sends WIDE bounds from attempt 1 so
             // Jupiter's simulation has real room to pick a sensible
-            // slippageBps. Lower bound stays 50bps so we never pay
-            // catastrophic slippage on a healthy pair just because the
-            // cap was wide.
+            // slippageBps.
+            // V5.9.487 — CRITICAL: minBps was hard-coded to 50, which let
+            // Jupiter's simulation IGNORE the operator's escalation ladder.
+            // On every retry (200/400/600/1000/2000bps) Jupiter kept
+            // picking ~80bps because [50, maxBps] gave it freedom to lowball.
+            // The on-chain instruction then reverted with 0x1788 because the
+            // pool moved >0.8% between simulation and landing.
+            //
+            // FIX: floor minBps at the quote's own slippageBps. Jupiter is
+            // now forced to pick somewhere in [escalated_bps, maxBps] —
+            // guaranteed at least our intended escalation level. The simulator
+            // can still pick HIGHER if the pool is volatile, but it can never
+            // pick lower than what we explicitly asked for.
             if (dynamicSlippageMaxBps != null && dynamicSlippageMaxBps > 0) {
+                val quoteSlipBps = quote.raw.optInt("slippageBps", 50)
+                val effectiveMin = quoteSlipBps.coerceAtLeast(50)
+                val effectiveMax = dynamicSlippageMaxBps.coerceAtMost(9999)
+                    .coerceAtLeast(effectiveMin)  // never collapse the band
                 val ds = JSONObject().apply {
-                    put("minBps", 50)
-                    put("maxBps", dynamicSlippageMaxBps.coerceAtMost(9999))
+                    put("minBps", effectiveMin)
+                    put("maxBps", effectiveMax)
                 }
                 put("dynamicSlippage", ds)
             }
         }
 
         log("🔧 V6 BUILD TX for ${userPublicKey.take(8)}... " +
-            "${if (dynamicSlippageMaxBps != null) "[dynamicSlippage maxBps=$dynamicSlippageMaxBps]" else ""}")
+            "${if (dynamicSlippageMaxBps != null) "[dynamicSlippage maxBps=$dynamicSlippageMaxBps minBps=${quote.raw.optInt("slippageBps", 50).coerceAtLeast(50)}]" else ""}")
         val body = postOrThrow("$BASE_V6/swap", payload.toString())
         val elapsed = System.currentTimeMillis() - startMs
         val json = JSONObject(body)
