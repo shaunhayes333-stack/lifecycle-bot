@@ -493,6 +493,66 @@ class Executor(
     }
 
     /**
+     * V5.9.491 — ON-CHAIN REHYDRATE (last-resort).
+     *
+     * Operator: 'wrong the tokens are in my wallets' — the rapid-stop
+     * monitor saw isOpen=true at filter time, but by the time
+     * requestSell ran, ts.position was empty AND none of the sub-trader
+     * stores (V5.9.475) had the mint. Result: ABORT — pos.isOpen=false
+     * (qty=0.0) … with the actual tokens still sitting in the wallet.
+     *
+     * The original V5.9.475 rehydration only scanned 5 known sub-trader
+     * stores. Anything bought via a different path (Markets lane, manual
+     * deposit, an old build, an external wallet drop) is invisible to it.
+     *
+     * This helper is the FINAL safety net: if all sub-trader stores miss,
+     * we read the live wallet's `getTokenAccountsWithDecimals()` for the
+     * mint. If a non-zero balance exists, we stamp ts.position with that
+     * qty so the sell pipeline can dump it. Entry price defaults to the
+     * current observed price (so PnL math books at break-even — not
+     * accurate, but the goal is GET THE BAG OUT, not journal precision).
+     *
+     * Returns true if a wallet-rehydrate occurred.
+     */
+    private fun rehydratePositionFromWallet(ts: TokenState, wallet: SolanaWallet?): Boolean {
+        if (ts.position.qtyToken > 0.0) return false
+        if (wallet == null) return false
+        val mint = ts.mint
+        val accounts = try {
+            wallet.getTokenAccountsWithDecimals()
+        } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "rehydrateFromWallet: getTokenAccounts failed: ${e.message}")
+            return false
+        }
+        val entry = accounts[mint] ?: return false
+        val (qty, _) = entry
+        if (qty <= 0.0) return false
+        // Best-effort entry price: current price if we have it, else 0
+        // (which leaves entryPrice unchanged — caller can still compute
+        // qty in lamports for the SELL since qtyToken is what matters).
+        val entryPrice = ts.lastPrice.takeIf { it > 0.0 }
+            ?: ts.history.lastOrNull()?.priceUsd
+            ?: ts.position.entryPrice.takeIf { it > 0.0 }
+            ?: 0.0
+        val entrySol = if (entryPrice > 0.0) qty * entryPrice else 0.0
+        synchronized(ts) {
+            ts.position = ts.position.copy(
+                qtyToken       = qty,
+                costSol        = entrySol.takeIf { it > 0.0 } ?: ts.position.costSol,
+                entryPrice     = entryPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice,
+                entryTime      = if (ts.position.entryTime > 0L) ts.position.entryTime else System.currentTimeMillis(),
+                isPaperPosition= false,  // wallet has on-chain tokens → live by definition
+                pendingVerify  = false,
+            )
+        }
+        ErrorLogger.warn("Executor",
+            "🩹 ON-CHAIN REHYDRATE [Wallet] ${ts.symbol} (${mint.take(8)}…): qty=$qty " +
+            "(entryPrice=${entryPrice.takeIf { it > 0 } ?: "unknown"}) — " +
+            "no sub-trader had this position; reading from wallet directly")
+        return true
+    }
+
+    /**
      * V5.9.475 — POSITION-STORE REHYDRATION (P1 sell-kill fix).
      *
      * Operator-reported bug: 'nothing sell wise in the meme trader fires in
@@ -5239,6 +5299,15 @@ class Executor(
         // in private maps, ts.position.isOpen=false, doSell returned
         // ALREADY_CLOSED, swap never fired.
         rehydratePositionFromSubTraders(ts)
+        // V5.9.491 — final on-chain fallback: if no sub-trader had it but
+        // the wallet on-chain DOES hold the mint, rehydrate from there.
+        // Operator forensics: 'wrong the tokens are in my wallets' — the
+        // bot was aborting sells with qty=0 while the bag was sitting in
+        // the wallet. This guarantees the sell pipeline can ALWAYS dump
+        // any token the wallet actually owns.
+        if (ts.position.qtyToken <= 0.0) {
+            rehydratePositionFromWallet(ts, wallet)
+        }
 
         val isPaper = ts.position.isPaperPosition
         val hasWallet = wallet != null
