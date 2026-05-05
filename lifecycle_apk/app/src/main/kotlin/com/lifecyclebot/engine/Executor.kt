@@ -2000,6 +2000,46 @@ class Executor(
             // V5.9.479 — capture non-null sig for downstream Trade record + log calls
             val finalSig: String = sig!!
 
+            // V5.9.495s — POST-BROADCAST SELL VERIFY. Operator (06 May 2026):
+            // "the capital recovery/profit lock sells in live in memes aren't
+            // working correctly. its assuming it sells then leaving the full
+            // amount in the host wallet". Previously this path trusted the
+            // PumpPortal/Jupiter signature and reduced ts.position.qtyToken
+            // immediately, even if the broadcast never settled on-chain
+            // (slippage, no liq, MEV bundle dropped). Now: read the wallet
+            // token balance for up to 12s after broadcast; require ≥60% of
+            // sellQty to actually leave the wallet before we mutate the
+            // position record. Synthetic PHANTOM_ sentinels (dust/local
+            // closes) skip this gate. Real sigs that didn't settle now
+            // bail out cleanly with a SELL_FAILED forensics entry and the
+            // position stays intact for the next exit attempt.
+            run {
+                if (finalSig.startsWith("PHANTOM_")) return@run  // dust/local close — skip verify
+                val expectedDrop = (sellQty * 0.6).coerceAtLeast(0.0001)
+                val verifyDeadline = System.currentTimeMillis() + 12_000L
+                var observedDrop = 0.0
+                while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
+                    try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
+                    val curBal = try {
+                        wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken
+                    } catch (_: Throwable) { pos.qtyToken }
+                    observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
+                }
+                if (observedDrop < expectedDrop) {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "🚨 SELL VERIFY FAILED [$reason]: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle on-chain. Position UNCHANGED, no treasury credit.",
+                        sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
+                    )
+                    onLog("🚨 SELL VERIFY FAILED ${ts.symbol}: sig=${finalSig.take(16)}… but tokens still in wallet — position unchanged.", ts.mint)
+                    onNotify("🚨 Sell did not settle",
+                        "${ts.symbol}: $reason broadcast accepted but tokens still in wallet. Will retry next exit.",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.WARNING)
+                    return  // exit executeProfitLockSell without mutating position
+                }
+            }
+
             val solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
             val pnlSol = solBack - pos.costSol * sellFraction
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
@@ -5165,9 +5205,36 @@ class Executor(
                     )
                 } else if (ts.position.pendingVerify) {
                     // All polls OK and all returned 0 → true phantom
+                    // V5.9.495s — operator: "every buy lands as a phaeton".
+                    // The 5×6s polls + tx-parse can both miss real buys when
+                    // indexers are lagging, then we'd wipe a real on-chain
+                    // position. One synchronous last-chance ATA read here
+                    // (after the 30s poll window) catches late-indexed buys
+                    // before we destroy the record. If the wallet now shows
+                    // tokens, retroactively promote — don't wipe.
+                    val lastChanceQty: Double = try {
+                        verifyWallet.getTokenAccountsWithDecimals()[verifyMint]?.first ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    if (lastChanceQty > 0.0) {
+                        val rescued = ts.position.copy(qtyToken = lastChanceQty, pendingVerify = false)
+                        ts.position = rescued
+                        ErrorLogger.warn(
+                            "Executor",
+                            "🛟 PHANTOM RESCUE: $verifySymbol — last-chance ATA found ${lastChanceQty.fmt(4)} tokens after polls returned 0. Promoting position instead of wiping."
+                        )
+                        LiveTradeLogStore.log(
+                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                            "🛟 PHANTOM RESCUE: late-indexed buy salvaged | qty=${lastChanceQty.fmt(4)}",
+                            tokenAmount = lastChanceQty, sig = verifySig, traderTag = "MEME",
+                        )
+                        try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                        try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                        return@launch
+                    }
                     ErrorLogger.warn(
                         "Executor",
-                        "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s. Discarding pending position."
+                        "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s + last-chance check. Discarding pending position."
                     )
                     onLog("🚨 PHANTOM: $verifySymbol — tx landed but no tokens. Position discarded.", verifyMint)
                     LiveTradeLogStore.log(
@@ -5530,6 +5597,36 @@ class Executor(
                     zeroBalanceRetries.remove(ts.mint + "_broadcast_partial")
                     // V5.9.479 — capture non-null sig for downstream Trade record + log calls
                     val finalSig: String = sig!!
+
+                    // V5.9.495s — POST-BROADCAST SELL VERIFY (mirrors
+                    // executeProfitLockSell). Without this, a sig-only
+                    // success would let the bot reduce ts.position.qtyToken
+                    // even when the chain didn't settle, leaving full
+                    // tokens in the wallet but the bot believing it sold.
+                    run {
+                        if (finalSig.startsWith("PHANTOM_")) return@run
+                        val sellQtyHere = pos.qtyToken * pct
+                        val expectedDrop = (sellQtyHere * 0.6).coerceAtLeast(0.0001)
+                        val verifyDeadline = System.currentTimeMillis() + 12_000L
+                        var observedDrop = 0.0
+                        while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
+                            try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
+                            val curBal = try {
+                                activeWallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken
+                            } catch (_: Throwable) { pos.qtyToken }
+                            observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
+                        }
+                        if (observedDrop < expectedDrop) {
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_FAILED,
+                                "🚨 PARTIAL VERIFY FAILED: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle. Position UNCHANGED.",
+                                sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
+                            )
+                            onLog("🚨 PARTIAL SELL VERIFY FAILED ${ts.symbol}: tokens still in wallet — position unchanged.", ts.mint)
+                            return  // exit liveSell partial branch without mutating
+                        }
+                    }
                     
                     val solBack = if (finalSig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
                     val livePnl = solBack - pos.costSol * pct
