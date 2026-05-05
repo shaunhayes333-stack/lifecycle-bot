@@ -1798,7 +1798,12 @@ class Executor(
                     security.enforceSignDelay()
 
                     val useJito = c.jitoEnabled && !quote.isUltra
-                    val jitoTip = c.jitoTipLamports
+                    // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
+                    // Static c.jitoTipLamports (10_000) was too low during congestion;
+                    // drain-exit doubles the tip so we don't lose the position to a slow land.
+                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
+                        .getDynamicTip(c.jitoTipLamports)
+                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                     LiveTradeLogStore.log(
@@ -5019,7 +5024,10 @@ class Executor(
                             security.enforceSignDelay()
 
                             val useJito = c.jitoEnabled && !quote.isUltra
-                            val jitoTip = c.jitoTipLamports
+                            // V5.9.483 — dynamic Jito tip (see JitoTipFetcher).
+                            val jitoTip = com.lifecyclebot.network.JitoTipFetcher
+                                .getDynamicTip(c.jitoTipLamports)
+                                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
                             val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                             onLog("📊 LIVE PARTIAL: Signing and broadcasting @ ${currentSlip}bps (attempt $broadcastAttempts)...", ts.mint)
@@ -6718,7 +6726,10 @@ class Executor(
                     security.enforceSignDelay()
 
                     val useJito = c.jitoEnabled && !quote!!.isUltra
-                    val jitoTip = c.jitoTipLamports
+                    // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
+                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
+                        .getDynamicTip(c.jitoTipLamports)
+                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
 
                     if (quote!!.isUltra) {
                         onLog("🚀 Broadcasting sell via Jupiter Ultra (Beam MEV protection) @ ${currentSlip}bps…", ts.mint)
@@ -7983,7 +7994,7 @@ class Executor(
                         val useJito = c.jitoEnabled && !quote.isUltra
                         val ultraReqId = if (quote.isUltra) txResultSweep.requestId else null
                         sweepSig = wallet.signSendAndConfirm(
-                            txResultSweep.txBase64, useJito, c.jitoTipLamports,
+                            txResultSweep.txBase64, useJito, com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports),
                             ultraReqId, c.jupiterApiKey, txResultSweep.isRfqRoute,
                         )
                         break@sweep
