@@ -2114,6 +2114,42 @@ class Executor(
             if (ts.position.lowestPrice == 0.0 || currentPrice < ts.position.lowestPrice)
                 ts.position.lowestPrice = currentPrice
         }
+
+        // V5.9.495b — STRICT PER-POSITION SL FLOOR.
+        // Operator forensics (Feb 2026, screenshot): position JOHN sat at
+        // -26.1% with displayed SL of -20% but never exited. The previous
+        // catastrophic floor used FluidLearningAI.getFluidStopLoss(-25.0),
+        // which returns +4.0 during bootstrap (lerp source clamps to a
+        // POSITIVE 4 — `maxOf(modeDefaultStop, 4.0) = 4.0`). Combined with
+        // sub-trader gates that may swallow the trigger, positions could
+        // overshoot their displayed SL by 5-15%. This is a hard, unfluid
+        // floor: if we breach the position's own configured SL (or -20%
+        // as a backstop), force-sell immediately. Runs BEFORE the fluid
+        // logic below so it can't be overridden.
+        run {
+            val pos = ts.position
+            // Pick the sub-trader SL the position is being managed by.
+            // ShitCoin / BlueChip / Treasury fields are stored as POSITIVE
+            // percentages (e.g. 20.0 = -20%). Fall back to cfg().stopLossPct
+            // and finally a hard backstop of 20%.
+            val rawSL = when {
+                pos.isShitCoinPosition && pos.shitCoinStopLoss > 0.0 -> pos.shitCoinStopLoss
+                pos.isBlueChipPosition && pos.blueChipStopLoss > 0.0 -> pos.blueChipStopLoss
+                pos.isTreasuryPosition && pos.treasuryStopLoss > 0.0 -> pos.treasuryStopLoss
+                else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
+            }
+            // Never wider than -50%. Convert to negative threshold.
+            val hardFloor = -rawSL.coerceIn(5.0, 50.0)
+            val pnlPctNow = if (pos.entryPrice > 0)
+                ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
+            else 0.0
+            if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
+                onLog("🛑 STRICT SL FLOOR: ${ts.symbol} pnl=${pnlPctNow.toInt()}% ≤ ${hardFloor.toInt()}% — force-exiting", ts.mint)
+                doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
+                return
+            }
+        }
+
         if (checkProfitLock(ts, wallet, walletSol)) return
         if (ts.position.isOpen) checkPartialSell(ts, wallet, walletSol)
         if (ts.position.isOpen) {
@@ -3451,29 +3487,52 @@ class Executor(
             return
         }
         val lamports = (sol * 1_000_000_000L).toLong()
+        val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
         try {
-            val quote  = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
-                                                    lamports, c.slippageBps, sol)
-            val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
-            if (qGuard is GuardResult.Block) {
-                onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
-            }
-            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
-            security.enforceSignDelay()
-            
-            val useJito = c.jitoEnabled && !quote.isUltra
-            val jitoTip = c.jitoTipLamports
-            val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            
-            if (quote.isUltra) {
-                onLog("🚀 Broadcasting top-up via Jupiter Ultra…", ts.mint)
-            } else {
-                onLog("Broadcasting top-up tx…", ts.mint)
-            }
-            val sig    = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+            // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
+            // Same universal-auto routing the entry/exit ladder uses.
+            val ppResult = tryPumpPortalBuy(
+                ts = ts,
+                wallet = wallet,
+                solAmount = sol,
+                slipPct = 10,
+                priorityFeeSol = 0.0001,
+                useJito = c.jitoEnabled,
+                jitoTipLamports = c.jitoTipLamports,
+                tradeKey = tradeKey,
+                traderTag = "MEME",
+            )
+
             val pos    = ts.position
             val price  = getActualPrice(ts)
-            val newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+            val sig: String
+            val newQty: Double
+            if (ppResult != null) {
+                sig = ppResult.first
+                newQty = ppResult.second
+                onLog("🔺 LIVE TOP-UP (PUMP-FIRST) #${pos.topUpCount + 1}: ${ts.symbol} | sig=${sig.take(16)}…", ts.mint)
+            } else {
+                val quote  = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
+                                                        lamports, c.slippageBps, sol)
+                val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
+                if (qGuard is GuardResult.Block) {
+                    onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
+                }
+                val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+                security.enforceSignDelay()
+
+                val useJito = c.jitoEnabled && !quote.isUltra
+                val jitoTip = c.jitoTipLamports
+                val ultraReqId = if (quote.isUltra) txResult.requestId else null
+
+                if (quote.isUltra) {
+                    onLog("🚀 Broadcasting top-up via Jupiter Ultra…", ts.mint)
+                } else {
+                    onLog("Broadcasting top-up tx…", ts.mint)
+                }
+                sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+            }
 
             ts.position = pos.copy(
                 qtyToken       = pos.qtyToken + newQty,
