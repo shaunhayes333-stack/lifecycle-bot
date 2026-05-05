@@ -1317,11 +1317,19 @@ class BotService : Service() {
         val cfgNow = ConfigStore.load(applicationContext)
         val isPaper = cfgNow.paperMode
         val w = wallet
+        // V5.9.495o — operator: manual BUY toasted "Insufficient wallet SOL:
+        // 0.0000 < 0.0600" while UI top bar showed 0.9439◎. Fresh on-demand
+        // `getSolBalance()` was failing (3-retry RPC throws → catch returns
+        // 0.0). The cached `WalletManager.state.value.solBalance` is what
+        // the UI displays and is refreshed on a periodic cadence — trust it
+        // when fresh RPC fails. Only fall back to fresh RPC if cache is empty.
         val walletSol = if (isPaper) {
-            // paper: use paper treasury; doBuy ignores walletSol on paper path
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
         } else {
-            try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            val cached = try {
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
+            } catch (_: Throwable) { 0.0 }
+            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
         }
 
         // Live-mode preflight: ensure wallet exists + has enough SOL.
@@ -1367,10 +1375,14 @@ class BotService : Service() {
         val cfgNow = ConfigStore.load(applicationContext)
         val isPaper = cfgNow.paperMode
         val w = wallet
+        // V5.9.495o — same cached-balance fallback as manualBuy.
         val walletSol = if (isPaper) {
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
         } else {
-            try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            val cached = try {
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
+            } catch (_: Throwable) { 0.0 }
+            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
         }
         if (!isPaper && w == null) return false to "Live wallet not connected"
 

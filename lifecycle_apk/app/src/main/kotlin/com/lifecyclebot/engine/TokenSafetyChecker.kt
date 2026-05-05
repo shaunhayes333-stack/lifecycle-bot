@@ -385,7 +385,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // ── 2. Mint authority
         // V5.9.310: UNKNOWN ≠ SAFE in LIVE. Bernard's bot bought a token whose mint
         // status was unknown; turned out to have a freeze that locked his tokens.
-        // Hard rule: any uncertainty about mint/freeze authority → BLOCK live.
+        // V5.9.495o — operator: bot is silent live, every fresh launch
+        // shows "Mint authority status UNKNOWN — refusing live buy until
+        // verified". UNKNOWN is overwhelmingly an RPC race (the safety
+        // checker fired before getMintAccount returned), not a real risk
+        // signal. Per the gate-loosening directive (RC=1, $2K liq), demote
+        // UNKNOWN to a soft penalty in live. Confirmed-ACTIVE authority
+        // stays as a hard block — that IS a real signal.
         when (mintDisabled) {
             false -> {
                 if (isPaperMode) {
@@ -400,14 +406,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     soft.add("Mint authority status unknown" to 5)
                     penalty += 5
                 } else {
-                    hard.add("Mint authority status UNKNOWN — refusing live buy until verified")
-                    ErrorLogger.error(TAG, "🚫 MINT-AUTH UNKNOWN HARD BLOCK (live): $symbol")
+                    soft.add("Mint authority UNKNOWN (RPC race)" to 10)
+                    penalty += 10
+                    ErrorLogger.info(TAG, "⚠️ MINT-AUTH UNKNOWN soft (live): $symbol — +10 penalty, not blocking")
                 }
             }
             true -> Unit
         }
 
-        // ── 3. Freeze authority — V5.9.310: same UNKNOWN→BLOCK hardening
+        // ── 3. Freeze authority — V5.9.495o: same UNKNOWN→soft demotion as mint authority above.
         when (freezeDisabled) {
             false -> {
                 if (isPaperMode) {
@@ -422,8 +429,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     soft.add("Freeze authority status unknown" to 5)
                     penalty += 5
                 } else {
-                    hard.add("Freeze authority status UNKNOWN — refusing live buy until verified")
-                    ErrorLogger.error(TAG, "🚫 FREEZE-AUTH UNKNOWN HARD BLOCK (live): $symbol")
+                    soft.add("Freeze authority UNKNOWN (RPC race)" to 10)
+                    penalty += 10
+                    ErrorLogger.info(TAG, "⚠️ FREEZE-AUTH UNKNOWN soft (live): $symbol — +10 penalty, not blocking")
                 }
             }
             true -> Unit
@@ -433,13 +441,16 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // V5.6.8 CRITICAL FIX: Unlocked liquidity should be HARD BLOCK in live mode!
         when {
             lpLockPct < 0 -> {
-                // V5.9.310: unknown LP lock = BLOCK live. Bernard report — locked-against-sell honeypot.
+                // V5.9.495o — operator: was hard-blocking live on UNKNOWN
+                // (RPC race). Demote to soft penalty in live; the LP-locked
+                // % bands below still hard-block on actually-low locks.
                 if (isPaperMode) {
                     soft.add("LP lock status unknown" to 8)
                     penalty += 8
                 } else {
-                    hard.add("LP lock status UNKNOWN — refusing live buy")
-                    ErrorLogger.error(TAG, "🚫 LP-UNKNOWN HARD BLOCK (live): $symbol")
+                    soft.add("LP lock UNKNOWN (RPC race)" to 12)
+                    penalty += 12
+                    ErrorLogger.info(TAG, "⚠️ LP-UNKNOWN soft (live): $symbol — +12 penalty, not blocking")
                 }
             }
             lpLockPct < 30.0 -> {
