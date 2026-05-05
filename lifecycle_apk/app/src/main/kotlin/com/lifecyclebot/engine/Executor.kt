@@ -9191,13 +9191,17 @@ class Executor(
             // then showed +62000% on sells because qty was inflated 1000×.
             //
             // New order:
-            //   1. Sleep ~1.5s for ATA to index
-            //   2. Read wallet token balance
-            //   3. If wallet shows the new tokens → use that delta as qty
-            //   4. Else fall back to price math, kick off the watchdog
+            //   1. Read wallet token balance immediately (best-effort,
+            //      RPC may not have indexed yet — that's fine).
+            //   2. If wallet shows the new tokens → use that delta as qty.
+            //   3. Else fall back to price math, kick off the watchdog
+            //      (which reconciles asynchronously below).
             //
-            // The watchdog (below) still polls in case the RPC was slow.
-            Thread.sleep(1500)
+            // V5.9.495r — operator: "meme trader is extremely quiet in
+            // live mode only 1 trade open". The 1.5s Thread.sleep on
+            // every buy was serializing the bot's coroutine — at 10
+            // buys/min that's 25% of the loop wasted in sleep. Removed;
+            // the watchdog (below) handles the RPC-lag case anyway.
             val firstReadQty: Double = try {
                 val cur = wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
                 (cur - preTokenQty).coerceAtLeast(0.0)

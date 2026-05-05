@@ -415,17 +415,18 @@ object TreasuryManager {
      */
     fun backFundPaperWalletIfLow(walletSol: Double, floorSol: Double, solPrice: Double): Double {
         if (walletSol >= floorSol) return 0.0
-        // V5.9.448 + V5.9.452 — BACK-FUND can ONLY draw from UNLOCKED portion.
-        // User (explicit, 10x): "$581 treasury could grab $81; $2000 treasury
-        // with $1500 locked → take $500". Locked floor = max(SEED_FLOOR_SOL,
-        // lifetimeLocked). SEED_FLOOR keeps the original $500 default sacred;
-        // lifetimeLocked rises with milestone-hit profit locks and the
-        // back-fund must never touch those either.
-        val effectiveFloor = maxOf(SEED_FLOOR_SOL, lifetimeLocked)
+        // V5.9.495q — operator: "treasury default $0.00 unless its seen
+        // profit input". The previous floor `maxOf(SEED_FLOOR_SOL,
+        // lifetimeLocked)` reserved a phantom $500 even when the bot had
+        // never earned a real lock. Now the back-fund floor is only the
+        // *real* lifetime-locked profit; if the user has never locked
+        // anything, the entire treasury is available to the trading
+        // wallet (as it should be — there's nothing to "protect" yet).
+        val effectiveFloor = lifetimeLocked.coerceAtLeast(0.0)
         val available = (treasurySol - effectiveFloor).coerceAtLeast(0.0)
         if (available <= 0.0001) {
             ErrorLogger.debug("Treasury",
-                "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ ≤ locked-floor ${effectiveFloor.fmtSol()}◎ (seed=${SEED_FLOOR_SOL.fmtSol()} lifetime=${lifetimeLocked.fmtSol()})")
+                "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ ≤ locked-floor ${effectiveFloor.fmtSol()}◎ (lifetime=${lifetimeLocked.fmtSol()})")
             return 0.0
         }
         val deficit = floorSol - walletSol
@@ -614,36 +615,15 @@ object TreasuryManager {
             ErrorLogger.warn("Treasury", "No treasury state found - starting fresh")
         }
 
-    // V5.9.448 — HEALING SEED. Always ensure treasury is at or above the
-    // $500 floor on every restore, regardless of whether state was
-    // restored or not. V5.9.452 — ALSO ensure lifetimeLocked >= seed so
-    // the UI LOCKED row + back-fund floor both see the $500 default even
-    // from pre-V5.9.448 states.
-    if (treasurySol < SEED_FLOOR_SOL) {
-        if (treasurySol <= 0.0) {
-            // Pure seed (first run or wiped state)
-            treasurySol     = SEED_FLOOR_SOL
-            treasuryUsd     = SEED_FLOOR_USD
-            ErrorLogger.info("Treasury",
-                "🏦 Seeded starting treasury: ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} USD)")
-        } else {
-            // Heal-up: state was below floor (back-fund drain). Top up
-            // to the floor so the user always retains the $500 default.
-            val before = treasurySol
-            treasurySol = SEED_FLOOR_SOL
-            treasuryUsd = SEED_FLOOR_USD
-            ErrorLogger.warn("Treasury",
-                "🏦 HEAL-UP: treasury was below floor (${before.fmtSol()}◎) — " +
-                "topping up to ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} default).")
-        }
-        save(ctx)
-    }
-    if (lifetimeLocked < SEED_FLOOR_SOL) {
-        lifetimeLocked = SEED_FLOOR_SOL
-        save(ctx)
-        ErrorLogger.info("Treasury",
-            "🔒 lifetimeLocked floored at ${SEED_FLOOR_SOL} SOL (\$${SEED_FLOOR_USD.toInt()} — the default seed is permanently locked).")
-    }
+    // V5.9.495q — operator: "we need to set the treasury default balance to
+    // $0.00 unless its seen profit input". The previous HEALING SEED block
+    // re-seeded treasury to $500 SOL on EVERY restore (line 622-647) even
+    // when state was at 0, masking real losses and showing a phantom
+    // "Treasury Tier $500 milestone | LOCKED 5.882 SOL ($509)" balance the
+    // bot never actually earned. Removed the heal-up; treasury now stays at
+    // whatever the real state was (0.0 on fresh install) and only grows
+    // when realised profits are deposited via lockProfit/addToTreasury.
+    // The lifetimeLocked floor is also removed for the same reason.
     }
     
     private fun restoreFromJson(json: String) {
