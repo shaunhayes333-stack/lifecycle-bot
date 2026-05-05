@@ -1780,7 +1780,7 @@ class Executor(
                             continue
                         }
                     }
-                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_TX_BUILT,
@@ -4991,7 +4991,7 @@ class Executor(
                                     continue
                                 }
                             }
-                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58)
+                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_TX_BUILT,
@@ -6673,7 +6673,7 @@ class Executor(
                     }
 
                     onLog("📊 SELL DEBUG: Building transaction (slip=${currentSlip}bps attempt=$broadcastAttempts)...", tradeId.mint)
-                    val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58)
+                    val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = currentSlip)
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -7942,7 +7942,7 @@ class Executor(
                     }
                     // Got a quote at this tier — try to broadcast.
                     try {
-                        val txResultSweep = buildTxWithRetry(quote, wallet.publicKeyB58)
+                        val txResultSweep = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = slip)
                         security.enforceSignDelay()
                         val useJito = c.jitoEnabled && !quote.isUltra
                         val ultraReqId = if (quote.isUltra) txResultSweep.requestId else null
@@ -8036,14 +8036,15 @@ class Executor(
 
     private fun buildTxWithRetry(
         quote: com.lifecyclebot.network.SwapQuote, pubkey: String,
+        dynamicSlippageMaxBps: Int? = null,
     ): com.lifecyclebot.network.SwapTxResult {
         return try {
-            jupiter.buildSwapTx(quote, pubkey)
+            jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps)
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "⚠️ buildSwapTx attempt 1 failed: ${e.javaClass.simpleName} | ${e.message?.take(120)}")
             Thread.sleep(1000)
             try {
-                jupiter.buildSwapTx(quote, pubkey)
+                jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps)
             } catch (e2: Exception) {
                 ErrorLogger.error("Executor", "❌ buildSwapTx attempt 2 ALSO failed: ${e2.javaClass.simpleName} | ${e2.message?.take(120)}")
                 throw e2
