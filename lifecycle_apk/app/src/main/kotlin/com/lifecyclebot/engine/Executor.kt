@@ -655,14 +655,25 @@ class Executor(
     ): Long {
         if (!qty.isFinite() || qty <= 0.0) return 1L
 
-        val decimals = try {
-            wallet?.getTokenAccountsWithDecimals()?.get(mint)?.second
-        } catch (_: Exception) {
-            null
-        } ?: fallbackDecimals ?: 9
+        // V5.9.495l — WALLET-CAP SAFETY NET. Operator (06 May 2026): when
+        // a position records inflated qty (e.g. PUMP-FIRST estimate from a
+        // stale getActualPrice baked 1000× too many tokens into Position),
+        // sells try to dump tokens that aren't there. Jupiter quotes still
+        // come back proportionally large → fake +62000% gains in journal.
+        // Cap the sell qty at whatever the wallet ACTUALLY holds so we
+        // never sell phantom inventory.
+        val walletAccounts = try { wallet?.getTokenAccountsWithDecimals() } catch (_: Exception) { null }
+        val walletEntry = walletAccounts?.get(mint)
+        val walletQty = walletEntry?.first ?: 0.0
+        val cappedQty = if (walletQty > 0.0 && walletQty < qty) {
+            ErrorLogger.info("Executor",
+                "🛡 WALLET-CAP: ${mint.take(8)}… requested qty=$qty but wallet has $walletQty — capping sell to wallet")
+            walletQty
+        } else qty
 
+        val decimals = walletEntry?.second ?: fallbackDecimals ?: 9
         val scale = 10.0.pow(decimals.coerceAtLeast(0).toDouble())
-        return (qty * scale).toLong().coerceAtLeast(1L)
+        return (cappedQty * scale).toLong().coerceAtLeast(1L)
     }
 
     private fun reflectInt(target: Any?, vararg names: String): Int? {
@@ -1989,7 +2000,7 @@ class Executor(
             // V5.9.479 — capture non-null sig for downstream Trade record + log calls
             val finalSig: String = sig!!
 
-            val solBack = quote.outAmount / 1_000_000_000.0
+            val solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
             val pnlSol = solBack - pos.costSol * sellFraction
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnlSol, pos.costSol * sellFraction)
@@ -2349,7 +2360,9 @@ class Executor(
                         )
                         rescue ?: throw jupEx
                     }
-                    solBack = quote.outAmount / 1_000_000_000.0
+                    // V5.9.495k — PHANTOM-aware solBack: zero out fake gains
+                    // when the rescue helper returned a PHANTOM_* sentinel sig.
+                    solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
                     livePnl = solBack - pos.costSol * sellFraction
                     liveScore = pct(pos.costSol * sellFraction, solBack)
                     val pair = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
@@ -5518,7 +5531,7 @@ class Executor(
                     // V5.9.479 — capture non-null sig for downstream Trade record + log calls
                     val finalSig: String = sig!!
                     
-                    val solBack = quote.outAmount / 1_000_000_000.0
+                    val solBack = if (finalSig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
                     val livePnl = solBack - pos.costSol * pct
                     val liveScore = pct(pos.costSol * pct, solBack)
                     val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * pct)
@@ -8781,7 +8794,7 @@ class Executor(
                     labelTag = "ORPHAN-RESCUE",
                 ) ?: throw jupEx
             }
-            val solBack = quote.outAmount / 1_000_000_000.0
+            val solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
             
             onLog("✅ Orphan sold: $mint → ${solBack.fmt(4)} SOL | sig=${sig.take(16)}…", mint)
             onNotify("🧹 Orphan Cleanup",
@@ -8942,26 +8955,26 @@ class Executor(
                 traderTag = traderTag,
             )
 
-            // V5.9.495f — PHANTOM-POSITION GUARD. PumpPortal returns HTTP
-            // 400 'Bad Request' when amount="100%" but the wallet ATA is
-            // empty (e.g. a previously-sold position the bot still thinks
-            // is open). Operator forensics (06 May 2026 STRIKE PROFIT-LOCK
-            // run): 5 Jupiter slippage retries + 2 PumpPortal 400s burned
-            // 30s + tx fees on a token that wasn't even in the wallet.
-            // Skip both PumpPortal AND Jupiter on phantom — close the
-            // position locally instead so the UI clears.
-            if (preTokenQty in 0.0..1e-9) {
-                onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = 0 — skipping sell ladder", ts.mint)
+            // V5.9.495k — PHANTOM-POSITION GUARD with WIDENED dust threshold.
+            // V5.9.495f used `preTokenQty in 0.0..1e-9` which was too tight:
+            // a wallet with e.g. 1e-5 tokens (formatted as "0.0000" in the
+            // forensics tile) slipped past the guard, tried to sell the
+            // recorded 4 trillion-token position size, and burned 6 retries
+            // for a +62663% phantom gain in the Trade Journal. Anything
+            // below 0.0001 UI tokens is dust — treat as phantom.
+            if (preTokenQty in 0.0..0.0001) {
+                onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = $preTokenQty (dust) — skipping sell ladder", ts.mint)
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_FAILED,
-                    "👻 PHANTOM: wallet ATA empty (preTokenBal=0) — local close, no broadcast",
+                    "👻 PHANTOM: wallet ATA dust (preTokenBal=${"%.6f".format(preTokenQty)}) — local close, no broadcast",
                     traderTag = traderTag,
                 )
                 // Return a synthetic sentinel sig so the caller treats it
                 // as 'sold' and the position records close locally. The
                 // string starts with 'PHANTOM_' so downstream auditors can
-                // distinguish from real on-chain sells in TradeHistoryStore.
+                // distinguish from real on-chain sells in TradeHistoryStore
+                // and zero out the solBack computation (no real recovery).
                 return "PHANTOM_${System.currentTimeMillis().toString(16)}"
             }
 
@@ -9169,24 +9182,54 @@ class Executor(
                 sig = sig, traderTag = traderTag,
             )
 
-            // V5.9.495c — Estimate qty from price (best-effort, will be
-            // reconciled by phantom-verify on-chain readback later). Do
-            // NOT block on a wallet token-account read; commodity RPCs
-            // index 10-30s behind so the read returns 0 even after a
-            // successful buy and causes a double-spend if we fall back.
+            // V5.9.495l — PRIMARY qty source = WALLET, FALLBACK = price math.
+            // Operator (06 May 2026): "phantom bought but they are in the
+            // wallet then sold fine but same issue weird price calculation
+            // displayed in journal". Estimating qty from `solAmount × solPx
+            // ÷ getActualPrice` was hitting stale/zero/wrong prices, baking
+            // a wildly wrong qty into the position record. Realised gains
+            // then showed +62000% on sells because qty was inflated 1000×.
+            //
+            // New order:
+            //   1. Sleep ~1.5s for ATA to index
+            //   2. Read wallet token balance
+            //   3. If wallet shows the new tokens → use that delta as qty
+            //   4. Else fall back to price math, kick off the watchdog
+            //
+            // The watchdog (below) still polls in case the RPC was slow.
+            Thread.sleep(1500)
+            val firstReadQty: Double = try {
+                val cur = wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                (cur - preTokenQty).coerceAtLeast(0.0)
+            } catch (_: Throwable) { 0.0 }
+
             val price = getActualPrice(ts).takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 }
             val solPriceUsd = WalletManager.lastKnownSolPrice
-            val estimatedQty = if (price != null && price > 0.0 && solPriceUsd > 0.0) {
+            val priceMathQty = if (price != null && price > 0.0 && solPriceUsd > 0.0) {
                 (solAmount * solPriceUsd) / price
             } else {
                 1.0
             }
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
-                "🔍 Estimated qty=${"%.4f".format(estimatedQty)} @ price=${price?.let { "%.8f".format(it) } ?: "N/A"} | starting on-chain verify",
-                tokenAmount = estimatedQty, sig = sig, traderTag = traderTag,
-            )
+
+            // Trust the wallet read if it returned a non-trivial delta
+            // (≥1% of price-math estimate) — that's our ground truth.
+            val estimatedQty = if (firstReadQty > priceMathQty * 0.01 && firstReadQty > 0.0) {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                    "🔍 Wallet ground truth: qty=${"%.4f".format(firstReadQty)} (price-math estimate would have been ${"%.4f".format(priceMathQty)})",
+                    tokenAmount = firstReadQty, sig = sig, traderTag = traderTag,
+                )
+                firstReadQty
+            } else {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                    "🔍 Estimated qty=${"%.4f".format(priceMathQty)} @ price=${price?.let { "%.8f".format(it) } ?: "N/A"} | wallet read returned ${"%.4f".format(firstReadQty)} — using price math, watchdog will reconcile",
+                    tokenAmount = priceMathQty, sig = sig, traderTag = traderTag,
+                )
+                priceMathQty
+            }
 
             // V5.9.495d — BACKGROUND BUY VERIFY watchdog. Polls wallet
             // token balance every 3s up to 45s, logs LANDED when the new
