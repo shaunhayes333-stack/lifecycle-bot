@@ -3811,6 +3811,30 @@ class BotService : Service() {
                                 autoSellOrphans = false,
                             )
                             r.reconcile()
+                            // V5.9.493 — PHANTOM SWEEP for sub-trader stores.
+                            // StartupReconciler clears ghosts in status.tokens
+                            // (the V3 lane), but Treasury / ShitCoin /
+                            // Quality / BlueChip / Moonshot keep positions
+                            // in their OWN private maps. If a Treasury
+                            // position got sold off-band (V5.9.488 PUMP
+                            // DIRECT, manual Phantom sell, external bot,
+                            // etc.) the close-out callback never fires and
+                            // the position UI shows a phantom 'open' tile.
+                            // Sweep against the live wallet balance and
+                            // remove anything no-longer-owned.
+                            try {
+                                val accounts = w.getTokenAccountsWithDecimals()
+                                val walletMints = accounts
+                                    .filter { (_, v) -> v.first > 0.0 }
+                                    .keys
+                                val cleared = com.lifecyclebot.v3.scoring.CashGenerationAI
+                                    .sweepPhantoms(walletMints)
+                                if (cleared > 0) {
+                                    addLog("🧹 Treasury phantom sweep: cleared $cleared stale position(s)")
+                                }
+                            } catch (e: Exception) {
+                                ErrorLogger.warn("BotService", "Phantom sweep error: ${e.message}")
+                            }
                         }
                     } catch (e: Exception) {
                         ErrorLogger.warn("BotService", "Periodic reconcile error: ${e.message}")

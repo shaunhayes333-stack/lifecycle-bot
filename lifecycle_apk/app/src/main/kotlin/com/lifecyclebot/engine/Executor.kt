@@ -6788,7 +6788,74 @@ class Executor(
             var sig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
-            for (currentSlip in broadcastSlipLadder) {
+            // V5.9.492 — PUMP-FIRST routing for pump.fun mints.
+            // Operator V5.9.490 forensics: every pump.fun sell exhausted
+            // 5 Jupiter escalations (~20s wasted) before landing via
+            // PumpPortal direct anyway. Routing pump.fun mints to their
+            // home venue first cuts the happy path to ~3s.
+            // If PumpPortal succeeds → skip Jupiter ladder. If it fails
+            // (e.g. Lightning API blip, graduated token routing edge
+            // case, network) → fall through to existing Jupiter ladder.
+            // pumpFirstTried gates the post-Jupiter PumpPortal fallback
+            // so we don't double-attempt.
+            var pumpFirstTried = false
+            if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)) {
+                pumpFirstTried = true
+                try {
+                    val pumpSlip = if (isDrainExit) 75 else 30
+                    onLog("🚀 PUMP-FIRST: ${ts.symbol} → pump.fun program @ ${pumpSlip}% slip (skipping Jupiter for pump.fun mint)", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                        "🚀 PUMP-FIRST @ ${pumpSlip}% slip (pump.fun mint — bypassing Jupiter)",
+                        traderTag = "MEME",
+                    )
+                    val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
+                        publicKeyB58    = wallet.publicKeyB58,
+                        mint            = ts.mint,
+                        tokenAmount     = tokenUnits,
+                        slippagePercent = pumpSlip,
+                        priorityFeeSol  = if (isDrainExit) 0.0005 else 0.0001,
+                    )
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                        "Tx built | router=PUMP_DIRECT | slip=${pumpSlip}% (pump.fun program)",
+                        traderTag = "MEME",
+                    )
+                    val useJito = c.jitoEnabled
+                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
+                        .getDynamicTip(c.jitoTipLamports)
+                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                    onLog("⚡ Broadcasting PUMP-FIRST sell @ ${pumpSlip}% slip${if (useJito) " (Jito)" else ""}…", ts.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BROADCAST,
+                        "Broadcasting PUMP-FIRST @ ${pumpSlip}% | route=${if (useJito) "JITO" else "RPC"}",
+                        traderTag = "MEME",
+                    )
+                    sig = wallet.signAndSend(built.txBase64, useJito, jitoTip)
+                    onLog("✅ PUMP-FIRST SELL CONFIRMED: sig=${sig?.take(20) ?: "?"}…", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                        "✅ Sell tx confirmed via pump.fun program @ ${pumpSlip}% slip (PUMP-FIRST routing)",
+                        sig = sig, traderTag = "MEME",
+                    )
+                } catch (pumpEx: Exception) {
+                    val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
+                    onLog("⚠️ PUMP-FIRST failed (${safe.take(80)}) — falling through to Jupiter ladder", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "PUMP-FIRST failed: ${safe.take(80)} — falling back to Jupiter",
+                        traderTag = "MEME",
+                    )
+                    // sig stays null → Jupiter ladder runs next.
+                }
+            }
+            // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
+            for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
                     // Re-quote at the new slippage tier on attempts 2+. The
@@ -6931,7 +6998,22 @@ class Executor(
             // because the operator has just exhausted 5 Jupiter attempts
             // and is far past caring about "fair" execution — they need
             // the bag out of the wallet at any price.
-            if (sig == null && com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)) {
+            // V5.9.488 — PUMP.FUN / PUMPSWAP DIRECT FALLBACK (all mints).
+            //
+            // V5.9.493: dropped the .endsWith("pump") gate. Operator insight:
+            // 'most of solana can be accessed and traded via pumpfun and
+            // pumpswap these days so may be able to use that to our
+            // advantage'. PumpPortal Lightning's pool='auto' routes through
+            // pump.fun bonding curve, PumpSwap AMM, AND Raydium pools — so
+            // it can dump graduated tokens (CORE), Raydium-only memes
+            // (ISLAND, AALIEN, JOURNEY), even SHARPIE. Jupiter exhausting
+            // means the bag is sticky AT JUPITER's routes; PumpPortal's
+            // separate router pool may still find a way out.
+            //
+            // If all Jupiter slippage tiers failed and PUMP-FIRST didn't
+            // already try (V5.9.492), invoke the direct-route fallback as
+            // a last attempt. Drain-exit gets 75% slippage, normal 30%.
+            if (sig == null && !pumpFirstTried) {
                 try {
                     val pumpSlip = if (isDrainExit) 75 else 30
                     onLog("🚀 PUMP DIRECT FALLBACK: ${ts.symbol} (Jupiter exhausted) — trying pump.fun program @ ${pumpSlip}% slip…", tradeId.mint)

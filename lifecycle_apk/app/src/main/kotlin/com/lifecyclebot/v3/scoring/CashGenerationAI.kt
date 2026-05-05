@@ -1145,6 +1145,50 @@ object CashGenerationAI {
         TIME_EXIT,
     }
 
+    /**
+     * V5.9.493 — PHANTOM POSITION SWEEP.
+     *
+     * Operator forensics: bot UI shows VENIS as +90.4% open in Treasury Scalps
+     * but the wallet has zero VENIS — already sold off-band (CORE was confirmed
+     * sold via PUMP DIRECT FALLBACK earlier; the Treasury position never
+     * cleared). Result: stale UI, blocked re-entry, position-count drift.
+     *
+     * This sweeper takes the set of mints CURRENTLY held on-chain. Any LIVE
+     * Treasury position whose mint is NOT in that set is a phantom — the
+     * tokens have left the wallet (sold via Jupiter/PumpPortal/manual/external)
+     * but the close-out callback never ran. We synthesise a no-PnL close so
+     * activePositions stays in sync with reality.
+     *
+     * Paper positions are skipped — they have no on-chain footprint to compare
+     * against.
+     *
+     * @param walletMints set of mints with positive on-chain balance.
+     * @return number of phantom positions cleared.
+     */
+    fun sweepPhantoms(walletMints: Set<String>): Int {
+        val cleared = mutableListOf<String>()
+        // Only sweep the LIVE positions map. Paper positions are sandboxed
+        // and would always show as phantoms against the on-chain wallet.
+        val live = synchronized(livePositions) { livePositions.toMap() }
+        live.forEach { (mint, pos) ->
+            if (mint !in walletMints) {
+                synchronized(livePositions) { livePositions.remove(mint) }
+                try {
+                    com.lifecyclebot.engine.TradeAuthorizer.releasePosition(mint)
+                } catch (_: Exception) {}
+                cleared.add("${pos.symbol}(${mint.take(6)}…)")
+            }
+        }
+        if (cleared.isNotEmpty()) {
+            ErrorLogger.warn(
+                TAG,
+                "🧹 TREASURY PHANTOM SWEEP cleared ${cleared.size} position(s) " +
+                "no longer in wallet: ${cleared.joinToString(", ")}"
+            )
+        }
+        return cleared.size
+    }
+
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         // V5.9.456 — MODE-COHERENCE CLOSE FIX.
         // If the position lives in the OTHER mode's map (because cfg was
