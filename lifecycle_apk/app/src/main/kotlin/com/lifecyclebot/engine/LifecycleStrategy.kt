@@ -1126,10 +1126,17 @@ class LifecycleStrategy(
         // which restored volume but produced 11-loss streaks at 12% WR (worse
         // than random). These soft floors filter the noisiest garbage while
         // still allowing 5–10x the pre-V5.9.311 volume for layer learning.
-        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 25.0   // V5.9.319: 15→25 — bot at 3% WR with old floor
-        // V5.9.319: C-quality conf=33 trades (LOL/EITHER style) were leaking through old floor=10.
-        // Bot was at 3% WR with 26 consec losses. C-quality requires conf>=40 now in paper.
-        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 40.0
+        // V5.9.489 — operator: 'its blocking a lot of tokens before even learning
+        // about them.' Paper mode is for LEARNING, not for protecting paper PnL.
+        // Lower the SKIP floor from 25→10 so only truly-dead tokens (conf<10%)
+        // get blocked. Anything 10–24% conf reaches FluidLearningAI / EdgeLearning
+        // for layer training; quality-penalty + smart sizing keep loss exposure
+        // tiny on the borderline ones. Restores build-1941-era learning volume.
+        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 10.0
+        // V5.9.489 — same easing for the C-quality floor (40→25) so quality=C
+        // trades with 25–39% conf flow through to learning instead of being
+        // pre-blocked. The setup-quality penalty already shrinks the size on these.
+        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 25.0
 
         // V5.9.318: TradingCopilot life-coach overlay. Read-only consume of the
         // current coaching directive. Drives 4 dynamic effects:

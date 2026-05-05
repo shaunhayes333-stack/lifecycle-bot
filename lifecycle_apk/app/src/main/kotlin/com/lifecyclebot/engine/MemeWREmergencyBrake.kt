@@ -34,8 +34,8 @@ object MemeWREmergencyBrake {
     private const val WINDOW_SIZE         = 200
     private const val ENGAGE_WR_PCT       = 30.0
     private const val RELEASE_WR_PCT      = 35.0   // hysteresis
-    private const val SCORE_BOOST         = 15
-    private const val SIZING_MULT         = 0.5
+    private const val SCORE_BOOST         = 8       // V5.9.489 — was 15 (less aggressive coaching, more trades through to learn from)
+    private const val SIZING_MULT         = 0.85  // V5.9.489 — was 0.5 (too aggressive; meme trader was choking under cascade floor + brake stack)
 
     private val MEME_MODES = setOf(
         "Shit", "ShitCoin", "Shitcoin",

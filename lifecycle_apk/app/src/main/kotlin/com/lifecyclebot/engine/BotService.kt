@@ -8065,12 +8065,25 @@ if (deferredCount > 0) {
                             // volume is preserved even at maximum caution.
                             val ladderSizeMult = try { com.lifecyclebot.engine.QualityLadder.sizeMultiplier() } catch (_: Throwable) { 1.0 }
                             val sizeBefore = proposedSize
-                            proposedSize = (proposedSize *
+                            // V5.9.489 — CASCADE FLOOR (anti-choke).
+                            // Operator: 'the meme trader should maintain really good
+                            // volume once learnt. it should never ever be allowed to
+                            // choke itself out.'
+                            //
+                            // The 4 multipliers were stacking down to ~0.19× (mode 0.70
+                            // × sym 0.54 × llm 1.00 × ladder 0.50) — strangling
+                            // entries to 19% of base size on every meme trade. Each
+                            // dampener individually is reasonable; the multiplicative
+                            // composition is not. Floor the COMBINED product at 0.60
+                            // so a single cascade can never wipe out more than 40%
+                            // of position size. Volume preserved, signal still steers.
+                            val rawProduct =
                                 modeMultipliers.positionSizeMultiplier *
                                 symSizeAdj *
                                 llmSizeMult *
                                 ladderSizeMult
-                            ).coerceIn(0.005, 1.0)
+                            val flooredProduct = rawProduct.coerceAtLeast(0.60)
+                            proposedSize = (proposedSize * flooredProduct).coerceIn(0.005, 1.0)
                             if (kotlin.math.abs(proposedSize - sizeBefore) > 0.0005) {
                                 ErrorLogger.info(
                                     "BotService",
@@ -8078,7 +8091,9 @@ if (deferredCount > 0) {
                                     "mode=${"%.2f".format(modeMultipliers.positionSizeMultiplier)} × " +
                                     "sym=${"%.2f".format(symSizeAdj)} × " +
                                     "llm=${"%.2f".format(llmSizeMult)} × " +
-                                    "ladder=${"%.2f".format(ladderSizeMult)} → ${proposedSize.fmt(4)}◎ " +
+                                    "ladder=${"%.2f".format(ladderSizeMult)} = ${"%.2f".format(rawProduct)}" +
+                                    (if (rawProduct < 0.60) " [floored→0.60]" else "") +
+                                    " → ${proposedSize.fmt(4)}◎ " +
                                     "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
                                 )
                             }
