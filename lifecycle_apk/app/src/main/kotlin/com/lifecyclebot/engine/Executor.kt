@@ -6564,6 +6564,11 @@ class Executor(
                 throw lastBroadcastException ?: RuntimeException(
                     "${ts.symbol}: all in-line broadcast retries exhausted at ${broadcastSlipLadder.last()}bps")
             }
+
+            // V5.9.478 — capture the final non-null quote (the one whose
+            // broadcast actually landed) so downstream PnL maths and
+            // logging don't trip Kotlin's nullable-receiver checks.
+            val finalQuote: com.lifecyclebot.network.SwapQuote = quote!!
             
             try {
                 // V5.9.455 — FEE FAIRNESS FIX.
@@ -6725,16 +6730,16 @@ class Executor(
                 val actualBalance = wallet.getSolBalance()
                 val delta = actualBalance - walletSol
                 if (delta > 0.001) {
-                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=${(quote.outAmount / 1_000_000_000.0).fmt(6)} SOL", tradeId.mint)
+                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=${(finalQuote.outAmount / 1_000_000_000.0).fmt(6)} SOL", tradeId.mint)
                     pos.costSol + delta  // costSol + delta = total back (delta = net SOL gain/loss vs cost)
                 } else {
                     // RPC lag or fee deduction made delta look tiny — fall back to quote
-                    onLog("📊 SELL PnL (quoted fallback): delta=${delta.fmt(6)} | outAmount=${quote.outAmount}", tradeId.mint)
-                    quote.outAmount / 1_000_000_000.0
+                    onLog("📊 SELL PnL (quoted fallback): delta=${delta.fmt(6)} | outAmount=${finalQuote.outAmount}", tradeId.mint)
+                    finalQuote.outAmount / 1_000_000_000.0
                 }
             } catch (balEx: Exception) {
                 onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}), using quote", tradeId.mint)
-                quote.outAmount / 1_000_000_000.0
+                finalQuote.outAmount / 1_000_000_000.0
             }
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
@@ -6745,7 +6750,7 @@ class Executor(
             // finally accumulates samples. quote.outAmount = optimistic
             // estimate; solBack = actual SOL received post-fees/MEV.
             try {
-                val quotedSol = quote.outAmount / 1_000_000_000.0
+                val quotedSol = finalQuote.outAmount / 1_000_000_000.0
                 if (quotedSol > 0.0 && solBack > 0.0) {
                     val liqUsd = ts.lastLiquidityUsd
                     com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(
