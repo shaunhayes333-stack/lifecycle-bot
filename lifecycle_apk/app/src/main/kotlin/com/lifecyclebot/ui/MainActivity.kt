@@ -2862,6 +2862,24 @@ for legal compliance.
                 setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
+            // V5.9.495m — SETTLE-IN COUNTDOWN CHIP. Mirrors the 45s post-buy
+            // grace (Executor.SETTLE_IN_MS) so the operator can see WHY a
+            // freshly bought token isn't being managed yet — gives confidence
+            // that exit predicates intentionally don't fire on launch
+            // volatility for the first 45 seconds.
+            run {
+                val ageMs = System.currentTimeMillis() - pos.entryTime
+                val settleMs = 45_000L
+                if (pos.entryTime > 0L && ageMs in 0L..settleMs) {
+                    val remainSec = ((settleMs - ageMs) / 1000L).coerceAtLeast(0L)
+                    info.addView(TextView(this).apply {
+                        text = "🛡 SETTLE 0:${"%02d".format(remainSec)}"
+                        textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+                        setTextColor(0xFFFBBF24.toInt()) // amber/gold
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    })
+                }
+            }
             // Entry price per token and time — use pos.entryPrice directly
             info.addView(TextView(this).apply {
                 text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
@@ -5723,8 +5741,21 @@ This cannot be undone!
                     Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                val (ok, msg) = service.manualBuy(mint, amt)
-                Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                // V5.9.495m — ANR FIX: manualBuy now does wallet RPC + 1.5s
+                // Thread.sleep in liveBuy (V5.9.495l). Calling on UI thread
+                // freezes the app for 3-5+s and triggers Android's "wait/close"
+                // dialog. Run on background thread, post toast back to UI.
+                Toast.makeText(this, "⏳ BUY submitting…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val (ok, msg) = try {
+                        service.manualBuy(mint, amt)
+                    } catch (e: Exception) {
+                        false to "Error: ${e.message ?: e.javaClass.simpleName}"
+                    }
+                    runOnUiThread {
+                        Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                    }
+                }.start()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -5774,8 +5805,21 @@ This cannot be undone!
                 "PnL:   ${"%+.2f".format(pnlPct)}%  (${"%+.4f".format(pnlSol)} SOL)"
             )
             .setPositiveButton("SELL") { _, _ ->
-                val (ok, msg) = service.manualSell(mint)
-                Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                // V5.9.495m — ANR FIX: manualSell now triggers wallet RPC
+                // (quantityToTokenUnits → getTokenAccountsWithDecimals) on
+                // every call. Run off the UI thread to avoid Android's
+                // "wait/close" dialog when RPC is slow.
+                Toast.makeText(this, "⏳ SELL submitting…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val (ok, msg) = try {
+                        service.manualSell(mint)
+                    } catch (e: Exception) {
+                        false to "Error: ${e.message ?: e.javaClass.simpleName}"
+                    }
+                    runOnUiThread {
+                        Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                    }
+                }.start()
             }
             .setNegativeButton("Cancel", null)
             .show()
