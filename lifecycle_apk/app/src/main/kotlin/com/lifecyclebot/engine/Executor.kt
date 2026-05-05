@@ -1855,6 +1855,18 @@ class Executor(
                 labelTag = "PROFIT-LOCK",
             )
             // V5.9.495 — skip Jupiter ladder if PumpPortal already landed.
+            // V5.9.495d — Ultra-first fallback signal. liveSell uses
+            // getQuoteWithTaker which prefers Jupiter Ultra v2 then v6
+            // Metis on RFQ rejection. Log the intent so operator sees the
+            // escalation chain end-to-end on the forensics tile.
+            if (sig == null) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.INFO,
+                    "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${broadcastSlipLadder.joinToString("/")}bps",
+                    traderTag = "MEME",
+                )
+            }
             for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
@@ -4584,6 +4596,18 @@ class Executor(
             var useJito = false
             var jitoTip = 0L
             if (pumpFirstResult == null) {
+            // V5.9.495d — explicit Ultra-first signal for forensics.
+            // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
+            // first then falls back to v6 Metis on RFQ rejection — log
+            // that intent so the operator can see we're escalating from
+            // PUMP-FIRST → JUPITER ULTRA, not silently jumping straight
+            // to Metis. Operator: "should always revert to ultra".
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.INFO,
+                "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",
+                solAmount = sol, traderTag = "MEME",
+            )
             for (slip in slippageLadder) {
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
@@ -7110,6 +7134,18 @@ class Executor(
                 labelTag = if (isDrainExit) "EXIT-DRAIN" else "EXIT",
             )
             // V5.9.492 — skip Jupiter ladder entirely if PUMP-FIRST landed.
+            // V5.9.495d — Ultra-first fallback signal. liveSell uses
+            // getQuoteWithTaker which prefers Jupiter Ultra v2 then v6
+            // Metis on RFQ rejection. Log the intent so operator sees the
+            // escalation chain end-to-end on the forensics tile.
+            if (sig == null) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.INFO,
+                    "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${broadcastSlipLadder.joinToString("/")}bps",
+                    traderTag = "MEME",
+                )
+            }
             for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
@@ -8873,11 +8909,29 @@ class Executor(
         return try {
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
+
+            // V5.9.495d — DEEP FORENSICS for sells. Snapshot wallet SOL +
+            // token balance pre-broadcast so the operator can see the
+            // before/after at the trade screen. Async post-broadcast watcher
+            // logs SELL_VERIFY_TOKEN_GONE / SELL_VERIFY_SOL_RETURNED when
+            // the chain catches up — turns silent sells into a visible audit
+            // trail end-to-end.
+            val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+            val preTokenQty: Double = try {
+                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+            } catch (_: Throwable) { -1.0 }
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                "📋 PRE-SELL: walletSol=${"%.4f".format(preWalletSol)} | tokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
+                traderTag = traderTag,
+            )
+
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
-                "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip",
+                "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 traderTag = traderTag,
             )
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
@@ -8890,7 +8944,7 @@ class Executor(
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_TX_BUILT,
-                "Tx built | router=PUMP_DIRECT [$labelTag] | slip=${slipPct}%",
+                "Tx built | router=PUMP_DIRECT [$labelTag] | slip=${slipPct}% | size=${tokenUnits ?: "ALL"}",
                 traderTag = traderTag,
             )
             LiveTradeLogStore.log(
@@ -8900,21 +8954,82 @@ class Executor(
                 traderTag = traderTag,
             )
             val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
-            onLog("✅ PUMP-FIRST [$labelTag] SELL CONFIRMED: sig=${sig.take(20)}…", ts.mint)
+            if (sig.isBlank()) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_FAILED,
+                    "PUMP-FIRST [$labelTag]: blank signature — falling back to Jupiter",
+                    traderTag = traderTag,
+                )
+                return null
+            }
+            onLog("✅ PUMP-FIRST [$labelTag] SELL ACCEPTED: sig=${sig.take(20)}… (verifying on-chain)", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                "✅ Sell confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip",
+                "✅ Tx accepted via PumpPortal [$labelTag] @ ${slipPct}% slip — async verify scheduled",
                 sig = sig, traderTag = traderTag,
             )
+
+            // V5.9.495d — BACKGROUND SELL VERIFY. Polls wallet for token
+            // disappearance + SOL return, logs both to the forensics tile.
+            // This makes "did the sell actually land?" a visible answer
+            // instead of a silent inference. Failure to verify within
+            // ~45s emits a SELL_STUCK warning that the operator will see.
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    var seenTokenGone = false
+                    var seenSolReturned = false
+                    val solBumpThreshold = 0.001  // ignore noise from rent/fees fluctuations
+                    val deadlineMs = System.currentTimeMillis() + 45_000L
+                    var poll = 0
+                    while (System.currentTimeMillis() < deadlineMs && (!seenTokenGone || !seenSolReturned)) {
+                        kotlinx.coroutines.delay(3_000)
+                        poll++
+                        val curSol = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+                        val curTok = try {
+                            wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                        } catch (_: Throwable) { -1.0 }
+                        if (!seenTokenGone && preTokenQty > 0.0 && curTok in 0.0..(preTokenQty * 0.05)) {
+                            seenTokenGone = true
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_VERIFY_TOKEN_GONE,
+                                "✅ Token cleared from wallet: ${"%.4f".format(preTokenQty)} → ${"%.4f".format(curTok)} (poll #$poll)",
+                                sig = sig, traderTag = traderTag,
+                            )
+                            onLog("✅ PUMP [$labelTag] token cleared on-chain (poll #$poll)", ts.mint)
+                        }
+                        if (!seenSolReturned && preWalletSol >= 0.0 && curSol >= 0.0 && (curSol - preWalletSol) > solBumpThreshold) {
+                            seenSolReturned = true
+                            val gain = curSol - preWalletSol
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
+                                "✅ SOL returned: ${"%.4f".format(preWalletSol)} → ${"%.4f".format(curSol)} (Δ +${"%.4f".format(gain)}◎, poll #$poll)",
+                                sig = sig, solAmount = gain, traderTag = traderTag,
+                            )
+                            onLog("✅ PUMP [$labelTag] SOL returned +${"%.4f".format(gain)}◎ (poll #$poll)", ts.mint)
+                        }
+                    }
+                    if (!seenTokenGone && !seenSolReturned) {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_STUCK,
+                            "⚠ 45s post-broadcast: no on-chain confirmation of clear+return (RPC lag or tx reverted) sig=${sig.take(16)}",
+                            sig = sig, traderTag = traderTag,
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
             sig
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-            onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(80)}) — falling through to Jupiter", ts.mint)
+            onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,
-                "PUMP-FIRST [$labelTag] failed: ${safe.take(80)} — falling back to Jupiter",
+                "PUMP-FIRST [$labelTag] failed: ${safe.take(80)} — falling back to Jupiter Ultra",
                 traderTag = traderTag,
             )
             null
@@ -8923,12 +9038,21 @@ class Executor(
 
     /**
      * V5.9.495 — try PumpPortal-FIRST buy. Returns Pair(sig, qtyTokenUi)
-     * on success, null on any failure (caller falls through to Jupiter).
+     * on success, null on any TRUE failure (caller falls through to
+     * Jupiter Ultra). Logs to LiveTradeLogStore and onLog.
      *
-     * qtyTokenUi is the actual UI-amount of tokens received, computed by
-     * a wallet token-account read 1.8s after broadcast. We sleep 1.8s to
-     * give the RPC time to index the new ATA balance — operator forensics
-     * showed faster reads return stale 0.
+     * V5.9.495c — TRUST THE SIGNATURE. If `signAndSend` returns a non-blank
+     * sig, the tx was accepted by Jito/RPC for inclusion. Earlier versions
+     * polled the wallet for a token-balance delta 1.8s after broadcast and
+     * returned null on 0 delta — but `getTokenAccountsByOwner` lags 10–30s
+     * behind on commodity RPCs, so a real successful buy would falsely
+     * "fail" and the caller would fall through to Jupiter, double-spending
+     * the SOL. Operator forensics (06 May 2026 screenshot HALhUaqt…rSpump):
+     * PumpPortal landed sig 3ZWryZtdW5m… but bot fell back to Jupiter,
+     * which then errored "Insufficient funds" because the SOL had already
+     * left the wallet. Now we estimate qty from the spent SOL ÷ live price
+     * and treat the buy as confirmed. The phantom-verify safeguards that
+     * already exist downstream will reconcile the actual on-chain qty.
      */
     private fun tryPumpPortalBuy(
         ts: TokenState,
@@ -8944,19 +9068,29 @@ class Executor(
         return try {
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
+
+            // V5.9.495d — DEEP FORENSICS for buys. Snapshot wallet SOL +
+            // existing token balance pre-broadcast so the operator can see
+            // the before/after at the trade screen. Async post-broadcast
+            // watcher logs BUY_VERIFIED_LANDED when the chain catches up.
+            val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+            val preTokenQty: Double = try {
+                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                "📋 PRE-BUY: walletSol=${"%.4f".format(preWalletSol)} | preTokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
+                solAmount = solAmount, traderTag = traderTag,
+            )
+
             onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(solAmount)}◎ @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
-                "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(solAmount)}◎ @ ${slipPct}%",
+                "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(solAmount)}◎ @ ${slipPct}% | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 solAmount = solAmount, traderTag = traderTag,
             )
-            // Snapshot pre-buy token balance so we can compute the delta
-            // post-broadcast (PumpPortal does not return outAmount).
-            val preBalance = try {
-                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
-            } catch (_: Throwable) { 0.0 }
-
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
@@ -8967,7 +9101,7 @@ class Executor(
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_TX_BUILT,
-                "Tx built | router=PUMP_DIRECT | slip=${slipPct}%",
+                "Tx built | router=PUMP_DIRECT | slip=${slipPct}% | bytes=${built.txBase64.length}",
                 traderTag = traderTag,
             )
             LiveTradeLogStore.log(
@@ -8977,33 +9111,101 @@ class Executor(
                 traderTag = traderTag,
             )
             val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
-            onLog("✅ PUMP-FIRST BUY CONFIRMED: sig=${sig.take(20)}…", ts.mint)
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_CONFIRMED,
-                "✅ Buy confirmed via PumpPortal — verifying token arrival",
-                sig = sig, traderTag = traderTag,
-            )
-            // Wait for ATA index, then read actual delta.
-            Thread.sleep(1800)
-            val postBalance = try {
-                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
-            } catch (_: Throwable) { 0.0 }
-            val delta = (postBalance - preBalance).coerceAtLeast(0.0)
-            if (delta <= 0.0) {
-                onLog("⚠️ PUMP-FIRST BUY: token balance did not move (pre=$preBalance post=$postBalance) — treating as failure", ts.mint)
+            // Sanity: signAndSend throws on RPC error, but defensively
+            // verify the returned sig is non-blank before trusting it.
+            if (sig.isBlank()) {
+                onLog("⚠️ PUMP-FIRST BUY: blank sig from signAndSend — falling through to Jupiter", ts.mint)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_FAILED,
-                    "PUMP-FIRST: no token delta detected — falling back to Jupiter",
-                    sig = sig, traderTag = traderTag,
+                    "PUMP-FIRST: blank signature — falling back to Jupiter",
+                    traderTag = traderTag,
                 )
                 return null
             }
-            Pair(sig, delta)
+            onLog("✅ PUMP-FIRST BUY ACCEPTED: sig=${sig.take(20)}… (verifying on-chain)", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_CONFIRMED,
+                "✅ Tx accepted by Jito/RPC — async verify scheduled",
+                sig = sig, traderTag = traderTag,
+            )
+
+            // V5.9.495c — Estimate qty from price (best-effort, will be
+            // reconciled by phantom-verify on-chain readback later). Do
+            // NOT block on a wallet token-account read; commodity RPCs
+            // index 10-30s behind so the read returns 0 even after a
+            // successful buy and causes a double-spend if we fall back.
+            val price = getActualPrice(ts).takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 }
+            val solPriceUsd = WalletManager.lastKnownSolPrice
+            val estimatedQty = if (price != null && price > 0.0 && solPriceUsd > 0.0) {
+                (solAmount * solPriceUsd) / price
+            } else {
+                1.0
+            }
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
+                "🔍 Estimated qty=${"%.4f".format(estimatedQty)} @ price=${price?.let { "%.8f".format(it) } ?: "N/A"} | starting on-chain verify",
+                tokenAmount = estimatedQty, sig = sig, traderTag = traderTag,
+            )
+
+            // V5.9.495d — BACKGROUND BUY VERIFY watchdog. Polls wallet
+            // token balance every 3s up to 45s, logs LANDED when the new
+            // bag shows up, reconciles ts.position.qtyToken to the actual
+            // on-chain qty if it differs from estimate by >5%. Logs
+            // BUY_PHANTOM if the chain never indexes the buy (catastrophic
+            // RPC fail or tx revert post-broadcast).
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val deadlineMs = System.currentTimeMillis() + 45_000L
+                    var poll = 0
+                    var landed = false
+                    while (System.currentTimeMillis() < deadlineMs && !landed) {
+                        kotlinx.coroutines.delay(3_000)
+                        poll++
+                        val curTok = try {
+                            wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                        } catch (_: Throwable) { 0.0 }
+                        val curSol = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
+                        val tokenDelta = curTok - preTokenQty
+                        if (tokenDelta > 0.0 && curTok > 0.0) {
+                            landed = true
+                            val solSpent = if (preWalletSol > 0.0 && curSol >= 0.0) preWalletSol - curSol else solAmount
+                            LiveTradeLogStore.log(
+                                tradeKey, ts.mint, ts.symbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                "✅ TOKENS LANDED: +${"%.4f".format(tokenDelta)} (poll #$poll) | SOL spent=${"%.4f".format(solSpent)}◎ | wallet now ${"%.4f".format(curSol)}◎",
+                                tokenAmount = tokenDelta, sig = sig, solAmount = solSpent, traderTag = traderTag,
+                            )
+                            onLog("✅ PUMP-FIRST tokens landed on-chain: +${"%.4f".format(tokenDelta)} ${ts.symbol} (poll #$poll)", ts.mint)
+                            // Reconcile ts.position.qtyToken if estimate diverged >5%.
+                            val divergence = Math.abs(tokenDelta - estimatedQty) / estimatedQty.coerceAtLeast(1e-9)
+                            if (divergence > 0.05) {
+                                LiveTradeLogStore.log(
+                                    tradeKey, ts.mint, ts.symbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                    "🔄 Qty reconciled: estimate=${"%.4f".format(estimatedQty)} → actual=${"%.4f".format(tokenDelta)} (${"%.1f".format(divergence*100)}% off)",
+                                    tokenAmount = tokenDelta, sig = sig, traderTag = traderTag,
+                                )
+                                ts.position = ts.position.copy(qtyToken = tokenDelta)
+                            }
+                        }
+                    }
+                    if (!landed) {
+                        LiveTradeLogStore.log(
+                            tradeKey, ts.mint, ts.symbol, "BUY",
+                            LiveTradeLogStore.Phase.BUY_PHANTOM,
+                            "⚠ 45s post-broadcast: no token delta on-chain (RPC lag or tx reverted) sig=${sig.take(16)}",
+                            sig = sig, traderTag = traderTag,
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+            Pair(sig, estimatedQty)
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-            onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter", ts.mint)
+            onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_FAILED,
