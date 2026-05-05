@@ -305,7 +305,13 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 val wallet   = try { BotService.walletManager.getWallet() } catch (_: Exception) { null }
                 val cfg      = ConfigStore.load(ctx)
                 val solPx    = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                val treasury = com.lifecyclebot.engine.TreasuryManager.treasurySol
+                // V5.9.495g — withdraw uses LIVE-capped treasury so user
+                // never tries to withdraw SOL the wallet doesn't hold.
+                val walletSolNow = try {
+                    com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 } ?: 0.0
+                } catch (_: Exception) { 0.0 }
+                val treasury = com.lifecyclebot.engine.TreasuryManager
+                    .effectiveLockedSol(walletSolNow, cfg.paperMode)
 
                 if (treasury <= 0.001) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {

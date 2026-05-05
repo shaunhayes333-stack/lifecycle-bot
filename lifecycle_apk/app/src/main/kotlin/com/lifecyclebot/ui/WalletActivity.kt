@@ -243,12 +243,23 @@ class WalletActivity : AppCompatActivity() {
             Toast.makeText(this, "Refreshing…", Toast.LENGTH_SHORT).show()
         }
 
+        // V5.9.495g — withdrawal uses the LIVE-capped treasury so users
+        // can't request to withdraw SOL the wallet doesn't actually hold.
+        fun currentTreasury(): Double {
+            val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+            val walletSolNow = try {
+                com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 } ?: 0.0
+            } catch (_: Exception) { 0.0 }
+            return com.lifecyclebot.engine.TreasuryManager
+                .effectiveLockedSol(walletSolNow, cfg.paperMode)
+        }
+
         // ── Withdraw listeners ──────────────────────────────────────
         fun applyWithdrawPct(pct: Int) {
             withdrawPct = pct.coerceIn(0, 100)
             seekWithdrawPct.progress = withdrawPct
             tvWithdrawPct.text = "$withdrawPct%"
-            val treasury = com.lifecyclebot.engine.TreasuryManager.treasurySol
+            val treasury = currentTreasury()
             val amount   = treasury * withdrawPct / 100.0
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             tvWithdrawSolAmt.text = "≈ ${"%.4f".format(amount)}◎ (${"$%.2f".format(amount * solPrice)})"
@@ -272,7 +283,7 @@ class WalletActivity : AppCompatActivity() {
         btnWith100.setOnClickListener { applyWithdrawPct(100) }
 
         btnWithdrawConfirm.setOnClickListener {
-            val treasury = com.lifecyclebot.engine.TreasuryManager.treasurySol
+            val treasury = currentTreasury()
             if (treasury < 0.001) {
                 Toast.makeText(this, "Treasury is empty", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -362,8 +373,12 @@ class WalletActivity : AppCompatActivity() {
             tvLastRefreshed.text = "Updated ${sdf.format(java.util.Date(ws.lastRefreshed))}"
         }
 
-        // Withdraw card — always updated regardless of connection state
-        val treasury  = com.lifecyclebot.engine.TreasuryManager.treasurySol
+        // Withdraw card — always updated regardless of connection state.
+        // V5.9.495g — show LIVE-capped treasury so user sees what's actually
+        // claimable (paper-mode untouched).
+        val cfg       = com.lifecyclebot.data.ConfigStore.load(this)
+        val treasury  = com.lifecyclebot.engine.TreasuryManager
+            .effectiveLockedSol(ws.solBalance, cfg.paperMode)
         val solPx     = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
         val tradeable = (ws.solBalance - 0.05 - treasury).coerceAtLeast(0.0)
         tvWithdrawTreasuryBal.text = "${"%.4f".format(treasury)}◎"

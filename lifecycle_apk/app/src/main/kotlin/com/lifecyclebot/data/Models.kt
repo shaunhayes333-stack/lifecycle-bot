@@ -274,7 +274,17 @@ data class BotStatus(
     
     /** Get effective wallet balance for trading - uses paper balance in paper mode */
     fun getEffectiveBalance(isPaperMode: Boolean): Double {
-        return if (isPaperMode) paperWalletSol else walletSol
+        // V5.9.495g — LIVE: deduct the (capped) treasury lock from on-chain
+        // balance so the locked SOL is never reinvested until wallet growth
+        // pushes the lock cap up (treasury cap floats with walletSol).
+        // PAPER: untouched — paper accounting handles its own treasury math.
+        return if (isPaperMode) {
+            paperWalletSol
+        } else {
+            val locked = com.lifecyclebot.engine.TreasuryManager
+                .effectiveLockedSol(walletSol, isPaperMode = false)
+            (walletSol - locked).coerceAtLeast(0.0)
+        }
     }
 }
 

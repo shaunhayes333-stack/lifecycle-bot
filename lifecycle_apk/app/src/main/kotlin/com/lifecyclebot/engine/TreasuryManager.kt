@@ -121,6 +121,43 @@ object TreasuryManager {
     private val _events = ArrayDeque<TreasuryEvent>(50)
     val events: List<TreasuryEvent> get() = _events.toList().reversed()
 
+    // V5.9.495g — LIVE treasury <-> wallet linkage.
+    // ────────────────────────────────────────────────────────────
+    // Operator forensics (06 May 2026): wallet shows 0.1197 SOL on-chain
+    // but UI Treasury Tile reports LOCKED 5.908 SOL ($512). That gap is
+    // paper-mode `treasurySol` accumulation leaking into the live view.
+    //
+    // In LIVE mode, the locked amount must be derived from the actual
+    // on-chain wallet — you can't "lock" SOL you don't own. This helper
+    // caps the display + sizing-deduction at:
+    //
+    //   max_lock = walletSol × maxLockPctForCurrentTier
+    //   tradeable_floor = walletSol × MIN_TRADEABLE_PCT
+    //   effective_lock = min(treasurySol, walletSol - tradeable_floor)
+    //
+    // MIN_TRADEABLE_PCT = 30%. Even at maximum milestone (40% lock at
+    // $50K+ tier), the bot ALWAYS has 30%+ of wallet free to trade so
+    // the treasury never strangles trading. As the wallet grows past
+    // thresholds, the reserved lock SOL is implicitly freed for
+    // compounding (since the cap floats with walletSol).
+    const val MIN_TRADEABLE_PCT = 0.30  // never let treasury cap > 70% of wallet
+    const val LIVE_TRADE_BUFFER_SOL = 0.005  // always leave 0.005 SOL for fees/rent
+
+    /**
+     * V5.9.495g — Get the effective locked treasury for the current mode.
+     *
+     * In PAPER mode: returns `treasurySol` directly (legacy paper accounting).
+     * In LIVE mode: caps at `walletSol × (1 - MIN_TRADEABLE_PCT) - LIVE_TRADE_BUFFER_SOL`
+     * so we never claim to lock more SOL than is on-chain, and always
+     * leave 30%+ of the wallet free to trade.
+     */
+    fun effectiveLockedSol(walletSol: Double, isPaperMode: Boolean): Double {
+        if (isPaperMode) return treasurySol
+        if (walletSol <= 0.0 || walletSol.isNaN() || walletSol.isInfinite()) return 0.0
+        val maxLockable = (walletSol * (1.0 - MIN_TRADEABLE_PCT) - LIVE_TRADE_BUFFER_SOL).coerceAtLeast(0.0)
+        return treasurySol.coerceIn(0.0, maxLockable)
+    }
+
     // V5.9.433 — cached Context so contribute* / lock* / withdraw* helpers
     // can persist state immediately instead of waiting for BotService to
     // call save() on the next cycle. Set on restore() and on save() from

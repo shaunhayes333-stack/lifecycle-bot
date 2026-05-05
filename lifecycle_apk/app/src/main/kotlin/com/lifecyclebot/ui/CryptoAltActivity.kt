@@ -626,7 +626,18 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private fun buildTreasuryTierPanel() {
-        val treasurySol = TreasuryManager.treasurySol
+        // V5.9.495g — LIVE treasury linked to on-chain wallet.
+        // Operator forensics (06 May 2026): UI showed LOCKED 5.908 SOL while
+        // wallet held only 0.1197 SOL — phantom from paper accumulator. The
+        // effectiveLockedSol() cap floats with the live wallet so display
+        // always matches reality and the bot never claims to lock SOL it
+        // doesn't own. As the wallet grows past milestone thresholds the
+        // cap rises in lockstep, freeing locked SOL for compounding.
+        val cfg          = com.lifecyclebot.data.ConfigStore.load(this)
+        val walletSolNow = try {
+            com.lifecyclebot.engine.BotService.status.walletSol.takeIf { it > 0.0 } ?: 0.0
+        } catch (_: Exception) { 0.0 }
+        val treasurySol  = TreasuryManager.effectiveLockedSol(walletSolNow, cfg.paperMode)
         if (treasurySol <= 0.0) return   // nothing locked yet
 
         val solPrice    = WalletManager.lastKnownSolPrice
