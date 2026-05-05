@@ -53,13 +53,99 @@ object PumpFunDirectApi {
     /**
      * Heuristic: pump.fun launches mints whose b58 string ends with
      * "pump". Some mints (post-graduation PumpSwap) keep the suffix.
-     * If false, this API will return an error and the caller should
-     * not invoke it — Jupiter is the right venue for non-pump mints.
+     *
+     * V5.9.495 — kept for forensics/log tagging only. Routing is no
+     * longer gated on this. PumpPortal Lightning's pool="auto" routes
+     * through pump.fun bonding curve, PumpSwap AMM, AND Raydium pools,
+     * so it can build BUY/SELL txs for almost anything liquid on
+     * Solana — not just pump.fun mints. Operator directive:
+     *   "we now know what works ie pumpfun for the entire sol network
+     *    basically the Jupiter Ultra then the other callbacks"
+     * Universal PUMP-FIRST routing is enforced at every call site in
+     * Executor.kt; this helper is now informational only.
      */
     fun isPumpFunMint(mint: String): Boolean =
         mint.endsWith("pump", ignoreCase = true)
 
     data class BuiltTx(val txBase64: String, val pickedSlippagePct: Int)
+
+    /**
+     * V5.9.495 — Universal PumpPortal BUY tx builder. PumpPortal's
+     * pool="auto" routes through bonding curve, PumpSwap AMM, AND
+     * Raydium pools, so we can use it as a primary entry venue for
+     * basically the whole SOL network. If it can't route the mint
+     * (deep-graduated to Orca/Meteora only, or insufficient liquidity)
+     * it returns HTTP 400 and the caller falls back to Jupiter.
+     *
+     * Caller signs the returned tx via `SolanaWallet.signAndSend(...)`
+     * (same Jito + RPC pipeline every other broadcast uses).
+     *
+     * @param publicKeyB58 wallet public key in base58
+     * @param mint target token mint
+     * @param solAmount SOL to spend (denominatedInSol=true)
+     * @param slippagePercent int in [1, 99]. Percentage tolerance —
+     *        pump.fun uses percent, not bps like Jupiter. We pass
+     *        whatever the caller picked (typically 5–30 for buys).
+     * @param priorityFeeSol optional priority fee in SOL.
+     */
+    fun buildBuyTx(
+        publicKeyB58: String,
+        mint: String,
+        solAmount: Double,
+        slippagePercent: Int,
+        priorityFeeSol: Double = 0.0001,
+    ): BuiltTx {
+        val slip = slippagePercent.coerceIn(1, 99)
+        if (solAmount <= 0.0 || solAmount.isNaN() || solAmount.isInfinite()) {
+            throw RuntimeException("PumpPortal BUY: invalid solAmount=$solAmount")
+        }
+        val payload = JSONObject().apply {
+            put("publicKey", publicKeyB58)
+            put("action", "buy")
+            put("mint", mint)
+            put("amount", solAmount)        // SOL (denominatedInSol=true)
+            put("denominatedInSol", true)
+            put("slippage", slip)
+            put("priorityFee", priorityFeeSol)
+            put("pool", "auto")
+        }
+
+        val req = Request.Builder()
+            .url(URL)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/octet-stream")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        ErrorLogger.info(TAG,
+            "🚀 PUMP DIRECT BUY → mint=${mint.take(8)}… sol=${"%.4f".format(solAmount)} slip=$slip%")
+
+        httpClient.newCall(req).execute().use { resp ->
+            val body = resp.body
+                ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
+            val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
+            val bytes = body.bytes()
+            if (!resp.isSuccessful) {
+                val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
+                ErrorLogger.warn(TAG,
+                    "PumpPortal BUY HTTP ${resp.code} payload=${payload.toString().take(200)}  body=${text.take(300)}")
+                throw RuntimeException(
+                    "PumpPortal BUY HTTP ${resp.code}: ${text.take(180).ifBlank { resp.message }}"
+                )
+            }
+            if (ct.contains("json") || (bytes.isNotEmpty() && bytes[0].toInt() == '{'.code)) {
+                val text = try { String(bytes) } catch (_: Throwable) { "<binary>" }
+                throw RuntimeException("PumpPortal BUY JSON error (HTTP 200): ${text.take(300)}")
+            }
+            if (bytes.size < 64) {
+                throw RuntimeException("PumpPortal BUY returned tx too small (${bytes.size} bytes)")
+            }
+            val txB64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            ErrorLogger.info(TAG,
+                "✅ PUMP DIRECT BUY TX BUILT: bytes=${bytes.size} b64Len=${txB64.length} slip=$slip%")
+            return BuiltTx(txBase64 = txB64, pickedSlippagePct = slip)
+        }
+    }
 
     /**
      * Build an unsigned pump.fun SELL transaction.

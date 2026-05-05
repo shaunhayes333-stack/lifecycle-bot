@@ -1828,7 +1828,33 @@ class Executor(
             var sig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
-            for (currentSlip in broadcastSlipLadder) {
+
+            // V5.9.495 — PUMP-FIRST routing for profit-lock partial sells.
+            // Same universal-auto routing as liveSell: try PumpPortal direct
+            // FIRST (fast path), fall through to Jupiter ladder on failure;
+            // a final PUMP-RESCUE retry at higher slip fires after Jupiter
+            // exhaustion if PUMP-FIRST was rejected the first time.
+            run {
+                val pumpSlip = if (isDrainExit) 75 else 30
+                val pumpJito = c.jitoEnabled
+                val pumpTip = com.lifecyclebot.network.JitoTipFetcher
+                    .getDynamicTip(c.jitoTipLamports)
+                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                sig = tryPumpPortalSell(
+                    ts = ts,
+                    wallet = wallet,
+                    tokenUnits = sellUnits,
+                    slipPct = pumpSlip,
+                    priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
+                    useJito = pumpJito,
+                    jitoTipLamports = pumpTip,
+                    sellTradeKey = sellTradeKey,
+                    traderTag = "MEME",
+                    labelTag = "PROFIT-LOCK",
+                )
+            }
+            // V5.9.495 — skip Jupiter ladder if PumpPortal already landed.
+            for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
                     if (broadcastAttempts > 1) {
@@ -1916,6 +1942,30 @@ class Executor(
                         slippageBps = currentSlip, traderTag = "MEME",
                     )
                 }
+            }
+            if (sig == null) {
+                // V5.9.495 — PUMP DIRECT FALLBACK after Jupiter ladder
+                // exhausted. Profit-lock always tries PUMP-FIRST at moderate
+                // slip; this final attempt bumps slippage so a tighter market
+                // gets a second shot via PumpPortal at e.g. 75% (drain) or
+                // 50% (normal).
+                val pumpSlip = if (isDrainExit) 90 else 50
+                val pumpJito = c.jitoEnabled
+                val pumpTip = com.lifecyclebot.network.JitoTipFetcher
+                    .getDynamicTip(c.jitoTipLamports)
+                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                sig = tryPumpPortalSell(
+                    ts = ts,
+                    wallet = wallet,
+                    tokenUnits = sellUnits,
+                    slipPct = pumpSlip,
+                    priorityFeeSol = if (isDrainExit) 0.0008 else 0.0003,
+                    useJito = pumpJito,
+                    jitoTipLamports = pumpTip,
+                    sellTradeKey = sellTradeKey,
+                    traderTag = "MEME",
+                    labelTag = "PROFIT-LOCK-RESCUE",
+                )
             }
             if (sig == null) {
                 throw lastBroadcastException ?: RuntimeException(
@@ -2168,19 +2218,80 @@ class Executor(
                 }
                 val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
                 val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
-                val quote     = getQuoteWithSlippageGuard(
-                    ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
-                val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
-                security.enforceSignDelay()
-                
-                val useJito = c.jitoEnabled && !quote.isUltra
-                val jitoTip = c.jitoTipLamports
-                val ultraReqId = if (quote.isUltra) txResult.requestId else null
-                val sig       = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-                val solBack   = quote.outAmount / 1_000_000_000.0
-                val livePnl   = solBack - pos.costSol * sellFraction
-                val liveScore = pct(pos.costSol * sellFraction, solBack)
-                val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
+
+                // V5.9.495 — PUMP-FIRST routing for partial TPs.
+                // Try PumpPortal direct FIRST. If it lands, we use the pre-trade
+                // mark-to-market estimate as solBack proxy (PumpPortal does not
+                // return outAmount; we'd need a balance-delta read which adds
+                // ~2s and isn't critical for partial PnL booking — the same
+                // approximation `quote.outAmount` already gives is just a
+                // forecast, not a settlement).
+                val partialJito = c.jitoEnabled
+                val partialTip = c.jitoTipLamports
+                val pumpSig = tryPumpPortalSell(
+                    ts = ts,
+                    wallet = wallet,
+                    tokenUnits = sellUnits,
+                    slipPct = 30,
+                    priorityFeeSol = 0.0001,
+                    useJito = partialJito,
+                    jitoTipLamports = partialTip,
+                    sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                    traderTag = "MEME",
+                    labelTag = "PARTIAL-${(sellFraction*100).toInt()}%",
+                )
+
+                val sig: String
+                val solBack: Double
+                val feeSol: Double
+                val netPnl: Double
+                val livePnl: Double
+                val liveScore: Double
+                if (pumpSig != null) {
+                    sig = pumpSig
+                    // Estimate solBack from current mark + sold quantity.
+                    solBack = sellQty * actualPrice
+                    livePnl = solBack - pos.costSol * sellFraction
+                    liveScore = pct(pos.costSol * sellFraction, solBack)
+                    val pair = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
+                    netPnl = pair.first
+                    feeSol = pair.second
+                } else {
+                    // Fallback: full Jupiter Ultra → Metis ladder (single shot
+                    // here; Jupiter dynamicSlippage handles in-route escalation).
+                    val quote     = getQuoteWithSlippageGuard(
+                        ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+                    val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
+                    security.enforceSignDelay()
+
+                    val useJito = c.jitoEnabled && !quote.isUltra
+                    val jitoTip = c.jitoTipLamports
+                    val ultraReqId = if (quote.isUltra) txResult.requestId else null
+                    sig = try {
+                        wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    } catch (jupEx: Exception) {
+                        // Jupiter exhausted too — final PumpPortal retry as last resort.
+                        val rescue = tryPumpPortalSell(
+                            ts = ts,
+                            wallet = wallet,
+                            tokenUnits = sellUnits,
+                            slipPct = 50,
+                            priorityFeeSol = 0.0002,
+                            useJito = partialJito,
+                            jitoTipLamports = partialTip,
+                            sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                            traderTag = "MEME",
+                            labelTag = "PARTIAL-RESCUE-${(sellFraction*100).toInt()}%",
+                        )
+                        rescue ?: throw jupEx
+                    }
+                    solBack = quote.outAmount / 1_000_000_000.0
+                    livePnl = solBack - pos.costSol * sellFraction
+                    liveScore = pct(pos.costSol * sellFraction, solBack)
+                    val pair = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
+                    netPnl = pair.first
+                    feeSol = pair.second
+                }
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                 val liveTrade = Trade("SELL", "live", solBack, actualPrice,
                     System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
@@ -4379,6 +4490,27 @@ class Executor(
             traderTag = "MEME",
         )
         try {
+            // V5.9.495 — PUMP-FIRST routing for live buys.
+            // PumpPortal Lightning's pool="auto" routes through pump.fun
+            // bonding curve, PumpSwap AMM, AND Raydium pools. We try it
+            // FIRST for every buy. If it 400s (un-routable mint, deep-
+            // graduated to Orca/Meteora only) we fall through to the
+            // Jupiter Ultra → Metis ladder.
+            val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
+                "pump.fun" else "universal-auto"
+            val pumpFirstResult: Pair<String, Double>? = tryPumpPortalBuy(
+                ts = ts,
+                wallet = wallet,
+                solAmount = effectiveSol,
+                slipPct = 10,
+                priorityFeeSol = 0.0001,
+                useJito = c.jitoEnabled,
+                jitoTipLamports = c.jitoTipLamports,
+                tradeKey = tradeKey,
+                traderTag = "MEME",
+            )
+
+            // V5.9.495 — Jupiter ladder runs ONLY if PUMP-FIRST failed.
             // V5.9.261 — slippage escalation for buys (was: single c.slippageBps call).
             // Memes/low-liq launches phantom out at the default 1% slippage —
             // Jupiter swap reverts internally on price impact, SOL leaves the wallet
@@ -4388,6 +4520,10 @@ class Executor(
             val slippageLadder = listOf(buyBaseSlippage, 350, 500).distinct()
             var quote: com.lifecyclebot.network.SwapQuote? = null
             var lastQuoteError: Exception? = null
+            var txResult: com.lifecyclebot.network.SwapTxResult? = null
+            var useJito = false
+            var jitoTip = 0L
+            if (pumpFirstResult == null) {
             for (slip in slippageLadder) {
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
@@ -4446,15 +4582,16 @@ class Executor(
                 return
             }
 
-            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResultLocal = buildTxWithRetry(quote, wallet.publicKeyB58)
+            txResult = txResultLocal
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_TX_BUILT,
-                "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute}",
+                "Tx built | router=${txResultLocal.router} | rfq=${txResultLocal.isRfqRoute}",
                 traderTag = "MEME",
             )
 
-            val simErr = jupiter.simulateSwap(txResult.txBase64, wallet.rpcUrl)
+            val simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
             if (simErr != null) {
                 if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
                     // RPC connectivity issue (rate-limit, timeout, unavailable) — NOT a swap failure.
@@ -4489,8 +4626,8 @@ class Executor(
 
             security.enforceSignDelay()
 
-            val useJito = c.jitoEnabled && !quote.isUltra
-            val jitoTip = c.jitoTipLamports
+            useJito = c.jitoEnabled && !quote.isUltra
+            jitoTip = c.jitoTipLamports
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
@@ -4505,21 +4642,42 @@ class Executor(
                 "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
                 traderTag = "MEME",
             )
+            }  // end if (pumpFirstResult == null) — Jupiter pipeline only runs when PUMP-FIRST didn't land
             
-            val ultraReqId = if (quote.isUltra) txResult.requestId else null
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_CONFIRMED,
-                "✅ Tx confirmed on-chain — awaiting token-arrival verification",
-                sig = sig, traderTag = "MEME",
-            )
+            val sig: String
+            val qty: Double
+            val priceImpactPct: Double
+            val routerLabel: String
+            if (pumpFirstResult != null) {
+                // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
+                sig = pumpFirstResult.first
+                qty = pumpFirstResult.second
+                priceImpactPct = 0.0  // PumpPortal does not surface impact
+                routerLabel = "PUMP_DIRECT [$pumpVenue]"
+                onLog("LIVE BUY (PUMP-FIRST): ${ts.symbol} | sig=${sig.take(16)}…", tradeId.mint)
+            } else {
+                val q = quote!!
+                val tx = txResult!!
+                val ultraReqId = if (q.isUltra) tx.requestId else null
+                sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_CONFIRMED,
+                    "✅ Tx confirmed on-chain — awaiting token-arrival verification",
+                    sig = sig, traderTag = "MEME",
+                )
+                priceImpactPct = q.priceImpactPct
+                routerLabel = q.router
+                // qty derived from quote.outAmount AFTER price check below
+                qty = -1.0  // sentinel; recalculated below
+            }
 
             val price = getActualPrice(ts)
             if (price <= 0.0) {
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
-            val qty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+            val finalQty: Double = if (pumpFirstResult != null) qty
+                else rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
                 onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
@@ -4546,7 +4704,7 @@ class Executor(
             }
 
             ts.position = Position(
-                qtyToken     = qty,
+                qtyToken     = finalQty,
                 entryPrice   = price,
                 entryTime    = System.currentTimeMillis(),
                 costSol      = sol,
@@ -4559,7 +4717,10 @@ class Executor(
                 // V5.9.386 — sub-trader tag carries through live buy too.
                 tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
-                pendingVerify = true,  // V5.9.15: phantom guard — hidden from UI until tokens verified on-chain
+                // V5.9.495 — PUMP-FIRST already verified the on-chain token
+                // delta inside tryPumpPortalBuy (sleep 1.8s then balance read);
+                // the Jupiter path still needs the phantom-verify poll below.
+                pendingVerify = pumpFirstResult == null,
             )
             val trade = Trade(
                 side = "BUY", 
@@ -4575,6 +4736,41 @@ class Executor(
             )
             recordTrade(ts, trade)
             security.recordTrade(trade)
+
+            // V5.9.495 — PUMP-FIRST path: token arrival was already verified
+            // inside tryPumpPortalBuy (1.8s sleep + balance-delta read). The
+            // async phantom-verify polling block below short-circuits when
+            // pendingVerify=false so EmergentGuardrails / GlobalTradeRegistry /
+            // SellOptimizationAI / PositionPersistence / WalletTokenMemory
+            // never fire. We register them inline here so the position is
+            // fully wired into the rest of the engine (exits, persistence,
+            // sweepUniversalExits, etc.) just like a Jupiter-verified buy.
+            if (pumpFirstResult != null) {
+                EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
+                try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
+                        mint = tradeId.mint,
+                        symbol = tradeId.symbol,
+                        layer = currentLayer,
+                        sizeSol = sol,
+                    )
+                } catch (_: Exception) {}
+                try {
+                    com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
+                        mint = tradeId.mint, entryPrice = price, sizeSol = sol
+                    )
+                } catch (_: Exception) {}
+                try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
+                    ErrorLogger.error("Executor", "💾 PUMP-FIRST persist failed: ${e.message}", e)
+                }
+                try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                    "✅ PUMP-FIRST: tokens already in wallet (pre/post delta) — registered inline",
+                    tokenAmount = finalQty, sig = sig, traderTag = "MEME",
+                )
+            }
 
             // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
             // post-buy verification confirms tokens actually arrived on-chain.
@@ -4649,7 +4845,7 @@ class Executor(
             LiquidityDepthAI.recordEntryLiquidity(tradeId.mint, ts.lastLiquidityUsd)
             
             onLog("LIVE BUY  @ ${price.fmt()} | ${sol.fmt(4)} SOL | " +
-                  "impact=${quote.priceImpactPct.fmt(2)}% | sig=${sig.take(16)}…", tradeId.mint)
+                  "impact=${priceImpactPct.fmt(2)}% | router=${routerLabel} | sig=${sig.take(16)}…", tradeId.mint)
             onNotify("✅ Live Buy", "${tradeId.symbol}  ${sol.fmt(3)} SOL", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
             TradeAlerts.onBuy(cfg(), tradeId.symbol, sol, score, walletSol, ts.position.tradingMode, isPaper = false)
@@ -6824,22 +7020,27 @@ class Executor(
             var sig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
-            // V5.9.492 — PUMP-FIRST routing for pump.fun mints.
-            // Operator V5.9.490 forensics: every pump.fun sell exhausted
-            // 5 Jupiter escalations (~20s wasted) before landing via
-            // PumpPortal direct anyway. Routing pump.fun mints to their
-            // home venue first cuts the happy path to ~3s.
-            // If PumpPortal succeeds → skip Jupiter ladder. If it fails
-            // (e.g. Lightning API blip, graduated token routing edge
-            // case, network) → fall through to existing Jupiter ladder.
-            // pumpFirstTried gates the post-Jupiter PumpPortal fallback
-            // so we don't double-attempt.
+            // V5.9.495 — UNIVERSAL PUMP-FIRST routing.
+            // V5.9.492 added PUMP-FIRST for pump.fun mints only. Operator
+            // directive (Feb 2026): "we now know what works ie pumpfun for
+            // the entire sol network basically the Jupiter Ultra then the
+            // other callbacks". PumpPortal Lightning's pool="auto" routes
+            // through pump.fun bonding curve, PumpSwap AMM, AND Raydium —
+            // covering most SPL tokens with venue support, not just `pump`
+            // suffix mints. We try PumpPortal FIRST for every sell. If it
+            // 400s (un-routable: deep-graduated Orca-only, insufficient
+            // liquidity, etc.) we fall through to the Jupiter Ultra → Metis
+            // ladder, then to a final post-Jupiter PumpPortal retry as
+            // before. pumpFirstTried gates the post-Jupiter fallback so we
+            // don't double-attempt on the same call.
             var pumpFirstTried = false
-            if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)) {
+            run {
                 pumpFirstTried = true
                 try {
                     val pumpSlip = if (isDrainExit) 75 else 30
-                    onLog("🚀 PUMP-FIRST: ${ts.symbol} → pump.fun program @ ${pumpSlip}% slip (skipping Jupiter for pump.fun mint)", tradeId.mint)
+                    val pumpTag = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
+                        "pump.fun" else "universal-auto"
+                    onLog("🚀 PUMP-FIRST [$pumpTag]: ${ts.symbol} → PumpPortal @ ${pumpSlip}% slip (skipping Jupiter on success)", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
@@ -8487,7 +8688,34 @@ class Executor(
             
             val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
             val sellSlippage = (c.slippageBps * 3).coerceAtMost(500)   // V5.9.103: hard cap 5%
-            
+
+            // V5.9.495 — PUMP-FIRST routing for orphan sweep.
+            // Synthesise a TokenState shim so tryPumpPortalSell can log
+            // with the right symbol/mint. We pass a minimal stub.
+            val orphanTs = TokenState(mint = mint, symbol = "ORPHAN-${mint.take(4)}")
+            val orphanKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
+            val pumpSig = tryPumpPortalSell(
+                ts = orphanTs,
+                wallet = wallet,
+                tokenUnits = sellUnits,
+                slipPct = 30,
+                priorityFeeSol = 0.0001,
+                useJito = c.jitoEnabled,
+                jitoTipLamports = c.jitoTipLamports,
+                sellTradeKey = orphanKey,
+                traderTag = "ORPHAN",
+                labelTag = "ORPHAN-SWEEP",
+            )
+
+            if (pumpSig != null) {
+                onLog("✅ Orphan sold via PumpPortal: $mint | sig=${pumpSig.take(16)}…", mint)
+                onNotify("🧹 Orphan Cleanup",
+                    "Sold leftover tokens via PumpPortal",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                true
+            } else {
+
+            // Fallback: Jupiter Ultra → Metis ladder.
             val quote = getQuoteWithSlippageGuard(
                 mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
@@ -8496,7 +8724,24 @@ class Executor(
             val jitoTip = c.jitoTipLamports
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
-            val sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+            val sig = try {
+                wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+            } catch (jupEx: Exception) {
+                // Final PumpPortal retry at higher slip if Jupiter died too.
+                val rescueKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
+                tryPumpPortalSell(
+                    ts = orphanTs,
+                    wallet = wallet,
+                    tokenUnits = sellUnits,
+                    slipPct = 50,
+                    priorityFeeSol = 0.0002,
+                    useJito = c.jitoEnabled,
+                    jitoTipLamports = c.jitoTipLamports,
+                    sellTradeKey = rescueKey,
+                    traderTag = "ORPHAN",
+                    labelTag = "ORPHAN-RESCUE",
+                ) ?: throw jupEx
+            }
             val solBack = quote.outAmount / 1_000_000_000.0
             
             onLog("✅ Orphan sold: $mint → ${solBack.fmt(4)} SOL | sig=${sig.take(16)}…", mint)
@@ -8504,6 +8749,7 @@ class Executor(
                 "Sold leftover tokens → ${solBack.fmt(4)} SOL",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             true
+            }
         } catch (e: Exception) {
             onLog("❌ Orphan sell failed for $mint: ${e.message}", mint)
             false
@@ -8595,6 +8841,190 @@ class Executor(
     }
 
     private fun Double.fmt(d: Int = 6) = "%.${d}f".format(this)
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.495 — UNIVERSAL PUMP-FIRST HELPERS
+    //
+    // Operator directive (Feb 2026): "we now know what works ie pumpfun
+    // for the entire sol network basically the Jupiter Ultra then the
+    // other callbacks. all buying and selling tools modes traders and
+    // sub traders must be checked including the partial take profits and
+    // the add to positions and the manual buy and sell buttons."
+    //
+    // PumpPortal Lightning's pool="auto" routes BUY/SELL through pump.fun
+    // bonding curve, PumpSwap AMM, AND Raydium pools — covering most
+    // liquid SPL tokens on Solana, not just `pump`-suffix mints.
+    //
+    // Routing order (every call site uses this ladder):
+    //   1) tryPumpPortalSell / tryPumpPortalBuy   ← PumpPortal direct (fast, ~3s)
+    //   2) Jupiter Ultra → Metis v6 ladder        ← existing JupiterApi path
+    //   3) Final PumpPortal fallback              ← only on sells, after Jupiter ladder
+    //
+    // Helpers return the signature string on success, or null on any
+    // failure (HTTP 400/500, network blip, sign error). Callers MUST
+    // fall through to Jupiter on null.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * V5.9.495 — try PumpPortal-FIRST sell. Returns sig on success, null
+     * on any failure (caller falls through to Jupiter). Logs to
+     * LiveTradeLogStore + onLog with the supplied trader/journal tags.
+     */
+    private fun tryPumpPortalSell(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        tokenUnits: Long?,
+        slipPct: Int,
+        priorityFeeSol: Double,
+        useJito: Boolean,
+        jitoTipLamports: Long,
+        sellTradeKey: String,
+        traderTag: String,
+        labelTag: String,
+    ): String? {
+        return try {
+            val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
+                "pump.fun" else "universal-auto"
+            onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
+                "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip",
+                traderTag = traderTag,
+            )
+            val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
+                publicKeyB58    = wallet.publicKeyB58,
+                mint            = ts.mint,
+                tokenAmount     = tokenUnits,
+                slippagePercent = slipPct,
+                priorityFeeSol  = priorityFeeSol,
+            )
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_TX_BUILT,
+                "Tx built | router=PUMP_DIRECT [$labelTag] | slip=${slipPct}%",
+                traderTag = traderTag,
+            )
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_BROADCAST,
+                "Broadcasting PUMP-FIRST [$labelTag] @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
+                traderTag = traderTag,
+            )
+            val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
+            onLog("✅ PUMP-FIRST [$labelTag] SELL CONFIRMED: sig=${sig.take(20)}…", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_CONFIRMED,
+                "✅ Sell confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip",
+                sig = sig, traderTag = traderTag,
+            )
+            sig
+        } catch (pumpEx: Exception) {
+            val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
+            onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(80)}) — falling through to Jupiter", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_FAILED,
+                "PUMP-FIRST [$labelTag] failed: ${safe.take(80)} — falling back to Jupiter",
+                traderTag = traderTag,
+            )
+            null
+        }
+    }
+
+    /**
+     * V5.9.495 — try PumpPortal-FIRST buy. Returns Pair(sig, qtyTokenUi)
+     * on success, null on any failure (caller falls through to Jupiter).
+     *
+     * qtyTokenUi is the actual UI-amount of tokens received, computed by
+     * a wallet token-account read 1.8s after broadcast. We sleep 1.8s to
+     * give the RPC time to index the new ATA balance — operator forensics
+     * showed faster reads return stale 0.
+     */
+    private fun tryPumpPortalBuy(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        solAmount: Double,
+        slipPct: Int,
+        priorityFeeSol: Double,
+        useJito: Boolean,
+        jitoTipLamports: Long,
+        tradeKey: String,
+        traderTag: String,
+    ): Pair<String, Double>? {
+        return try {
+            val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
+                "pump.fun" else "universal-auto"
+            onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(solAmount)}◎ @ ${slipPct}% slip", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(solAmount)}◎ @ ${slipPct}%",
+                solAmount = solAmount, traderTag = traderTag,
+            )
+            // Snapshot pre-buy token balance so we can compute the delta
+            // post-broadcast (PumpPortal does not return outAmount).
+            val preBalance = try {
+                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+
+            val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
+                publicKeyB58    = wallet.publicKeyB58,
+                mint            = ts.mint,
+                solAmount       = solAmount,
+                slippagePercent = slipPct,
+                priorityFeeSol  = priorityFeeSol,
+            )
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_TX_BUILT,
+                "Tx built | router=PUMP_DIRECT | slip=${slipPct}%",
+                traderTag = traderTag,
+            )
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_BROADCAST,
+                "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
+                traderTag = traderTag,
+            )
+            val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
+            onLog("✅ PUMP-FIRST BUY CONFIRMED: sig=${sig.take(20)}…", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_CONFIRMED,
+                "✅ Buy confirmed via PumpPortal — verifying token arrival",
+                sig = sig, traderTag = traderTag,
+            )
+            // Wait for ATA index, then read actual delta.
+            Thread.sleep(1800)
+            val postBalance = try {
+                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+            val delta = (postBalance - preBalance).coerceAtLeast(0.0)
+            if (delta <= 0.0) {
+                onLog("⚠️ PUMP-FIRST BUY: token balance did not move (pre=$preBalance post=$postBalance) — treating as failure", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "PUMP-FIRST: no token delta detected — falling back to Jupiter",
+                    sig = sig, traderTag = traderTag,
+                )
+                return null
+            }
+            Pair(sig, delta)
+        } catch (pumpEx: Exception) {
+            val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
+            onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter", ts.mint)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_FAILED,
+                "PUMP-FIRST BUY failed: ${safe.take(80)} — falling back to Jupiter",
+                traderTag = traderTag,
+            )
+            null
+        }
+    }
 }
 private fun Double.fmtPct() = "%+.1f%%".format(this)
 
