@@ -98,7 +98,7 @@ object CashGenerationAI {
     private val paperDailyWins = AtomicInteger(0)
     private val paperDailyLosses = AtomicInteger(0)
     private val paperDailyTradeCount = AtomicInteger(0)
-    private val paperTreasuryBalanceBps = AtomicLong(588)  // ~$500 USD starting treasury (at ~$85 SOL)
+    private val paperTreasuryBalanceBps = AtomicLong(0)  // V5.9.495p — operator: treasury defaults to $0 (paper+live), only credited on realized profit
 
     private val liveDailyPnlSolBps = AtomicLong(0)
     private val liveDailyWins = AtomicInteger(0)
@@ -376,7 +376,9 @@ object CashGenerationAI {
             // Restore paper treasury balance
             // Cap at 100,000 SOL (10,000,000 bps) — rejects corrupted values from
             // price-scale anomalies while preserving any legitimate accumulated balance.
-            val savedPaperBps = obj.optLong("paper_treasury_bps", 600L)
+            // V5.9.495p — default seed lowered from 600 bps (~$500 phantom) to 0;
+            // treasury only grows from realized profit input, never from a fake seed.
+            val savedPaperBps = obj.optLong("paper_treasury_bps", 0L)
             if (savedPaperBps > 0) {
                 val cappedPaperBps = savedPaperBps.coerceAtMost(10_000_000L)
                 if (savedPaperBps != cappedPaperBps) {

@@ -232,6 +232,25 @@ object MarketsLiveExecutor {
         ErrorLogger.info(TAG, "LIVE TRADE: $traderType | ${direction.emoji} ${market.symbol}")
         ErrorLogger.info(TAG, "  Size: ${sizeSol.fmt(4)} SOL | Leverage: ${leverage.fmt(1)}x | Price: \$${priceUsd.fmt(2)}")
         ErrorLogger.info(TAG, "  Fee: ${feeAmountSol.fmt(6)} SOL (${(feePercent * 100).fmt(1)}%)")
+
+        // V5.9.495p — wire crypto-trader BUY into LiveTradeLogStore so the
+        // operator's "🔬 Live Forensics" view shows end-to-end crypto-alt
+        // BUY activity (entry attempt, broadcast, success/failure).
+        val forensicsMint = try {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint ?: market.symbol
+        } catch (_: Throwable) { market.symbol }
+        val forensicsKey = com.lifecyclebot.engine.LiveTradeLogStore.keyFor(forensicsMint, System.currentTimeMillis())
+        com.lifecyclebot.engine.LiveTradeLogStore.log(
+            tradeKey = forensicsKey,
+            mint = forensicsMint,
+            symbol = market.symbol,
+            side = "BUY",
+            phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+            message = "🪙 ${traderType} ${direction.emoji} ${"%.4f".format(sizeSol)}◎ × ${"%.1fx".format(leverage)} @ $${"%.4f".format(priceUsd)}",
+            solAmount = sizeSol,
+            priceUsd = priceUsd,
+            traderTag = "PERPS_${traderType.uppercase()}",
+        )
         
         // Step 1: Get wallet
         val wallet: SolanaWallet?
@@ -388,10 +407,33 @@ object MarketsLiveExecutor {
             successfulExecutions.incrementAndGet()
             lastExecutionTime.set(System.currentTimeMillis())
             ErrorLogger.info(TAG, "LIVE TRADE SUCCESS: ${txSignature.take(24)}")
+            // V5.9.495p — forensics: BUY confirmed
+            com.lifecyclebot.engine.LiveTradeLogStore.log(
+                tradeKey = forensicsKey,
+                mint = forensicsMint,
+                symbol = market.symbol,
+                side = "BUY",
+                phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                message = "✅ tx=${txSignature.take(20)}…",
+                sig = txSignature,
+                solAmount = sizeSol,
+                traderTag = "PERPS_${traderType.uppercase()}",
+            )
             return@withContext Pair(true, txSignature)
         } else {
             failedExecutions.incrementAndGet()
             ErrorLogger.warn(TAG, "LIVE TRADE FAILED for ${market.symbol}")
+            // V5.9.495p — forensics: BUY failed
+            com.lifecyclebot.engine.LiveTradeLogStore.log(
+                tradeKey = forensicsKey,
+                mint = forensicsMint,
+                symbol = market.symbol,
+                side = "BUY",
+                phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_FAILED,
+                message = "❌ ${traderType} ${market.symbol} — no tx (mint missing, bridge fail, or insufficient SOL)",
+                solAmount = sizeSol,
+                traderTag = "PERPS_${traderType.uppercase()}",
+            )
             return@withContext Pair(false, null)
         }
     }
@@ -674,14 +716,22 @@ object MarketsLiveExecutor {
             ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
 
         if (runtimeMint == null) {
-            // No mint at all — park capital as USDC so it's not sitting idle in SOL
-            ErrorLogger.warn(TAG, "🌉 ${market.symbol}: no runtime mint — parking \$${sizeUsd.fmt(2)} as USDC collateral")
-            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
-                wallet     = wallet,
-                targetMint = com.lifecyclebot.engine.UniversalBridgeEngine.USDC_MINT,
-                sizeUsd    = sizeUsd,
+            // V5.9.495p — operator: "it thought it bought 3 tokens. it just
+            // swapped sol for usdc 3 times". Previously, when no on-chain
+            // mint could be resolved for ${market.symbol}, we silently
+            // bridged the SOL into USDC and returned that swap signature
+            // as a "successful trade", so the trader's position store
+            // recorded a fake target-token entry while the wallet held
+            // only USDC. REJECT instead: log loudly, return null so the
+            // caller records a failed entry and never opens a phantom
+            // position.
+            ErrorLogger.warn(
+                TAG,
+                "⛔ ${market.symbol}: no on-chain mint resolved — REJECTING live trade " +
+                "(refusing to silently park ${"$" + sizeUsd.fmt(2)} as USDC). " +
+                "Register a mint in DynamicAltTokenRegistry / TokenizedAssetRegistry to enable.",
             )
-            return if (bridge.success) bridge.swapTxSig else null
+            return null
         }
 
         ErrorLogger.info(TAG, "🌉 ${market.symbol}: runtime mint=${runtimeMint.take(8)}... | \$${sizeUsd.fmt(2)} two-hop bridge")
@@ -1296,8 +1346,29 @@ object MarketsLiveExecutor {
             collectTradingFee(wallet, feeAmountSol, market.symbol, "CLOSE")
             
             ErrorLogger.info(TAG, "CLOSE SUCCESS: ${signature.take(24)}...")
+            // V5.9.495p — SELL forensics
+            try {
+                val sellMint = inputMint
+                val sellKey = com.lifecyclebot.engine.LiveTradeLogStore.keyFor(sellMint, System.currentTimeMillis())
+                com.lifecyclebot.engine.LiveTradeLogStore.log(
+                    tradeKey = sellKey, mint = sellMint, symbol = market.symbol, side = "SELL",
+                    phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
+                    message = "✅ ${traderType} close ${market.symbol} | tx=${signature.take(20)}…",
+                    sig = signature, solAmount = sizeSol, traderTag = "PERPS_${traderType.uppercase()}",
+                )
+            } catch (_: Throwable) {}
             Pair(true, signature)
         } else {
+            // V5.9.495p — SELL failure forensics
+            try {
+                val sellKey = com.lifecyclebot.engine.LiveTradeLogStore.keyFor(inputMint, System.currentTimeMillis())
+                com.lifecyclebot.engine.LiveTradeLogStore.log(
+                    tradeKey = sellKey, mint = inputMint, symbol = market.symbol, side = "SELL",
+                    phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.SELL_FAILED,
+                    message = "❌ ${traderType} close ${market.symbol} — Jupiter swap returned no sig",
+                    solAmount = sizeSol, traderTag = "PERPS_${traderType.uppercase()}",
+                )
+            } catch (_: Throwable) {}
             Pair(false, null)
         }
     }

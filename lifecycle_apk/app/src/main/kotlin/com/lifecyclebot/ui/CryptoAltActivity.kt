@@ -258,6 +258,44 @@ class CryptoAltActivity : AppCompatActivity() {
         updateWalletPill()
         startAutoRefresh()
 
+        // V5.9.495p — operator: "full live buy and sell forensics as well
+        // attached to its stop start button". Inject a "🔬 Live Forensics"
+        // FAB that opens the same LiveTradeLogActivity used by the meme
+        // trader. MarketsLiveExecutor now writes BUY_QUOTE_TRY /
+        // BUY_VERIFIED_LANDED / BUY_FAILED / SELL_VERIFY_SOL_RETURNED /
+        // SELL_FAILED events with traderTag="PERPS_CRYPTOALT" so this
+        // view shows end-to-end crypto-alt activity.
+        try {
+            val fab = android.widget.TextView(this).apply {
+                text = "🔬 Live Forensics"
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 12f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                setBackgroundColor(android.graphics.Color.parseColor("#A78BFA"))
+                val pad = (10 * resources.displayMetrics.density).toInt()
+                setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
+                elevation = 12f * resources.displayMetrics.density
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    startActivity(android.content.Intent(this@CryptoAltActivity, LiveTradeLogActivity::class.java))
+                }
+            }
+            val flp = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                val mPx = (16 * resources.displayMetrics.density).toInt()
+                rightMargin = mPx
+                bottomMargin = (96 * resources.displayMetrics.density).toInt()
+            }
+            val rootDecor = window.decorView as? android.view.ViewGroup
+            rootDecor?.addView(fab, flp)
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("CryptoAltActivity", "Forensics FAB inject failed: ${e.message}")
+        }
+
         // Kick off first discovery cycle in background
         lifecycleScope.launch(Dispatchers.IO) {
             DynamicAltTokenRegistry.runDiscoveryCycle()
