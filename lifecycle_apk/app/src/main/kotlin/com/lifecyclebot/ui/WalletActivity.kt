@@ -375,8 +375,8 @@ class WalletActivity : AppCompatActivity() {
 
         // Withdraw card — always updated regardless of connection state.
         // V5.9.495g — show LIVE-capped treasury so user sees what's actually
-        // claimable (paper-mode untouched).
-        val cfg       = com.lifecyclebot.data.ConfigStore.load(this)
+        // claimable (paper-mode untouched). Reuses `cfg` already in scope
+        // (V5.9.495g.1 fix: removed duplicate val cfg declaration).
         val treasury  = com.lifecyclebot.engine.TreasuryManager
             .effectiveLockedSol(ws.solBalance, cfg.paperMode)
         val solPx     = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
