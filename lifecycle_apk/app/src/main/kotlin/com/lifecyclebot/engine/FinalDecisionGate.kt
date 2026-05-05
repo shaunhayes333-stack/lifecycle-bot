@@ -1118,8 +1118,12 @@ object FinalDecisionGate {
             val baseThreshold = (brain?.learnedRugcheckThreshold ?: 3).coerceIn(2, 10)
             (baseThreshold * modeMultipliers.rugcheckMultiplier * 0.8).toInt().coerceIn(2, 10)  // 20% looser for more data
         } else {
-            val baseThreshold = (brain?.learnedRugcheckThreshold ?: 5).coerceIn(3, 10)
-            (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(3, 15)
+            // V5.9.495n — operator: "live gate needs to come down to rc 1
+            // and $2000". Lower bound dropped from 3 → 0 so the FDG
+            // rugcheck gate matches the new TradeAuthorizer floor (only
+            // RC=0 confirmed-rug blocks). Upper cap unchanged at 15.
+            val baseThreshold = (brain?.learnedRugcheckThreshold ?: 1).coerceIn(0, 10)
+            (baseThreshold * modeMultipliers.rugcheckMultiplier).toInt().coerceIn(0, 15)
         }
 
         // V5.9.175 — paper floor lowered from 30 to 10 because the user

@@ -471,9 +471,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // ── 4b. V5.9.310: NEW — Liquidity hard floor for LIVE mode.
         // Bernard report: 'Its buying low volume rugs. They just vanish'. Adding hard
         // floor so live mode CANNOT buy a microcap that can rug or get sandwiched.
+        // V5.9.495n — operator: "live gate needs to come down to rc 1 and
+        // $2000 its not trading good tokens because of this". Live floor
+        // dropped from $5K → $2K so fresh launches with $2-5K liquidity
+        // (the typical pump.fun graduation zone) are no longer hard-blocked
+        // here. Sub-trader floors + TradeAuthorizer GATE 3 still enforce
+        // the $2K minimum.
         if (!isPaperMode) {
-            if (currentLiquidityUsd in 0.0..4_999.0) {
-                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$5,000 live floor — too thin to exit safely")
+            if (currentLiquidityUsd in 0.0..1_999.0) {
+                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$2,000 live floor — too thin to exit safely")
                 ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()}")
             }
             // Volume floor: if we couldn't get current liquidity, treat as unknown→block

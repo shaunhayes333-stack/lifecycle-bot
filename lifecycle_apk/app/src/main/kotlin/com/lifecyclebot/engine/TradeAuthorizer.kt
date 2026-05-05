@@ -161,13 +161,20 @@ object TradeAuthorizer {
         }
 
         when {
-            rugcheckScore <= 1 -> {
+            rugcheckScore <= 0 -> {
+                // V5.9.495n — operator: "live gate needs to come down to rc 1
+                // and $2000 its not trading good tokens because of this".
+                // Was: <=1 hard reject + 2..5 shadow-only in live, which kept
+                // legitimate fresh-launch tokens (RC=1 unknown/pending +
+                // RC=2-5 risky-but-tradeable) out of live entirely. Now only
+                // confirmed-rug RC=0 hard-blocks live; RC≥1 falls through to
+                // GATE 3 (liquidity) and downstream FDG/sub-trader checks.
                 if (isPaperMode || bypassRugcheck) {
                     val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
                     ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore — allowing entry")
                     // fall through to GATE 3+
                 } else {
-                    ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 1")
+                    ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 0 (confirmed rug)")
                     return AuthorizationResult(
                         verdict = ExecutionVerdict.REJECT,
                         reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
@@ -177,29 +184,17 @@ object TradeAuthorizer {
                 }
             }
 
-            rugcheckScore in 2..5 -> {
+            rugcheckScore in 1..5 -> {
+                // V5.9.495n — was 2..5 SHADOW_ONLY for live. Per operator
+                // directive "rc 1 and $2000", RC 1-5 now allowed live too;
+                // FDG/safety-checker/liquidity gate handle residual risk.
                 if (isPaperMode || bypassRugcheck) {
                     val bypassReason = if (bypassRugcheck) "MANIPULATED LAYER" else "PAPER LEARNING"
-                    ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore (2-5) — allowing entry")
-                    // fall through to GATE 3+
+                    ErrorLogger.info(TAG, "⚠️ BYPASS ($bypassReason): $symbol RC_SCORE_$rugcheckScore (1-5) — allowing entry")
                 } else {
-                    ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: RC_SCORE_$rugcheckScore")
-
-                    tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
-                        mint = mint,
-                        state = TokenState.SHADOW_TRACKING,
-                        book = ExecutionBook.SHADOW,
-                        lockedAt = now,
-                        lastDecisionEpoch = currentEpoch,
-                    )
-
-                    return AuthorizationResult(
-                        verdict = ExecutionVerdict.SHADOW_ONLY,
-                        reason = "RC_SHADOW_$rugcheckScore",
-                        blockLevel = BlockLevel.SOFT,
-                        canRetry = true,
-                    )
+                    ErrorLogger.info(TAG, "🟢 LIVE-RC-LOW $symbol: RC_SCORE_$rugcheckScore (1-5) — allowed per operator floor; FDG/liq still gate")
                 }
+                // fall through to GATE 3+ in both paper and live
             }
         }
 
