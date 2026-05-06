@@ -1439,12 +1439,13 @@ object ShitCoinTraderAI {
     fun getFluidConfidenceThreshold(): Int {
         val baseConf = lerp(SC_CONF_BOOTSTRAP.toDouble(), SC_CONF_MATURE.toDouble())
         val boost = getBootstrapConfBoost()
-        // V5.9.446 — WR brake also raises confidence bar +10 when engaged.
+        // V5.9.495z9 — operator: 'no layers or traders are working' (live).
+        // Brake conf boost was +10 stacked on +10 bootstrap boost — a 30%+
+        // floor early phase that nothing was passing. Drop to +2: still
+        // nudges the bar up while engaged, but won't block the entire lane.
         val brakeBoost = try {
-            if (com.lifecyclebot.engine.MemeWREmergencyBrake.isEngaged()) 10 else 0
+            if (com.lifecyclebot.engine.MemeWREmergencyBrake.isEngaged()) 2 else 0
         } catch (_: Throwable) { 0 }
-        // During bootstrap: 25% base + 10% boost = 35% effective
-        // At maturity: 50% base + 0% boost = 50% effective
         return (baseConf + boost).toInt() + brakeBoost
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)

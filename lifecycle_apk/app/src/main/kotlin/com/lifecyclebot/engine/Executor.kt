@@ -1128,6 +1128,77 @@ class Executor(
             } catch (e: Exception) {
                 ErrorLogger.debug("Executor", "RunTracker30D record error: ${e.message}")
             }
+
+            // V5.9.495z9 — RICH CANONICAL PUBLISH. Operator: 'wire AdaptiveLearning,
+            // RunTracker30D, BehaviorLearning, MetaCognitionAI at their feature-rich
+            // emit sites'. We are at the universal trade-close site with ts/trade
+            // both in scope, so capture mode/score/conf/holdTime/exitReason and
+            // publish a fully-populated CanonicalTradeOutcome. Marks the tradeId
+            // so the TradeHistoryStore legacy bridge skips it (no double count).
+            try {
+                if (trade.side.equals("SELL", ignoreCase = true)) {
+                    val tradeId = "${trade.mint}_${trade.ts}"
+                    val isPaperEnv = cfg().paperMode
+                    val pnl = trade.pnlPct
+                    val resultEnum = when {
+                        pnl >= 1.0 -> com.lifecyclebot.engine.TradeResult.WIN
+                        pnl <= -1.0 -> com.lifecyclebot.engine.TradeResult.LOSS
+                        else -> com.lifecyclebot.engine.TradeResult.BREAKEVEN
+                    }
+                    val executionEnum = if (trade.sig.isNotBlank() || isPaperEnv)
+                        com.lifecyclebot.engine.ExecutionResult.EXECUTED
+                    else com.lifecyclebot.engine.ExecutionResult.UNKNOWN
+                    val rawMode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { ts.position.tradingMode }
+                    val modeEnum = com.lifecyclebot.engine.CanonicalOutcomeNormalizer.normalizeMode(rawMode)
+                    val sourceEnum = when {
+                        ts.position.isShitCoinPosition -> com.lifecyclebot.engine.TradeSource.SHITCOIN
+                        ts.position.isBlueChipPosition -> com.lifecyclebot.engine.TradeSource.BLUECHIP
+                        ts.position.isTreasuryPosition -> com.lifecyclebot.engine.TradeSource.TREASURY
+                        else -> com.lifecyclebot.engine.TradeSource.V3
+                    }
+                    val assetClassEnum = when (sourceEnum) {
+                        com.lifecyclebot.engine.TradeSource.BLUECHIP -> com.lifecyclebot.engine.AssetClass.BLUECHIP
+                        else -> com.lifecyclebot.engine.AssetClass.MEME
+                    }
+                    val holdSec = if (ts.position.entryTime > 0) (System.currentTimeMillis() - ts.position.entryTime) / 1000 else null
+                    val features = mapOf(
+                        "entryScore" to (ts.entryScore.toDouble().takeIf { it.isFinite() } ?: 0.0),
+                        "entryConfidence" to (ts.position.entryScore.takeIf { it.isFinite() } ?: 0.0),
+                        "tradeSize" to trade.sol,
+                        "holdSec" to (holdSec?.toDouble() ?: 0.0),
+                    )
+                    val rich = com.lifecyclebot.engine.CanonicalTradeOutcome(
+                        tradeId = tradeId,
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        assetClass = assetClassEnum,
+                        mode = modeEnum,
+                        source = sourceEnum,
+                        environment = if (isPaperEnv) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE,
+                        entryTimeMs = ts.position.entryTime,
+                        exitTimeMs = trade.ts,
+                        entryPrice = ts.position.entryPrice,
+                        exitPrice = trade.price,
+                        entrySol = ts.position.costSol.takeIf { it > 0.0 },
+                        exitSol = trade.sol,
+                        realizedPnlSol = trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol,
+                        realizedPnlPct = pnl,
+                        maxGainPct = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0)
+                            ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else null,
+                        maxDrawdownPct = if (ts.position.entryPrice > 0 && ts.position.lowestPrice > 0)
+                            ((ts.position.lowestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else null,
+                        holdSeconds = holdSec,
+                        result = resultEnum,
+                        executionResult = executionEnum,
+                        closeReason = trade.reason.ifBlank { null },
+                        featuresAtEntry = features,
+                    )
+                    com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished(tradeId)
+                    com.lifecyclebot.engine.CanonicalOutcomeBus.publish(rich)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("Executor", "Canonical rich publish error: ${e.message?.take(80)}")
+            }
         }
     }
 

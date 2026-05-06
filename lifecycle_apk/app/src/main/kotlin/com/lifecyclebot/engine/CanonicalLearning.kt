@@ -290,6 +290,20 @@ object CanonicalOutcomeBus {
     fun subscriberCount(): Int = subscribers.size
     fun recentSnapshot(): List<CanonicalTradeOutcome> = recentEvents.toList()
 
+    /**
+     * V5.9.495z9 — once a trade-close site has emitted a feature-rich
+     * canonical outcome we mark the tradeId so the legacy bridge inside
+     * TradeHistoryStore.publishFromLegacyTrade() can skip it (no double
+     * counting). Bounded to 4096 entries via simple LRU.
+     */
+    private val richPublishedTradeIds: MutableSet<String> = java.util.Collections.synchronizedSet(
+        java.util.Collections.newSetFromMap(object : LinkedHashMap<String, Boolean>(4096, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > 4096
+        })
+    )
+    fun isRichPublished(tradeId: String): Boolean = richPublishedTradeIds.contains(tradeId)
+    fun markRichPublished(tradeId: String) { richPublishedTradeIds.add(tradeId) }
+
     /** Publish a canonical outcome — runs through normalizer + counters + router. */
     fun publish(raw: CanonicalTradeOutcome) {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
@@ -340,6 +354,10 @@ object CanonicalOutcomeBus {
      */
     fun publishFromLegacyTrade(trade: Trade) {
         if (!trade.side.equals("SELL", ignoreCase = true)) return
+        val tradeId = "${trade.mint}_${trade.ts}"
+        // V5.9.495z9 — skip if a feature-rich publish from the trade-close
+        // emit site already covered this tradeId (no double counting).
+        if (isRichPublished(tradeId)) return
         val mode = CanonicalOutcomeNormalizer.normalizeMode(trade.tradingMode)
         val (assetClass, source) = inferAssetClassAndSource(mode)
         val env = if (trade.mode.equals("paper", true)) TradeEnvironment.PAPER else TradeEnvironment.LIVE
@@ -353,7 +371,7 @@ object CanonicalOutcomeBus {
             ExecutionResult.EXECUTED else ExecutionResult.UNKNOWN
 
         val outcome = CanonicalTradeOutcome(
-            tradeId = "${trade.mint}_${trade.ts}",
+            tradeId = tradeId,
             mint = trade.mint,
             symbol = "",  // legacy Trade lacks symbol; downstream consumers handle blanks
             assetClass = assetClass,

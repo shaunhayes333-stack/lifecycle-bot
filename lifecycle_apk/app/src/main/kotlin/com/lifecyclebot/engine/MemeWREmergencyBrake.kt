@@ -34,8 +34,13 @@ object MemeWREmergencyBrake {
     private const val WINDOW_SIZE         = 200
     private const val ENGAGE_WR_PCT       = 30.0
     private const val RELEASE_WR_PCT      = 35.0   // hysteresis
-    private const val SCORE_BOOST         = 8       // V5.9.489 — was 15 (less aggressive coaching, more trades through to learn from)
-    private const val SIZING_MULT         = 0.85  // V5.9.489 — was 0.5 (too aggressive; meme trader was choking under cascade floor + brake stack)
+    // V5.9.495z9 — operator: 'completely choked, no layers or traders are
+    // working' (live, 06 May 2026). Brake stack was killing all live entries.
+    // SCORE_BOOST 8→2 (just a nudge), SIZING_MULT 0.85→0.95 (almost no
+    // sizing punishment). Brake still engages at <30% WR and releases at
+    // >35% — but it's now a tap on the brake, not a stomp.
+    private const val SCORE_BOOST         = 2
+    private const val SIZING_MULT         = 0.95
 
     private val MEME_MODES = setOf(
         "Shit", "ShitCoin", "Shitcoin",

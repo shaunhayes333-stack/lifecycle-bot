@@ -98,6 +98,33 @@ object CanonicalSubscribers {
                 }
             }
 
+            // V5.9.495z9 — readiness-only mirrors for the rich-feature consumers.
+            // The actual learnFromTrade() / recordTrade() / recordTradeOutcome()
+            // calls still happen at the existing emit sites in Executor.kt
+            // (lines 939, 1111, 6469, 6534) where the full features are
+            // already constructed. The bus subscriber here only updates
+            // LayerReadinessRegistry so the Learning Pipeline UI shows
+            // these layers' sample counts climbing in lockstep with the
+            // canonical bus — which is the operator-visible 'fragmentation
+            // collapses' signal. No double-counting because these mirrors
+            // do NOT call the consumers' actual learning methods.
+            for (layer in listOf(
+                "AdaptiveLearningEngine",
+                "RunTracker30D",
+                "BehaviorLearning",
+                "MetaCognitionAI",
+            )) {
+                CanonicalOutcomeBus.subscribe { outcome ->
+                    if (!recordOnce(outcome.tradeId, layer)) return@subscribe
+                    if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                    LayerReadinessRegistry.recordEducation(
+                        layer = layer,
+                        settledDelta = 1L,
+                        positiveEvDelta = if (outcome.result == TradeResult.WIN) 1L else 0L,
+                    )
+                }
+            }
+
             // Generic readiness recorder for the strategy/execution layers
             // that don't yet have a direct mirror but DO need their readiness
             // sample count to advance every time a relevant outcome lands.
