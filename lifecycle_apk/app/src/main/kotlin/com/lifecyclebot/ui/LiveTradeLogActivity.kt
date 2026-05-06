@@ -342,7 +342,26 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_SIGNATURE_PENDING,
         Phase.SELL_SOL_DELTA,
         Phase.SELL_RECONCILE_SCHEDULED,
-        Phase.INFO -> Color.parseColor("#3B82F6")              // blue
+        Phase.INFO,
+        // V5.9.495z10 — HostWalletTokenTracker forensic events.
+        Phase.TOKEN_TRACKER_CREATED,
+        Phase.TOKEN_TRACKER_BUY_PENDING,
+        Phase.TOKEN_TRACKER_BUY_CONFIRMED,
+        Phase.TOKEN_TRACKER_WALLET_SEEN,
+        Phase.TOKEN_TRACKER_OPEN_TRACKING,
+        Phase.TOKEN_TRACKER_RECOVERED_FROM_WALLET,
+        Phase.TOKEN_TRACKER_PRICE_UPDATED,
+        Phase.TOKEN_TRACKER_EXIT_MONITOR_TICK,
+        Phase.TOKEN_TRACKER_TP_TRIGGERED,
+        Phase.TOKEN_TRACKER_SL_TRIGGERED,
+        Phase.TOKEN_TRACKER_TRAIL_TRIGGERED,
+        Phase.TOKEN_TRACKER_EXIT_SIGNALLED,
+        Phase.TOKEN_TRACKER_SELL_PENDING,
+        Phase.TOKEN_TRACKER_SELL_CONFIRMED,
+        Phase.TOKEN_TRACKER_CLOSED,
+        Phase.TOKEN_TRACKER_DUST_LEFT,
+        Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+        Phase.POSITION_COUNT_RECONCILED -> Color.parseColor("#3B82F6")              // blue
     }
 
     private fun formatHms(ts: Long): String =
