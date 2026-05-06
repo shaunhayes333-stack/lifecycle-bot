@@ -20,19 +20,24 @@ object EdgeLearning {
     // ═══════════════════════════════════════════════════════════════════════
     
     data class AdaptiveThresholds(
-        var paperBuyPctMin: Double = 35.0,      // Paper: VERY AGGRESSIVE for max learning
-        var paperVolumeMin: Double = 3.0,       // Paper: LOWERED for more trades
-        var liveBuyPctMin: Double = 55.0,       // Live: min buy% to trade (conservative)
-        var liveVolumeMin: Double = 15.0,       // Live: min volume score
+        var paperBuyPctMin: Double = 5.0,       // V5.9.495z12: 35→5 — bootstrap floor as soft as possible
+        var paperVolumeMin: Double = 1.0,       // V5.9.495z12: 3→1 — paper near-zero gate
+        var liveBuyPctMin: Double = 20.0,       // V5.9.495z12: 55→20 — live still allowed to flow during early learn
+        var liveVolumeMin: Double = 5.0,        // V5.9.495z12: 15→5
         var vetoStickyMinutes: Int = 1,         // REDUCED: 1 min sticky
     ) {
         // Bounds to prevent extreme values
         fun clamp() {
-            paperBuyPctMin = paperBuyPctMin.coerceIn(30.0, 45.0)  // Paper: 30-45% (EXTREMELY aggressive)
-            paperVolumeMin = paperVolumeMin.coerceIn(1.0, 10.0)   // Lower bound minimal
-            liveBuyPctMin = liveBuyPctMin.coerceIn(50.0, 65.0)    // Live: 50-65% (conservative)
-            liveVolumeMin = liveVolumeMin.coerceIn(10.0, 25.0)
-            vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)  // Min 1 minute
+            // V5.9.495z12 — operator mandate: "all gates are meant to be soft
+            // early to allow maximum learning … even at 5000+ trades it must
+            // still be loose enough for 200-500 live trades/day". Floors are
+            // dropped so a long bootstrap loss-streak cannot ratchet the
+            // gate above what mature healthy live-mode tolerates.
+            paperBuyPctMin = paperBuyPctMin.coerceIn(2.0, 35.0)   // was 30-45
+            paperVolumeMin = paperVolumeMin.coerceIn(0.5, 8.0)    // was 1-10
+            liveBuyPctMin  = liveBuyPctMin.coerceIn(15.0, 55.0)   // was 50-65
+            liveVolumeMin  = liveVolumeMin.coerceIn(3.0, 20.0)    // was 10-25
+            vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)
         }
     }
     
@@ -187,22 +192,43 @@ object EdgeLearning {
     
     private fun adjustThresholds(snapshot: EdgeSnapshot, wasCorrect: Boolean, wasVeto: Boolean) {
         val adjustAmount = 1.0  // Small incremental adjustments
-        
+
+        // V5.9.495z12 — FLUID MATURITY GATE.
+        // Operator mandate: gates must be soft early and only TIGHTEN once
+        // the bot has proven it can trade profitably. Previously every
+        // approved-loss tightened paperBuyPctMin by +1.0 and every win only
+        // loosened by -0.3 — under an 80% bootstrap loss-rate the threshold
+        // monotonically climbed to its ceiling and choked entries before
+        // the bot could learn. Under-water trades must NOT raise the bar.
+        //
+        // Rule:
+        //   • While not yet mature  → loss-tightens are no-ops; wins still
+        //     loosen freely so the gate naturally relaxes.
+        //   • Once mature (WR ≥ 50% across the last 50+ trades) → both
+        //     directions act, so the threshold tracks edge as it improves.
+        val mature = run {
+            val total = stats.approvedWon + stats.approvedLost
+            val wr = if (total >= 50) stats.approvedWon.toDouble() / total else 0.0
+            total >= 50 && wr >= 0.50
+        }
+
         if (snapshot.isPaperMode) {
             // Adjust paper thresholds
             if (wasVeto && !wasCorrect) {
-                // Veto was wrong (would have won) → LOOSEN
+                // Veto was wrong (would have won) → LOOSEN (always allowed)
                 thresholds.paperBuyPctMin -= adjustAmount
                 thresholds.paperVolumeMin -= adjustAmount * 0.5
             } else if (wasVeto && wasCorrect) {
-                // Veto was right (would have lost) → slight tighten
-                thresholds.paperBuyPctMin += adjustAmount * 0.3
+                // Veto was right (would have lost) → slight tighten ONLY if mature
+                if (mature) thresholds.paperBuyPctMin += adjustAmount * 0.3
             } else if (!wasVeto && !wasCorrect) {
-                // Approval was wrong (lost money) → TIGHTEN
-                thresholds.paperBuyPctMin += adjustAmount
-                thresholds.paperVolumeMin += adjustAmount * 0.5
+                // Approval was wrong (lost money) → TIGHTEN ONLY if mature
+                if (mature) {
+                    thresholds.paperBuyPctMin += adjustAmount
+                    thresholds.paperVolumeMin += adjustAmount * 0.5
+                }
             } else if (!wasVeto && wasCorrect) {
-                // Approval was right (won money) → slight loosen
+                // Approval was right (won money) → slight loosen (always allowed)
                 thresholds.paperBuyPctMin -= adjustAmount * 0.3
             }
         } else {
@@ -211,11 +237,15 @@ object EdgeLearning {
                 thresholds.liveBuyPctMin -= adjustAmount * 0.5
                 thresholds.liveVolumeMin -= adjustAmount * 0.3
             } else if (!wasVeto && !wasCorrect) {
-                thresholds.liveBuyPctMin += adjustAmount
-                thresholds.liveVolumeMin += adjustAmount * 0.5
+                // Live tighten on loss ONLY if mature — otherwise live mode
+                // would self-strangle on its first cluster of losses.
+                if (mature) {
+                    thresholds.liveBuyPctMin += adjustAmount
+                    thresholds.liveVolumeMin += adjustAmount * 0.5
+                }
             }
         }
-        
+
         // Keep within bounds
         thresholds.clamp()
         

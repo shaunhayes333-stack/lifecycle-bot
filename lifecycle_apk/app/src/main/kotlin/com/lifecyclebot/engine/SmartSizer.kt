@@ -463,7 +463,10 @@ object SmartSizer {
         // but scale down position sizes as more positions are opened.
         // More positions = smaller size each = better risk distribution
         // ══════════════════════════════════════════════════════════════
-        val maxLivePositions = 25  // Allow up to 25 concurrent live positions
+        // V5.9.495z12 — operator mandate: bot must never choke its own
+        // throughput. 25→60 raises the live concurrent-position ceiling so
+        // 200-500 trades/day live is reachable with realistic hold times.
+        val maxLivePositions = 60  // Allow up to 60 concurrent live positions
         
         if (!isPaperMode) {
             // Hard cap at 25 positions

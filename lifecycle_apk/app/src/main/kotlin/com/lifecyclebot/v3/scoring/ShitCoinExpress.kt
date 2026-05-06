@@ -57,7 +57,7 @@ object ShitCoinExpress {
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.05        // Tiny base
     private const val MAX_POSITION_SOL = 3.0          // Never exceed 0.1 SOL
-    private const val MAX_CONCURRENT_RIDES = 20       // V5.9.343: walk-back to pre-V5.9.218
+    private const val MAX_CONCURRENT_RIDES = 50       // V5.9.495z12: 20→50 — never choke trader volume
     
     // AGGRESSIVE take profits
     private const val MIN_TAKE_PROFIT_PCT = 30.0      // Minimum 30% or don't bother

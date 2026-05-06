@@ -54,6 +54,15 @@ object MemeLossStreakGuard {
         // V5.9.408 — free-range mode bypasses meme-loss-streak blocks so
         // the bot keeps feeding the Treasury during maximum-learning window.
         if (FreeRangeMode.isWideOpen()) return 0L
+        // V5.9.495z12 — operator mandate: gates must be soft early so the
+        // bot can learn freely. In paper mode (which IS the learning lab)
+        // a 60-min per-mint freeze starves the very dataset Adaptive,
+        // Fluid, and Edge learning need to mature. Bypass the streak
+        // guard whenever paper is active — capital is fake, signal is the
+        // product. Live mode keeps the guard intact (real money safety).
+        try {
+            if (com.lifecyclebot.engine.KillSwitch.isPaperMode) return 0L
+        } catch (_: Throwable) {}
         val e = state[mint] ?: return 0L
         val until = e.blockUntilMs
         if (until == 0L) return 0L

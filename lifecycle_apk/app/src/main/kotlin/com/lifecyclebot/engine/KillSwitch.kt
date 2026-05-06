@@ -22,7 +22,14 @@ object KillSwitch {
     private const val DEFAULT_MAX_DAILY_LOSS_PCT = 15.0      // Stop after 15% daily loss
     private const val DEFAULT_MAX_DRAWDOWN_PCT = 25.0        // Stop after 25% drawdown from peak
     private const val DEFAULT_MAX_CONSECUTIVE_LOSSES = 5     // Stop after 5 losses in a row
-    private const val DEFAULT_MAX_TRADES_PER_HOUR = 10       // Rate limit
+    // V5.9.495z12 — operator mandate: "200-500 trades/day minimum live when
+    // learnt". Pre-fix `DEFAULT_MAX_TRADES_PER_HOUR = 10` capped live at
+    // ~240/day in absolute best case and was the direct cause of the
+    // observed "3 trades an hour if I'm lucky" choke in live mode. Bumped
+    // to 100/hour so the bot can sustain 200–500/day with normal pacing,
+    // bursts to 1000+ during volatile sessions, while the daily-loss /
+    // drawdown / consecutive-loss circuit breakers still protect capital.
+    private const val DEFAULT_MAX_TRADES_PER_HOUR = 100      // Rate limit (live)
     
     // V5.7.8: Paper mode — no limits, let it learn freely
     private const val PAPER_MAX_DAILY_LOSS_PCT = 999.0

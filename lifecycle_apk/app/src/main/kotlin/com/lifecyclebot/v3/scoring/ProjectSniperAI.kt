@@ -57,7 +57,7 @@ object ProjectSniperAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08         // Base snipe size
     private const val MAX_POSITION_SOL = 0.25          // Max per snipe
-    private const val MAX_CONCURRENT_MISSIONS = 5      // Max active snipes
+    private const val MAX_CONCURRENT_MISSIONS = 15      // V5.9.495z12: 5→15 — never choke trader volume
     
     // Exit parameters - TIGHT for launch plays
     private const val STOP_LOSS_PCT = -12.0            // Abort if down 12%
