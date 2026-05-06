@@ -517,6 +517,12 @@ class BotService : Service() {
 
         // V5.9.262: Initialize live-trade end-to-end log store
         try { LiveTradeLogStore.init(applicationContext) } catch (_: Exception) {}
+
+        // V5.9.495z10: Initialize HostWalletTokenTracker — canonical lifecycle
+        // ledger keyed by mint. Independent of scanner watchlist; survives
+        // restarts so the bot can never lose track of wallet-held tokens
+        // (STRIKE / WCOR drift fix).
+        try { HostWalletTokenTracker.init(applicationContext) } catch (_: Exception) {}
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {
@@ -5691,6 +5697,10 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 // showing up stale in the UI despite being held. Also check
                 // each sub-trader's own `.hasPosition(mint)` so a missed
                 // registerPosition() call can never evict a live bag.
+                // V5.9.495z10 — and the canonical HostWalletTokenTracker
+                // wins over everything else: if the host wallet itself shows
+                // a balance for this mint, cleanup MUST NOT evict it.
+                HostWalletTokenTracker.hasOpenPosition(it) ||
                 GlobalTradeRegistry.hasOpenPosition(it) ||
                 com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
@@ -5700,6 +5710,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(it)
             }
             val safeToEvict = tokensToRemove.filterNot {
+                HostWalletTokenTracker.hasOpenPosition(it) ||
                 GlobalTradeRegistry.hasOpenPosition(it) ||
                 com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
@@ -5713,6 +5724,27 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     "BotService",
                     "🛡️ Held-position sticky: kept ${stillHeld.size} mints in status.tokens (eviction blocked)"
                 )
+                // V5.9.495z10 — operator-spec forensic event so the timeline
+                // shows why specific mints were spared from cleanup.
+                for (mint in stillHeld) {
+                    val ts = synchronized(status.tokens) { status.tokens[mint] }
+                    val reason = when {
+                        HostWalletTokenTracker.hasOpenPosition(mint) -> "wallet_balance"
+                        GlobalTradeRegistry.hasOpenPosition(mint) -> "open_position"
+                        else -> "trader_registry"
+                    }
+                    try {
+                        LiveTradeLogStore.log(
+                            tradeKey = "TRACKER_${mint.take(16)}",
+                            mint = mint,
+                            symbol = ts?.symbol ?: mint.take(6),
+                            side = "INFO",
+                            phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+                            message = "🛡 protected ${ts?.symbol ?: mint.take(6)} from watchlist eviction · reason=$reason",
+                            traderTag = "TRACKER",
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
             for (mint in safeToEvict) {
                 GlobalTradeRegistry.removeFromWatchlist(mint, "CLEANUP")

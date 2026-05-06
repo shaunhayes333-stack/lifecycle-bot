@@ -5087,6 +5087,7 @@ class Executor(
                     ErrorLogger.error("Executor", "💾 PUMP-FIRST persist failed: ${e.message}", e)
                 }
                 try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                try { HostWalletTokenTracker.recordBuyConfirmed(ts, sig) } catch (_: Exception) {}
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
@@ -5339,6 +5340,7 @@ class Executor(
                         // Survives restarts/updates so bot can resume managing position
                         // even if the scanner hasn't re-discovered the token yet.
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                        try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
                     }
                 } else if (anyRpcError && ts.position.pendingVerify) {
                     // All polls returned 0 OR errored. If ANY error masked the
@@ -5404,6 +5406,7 @@ class Executor(
                         )
                         try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                        try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
                         return@launch
                     }
                     if (lastChanceMapEmpty || lastChanceBalances == null) {
@@ -5439,6 +5442,7 @@ class Executor(
                                 )
                                 try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                                 try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                                try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
                                 return@launch
                             }
                             TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
@@ -6989,6 +6993,7 @@ class Executor(
         ts.lastExitWasWin   = pnlP >= 1.0  // V5.9.185
         // V5.9.256: Mark closed in persistent wallet memory
         try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}
+        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}
         
         try {
             PositionPersistence.savePosition(ts)
@@ -8696,6 +8701,7 @@ class Executor(
         ts.lastExitWasWin   = pnl > 0
         // V5.9.256: Mark closed in persistent wallet memory
         try { WalletTokenMemory.recordExit(ts.mint, ts.symbol, exitPrice, pnlP, "PAPER_EXIT") } catch (_: Exception) {}
+        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, exitPrice, pnlP, "PAPER_EXIT") } catch (_: Exception) {}
         
         try {
             PositionPersistence.savePosition(ts)
@@ -9881,4 +9887,3 @@ class Executor(
     }
 }
 private fun Double.fmtPct() = "%+.1f%%".format(this)
-

@@ -62,6 +62,14 @@ object WalletReconciler {
             return 0
         }
 
+        // V5.9.495z10 — feed the canonical HostWalletTokenTracker with the
+        // live wallet snapshot BEFORE we touch status.tokens. The tracker
+        // is the single source of truth used by watchlist cleanup and the
+        // exit-engine fallback loop, so it must converge on wallet-truth
+        // every reconcile pass even if the legacy PositionStore drift
+        // recovery logic below is short-circuited.
+        try { HostWalletTokenTracker.applyWalletSnapshot(walletMints) } catch (_: Throwable) {}
+
         var changes = 0
 
         // ── Pass 1: orphan recovery ─────────────────────────────────────────
