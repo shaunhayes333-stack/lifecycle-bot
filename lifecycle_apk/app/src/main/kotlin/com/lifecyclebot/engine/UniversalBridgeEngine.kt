@@ -500,7 +500,7 @@ object UniversalBridgeEngine {
     // INTERNAL HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private suspend fun executeJupiterSwap(
+    internal suspend fun executeJupiterSwap(
         wallet: SolanaWallet,
         inputMint: String,
         outputMint: String,

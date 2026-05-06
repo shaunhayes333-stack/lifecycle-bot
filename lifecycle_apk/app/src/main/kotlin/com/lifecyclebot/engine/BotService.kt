@@ -1653,7 +1653,21 @@ class BotService : Service() {
             } else if (cfg.paperMode) {
                 addLog("Paper mode — skipping on-chain reconciliation")
             }
-            
+
+            // V5.9.495z20 — Recovery Execution Loop. Periodic worker that
+            // processes orphan-asset records (USDC residue from any pre-z19
+            // partial-bridge buys, or the rare atomic-route surprise). It
+            // only makes sense in LIVE mode where wallet has on-chain assets.
+            try {
+                val w = wallet
+                if (!cfg.paperMode && w != null) {
+                    com.lifecyclebot.engine.execution.RecoveryExecutionLoop.start(w)
+                    addLog("🔄 Recovery loop started (orphan-USDC processor)")
+                }
+            } catch (e: Exception) {
+                addLog("⚠️ Recovery loop start failed: ${e.message}")
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.6.9: RESTORE PERSISTED POSITIONS ON BOT START
             // 
@@ -2761,6 +2775,11 @@ class BotService : Service() {
         // and block the next paper-mode start from going clean.
         walletConnectJob?.cancel()
         walletConnectJob = null
+
+        // V5.9.495z20 — stop recovery loop on bot stop.
+        try {
+            com.lifecyclebot.engine.execution.RecoveryExecutionLoop.stop()
+        } catch (_: Exception) {}
         
         // V5.7.8: In paper mode, purge only obviously bad trades (not all history)
         try {
