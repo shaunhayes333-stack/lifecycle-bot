@@ -180,17 +180,22 @@ object PumpFunDirectApi {
         @Suppress("UNUSED_PARAMETER") tokenAmount: Long?,
         slippagePercent: Int,
         priorityFeeSol: Double = 0.0001,
+        amountString: String = "100%",   // V5.9.495y — spec item 4: percentage exits ("100%", "25%", "50%", custom "X%")
+        pool: String = "auto",           // V5.9.495y — spec item 5: pool fallback ladder support
     ): BuiltTx {
         val slip = slippagePercent.coerceIn(1, 99)
+        // V5.9.495y — accept either a percent string ("100%") or a UI-token raw count ("12345.67"),
+        // matching PumpPortal API: percentage strings end in "%", numeric strings don't.
+        val amountField: Any = amountString.trim().ifBlank { "100%" }
         val payload = JSONObject().apply {
             put("publicKey", publicKeyB58)
             put("action", "sell")
             put("mint", mint)
-            put("amount", "100%")             // V5.9.490 — always drain
+            put("amount", amountField)
             put("denominatedInSol", false)    // V5.9.490 — boolean, not string
             put("slippage", slip)
             put("priorityFee", priorityFeeSol)
-            put("pool", "auto")
+            put("pool", pool.ifBlank { "auto" })
         }
 
         val req = Request.Builder()
@@ -201,7 +206,7 @@ object PumpFunDirectApi {
             .build()
 
         ErrorLogger.info(TAG,
-            "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=100% slip=$slip%")
+            "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=$amountField pool=$pool slip=$slip%")
 
         httpClient.newCall(req).execute().use { resp ->
             val body = resp.body

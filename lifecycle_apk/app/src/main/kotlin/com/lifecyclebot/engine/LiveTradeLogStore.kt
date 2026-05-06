@@ -68,6 +68,32 @@ object LiveTradeLogStore {
         SELL_FAILED,
         SELL_STUCK,
 
+        // V5.9.495y — TradeVerifier authoritative phases (spec item 8)
+        SELL_ROUTE_SELECTED,
+        SELL_BALANCE_LIVE_RAW,
+        SELL_BALANCE_TRACKER_RAW,
+        SELL_AMOUNT_PERCENT,
+        SELL_AMOUNT_RAW,
+        SELL_PUMPPORTAL_BUILD,
+        SELL_PUMPPORTAL_ACCEPTED,
+        SELL_JUPITER_V2_ORDER,
+        SELL_JUPITER_V2_EXECUTE,
+        SELL_SIGNATURE_PENDING,
+        SELL_TX_CONFIRMED,
+        SELL_TX_ERR_CONFIRMED,
+        SELL_TX_PARSE_OK,
+        SELL_TOKEN_CONSUMED,
+        SELL_TOKEN_ACCOUNT_CLOSED_SUCCESS,
+        SELL_SOL_DELTA,
+        SELL_VERIFY_INCONCLUSIVE_PENDING,
+        SELL_RECONCILE_SCHEDULED,
+        SELL_RECONCILE_LANDED,
+        SELL_ROUTE_FAILED_NO_SIGNATURE,
+        SELL_FAILED_CONFIRMED,
+        // BUY counterparts
+        BUY_TX_PARSE_OK,
+        BUY_RECONCILE_LANDED,
+
         // Sweep phases (shutdown wallet liquidation)
         SWEEP_START,
         SWEEP_TOKEN_TRY,

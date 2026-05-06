@@ -1762,6 +1762,15 @@ class Executor(
         rehydratePositionFromSubTraders(ts)
         val pos = ts.position
         
+        // V5.9.495y — DUPLICATE-EXIT GUARD (spec item 9). Refuse to start a
+        // second sell if there's already a verified-pending sig in flight
+        // for this mint. Prevents stacked broadcasts when the previous sell
+        // is in INCONCLUSIVE_PENDING.
+        TradeVerifier.activeSellSig(ts.mint)?.let { existingSig ->
+            onLog("⏳ SELL DEDUPE: ${ts.symbol} — existing sell sig=${existingSig.take(16)}… still verifying. Skipping new $reason exit attempt.", ts.mint)
+            return
+        }
+        
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
             onLog("🛑 Keypair check failed — aborting profit lock sell", ts.mint)
@@ -2023,6 +2032,8 @@ class Executor(
             zeroBalanceRetries.remove(ts.mint + "_broadcast")
             // V5.9.479 — capture non-null sig for downstream Trade record + log calls
             val finalSig: String = sig!!
+            // V5.9.495y — register with TradeVerifier dedupe guard immediately after broadcast accepts.
+            if (!finalSig.startsWith("PHANTOM_")) TradeVerifier.beginSell(ts.mint, finalSig, reason)
 
             // V5.9.495s — POST-BROADCAST SELL VERIFY. Operator (06 May 2026):
             // "the capital recovery/profit lock sells in live in memes aren't
@@ -2037,53 +2048,88 @@ class Executor(
             // closes) skip this gate. Real sigs that didn't settle now
             // bail out cleanly with a SELL_FAILED forensics entry and the
             // position stays intact for the next exit attempt.
+            // V5.9.495y/z — TRADE-VERIFIER AUTHORITATIVE SELL VERIFY (spec
+            // items 6, 8). Replaces the V5.9.495s/t wallet-token-poll
+            // heuristic — which was producing false SELL_FAILED on
+            // RPC empty-map even when the chain had settled. Now: use
+            // getSignatureStatuses + getTransaction tx-parse as the
+            // single authority. LANDED requires BOTH tokens cleared AND
+            // SOL received (operator: "I still want the sell verified and
+            // that the tokens clear the wallet and return the sol").
+            // INCONCLUSIVE_PENDING leaves the position open & qty
+            // unchanged so the next exit tick can retry naturally.
+            // V5.9.495z — when LANDED, capture the verifier's solReceived
+            // (real on-chain SOL delta) into a closure-mutable holder so
+            // the journal-write below uses on-chain truth instead of the
+            // pre-trade quote.outAmount estimate.
+            var verifiedSolReceived: Long = -1L
             run {
                 if (finalSig.startsWith("PHANTOM_")) return@run  // dust/local close — skip verify
-                val expectedDrop = (sellQty * 0.6).coerceAtLeast(0.0001)
-                val verifyDeadline = System.currentTimeMillis() + 12_000L
-                var observedDrop = 0.0
-                var anyMapEmpty = false
-                while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
-                    try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
-                    val balances = try { wallet.getTokenAccountsWithDecimals() } catch (_: Throwable) { null }
-                    if (balances == null || balances.isEmpty()) {
-                        // V5.9.495t — RPC blip; can't compute drop. Skip
-                        // this poll, don't penalise broadcast.
-                        anyMapEmpty = true
-                        continue
-                    }
-                    val curBal = balances[ts.mint]?.first ?: pos.qtyToken
-                    observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
+                val vsr = try {
+                    TradeVerifier.verifySell(wallet, finalSig, ts.mint, timeoutMs = 60_000L)
+                } catch (vfx: Throwable) {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "⚠ TradeVerifier threw (${vfx.message?.take(60)}) — leaving position pending",
+                        sig = finalSig, traderTag = "MEME",
+                    )
+                    null
                 }
-                if (observedDrop < expectedDrop) {
-                    if (anyMapEmpty && observedDrop == 0.0) {
-                        // All polls were RPC-empty; we don't know if it
-                        // settled. Optimistically trust the broadcast sig
-                        // (matches old behaviour) and log warning so the
-                        // operator can spot it in forensics.
+                when (vsr?.outcome) {
+                    TradeVerifier.Outcome.LANDED -> {
+                        verifiedSolReceived = vsr.solReceivedLamports
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.WARNING,
-                            "⚠ SELL VERIFY [$reason]: all polls hit RPC-EMPTY-MAP — trusting sig optimistically. Watch wallet manually.",
-                            sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
+                            LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
+                            "✅ SELL LANDED [$reason]: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lamports${if (vsr.tokenAccountClosedFullExit) " (ATA closed = full exit)" else ""}",
+                            sig = finalSig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                         )
-                    } else {
+                        // Fall through to position mutation + journal write.
+                    }
+                    TradeVerifier.Outcome.FAILED_CONFIRMED -> {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.SELL_FAILED,
-                            "🚨 SELL VERIFY FAILED [$reason]: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle on-chain. Position UNCHANGED, no treasury credit.",
+                            LiveTradeLogStore.Phase.SELL_FAILED_CONFIRMED,
+                            "🚨 SELL_FAILED_CONFIRMED [$reason]: meta.err=${vsr.txErr} — position UNCHANGED, no treasury credit.",
                             sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
                         )
-                        onLog("🚨 SELL VERIFY FAILED ${ts.symbol}: sig=${finalSig.take(16)}… but tokens still in wallet — position unchanged.", ts.mint)
-                        onNotify("🚨 Sell did not settle",
-                            "${ts.symbol}: $reason broadcast accepted but tokens still in wallet. Will retry next exit.",
-                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.WARNING)
-                        return  // exit executeProfitLockSell without mutating position
+                        onLog("🚨 SELL meta.err [$reason] ${ts.symbol}: ${vsr.txErr} — position unchanged.", ts.mint)
+                        TradeVerifier.endSell(ts.mint)
+                        return
+                    }
+                    TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
+                    TradeVerifier.Outcome.VERIFICATION_ERROR -> {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                            "⏳ SELL VERIFY INCONCLUSIVE [$reason]: tokens cleared AND SOL returned not BOTH proven within 60s — leaving position open & qty unchanged. Next tick will retry. Reconciler will adopt later.",
+                            sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
+                        )
+                        TradeVerifier.endSell(ts.mint)
+                        return
+                    }
+                    null -> {
+                        // verifier threw — for safety, decline to mutate position; operator can re-trigger exit.
+                        TradeVerifier.endSell(ts.mint)
+                        return
                     }
                 }
             }
 
-            val solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
+            // V5.9.495y — clear the duplicate-exit guard once we've reached the success-mutation path.
+            TradeVerifier.endSell(ts.mint)
+
+            // V5.9.495z — solBack derives from REAL on-chain SOL delta when
+            // verifier proved it. Falls back to quote only for PHANTOM
+            // sentinels. This kills the +100277% / -100% phantom-PnL
+            // entries from V5.9.495w that used quote.outAmount (inflated).
+            val solBack: Double = when {
+                sig.startsWith("PHANTOM_") -> 0.0
+                verifiedSolReceived > 0L -> verifiedSolReceived / 1_000_000_000.0
+                else -> quote.outAmount / 1_000_000_000.0  // legacy fallback (rare; verifier should always populate)
+            }
+
             val pnlSol = solBack - pos.costSol * sellFraction
             val pnlPct = pct(pos.costSol * sellFraction, solBack)
             val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnlSol, pos.costSol * sellFraction)
@@ -5291,6 +5337,51 @@ class Executor(
                         )
                         return@launch
                     }
+                    // V5.9.495y — TRADE-VERIFIER FINAL AUTHORITY (spec items 1, 8).
+                    // Before destructively wiping a position, ask
+                    // TradeVerifier (getSignatureStatuses + getTransaction
+                    // tx-parse). LANDED → rescue. FAILED_CONFIRMED → wipe.
+                    // INCONCLUSIVE_PENDING → keep position, leave it for
+                    // the reconciler.
+                    try {
+                        val vr = TradeVerifier.verifyBuy(verifyWallet, verifySig, verifyMint, timeoutMs = 30_000L)
+                        when (vr.outcome) {
+                            TradeVerifier.Outcome.LANDED -> {
+                                val rescued = ts.position.copy(qtyToken = vr.uiTokenDelta, pendingVerify = false)
+                                ts.position = rescued
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_TX_PARSE_OK,
+                                    "🛟 TX-PARSE RESCUE: tokens proven on-chain | rawDelta=${vr.rawTokenDelta} ui=${vr.uiTokenDelta.fmt(4)} dec=${vr.decimals}",
+                                    tokenAmount = vr.uiTokenDelta, sig = verifySig, traderTag = "MEME",
+                                )
+                                try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                                return@launch
+                            }
+                            TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
+                            TradeVerifier.Outcome.VERIFICATION_ERROR -> {
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                                    "⏳ TRADE-VERIFIER INCONCLUSIVE — leaving position pending, NO wipe (reconciler will adopt later).",
+                                    sig = verifySig, traderTag = "MEME",
+                                )
+                                return@launch
+                            }
+                            TradeVerifier.Outcome.FAILED_CONFIRMED -> {
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_FAILED,
+                                    "🚨 TRADE-VERIFIER FAILED_CONFIRMED — meta.err=${vr.txErr}. Wiping position.",
+                                    sig = verifySig, traderTag = "MEME",
+                                )
+                                // Fall through to wipe block below.
+                            }
+                        }
+                    } catch (vfx: Throwable) {
+                        ErrorLogger.warn("Executor", "TradeVerifier.verifyBuy threw, falling back to legacy wipe path: ${vfx.message?.take(80)}")
+                    }
                     ErrorLogger.warn(
                         "Executor",
                         "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s + last-chance check (map non-empty, mint absent). Discarding pending position."
@@ -5660,48 +5751,74 @@ class Executor(
                     zeroBalanceRetries.remove(ts.mint + "_broadcast_partial")
                     // V5.9.479 — capture non-null sig for downstream Trade record + log calls
                     val finalSig: String = sig!!
+                    // V5.9.495y — register with TradeVerifier dedupe guard.
+                    if (!finalSig.startsWith("PHANTOM_")) TradeVerifier.beginSell(ts.mint, finalSig, "partial_${(pct*100).toInt()}pct")
 
-                    // V5.9.495s — POST-BROADCAST SELL VERIFY (mirrors
-                    // executeProfitLockSell). Without this, a sig-only
-                    // success would let the bot reduce ts.position.qtyToken
-                    // even when the chain didn't settle, leaving full
-                    // tokens in the wallet but the bot believing it sold.
+                    // V5.9.495y/z — TRADE-VERIFIER AUTHORITATIVE PARTIAL-SELL
+                    // VERIFY (spec items 6, 8). Replaces V5.9.495s wallet-poll
+                    // heuristic. Requires BOTH tokens cleared AND SOL received
+                    // (operator: "I still want the sell verified and that the
+                    // tokens clear the wallet and return the sol").
+                    var verifiedSolReceived: Long = -1L
                     run {
                         if (finalSig.startsWith("PHANTOM_")) return@run
                         val sellQtyHere = pos.qtyToken * pct
-                        val expectedDrop = (sellQtyHere * 0.6).coerceAtLeast(0.0001)
-                        val verifyDeadline = System.currentTimeMillis() + 12_000L
-                        var observedDrop = 0.0
-                        var anyMapEmpty = false
-                        while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
-                            try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
-                            val balances = try { activeWallet.getTokenAccountsWithDecimals() } catch (_: Throwable) { null }
-                            if (balances == null || balances.isEmpty()) { anyMapEmpty = true; continue }
-                            val curBal = balances[ts.mint]?.first ?: pos.qtyToken
-                            observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
+                        val vsr = try {
+                            TradeVerifier.verifySell(activeWallet, finalSig, ts.mint, timeoutMs = 60_000L)
+                        } catch (vfx: Throwable) {
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.WARNING,
+                                "⚠ TradeVerifier threw (${vfx.message?.take(60)}) — leaving position pending",
+                                sig = finalSig, traderTag = "MEME",
+                            )
+                            null
                         }
-                        if (observedDrop < expectedDrop) {
-                            if (anyMapEmpty && observedDrop == 0.0) {
+                        when (vsr?.outcome) {
+                            TradeVerifier.Outcome.LANDED -> {
+                                verifiedSolReceived = vsr.solReceivedLamports
                                 LiveTradeLogStore.log(
                                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                    LiveTradeLogStore.Phase.WARNING,
-                                    "⚠ PARTIAL VERIFY: all polls hit RPC-EMPTY-MAP — trusting sig optimistically. Watch wallet manually.",
-                                    sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
+                                    LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
+                                    "✅ PARTIAL LANDED: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lamports",
+                                    sig = finalSig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                                 )
-                            } else {
+                            }
+                            TradeVerifier.Outcome.FAILED_CONFIRMED -> {
                                 LiveTradeLogStore.log(
                                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                    LiveTradeLogStore.Phase.SELL_FAILED,
-                                    "🚨 PARTIAL VERIFY FAILED: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle. Position UNCHANGED.",
+                                    LiveTradeLogStore.Phase.SELL_FAILED_CONFIRMED,
+                                    "🚨 PARTIAL_FAILED_CONFIRMED: meta.err=${vsr.txErr} — position UNCHANGED.",
                                     sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
                                 )
-                                onLog("🚨 PARTIAL SELL VERIFY FAILED ${ts.symbol}: tokens still in wallet — position unchanged.", ts.mint)
-                                return  // exit liveSell partial branch without mutating
+                                onLog("🚨 PARTIAL SELL meta.err ${ts.symbol}: ${vsr.txErr} — position unchanged.", ts.mint)
+                                TradeVerifier.endSell(ts.mint)
+                                return
+                            }
+                            TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
+                            TradeVerifier.Outcome.VERIFICATION_ERROR -> {
+                                LiveTradeLogStore.log(
+                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                                    "⏳ PARTIAL VERIFY INCONCLUSIVE: tokens-clear AND SOL-return not BOTH proven within 60s — leaving position open & qty unchanged. Reconciler will adopt later.",
+                                    sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
+                                )
+                                TradeVerifier.endSell(ts.mint)
+                                return
+                            }
+                            null -> {
+                                TradeVerifier.endSell(ts.mint)
+                                return
                             }
                         }
                     }
+                    TradeVerifier.endSell(ts.mint)
                     
-                    val solBack = if (finalSig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
+                    val solBack: Double = when {
+                        finalSig.startsWith("PHANTOM_") -> 0.0
+                        verifiedSolReceived > 0L -> verifiedSolReceived / 1_000_000_000.0
+                        else -> quote.outAmount / 1_000_000_000.0
+                    }
                     val livePnl = solBack - pos.costSol * pct
                     val liveScore = pct(pos.costSol * pct, solBack)
                     val (netPnl, feeSol) = slippageGuard.calcNetPnl(livePnl, pos.costSol * pct)
@@ -6899,6 +7016,18 @@ class Executor(
         // by reusing the entryTime as the keystone.
         val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
         
+        // V5.9.495y — DUPLICATE-EXIT GUARD (spec item 9).
+        TradeVerifier.activeSellSig(ts.mint)?.let { existingSig ->
+            onLog("⏳ SELL DEDUPE: ${ts.symbol} — existing sell sig=${existingSig.take(16)}… still verifying. Skipping new $reason exit.", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                "⏳ DEDUPE: existing sell sig=${existingSig.take(16)}… still in flight. Skipping duplicate $reason exit.",
+                sig = existingSig, traderTag = "MEME",
+            )
+            return SellResult.FAILED_RETRYABLE
+        }
+        
         onLog("🔄 SELL START: ${ts.symbol} | reason=$reason | pos.isOpen=${pos.isOpen} | pos.qtyToken=${pos.qtyToken} | pos.costSol=${pos.costSol}", tradeId.mint)
         LiveTradeLogStore.log(
             sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -7584,8 +7713,67 @@ class Executor(
                 }
             }
             
+            // V5.9.495y/z — TRADE-VERIFIER FULL-SELL AUTHORITY (spec items
+            // 6, 8). Run tx-parse first; if LANDED we skip the legacy
+            // wallet-poll heuristics + dust-buster entirely. Operator:
+            // "I still want the sell verified and that the tokens clear
+            // the wallet and return the sol" — verifier requires BOTH
+            // tokens cleared AND SOL received before declaring LANDED.
+            var fullSellVerifiedSol: Long = -1L
+            var verifierLanded = false
+            run {
+                if (sig.isBlank() || sig.startsWith("PHANTOM_")) return@run
+                val vsr = try {
+                    TradeVerifier.verifySell(wallet, sig, ts.mint, timeoutMs = 60_000L)
+                } catch (vfx: Throwable) {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "⚠ TradeVerifier(full-sell) threw: ${vfx.message?.take(60)}",
+                        sig = sig, traderTag = "MEME",
+                    )
+                    null
+                }
+                when (vsr?.outcome) {
+                    TradeVerifier.Outcome.LANDED -> {
+                        fullSellVerifiedSol = vsr.solReceivedLamports
+                        verifierLanded = true
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_TX_PARSE_OK,
+                            "✅ FULL SELL LANDED: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lam${if (vsr.tokenAccountClosedFullExit) " (ATA closed)" else ""}",
+                            sig = sig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
+                        )
+                    }
+                    TradeVerifier.Outcome.FAILED_CONFIRMED -> {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_FAILED_CONFIRMED,
+                            "🚨 FULL SELL FAILED_CONFIRMED: meta.err=${vsr.txErr}",
+                            sig = sig, traderTag = "MEME",
+                        )
+                        TradeVerifier.endSell(ts.mint)
+                        throw RuntimeException("Sell failed on-chain: ${vsr.txErr}")
+                    }
+                    TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
+                    TradeVerifier.Outcome.VERIFICATION_ERROR -> {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                            "⏳ FULL SELL INCONCLUSIVE — falling through to legacy wallet-poll + dust-buster",
+                            sig = sig, traderTag = "MEME",
+                        )
+                    }
+                    null -> {}
+                }
+            }
+            
             try {
-                Thread.sleep(1500)
+                if (verifierLanded) {
+                    // Verifier proved both sides on-chain — skip legacy wallet-poll/dust-buster.
+                    onLog("✅ FULL SELL VERIFIED VIA TX-PARSE: ${ts.symbol} sig=${sig.take(20)}…", tradeId.mint)
+                } else {
+                    Thread.sleep(1500)
                 val postSellBalances = wallet.getTokenAccountsWithDecimals()
                 val postSellMapEmpty = postSellBalances.isEmpty()
                 val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
@@ -7670,6 +7858,7 @@ class Executor(
                         )
                     } catch (_: Exception) {}
                 }
+                } // end else (verifierLanded == false → legacy path)
             } catch (verifyEx: RuntimeException) {
                 throw verifyEx
             } catch (e: Exception) {
@@ -7736,7 +7925,17 @@ class Executor(
             // Fix: retry SOL balance read 5×3s with backoff. If we still
             // see no delta, write a SCRATCH entry (solBack = costSol, 0%
             // PnL) instead of credulously trusting the inflated quote.
-            val solBack: Double = try {
+            val solBack: Double = if (fullSellVerifiedSol > 0L) {
+                // V5.9.495z — when TradeVerifier proved the on-chain SOL
+                // delta on this same sig, use that as the authoritative
+                // value. Bypasses the SOL-balance-poll race that produced
+                // the +100277% pippin / -100% HKF3ZGpx phantom journal
+                // entries. Operator: "I still want the sell verified and
+                // that the tokens clear the wallet and return the sol".
+                val verifiedSol = fullSellVerifiedSol / 1_000_000_000.0
+                onLog("📊 SELL PnL (verifier): received=${verifiedSol.fmt(6)} SOL (tx-parse authoritative)", tradeId.mint)
+                pos.costSol + verifiedSol
+            } else try {
                 var actualBalance = wallet.getSolBalance()
                 var delta = actualBalance - walletSol
                 if (delta <= 0.001) {

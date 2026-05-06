@@ -384,6 +384,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     // ── JSON-RPC helper ────────────────────────────────────
 
+    /** V5.9.495y — public wrapper for TradeVerifier (which needs raw RPC access). */
+    fun rpcCall(method: String, params: JSONArray): JSONObject = rpc(method, params)
+
     private fun rpc(method: String, params: JSONArray): JSONObject {
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
