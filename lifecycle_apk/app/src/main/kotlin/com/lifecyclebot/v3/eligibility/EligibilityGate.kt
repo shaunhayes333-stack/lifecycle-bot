@@ -154,7 +154,18 @@ class ExposureGuard(
         openMints -= mint
     }
 
-    fun isTokenAlreadyOpen(mint: String): Boolean = mint in openMints
+    fun isTokenAlreadyOpen(mint: String): Boolean {
+        // V5.9.495z6 — operator spec F: ALREADY_OPEN must consult ALL state
+        // sources (open position by mint OR wallet token raw balance by mint).
+        // The exposure guard's local openMints set can drift from on-chain
+        // truth (e.g. after an orphan recovery). Consult WalletReconciler's
+        // canonical knownMints registry as well so we never let a token slip
+        // through ALREADY_OPEN just because the V3 set went stale.
+        if (mint in openMints) return true
+        return try {
+            com.lifecyclebot.engine.WalletReconciler.knownMintContains(mint)
+        } catch (_: Throwable) { false }
+    }
 
     fun isGlobalExposureMaxed(): Boolean {
         // V5.9.408 — free-range mode uncaps open-position count and exposure

@@ -89,14 +89,48 @@ object FeeRetryQueue {
                 continue
             }
 
+            // V5.9.495z6 — operator spec I: classify errors as retryable
+            // vs non-retryable. AccountNotFound / insufficient funds /
+            // closed token account / blockhash not found / already
+            // processed / invalid account data are PERMANENT failures —
+            // burning 18/19/20 retry slots on them is pointless and
+            // crowds out genuinely transient retries.
+            val nonRetryablePatterns = listOf(
+                "accountnotfound", "account not found",
+                "insufficient", "insufficientfunds",
+                "token account closed", "ata closed",
+                "blockhash not found", "blockhashnotfound",
+                "already processed",
+                "invalid account data",
+                "owner mismatch",
+            )
+
             // Attempt retry
             try {
                 wallet.sendSol(entry.toAddress, entry.amountSol)
                 ErrorLogger.info("FeeRetryQueue", "✅ Retry success: ${entry.amountSol.fmt(5)} SOL → ${entry.toAddress} (attempt ${entry.retryCount + 1})")
                 // Fee sent — don't re-add to remaining
             } catch (e: Exception) {
-                ErrorLogger.warn("FeeRetryQueue", "⚠ Retry failed (${entry.retryCount + 1}/${MAX_RETRIES}): ${e.message?.take(60)}")
-                remaining.put(entryToJson(entry.copy(retryCount = entry.retryCount + 1)))
+                val errMsg = (e.message ?: "").lowercase()
+                val nonRetryable = nonRetryablePatterns.any { it in errMsg }
+                if (nonRetryable) {
+                    ErrorLogger.warn(
+                        "FeeRetryQueue",
+                        "🛑 NON_RETRYABLE error — dropping fee permanently (${entry.amountSol.fmt(5)} SOL → ${entry.toAddress}): ${e.message?.take(80)}"
+                    )
+                    LiveTradeLogStore.log(
+                        tradeKey = "FEE_${entry.toAddress.take(8)}",
+                        mint = "", symbol = "FEE",
+                        side = "FEE",
+                        phase = LiveTradeLogStore.Phase.FEE_RETRY_CANCELLED_NON_RETRYABLE,
+                        message = "🛑 Fee retry cancelled (non-retryable): ${e.message?.take(60)} → drop ${entry.amountSol.fmt(5)} SOL",
+                        solAmount = entry.amountSol,
+                    )
+                    // Do not re-queue — drop permanently.
+                } else {
+                    ErrorLogger.warn("FeeRetryQueue", "⚠ Retry failed (${entry.retryCount + 1}/${MAX_RETRIES}): ${e.message?.take(60)}")
+                    remaining.put(entryToJson(entry.copy(retryCount = entry.retryCount + 1)))
+                }
             }
         }
 

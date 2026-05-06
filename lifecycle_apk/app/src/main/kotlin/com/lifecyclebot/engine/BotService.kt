@@ -5244,6 +5244,20 @@ if (deferredCount > 0) {
 // any open Treasury / sub-trader position is checked every loop,
 // independent of scanner visibility.
 sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
+
+            // V5.9.495z6 — WALLET RECONCILIATION (operator spec May 2026).
+            // After all sub-trader cycles + universal exit sweep, sync the
+            // PositionStore with the on-chain wallet truth. Recovers orphan
+            // mints (positions=0 + ALREADY_OPEN drift bug) and closes
+            // zombies (open position with zero wallet balance). Throttled
+            // to every ~15s internally so calling every loop is fine.
+            if (!cfg.paperMode && wallet != null) {
+                try {
+                    WalletReconciler.reconcileWalletHoldings(status, wallet, isPaperMode = false)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")
+                }
+            }
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
             if (cfg.shadowPaperEnabled && !cfg.paperMode) {

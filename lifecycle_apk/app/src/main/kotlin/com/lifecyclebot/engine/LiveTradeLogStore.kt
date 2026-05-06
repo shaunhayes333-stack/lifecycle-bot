@@ -67,6 +67,12 @@ object LiveTradeLogStore {
         Phase.SELL_TX_CONFIRMED,
         Phase.SWEEP_TOKEN_DONE,
         Phase.SWEEP_DONE,
+        // V5.9.495z6 — operator spec: position lifecycle terminals.
+        Phase.OPEN_POSITION_CREATED,
+        Phase.OPEN_POSITION_RECOVERED_FROM_WALLET,
+        Phase.POSITION_RECONCILED_FROM_WALLET,
+        Phase.POSITION_CLOSED_BY_TX_PARSE,
+        Phase.POSITION_CLOSED_BY_WALLET_ZERO,
     )
 
     private val TERMINAL_BAD: Set<Phase> = setOf(
@@ -100,20 +106,19 @@ object LiveTradeLogStore {
 
     fun emit(event: Event) {
         // V5.9.495z4 — monotonic guard: suppress downgrades on top of terminal states.
+        // V5.9.495z6 — operator spec: emit explicit STATE_DOWNGRADE_BLOCKED phase
+        // (instead of silent INFO downgrade) so the timeline shows the rejection.
         val terminal = terminalPhaseFor(event.tradeKey, event.sig)
         val effective: Event = if (terminal != null && event.phase in DOWNGRADE_BLOCKED) {
-            // Never persist the downgrade — drop it to a debug INFO line so
-            // forensics still show the watchdog fired but the trade is not
-            // moved out of its proven terminal state.
             try {
                 ErrorLogger.debug(
                     "LiveTradeLogStore",
-                    "ignored stale watchdog downgrade: tradeKey=${event.tradeKey} sig=${event.sig?.take(16)} attempted=${event.phase} but terminal=$terminal already recorded"
+                    "STATE_DOWNGRADE_BLOCKED: tradeKey=${event.tradeKey} sig=${event.sig?.take(16)} attempted=${event.phase} but terminal=$terminal already recorded"
                 )
             } catch (_: Throwable) {}
             event.copy(
-                phase = Phase.INFO,
-                message = "(suppressed downgrade ${event.phase} — already $terminal) ${event.message}",
+                phase = Phase.STATE_DOWNGRADE_BLOCKED,
+                message = "🛡 Blocked downgrade ${event.phase} → already $terminal | ${event.message}",
             )
         } else {
             event
@@ -189,6 +194,19 @@ object LiveTradeLogStore {
         // BUY counterparts
         BUY_TX_PARSE_OK,
         BUY_RECONCILE_LANDED,
+
+        // V5.9.495z6 — State-reconciliation forensic events (operator
+        // spec May 2026: 'critical live state fix — multiple unsynchronised
+        // state systems').
+        STATE_DOWNGRADE_BLOCKED,
+        WATCHDOG_CANCELLED,
+        OPEN_POSITION_CREATED,
+        OPEN_POSITION_RECOVERED_FROM_WALLET,
+        POSITION_RECONCILED_FROM_WALLET,
+        POSITION_CLOSED_BY_TX_PARSE,
+        POSITION_CLOSED_BY_WALLET_ZERO,
+        FEE_RETRY_CANCELLED_FINAL_STATE,
+        FEE_RETRY_CANCELLED_NON_RETRYABLE,
 
         // Sweep phases (shutdown wallet liquidation)
         SWEEP_START,

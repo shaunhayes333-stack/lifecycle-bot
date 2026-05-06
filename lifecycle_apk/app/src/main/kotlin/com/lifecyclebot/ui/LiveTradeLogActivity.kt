@@ -287,7 +287,13 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_RECONCILE_LANDED,
         Phase.SELL_PUMPPORTAL_ACCEPTED,
         Phase.BUY_TX_PARSE_OK,
-        Phase.BUY_RECONCILE_LANDED -> Color.parseColor("#10B981")        // green
+        Phase.BUY_RECONCILE_LANDED,
+        // V5.9.495z6 position-lifecycle terminals
+        Phase.OPEN_POSITION_CREATED,
+        Phase.OPEN_POSITION_RECOVERED_FROM_WALLET,
+        Phase.POSITION_RECONCILED_FROM_WALLET,
+        Phase.POSITION_CLOSED_BY_TX_PARSE,
+        Phase.POSITION_CLOSED_BY_WALLET_ZERO -> Color.parseColor("#10B981")        // green
 
         // red — terminal failure
         Phase.BUY_PHANTOM,
@@ -304,8 +310,12 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_FAILED_CONFIRMED,
         Phase.ERROR -> Color.parseColor("#EF4444")             // red
 
-        // amber — caution / inconclusive
+        // amber — caution / inconclusive / blocked
         Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+        Phase.STATE_DOWNGRADE_BLOCKED,
+        Phase.WATCHDOG_CANCELLED,
+        Phase.FEE_RETRY_CANCELLED_FINAL_STATE,
+        Phase.FEE_RETRY_CANCELLED_NON_RETRYABLE,
         Phase.WARNING -> Color.parseColor("#F59E0B")           // amber
 
         // blue — in-flight / informational (default for everything else)
