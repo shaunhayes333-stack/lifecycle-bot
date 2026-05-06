@@ -44,7 +44,16 @@ object TxParseHelper {
      *
      * Returns null if RPC call failed or transaction not yet visible.
      */
-    fun parseAll(wallet: SolanaWallet, signature: String): ParseResult? = try {
+    fun parseAll(wallet: SolanaWallet, signature: String): ParseResult? {
+        return try {
+            doParse(wallet, signature)
+        } catch (e: Throwable) {
+            ErrorLogger.debug(TAG, "parseAll($signature) err: ${e.message?.take(80)}")
+            null
+        }
+    }
+
+    private fun doParse(wallet: SolanaWallet, signature: String): ParseResult? {
         val params = JSONArray()
             .put(signature)
             .put(JSONObject()
@@ -52,87 +61,80 @@ object TxParseHelper {
                 .put("commitment", "confirmed")
                 .put("maxSupportedTransactionVersion", 0))
         val resp = wallet.rpcCall("getTransaction", params)
-        val result = resp.optJSONObject("result")
-        if (result == null) {
-            null
-        } else {
-            val meta = result.optJSONObject("meta") ?: return@try null
-            val errObj = meta.opt("err")
-            val metaErr: String? = if (errObj == null || errObj == JSONObject.NULL)
-                null else errObj.toString().take(180)
+        val result = resp.optJSONObject("result") ?: return null
+        val meta = result.optJSONObject("meta") ?: return null
+        val errObj = meta.opt("err")
+        val metaErr: String? = if (errObj == null || errObj == JSONObject.NULL)
+            null else errObj.toString().take(180)
 
-            val tx = result.optJSONObject("transaction")
-            val msg = tx?.optJSONObject("message")
-            val keys = msg?.optJSONArray("accountKeys") ?: JSONArray()
-            var ownerIdx = -1
-            for (i in 0 until keys.length()) {
-                val k = keys.opt(i)
-                val pk = when (k) {
-                    is JSONObject -> k.optString("pubkey")
-                    is String -> k
-                    else -> ""
-                }
-                if (pk == wallet.publicKeyB58) { ownerIdx = i; break }
+        val tx = result.optJSONObject("transaction")
+        val msg = tx?.optJSONObject("message")
+        val keys = msg?.optJSONArray("accountKeys") ?: JSONArray()
+        var ownerIdx = -1
+        for (i in 0 until keys.length()) {
+            val k = keys.opt(i)
+            val pk = when (k) {
+                is JSONObject -> k.optString("pubkey")
+                is String -> k
+                else -> ""
             }
-            val preBalArr = meta.optJSONArray("preBalances") ?: JSONArray()
-            val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
-            val solBefore = if (ownerIdx in 0 until preBalArr.length()) preBalArr.optLong(ownerIdx, 0L) else 0L
-            val solAfter  = if (ownerIdx in 0 until postBalArr.length()) postBalArr.optLong(ownerIdx, 0L) else 0L
-            val solDelta = solAfter - solBefore
+            if (pk == wallet.publicKeyB58) { ownerIdx = i; break }
+        }
+        val preBalArr = meta.optJSONArray("preBalances") ?: JSONArray()
+        val postBalArr = meta.optJSONArray("postBalances") ?: JSONArray()
+        val solBefore = if (ownerIdx in 0 until preBalArr.length()) preBalArr.optLong(ownerIdx, 0L) else 0L
+        val solAfter  = if (ownerIdx in 0 until postBalArr.length()) postBalArr.optLong(ownerIdx, 0L) else 0L
+        val solDelta = solAfter - solBefore
 
-            val preTok = meta.optJSONArray("preTokenBalances") ?: JSONArray()
-            val postTok = meta.optJSONArray("postTokenBalances") ?: JSONArray()
+        val preTok = meta.optJSONArray("preTokenBalances") ?: JSONArray()
+        val postTok = meta.optJSONArray("postTokenBalances") ?: JSONArray()
 
-            // Collect pre + post balances for owner-matched entries, indexed by mint.
-            data class TokSlot(var raw: BigInteger = BigInteger.ZERO, var dec: Int = 0, var existed: Boolean = false)
-            val preMap = HashMap<String, TokSlot>()
-            val postMap = HashMap<String, TokSlot>()
+        // Collect pre + post balances for owner-matched entries, indexed by mint.
+        data class TokSlot(var raw: BigInteger = BigInteger.ZERO, var dec: Int = 0, var existed: Boolean = false)
+        val preMap = HashMap<String, TokSlot>()
+        val postMap = HashMap<String, TokSlot>()
 
-            fun ingest(arr: JSONArray, target: HashMap<String, TokSlot>) {
-                for (i in 0 until arr.length()) {
-                    val o = arr.optJSONObject(i) ?: continue
-                    if (o.optString("owner") != wallet.publicKeyB58) continue
-                    val mint = o.optString("mint").ifBlank { continue }
-                    val ta = o.optJSONObject("uiTokenAmount") ?: continue
-                    val raw = runCatching { BigInteger(ta.optString("amount", "0")) }
-                        .getOrElse { BigInteger.ZERO }
-                    val dec = ta.optInt("decimals", 0)
-                    val slot = target.getOrPut(mint) { TokSlot() }
-                    slot.raw = raw
-                    slot.dec = dec
-                    slot.existed = true
-                }
+        fun ingest(arr: JSONArray, target: HashMap<String, TokSlot>) {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                if (o.optString("owner") != wallet.publicKeyB58) continue
+                val mint = o.optString("mint").ifBlank { continue }
+                val ta = o.optJSONObject("uiTokenAmount") ?: continue
+                val raw = runCatching { BigInteger(ta.optString("amount", "0")) }
+                    .getOrElse { BigInteger.ZERO }
+                val dec = ta.optInt("decimals", 0)
+                val slot = target.getOrPut(mint) { TokSlot() }
+                slot.raw = raw
+                slot.dec = dec
+                slot.existed = true
             }
-            ingest(preTok, preMap)
-            ingest(postTok, postMap)
+        }
+        ingest(preTok, preMap)
+        ingest(postTok, postMap)
 
-            val allMints = (preMap.keys + postMap.keys).toSet()
-            val deltas = HashMap<String, MintDelta>()
-            for (mint in allMints) {
-                val pre = preMap[mint]
-                val post = postMap[mint]
-                val raw = (post?.raw ?: BigInteger.ZERO) - (pre?.raw ?: BigInteger.ZERO)
-                val dec = (post?.dec ?: 0).takeIf { it > 0 } ?: (pre?.dec ?: 0)
-                deltas[mint] = MintDelta(
-                    mint = mint,
-                    rawDelta = raw,
-                    decimals = dec,
-                    preExisted = pre?.existed == true,
-                    postExisted = post?.existed == true,
-                )
-            }
-
-            ParseResult(
-                signature = signature,
-                confirmed = true,
-                metaErr = metaErr,
-                solDeltaLamports = solDelta,
-                tokenDeltas = deltas,
+        val allMints = (preMap.keys + postMap.keys).toSet()
+        val deltas = HashMap<String, MintDelta>()
+        for (mint in allMints) {
+            val pre = preMap[mint]
+            val post = postMap[mint]
+            val raw = (post?.raw ?: BigInteger.ZERO) - (pre?.raw ?: BigInteger.ZERO)
+            val dec = (post?.dec ?: 0).takeIf { it > 0 } ?: (pre?.dec ?: 0)
+            deltas[mint] = MintDelta(
+                mint = mint,
+                rawDelta = raw,
+                decimals = dec,
+                preExisted = pre?.existed == true,
+                postExisted = post?.existed == true,
             )
         }
-    } catch (e: Throwable) {
-        ErrorLogger.debug(TAG, "parseAll($signature) err: ${e.message?.take(80)}")
-        null
+
+        return ParseResult(
+            signature = signature,
+            confirmed = true,
+            metaErr = metaErr,
+            solDeltaLamports = solDelta,
+            tokenDeltas = deltas,
+        )
     }
 
     /** Convenience: signed long delta for a specific mint, 0 if absent. */
