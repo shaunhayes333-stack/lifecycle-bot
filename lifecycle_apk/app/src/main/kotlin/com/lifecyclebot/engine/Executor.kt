@@ -7724,20 +7724,53 @@ class Executor(
             // Jupiter quote.outAmount is estimated output before MEV/slippage. We read the
             // live SOL balance (after awaitConfirmation confirmed the tx) and diff against the
             // pre-sell walletSol to get the actual SOL received into the connected wallet.
+            // V5.9.495x — operator triage 06 May 2026 (Trade Journal screenshot):
+            // pippin capital_recovery_90.0x recorded +100277.7% / +A$ 4,485.12 — a
+            // false journal entry. Root cause: when the post-sell SOL delta
+            // came back ≤ 0.001 (chain didn't settle, or RPC lag, or fees ate
+            // it), the fallback used `finalQuote.outAmount` — Jupiter's
+            // PRE-trade estimate — which on illiquid pumped tokens is
+            // wildly inflated. Same path produced -100% HKF3ZGpx losses
+            // (sell broadcast but no SOL came back → 0 delta → quote
+            // inflated → eventual subtraction → -100%).
+            // Fix: retry SOL balance read 5×3s with backoff. If we still
+            // see no delta, write a SCRATCH entry (solBack = costSol, 0%
+            // PnL) instead of credulously trusting the inflated quote.
             val solBack: Double = try {
-                val actualBalance = wallet.getSolBalance()
-                val delta = actualBalance - walletSol
+                var actualBalance = wallet.getSolBalance()
+                var delta = actualBalance - walletSol
+                if (delta <= 0.001) {
+                    // Retry up to 5×3s (15s window) — handles RPC lag.
+                    var attempt = 1
+                    while (attempt <= 5 && delta <= 0.001) {
+                        try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+                        actualBalance = try { wallet.getSolBalance() } catch (_: Throwable) { actualBalance }
+                        delta = actualBalance - walletSol
+                        attempt++
+                    }
+                }
                 if (delta > 0.001) {
                     onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=${(finalQuote.outAmount / 1_000_000_000.0).fmt(6)} SOL", tradeId.mint)
                     pos.costSol + delta  // costSol + delta = total back (delta = net SOL gain/loss vs cost)
                 } else {
-                    // RPC lag or fee deduction made delta look tiny — fall back to quote
-                    onLog("📊 SELL PnL (quoted fallback): delta=${delta.fmt(6)} | outAmount=${finalQuote.outAmount}", tradeId.mint)
-                    finalQuote.outAmount / 1_000_000_000.0
+                    // V5.9.495x — no on-chain SOL delta after 15s. Refuse
+                    // to trust the inflated `quote.outAmount`; record as
+                    // SCRATCH so the journal isn't poisoned by phantom
+                    // wins/losses on tx that didn't actually settle.
+                    onLog("📊 SELL PnL: no SOL delta after 15s retry — recording as SCRATCH (no quote-inflation in journal)", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "📊 SELL PnL=SCRATCH: no on-chain SOL delta after 15s retry. Journal entry will show 0% — refusing to use inflated quote.outAmount.",
+                        traderTag = "MEME",
+                    )
+                    pos.costSol  // SCRATCH: solBack == costSol → 0% PnL
                 }
             } catch (balEx: Exception) {
-                onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}), using quote", tradeId.mint)
-                finalQuote.outAmount / 1_000_000_000.0
+                // Even SOL balance read failed entirely — record SCRATCH
+                // rather than gamble with the quote.
+                onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}) — recording as SCRATCH", tradeId.mint)
+                pos.costSol
             }
             pnl  = solBack - pos.costSol
             pnlP = pct(pos.costSol, solBack)
