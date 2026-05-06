@@ -226,8 +226,16 @@ class AATEApp : Application() {
         try {
             val prefs = getSharedPreferences("bot_runtime", MODE_PRIVATE)
             val wasRunning = prefs.getBoolean("was_running_before_shutdown", false)
-            
-            if (wasRunning) {
+
+            // V5.9.495z11 — RANDOM RESTART FIX. Only fire a 3-second
+            // ACTION_START alarm if the bot really is NOT running right
+            // now. Previously this fired on any recoverable background
+            // exception (NPE / JSONException / IOException…) even when
+            // BotService was alive and well — the alarm then double-fired
+            // the start path 3 seconds later, which the user perceived as
+            // "the bot randomly stops and starts when it wants".
+            val isRunningNow = try { BotService.status.running } catch (_: Throwable) { false }
+            if (wasRunning && !isRunningNow) {
                 ErrorLogger.info("App", "Bot was running - scheduling restart in 3 seconds")
                 
                 val restartIntent = Intent(this, BotService::class.java).apply {

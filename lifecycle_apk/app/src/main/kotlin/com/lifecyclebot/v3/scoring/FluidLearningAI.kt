@@ -1172,13 +1172,25 @@ object FluidLearningAI {
      */
     fun getFluidStopLoss(modeDefaultStop: Double): Double {
         val progress = getLearningProgress()
-        
-        // V5.6: Tightened bootstrap SL cap from 6% to 4%
-        // At 75% learning, losses were running to 9%+ while wins only captured 3-5%
-        // 4% cap forces quicker cuts — better to lose small and reload on a better setup
-        val bootstrapStop = maxOf(modeDefaultStop, 4.0)  // Cap at -4% during bootstrap
-        val matureStop = modeDefaultStop                   // Use mode's intended stop when mature
-        
+
+        // V5.9.495z11 — BOOTSTRAP STOP-LOSS SIGN FIX.
+        // Pre-fix: `maxOf(modeDefaultStop, 4.0)` where modeDefaultStop is
+        // a NEGATIVE percent (e.g. -25.0) returned +4.0, i.e. a POSITIVE
+        // floor. The sweep then fired `pnlPct <= 4.0` on essentially
+        // every open trade (any position not up >4%) — the user observed
+        // this as "rapid stop fire knifing the wallet", with every
+        // position closing at −2% to −3% and the live SWEEP_FLUID_FLOOR_3
+        // reason emitted on every close.
+        //
+        // Post-fix: cap the bootstrap stop at −15% (user mandate: "-15% is
+        // ok"). For mode stops tighter than −15% (treasury −5%, shitcoin
+        // −10%, etc.) the mode value wins because it is already less
+        // negative than −15%. For wider mode stops (moonshot −25%) we
+        // clamp to −15% during bootstrap so the bot doesn't bleed 25% on
+        // every learning trade. Signs are now correct throughout.
+        val bootstrapStop = maxOf(modeDefaultStop, -15.0)  // never looser than −15% during bootstrap
+        val matureStop = modeDefaultStop                   // full mode stop once mature
+
         return lerp(bootstrapStop, matureStop)
     }
     

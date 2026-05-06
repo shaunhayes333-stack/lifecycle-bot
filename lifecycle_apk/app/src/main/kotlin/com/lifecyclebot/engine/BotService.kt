@@ -2652,6 +2652,17 @@ class BotService : Service() {
             android.util.Log.e("BotService", "startBot CRASH", e)
             e.printStackTrace()
             status.running = false
+            // V5.9.495z11 — RANDOM RESTART FIX. If startBot crashes mid-flight
+            // we MUST clear `was_running_before_shutdown` so ServiceWatchdog
+            // does not see it 15 min later and re-fire ACTION_START in a loop.
+            // Without this, a crash here causes the bot to "randomly start
+            // on its own" every 15 minutes.
+            try {
+                getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean("was_running_before_shutdown", false).apply()
+            } catch (_: Exception) {}
+            try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+            try { cancelKeepAliveAlarm() } catch (_: Exception) {}
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } catch (_: Exception) {}
