@@ -1128,15 +1128,13 @@ class LifecycleStrategy(
         // still allowing 5–10x the pre-V5.9.311 volume for layer learning.
         // V5.9.489 — operator: 'its blocking a lot of tokens before even learning
         // about them.' Paper mode is for LEARNING, not for protecting paper PnL.
-        // Lower the SKIP floor from 25→10 so only truly-dead tokens (conf<10%)
-        // get blocked. Anything 10–24% conf reaches FluidLearningAI / EdgeLearning
-        // for layer training; quality-penalty + smart sizing keep loss exposure
-        // tiny on the borderline ones. Restores build-1941-era learning volume.
-        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 10.0
-        // V5.9.489 — same easing for the C-quality floor (40→25) so quality=C
-        // trades with 25–39% conf flow through to learning instead of being
-        // pre-blocked. The setup-quality penalty already shrinks the size on these.
-        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 25.0
+        // V5.9.495z3 — operator: 'stupidly slow paper mode 2 trades open' on
+        // 33% WR. Drop SKIP floor 10→5 so only truly-dead 0-4% conf gets
+        // blocked. Drop quality=C floor 25→10 so anything ≥10% conf flows to
+        // FluidLearningAI for layer training. Quality penalty + size cascade
+        // floor (now 0.75 in paper) keep loss exposure tiny on weak setups.
+        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 5.0
+        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 10.0
 
         // V5.9.318: TradingCopilot life-coach overlay. Read-only consume of the
         // current coaching directive. Drives 4 dynamic effects:
@@ -1187,8 +1185,8 @@ class LifecycleStrategy(
             copilotBrake -> "🛑 Copilot EMERGENCY_BRAKE: ${copilot.advice.take(80)}"
             isZeroConfidence && !isPaperMode -> "Zero confidence (0%) = no trade [LIVE]"
             edgeVeto && isVeryLowConfidence && !isPaperMode -> "Edge veto + very low confidence (${edgeConfidence.toInt()}%) [LIVE]"
-            paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<25% (${edgeConfidence.toInt()}%)"
-            paperLowQualityFloor -> "Paper floor: quality=C + conf<40% (${edgeConfidence.toInt()}%)"
+            paperEdgeSkipFloor -> "Paper floor: edge=SKIP + conf<5% (${edgeConfidence.toInt()}%)"
+            paperLowQualityFloor -> "Paper floor: quality=C + conf<10% (${edgeConfidence.toInt()}%)"
             belowCopilotFloor -> "🧭 Copilot floor: conf=${edgeConfidence.toInt()}% < ${copilotConfFloor.toInt()}% (${copilot.mood.name})"
             rawSignal == "BUY" && edgeVeto && !isPaperMode -> "Edge veto: ${edgeFilter.reason}"
             rawSignal != "BUY" -> "Signal is $rawSignal, not BUY"

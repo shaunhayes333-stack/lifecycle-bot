@@ -6675,9 +6675,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         // to print a real pattern. Blocking them here denied
                         // the scorer the volume it needs to learn. Above 40%
                         // learning the original veto re-engages.
+                        // V5.9.495z3 — operator: paper showing SMARTCHART_BLOCK
+                        // bearish=100% on every Treasury candidate, killing
+                        // sweep volume. Paper mode is for LEARNING; force the
+                        // bypass on regardless of learning progress so paper
+                        // gets the volume to evaluate "is the bearish veto
+                        // actually correct?". Live mode keeps the veto at >=40%
+                        // learning as before — real money still respects it.
                         val smartChartBypass = try {
+                            cfg.paperMode ||
                             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
-                        } catch (_: Exception) { false }
+                        } catch (_: Exception) { cfg.paperMode }
                         val tsBearish = try {
                             com.lifecyclebot.engine.SmartChartCache.getBearishConfidence(ts.mint)
                         } catch (_: Exception) { null }
@@ -8329,7 +8337,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 symSizeAdj *
                                 llmSizeMult *
                                 ladderSizeMult
-                            val flooredProduct = rawProduct.coerceAtLeast(0.60)
+                            // V5.9.495z3 — operator: 'stupidly slow paper, 2 open'.
+                            // Lift the paper-mode floor 0.60→0.75 so each entry is
+                            // bigger (75% of base instead of 60%). Live floor stays
+                            // at 0.60 — risk discipline preserved on real money.
+                            val cascadeFloor = if (cfg.paperMode) 0.75 else 0.60
+                            val flooredProduct = rawProduct.coerceAtLeast(cascadeFloor)
                             proposedSize = (proposedSize * flooredProduct).coerceIn(0.005, 1.0)
                             if (kotlin.math.abs(proposedSize - sizeBefore) > 0.0005) {
                                 ErrorLogger.info(
@@ -8339,7 +8352,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     "sym=${"%.2f".format(symSizeAdj)} × " +
                                     "llm=${"%.2f".format(llmSizeMult)} × " +
                                     "ladder=${"%.2f".format(ladderSizeMult)} = ${"%.2f".format(rawProduct)}" +
-                                    (if (rawProduct < 0.60) " [floored→0.60]" else "") +
+                                    (if (rawProduct < cascadeFloor) " [floored→${"%.2f".format(cascadeFloor)}]" else "") +
                                     " → ${proposedSize.fmt(4)}◎ " +
                                     "(symRefreshed=$symRefreshed mood=$symMood green=${"%.2f".format(symGreenLight)})"
                                 )
