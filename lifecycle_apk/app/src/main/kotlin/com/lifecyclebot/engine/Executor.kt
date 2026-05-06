@@ -7592,22 +7592,28 @@ class Executor(
                 
                 val originalTokens = pos.qtyToken
                 if (postSellMapEmpty) {
-                    // V5.9.495t — RPC empty-map blip after sell. Cannot
-                    // verify token-gone honestly; do NOT claim success.
-                    // Operator triage: forensics was logging
-                    // "SELL_VERIFY_TOKEN_GONE remaining=0.0000" while the
-                    // wallet still held thousands of tokens because the
-                    // RPC just returned an empty map.
-                    onLog("⚠️ POST-SELL VERIFY: RPC empty-map — cannot confirm token gone, leaving position intact for retry", tradeId.mint)
+                    // V5.9.495w — operator triage 06 May 2026: SHELTERCOIN
+                    // sell DID succeed on-chain (coins left wallet, SOL
+                    // returned), but my V5.9.495t threw RuntimeException
+                    // here on RPC empty-map → bot retried a sell that had
+                    // already settled. Reverse the polarity: when the
+                    // broadcast signature has already been logged as
+                    // SELL_CONFIRMED (sig != null, came back from
+                    // tryPumpPortalSell), we TRUST the sig and let the
+                    // async watchdog reconcile in the background.
+                    // Throwing on empty-map produced false SELL_FAILED +
+                    // SELL_STUCK forensics on a real on-chain success.
+                    onLog("⚠️ POST-SELL VERIFY: RPC empty-map — trusting confirmed sig (async watchdog will reconcile)", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ POST-SELL: RPC empty-map blip — verification inconclusive. NOT claiming sell success.",
+                        "⚠️ POST-SELL: RPC empty-map blip — trusting SELL_CONFIRMED sig optimistically. Async watchdog continues.",
                         traderTag = "MEME",
                     )
-                    throw RuntimeException("Post-sell verify inconclusive: RPC empty-map")
-                }
-                if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
+                    // Fall through to normal success path. If the chain
+                    // really didn't settle, the async watchdog logs the
+                    // gap and PendingSellQueue retries naturally.
+                } else if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
                     onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
                     onLog("   Original: $originalTokens | Remaining: $remainingTokens", tradeId.mint)
