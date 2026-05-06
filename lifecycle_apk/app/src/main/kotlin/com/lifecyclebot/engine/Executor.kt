@@ -1790,17 +1790,31 @@ class Executor(
         // broadcast attempt and on 0x1788 only escalated across ticks (slow).
         // Now: a profit-lock fail at 200bps immediately re-tries at the next
         // tier in this same call.
+        // V5.9.495v — operator triage 06 May 2026: WCOR capital_recovery_85.1x
+        // failed every slippage tier 200/400/600/1000/2000bps because the
+        // reason string didn't match any drain keyword and got the
+        // CONSERVATIVE ladder. capital_recovery and profit_lock are by
+        // definition aggressive sells (we've already made our money, want
+        // out fast). Treat them as drain-exit. Also bumped drain-ladder
+        // upper end to 9999bps and added intermediate steps so we don't
+        // skip from 5000→9000 in one jump.
         val isDrainExit = reason.contains("drain", ignoreCase = true) ||
                           reason.contains("rug", ignoreCase = true) ||
                           reason.contains("collapse", ignoreCase = true) ||
                           reason.contains("emergency", ignoreCase = true) ||
-                          reason.contains("liquidity_collapse", ignoreCase = true)
+                          reason.contains("liquidity_collapse", ignoreCase = true) ||
+                          reason.contains("capital_recovery", ignoreCase = true) ||
+                          reason.contains("profit_lock", ignoreCase = true)
         val broadcastSlipLadder = if (isDrainExit) {
-            listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+            listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
                 .map { it.coerceAtLeast(sellSlippage) }
                 .distinct()
         } else {
-            listOf(sellSlippage, 400, 600, 1000, 2000)
+            // V5.9.495v — non-drain ladder also gets a 5000bps tail so a
+            // truly illiquid mint isn't abandoned at 2000bps; the position
+            // closes at whatever price the chain offers rather than
+            // staying open and bleeding further.
+            listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
                 .map { it.coerceAtLeast(sellSlippage) }
                 .distinct()
         }
@@ -5500,17 +5514,20 @@ class Executor(
 
                     // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder
                     // (mirrors V5.9.478 in liveSell + V5.9.479 in profit-lock).
+                    // V5.9.495v — capital_recovery + profit_lock now also drain-exit
                     val isDrainExit = reason.contains("drain", ignoreCase = true) ||
                                       reason.contains("rug", ignoreCase = true) ||
                                       reason.contains("collapse", ignoreCase = true) ||
                                       reason.contains("emergency", ignoreCase = true) ||
-                                      reason.contains("liquidity_collapse", ignoreCase = true)
+                                      reason.contains("liquidity_collapse", ignoreCase = true) ||
+                                      reason.contains("capital_recovery", ignoreCase = true) ||
+                                      reason.contains("profit_lock", ignoreCase = true)
                     val broadcastSlipLadder = if (isDrainExit) {
-                        listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+                        listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
                             .map { it.coerceAtLeast(sellSlippage) }
                             .distinct()
                     } else {
-                        listOf(sellSlippage, 400, 600, 1000, 2000)
+                        listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
                             .map { it.coerceAtLeast(sellSlippage) }
                             .distinct()
                     }
@@ -7261,15 +7278,18 @@ class Executor(
                               reason.contains("rug", ignoreCase = true) ||
                               reason.contains("collapse", ignoreCase = true) ||
                               reason.contains("emergency", ignoreCase = true) ||
-                              reason.contains("liquidity_collapse", ignoreCase = true)
+                              reason.contains("liquidity_collapse", ignoreCase = true) ||
+                              reason.contains("capital_recovery", ignoreCase = true) ||
+                              reason.contains("profit_lock", ignoreCase = true)
             val broadcastSlipLadder = if (isDrainExit) {
-                // Emergency: 5% / 20% / 50% / 90% — accept whatever to escape
-                listOf(sellSlippage.coerceAtLeast(500), 2000, 5000, 9000)
+                // V5.9.495v — Emergency: 5% / 15% / 30% / 50% / 75% / 99% — accept whatever to escape
+                listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
                     .map { it.coerceAtLeast(sellSlippage) }
                     .distinct()
             } else {
-                // Normal escalation: 2% / 4% / 6% / 10% / 20%
-                listOf(sellSlippage, 400, 600, 1000, 2000)
+                // V5.9.495v — Normal escalation: 2% / 4% / 6% / 10% / 20% / 50%
+                // (added 50% tail so illiquid mints close rather than bleed open)
+                listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
                     .map { it.coerceAtLeast(sellSlippage) }
                     .distinct()
             }
