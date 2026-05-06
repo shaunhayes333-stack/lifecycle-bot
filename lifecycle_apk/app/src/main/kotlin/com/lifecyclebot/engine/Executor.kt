@@ -2918,7 +2918,22 @@ class Executor(
             return "stop_loss"
         }
         
-        val trailingStopActive = heldSecs >= 60 || gainPct >= 5.0
+        // V5.9.495z15 — operator-mandated unchoke. Pre-fix the trailing
+        // stop activated after 60s held OR 5% gain. The 60s clause was
+        // the silent killer: every trade that went -1% in the first
+        // 90 seconds (the vast majority) tripped it the moment the
+        // smartFloor fell just below the current price, producing the
+        // "trailing_stop pnl=-1%" exits seen across hundreds of trades.
+        // Trailing stops must protect PROFIT, never harvest losses.
+        // Now: only activate trailing after meaningful unrealized gain.
+        // Bootstrap: 5% gain. Mature: 3% (more aggressive once profitable).
+        val trailingActivationPct = run {
+            val mature = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() >= 0.6
+            } catch (_: Throwable) { false }
+            if (mature) 3.0 else 5.0
+        }
+        val trailingStopActive = gainPct >= trailingActivationPct
         
         val smartFloor = trailingFloor(
             pos = pos,
