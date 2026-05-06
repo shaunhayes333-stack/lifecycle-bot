@@ -550,6 +550,34 @@ class MainActivity : AppCompatActivity() {
                 }
                 val rootDecor = window.decorView as? android.view.ViewGroup
                 rootDecor?.addView(fab, flp)
+
+                // V5.9.495z8 — second floating tile: 🧠 Learning Pipeline
+                // Stacks above the Live Forensics FAB.
+                val brain = android.widget.TextView(this).apply {
+                    text = "🧠 Learning"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                    setBackgroundColor(android.graphics.Color.parseColor("#10B981"))
+                    val pad = (10 * resources.displayMetrics.density).toInt()
+                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
+                    elevation = 12f * resources.displayMetrics.density
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        startActivity(android.content.Intent(this@MainActivity, LearningCounterActivity::class.java))
+                    }
+                }
+                val brainLp = android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                    val mPx = (16 * resources.displayMetrics.density).toInt()
+                    rightMargin = mPx
+                    bottomMargin = (132 * resources.displayMetrics.density).toInt()
+                }
+                rootDecor?.addView(brain, brainLp)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
             }

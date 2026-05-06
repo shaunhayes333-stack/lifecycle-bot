@@ -332,6 +332,10 @@ class BotService : Service() {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
+            // V5.9.495z8 — register canonical learning subscribers once at startup.
+            // Idempotent: subsequent calls are no-ops. Wires FluidLearningAI
+            // mirror + LayerReadinessRegistry samples to the canonical bus.
+            CanonicalSubscribers.registerAll()
             // V5.9.455 — ANR FIX.
             // Previously LlmLabEngine.start() ran synchronously on the main
             // thread during onCreate and opened SQLite + seeded strategies,

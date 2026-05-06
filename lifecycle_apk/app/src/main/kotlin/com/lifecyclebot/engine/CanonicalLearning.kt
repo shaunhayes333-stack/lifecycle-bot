@@ -280,15 +280,23 @@ object CanonicalOutcomeBus {
     }
 
     private val subscribers = CopyOnWriteArrayList<Subscriber>()
+    private val recentEvents = java.util.concurrent.ConcurrentLinkedDeque<CanonicalTradeOutcome>()
+    private const val RECENT_MAX = 200
 
     fun subscribe(s: Subscriber) {
         subscribers.add(s)
     }
 
+    fun subscriberCount(): Int = subscribers.size
+    fun recentSnapshot(): List<CanonicalTradeOutcome> = recentEvents.toList()
+
     /** Publish a canonical outcome — runs through normalizer + counters + router. */
     fun publish(raw: CanonicalTradeOutcome) {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
         bumpCounters(normalized)
+        // Append to ring buffer.
+        recentEvents.addFirst(normalized)
+        while (recentEvents.size > RECENT_MAX) recentEvents.pollLast()
         // Route to layers — strategy vs execution separation.
         try { LayerEducationRouter.dispatch(normalized) } catch (_: Throwable) {}
         // Fan out to subscribers.
