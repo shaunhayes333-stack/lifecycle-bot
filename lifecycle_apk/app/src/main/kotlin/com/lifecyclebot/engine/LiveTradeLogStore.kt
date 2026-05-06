@@ -36,6 +36,102 @@ object LiveTradeLogStore {
     private val initialised = AtomicBoolean(false)
     private val saveScheduled = AtomicBoolean(false)
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.9.495z4 — Monotonic trade-status guard (operator spec May 2026).
+    //
+    // Once a trade has reached an authoritative terminal state (LANDED via
+    // tx-parse, ATA closed, SOL returned, etc.) any later attempt to emit
+    // a lower-confidence downgrade (SELL_STUCK / BUY_PHANTOM / generic
+    // SELL_FAILED / BUY_FAILED) MUST be suppressed and logged only as a
+    // debug-level forensic note — the watchdog cannot overwrite a proven
+    // on-chain success.
+    //
+    // We track the latest "best" phase seen per (tradeKey, sig) so any
+    // emitter on the same lifecycle is automatically protected without
+    // having to reason about its own state.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private val terminalForKey = java.util.concurrent.ConcurrentHashMap<String, Phase>()
+    private val terminalForSig = java.util.concurrent.ConcurrentHashMap<String, Phase>()
+
+    private val TERMINAL_GOOD: Set<Phase> = setOf(
+        Phase.BUY_TX_PARSE_OK,
+        Phase.SELL_TX_PARSE_OK,
+        Phase.BUY_VERIFIED_LANDED,
+        Phase.SELL_VERIFY_TOKEN_GONE,
+        Phase.SELL_VERIFY_SOL_RETURNED,
+        Phase.SELL_TOKEN_CONSUMED,
+        Phase.SELL_TOKEN_ACCOUNT_CLOSED_SUCCESS,
+        Phase.SELL_RECONCILE_LANDED,
+        Phase.BUY_RECONCILE_LANDED,
+        Phase.SELL_TX_CONFIRMED,
+        Phase.SWEEP_TOKEN_DONE,
+        Phase.SWEEP_DONE,
+    )
+
+    private val TERMINAL_BAD: Set<Phase> = setOf(
+        Phase.SELL_TX_ERR_CONFIRMED,
+        Phase.SELL_FAILED_CONFIRMED,
+        Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+    )
+
+    /** Phases that must NEVER overwrite a TERMINAL_GOOD / TERMINAL_BAD record. */
+    private val DOWNGRADE_BLOCKED: Set<Phase> = setOf(
+        Phase.SELL_STUCK,
+        Phase.SELL_FAILED,
+        Phase.BUY_PHANTOM,
+        Phase.BUY_FAILED,
+        Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+    )
+
+    /** Public helper — true if this trade lifecycle already has an authoritative resolution. */
+    fun isTerminallyResolved(tradeKey: String?, sig: String?): Boolean {
+        if (!tradeKey.isNullOrBlank() && terminalForKey.containsKey(tradeKey)) return true
+        if (!sig.isNullOrBlank() && terminalForSig.containsKey(sig)) return true
+        return false
+    }
+
+    /** Returns the recorded terminal phase if any, else null. */
+    fun terminalPhaseFor(tradeKey: String?, sig: String?): Phase? {
+        if (!tradeKey.isNullOrBlank()) terminalForKey[tradeKey]?.let { return it }
+        if (!sig.isNullOrBlank()) terminalForSig[sig]?.let { return it }
+        return null
+    }
+
+    fun emit(event: Event) {
+        // V5.9.495z4 — monotonic guard: suppress downgrades on top of terminal states.
+        val terminal = terminalPhaseFor(event.tradeKey, event.sig)
+        val effective: Event = if (terminal != null && event.phase in DOWNGRADE_BLOCKED) {
+            // Never persist the downgrade — drop it to a debug INFO line so
+            // forensics still show the watchdog fired but the trade is not
+            // moved out of its proven terminal state.
+            try {
+                ErrorLogger.debug(
+                    "LiveTradeLogStore",
+                    "ignored stale watchdog downgrade: tradeKey=${event.tradeKey} sig=${event.sig?.take(16)} attempted=${event.phase} but terminal=$terminal already recorded"
+                )
+            } catch (_: Throwable) {}
+            event.copy(
+                phase = Phase.INFO,
+                message = "(suppressed downgrade ${event.phase} — already $terminal) ${event.message}",
+            )
+        } else {
+            event
+        }
+
+        // Latch terminal state on the way through.
+        if (effective.phase in TERMINAL_GOOD || effective.phase in TERMINAL_BAD) {
+            if (effective.tradeKey.isNotBlank()) terminalForKey[effective.tradeKey] = effective.phase
+            if (!effective.sig.isNullOrBlank()) terminalForSig[effective.sig] = effective.phase
+        }
+
+        // Don't crash if init wasn't called yet — keep in memory until persisted.
+        queue.add(effective)
+        // Trim over-cap
+        while (queue.size > MAX_EVENTS) queue.poll()
+        scheduleSave()
+    }
+
     /**
      * Lifecycle phases — short enough to render in a single UI line.
      */
@@ -162,14 +258,6 @@ object LiveTradeLogStore {
             appContext = context.applicationContext
             load()
         }
-    }
-
-    fun emit(event: Event) {
-        // Don't crash if init wasn't called yet — keep in memory until persisted.
-        queue.add(event)
-        // Trim over-cap
-        while (queue.size > MAX_EVENTS) queue.poll()
-        scheduleSave()
     }
 
     /**

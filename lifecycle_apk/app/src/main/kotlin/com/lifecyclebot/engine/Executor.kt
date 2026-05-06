@@ -9516,12 +9516,36 @@ class Executor(
                         }
                     }
                     if (!seenTokenGone && !seenSolReturned) {
-                        LiveTradeLogStore.log(
-                            sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.SELL_STUCK,
-                            "⚠ 45s post-broadcast: no on-chain confirmation of clear+return (RPC lag or tx reverted) sig=${sig.take(16)}",
-                            sig = sig, traderTag = traderTag,
-                        )
+                        // V5.9.495z4 — operator spec: SELL_STUCK must NOT be
+                        // emitted if the trade has already been authoritatively
+                        // resolved by tx-parse (TradeVerifier path) on the same
+                        // sig / tradeKey. The monotonic guard inside
+                        // LiveTradeLogStore will also suppress this if it slips
+                        // through, but short-circuiting here saves a wasted
+                        // poll loop and keeps forensics quiet on real successes.
+                        if (LiveTradeLogStore.isTerminallyResolved(sellTradeKey, sig)) {
+                            ErrorLogger.debug(
+                                "Executor",
+                                "PUMP-FIRST [$labelTag] 45s watchdog: trade already terminally resolved (sig=${sig.take(16)}) — skipping SELL_STUCK"
+                            )
+                        } else {
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                                "⏳ 45s post-broadcast: no on-chain confirmation yet — registering for 2/5/10 min reconcile sig=${sig.take(16)}",
+                                sig = sig, traderTag = traderTag,
+                            )
+                            try {
+                                PendingReconcileQueue.registerSell(
+                                    sig = sig,
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    tradeKey = sellTradeKey,
+                                    traderTag = traderTag,
+                                    wallet = wallet,
+                                )
+                            } catch (_: Throwable) {}
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -9730,12 +9754,33 @@ class Executor(
                         }
                     }
                     if (!landed) {
-                        LiveTradeLogStore.log(
-                            tradeKey, ts.mint, ts.symbol, "BUY",
-                            LiveTradeLogStore.Phase.BUY_PHANTOM,
-                            "⚠ 45s post-broadcast: no token delta on-chain (RPC lag or tx reverted) sig=${sig.take(16)}",
-                            sig = sig, traderTag = traderTag,
-                        )
+                        // V5.9.495z4 — operator spec: BUY_PHANTOM must NOT be
+                        // emitted if tx-parse already proved a token delta on
+                        // the same sig / tradeKey. The store-level monotonic
+                        // guard suppresses any leak; short-circuit here too.
+                        if (LiveTradeLogStore.isTerminallyResolved(tradeKey, sig)) {
+                            ErrorLogger.debug(
+                                "Executor",
+                                "PUMP-FIRST BUY watchdog: trade already terminally resolved (sig=${sig.take(16)}) — skipping BUY_PHANTOM"
+                            )
+                        } else {
+                            LiveTradeLogStore.log(
+                                tradeKey, ts.mint, ts.symbol, "BUY",
+                                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                                "⏳ 45s post-broadcast: no token delta yet — registering for 2/5/10 min reconcile sig=${sig.take(16)}",
+                                sig = sig, traderTag = traderTag,
+                            )
+                            try {
+                                PendingReconcileQueue.registerBuy(
+                                    sig = sig,
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    tradeKey = tradeKey,
+                                    traderTag = traderTag,
+                                    wallet = wallet,
+                                )
+                            } catch (_: Throwable) {}
+                        }
                     }
                 }
             } catch (_: Exception) {}
