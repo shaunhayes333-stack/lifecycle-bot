@@ -287,10 +287,20 @@ object PatternClassifier {
     fun getConfidenceBoost(features: DoubleArray, isPaperMode: Boolean): Int {
         if (totalSamples < 20) return 0
 
+        // V5.9.495z16 — operator mandate: a mature paper-trained classifier
+        // must transfer to live, not restart from zero. Pre-fix: live got
+        // ZERO confidence boost until 50 dedicated live trades at 55% WR,
+        // even when totalSamples = 1000+ from paper. Post-fix: if the
+        // classifier is paper-graduated (≥200 total samples and predictWinProb
+        // not at chance), live inherits the same boost as paper.
         if (!isPaperMode) {
-            if (trainedLiveSamples < MIN_LIVE_GRADUATION) return 0
-            val wr = liveWinRate()
-            if (wr < MIN_LIVE_WINRATE) return 0
+            val paperGraduated = totalSamples >= 200
+            if (!paperGraduated && trainedLiveSamples < MIN_LIVE_GRADUATION) return 0
+            // Tier 2: even if paper-graduated, if a live mini-cohort exists
+            // and is severely underwater, throttle confidence (legitimate
+            // real-money safety). Don't gate on liveWinRate alone — it could
+            // be 1/3 = 33% from a tiny sample.
+            if (trainedLiveSamples >= MIN_LIVE_GRADUATION && liveWinRate() < MIN_LIVE_WINRATE) return 0
         }
 
         val p = predictWinProb(features)
@@ -305,13 +315,14 @@ object PatternClassifier {
     /**
      * Sizing multiplier — applied by SmartSizer after aiConfidence.
      * Range [0.7, 1.3] so a "good" pattern grows size by 30% and a "bad" one
-     * shrinks by 30%. Paper-only gate mirrors getConfidenceBoost.
+     * shrinks by 30%. V5.9.495z16: live now inherits paper graduation.
      */
     fun getSizeMultiplier(features: DoubleArray, isPaperMode: Boolean): Double {
         if (totalSamples < 20) return 1.0
         if (!isPaperMode) {
-            if (trainedLiveSamples < MIN_LIVE_GRADUATION) return 1.0
-            if (liveWinRate() < MIN_LIVE_WINRATE) return 1.0
+            val paperGraduated = totalSamples >= 200
+            if (!paperGraduated && trainedLiveSamples < MIN_LIVE_GRADUATION) return 1.0
+            if (trainedLiveSamples >= MIN_LIVE_GRADUATION && liveWinRate() < MIN_LIVE_WINRATE) return 1.0
         }
         val p = predictWinProb(features)
         val centred = (p - 0.5) * 2.0

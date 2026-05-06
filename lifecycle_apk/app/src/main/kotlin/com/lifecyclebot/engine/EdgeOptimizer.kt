@@ -510,14 +510,27 @@ object EdgeOptimizer {
             )
         }
         
-        // Distribution phase — LIVE: always skip, PAPER: allow for learning
+        // V5.9.495z16 — operator mandate: live must transfer cleanly from
+        // paper. Pre-fix: live ALWAYS skipped DISTRIBUTION phase while paper
+        // allowed it for learning — meaning a market regime shift could
+        // halt live trading entirely while paper kept learning the new
+        // regime. Post-fix: mature live (FluidLearningAI progress ≥ 0.5)
+        // is allowed to trade distribution with normal scoring, since by
+        // then it has learned which distribution setups actually work.
+        // Bootstrap live still skips for real-money safety.
         if (phase.phase == MarketPhase.DISTRIBUTION) {
             if (!isPaperMode) {
-                return FilterResult(
-                    shouldTrade = false,
-                    reason = "Distribution phase - smart money selling",
-                    quality = "SKIP"
-                )
+                val matureLive = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() >= 0.5
+                } catch (_: Throwable) { false }
+                if (!matureLive) {
+                    return FilterResult(
+                        shouldTrade = false,
+                        reason = "Distribution phase - smart money selling (bootstrap live)",
+                        quality = "SKIP"
+                    )
+                }
+                // Mature live: fall through to normal score routing — same brain as paper.
             }
             // PAPER MODE: Allow distribution trades for learning (will likely lose, but that's data)
             // The AI needs to learn what distribution looks like from actual outcomes

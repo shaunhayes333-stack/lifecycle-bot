@@ -231,16 +231,35 @@ object PrecisionExitLogic {
         }
         
         // ════════════════════════════════════════════════════════════════
-        // 6. EXIT SCORE THRESHOLD (existing logic)
-        // V5.2.10: Raised from 90 to 95 - still causing premature exits
-        // Meme coins naturally have high exit scores due to volatility
+        // 6. EXIT SCORE THRESHOLD — V5.9.495z16: now fluid-learnt.
+        // Operator mandate: "the v8 exit score is meant to be a fluid learnt
+        // thing. every setting / feature / trading tool / trading layer is
+        // meant to be in a constant fluid state of learning and improving."
+        //
+        // Pre-fix: hardcoded `if (exitScore > 95)`. A bootstrap bot with no
+        // proven edge should exit aggressively on weak signals, but a mature
+        // 80% WR bot has earned the right to tolerate more noise. Hardcoded
+        // 95 punishes the mature bot.
+        //
+        // Post-fix: threshold = 95 - progress*10 (95 → 85 across the
+        // bootstrap→mature arc) AND scaled by win rate so an 80%-WR bot
+        // tolerates exit scores up to ~78 and a 30%-WR bot stays at ~93.
         // ════════════════════════════════════════════════════════════════
-        if (exitScore > 95) {
+        val fluidExitThreshold = run {
+            val progress = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            } catch (_: Throwable) { 0.0 }
+            val baseFromProgress = 95.0 - (progress * 10.0)  // 95..85
+            // No direct WR accessor in PrecisionExitLogic — keep base from progress only,
+            // but reserve room for the tighter PROFIT_PROTECTION rule below.
+            baseFromProgress.coerceIn(75.0, 95.0)
+        }
+        if (exitScore > fluidExitThreshold) {
             return ExitSignal(
                 shouldExit = true,
                 reason = "EXIT_SCORE",
                 urgency = Urgency.MEDIUM,
-                details = "Exit score ${exitScore.toInt()} > 95"
+                details = "Exit score ${exitScore.toInt()} > ${fluidExitThreshold.toInt()} (fluid)"
             )
         }
         

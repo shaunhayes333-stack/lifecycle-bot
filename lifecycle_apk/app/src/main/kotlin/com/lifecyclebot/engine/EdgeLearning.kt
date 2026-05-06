@@ -22,21 +22,29 @@ object EdgeLearning {
     data class AdaptiveThresholds(
         var paperBuyPctMin: Double = 5.0,       // V5.9.495z12: 35→5 — bootstrap floor as soft as possible
         var paperVolumeMin: Double = 1.0,       // V5.9.495z12: 3→1 — paper near-zero gate
-        var liveBuyPctMin: Double = 20.0,       // V5.9.495z12: 55→20 — live still allowed to flow during early learn
-        var liveVolumeMin: Double = 5.0,        // V5.9.495z12: 15→5
+        // V5.9.495z16 — operator philosophy: "paper IS training for live, mature
+        // paper bot must transfer cleanly to live, not move the goal posts to
+        // another zip code". Pre-z16 live started 4×–5× stricter than paper
+        // (20% buy / 5.0 vol vs 5% / 1.0). A mature paper bot whose adaptive
+        // thresholds had relaxed to ~2-5% buy was hitting a brick wall the
+        // moment it switched to live. Now live = paper + small caution margin.
+        var liveBuyPctMin: Double = 6.0,        // 20→6 — paper + ~20% safety
+        var liveVolumeMin: Double = 1.2,        // 5.0→1.2 — paper + ~20% safety
         var vetoStickyMinutes: Int = 1,         // REDUCED: 1 min sticky
     ) {
         // Bounds to prevent extreme values
         fun clamp() {
             // V5.9.495z12 — operator mandate: "all gates are meant to be soft
             // early to allow maximum learning … even at 5000+ trades it must
-            // still be loose enough for 200-500 live trades/day". Floors are
-            // dropped so a long bootstrap loss-streak cannot ratchet the
-            // gate above what mature healthy live-mode tolerates.
-            paperBuyPctMin = paperBuyPctMin.coerceIn(2.0, 35.0)   // was 30-45
-            paperVolumeMin = paperVolumeMin.coerceIn(0.5, 8.0)    // was 1-10
-            liveBuyPctMin  = liveBuyPctMin.coerceIn(15.0, 55.0)   // was 50-65
-            liveVolumeMin  = liveVolumeMin.coerceIn(3.0, 20.0)    // was 10-25
+            // still be loose enough for 200-500 live trades/day".
+            // V5.9.495z16 — live bounds widened so a mature 80%-WR bot can
+            // run with thresholds nearly identical to paper. Floors only
+            // matter for an early-bootstrap live run; once mature the bot
+            // should freely descend to paper-equivalent strictness.
+            paperBuyPctMin = paperBuyPctMin.coerceIn(2.0, 35.0)
+            paperVolumeMin = paperVolumeMin.coerceIn(0.5, 8.0)
+            liveBuyPctMin  = liveBuyPctMin.coerceIn(3.0, 35.0)   // was 15-55
+            liveVolumeMin  = liveVolumeMin.coerceIn(0.8, 12.0)   // was 3-20
             vetoStickyMinutes = vetoStickyMinutes.coerceIn(1, 15)
         }
     }
