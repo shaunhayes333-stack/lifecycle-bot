@@ -1892,10 +1892,20 @@ class Executor(
                             quote = getQuoteWithSlippageGuard(
                                 ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
                                 isBuy = false, sellTaker = wallet.publicKeyB58)
+                            // V5.9.495u — operator triage 06 May 2026: "are
+                            // we using ultra the way its meant to be?". We
+                            // ARE — getQuoteWithTaker double-taps Ultra
+                            // before falling to v6 Metis on every escalation
+                            // — but the previous log line dropped the
+                            // ultraRejectedReason suffix, so forensics
+                            // looked like we'd silently abandoned Ultra.
+                            // Log it explicitly here on every re-quote so
+                            // the operator can see Ultra-vs-Metis routing
+                            // each tier of the slippage ladder.
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                                "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}",
+                                "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis (${quote.ultraRejectedReason.take(60)})" else if (quote.isUltra) " ✅ ULTRA accepted" else ""}",
                                 slippageBps = currentSlip, traderTag = "MEME",
                             )
                         } catch (qex: Exception) {
@@ -5552,10 +5562,11 @@ class Executor(
                                     quote = getQuoteWithSlippageGuard(
                                         ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
                                         isBuy = false, sellTaker = activeWallet.publicKeyB58)
+                                    // V5.9.495u — show Ultra status on each escalation
                                     LiveTradeLogStore.log(
                                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                                         LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                                        "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}",
+                                        "Re-quote OK @ ${currentSlip}bps | out=${quote.outAmount} | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis (${quote.ultraRejectedReason.take(60)})" else if (quote.isUltra) " ✅ ULTRA accepted" else ""}",
                                         slippageBps = currentSlip, traderTag = "MEME",
                                     )
                                 } catch (qex: Exception) {
