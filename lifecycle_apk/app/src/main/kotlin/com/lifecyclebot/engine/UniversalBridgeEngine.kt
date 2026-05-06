@@ -312,30 +312,146 @@ object UniversalBridgeEngine {
             )
         }
 
-        // Step 5: Two-hop — source → USDC → target
-        val hop1 = bridgeToUsdc(wallet, src, sizeUsd)
-        if (!hop1.success) return@withContext hop1.copy(targetMint = targetMint)
+        // ════════════════════════════════════════════════════════════════════
+        // Step 5 — V5.9.495z19 SINGLE-HOP REWRITE.
+        //
+        // OPERATOR-MANDATED FIX: do NOT do a manual SOL → USDC then USDC →
+        // target. That's two separate non-atomic Jupiter swaps that left the
+        // wallet stranded with USDC if leg-2 failed (the "STRIKE only bought
+        // USDC" bug). It also poisoned EntryAI with phantom successes.
+        //
+        // The correct path on Solana is ONE Jupiter call with
+        //   inputMint  = source mint (e.g. SOL)
+        //   outputMint = target mint (e.g. STRIKE)
+        // Jupiter Meta-Aggregator routes through USDC internally as needed,
+        // and the route is atomic — either the target lands or the whole
+        // transaction reverts. No intermediate-asset stranding possible.
+        //
+        // If the user genuinely wants a non-atomic two-leg flow (e.g. to
+        // accumulate USDC reserve first), they should call bridgeToUsdc()
+        // directly. prepareCapital() now ONLY does atomic single-call routes.
+        // ════════════════════════════════════════════════════════════════════
 
-        // Hop 2: USDC → target
-        val usdcRaw = hop1.targetAmountRaw
-        val txSig2  = executeJupiterSwap(
+        val sourcePrice = approxPricesUsd[src] ?: estimateTokenPriceUsd(src)
+        if (sourcePrice <= 0) {
+            return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null, "Cannot price ${mintLabel(src)}")
+        }
+        val sourceAmount = sizeUsd / sourcePrice
+        val sourceDecimals = TOKEN_DECIMALS[src] ?: 9
+        val sourceAmountRaw: Long = if (src == SOL_MINT) {
+            (sourceAmount * 1_000_000_000L).toLong()
+        } else {
+            (sourceAmount * Math.pow(10.0, sourceDecimals.toDouble())).toLong()
+        }
+        if (sourceAmountRaw <= 0) {
+            return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
+                "Computed source amount is 0 (${mintLabel(src)} bal too low for \$${"%.2f".format(sizeUsd)})")
+        }
+
+        // Pre-trade target balance — used to verify the swap actually delivered.
+        val preTargetBal: Double = try {
+            wallet.getTokenAccountsWithDecimals()[targetMint]?.first ?: 0.0
+        } catch (_: Exception) { 0.0 }
+
+        com.lifecyclebot.engine.execution.Forensics.log(
+            com.lifecyclebot.engine.execution.Forensics.Event.JUPITER_V2_ORDER_REQUEST,
+            mint = targetMint,
+            msg = "single-hop ${mintLabel(src)} → ${mintLabel(targetMint)} amt=$sourceAmountRaw",
+        )
+
+        val txSig = executeJupiterSwap(
             wallet      = wallet,
-            inputMint   = USDC_MINT,
-            outputMint  = targetMint,
-            amountRaw   = usdcRaw,
-            slippageBps = 150,
-        ) ?: return@withContext BridgeResult(false, src, targetMint, 0, 0.0, hop1.swapTxSig, "USDC→target hop2 failed")
+            inputMint   = src,
+            outputMint  = targetMint,        // ← SINGLE atomic call to the real target
+            amountRaw   = sourceAmountRaw,
+            slippageBps = 200,
+        ) ?: run {
+            bridgesFailed.incrementAndGet()
+            com.lifecyclebot.engine.execution.Forensics.log(
+                com.lifecyclebot.engine.execution.Forensics.Event.BUY_FAILED_NO_TARGET_TOKEN,
+                mint = targetMint,
+                msg = "single-hop swap failed (no signature)",
+            )
+            return@withContext BridgeResult(false, src, targetMint, 0, 0.0, null,
+                "Atomic ${mintLabel(src)}→${mintLabel(targetMint)} swap failed — no fallback to two-leg per V5.9.495z19 rule")
+        }
+
+        // ── Post-trade verification: did the target token actually land? ──
+        // Wait briefly for wallet RPC to refresh, then compare balance delta.
+        kotlinx.coroutines.delay(2_500)
+        val postEntry: Pair<Double, Int>? = try {
+            wallet.getTokenAccountsWithDecimals()[targetMint]
+        } catch (_: Exception) { null }
+        val postTargetBal = postEntry?.first ?: 0.0
+        val targetDecimals = postEntry?.second ?: (TOKEN_DECIMALS[targetMint] ?: 6)
+        val deltaUi = postTargetBal - preTargetBal
+        val deltaRaw = (deltaUi * Math.pow(10.0, targetDecimals.toDouble())).toLong().coerceAtLeast(0L)
+
+        if (deltaRaw <= 0L) {
+            // Target token did NOT land. This should be impossible on an atomic
+            // route, but we double-check the wallet for residual USDC/USDT
+            // and create an IntermediateAssetRecovery so the orphan asset is
+            // tracked, not silently ignored.
+            val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (_: Exception) { emptyMap() }
+            val usdcUi = accounts[USDC_MINT]?.first ?: 0.0
+            val usdtUi = accounts[USDT_MINT]?.first ?: 0.0
+            if (targetMint != USDC_MINT && usdcUi > 0.001) {
+                val usdcRaw = (usdcUi * 1_000_000).toLong()
+                com.lifecyclebot.engine.execution.IntermediateAssetRecovery.create(
+                    originalIntentId = "legacy-prep-$txSig",
+                    intendedTargetMint = targetMint,
+                    intermediateMint = USDC_MINT,
+                    intermediateRawAmount = usdcRaw,
+                    firstLegSignature = txSig,
+                )
+                com.lifecyclebot.engine.execution.Forensics.log(
+                    com.lifecyclebot.engine.execution.Forensics.Event.TX_PARSE_INTERMEDIATE_ONLY,
+                    mint = targetMint,
+                    msg = "USDC residue=$usdcUi after target-bound swap (atomic route violated?)",
+                )
+            } else if (targetMint != USDT_MINT && usdtUi > 0.001) {
+                val usdtRaw = (usdtUi * 1_000_000).toLong()
+                com.lifecyclebot.engine.execution.IntermediateAssetRecovery.create(
+                    originalIntentId = "legacy-prep-$txSig",
+                    intendedTargetMint = targetMint,
+                    intermediateMint = USDT_MINT,
+                    intermediateRawAmount = usdtRaw,
+                    firstLegSignature = txSig,
+                )
+            }
+            bridgesFailed.incrementAndGet()
+            com.lifecyclebot.engine.execution.Forensics.log(
+                com.lifecyclebot.engine.execution.Forensics.Event.BUY_FAILED_NO_TARGET_TOKEN,
+                mint = targetMint,
+                msg = "tx=${txSig.take(12)} preTarget=$preTargetBal postTarget=$postTargetBal",
+            )
+            return@withContext BridgeResult(
+                success = false,
+                sourceMint = src,
+                targetMint = targetMint,
+                targetAmountRaw = 0,
+                targetAmountUi = 0.0,
+                swapTxSig = txSig,
+                errorMsg = "Target token did not land after Jupiter swap — recovery record created if intermediate held",
+            )
+        }
 
         bridgesExecuted.incrementAndGet()
-        ErrorLogger.info(TAG, "✅ Two-hop bridge complete: ${mintLabel(src)} → USDC → ${mintLabel(targetMint)} | tx2=${txSig2.take(16)}")
+        com.lifecyclebot.engine.execution.Forensics.log(
+            com.lifecyclebot.engine.execution.Forensics.Event.FINAL_TOKEN_VERIFIED,
+            mint = targetMint,
+            msg = "raw=$deltaRaw ui=$deltaUi tx=${txSig.take(12)}",
+        )
+        ErrorLogger.info(TAG, "✅ Single-hop atomic complete: ${mintLabel(src)} → ${mintLabel(targetMint)} | " +
+            "ui=${"%.6f".format(deltaUi)} | tx=${txSig.take(16)}")
 
         BridgeResult(
             success        = true,
             sourceMint     = src,
             targetMint     = targetMint,
-            targetAmountRaw= usdcRaw,
-            targetAmountUi = usdcRaw / 1_000_000.0,
-            swapTxSig      = txSig2,
+            targetAmountRaw= deltaRaw,
+            targetAmountUi = deltaUi,
+            swapTxSig      = txSig,
         )
     }
 
