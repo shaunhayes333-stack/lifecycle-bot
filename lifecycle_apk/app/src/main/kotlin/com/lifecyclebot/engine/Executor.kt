@@ -2267,54 +2267,65 @@ class Executor(
                 ts.position.lowestPrice = currentPrice
         }
 
-        // V5.9.495i — POST-BUY SETTLE-IN GRACE.
-        // Operator (06 May 2026): "its doing it on head tokens as well tho.
-        // it buys them then 5 seconds later it sells them". Universal exit
-        // sweep + STRICT SL FLOOR were stacking on FRESH positions: a new
-        // launch's first 5-30s of price are wildly volatile (initial
-        // dexscreener tick is mid-block, partial fills push impact ±25%
-        // in normal range), and the floor force-exited within seconds of
-        // entry. Now no exit predicate runs in the first 45s — gives the
-        // candle to stabilise so we exit on REAL stops, not noise.
-        val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
-        val SETTLE_IN_MS = 45_000L
-        if (posAgeMs < SETTLE_IN_MS) {
-            return  // silent grace — no spammy logs
-        }
-
-        // V5.9.495b — STRICT PER-POSITION SL FLOOR.
-        // Operator forensics (Feb 2026, screenshot): position JOHN sat at
-        // -26.1% with displayed SL of -20% but never exited. The previous
-        // catastrophic floor used FluidLearningAI.getFluidStopLoss(-25.0),
-        // which returns +4.0 during bootstrap (lerp source clamps to a
-        // POSITIVE 4 — `maxOf(modeDefaultStop, 4.0) = 4.0`). Combined with
-        // sub-trader gates that may swallow the trigger, positions could
-        // overshoot their displayed SL by 5-15%. This is a hard, unfluid
-        // floor: if we breach the position's own configured SL (or -20%
-        // as a backstop), force-sell immediately. Runs BEFORE the fluid
-        // logic below so it can't be overridden.
+        // V5.9.495z5 — STRICT PER-TRADER SL FIRES UNIVERSALLY (no settle-in
+        // grace). Operator (06 May 2026, COMPANY -16.5% with SL -5% never
+        // firing): "stop losses on treasury trades are meant to be tight
+        // and we are meant to have the dynamic stop loss and profit locks
+        // working in a fluid state on all meme trades no matter which
+        // trader is carrying out the trade."
+        //
+        // Previous behaviour (V5.9.495i) returned on settle-in BEFORE
+        // STRICT_SL — meaning a fresh entry could bleed past its configured
+        // SL during the first 45s and we'd still hold. The settle-in was
+        // added to prevent kneejerk exits on noise, but the operator's
+        // explicit mandate is: SL is tight, period. We keep settle-in for
+        // FLUID exits (dynamic floor, partial-sell, profit-lock unlock) but
+        // STRICT_SL_FLOOR runs first regardless of age and applies to every
+        // open position no matter which sub-trader entered it.
         run {
             val pos = ts.position
-            // Pick the sub-trader SL the position is being managed by.
-            // ShitCoin / BlueChip / Treasury fields are stored as POSITIVE
-            // percentages (e.g. 20.0 = -20%). Fall back to cfg().stopLossPct
-            // and finally a hard backstop of 20%.
             val rawSL = when {
                 pos.isShitCoinPosition && pos.shitCoinStopLoss > 0.0 -> pos.shitCoinStopLoss
                 pos.isBlueChipPosition && pos.blueChipStopLoss > 0.0 -> pos.blueChipStopLoss
                 pos.isTreasuryPosition && pos.treasuryStopLoss > 0.0 -> pos.treasuryStopLoss
                 else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
             }
-            // Never wider than -50%. Convert to negative threshold.
-            val hardFloor = -rawSL.coerceIn(5.0, 50.0)
+            // Convert to negative threshold; never wider than -50%.
+            val hardFloor = -rawSL.coerceIn(3.0, 50.0)
             val pnlPctNow = if (pos.entryPrice > 0)
                 ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
             else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
-                onLog("🛑 STRICT SL FLOOR: ${ts.symbol} pnl=${pnlPctNow.toInt()}% ≤ ${hardFloor.toInt()}% — force-exiting", ts.mint)
+                onLog("🛑 STRICT SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% ≤ ${hardFloor.toInt()}% (trader=${
+                    when {
+                        pos.isShitCoinPosition -> "SHITCOIN"
+                        pos.isBlueChipPosition -> "BLUECHIP"
+                        pos.isTreasuryPosition -> "TREASURY"
+                        else -> "DEFAULT"
+                    }
+                }) — force-exit", ts.mint)
                 doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
                 return
             }
+            // V5.9.495z5 forensics — when SL would have fired but the price
+            // resolution failed, surface it so we can fix the data path
+            // instead of silently bleeding.
+            if (currentPrice <= 0.0 && pos.entryPrice > 0.0) {
+                ErrorLogger.debug(
+                    "Executor",
+                    "⚠ STRICT SL skipped on ${ts.symbol}: currentPrice=$currentPrice (no live tick) — relying on next price resolve"
+                )
+            }
+        }
+
+        // V5.9.495i — POST-BUY SETTLE-IN GRACE for the FLUID exit predicates
+        // (partial-sell, profit-lock unlock, fluid floor). Operator: "it
+        // buys them then 5 seconds later it sells them". 45s breathing room
+        // for fluid logic only — strict SL above already enforced tightly.
+        val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
+        val SETTLE_IN_MS = 45_000L
+        if (posAgeMs < SETTLE_IN_MS) {
+            return  // silent grace for fluid path — strict SL already ran
         }
 
         if (checkProfitLock(ts, wallet, walletSol)) return

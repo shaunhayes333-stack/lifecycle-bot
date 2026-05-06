@@ -1354,8 +1354,24 @@ class LifecycleStrategy(
         val isLenient = isBootstrap || hasProvenEdge
 
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
-        val rugcheckThreshold = if (isLenient) 8 else (learned?.rugcheckMin ?: 12).coerceIn(10, 25)
-        if (safety.rugcheckScore in 0..rugcheckThreshold) {
+        // V5.9.495z5 — operator triage 06 May 2026 (live forensics screenshot):
+        // "Goblin: HARD BLOCKED - Rugcheck score 1/100 (threshold=25 [live])"
+        // — score=1 is the Rugcheck "PENDING / unknown / still calculating"
+        // sentinel (see SolanaMarketScanner.evaluateRugcheck line 2677); the
+        // scanner explicitly allows it through to other safety layers, but
+        // this Strategy gate was treating it identically to score=1 "rugged".
+        // Result: every fresh launch was hard-blocked in live for ~30 min
+        // until Rugcheck finished its API analysis. Three changes:
+        //  (a) Bypass the gate when score==1 — fall through to liquidity,
+        //      buy-pressure, freeze-authority, and FDG checks.
+        //  (b) Tighten the ceiling 25→10 so even the harshest learned
+        //      threshold can no longer dominate live entries.
+        //  (c) Drop the floor to 1 — operator: "live rugcheck min can be 5,
+        //      realistically even lower, rugcheck is brutal". Only score=0
+        //      (confirmed-dangerous) is unconditionally hard-blocked now.
+        val rugcheckThreshold = if (isLenient) 3 else (learned?.rugcheckMin ?: 8).coerceIn(1, 10)
+        val rugIsPending = (safety.rugcheckScore == 1)
+        if (!rugIsPending && safety.rugcheckScore in 0..rugcheckThreshold) {
             val mode = when {
                 isBootstrap -> "bootstrap"
                 hasProvenEdge -> "proven-edge"
