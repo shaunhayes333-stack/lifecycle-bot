@@ -98,7 +98,8 @@ object TxParseHelper {
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 if (o.optString("owner") != wallet.publicKeyB58) continue
-                val mint = o.optString("mint").ifBlank { continue }
+                val mint = o.optString("mint")
+                if (mint.isBlank()) continue
                 val ta = o.optJSONObject("uiTokenAmount") ?: continue
                 val raw = runCatching { BigInteger(ta.optString("amount", "0")) }
                     .getOrElse { BigInteger.ZERO }
