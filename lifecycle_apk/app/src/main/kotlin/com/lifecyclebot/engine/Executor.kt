@@ -2018,25 +2018,44 @@ class Executor(
                 val expectedDrop = (sellQty * 0.6).coerceAtLeast(0.0001)
                 val verifyDeadline = System.currentTimeMillis() + 12_000L
                 var observedDrop = 0.0
+                var anyMapEmpty = false
                 while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
                     try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
-                    val curBal = try {
-                        wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken
-                    } catch (_: Throwable) { pos.qtyToken }
+                    val balances = try { wallet.getTokenAccountsWithDecimals() } catch (_: Throwable) { null }
+                    if (balances == null || balances.isEmpty()) {
+                        // V5.9.495t — RPC blip; can't compute drop. Skip
+                        // this poll, don't penalise broadcast.
+                        anyMapEmpty = true
+                        continue
+                    }
+                    val curBal = balances[ts.mint]?.first ?: pos.qtyToken
                     observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
                 }
                 if (observedDrop < expectedDrop) {
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_FAILED,
-                        "🚨 SELL VERIFY FAILED [$reason]: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle on-chain. Position UNCHANGED, no treasury credit.",
-                        sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
-                    )
-                    onLog("🚨 SELL VERIFY FAILED ${ts.symbol}: sig=${finalSig.take(16)}… but tokens still in wallet — position unchanged.", ts.mint)
-                    onNotify("🚨 Sell did not settle",
-                        "${ts.symbol}: $reason broadcast accepted but tokens still in wallet. Will retry next exit.",
-                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.WARNING)
-                    return  // exit executeProfitLockSell without mutating position
+                    if (anyMapEmpty && observedDrop == 0.0) {
+                        // All polls were RPC-empty; we don't know if it
+                        // settled. Optimistically trust the broadcast sig
+                        // (matches old behaviour) and log warning so the
+                        // operator can spot it in forensics.
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.WARNING,
+                            "⚠ SELL VERIFY [$reason]: all polls hit RPC-EMPTY-MAP — trusting sig optimistically. Watch wallet manually.",
+                            sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
+                        )
+                    } else {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_FAILED,
+                            "🚨 SELL VERIFY FAILED [$reason]: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle on-chain. Position UNCHANGED, no treasury credit.",
+                            sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
+                        )
+                        onLog("🚨 SELL VERIFY FAILED ${ts.symbol}: sig=${finalSig.take(16)}… but tokens still in wallet — position unchanged.", ts.mint)
+                        onNotify("🚨 Sell did not settle",
+                            "${ts.symbol}: $reason broadcast accepted but tokens still in wallet. Will retry next exit.",
+                            com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.WARNING)
+                        return  // exit executeProfitLockSell without mutating position
+                    }
                 }
             }
 
@@ -5206,15 +5225,18 @@ class Executor(
                 } else if (ts.position.pendingVerify) {
                     // All polls OK and all returned 0 → true phantom
                     // V5.9.495s — operator: "every buy lands as a phaeton".
-                    // The 5×6s polls + tx-parse can both miss real buys when
-                    // indexers are lagging, then we'd wipe a real on-chain
-                    // position. One synchronous last-chance ATA read here
-                    // (after the 30s poll window) catches late-indexed buys
-                    // before we destroy the record. If the wallet now shows
-                    // tokens, retroactively promote — don't wipe.
-                    val lastChanceQty: Double = try {
-                        verifyWallet.getTokenAccountsWithDecimals()[verifyMint]?.first ?: 0.0
-                    } catch (_: Throwable) { 0.0 }
+                    // V5.9.495t — operator triage: "still logging everything
+                    // as phantom buys". Root cause: RPC empty-map blip during
+                    // verification = "no entries returned for ANY token" ≠
+                    // "wallet has no tokens of this mint". Read the WHOLE
+                    // map; if it's empty, treat as inconclusive (do NOT
+                    // wipe). If non-empty and the mint truly is absent
+                    // → real phantom.
+                    val lastChanceBalances: Map<String, Pair<Double, Int>>? = try {
+                        verifyWallet.getTokenAccountsWithDecimals()
+                    } catch (_: Throwable) { null }
+                    val lastChanceQty: Double = lastChanceBalances?.get(verifyMint)?.first ?: 0.0
+                    val lastChanceMapEmpty = lastChanceBalances?.isEmpty() == true
                     if (lastChanceQty > 0.0) {
                         val rescued = ts.position.copy(qtyToken = lastChanceQty, pendingVerify = false)
                         ts.position = rescued
@@ -5232,9 +5254,22 @@ class Executor(
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
                         return@launch
                     }
+                    if (lastChanceMapEmpty || lastChanceBalances == null) {
+                        ErrorLogger.warn(
+                            "Executor",
+                            "⚠️ POST-BUY INCONCLUSIVE (RPC-EMPTY): $verifySymbol — last-chance map was empty/null. Leaving pendingVerify; StartupReconciler / WalletTokenMemory will adopt later."
+                        )
+                        LiveTradeLogStore.log(
+                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                            LiveTradeLogStore.Phase.WARNING,
+                            "⚠️ POST-BUY: RPC empty-map at end of verify — position kept pending, no wipe.",
+                            traderTag = "MEME",
+                        )
+                        return@launch
+                    }
                     ErrorLogger.warn(
                         "Executor",
-                        "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s + last-chance check. Discarding pending position."
+                        "🚨 PHANTOM DETECTED: $verifySymbol — 0 tokens after ${maxPolls * pollIntervalMs / 1000}s + last-chance check (map non-empty, mint absent). Discarding pending position."
                     )
                     onLog("🚨 PHANTOM: $verifySymbol — tx landed but no tokens. Position discarded.", verifyMint)
                     LiveTradeLogStore.log(
@@ -5609,22 +5644,32 @@ class Executor(
                         val expectedDrop = (sellQtyHere * 0.6).coerceAtLeast(0.0001)
                         val verifyDeadline = System.currentTimeMillis() + 12_000L
                         var observedDrop = 0.0
+                        var anyMapEmpty = false
                         while (System.currentTimeMillis() < verifyDeadline && observedDrop < expectedDrop) {
                             try { Thread.sleep(2500) } catch (_: InterruptedException) { break }
-                            val curBal = try {
-                                activeWallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken
-                            } catch (_: Throwable) { pos.qtyToken }
+                            val balances = try { activeWallet.getTokenAccountsWithDecimals() } catch (_: Throwable) { null }
+                            if (balances == null || balances.isEmpty()) { anyMapEmpty = true; continue }
+                            val curBal = balances[ts.mint]?.first ?: pos.qtyToken
                             observedDrop = (pos.qtyToken - curBal).coerceAtLeast(0.0)
                         }
                         if (observedDrop < expectedDrop) {
-                            LiveTradeLogStore.log(
-                                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_FAILED,
-                                "🚨 PARTIAL VERIFY FAILED: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle. Position UNCHANGED.",
-                                sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
-                            )
-                            onLog("🚨 PARTIAL SELL VERIFY FAILED ${ts.symbol}: tokens still in wallet — position unchanged.", ts.mint)
-                            return  // exit liveSell partial branch without mutating
+                            if (anyMapEmpty && observedDrop == 0.0) {
+                                LiveTradeLogStore.log(
+                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                    LiveTradeLogStore.Phase.WARNING,
+                                    "⚠ PARTIAL VERIFY: all polls hit RPC-EMPTY-MAP — trusting sig optimistically. Watch wallet manually.",
+                                    sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
+                                )
+                            } else {
+                                LiveTradeLogStore.log(
+                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                    LiveTradeLogStore.Phase.SELL_FAILED,
+                                    "🚨 PARTIAL VERIFY FAILED: wallet drop=${"%.4f".format(observedDrop)} < expected=${"%.4f".format(expectedDrop)} after 12s — broadcast did NOT settle. Position UNCHANGED.",
+                                    sig = finalSig, tokenAmount = sellQtyHere, traderTag = "MEME",
+                                )
+                                onLog("🚨 PARTIAL SELL VERIFY FAILED ${ts.symbol}: tokens still in wallet — position unchanged.", ts.mint)
+                                return  // exit liveSell partial branch without mutating
+                            }
                         }
                     }
                     
@@ -7511,9 +7556,26 @@ class Executor(
             try {
                 Thread.sleep(1500)
                 val postSellBalances = wallet.getTokenAccountsWithDecimals()
+                val postSellMapEmpty = postSellBalances.isEmpty()
                 val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
                 
                 val originalTokens = pos.qtyToken
+                if (postSellMapEmpty) {
+                    // V5.9.495t — RPC empty-map blip after sell. Cannot
+                    // verify token-gone honestly; do NOT claim success.
+                    // Operator triage: forensics was logging
+                    // "SELL_VERIFY_TOKEN_GONE remaining=0.0000" while the
+                    // wallet still held thousands of tokens because the
+                    // RPC just returned an empty map.
+                    onLog("⚠️ POST-SELL VERIFY: RPC empty-map — cannot confirm token gone, leaving position intact for retry", tradeId.mint)
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.WARNING,
+                        "⚠️ POST-SELL: RPC empty-map blip — verification inconclusive. NOT claiming sell success.",
+                        traderTag = "MEME",
+                    )
+                    throw RuntimeException("Post-sell verify inconclusive: RPC empty-map")
+                }
                 if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
                     onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
@@ -9041,14 +9103,24 @@ class Executor(
             // logs SELL_VERIFY_TOKEN_GONE / SELL_VERIFY_SOL_RETURNED when
             // the chain catches up — turns silent sells into a visible audit
             // trail end-to-end.
+            // V5.9.495t — RPC EMPTY-MAP DETECT (operator triage 06 May 2026:
+            // "every buy lands as a phantom" + "sells appear to process but
+            // tokens are still in wallet"). Helius/Triton overload returns
+            // an empty getTokenAccountsByOwner map; before this fix the
+            // PRE-SELL dust check below interpreted that as preTokenQty=0
+            // and bailed PHANTOM — even though the wallet held thousands of
+            // tokens. We now read the WHOLE map separately, detect
+            // emptiness, and bail/proceed accordingly.
+            val preBalances: Map<String, Pair<Double, Int>>? = try {
+                wallet.getTokenAccountsWithDecimals()
+            } catch (_: Throwable) { null }
+            val preBalancesEmpty = preBalances?.isEmpty() == true
             val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
-            val preTokenQty: Double = try {
-                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
-            } catch (_: Throwable) { -1.0 }
+            val preTokenQty: Double = preBalances?.get(ts.mint)?.first ?: -1.0
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                "📋 PRE-SELL: walletSol=${"%.4f".format(preWalletSol)} | tokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
+                "📋 PRE-SELL: walletSol=${"%.4f".format(preWalletSol)} | tokenBal=${if (preTokenQty < 0) "RPC?" else "%.4f".format(preTokenQty)}${if (preBalancesEmpty) " ⚠ RPC-EMPTY-MAP" else ""} | venue=$pumpVenue",
                 traderTag = traderTag,
             )
 
@@ -9059,7 +9131,13 @@ class Executor(
             // recorded 4 trillion-token position size, and burned 6 retries
             // for a +62663% phantom gain in the Trade Journal. Anything
             // below 0.0001 UI tokens is dust — treat as phantom.
-            if (preTokenQty in 0.0..0.0001) {
+            // V5.9.495t — but ONLY when the RPC actually returned a map.
+            // An empty-map RPC blip is NOT a confirmation of dust; it's an
+            // RPC failure. If the bot has tokenUnits from a verified buy
+            // (caller resolveSellUnits trusts the tracker), proceed with
+            // broadcast — Jupiter/PumpPortal will reject cleanly if the
+            // wallet truly is empty.
+            if (!preBalancesEmpty && preTokenQty in 0.0..0.0001) {
                 onLog("👻 PHANTOM detected: ${ts.symbol} bot thinks open but wallet ATA = $preTokenQty (dust) — skipping sell ladder", ts.mint)
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -9073,6 +9151,14 @@ class Executor(
                 // distinguish from real on-chain sells in TradeHistoryStore
                 // and zero out the solBack computation (no real recovery).
                 return "PHANTOM_${System.currentTimeMillis().toString(16)}"
+            }
+            if (preBalancesEmpty) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.WARNING,
+                    "🛟 RPC empty-map blip — proceeding with broadcast (caller's tokenUnits is authoritative)",
+                    traderTag = traderTag,
+                )
             }
 
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
