@@ -5251,11 +5251,13 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // mints (positions=0 + ALREADY_OPEN drift bug) and closes
             // zombies (open position with zero wallet balance). Throttled
             // to every ~15s internally so calling every loop is fine.
-            if (!cfg.paperMode && wallet != null) {
-                try {
-                    WalletReconciler.reconcileWalletHoldings(status, wallet, isPaperMode = false)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")
+            if (!cfg.paperMode) {
+                wallet?.let { w ->
+                    try {
+                        WalletReconciler.reconcileWalletHoldings(status, w, isPaperMode = false)
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")
+                    }
                 }
             }
             // This runs during LIVE mode to learn from background paper trades
