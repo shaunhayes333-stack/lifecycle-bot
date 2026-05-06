@@ -11233,3 +11233,10 @@ internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
 // Build trigger 1774627618
 // Build trigger 1774842659
 // Build trigger V5.9.418
+
+// V5.9.495z14 — top-level sample counter for periodic full multi-timeframe
+// SmartChart scans. Lives at file scope (not inside class BotService) so the
+// top-level processTokenCycle() function can access it. Every 10th invocation
+// runs SmartChartScanner.scan() multi-TF so longer-horizon patterns
+// (Cup & Handle, Wedges, Dead Cat Bounce…) can actually fire.
+private val smartChartScanCounter = java.util.concurrent.atomic.AtomicLong(0)
