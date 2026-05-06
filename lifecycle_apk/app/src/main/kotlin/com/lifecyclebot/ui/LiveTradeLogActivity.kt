@@ -268,6 +268,7 @@ class LiveTradeLogActivity : Activity() {
     }
 
     private fun colorForPhase(p: Phase): Int = when (p) {
+        // green — terminal success
         Phase.BUY_VERIFIED_LANDED,
         Phase.SELL_VERIFY_TOKEN_GONE,
         Phase.SELL_VERIFY_SOL_RETURNED,
@@ -277,8 +278,18 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_QUOTE_OK,
         Phase.BUY_CONFIRMED,
         Phase.SELL_CONFIRMED,
-        Phase.BUY_SIM_OK -> Color.parseColor("#10B981")        // green
+        Phase.BUY_SIM_OK,
+        // V5.9.495y TradeVerifier success phases
+        Phase.SELL_TX_CONFIRMED,
+        Phase.SELL_TX_PARSE_OK,
+        Phase.SELL_TOKEN_CONSUMED,
+        Phase.SELL_TOKEN_ACCOUNT_CLOSED_SUCCESS,
+        Phase.SELL_RECONCILE_LANDED,
+        Phase.SELL_PUMPPORTAL_ACCEPTED,
+        Phase.BUY_TX_PARSE_OK,
+        Phase.BUY_RECONCILE_LANDED -> Color.parseColor("#10B981")        // green
 
+        // red — terminal failure
         Phase.BUY_PHANTOM,
         Phase.BUY_FAILED,
         Phase.SELL_FAILED,
@@ -287,10 +298,17 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_QUOTE_FAIL,
         Phase.BUY_SIM_FAIL,
         Phase.SWEEP_TOKEN_FAILED,
+        // V5.9.495y TradeVerifier failure phases
+        Phase.SELL_TX_ERR_CONFIRMED,
+        Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+        Phase.SELL_FAILED_CONFIRMED,
         Phase.ERROR -> Color.parseColor("#EF4444")             // red
 
+        // amber — caution / inconclusive
+        Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
         Phase.WARNING -> Color.parseColor("#F59E0B")           // amber
 
+        // blue — in-flight / informational (default for everything else)
         Phase.BUY_QUOTE_TRY,
         Phase.SELL_QUOTE_TRY,
         Phase.BUY_TX_BUILT,
@@ -302,6 +320,18 @@ class LiveTradeLogActivity : Activity() {
         Phase.SWEEP_TOKEN_TRY,
         Phase.SWEEP_START,
         Phase.SELL_START,
+        // V5.9.495y TradeVerifier in-flight phases
+        Phase.SELL_ROUTE_SELECTED,
+        Phase.SELL_BALANCE_LIVE_RAW,
+        Phase.SELL_BALANCE_TRACKER_RAW,
+        Phase.SELL_AMOUNT_PERCENT,
+        Phase.SELL_AMOUNT_RAW,
+        Phase.SELL_PUMPPORTAL_BUILD,
+        Phase.SELL_JUPITER_V2_ORDER,
+        Phase.SELL_JUPITER_V2_EXECUTE,
+        Phase.SELL_SIGNATURE_PENDING,
+        Phase.SELL_SOL_DELTA,
+        Phase.SELL_RECONCILE_SCHEDULED,
         Phase.INFO -> Color.parseColor("#3B82F6")              // blue
     }
 

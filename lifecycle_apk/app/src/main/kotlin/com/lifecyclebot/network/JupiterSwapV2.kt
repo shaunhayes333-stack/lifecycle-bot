@@ -6,7 +6,7 @@
  *   POST https://api.jup.ag/swap/v2/execute
  *
  * Public no-key endpoint (operator confirmed: existing cfg.jupiterApiKey
- * is Ultra-only and not valid for swap/v2/*).
+ * is Ultra-only and not valid for swap v2 endpoints).
  *
  * First call to /order MUST omit slippageBps + priorityFeeLamports +
  * jitoTipLamports — letting Jupiter auto-optimise. Slippage / tip
