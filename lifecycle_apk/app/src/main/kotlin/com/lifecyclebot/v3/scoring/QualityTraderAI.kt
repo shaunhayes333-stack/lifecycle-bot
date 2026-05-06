@@ -599,13 +599,13 @@ object QualityTraderAI {
                 entryScore = pos.entryScore,
                 holdMinutes = holdMinutesLong,
             )
-        } catch (_: Exception) {}
+        } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "trade_record skip: ${e.message}") }
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
-        try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "copilot skip: ${e.message}") }
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
-        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "sentience skip: ${e.message}") }
         
         dailyPnlSol += pnlSol
         totalTrades++

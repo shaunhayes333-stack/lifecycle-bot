@@ -393,10 +393,10 @@ object ManipulatedTraderAI {
                 entryScore = pos.manipScore,
                 holdMinutes = holdMinutesLong,
             )
-        } catch (_: Exception) {}
+        } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "trade_record skip: ${e.message}") }
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
-        try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (_: Exception) {}
-        if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (_: Exception) {}
+        try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "smartsizer skip: ${e.message}") }
+        if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "fluid_learning skip: ${e.message}") }
         // V5.9.8: Sync paper P&L to shared wallet
         if (pos.isPaper) {
             com.lifecyclebot.engine.BotService.status.paperWalletSol =

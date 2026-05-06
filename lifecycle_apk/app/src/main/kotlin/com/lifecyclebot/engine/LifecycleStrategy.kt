@@ -790,14 +790,36 @@ class LifecycleStrategy(
                 // AUTO-TUNE: Apply learned EMA fan and phase multipliers
                 val emaMultiplier = PatternAutoTuner.getEmaMultiplier(emafan.alignment.name)
                 val phaseMultiplier = PatternAutoTuner.getPhaseMultiplier(phase)
-                // V5.8: Raised min floor 0.70→0.82 — 0.70 was over-compressing scores (12→8 seen in logs)
-                val combinedMult = ((emaMultiplier + phaseMultiplier) / 2.0).coerceIn(0.82, 1.3)
+
+                // V5.9.495z14 — close the chart-pattern learning loop.
+                // Previously PatternAutoTuner.getPatternMultiplier() was
+                // computed by updateFromBacktest() but NEVER read by any
+                // decision path, so chart pattern win-rate weights had no
+                // effect on entry scoring. Now we read fresh detected
+                // patterns from SmartChartCache (populated by BotService's
+                // periodic multi-timeframe scan) and blend the per-pattern
+                // multiplier into the score. Bullish patterns with high
+                // historical win-rate boost score; bearish patterns with
+                // poor history shrink it. Geometric mean keeps the blend
+                // stable even when many patterns are detected.
+                val cachedPatterns = try { SmartChartCache.getPatternNames(ts.mint) } catch (_: Throwable) { emptyList() }
+                val patternMultiplier: Double = if (cachedPatterns.isEmpty()) 1.0 else {
+                    var product = 1.0
+                    for (name in cachedPatterns) product *= PatternAutoTuner.getPatternMultiplier(name)
+                    // Geometric mean across N detected patterns
+                    Math.pow(product, 1.0 / cachedPatterns.size).coerceIn(0.5, 1.5)
+                }
+
+                // V5.8: Raised min floor 0.70→0.82 — 0.70 was over-compressing scores.
+                // V5.9.495z14: blend now includes pattern multiplier alongside EMA + phase.
+                val combinedMult = ((emaMultiplier + phaseMultiplier + patternMultiplier) / 3.0).coerceIn(0.82, 1.3)
                 
                 if (combinedMult != 1.0 && kotlin.math.abs(combinedMult - 1.0) > 0.05) {
                     val oldScore = entryScore
                     entryScore = (entryScore * combinedMult).coerceIn(0.0, 100.0)
-                    ErrorLogger.debug("AutoTune", "🎛️ ${ts.symbol}: mult=${String.format("%.2f", combinedMult)} " +
-                        "→ score ${oldScore.toInt()}→${entryScore.toInt()}")
+                    ErrorLogger.debug("AutoTune", "🎛️ ${ts.symbol}: ema=${String.format("%.2f", emaMultiplier)} " +
+                        "phase=${String.format("%.2f", phaseMultiplier)} pattern=${String.format("%.2f", patternMultiplier)} " +
+                        "→ mult=${String.format("%.2f", combinedMult)} score ${oldScore.toInt()}→${entryScore.toInt()}")
                 }
                 
                 // ADAPTIVE LEARNING: Feature-weighted scoring (only after 40+ trades)

@@ -6330,14 +6330,27 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     if (ts.history.size >= 10) {
         scope.launch {
             try {
-                val scanResult = SmartChartScanner.quickScan(ts)
+                // V5.9.495z14 — every 10th scan (per-token), run a FULL
+                // multi-timeframe scan instead of the 5-min quickScan. Long-
+                // horizon patterns (Cup & Handle, Head & Shoulders, Wedges,
+                // Dead Cat Bounce, etc.) need 1h+ candles which quickScan
+                // never reaches. Sample 1-in-10 to cap CPU cost.
+                val tick = smartChartScanCounter.incrementAndGet()
+                val results = if (tick % 10 == 0L) SmartChartScanner.scan(ts)
+                              else listOfNotNull(SmartChartScanner.quickScan(ts))
+                val scanResult = results.maxByOrNull { it.confidence }
                 if (scanResult != null && scanResult.confidence >= 60) {
-                    // V5.9.91: cache so the entry path can consume the
-                    // bearish signal instead of ignoring it.
+                    // V5.9.495z14 — push pattern enum names into cache so the
+                    // entry decision can read them via getPatternNames() and
+                    // apply PatternAutoTuner.getPatternMultiplier(name).
+                    val patternNames = results.flatMap { r ->
+                        r.candlePatterns.map { it.name } + r.chartPatterns.map { it.name }
+                    }.distinct()
                     SmartChartCache.update(
                         mint = ts.mint,
                         bias = scanResult.overallBias,
-                        confidence = scanResult.confidence
+                        confidence = scanResult.confidence,
+                        patternNames = patternNames,
                     )
                     val patternStr = buildString {
                         scanResult.candlePatterns.forEach { append(it.emoji) }
@@ -11220,8 +11233,3 @@ internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
 // Build trigger 1774627618
 // Build trigger 1774842659
 // Build trigger V5.9.418
-
-
-
-
-
