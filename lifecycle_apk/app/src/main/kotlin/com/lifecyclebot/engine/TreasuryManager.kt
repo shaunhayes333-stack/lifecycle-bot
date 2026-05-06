@@ -110,6 +110,15 @@ object TreasuryManager {
     @Volatile var lifetimeWithdrawn: Double = 0.0
         private set
 
+    /**
+     * V5.9.495z17 — Last wallet pubkey this treasury was associated with.
+     * Used by `handleWalletChange()` to detect a fresh wallet connection
+     * and archive+reset the treasury so accounting never cross-contaminates
+     * between two different wallets.
+     */
+    @Volatile var lastWalletPubkey: String = ""
+        private set
+
     /** Previous poll cycle wallet USD value (for delta tracking) */
     @Volatile private var lastWalletUsd: Double = 0.0
 
@@ -338,6 +347,15 @@ object TreasuryManager {
     const val MEME_SELL_TREASURY_PCT = 0.30
 
     /**
+     * V5.9.495z17 — operator-mandated dust filter. Profits below this floor
+     * skip the 70/30 split entirely so we don't spam the treasury ledger
+     * with sub-cent contributions (e.g. a +$0.05 sell would otherwise
+     * produce a $0.015 lock event). 0.003 SOL ≈ $0.40-0.50 USD at typical
+     * SOL prices.
+     */
+    const val MEME_SELL_MIN_PROFIT_SOL = 0.003
+
+    /**
      * V5.9.428 — 100% of realized profit from a treasury-scalp sell goes to
      * the treasury wallet (not split). Principal stays with the trading
      * wallet; only the profit is siphoned. Caller is expected to deduct this
@@ -377,6 +395,13 @@ object TreasuryManager {
      */
     fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double): Double {
         if (realizedProfitSol <= 0.0) return 0.0
+        // V5.9.495z17 — operator: skip dust splits below ~$0.40 USD so the
+        // treasury ledger doesn't fill with rounding-error events.
+        if (realizedProfitSol < MEME_SELL_MIN_PROFIT_SOL) {
+            ErrorLogger.debug("Treasury",
+                "🪙 70/30 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < dust floor ${MEME_SELL_MIN_PROFIT_SOL}◎")
+            return 0.0
+        }
         val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT
         // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
         // negligible rounding (<1e-6) is the only thing skipped.
@@ -544,6 +569,7 @@ object TreasuryManager {
             put("lifetime_withdrawn",  lifetimeWithdrawn)
             put("last_wallet_usd",     lastWalletUsd)
             put("peak_wallet_usd",     peakWalletUsd)
+            put("last_wallet_pubkey",  lastWalletPubkey)
             put("saved_at",            System.currentTimeMillis())
         }
         
@@ -635,6 +661,7 @@ object TreasuryManager {
         lifetimeWithdrawn    = obj.optDouble("lifetime_withdrawn", 0.0)
         lastWalletUsd        = obj.optDouble("last_wallet_usd", 0.0)
         peakWalletUsd        = obj.optDouble("peak_wallet_usd", 0.0)
+        lastWalletPubkey     = obj.optString("last_wallet_pubkey", "")
         
         // V5.9.445 / V5.9.448 — keep the corruption guard for clearly-bogus
         // states (wildly inflated treasury with no lock history), but the
@@ -676,6 +703,7 @@ object TreasuryManager {
         treasurySol = 0.0; treasuryUsd = 0.0; highestMilestoneHit = -1
         lifetimeLocked = 0.0; lifetimeWithdrawn = 0.0
         lastWalletUsd = 0.0; peakWalletUsd = 0.0
+        lastWalletPubkey = ""
         _events.clear()
         try {
             val mk = MasterKey.Builder(ctx)
@@ -686,6 +714,76 @@ object TreasuryManager {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             ).edit().clear().apply()
         } catch (_: Exception) {}
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.495z17 — WALLET-CHANGE DETECTION
+    // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // Operator mandate: "treasury starts at $0 on a new wallet connection".
+    // When the user connects a different Solana pubkey than the one last
+    // associated with this treasury, we:
+    //   1. Snapshot the current treasury state under
+    //      `treasury_archive_<oldPubkey>` so it can be reviewed later.
+    //   2. Hard-reset all treasury counters to 0 and persist.
+    //   3. Stamp the new pubkey as `lastWalletPubkey`.
+    //
+    // No-op if the pubkey is empty, identical, or this is the first ever
+    // connection (lastWalletPubkey blank → just stamp + save, no archive).
+    fun handleWalletChange(ctx: Context, newPubkey: String) {
+        cachedCtx = ctx
+        if (newPubkey.isBlank()) return
+        val previous = lastWalletPubkey
+        if (previous == newPubkey) return  // same wallet — nothing to do
+        if (previous.isBlank()) {
+            // First connection ever — just stamp & persist, don't archive.
+            lastWalletPubkey = newPubkey
+            ErrorLogger.info("Treasury",
+                "🔗 Wallet first-stamp: pubkey=${newPubkey.take(8)}… (treasury=${treasurySol.fmtSol()}◎)")
+            save(ctx)
+            return
+        }
+        // Different pubkey → archive and reset.
+        try {
+            val archive = JSONObject().apply {
+                put("treasury_sol",        treasurySol)
+                put("treasury_usd",        treasuryUsd)
+                put("milestone_hit",       highestMilestoneHit)
+                put("lifetime_locked",     lifetimeLocked)
+                put("lifetime_withdrawn",  lifetimeWithdrawn)
+                put("peak_wallet_usd",     peakWalletUsd)
+                put("archived_from",       previous)
+                put("archived_at",         System.currentTimeMillis())
+            }
+            val safeKey = previous.take(44).filter { it.isLetterOrDigit() }
+            ctx.getSharedPreferences("treasury_archive", Context.MODE_PRIVATE)
+                .edit().putString("archive_$safeKey", archive.toString()).apply()
+            ErrorLogger.info("Treasury",
+                "📦 Archived treasury for pubkey=${previous.take(8)}… (locked=${treasurySol.fmtSol()}◎, " +
+                "lifetime=${lifetimeLocked.fmtSol()}◎)")
+        } catch (e: Exception) {
+            ErrorLogger.warn("Treasury", "Archive failed: ${e.message}")
+        }
+        // Hard reset → fresh $0 treasury for the new wallet.
+        treasurySol = 0.0
+        treasuryUsd = 0.0
+        highestMilestoneHit = -1
+        lifetimeLocked = 0.0
+        lifetimeWithdrawn = 0.0
+        lastWalletUsd = 0.0
+        peakWalletUsd = 0.0
+        _events.clear()
+        lastWalletPubkey = newPubkey
+        addEvent(TreasuryEvent(
+            type        = TreasuryEventType.MANUAL_ADJUST,
+            amountSol   = 0.0,
+            description = "🆕 New wallet connected (${newPubkey.take(8)}…) — treasury reset to \$0",
+            walletUsd   = 0.0,
+            solPrice    = 0.0,
+        ))
+        save(ctx)
+        ErrorLogger.info("Treasury",
+            "🆕 Wallet-change reset: ${previous.take(8)}… → ${newPubkey.take(8)}… | treasury=\$0")
     }
 
     // ── Status summary ────────────────────────────────────────────────

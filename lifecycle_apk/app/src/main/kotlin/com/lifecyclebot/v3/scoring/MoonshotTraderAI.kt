@@ -865,6 +865,20 @@ object MoonshotTraderAI {
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
 
+        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
+        // Captures the share returned so we can deduct it from the wallet
+        // credit below (otherwise we'd double-count: 100% to wallet AND
+        // 30% to treasury, inflating both ledgers).
+        val treasuryShare: Double = if (pnlSol > 0.0) {
+            try {
+                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                    pnlSol,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+                )
+            } catch (_: Exception) { 0.0 }
+        } else 0.0
+
+
         // V5.9.404 — Symbolic learning: feed cluster outcome back to NarrativeAI
         // so the UI / future prompts can lean on which narratives actually pay.
         try {
@@ -899,13 +913,15 @@ object MoonshotTraderAI {
             }
         }
         
-        // Update balance
+        // Update balance — V5.9.495z17: deduct treasuryShare so wallet only
+        // gets the 70% portion (treasury already holds the 30%).
+        val walletDelta = pnlSol - treasuryShare
         val balanceRef = if (pos.isPaperMode) paperBalanceBps else liveBalanceBps
-        balanceRef.addAndGet((pnlSol * 10000).toLong())
+        balanceRef.addAndGet((walletDelta * 10000).toLong())
             // V5.9.8: Sync paper P&L to shared wallet
             if (pos.isPaperMode) {
                 com.lifecyclebot.engine.BotService.status.paperWalletSol =
-                    (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
+                    (com.lifecyclebot.engine.BotService.status.paperWalletSol + walletDelta).coerceAtLeast(0.0)
             }
         
         // Update local learning progress

@@ -219,6 +219,16 @@ class WalletManager private constructor(private val ctx: Context) {
                     solPriceUsd     = solPrice,
                     lastRefreshed   = System.currentTimeMillis(),
                 )
+
+                // V5.9.495z17 — operator-mandated treasury reset on new wallet
+                // pubkey. Archives the previous wallet's treasury state then
+                // hard-resets counters to $0 so accounting never cross-
+                // contaminates between two different wallets.
+                try {
+                    com.lifecyclebot.engine.TreasuryManager.handleWalletChange(ctx, pubkey)
+                } catch (e: Exception) {
+                    ErrorLogger.warn("Wallet", "treasury wallet-change hook failed: ${e.message}")
+                }
                 return true
             } catch (e: IllegalArgumentException) {
                 // Invalid key format - don't try other RPCs.

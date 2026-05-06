@@ -606,6 +606,17 @@ object QualityTraderAI {
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "sentience skip: ${e.message}") }
+
+        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
+        if (pnlSol > 0.0) {
+            try {
+                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                    pnlSol,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+                )
+            } catch (_: Exception) {}
+        }
+
         
         dailyPnlSol += pnlSol
         totalTrades++

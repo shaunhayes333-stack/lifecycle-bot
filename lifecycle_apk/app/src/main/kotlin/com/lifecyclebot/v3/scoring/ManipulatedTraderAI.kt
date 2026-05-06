@@ -397,10 +397,28 @@ object ManipulatedTraderAI {
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "smartsizer skip: ${e.message}") }
         if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "fluid_learning skip: ${e.message}") }
+
+        // V5.9.495z17 — operator-mandated 70/30 profit split + missing
+        // sentience hook (this trader was 1 of 4/8 not feeding SentienceHooks).
+        // Captures the share returned so we can deduct it from the wallet
+        // credit below (otherwise we'd double-count).
+        val treasuryShare: Double = if (pnlSol > 0.0) {
+            try {
+                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                    pnlSol,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+                )
+            } catch (_: Exception) { 0.0 }
+        } else 0.0
+        try {
+            com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
+        } catch (_: Exception) {}
         // V5.9.8: Sync paper P&L to shared wallet
+        // V5.9.495z17: deduct treasuryShare so wallet only gets 70%.
         if (pos.isPaper) {
+            val walletDelta = pnlSol - treasuryShare
             com.lifecyclebot.engine.BotService.status.paperWalletSol =
-                (com.lifecyclebot.engine.BotService.status.paperWalletSol + pnlSol).coerceAtLeast(0.0)
+                (com.lifecyclebot.engine.BotService.status.paperWalletSol + walletDelta).coerceAtLeast(0.0)
         }
 
         if (pnlPct >= 1.0) _dailyWins.incrementAndGet() else _dailyLosses.incrementAndGet()  // V5.9.225: 1% win floor

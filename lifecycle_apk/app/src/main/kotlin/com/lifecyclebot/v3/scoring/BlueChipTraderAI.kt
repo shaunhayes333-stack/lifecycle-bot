@@ -399,6 +399,17 @@ object BlueChipTraderAI {
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}
+
+        // V5.9.495z17 — wire operator-mandated 70/30 profit split.
+        if (pnlSol > 0.0) {
+            try {
+                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                    pnlSol,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+                )
+            } catch (_: Exception) {}
+        }
+
         
         // Record to daily P&L
         val pnlBps = (pnlSol * 100).toLong()

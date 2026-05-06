@@ -663,6 +663,21 @@ object ShitCoinExpress {
         // Record P&L
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)
+
+        // V5.9.495z17 — operator-mandated 70/30 profit split + missing
+        // sentience hook (Express was 1 of 4/8 not feeding sentience).
+        if (pnlSol > 0.0) {
+            try {
+                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                    pnlSol,
+                    com.lifecyclebot.engine.WalletManager.lastKnownSolPrice,
+                )
+            } catch (_: Exception) {}
+        }
+        try {
+            com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
+        } catch (_: Exception) {}
+
         
         if (pnlSol > 0) {
             dailyWins.incrementAndGet()
