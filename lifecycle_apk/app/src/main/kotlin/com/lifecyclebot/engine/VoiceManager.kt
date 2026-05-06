@@ -185,6 +185,51 @@ object VoiceManager {
         ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_BACKEND, DEFAULT_BACKEND_AUTO)?.trim()?.lowercase() ?: DEFAULT_BACKEND_AUTO
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.495z18 — Persona-aware event speech.
+    //
+    // Every meaningful trade event should call speakEvent() instead of speak().
+    // It picks the right persona, model tier, voice settings and SFX cue based
+    // on the central PersonalityVoiceRegistry + PersonalityEventRouter, runs
+    // the text through VoiceTextProcessor (emoji strip, mint redact, ticker
+    // dictionary, percent/SOL natural-language, emotion tags), caches the
+    // resulting MP3 on disk, and records every step in VoiceDiagnostics.
+    //
+    // Falls back to a no-op when:
+    //   • voice mode = MUTED
+    //   • voice mode = CRITICAL_ONLY and event is routine
+    //   • current time is inside operator's quiet hours (and event is non-critical)
+    //   • the persona has no voice_id configured (operator must paste one first)
+    //   • daily char budget for the persona is exhausted
+    //
+    // Returns true if a TTS request was issued.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    fun speakEvent(
+        ctx: Context,
+        event: com.lifecyclebot.engine.voice.PersonalityEventRouter.Event,
+        dynamic: String? = null,
+    ): Boolean {
+        return try {
+            val key = getElevenLabsKey(ctx)
+            com.lifecyclebot.engine.voice.PersonaSpeaker.speakEvent(
+                ctx = ctx.applicationContext,
+                event = event,
+                dynamic = dynamic,
+                apiKey = key,
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "speakEvent err: ${e.message}")
+            false
+        }
+    }
+
+    /** Convenience overload — accepts the lowercase event key as a string. */
+    fun speakEvent(ctx: Context, eventKey: String, dynamic: String? = null): Boolean {
+        val event = com.lifecyclebot.engine.voice.PersonalityEventRouter.byKey(eventKey) ?: return false
+        return speakEvent(ctx, event, dynamic)
+    }
+
 
     private fun purgeStaleVoiceOverridesOnce(ctx: Context) {
         val prefs = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
