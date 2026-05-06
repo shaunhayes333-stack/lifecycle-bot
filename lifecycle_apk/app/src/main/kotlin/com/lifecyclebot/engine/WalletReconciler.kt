@@ -35,6 +35,7 @@ object WalletReconciler {
     private const val MIN_INTERVAL_MS = 15_000L
 
     private val lastRunMs = AtomicLong(0L)
+    private val lastDigestMs = AtomicLong(0L)
     private val knownMints = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     /**
@@ -119,6 +120,24 @@ object WalletReconciler {
 
         if (changes > 0) {
             ErrorLogger.info(TAG, "✅ Reconcile pass: $changes change(s) | wallet has ${walletMints.size} mints | tracker has ${status.openPositionCount} open")
+        }
+
+        // V5.9.495z7 — wallet-truth digest (operator-requested improvement).
+        // One-line snapshot every 60s so the operator gets a single-glance
+        // proof that on-chain state, the position store, and the V3 known-mint
+        // registry are aligned. The instant drift creeps back in this line
+        // surfaces it.
+        val nowDigest = System.currentTimeMillis()
+        if (nowDigest - lastDigestMs.get() >= 60_000L) {
+            lastDigestMs.set(nowDigest)
+            val walletCount = walletMints.size
+            val openCount = status.openPositionCount
+            val knownCount = knownMints.size
+            val drift = kotlin.math.abs(walletCount - openCount) + kotlin.math.abs(walletCount - knownCount)
+            ErrorLogger.info(
+                TAG,
+                "🔄 Wallet truth: $walletCount mints held · $openCount tracked open · $knownCount in registry · drift=$drift"
+            )
         }
         return changes
     }

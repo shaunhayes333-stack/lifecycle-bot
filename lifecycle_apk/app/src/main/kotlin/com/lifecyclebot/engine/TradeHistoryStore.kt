@@ -264,6 +264,13 @@ object TradeHistoryStore {
                 MemeLossStreakGuard.recordOutcome(trade.mint, isWin = trade.pnlSol > 0.0)
             }
         } catch (_: Exception) { /* non-fatal */ }
+        // V5.9.495z7 — operator spec: every closed trade publishes a canonical
+        // outcome event. Bus normalizes (rejecting BUY_PHANTOM after TX_PARSE
+        // etc.), bumps counters, and routes to consumer layers. SELL only —
+        // buys are open-events that the SELL supersedes.
+        try {
+            CanonicalOutcomeBus.publishFromLegacyTrade(trade)
+        } catch (_: Throwable) { /* non-fatal — never break the trade record path */ }
     }
 
     fun recordTrades(newTrades: List<Trade>) {
