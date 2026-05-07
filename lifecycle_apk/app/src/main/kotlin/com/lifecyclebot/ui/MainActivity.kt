@@ -2956,8 +2956,67 @@ for legal compliance.
         return merged.sortedByDescending { it.position.entryTime }
     }
 
+    /**
+     * V5.9.495z37 — count positions held by lane traders that are NOT
+     * in the unified Open Positions list (BlueChip + Treasury have
+     * their own cards and are intentionally excluded above to avoid
+     * double-counting). Returned count is what the footer label
+     * reports so users can confirm none are abandoned.
+     */
+    private fun countLaneHeldPositions(unified: List<TokenState>): Int {
+        val seen = unified.map { it.mint }.toMutableSet()
+        var n = 0
+        try {
+            val bc = (
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) +
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false)
+            )
+            for (p in bc) if (p.mint !in seen) { seen.add(p.mint); n++ }
+        } catch (_: Throwable) {}
+        try {
+            val tre = (
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) +
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false)
+            )
+            for (p in tre) if (p.mint.isNotBlank() && p.mint !in seen) { seen.add(p.mint); n++ }
+        } catch (_: Throwable) {}
+        return n
+    }
+
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()
+        // V5.9.495z37 — operator-reported confusion: tSpaceX / TCLAW /
+        // TripleT / GMAR / MAGA / ROAF appear in lane cards (Blue Chip
+        // Trades / Treasury Scalps / Moonshot) but NOT in Open
+        // Positions. The bot DOES still manage them — they live in
+        // their dedicated trader's position map and TP/SL ticks
+        // continue. The Open Positions card omits them only to avoid
+        // double-counting the same mint twice on screen. Surface that
+        // explicitly so users know nothing has been dropped.
+        try {
+            val laneHeld = countLaneHeldPositions(positions)
+            val laneFooterId = "OPEN_POS_LANE_FOOTER".hashCode()
+            // Reuse a single TextView across renders rather than
+            // adding one each tick.
+            var footer = llOpenPositions.parent?.let { p ->
+                (p as? android.view.ViewGroup)?.findViewById<TextView>(laneFooterId)
+            }
+            if (footer == null) {
+                footer = TextView(this).apply {
+                    id = laneFooterId
+                    textSize = 11f
+                    setTextColor(0xFF9CA3AF.toInt())
+                    setPadding(0, 8, 0, 0)
+                }
+                (llOpenPositions.parent as? android.view.ViewGroup)?.addView(footer)
+            }
+            if (laneHeld > 0) {
+                footer.text = "+ $laneHeld held in lane cards below — still managed by their respective traders."
+                footer.visibility = android.view.View.VISIBLE
+            } else {
+                footer.visibility = android.view.View.GONE
+            }
+        } catch (_: Throwable) { /* best-effort */ }
         // V5.9.495z36 — surface a clear PAPER/LIVE/MIXED chip on the
         // Open Positions header. Operator-reported "paper positions
         // polluting live UI" — leave no doubt about which mode each
