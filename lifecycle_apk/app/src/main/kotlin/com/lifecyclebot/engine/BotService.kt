@@ -564,6 +564,17 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "TreasuryWalletManager init error: ${e.message}", e)
         }
+
+        // V5.9.495z28 — TokenLifecycleTracker (operator's 10-item end-to-end
+        // overhaul, item 3). Authoritative ledger keyed by mint covering
+        // BUY_PENDING → CLEARED + RESIDUAL_HELD/RECONCILE_FAILED. Persisted
+        // and restored across restarts so positions can never be lost.
+        try {
+            com.lifecyclebot.engine.TokenLifecycleTracker.init(applicationContext)
+            addLog("📒 Lifecycle: ${com.lifecyclebot.engine.TokenLifecycleTracker.openCount()} open · ${com.lifecyclebot.engine.TokenLifecycleTracker.stats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TokenLifecycleTracker init error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {

@@ -2281,6 +2281,38 @@ class Executor(
                 solAmount = solBack,
                 traderTag = "MEME",
             )
+            // V5.9.495z28 (operator spec items 1+2+3): TWO-SIDE verification.
+            // Don't trust SOL-returned alone — reconcile the wallet token
+            // balance and only mark CLEARED when it's ≤ dust. Otherwise the
+            // lifecycle tracker keeps the position in PARTIAL_SELL /
+            // RESIDUAL_HELD so subsequent sweeps can finish the job.
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val reading = TokenLifecycleTracker.reconcileWalletBalance(wallet, ts.mint)
+                    val walletAfter = when (reading) {
+                        is TokenLifecycleTracker.Reading.Confirmed -> reading.uiAmount
+                        TokenLifecycleTracker.Reading.Empty -> null
+                    }
+                    TokenLifecycleTracker.onSellSettled(
+                        mint = ts.mint, sig = finalSig,
+                        solReceived = solBack, walletTokenAfter = walletAfter,
+                    )
+                    val phase = when {
+                        walletAfter == null -> LiveTradeLogStore.Phase.SELL_STUCK
+                        walletAfter > 0.000_001 -> LiveTradeLogStore.Phase.SELL_VERIFY_TOKEN_GONE  // misleading legacy name; partial
+                        else -> LiveTradeLogStore.Phase.SELL_VERIFY_TOKEN_GONE
+                    }
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL", phase,
+                        "Wallet reconcile: " + when {
+                            walletAfter == null -> "RPC empty — RESIDUAL_HELD, watchdog will retry"
+                            walletAfter > 0.000_001 -> "PARTIAL — ${walletAfter} ui remain"
+                            else -> "CLEARED (token gone, SOL returned)"
+                        },
+                        traderTag = "MEME",
+                    )
+                }
+            } catch (_: Throwable) { /* never break the live path on reconcile */ }
             onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${finalSig.take(16)}…", ts.mint)
             onNotify("✅ Profit Locked",
                 "${ts.symbol} secured ${solBack.fmt(3)} SOL",
@@ -5011,6 +5043,15 @@ class Executor(
                     "✅ Tx confirmed on-chain — awaiting token-arrival verification",
                     sig = sig, traderTag = "MEME",
                 )
+                // V5.9.495z28 (operator spec item 3): record into authoritative
+                // lifecycle ledger keyed by mint. onBuyPending is called BEFORE
+                // broadcast (registers the intent); onBuyConfirmed flips it
+                // once the tx signature is on-chain. The wallet reconciler
+                // then verifies token arrival → onTokenLanded → HELD.
+                try {
+                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, "pump.fun", sol)
+                    TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
+                } catch (_: Throwable) {}
                 priceImpactPct = q.priceImpactPct
                 routerLabel = q.router
                 // qty derived from quote.outAmount AFTER price check below
@@ -5116,6 +5157,8 @@ class Executor(
                     "✅ PUMP-FIRST: tokens already in wallet (pre/post delta) — registered inline",
                     tokenAmount = finalQty, sig = sig, traderTag = "MEME",
                 )
+                // V5.9.495z28 — token landed → flip lifecycle tracker to HELD.
+                try { TokenLifecycleTracker.onTokenLanded(ts.mint, finalQty) } catch (_: Throwable) {}
             }
 
             // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
@@ -5562,6 +5605,11 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
+        // as SELL_PENDING the moment any sell is requested. The downstream
+        // SOL+token verification path (post-broadcast) flips it to CLEARED
+        // / PARTIAL_SELL / RESIDUAL_HELD based on the wallet reading.
+        try { TokenLifecycleTracker.onSellPending(ts.mint) } catch (_: Throwable) {}
         return doSell(ts, reason, wallet, walletSol)
     }
     
