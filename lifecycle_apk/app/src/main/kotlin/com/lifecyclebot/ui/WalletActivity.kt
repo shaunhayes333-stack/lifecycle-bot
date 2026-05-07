@@ -104,9 +104,130 @@ class WalletActivity : AppCompatActivity() {
         }
         bindViews()
         setupListeners()
+        // V5.9.495z26 — inject Treasury Wallet card into the connected layout.
+        injectTreasuryWalletCard()
 
         lifecycleScope.launch {
             vm.ui.collect { state -> updateUi(state) }
+        }
+    }
+
+    /**
+     * V5.9.495z26 — programmatically add a "Treasury Wallet" card to the
+     * wallet screen so the operator can see the second wallet's pubkey,
+     * balance, and manage backup/regenerate without an XML layout change.
+     * Sits at the top of the layoutConnected LinearLayout so it's visible
+     * regardless of whether the trading wallet is connected.
+     */
+    private fun injectTreasuryWalletCard() {
+        try {
+            val ctx = this
+            val parent = (layoutConnected.parent as? android.widget.LinearLayout)
+                ?: layoutConnected.rootView.findViewById<android.widget.LinearLayout>(R.id.layoutConnected)
+                ?: return
+            val card = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setBackgroundColor(android.graphics.Color.parseColor("#0D1320"))
+                val pad = (16 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
+                val mPx = (12 * resources.displayMetrics.density).toInt()
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { setMargins(mPx, mPx, mPx, mPx) }
+                layoutParams = lp
+            }
+            val title = android.widget.TextView(ctx).apply {
+                text = "🏦 Treasury Wallet"
+                setTextColor(android.graphics.Color.parseColor("#FBBF24"))
+                textSize = 16f
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            }
+            val tvPk = android.widget.TextView(ctx).apply {
+                text = com.lifecyclebot.engine.TreasuryWalletManager.publicKey().ifBlank { "(initialising…)" }
+                setTextColor(android.graphics.Color.parseColor("#E5E7EB"))
+                textSize = 12f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+            }
+            val tvBal = android.widget.TextView(ctx).apply {
+                text = "Balance: ${"%.4f".format(com.lifecyclebot.engine.TreasuryWalletManager.getBalance())} SOL"
+                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                textSize = 13f
+                setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
+            }
+            val btnRow = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            fun mkBtn(label: String, color: String, action: () -> Unit) =
+                android.widget.Button(ctx).apply {
+                    text = label
+                    setBackgroundColor(android.graphics.Color.parseColor(color))
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 11f
+                    val mPx = (4 * resources.displayMetrics.density).toInt()
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    ).apply { setMargins(mPx, mPx, mPx, mPx) }
+                    layoutParams = lp
+                    setOnClickListener { action() }
+                }
+            btnRow.addView(mkBtn("Copy", "#1F2937") {
+                val pk = com.lifecyclebot.engine.TreasuryWalletManager.publicKey()
+                if (pk.isNotBlank()) {
+                    val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("treasury_pk", pk))
+                    Toast.makeText(ctx, "Treasury address copied", Toast.LENGTH_SHORT).show()
+                }
+            })
+            btnRow.addView(mkBtn("Refresh", "#1F2937") {
+                lifecycleScope.launch {
+                    val bal = com.lifecyclebot.engine.TreasuryWalletManager.refreshBalance()
+                    tvBal.text = "Balance: ${"%.4f".format(bal)} SOL"
+                }
+            })
+            btnRow.addView(mkBtn("Reveal Key", "#7F1D1D") {
+                android.app.AlertDialog.Builder(ctx)
+                    .setTitle("⚠ Reveal Treasury Private Key")
+                    .setMessage("Anyone with this key controls treasury funds. Continue?")
+                    .setPositiveButton("Show") { _, _ ->
+                        val key = com.lifecyclebot.engine.TreasuryWalletManager.exportPrivateKey(ctx)
+                        android.app.AlertDialog.Builder(ctx)
+                            .setTitle("Treasury Private Key")
+                            .setMessage(key.ifBlank { "(none — wallet not initialised)" })
+                            .setPositiveButton("Copy") { _, _ ->
+                                val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("treasury_key", key))
+                                Toast.makeText(ctx, "Copied — store securely!", Toast.LENGTH_LONG).show()
+                            }
+                            .setNegativeButton("Close", null)
+                            .show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            })
+            btnRow.addView(mkBtn("Regenerate", "#7F1D1D") {
+                android.app.AlertDialog.Builder(ctx)
+                    .setTitle("⚠ Regenerate Treasury Wallet")
+                    .setMessage("This destroys the current treasury keypair and creates a new one. Any SOL in the old treasury wallet will be UNREACHABLE unless you've backed up the private key. Continue?")
+                    .setPositiveButton("Regenerate") { _, _ ->
+                        val newPk = com.lifecyclebot.engine.TreasuryWalletManager.regenerate(ctx)
+                        tvPk.text = newPk.ifBlank { "(failed — see logs)" }
+                        tvBal.text = "Balance: 0.0000 SOL"
+                        Toast.makeText(ctx, "New treasury wallet generated", Toast.LENGTH_LONG).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            })
+            card.addView(title)
+            card.addView(tvPk)
+            card.addView(tvBal)
+            card.addView(btnRow)
+            // Insert at top of layoutConnected.
+            layoutConnected.addView(card, 0)
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("WalletActivity",
+                "treasury card injection failed: ${e.message}")
         }
     }
     

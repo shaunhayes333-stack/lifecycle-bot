@@ -549,6 +549,21 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "MemeMintRegistry init error: ${e.message}", e)
         }
+
+        // V5.9.495z26 — Initialize TreasuryWalletManager. Auto-generates a
+        // fresh on-chain Solana keypair on first launch, persists the private
+        // key to EncryptedSharedPreferences, and exposes the treasury pubkey
+        // + balance for the wallet UI. Live-mode profit splits are physically
+        // transferred trading→treasury (see TreasuryManager.contributeFromMemeSell).
+        try {
+            com.lifecyclebot.engine.TreasuryWalletManager.init(applicationContext)
+            val pk = com.lifecyclebot.engine.TreasuryWalletManager.publicKey()
+            if (pk.isNotBlank()) {
+                addLog("🏦 Treasury wallet: ${pk.take(8)}…${pk.takeLast(4)}")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "TreasuryWalletManager init error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {

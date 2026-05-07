@@ -380,6 +380,10 @@ object TreasuryManager {
             solPrice = safePx,
         ))
         autoSave()   // V5.9.433 — persist immediately so reboots don't wipe the gain
+        // V5.9.495z26 — live mode: physically move the SOL on-chain to the
+        // treasury wallet so the operator's two-wallet separation is real,
+        // not virtual. Paper mode keeps the virtual ledger only (no transfer).
+        triggerOnChainTransferIfLive(realizedProfitSol, "TREASURY_SCALP_100")
         return realizedProfitSol
     }
 
@@ -426,6 +430,8 @@ object TreasuryManager {
             solPrice = safePx,
         ))
         autoSave()   // V5.9.433 — persist 30% splits immediately
+        // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
+        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_70_30")
         return contribSol
     }
 
@@ -815,6 +821,42 @@ object TreasuryManager {
     private fun addEvent(event: TreasuryEvent) {
         if (_events.size >= 50) _events.removeFirst()
         _events.addLast(event)
+    }
+
+    /**
+     * V5.9.495z26 — Live mode: trigger an async SOL transfer from trading
+     * wallet → treasury wallet. Runs on a fire-and-forget IO scope so it
+     * never blocks the calling Executor sell path. In paper mode this is a
+     * no-op (the virtual treasurySol ledger is the source of truth).
+     *
+     * Failures here do NOT roll back the virtual treasury ledger — the SOL
+     * is still earmarked as treasury, and the next reconciliation / manual
+     * sweep will move it. Same defensive pattern as RecoveryExecutionLoop.
+     */
+    private fun triggerOnChainTransferIfLive(amountSol: Double, memo: String) {
+        if (amountSol < 0.000001) return
+        val tradingWallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Throwable) { null }
+            ?: return
+        // Skip if the bot is configured paperMode=true (shadow learning still
+        // gets a trading wallet but we don't want phantom transfers).
+        val ctx = cachedCtx
+        if (ctx != null) {
+            try {
+                val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                if (cfg.paperMode) return
+            } catch (_: Throwable) { /* config read fail — safer to attempt */ }
+        }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                com.lifecyclebot.engine.TreasuryWalletManager.transferFromTrading(
+                    tradingWallet = tradingWallet,
+                    amountSol     = amountSol,
+                    memo          = memo,
+                )
+            } catch (e: Exception) {
+                ErrorLogger.warn("Treasury", "on-chain transfer failed ($memo): ${e.message}")
+            }
+        }
     }
 
     private fun Double.fmtUsd() = "\$%,.2f".format(this)
