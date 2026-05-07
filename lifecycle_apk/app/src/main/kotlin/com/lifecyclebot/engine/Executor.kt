@@ -1938,36 +1938,73 @@ class Executor(
         // V5.9.495v — operator triage 06 May 2026: WCOR capital_recovery_85.1x
         // failed every slippage tier 200/400/600/1000/2000bps because the
         // reason string didn't match any drain keyword and got the
-        // CONSERVATIVE ladder. capital_recovery and profit_lock are by
-        // definition aggressive sells (we've already made our money, want
-        // out fast). Treat them as drain-exit. Also bumped drain-ladder
-        // upper end to 9999bps and added intermediate steps so we don't
-        // skip from 5000→9000 in one jump.
+        // CONSERVATIVE ladder. (Re-evaluated below — see z38.)
+        // V5.9.495z38 — operator-reported real-money safety bug:
+        // PROFIT-LOCK sell ran at 75% slippage and consumed ~3.6× the
+        // intended quantity. Root cause: profit_lock and
+        // capital_recovery were being treated as DRAIN-EXIT, allowing
+        // the 5000→7500→9999bps escalation. This is wrong: those
+        // exits are "we've already made our money, want out cleanly",
+        // NOT "rug emergency". Per operator spec:
+        //   - PROFIT_LOCK         max 500–800 bps
+        //   - CAPITAL_RECOVERY    max 1000–1500 bps
+        //   - 7500/9999 bps is RUG_DRAIN territory only.
         val isDrainExit = reason.contains("drain", ignoreCase = true) ||
                           reason.contains("rug", ignoreCase = true) ||
                           reason.contains("collapse", ignoreCase = true) ||
                           reason.contains("emergency", ignoreCase = true) ||
-                          reason.contains("liquidity_collapse", ignoreCase = true) ||
-                          reason.contains("capital_recovery", ignoreCase = true) ||
-                          reason.contains("profit_lock", ignoreCase = true)
-        val broadcastSlipLadder = if (isDrainExit) {
-            listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
-                .map { it.coerceAtLeast(sellSlippage) }
-                .distinct()
-        } else {
-            // V5.9.495v — non-drain ladder also gets a 5000bps tail so a
-            // truly illiquid mint isn't abandoned at 2000bps; the position
-            // closes at whatever price the chain offers rather than
-            // staying open and bleeding further.
-            listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
-                .map { it.coerceAtLeast(sellSlippage) }
-                .distinct()
+                          reason.contains("liquidity_collapse", ignoreCase = true)
+        val isProfitLock      = reason.contains("profit_lock", ignoreCase = true)
+        val isCapitalRecovery = reason.contains("capital_recovery", ignoreCase = true)
+        val broadcastSlipLadder = when {
+            isDrainExit ->
+                listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
+                    .map { it.coerceAtLeast(sellSlippage) }
+                    .distinct()
+            isProfitLock ->
+                // hard cap at 800 bps for PROFIT_LOCK per operator spec.
+                listOf(sellSlippage.coerceAtLeast(300), 500, 800)
+                    .map { it.coerceAtLeast(sellSlippage).coerceAtMost(800) }
+                    .distinct()
+            isCapitalRecovery ->
+                // hard cap at 1500 bps for CAPITAL_RECOVERY.
+                listOf(sellSlippage.coerceAtLeast(500), 1000, 1500)
+                    .map { it.coerceAtLeast(sellSlippage).coerceAtMost(1500) }
+                    .distinct()
+            else ->
+                listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
+                    .map { it.coerceAtLeast(sellSlippage) }
+                    .distinct()
         }
+        // Forensic guard — if we ever try to take a profit_lock/cap_rec
+        // sell with slippage above its cap, surface a SELL_AMOUNT_VIOLATION
+        // event so the operator sees it in forensics.
+        run {
+            val maxAllowed = when {
+                isProfitLock      -> 800
+                isCapitalRecovery -> 1500
+                isDrainExit       -> 9999
+                else              -> 5000
+            }
+            if (sellSlippage > maxAllowed) {
+                ErrorLogger.warn("Executor",
+                    "🚨 SLIPPAGE_CAP_VIOLATION: ${ts.symbol} reason=$reason slippage=${sellSlippage}bps > max=${maxAllowed}bps — clamping.")
+            }
+        }
+        // Tail-clamp the ladder so the broadcast loop physically cannot
+        // escalate past the cap.
+        val maxLadderBps = when {
+            isDrainExit       -> 9999
+            isCapitalRecovery -> 1500
+            isProfitLock      -> 800
+            else              -> 5000
+        }
+        val broadcastSlipLadderCapped = broadcastSlipLadder.map { it.coerceAtMost(maxLadderBps) }.distinct()
 
         LiveTradeLogStore.log(
             sellTradeKey, ts.mint, ts.symbol, "SELL",
             LiveTradeLogStore.Phase.SELL_START,
-            "executeProfitLockSell: $reason | sellFraction=${(sellFraction*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | ladder=${broadcastSlipLadder.joinToString(",")}${if (isDrainExit) " [DRAIN-EXIT]" else ""}",
+            "executeProfitLockSell: $reason | sellFraction=${(sellFraction*100).toInt()}% | qty=$sellUnits | slip=${sellSlippage}bps | ladder=${broadcastSlipLadderCapped.joinToString(",")}${if (isDrainExit) " [DRAIN-EXIT]" else if (isProfitLock) " [PROFIT-LOCK]" else if (isCapitalRecovery) " [CAPITAL-RECOVERY]" else ""}",
             tokenAmount = sellQty,
             slippageBps = sellSlippage,
             traderTag = "MEME",

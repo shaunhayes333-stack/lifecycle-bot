@@ -36,14 +36,18 @@ object SellSlippageProfile {
 
     private val NORMAL = Profile(
         tier = Tier.NORMAL_PROFIT_LOCK,
-        initialBps = 1500,
-        ladderBps = listOf(1500, 2000, 2500),  // 15 → 20 → 25
+        // V5.9.495z38 — operator-reported real-money safety bug:
+        // PROFIT_LOCK was running at 75% slippage and consumed 3.6×
+        // the intended quantity. Hard cap PROFIT_LOCK at 800 bps (8%).
+        initialBps = 300,
+        ladderBps = listOf(300, 500, 800),  // 3 → 5 → 8
     )
 
     private val RECOVERY = Profile(
         tier = Tier.CAPITAL_RECOVERY,
-        initialBps = 2000,
-        ladderBps = listOf(2000, 2500, 3000),  // 20 → 25 → 30
+        // z38: cap CAPITAL_RECOVERY at 1500 bps (15%).
+        initialBps = 500,
+        ladderBps = listOf(500, 1000, 1500),  // 5 → 10 → 15
     )
 
     private val EMERGENCY = Profile(
