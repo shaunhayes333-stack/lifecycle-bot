@@ -1631,7 +1631,11 @@ class BotService : Service() {
             }
 
             val cfg = ConfigStore.load(applicationContext)
-            addLog("✓ Config loaded: paperMode=${cfg.paperMode}")
+            // V5.9.602 — publish + log the actual persisted runtime mode at
+            // service start. Wallet-connected/live-ready UI is not enough;
+            // this is the authority that decides paper vs live execution.
+            RuntimeModeAuthority.publishConfig(cfg.paperMode, cfg.autoTrade)
+            addLog("✓ Config loaded: paperMode=${cfg.paperMode} authority=${RuntimeModeAuthority.authority()}")
 
             // V5.9.105: fresh start = clean circuit breaker. beginSession() is
             // called below once the live wallet balance is known.
@@ -5338,17 +5342,45 @@ class BotService : Service() {
 
             // V5.2: Prioritize tokens for processing
 val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
+    val nowMs = System.currentTimeMillis()
     effectiveWatchlist.sortedByDescending { mint ->
         val ts = status.tokens[mint]
         if (ts == null) {
-            0.0 // Unknown tokens get lowest priority
+            // V5.9.602 — unknown freshly-enqueued mints should not be buried
+            // behind stale high-liquidity backlog; give them a small chance
+            // to get their first Dex/Pump data fetch quickly.
+            25.0
         } else {
             var priority = 0.0
-            if (ts.position.isOpen) priority += 1000.0 // Open positions first
-            priority += (ts.lastLiquidityUsd / 1000.0).coerceAtMost(100.0) // Liquidity priority
-            priority += ts.entryScore // Entry score
-            priority += ts.meta.momScore * 0.5 // Momentum priority
-            priority += ts.meta.volScore * 0.3 // Volume priority
+            if (ts.position.isOpen) priority += 10_000.0 // Open positions always first
+
+            // V5.9.602 — freshness/source boost for the meme snipe lane.
+            // Previous ordering was liquidity-heavy, so old $2M+ tokens like
+            // ZEREBRO stayed ahead while 0-2min PumpPortal launches were
+            // deferred (processed=48 total=141). Fresh pump candidates are
+            // where the edge lives; process them right after open positions.
+            val ageMs = (nowMs - ts.addedToWatchlistAt).coerceAtLeast(0L)
+            val freshBoost = when {
+                ageMs < 60_000L -> 350.0
+                ageMs < 180_000L -> 220.0
+                ageMs < 300_000L -> 120.0
+                else -> 0.0
+            }
+            val sourceBoost = when {
+                ts.source.contains("PUMP", ignoreCase = true) -> 160.0
+                ts.source.contains("DEX_BOOST", ignoreCase = true) -> 90.0
+                ts.source.contains("TREND", ignoreCase = true) -> 55.0
+                else -> 0.0
+            }
+            priority += freshBoost + sourceBoost
+
+            // Keep quality signals, but cap liquidity so giant older pools do
+            // not starve fresh memes. Fluid sizing/learning remains untouched.
+            priority += (ts.lastLiquidityUsd / 2_000.0).coerceAtMost(45.0)
+            priority += ts.entryScore
+            priority += ts.meta.momScore * 0.8
+            priority += ts.meta.volScore * 0.5
+            priority += (ts.lastBuyPressurePct - 50.0).coerceIn(0.0, 35.0)
             priority
         }
     }
@@ -5548,6 +5580,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // This fixes the ghost-town bug where switching PAPER→LIVE left all
             // singletons still believing they were in paper mode.
             val loopCfg = ConfigStore.load(applicationContext)
+            RuntimeModeAuthority.publishConfig(loopCfg.paperMode, loopCfg.autoTrade)
             val loopIsPaper = loopCfg.paperMode
             if (GlobalTradeRegistry.isPaperMode != loopIsPaper) {
                 ErrorLogger.info("BotService", "🔄 HOT MODE SWITCH DETECTED: paper=${GlobalTradeRegistry.isPaperMode} → $loopIsPaper")

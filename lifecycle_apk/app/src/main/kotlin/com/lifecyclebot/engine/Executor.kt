@@ -5235,6 +5235,13 @@ class Executor(
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
                 sig = pumpFirstResult.first
                 qty = pumpFirstResult.second
+                // V5.9.602 — Pump-first gets the same lifecycle ledger as
+                // Jupiter: pending intent, confirmed tx, then HELD only after
+                // the verifier proves tokens landed.
+                try {
+                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, pumpVenue, effectiveSol)
+                    TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
+                } catch (_: Throwable) {}
                 priceImpactPct = 0.0  // PumpPortal does not surface impact
                 routerLabel = "PUMP_DIRECT [$pumpVenue]"
                 onLog("LIVE BUY (PUMP-FIRST): ${ts.symbol} | sig=${sig.take(16)}…", tradeId.mint)
@@ -5309,10 +5316,11 @@ class Executor(
                 // V5.9.386 — sub-trader tag carries through live buy too.
                 tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
-                // V5.9.495 — PUMP-FIRST already verified the on-chain token
-                // delta inside tryPumpPortalBuy (sleep 1.8s then balance read);
-                // the Jupiter path still needs the phantom-verify poll below.
-                pendingVerify = pumpFirstResult == null,
+                // V5.9.602 — ALL live buys, including Pump-first, remain
+                // pending until tx/wallet verification proves token arrival.
+                // A submitted/confirmed signature alone is not enough; Solana
+                // txs can confirm with no desired token delta or index late.
+                pendingVerify = true,
             )
             val trade = Trade(
                 side = "BUY", 
@@ -5329,66 +5337,11 @@ class Executor(
             recordTrade(ts, trade)
             security.recordTrade(trade)
 
-            // V5.9.495 — PUMP-FIRST path: token arrival was already verified
-            // inside tryPumpPortalBuy (1.8s sleep + balance-delta read). The
-            // async phantom-verify polling block below short-circuits when
-            // pendingVerify=false so EmergentGuardrails / GlobalTradeRegistry /
-            // SellOptimizationAI / PositionPersistence / WalletTokenMemory
-            // never fire. We register them inline here so the position is
-            // fully wired into the rest of the engine (exits, persistence,
-            // sweepUniversalExits, etc.) just like a Jupiter-verified buy.
-            if (pumpFirstResult != null) {
-                EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, sol)
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
-                        mint = tradeId.mint,
-                        symbol = tradeId.symbol,
-                        layer = currentLayer,
-                        sizeSol = sol,
-                    )
-                } catch (_: Exception) {}
-                try {
-                    com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
-                        mint = tradeId.mint, entryPrice = price, sizeSol = sol
-                    )
-                } catch (_: Exception) {}
-                try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
-                    ErrorLogger.error("Executor", "💾 PUMP-FIRST persist failed: ${e.message}", e)
-                }
-                try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
-                try { HostWalletTokenTracker.recordBuyConfirmed(ts, sig) } catch (_: Exception) {}
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                    "✅ PUMP-FIRST: tokens already in wallet (pre/post delta) — registered inline",
-                    tokenAmount = finalQty, sig = sig, traderTag = "MEME",
-                )
-                // V5.9.495z28 — token landed → flip lifecycle tracker to HELD.
-                try { TokenLifecycleTracker.onTokenLanded(ts.mint, finalQty) } catch (_: Throwable) {}
-
-                // V5.9.495z39 — operator spec item 10: capture entry price
-                // and pool data at chain-confirm time so we don't miscalculate
-                // prices later. Best-effort; never breaks the buy flow.
-                try {
-                    val decimals = wallet.getTokenAccountsWithDecimals()[ts.mint]?.second ?: 9
-                    val entryRaw = if (decimals > 0)
-                        java.math.BigDecimal(finalQty).movePointRight(decimals).toBigInteger()
-                    else java.math.BigInteger.ZERO
-                    val priceSolPerToken = if (finalQty > 0.0) sol / finalQty else 0.0
-                    val priceUsd = priceSolPerToken * (try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })
-                    val poolLiqUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
-                    TokenLifecycleTracker.recordEntryMetadata(
-                        mint = ts.mint,
-                        entryPriceSol = priceSolPerToken,
-                        entryPriceUsd = priceUsd,
-                        entryDecimals = decimals,
-                        entryTokenRawConfirmed = entryRaw,
-                        poolLiquidityUsd = poolLiqUsd,
-                    )
-                } catch (e: Throwable) {
-                    ErrorLogger.warn("Executor", "recordEntryMetadata failed (non-fatal): ${e.message}")
-                }
-            }
+            // V5.9.602 — no route gets inline HELD registration here.
+            // Pump-first and Jupiter both create a pending live position, then
+            // the common verifier below promotes it only after tx/wallet proof
+            // shows tokens actually landed. This prevents ghost positions where
+            // a submitted/confirmed tx signature produced no wallet token delta.
 
             // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
             // post-buy verification confirms tokens actually arrived on-chain.
@@ -5635,6 +5588,28 @@ class Executor(
                         // even if the scanner hasn't re-discovered the token yet.
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
                         try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
+                        try { TokenLifecycleTracker.onTokenLanded(verifyMint, verifiedQty) } catch (_: Throwable) {}
+                        // V5.9.602 — capture entry metadata only after token
+                        // arrival is verified. This keeps pool/price data from
+                        // being stamped onto ghost buys that never hit wallet.
+                        try {
+                            val decimals = verifyWallet.getTokenAccountsWithDecimals()[verifyMint]?.second ?: 9
+                            val entryRaw = if (decimals > 0)
+                                java.math.BigDecimal(verifiedQty).movePointRight(decimals).toBigInteger()
+                            else java.math.BigInteger.ZERO
+                            val priceSolPerToken = if (verifiedQty > 0.0) sol / verifiedQty else 0.0
+                            val priceUsd = priceSolPerToken * (try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })
+                            TokenLifecycleTracker.recordEntryMetadata(
+                                mint = verifyMint,
+                                entryPriceSol = priceSolPerToken,
+                                entryPriceUsd = priceUsd,
+                                entryDecimals = decimals,
+                                entryTokenRawConfirmed = entryRaw,
+                                poolLiquidityUsd = ts.lastLiquidityUsd,
+                            )
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
+                        }
                     }
                 } else if (anyRpcError && ts.position.pendingVerify) {
                     // All polls returned 0 OR errored. If ANY error masked the
@@ -5701,6 +5676,7 @@ class Executor(
                         try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
                         try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
+                        try { TokenLifecycleTracker.onTokenLanded(verifyMint, lastChanceQty) } catch (_: Throwable) {}
                         return@launch
                     }
                     if (lastChanceMapEmpty || lastChanceBalances == null) {
@@ -10078,8 +10054,8 @@ class Executor(
      * on success, null on any TRUE failure (caller falls through to
      * Jupiter Ultra). Logs to LiveTradeLogStore and onLog.
      *
-     * V5.9.495c — TRUST THE SIGNATURE. If `signAndSend` returns a non-blank
-     * sig, the tx was accepted by Jito/RPC for inclusion. Earlier versions
+     * V5.9.602 — DO NOT TRUST SUBMISSION ALONE. If `signAndSend` returns a non-blank
+     * sig, the tx was only accepted by Jito/RPC for inclusion. Earlier versions
      * polled the wallet for a token-balance delta 1.8s after broadcast and
      * returned null on 0 delta — but `getTokenAccountsByOwner` lags 10–30s
      * behind on commodity RPCs, so a real successful buy would falsely
@@ -10088,8 +10064,9 @@ class Executor(
      * PumpPortal landed sig 3ZWryZtdW5m… but bot fell back to Jupiter,
      * which then errored "Insufficient funds" because the SOL had already
      * left the wallet. Now we estimate qty from the spent SOL ÷ live price
-     * and treat the buy as confirmed. The phantom-verify safeguards that
-     * already exist downstream will reconcile the actual on-chain qty.
+     * and treat the buy as chain-confirmed only after signSendAndConfirm.
+     * The common pendingVerify safeguards downstream are still the authority
+     * for whether tokens actually landed in the wallet.
      */
     private fun tryPumpPortalBuy(
         ts: TokenState,
@@ -10147,8 +10124,12 @@ class Executor(
                 "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
                 traderTag = traderTag,
             )
-            val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
-            // Sanity: signAndSend throws on RPC error, but defensively
+            // V5.9.602 — Pump-first must NOT treat a submitted signature as
+            // a completed buy. sendTransaction/Jito acceptance can still expire
+            // or fail before landing, which created ghost "held" positions with
+            // no wallet tokens. Use the confirmed path just like Jupiter.
+            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, jitoTipLamports)
+            // Sanity: signSendAndConfirm throws on RPC/on-chain failure, but defensively
             // verify the returned sig is non-blank before trusting it.
             if (sig.isBlank()) {
                 onLog("⚠️ PUMP-FIRST BUY: blank sig from signAndSend — falling through to Jupiter", ts.mint)
@@ -10160,11 +10141,11 @@ class Executor(
                 )
                 return null
             }
-            onLog("✅ PUMP-FIRST BUY ACCEPTED: sig=${sig.take(20)}… (verifying on-chain)", ts.mint)
+            onLog("✅ PUMP-FIRST BUY CONFIRMED: sig=${sig.take(20)}… (verifying token arrival)", ts.mint)
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_CONFIRMED,
-                "✅ Tx accepted by Jito/RPC — async verify scheduled",
+                "✅ Tx confirmed on-chain — awaiting token-arrival verification",
                 sig = sig, traderTag = traderTag,
             )
 
