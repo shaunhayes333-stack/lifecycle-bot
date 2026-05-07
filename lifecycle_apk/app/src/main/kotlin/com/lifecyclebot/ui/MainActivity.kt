@@ -1667,7 +1667,15 @@ for legal compliance.
                         com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "🧠 EXCELLENT" to 0xFF00FF88.toInt()
                         com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "🧠 STEADY"    to 0xFF9CA3AF.toInt()
                         com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "🧠 DRIFTING"  to 0xFFFFAA00.toInt()
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.POISONED  -> "🧠 POISONED"  to 0xFFFF4444.toInt()
+                        // V5.9.495z35 — never call our own layers POISONED.
+                        // Show the coaching curriculum count instead so the
+                        // operator sees we're tutoring, not dying.
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.POISONED  -> {
+                            val count = try {
+                                com.lifecyclebot.engine.CoachingCurriculum.count()
+                            } catch (_: Throwable) { 0 }
+                            (if (count > 0) "🧑‍🏫 COACHING ($count)" else "🧑‍🏫 COACHING") to 0xFF8B5CF6.toInt()
+                        }
                     }
                     pill.text = label
                     pill.setTextColor(color)

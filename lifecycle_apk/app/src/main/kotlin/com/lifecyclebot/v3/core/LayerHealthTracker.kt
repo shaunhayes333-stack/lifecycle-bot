@@ -93,14 +93,27 @@ object LayerHealthTracker {
                     }
                 } catch (_: Throwable) { /* best-effort */ }
 
+                // V5.9.495z35 — surface a coaching plan instead of a
+                // "DEAD" label. Operator directive: "we shouldn't have
+                // poisoned layers — we should be coaching them with the
+                // right education to ensure they don't get poisoned."
+                try {
+                    com.lifecyclebot.engine.CoachingCurriculum.coachFromHealth(
+                        name = name,
+                        zeroPct = zeroPct,
+                        samples = (z + nz).toInt(),
+                    )
+                } catch (_: Throwable) { /* best-effort */ }
+
                 val health = try {
                     com.lifecyclebot.engine.DeadAILayerFilter.health(name)
                 } catch (_: Throwable) { null }
                 val flag = when {
                     health == com.lifecyclebot.engine.DeadAILayerFilter.LayerHealth.DISABLED_NOT_APPLICABLE
                                   -> "🟦 DISABLED_NOT_APPLICABLE"
-                    zeroPct >= 95 -> "🚨 DEAD"
-                    zeroPct >= 80 -> "⚠️ STARVED"
+                    // V5.9.495z35 — operator: "no poisoned layers, coach them."
+                    zeroPct >= 95 -> "🧑‍🏫 COACHING"
+                    zeroPct >= 80 -> "📘 STARVED (coaching)"
                     zeroPct >= 50 -> "🟡 SPARSE"
                     else          -> "✅ HEALTHY"
                 }

@@ -56,7 +56,13 @@ object TradingCopilot {
         EXCELLENT,         // layers calibrating well, accuracy rising
         STEADY,            // layers learning normally
         DRIFTING,          // layers' accuracy stagnating or tilting
-        POISONED           // many layers below 30% accuracy — likely bad learning contract
+        // V5.9.495z35 — operator directive: "we shouldn't have
+        // poisoned layers — we should be coaching them with the right
+        // education." This used to be POISONED; the enum value is
+        // kept here so all existing call-sites (and saved state) stay
+        // valid, but the user-facing label is now "COACHING".
+        @Suppress("EnumValueName")
+        POISONED           // re-framed as COACHING in all UI/log text
     }
 
     /**
@@ -424,7 +430,15 @@ object TradingCopilot {
             TradeMood.AGGRESSIVE_HUNT ->
                 "🟢 Aggressive hunt: $winStreak-win streak, layers calibrated (${(acc*100).toInt()}% avg dir). Press edge — size×1.3, conf≥5%${if (regime == "RUNNER_MARKET") ", moonshot regime detected." else "."}"
             TradeMood.NORMAL -> when {
-                lh == LearningHealth.POISONED -> "⚠️ Layer poisoning detected (${(acc*100).toInt()}% avg). Demoting weak layers — let strong ones drive."
+                lh == LearningHealth.POISONED -> {
+                    // V5.9.495z35 — re-framed: we don't poison/demote
+                    // layers, we COACH them. Show the active coaching
+                    // count from the curriculum instead.
+                    val coachLine = try {
+                        com.lifecyclebot.engine.CoachingCurriculum.summaryLine()
+                    } catch (_: Throwable) { "🧑‍🏫 COACHING active" }
+                    "$coachLine — keeping calibrated layers in the saddle while weak ones are tutored."
+                }
                 regime == "RUNNER_MARKET" -> "🚀 Runner market: bigWin=${bigWin.toInt()}%. Conviction boost +0.15 on hot setups."
                 regime == "CHOP" -> "↔️ Chop: avgPnL flat. Stay selective — fee drag will eat scratch trades."
                 regime == "DEAD" -> "💀 Dead market: WR=${wr.toInt()}%, $lossStreak loss streak. Size down naturally."
