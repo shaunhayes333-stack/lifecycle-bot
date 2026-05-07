@@ -743,6 +743,13 @@ object PriceAggregator {
     }
     
     private suspend fun fetchYahooV8(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        // V5.9.495z33 — Lane-4/5 yields to hot lanes. When a meme/
+        // crypto-universe buy is in flight, skip the slow Yahoo HTTP
+        // fetch this tick and let the caller fall back to its cached
+        // last price. Operator brief item 6.
+        if (com.lifecyclebot.engine.HotPathLaneGate.shouldSkipBackgroundScans()) {
+            return@withContext null
+        }
         try {
             val yahooSymbol = toYahooSymbol(symbol)
             val request = Request.Builder()

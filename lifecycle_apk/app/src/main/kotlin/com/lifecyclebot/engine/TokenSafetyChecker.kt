@@ -336,10 +336,47 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     ErrorLogger.error(TAG, "🚫 RC HARD BLOCK: $symbol score=0 (confirmed dangerous)")
                 }
                 rcScore == 1 -> {
-                    // Score 1 = UNKNOWN/PENDING - soft penalty, let system evaluate
-                    soft.add("Rugcheck score pending ($rcScore/100 = unknown)" to 15)
-                    penalty += 15
-                    ErrorLogger.info(TAG, "⏳ RC PENDING: $symbol score=1 → +15 penalty")
+                    // V5.9.495z33 — deterministic RC PENDING handling.
+                    // Operator-reported conflict: same token logged as
+                    // "RC PENDING — allowing for evaluation" AND
+                    // "RC PENDING — +15 penalty". RugCheckPolicy
+                    // resolves to exactly ONE state per call.
+                    val rcState = com.lifecyclebot.engine.RugCheckPolicy.evaluate(
+                        rcConfirmedSafe = false,
+                        rcConfirmedRisky = false,
+                        rcPending = true,
+                        isPaperMode = isPaperMode,
+                        // Use a high-trust upstream score signal if the
+                        // caller passes one in via `score` arg; fall
+                        // back to 0 so live entries default to BLOCKED.
+                        score = 0,
+                    )
+                    val pen = com.lifecyclebot.engine.RugCheckPolicy.penaltyOrBlock(rcState)
+                    when (rcState) {
+                        com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_BLOCKED -> {
+                            hard.add("Rugcheck pending — live mode, no high-score override")
+                            ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override)")
+                        }
+                        com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_ALLOWED_PAPER -> {
+                            val p = pen ?: 5
+                            soft.add("Rugcheck pending (paper learning)" to p)
+                            penalty += p
+                            ErrorLogger.info(TAG, "⏳ RC_PENDING_ALLOWED_PAPER: $symbol → +$p penalty")
+                        }
+                        com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_ALLOWED_LIVE_OVERRIDE -> {
+                            val p = pen ?: 15
+                            soft.add("Rugcheck pending (live high-conf override)" to p)
+                            penalty += p
+                            ErrorLogger.info(TAG, "⏳ RC_PENDING_ALLOWED_LIVE_OVERRIDE: $symbol → +$p penalty")
+                        }
+                        else -> {
+                            // Should not happen for rcScore==1; fall through to
+                            // the legacy +15 penalty so we never silently allow.
+                            soft.add("Rugcheck score pending ($rcScore/100 = unknown)" to 15)
+                            penalty += 15
+                            ErrorLogger.info(TAG, "⏳ RC PENDING (fallback): $symbol → +15 penalty")
+                        }
+                    }
                 }
                 rcScore in 2..4 -> {
                     // Very risky - heavy soft penalty in both modes

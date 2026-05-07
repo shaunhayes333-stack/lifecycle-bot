@@ -3652,6 +3652,34 @@ class Executor(
         if (!decision.shouldTrade) {
             val reason = if (decision.blockReason.isNotEmpty()) decision.blockReason else "legacy_shouldTrade=false"
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Legacy would block ($reason) - V3 will evaluate")
+
+            // V5.9.495z33 — executive hook for EntryWaitOverrideGate.
+            // Operator directive: "we shouldn't block at 39% confidence —
+            // we should wait to see if it changes." When the legacy path
+            // would reject and the gate verdict is FDG_DEFER_ENTRY_WAIT,
+            // explicitly keep the candidate alive in the watchlist with
+            // its TTL refreshed. The V3 engine's own Watch semantic still
+            // applies — this just guarantees the rejection branch never
+            // silently purges a deferred candidate.
+            try {
+                val isWait = reason.contains("WAIT", ignoreCase = true) ||
+                             reason.contains("entry_wait", ignoreCase = true)
+                val isHighRisk = reason.contains("HIGH", ignoreCase = true) ||
+                                 reason.contains("risk_high", ignoreCase = true)
+                val gate = com.lifecyclebot.engine.EntryWaitOverrideGate.evaluate(
+                    entryWait = isWait,
+                    riskHigh = isHighRisk,
+                    moonshotOverride = false,
+                    confidence = decision.aiConfidence.toInt(),
+                )
+                if (gate.verdict == com.lifecyclebot.engine.EntryWaitOverrideGate.Verdict.FDG_DEFER_ENTRY_WAIT) {
+                    com.lifecyclebot.engine.WatchlistTtlPolicy.mark(
+                        ts.symbol, decision.aiConfidence.toInt()
+                    )
+                    ErrorLogger.info("Executor",
+                        "🛡 ${ts.symbol}: ${gate.reason} — kept in watchlist (TTL refreshed)")
+                }
+            } catch (_: Throwable) { /* best-effort */ }
         }
         
         val isPaper = cfg().paperMode

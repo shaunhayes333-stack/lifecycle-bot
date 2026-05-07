@@ -109,6 +109,13 @@ object MarketsScanner {
      * Scan a specific category and return sorted results
      */
     suspend fun scanCategory(category: ScanCategory, limit: Int = 20): List<ScanResult> {
+        // V5.9.495z33 — Lane-4 yields to hot lanes. If a meme/crypto-
+        // universe buy is in flight, return cached results (or empty)
+        // and skip a fresh scan this tick. Operator brief item 6:
+        // "Lane 1 and Lane 2 must never wait on lanes 4–6."
+        if (com.lifecyclebot.engine.HotPathLaneGate.shouldSkipMarkets()) {
+            return scanResults[category]?.take(limit) ?: emptyList()
+        }
         // Check cache
         if (System.currentTimeMillis() - lastScanTime < SCAN_CACHE_TTL_MS) {
             scanResults[category]?.let { return it.take(limit) }

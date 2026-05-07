@@ -324,6 +324,11 @@ object SentientPersonality {
     }
 
     fun periodicReflection() {
+        // V5.9.495z33 — Lane-6 (Personality/LLM) yields to hot lanes.
+        // Operator brief item 6: hot meme/crypto buys must never wait
+        // on personality/LLM/lab work.
+        if (com.lifecyclebot.engine.HotPathLaneGate.shouldSkipPersonalityLLM()) return
+
         val now = System.currentTimeMillis()
         val lastThought = thoughts.peekLast()
         if (lastThought != null && now - lastThought.timestamp < 30_000L) return
