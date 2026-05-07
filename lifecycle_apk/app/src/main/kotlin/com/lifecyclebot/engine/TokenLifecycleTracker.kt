@@ -327,6 +327,26 @@ object TokenLifecycleTracker {
         scheduleSave()
     }
 
+    /**
+     * V5.9.495z42 — purge a terminal record from the in-memory map.
+     *
+     * Only allowed when the record is CLEARED or RECONCILE_FAILED (operator
+     * has already given up on it). Production callers use this to free
+     * memory after the operator reviews a dead bag in the UI; tests use
+     * it to keep cases isolated.
+     *
+     * Safe no-op when the mint is unknown OR still active (BUY_PENDING /
+     * BUY_CONFIRMED / HELD / PARTIAL_SELL / RESIDUAL_HELD).
+     */
+    @Synchronized
+    fun purgeTerminalRecord(mint: String): Boolean {
+        val r = records[mint] ?: return false
+        if (r.status != Status.CLEARED && r.status != Status.RECONCILE_FAILED) return false
+        records.remove(mint)
+        scheduleSave()
+        return true
+    }
+
     /** Auto-import: an unknown wallet token was detected during reconciliation. */
     @Synchronized
     fun autoImportFromWallet(mint: String, symbol: String, walletUiAmount: Double, venue: String) {

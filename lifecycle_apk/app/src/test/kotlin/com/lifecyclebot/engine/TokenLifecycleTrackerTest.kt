@@ -30,12 +30,16 @@ class TokenLifecycleTrackerTest {
         // Walk every record into RECONCILE_FAILED so isolation between tests
         // is preserved. The internal `records` map is package-private via the
         // public `all()` accessor — markReconcileFailed is the only public
-        // way to terminate a record we don't control.
+        // way to terminate a record we don't control. Then purge the
+        // terminal records so the next test starts with a clean map.
         TokenLifecycleTracker.all().forEach {
             if (it.status != TokenLifecycleTracker.Status.CLEARED &&
                 it.status != TokenLifecycleTracker.Status.RECONCILE_FAILED) {
                 TokenLifecycleTracker.markReconcileFailed(it.mint, "test_teardown")
             }
+        }
+        TokenLifecycleTracker.all().toList().forEach {
+            TokenLifecycleTracker.purgeTerminalRecord(it.mint)
         }
     }
 
