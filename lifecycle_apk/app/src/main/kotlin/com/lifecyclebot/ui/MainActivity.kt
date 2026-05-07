@@ -1782,7 +1782,17 @@ for legal compliance.
                     com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values
                         .count { rec -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
                 } catch (_: Throwable) { 0 }
-                if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0) {
+                // V5.9.495z42 P1 — surface recovery-lock + amount-violation counts.
+                // Both locks block live sells; operator needs to see them at a
+                // glance instead of digging through forensics.
+                val recoveryLocks = try {
+                    com.lifecyclebot.engine.sell.RecoveryLockTracker.lockedCount()
+                } catch (_: Throwable) { 0 }
+                val amountViolations = try {
+                    com.lifecyclebot.engine.sell.SellAmountAuditor.lockedCount()
+                } catch (_: Throwable) { 0 }
+                if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
+                    recoveryLocks == 0 && amountViolations == 0) {
                     gs.text = "🛡 Guards: clear" + appendDeferTile()
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
@@ -1790,8 +1800,10 @@ for legal compliance.
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
                     if (distrustPauses > 0) parts += "$distrustPauses cooling"
                     if (coachingCount > 0) parts += "$coachingCount coaching"
+                    if (recoveryLocks > 0) parts += "🔒 $recoveryLocks recovery-lock${if (recoveryLocks == 1) "" else "s"}"
+                    if (amountViolations > 0) parts += "🚨 $amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
                     gs.text = "🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile()
-                    gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
+                    gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
                 }

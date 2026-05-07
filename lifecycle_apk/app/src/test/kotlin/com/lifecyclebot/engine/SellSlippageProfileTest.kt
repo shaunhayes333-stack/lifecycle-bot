@@ -12,7 +12,10 @@ class SellSlippageProfileTest {
     @Test
     fun normal_profit_lock_uses_sane_initial() {
         val p = SellSlippageProfile.forTier(SellSlippageProfile.Tier.NORMAL_PROFIT_LOCK)
-        assertEquals(1500, p.initialBps)
+        // V5.9.495z38 retune — operator-reported real-money safety bug
+        // forced PROFIT_LOCK initial down from 1500 → 300 bps. The
+        // ladder (3 → 5 → 8 %) caps at 800 bps. Test updated to match.
+        assertEquals(300, p.initialBps)
         assertTrue("ladder must escalate", p.ladderBps.zipWithNext().all { it.first <= it.second })
     }
 

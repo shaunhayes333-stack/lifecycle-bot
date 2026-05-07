@@ -1,9 +1,9 @@
 package com.lifecyclebot.engine.sell
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 /** V5.9.601 sell-safety acceptance checks for policy + per-mint lock. */
 class SellSafetyPolicyTest {

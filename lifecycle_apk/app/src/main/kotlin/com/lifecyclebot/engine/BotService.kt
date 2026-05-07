@@ -6077,6 +6077,23 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
      */
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
         try {
+            // V5.9.495z42 P1 — opportunistic recovery-lock unlock attempt at
+            // the top of every per-token cycle. Covers all V3 sub-trader
+            // sell paths (BlueChip / ShitCoin / Quality / Moonshot /
+            // CashGen / Manipulated) that consult checkExit() further down
+            // this function — without this the unlock side only fires from
+            // Executor.liveSell + the treasury tick, missing positions
+            // owned by other lanes. Rate-limited internally (30s/mint),
+            // runs on Dispatchers.IO so this is safe to call every cycle.
+            try {
+                com.lifecyclebot.engine.sell.RecoveryLockUnlocker.maybeAttemptUnlock(
+                    mint = mint,
+                    symbol = status.tokens[mint]?.symbol ?: mint.take(6),
+                    wallet = wallet,
+                    jupiterApiKey = cfg.jupiterApiKey,
+                )
+            } catch (_: Throwable) { /* never break the cycle */ }
+
             // Primary price source: Dexscreener
             val pair = dex.getBestPair(mint) ?: run {
                 val ts = status.tokens[mint]

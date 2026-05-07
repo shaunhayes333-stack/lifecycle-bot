@@ -37,6 +37,10 @@ jobs:
           echo "Building AATE v5.0.${{ github.run_number }}"
           echo "versionCode = $((500 + ${{ github.run_number }}))"
           echo "========================================"
+          # V5.9.495z42 P1 — run unit tests before release build.
+          # SellExecutionOverhaulTest (10 cases) + existing harness.
+          # Tests must pass for the build to succeed; failure fails CI.
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
           ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
