@@ -7,6 +7,13 @@ import com.lifecyclebot.network.BirdeyeApi
 import com.lifecyclebot.network.CoinGeckoTrending
 import com.lifecyclebot.network.DexscreenerApi
 import com.lifecyclebot.network.PairInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -141,10 +148,8 @@ object DynamicAltTokenRegistry {
     private val persistLock = Any()
     private val persistDirty = java.util.concurrent.atomic.AtomicBoolean(false)
     private const val PERSIST_DEBOUNCE_MS = 5_000L
-    @Volatile private var persistJob: kotlinx.coroutines.Job? = null
-    private val persistScope = kotlinx.coroutines.CoroutineScope(
-        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
-    )
+    @Volatile private var persistJob: Job? = null
+    private val persistScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -277,7 +282,7 @@ object DynamicAltTokenRegistry {
             if (persistJob?.isActive == true) return
             persistJob = persistScope.launch {
                 try {
-                    kotlinx.coroutines.delay(PERSIST_DEBOUNCE_MS)
+                    delay(PERSIST_DEBOUNCE_MS)
                     if (persistDirty.compareAndSet(true, false)) saveToDisk()
                 } catch (_: Throwable) {}
             }
@@ -406,21 +411,21 @@ object DynamicAltTokenRegistry {
      * Background discovery scheduler — runs runDiscoveryCycle() every 5 min.
      * Started by BotService once a wallet/context is connected.
      */
-    @Volatile private var discoveryJob: kotlinx.coroutines.Job? = null
+    @Volatile private var discoveryJob: Job? = null
     fun startBackgroundDiscovery() {
         if (discoveryJob?.isActive == true) return
         discoveryJob = persistScope.launch {
             ErrorLogger.info(TAG, "▶ background discovery loop started (every 5 min)")
             // First cycle runs after a 30s warm-up so app boot isn't slow.
-            kotlinx.coroutines.delay(30_000L)
-            while (kotlinx.coroutines.isActive) {
+            delay(30_000L)
+            while (isActive) {
                 try {
                     runDiscoveryCycle()
                     scheduleSave()
                 } catch (e: Throwable) {
                     ErrorLogger.warn(TAG, "discovery cycle err: ${e.message}")
                 }
-                kotlinx.coroutines.delay(DISCOVERY_TTL_MS)
+                delay(DISCOVERY_TTL_MS)
             }
         }
     }
