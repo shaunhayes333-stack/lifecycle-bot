@@ -123,11 +123,28 @@ object DynamicAltTokenRegistry {
 
     private const val DISCOVERY_TTL_MS = 5 * 60_000L
     private const val PRICE_TTL_MS     = 60_000L
-    private const val TOKEN_STALE_MS   = 60 * 60_000L  // evict non-static after 1h
+    // V5.9.495z24 — operator: "the registry should hold 500+ mints in persistent
+    // memory and constantly accumulate". Old 1-hour stale window evicted everything
+    // not seen on the last cycle. Now: tokens with a real on-chain Solana mint stay
+    // for 7 days even if not re-confirmed. CoinGecko-only ("cg:") placeholders keep
+    // the original 1-hour window because they aren't directly tradeable anyway.
+    private const val TOKEN_STALE_MS         = 7L * 24 * 60 * 60_000L  // 7 days for real mints
+    private const val PLACEHOLDER_STALE_MS   = 60 * 60_000L            // 1 hour for cg:/static: keys
 
     private const val MIN_LIQ_USD      = 5_000.0
     private const val MIN_VOL_24H      = 10_000.0
     private const val MIN_AGE_MINUTES  = 10.0
+
+    // V5.9.495z24 — disk persistence so the universe survives restarts.
+    @Volatile private var appCtx: android.content.Context? = null
+    private const val PERSIST_FILE = "dynamic_alt_token_registry.json"
+    private val persistLock = Any()
+    private val persistDirty = java.util.concurrent.atomic.AtomicBoolean(false)
+    private const val PERSIST_DEBOUNCE_MS = 5_000L
+    @Volatile private var persistJob: kotlinx.coroutines.Job? = null
+    private val persistScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+    )
 
     private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -227,6 +244,192 @@ object DynamicAltTokenRegistry {
         ErrorLogger.info(TAG, "Seeded ${registry.size} static PerpsMarket tokens")
     }
 
+    // ─── V5.9.495z24 — Persistent disk storage ────────────────────────────────
+    /**
+     * Operator: "the dynamic token registry is meant to be constantly finding
+     * new token mints and storing them to ensure they are held in the
+     * persistent memory. the crypto trader should have 500 plus tokens mints
+     * already in its memory."
+     *
+     * Three new behaviours wired from this point:
+     *   1. init(ctx): hydrate the registry from disk (instant 500+ token startup
+     *      if the previous session already discovered them).
+     *   2. seedStaticTokens() + restoreFromDisk() are idempotent — call both at
+     *      every bot start to combine static enum + persisted dynamic universe.
+     *   3. After every discovery cycle, schedule a debounced save() to a JSON
+     *      file in app filesDir. We coalesce with PERSIST_DEBOUNCE_MS so a burst
+     *      of upserts during one cycle writes once.
+     *
+     * persistJob lives on persistScope (Dispatchers.IO).
+     */
+    fun init(context: android.content.Context) {
+        appCtx = context.applicationContext
+        seedStaticTokens()
+        restoreFromDisk()
+        ErrorLogger.info(TAG, "Init complete | total=${registry.size} | static=${getStaticCount()} | dynamic=${getDynamicCount()}")
+    }
+
+    /** Schedule a debounced save on background thread. Coalesces bursts. */
+    fun scheduleSave() {
+        if (appCtx == null) return
+        persistDirty.set(true)
+        synchronized(persistLock) {
+            if (persistJob?.isActive == true) return
+            persistJob = persistScope.launch {
+                try {
+                    kotlinx.coroutines.delay(PERSIST_DEBOUNCE_MS)
+                    if (persistDirty.compareAndSet(true, false)) saveToDisk()
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    /** Synchronous save — fire-and-forget on caller thread. */
+    @Synchronized
+    private fun saveToDisk() {
+        val ctx = appCtx ?: return
+        try {
+            val arr = JSONArray()
+            for (tok in registry.values) {
+                // Skip CoinGecko-only placeholders — they aren't tradeable and
+                // bloat the file. Static keys ARE persisted so logos / sector
+                // tags survive restarts.
+                if (tok.mint.startsWith("cg:")) continue
+                val o = JSONObject().apply {
+                    put("mint", tok.mint)
+                    put("symbol", tok.symbol)
+                    put("name", tok.name)
+                    put("chainId", tok.chainId)
+                    if (tok.logoUrl.isNotBlank()) put("logoUrl", tok.logoUrl)
+                    if (tok.pairAddress.isNotBlank()) put("pairAddress", tok.pairAddress)
+                    put("price", tok.price)
+                    put("priceChange24h", tok.priceChange24h)
+                    put("mcap", tok.mcap)
+                    put("liquidityUsd", tok.liquidityUsd)
+                    put("volume24h", tok.volume24h)
+                    put("buys24h", tok.buys24h)
+                    put("sells24h", tok.sells24h)
+                    put("ageHours", tok.ageHours)
+                    put("source", tok.source)
+                    put("isTrending", tok.isTrending)
+                    put("trendingRank", tok.trendingRank)
+                    put("isBoosted", tok.isBoosted)
+                    put("isStatic", tok.isStatic)
+                    if (tok.sector.isNotBlank()) put("sector", tok.sector)
+                    put("lastUpdatedMs", tok.lastUpdatedMs)
+                }
+                arr.put(o)
+            }
+            val file = java.io.File(ctx.filesDir, PERSIST_FILE)
+            file.writeText(arr.toString())
+            ErrorLogger.info(TAG, "💾 Persisted ${arr.length()} tokens to ${file.name} (${file.length() / 1024}KB)")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "saveToDisk failed: ${e.message}")
+        }
+    }
+
+    /** Hydrate the registry from disk on startup. Idempotent — never overwrites richer in-memory data. */
+    @Synchronized
+    private fun restoreFromDisk() {
+        val ctx = appCtx ?: return
+        val file = java.io.File(ctx.filesDir, PERSIST_FILE)
+        if (!file.exists()) {
+            ErrorLogger.info(TAG, "📂 No persisted token file yet — fresh start")
+            return
+        }
+        try {
+            val arr = JSONArray(file.readText())
+            var loaded = 0
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val mint = o.optString("mint", "").trim()
+                if (mint.isBlank()) continue
+                if (mint.startsWith("cg:")) continue
+                // Don't clobber a higher-quality in-memory entry we just seeded.
+                val existing = registry[mint]
+                if (existing != null && !existing.isStatic && existing.lastUpdatedMs > o.optLong("lastUpdatedMs", 0L)) continue
+                val tok = DynToken(
+                    mint           = mint,
+                    symbol         = o.optString("symbol", "").uppercase(),
+                    name           = o.optString("name", ""),
+                    chainId        = o.optString("chainId", "solana"),
+                    logoUrl        = o.optString("logoUrl", ""),
+                    pairAddress    = o.optString("pairAddress", ""),
+                    price          = o.optDouble("price", 0.0),
+                    priceChange24h = o.optDouble("priceChange24h", 0.0),
+                    mcap           = o.optDouble("mcap", 0.0),
+                    liquidityUsd   = o.optDouble("liquidityUsd", 0.0),
+                    volume24h      = o.optDouble("volume24h", 0.0),
+                    buys24h        = o.optInt("buys24h", 0),
+                    sells24h       = o.optInt("sells24h", 0),
+                    ageHours       = o.optDouble("ageHours", 0.0),
+                    source         = o.optString("source", "restored"),
+                    isTrending     = o.optBoolean("isTrending", false),
+                    trendingRank   = o.optInt("trendingRank", -1),
+                    isBoosted      = o.optBoolean("isBoosted", false),
+                    isStatic       = o.optBoolean("isStatic", false),
+                    sector         = o.optString("sector", ""),
+                    lastUpdatedMs  = o.optLong("lastUpdatedMs", System.currentTimeMillis()),
+                )
+                // If we already have a static entry for this symbol, enrich it
+                // instead of double-registering under a different key.
+                val staticKey = symbolIndex[tok.symbol.uppercase()]
+                if (staticKey != null && registry[staticKey]?.isStatic == true && staticKey != mint) {
+                    val staticTok = registry[staticKey]!!
+                    registry[staticKey] = staticTok.copy(
+                        price          = tok.price.takeIf { it > 0 } ?: staticTok.price,
+                        priceChange24h = tok.priceChange24h,
+                        mcap           = tok.mcap.takeIf { it > 0 } ?: staticTok.mcap,
+                        liquidityUsd   = tok.liquidityUsd.takeIf { it > 0 } ?: staticTok.liquidityUsd,
+                        volume24h      = tok.volume24h.takeIf { it > 0 } ?: staticTok.volume24h,
+                        pairAddress    = staticTok.pairAddress.ifBlank { tok.pairAddress },
+                        logoUrl        = staticTok.logoUrl.ifBlank { tok.logoUrl },
+                        lastUpdatedMs  = maxOf(staticTok.lastUpdatedMs, tok.lastUpdatedMs),
+                    )
+                    // Also drop the bare mint as a key so getTokenByMint(mint) works
+                    registry[mint] = registry[staticKey]!!.copy(mint = mint, isStatic = false, source = "restored_dyn")
+                } else {
+                    registry[mint] = tok
+                    if (tok.symbol.isNotBlank() && symbolIndex[tok.symbol.uppercase()] == null) {
+                        symbolIndex[tok.symbol.uppercase()] = mint
+                    }
+                }
+                loaded++
+            }
+            ErrorLogger.info(TAG, "📂 Restored $loaded tokens from disk")
+        } catch (e: Exception) {
+            ErrorLogger.warn(TAG, "restoreFromDisk failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Background discovery scheduler — runs runDiscoveryCycle() every 5 min.
+     * Started by BotService once a wallet/context is connected.
+     */
+    @Volatile private var discoveryJob: kotlinx.coroutines.Job? = null
+    fun startBackgroundDiscovery() {
+        if (discoveryJob?.isActive == true) return
+        discoveryJob = persistScope.launch {
+            ErrorLogger.info(TAG, "▶ background discovery loop started (every 5 min)")
+            // First cycle runs after a 30s warm-up so app boot isn't slow.
+            kotlinx.coroutines.delay(30_000L)
+            while (kotlinx.coroutines.isActive) {
+                try {
+                    runDiscoveryCycle()
+                    scheduleSave()
+                } catch (e: Throwable) {
+                    ErrorLogger.warn(TAG, "discovery cycle err: ${e.message}")
+                }
+                kotlinx.coroutines.delay(DISCOVERY_TTL_MS)
+            }
+        }
+    }
+
+    fun stopBackgroundDiscovery() {
+        try { discoveryJob?.cancel() } catch (_: Throwable) {}
+        discoveryJob = null
+    }
+
     // ─── Discovery cycle ─────────────────────────────────────────────────────
 
     /** Force a discovery cycle, bypassing TTL — used by manual scan button */
@@ -251,11 +454,25 @@ object DynamicAltTokenRegistry {
         fetchCoinGeckoTrending()
         fetchJupiterTokenList()
 
-        // Evict stale non-static tokens
-        val staleTs = now - TOKEN_STALE_MS
-        registry.entries.removeIf { (_, tok) -> !tok.isStatic && tok.lastUpdatedMs < staleTs }
+        // V5.9.495z24 — Tier-aware staleness eviction.
+        // • Static enum entries: never evicted (operator universe).
+        // • Real on-chain mints: kept for 7 days (TOKEN_STALE_MS).
+        // • cg:/static: placeholders + dust-only entries: 1 hour (PLACEHOLDER_STALE_MS).
+        val realStaleTs        = now - TOKEN_STALE_MS
+        val placeholderStaleTs = now - PLACEHOLDER_STALE_MS
+        var evicted = 0
+        registry.entries.removeIf { (_, tok) ->
+            if (tok.isStatic) return@removeIf false
+            val isPlaceholder = tok.mint.startsWith("cg:") || tok.mint.startsWith("static:")
+            val cutoff = if (isPlaceholder) placeholderStaleTs else realStaleTs
+            val drop = tok.lastUpdatedMs < cutoff
+            if (drop) evicted++
+            drop
+        }
 
-        ErrorLogger.info(TAG, "Discovery complete: ${registry.size} tokens total")
+        ErrorLogger.info(TAG, "Discovery complete: ${registry.size} tokens total (-$evicted evicted)")
+        // V5.9.495z24 — persist after every cycle so the universe survives restarts.
+        scheduleSave()
     }
 
     // ─── Public getters ───────────────────────────────────────────────────────

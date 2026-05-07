@@ -523,6 +523,20 @@ class BotService : Service() {
         // restarts so the bot can never lose track of wallet-held tokens
         // (STRIKE / WCOR drift fix).
         try { HostWalletTokenTracker.init(applicationContext) } catch (_: Exception) {}
+
+        // V5.9.495z24 — Initialize DynamicAltTokenRegistry with disk persistence
+        // and start the background discovery loop. Operator: "the registry is
+        // meant to be constantly finding new token mints and storing them in
+        // persistent memory — should have 500+ already". Now hydrates from
+        // disk on startup, runs DexScreener+CoinGecko+Jupiter discovery every
+        // 5 min in the background, and persists after each cycle.
+        try {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.init(applicationContext)
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.startBackgroundDiscovery()
+            addLog("🪙 Token registry: ${com.lifecyclebot.perps.DynamicAltTokenRegistry.getStats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "DynamicAltTokenRegistry init error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {
@@ -2802,6 +2816,11 @@ class BotService : Service() {
         // V5.9.495z22 — stop reconciler loop on bot stop.
         try {
             com.lifecyclebot.engine.execution.PositionWalletReconciler.stop()
+        } catch (_: Exception) {}
+
+        // V5.9.495z24 — stop background discovery loop.
+        try {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
         } catch (_: Exception) {}
         
         // V5.7.8: In paper mode, purge only obviously bad trades (not all history)
