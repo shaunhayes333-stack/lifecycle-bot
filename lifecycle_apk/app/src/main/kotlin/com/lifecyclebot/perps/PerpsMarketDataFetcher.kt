@@ -820,6 +820,28 @@ object PerpsMarketDataFetcher {
             "🔴 CLOSED"
         }
     }
+
+    /**
+     * V5.9.600 BUG-2 FIX: price-reliability gate for LIVE stock/ETF trades.
+     *
+     * Pyth oracle doesn't publish xStock feeds when the underlying US equity
+     * market is closed (9:30am–4pm ET / 4am–8pm extended). Outside those hours
+     * our cached price is stale and we must not open new live positions against it.
+     *
+     * Rules:
+     *  - If paper mode → always reliable (24/7 learning allowed)
+     *  - If crypto/forex/metal/commodity → 24/7 markets, always reliable
+     *  - If stock/ETF in live mode → reliable only if isMarketTradeable() is true
+     *    (i.e. within extended market hours Mon-Fri 4am–8pm ET)
+     *
+     * Callers: TokenizedStockTrader.evaluate() gates new live entry signals on this.
+     * Existing open positions are NOT affected (we still monitor and exit them).
+     */
+    fun isLivePriceReliable(market: PerpsMarket, isPaperMode: Boolean): Boolean {
+        if (isPaperMode) return true
+        if (!market.isStock && !market.isETF) return true
+        return isMarketTradeable(market, isPaperMode = false)
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.7.1 HELPER METHODS
@@ -948,3 +970,4 @@ object PerpsMarketDataFetcher {
         )
     }
 }
+
