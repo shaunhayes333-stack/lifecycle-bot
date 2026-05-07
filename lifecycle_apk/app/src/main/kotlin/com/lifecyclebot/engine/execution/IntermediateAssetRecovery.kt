@@ -97,6 +97,9 @@ object IntermediateAssetRecovery {
 
     fun markTargetVerified(id: String) = mutate(id) {
         it.status = RecoveryStatus.TARGET_VERIFIED
+        // V5.9.495z21 — stamp canonical status so learning hooks can now
+        // train on this target if a future close/outcome fires on it.
+        ExecutionStatusRegistry.stamp(it.intendedTargetMint, ExecutionStatus.FINAL_TOKEN_VERIFIED)
         Forensics.log(
             Forensics.Event.INTERMEDIATE_SECOND_LEG_CONFIRMED,
             it.intendedTargetMint,
@@ -113,6 +116,9 @@ object IntermediateAssetRecovery {
     fun markUnwound(id: String, signature: String) = mutate(id) {
         it.status = RecoveryStatus.UNWOUND_TO_SOL
         it.secondLegSignature = signature
+        // V5.9.495z21 — explicit "closed with no target delivered" stamp so
+        // any legacy learning hooks that fire for this mint still short-circuit.
+        ExecutionStatusRegistry.stamp(it.intendedTargetMint, ExecutionStatus.FAILED_OUTPUT_MISMATCH)
         Forensics.log(Forensics.Event.INTERMEDIATE_UNWOUND_TO_SOL, it.intendedTargetMint, "rcv=${it.recoveryId} sig=${signature.take(12)}…")
     }
 

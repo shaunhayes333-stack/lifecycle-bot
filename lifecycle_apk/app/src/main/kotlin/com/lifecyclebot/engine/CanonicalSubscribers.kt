@@ -81,6 +81,12 @@ object CanonicalSubscribers {
                 if (!recordOnce(outcome.tradeId, "FluidLearningAI")) return@subscribe
                 // Only educate on settled outcomes, not OPEN / INCONCLUSIVE.
                 if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                // V5.9.495z21 — skip if the target token never actually landed.
+                // Prevents phantom partial-bridge outcomes from moving the
+                // learning-progress needle or biasing the trust layer.
+                if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
+                    return@subscribe
+                }
                 val isWin = outcome.result == TradeResult.WIN
                 try {
                     when (outcome.environment) {

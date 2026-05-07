@@ -627,6 +627,13 @@ object EducationSubLayerAI {
      * drive the 41-layer meme brain, which must stay pure-meme.
      */
     private fun recordTradeOutcomeForSubTrader(outcome: TradeOutcomeData) {
+        // V5.9.495z21 — same gate as the meme-base fan-out. Sub-trader layers
+        // (ShitCoin/Quality/BlueChip/Moonshot/CashGen + PerpsLearningBridge
+        // asset lanes) must not be trained when the target token never
+        // actually landed in the wallet.
+        if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
+            return
+        }
         val src = outcome.traderSource.uppercase()
         val selfLayer = when (src) {
             "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "ShitCoinTraderAI"
@@ -676,6 +683,29 @@ object EducationSubLayerAI {
         val startTime = System.currentTimeMillis()
         var layersUpdated = 0
         val errors = mutableListOf<String>()
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.495z21 — STRATEGY TRAINING GATE.
+        //
+        // If the execution pipeline stamped this mint as a partial-bridge
+        // failure / output-mismatch / recovery event, strategy layers
+        // (EntryAI / MomentumAI / NarrativeAI / 41 meme-brain layers) must
+        // NOT be punished: we never actually bought the target token, so
+        // any pnl/"outcome" here is a phantom from route/bridge/execution
+        // failure, not a strategy mistake. Route layer metrics
+        // (bridgesExecuted / bridgesFailed in UniversalBridgeEngine) DO
+        // accumulate unconditionally — that's the "route/bridge/execution
+        // layers always learn" side of the ledger.
+        // Unstamped mints (legacy path) fall through to the normal pipeline.
+        // ═══════════════════════════════════════════════════════════════════
+        if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
+            com.lifecyclebot.engine.ErrorLogger.debug(
+                "EducationSubLayerAI",
+                "🛡 z21 gate — skipping strategy-layer training for ${outcome.mint.take(8)}… " +
+                "(execution status=${com.lifecyclebot.engine.execution.ExecutionStatusRegistry.get(outcome.mint)})",
+            )
+            return
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.388 — ASSET-CLASS ROUTING GATE (FIX A).

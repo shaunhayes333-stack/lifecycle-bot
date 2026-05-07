@@ -367,6 +367,10 @@ object UniversalBridgeEngine {
             slippageBps = 200,
         ) ?: run {
             bridgesFailed.incrementAndGet()
+            com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(
+                targetMint,
+                com.lifecyclebot.engine.execution.ExecutionStatus.FAILED_TX_CONFIRMED,
+            )
             com.lifecyclebot.engine.execution.Forensics.log(
                 com.lifecyclebot.engine.execution.Forensics.Event.BUY_FAILED_NO_TARGET_TOKEN,
                 mint = targetMint,
@@ -420,6 +424,10 @@ object UniversalBridgeEngine {
                 )
             }
             bridgesFailed.incrementAndGet()
+            com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(
+                targetMint,
+                com.lifecyclebot.engine.execution.ExecutionStatus.INTERMEDIATE_ASSET_HELD,
+            )
             com.lifecyclebot.engine.execution.Forensics.log(
                 com.lifecyclebot.engine.execution.Forensics.Event.BUY_FAILED_NO_TARGET_TOKEN,
                 mint = targetMint,
@@ -437,6 +445,10 @@ object UniversalBridgeEngine {
         }
 
         bridgesExecuted.incrementAndGet()
+        com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(
+            targetMint,
+            com.lifecyclebot.engine.execution.ExecutionStatus.FINAL_TOKEN_VERIFIED,
+        )
         com.lifecyclebot.engine.execution.Forensics.log(
             com.lifecyclebot.engine.execution.Forensics.Event.FINAL_TOKEN_VERIFIED,
             mint = targetMint,

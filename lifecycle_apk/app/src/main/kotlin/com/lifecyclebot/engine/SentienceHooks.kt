@@ -198,6 +198,21 @@ object SentienceHooks {
         }
     }
 
+    /**
+     * V5.9.495z21 — mint-aware overload that short-circuits the cross-engine
+     * aggregate update when the trade was a partial-bridge / output-mismatch
+     * / recovery event (target token never landed). Prevents the running
+     * win rate for MEME / LAB engines from being polluted by phantom
+     * outcomes. If the mint has no stamped execution status, behaves
+     * identically to the legacy 3-arg form.
+     */
+    fun recordEngineOutcome(engine: String, mint: String, pnlSol: Double, isWin: Boolean) {
+        if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(mint)) {
+            return
+        }
+        recordEngineOutcome(engine, pnlSol, isWin)
+    }
+
     /** Bias multiplier for use in sizing (0.5..1.5). */
     fun crossEngineBias(engine: String): Double =
         crossEngineBias[engine.uppercase()] ?: 1.0

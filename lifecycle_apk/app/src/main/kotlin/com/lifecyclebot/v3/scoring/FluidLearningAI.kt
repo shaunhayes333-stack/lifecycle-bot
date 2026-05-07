@@ -637,6 +637,17 @@ object FluidLearningAI {
         // Legacy method - defaults to paper weight for backwards compatibility
         recordPaperTrade(isWin)
     }
+
+    /**
+     * V5.9.495z21 — mint-aware overload. Short-circuits when the target
+     * token never actually landed in the wallet (partial bridge / output
+     * mismatch / recovery). Keeps the learning-progress counter honest
+     * by not counting phantom trades that didn't really happen.
+     */
+    fun recordTrade(mint: String, isWin: Boolean) {
+        if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(mint)) return
+        recordPaperTrade(isWin)
+    }
     
     /**
      * Record that a trade has started (for bootstrap counting).
