@@ -3,6 +3,9 @@ package com.lifecyclebot.engine
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -846,7 +849,7 @@ object TreasuryManager {
                 if (cfg.paperMode) return
             } catch (_: Throwable) { /* config read fail — safer to attempt */ }
         }
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
             try {
                 com.lifecyclebot.engine.TreasuryWalletManager.transferFromTrading(
                     tradingWallet = tradingWallet,

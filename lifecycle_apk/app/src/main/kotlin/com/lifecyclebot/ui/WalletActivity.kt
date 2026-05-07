@@ -122,9 +122,10 @@ class WalletActivity : AppCompatActivity() {
     private fun injectTreasuryWalletCard() {
         try {
             val ctx = this
-            val parent = (layoutConnected.parent as? android.widget.LinearLayout)
-                ?: layoutConnected.rootView.findViewById<android.widget.LinearLayout>(R.id.layoutConnected)
-                ?: return
+            // V5.9.495z26 — layoutConnected is declared as View; we need its
+            // ViewGroup capability to addView() the card. The XML root for
+            // layoutConnected is a LinearLayout so the cast is safe.
+            val container = layoutConnected as? android.view.ViewGroup ?: return
             val card = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setBackgroundColor(android.graphics.Color.parseColor("#0D1320"))
@@ -224,7 +225,7 @@ class WalletActivity : AppCompatActivity() {
             card.addView(tvBal)
             card.addView(btnRow)
             // Insert at top of layoutConnected.
-            layoutConnected.addView(card, 0)
+            container.addView(card, 0)
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.warn("WalletActivity",
                 "treasury card injection failed: ${e.message}")

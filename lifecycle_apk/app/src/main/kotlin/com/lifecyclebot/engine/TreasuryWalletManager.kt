@@ -3,8 +3,8 @@ package com.lifecyclebot.engine
 import android.content.Context
 import com.iwebpp.crypto.TweetNaclFast
 import com.lifecyclebot.data.ConfigStore
-import com.lifecyclebot.network.Base58
 import com.lifecyclebot.network.SolanaWallet
+import io.github.novacrypto.base58.Base58
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
