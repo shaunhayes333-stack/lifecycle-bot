@@ -466,7 +466,9 @@ object PerpsExecutionEngine {
                 return
             }
             
-            // Open position
+            // Open position — always recorded in PerpsTraderAI first (in-memory state).
+            // In LIVE mode we then fire the real on-chain swap. If that swap fails we
+            // roll the position back so the tracker never diverges from the wallet.
             val position = PerpsTraderAI.openPosition(
                 market = signal.market,
                 direction = signal.direction,
@@ -478,13 +480,56 @@ object PerpsExecutionEngine {
             )
             
             if (position != null) {
+                // V5.9.600 BUG-1 FIX: real on-chain execution in LIVE mode.
+                // PerpsTraderAI.openPosition was synthetic-only; the swap was never placed.
+                if (!isPaper) {
+                    val (liveOk, txSig) = try {
+                        MarketsLiveExecutor.executeLiveTrade(
+                            market     = signal.market,
+                            direction  = signal.direction,
+                            sizeSol    = sizeSol,
+                            leverage   = effectiveLeverage,
+                            priceUsd   = entryPrice,
+                            traderType = "PerpsEngine",
+                        )
+                    } catch (ex: Exception) {
+                        ErrorLogger.warn(TAG, "Live exec exception for ${signal.market.symbol}: ${ex.message}")
+                        Pair(false, null)
+                    }
+
+                    if (!liveOk) {
+                        // Roll back — remove from PerpsTraderAI so wallet and tracker stay aligned
+                        PerpsTraderAI.rollbackPosition(position.id, sizeSol, isPaper = false)
+                        failedExecutions.incrementAndGet()
+                        ErrorLogger.warn(TAG, "⚡ LIVE OPEN FAILED (rolled back): ${signal.market.symbol}")
+                        return
+                    }
+
+                    // For Flash perps: resolve and store the Flash position key so the close
+                    // API call can target the exact on-chain account (not just symbol+direction).
+                    if (effectiveLeverage > 1.0 &&
+                        signal.market.symbol in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC
+                    ) {
+                        val wallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Exception) { null }
+                        val addr   = wallet?.publicKeyB58
+                        if (addr != null) {
+                            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val key = MarketsLiveExecutor.findFlashPositionKey(addr, signal.market.symbol, signal.direction)
+                                if (key != null) position.flashPositionKey = key
+                            }
+                        }
+                    }
+
+                    ErrorLogger.info(TAG, "⚡ LIVE OPEN OK: ${signal.market.symbol} | tx=${txSig?.take(20) ?: "bridge"}")
+                }
+
                 successfulExecutions.incrementAndGet()
                 lastExecutionTime.set(System.currentTimeMillis())
                 
                 ErrorLogger.info(TAG, "⚡ EXECUTED [${scanner.displayName}]: " +
                     "${position.direction.emoji} ${position.market.symbol} | " +
                     "${position.leverage}x (sym×${"%.2f".format(symLevCapMult)}) | size=${sizeSol.fmt(3)}◎ (sym×${"%.2f".format(symSizeAdj)}) | " +
-                    "entry=\$${entryPrice.fmt(2)}")
+                    "entry=\$${entryPrice.fmt(2)} [${if (isPaper) "PAPER" else "LIVE"}]")
             } else {
                 failedExecutions.incrementAndGet()
                 ErrorLogger.warn(TAG, "Failed to open position")
@@ -506,6 +551,30 @@ object PerpsExecutionEngine {
         exitSignal: PerpsExitSignal,
     ) {
         try {
+            // V5.9.600 BUG-1 FIX: fire real on-chain close before removing the position.
+            // Previously PerpsTraderAI.closePosition was called first (wiping in-memory state)
+            // and no DEX close was ever placed. Now: live close fires first; if it fails we
+            // keep the position open so the next tick retries rather than recording a phantom exit.
+            if (!position.isPaper) {
+                val (closeOk, _) = try {
+                    MarketsLiveExecutor.closeLivePosition(
+                        market           = position.market,
+                        direction        = position.direction,
+                        sizeSol          = position.sizeSol,
+                        leverage         = position.leverage,
+                        traderType       = "PerpsEngine",
+                        flashPositionKey = position.flashPositionKey,
+                    )
+                } catch (ex: Exception) {
+                    ErrorLogger.warn(TAG, "Live close exception for ${position.market.symbol}: ${ex.message}")
+                    Pair(false, null)
+                }
+                if (!closeOk) {
+                    ErrorLogger.warn(TAG, "⚡ LIVE CLOSE FAILED: ${position.market.symbol} — keeping position open, will retry next tick")
+                    return
+                }
+            }
+
             val trade = PerpsTraderAI.closePosition(position.id, exitPrice, exitSignal)
             
             if (trade != null) {
@@ -696,3 +765,4 @@ object PerpsExecutionEngine {
     }
 
 }
+
