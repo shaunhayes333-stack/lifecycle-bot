@@ -361,6 +361,15 @@ object PerpsTraderAI {
         
         save(force = true)
     }
+
+    /**
+     * V5.9.600 BUG-1 FIX: Alias matching sub-trader convention used by BotService.
+     * BotService calls setLiveMode(!cfg.paperMode) for all other traders —
+     * PerpsTraderAI had only setTradingMode(isPaper) so it was NEVER called.
+     * This meant PerpsTraderAI stayed in paper mode permanently even when the
+     * user switched to live.
+     */
+    fun setLiveMode(live: Boolean) = setTradingMode(isPaper = !live)
     
     fun resetDaily() {
         dailyTrades.set(0)
@@ -839,6 +848,30 @@ object PerpsTraderAI {
         return position
     }
     
+    /**
+     * V5.9.600 BUG-1 FIX: Roll back a position that was recorded in openPosition
+     * but whose on-chain swap subsequently failed. Removes from all maps and
+     * refunds the margin deducted from the balance — exactly undoes openPosition.
+     */
+    fun rollbackPosition(positionId: String, sizeSol: Double, isPaper: Boolean) {
+        activePositions.remove(positionId)
+        paperPositions.remove(positionId)
+        livePositions.remove(positionId)
+        dailyTrades.decrementAndGet()
+        // Refund margin
+        val balanceRef = if (isPaper) paperBalanceBps else liveBalanceBps
+        balanceRef.addAndGet((sizeSol * 10000).toLong())
+        if (isPaper) {
+            try {
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = sizeSol,
+                    source = "Perps.rollback"
+                )
+            } catch (_: Exception) {}
+        }
+        ErrorLogger.warn(TAG, "📊 ROLLBACK: $positionId — margin refunded ${sizeSol.fmt(4)}◎")
+    }
+
     /**
      * Close a position
      */
@@ -1454,3 +1487,4 @@ object PerpsTraderAI {
     }
 
 }
+
