@@ -466,29 +466,57 @@ object SmartSizer {
         // V5.9.495z12 — operator mandate: bot must never choke its own
         // throughput. 25→60 raises the live concurrent-position ceiling so
         // 200-500 trades/day live is reachable with realistic hold times.
-        val maxLivePositions = 60  // Allow up to 60 concurrent live positions
-        
+        //
+        // V5.9.495z23 — operator: "why was I not up 5x". With sub-1 SOL
+        // wallets, 60 concurrent positions means 0.05–0.1 SOL per trade —
+        // any winner's gain is pulverised by entry+exit fees. Cap is now
+        // TIER-aware:
+        //   • MICRO        →  6  positions  (full size for first 3)
+        //   • STANDARD     → 10  positions  (full size for first 4)
+        //   • GROWTH       → 16  positions  (full size for first 5)
+        //   • SCALED       → 28  positions  (full size for first 6)
+        //   • INSTITUTIONAL→ 50  positions  (full size for first 8)
+        // Diversification scaling now starts later AND falls off slower so
+        // early positions actually carry meaningful size.
+        val livePosTier = run {
+            val solPx = solPriceUsd.takeIf { it > 0 } ?: 100.0
+            val treasuryUsd = TreasuryManager.treasurySol * solPx
+            ScalingMode.activeTier(treasuryUsd)
+        }
+        val maxLivePositions = when (livePosTier) {
+            ScalingMode.Tier.INSTITUTIONAL -> 50
+            ScalingMode.Tier.SCALED        -> 28
+            ScalingMode.Tier.GROWTH        -> 16
+            ScalingMode.Tier.STANDARD      -> 10
+            ScalingMode.Tier.MICRO         -> 6
+        }
+        val fullSizeSlots = when (livePosTier) {
+            ScalingMode.Tier.INSTITUTIONAL -> 8
+            ScalingMode.Tier.SCALED        -> 6
+            ScalingMode.Tier.GROWTH        -> 5
+            ScalingMode.Tier.STANDARD      -> 4
+            ScalingMode.Tier.MICRO         -> 3
+        }
+
         if (!isPaperMode) {
-            // Hard cap at 25 positions
+            // Hard cap at the tier's live ceiling
             if (openPositionCount >= maxLivePositions) {
-                ErrorLogger.warn("SmartSizer", "⚠️ LIVE POSITION CAP: $openPositionCount >= $maxLivePositions max | Blocking new entry")
+                ErrorLogger.warn("SmartSizer", "⚠️ LIVE POSITION CAP: $openPositionCount >= $maxLivePositions max (tier=${livePosTier.name}) | Blocking new entry")
                 return SizeResult(0.0, tier, basePct, aiScoreMult, 1.0, 1.0, 1.0, treasuryMult, houseMoneyBonus,
                     "live_position_cap",
-                    "Live mode: $openPositionCount/$maxLivePositions positions — waiting for exits before new entries")
+                    "Live mode (${livePosTier.name}): $openPositionCount/$maxLivePositions positions — waiting for exits before new entries")
             }
             
-            // Scale down size as positions increase (diversification scaling)
-            // 0-5 positions: 100% size
-            // 6-10 positions: 80% size
-            // 11-15 positions: 60% size
-            // 16-20 positions: 45% size
-            // 21-25 positions: 35% size
+            // V5.9.495z23 — gentler diversification scaling. First N positions
+            // (`fullSizeSlots`) get FULL size so winners actually move the needle.
+            // After that the curve still tapers but to a higher floor (50% vs
+            // the old 35%) so position 8+ isn't dust.
             val positionScaleFactor = when {
-                openPositionCount <= 5  -> 1.00
-                openPositionCount <= 10 -> 0.80
-                openPositionCount <= 15 -> 0.60
-                openPositionCount <= 20 -> 0.45
-                else                    -> 0.35
+                openPositionCount <= fullSizeSlots             -> 1.00
+                openPositionCount <= fullSizeSlots + 3         -> 0.85
+                openPositionCount <= fullSizeSlots + 6         -> 0.70
+                openPositionCount <= fullSizeSlots + 10        -> 0.60
+                else                                           -> 0.50
             }
             
             size *= positionScaleFactor

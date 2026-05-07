@@ -3521,8 +3521,23 @@ class BotService : Service() {
                         // the 30-min cooldown prevents the bot from instantly
                         // re-buying the same rug as soon as the price oracle
                         // catches up.
+                        //
+                        // V5.9.495z23 — PEAK-AWARE EXEMPTION (operator: "why was
+                        // I not up 5x — soothsayer hit +99% in paper but live
+                        // got stopped out by RAPID_HARD_FLOOR_STOP"). If the
+                        // position has at any point peaked at ≥ +30% gain,
+                        // exempt it from the rapid hard floor and let the
+                        // trailing / dynamic-fluid stop manage the exit
+                        // instead. Winners that briefly drop -15% from entry
+                        // (e.g. after a +50% run-up that gives back to -10%
+                        // on a wick) used to be killed here; now they get a
+                        // chance to recover. The CATASTROPHE branch (≤ -25%)
+                        // ALWAYS fires regardless of peak — that's a rug, not
+                        // a wick.
                         val isCatastrophe = pnlPct <= -25.0
-                        if (pnlPct <= -HARD_FLOOR_STOP_PCT) {
+                        val peakGainPct   = ts.position.peakGainPct
+                        val peakProtected = peakGainPct >= 30.0 && !isCatastrophe
+                        if (pnlPct <= -HARD_FLOOR_STOP_PCT && !peakProtected) {
                             val tag = if (isCatastrophe) "CATASTROPHE" else "HARD_FLOOR"
                             ErrorLogger.warn("BotService", "🚨 RAPID STOP ($tag): ${ts.symbol} at ${pnlPct.toInt()}%")
                             addLog("🛑 RAPID $tag STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
@@ -3541,6 +3556,10 @@ class BotService : Service() {
                             } else {
                                 TradeStateMachine.startCooldown(ts.mint)
                             }
+                        } else if (pnlPct <= -HARD_FLOOR_STOP_PCT && peakProtected) {
+                            // V5.9.495z23 — log the spare so the operator can audit
+                            // peak-protection saves vs over-rides via the timeline.
+                            addLog("🛡 PEAK-PROTECTED: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% — letting trailing stop manage")
                         }
                         
                         // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)

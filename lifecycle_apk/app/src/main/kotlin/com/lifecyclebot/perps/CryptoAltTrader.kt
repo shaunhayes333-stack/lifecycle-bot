@@ -788,8 +788,14 @@ object CryptoAltTrader {
                 //     via Flash perps (no Solana mint needed).
                 //   • LIVE mode + has Solana mint: allow signal (SPOT swap path).
                 //   • LIVE mode + no mint + not on Flash: skip (truly unreachable).
+                //
+                // V5.9.495z23 — operator's 6-hour run had every PERPS_CRYPTOALT BUY fail with
+                // "no tx (mint missing)" because the previous gate was skipped whenever
+                // `preferLeverage=true`. That left FLOKI/PIXEL/ANKR/PERP/ZEN/HBAR/FTM/STG/GRT
+                // (all non-Solana, non-Flash) generating live signals that could never execute.
+                // The gate now runs in EVERY live path so unreachable symbols never burn cycles.
                 val isLiveScan = !isPaperMode.get()
-                if (isLiveScan && !preferLeverage.get()) {
+                if (isLiveScan) {
                     val hasMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
                         .getTokenBySymbol(market.symbol)
                         ?.mint
