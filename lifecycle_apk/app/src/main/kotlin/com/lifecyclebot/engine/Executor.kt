@@ -3984,7 +3984,12 @@ class Executor(
         }
         val lamports = (sol * 1_000_000_000L).toLong()
         val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
+        val pos = ts.position
         try {
+            // V5.9.603 — live top-ups must be wallet-delta verified before
+            // local qty/cost is inflated. Otherwise a confirmed tx with no
+            // token arrival creates a fake larger bag and corrupts PnL/exits.
+            val preTopUpQty = try { wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
             // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
             // Same universal-auto routing the entry/exit ladder uses.
             val ppResult = tryPumpPortalBuy(
@@ -3999,7 +4004,6 @@ class Executor(
                 traderTag = "MEME",
             )
 
-            val pos    = ts.position
             val price  = getActualPrice(ts)
             val sig: String
             val newQty: Double
@@ -4030,9 +4034,32 @@ class Executor(
                 newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
             }
 
+            val verifiedDelta = try {
+                var delta = 0.0
+                for (attempt in 0 until 5) {
+                    if (attempt > 0) Thread.sleep(2_000)
+                    val cur = wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                    delta = (cur - preTopUpQty).coerceAtLeast(0.0)
+                    if (delta > 0.0) break
+                }
+                delta
+            } catch (_: Throwable) { 0.0 }
+
+            val effectiveNewQty = if (verifiedDelta > 0.0) verifiedDelta else 0.0
+            if (effectiveNewQty <= 0.0) {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "⚠️ TOP-UP TX confirmed but wallet token delta not verified — local position NOT inflated",
+                    sig = sig, solAmount = sol, traderTag = "MEME",
+                )
+                onLog("⚠️ LIVE TOP-UP not credited: tx confirmed but token delta not verified", ts.mint)
+                return
+            }
+
             ts.position = pos.copy(
-                qtyToken       = pos.qtyToken + newQty,
-                entryPrice     = (pos.costSol + sol) / (pos.qtyToken + newQty),
+                qtyToken       = pos.qtyToken + effectiveNewQty,
+                entryPrice     = (pos.costSol + sol) / (pos.qtyToken + effectiveNewQty),
                 costSol        = pos.costSol + sol,
                 topUpCount     = pos.topUpCount + 1,
                 topUpCostSol   = pos.topUpCostSol + sol,
@@ -9942,21 +9969,25 @@ class Executor(
                 "Broadcasting PUMP-FIRST [$labelTag] @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
                 traderTag = traderTag,
             )
-            val sig = wallet.signAndSend(built.txBase64, useJito, jitoTipLamports)
+            // V5.9.603 — PumpPortal sell must wait for on-chain confirmation.
+            // A raw sendTransaction signature only means RPC/Jito accepted the
+            // packet; it can still expire/fail before landing. Wallet polling
+            // below remains the authority for token-gone/SOL-returned proof.
+            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, jitoTipLamports)
             if (sig.isBlank()) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_FAILED,
-                    "PUMP-FIRST [$labelTag]: blank signature — falling back to Jupiter",
+                    "PUMP-FIRST [$labelTag]: blank confirmed signature — falling back to Jupiter",
                     traderTag = traderTag,
                 )
                 return null
             }
-            onLog("✅ PUMP-FIRST [$labelTag] SELL ACCEPTED: sig=${sig.take(20)}… (verifying on-chain)", ts.mint)
+            onLog("✅ PUMP-FIRST [$labelTag] SELL CONFIRMED: sig=${sig.take(20)}… (verifying wallet settlement)", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_CONFIRMED,
-                "✅ Tx accepted via PumpPortal [$labelTag] @ ${slipPct}% slip — async verify scheduled",
+                "✅ Tx confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip — wallet settlement verify scheduled",
                 sig = sig, traderTag = traderTag,
             )
 
@@ -10132,7 +10163,7 @@ class Executor(
             // Sanity: signSendAndConfirm throws on RPC/on-chain failure, but defensively
             // verify the returned sig is non-blank before trusting it.
             if (sig.isBlank()) {
-                onLog("⚠️ PUMP-FIRST BUY: blank sig from signAndSend — falling through to Jupiter", ts.mint)
+                onLog("⚠️ PUMP-FIRST BUY: blank confirmed sig — falling through to Jupiter", ts.mint)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_FAILED,

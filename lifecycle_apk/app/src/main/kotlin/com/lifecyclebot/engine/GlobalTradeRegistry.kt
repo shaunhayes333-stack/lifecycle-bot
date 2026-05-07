@@ -831,8 +831,7 @@ object GlobalTradeRegistry {
             
             // Only save if different
             if (cfg.watchlist.toSet() != currentList.toSet()) {
-                val updated = cfg.copy(watchlist = currentList)
-                com.lifecyclebot.data.ConfigStore.save(context, updated)
+                com.lifecyclebot.data.ConfigStore.saveWatchlistOnly(context, currentList)
                 ErrorLogger.debug(TAG, "💾 Synced ${currentList.size} tokens to ConfigStore")
             }
         } catch (e: Exception) {

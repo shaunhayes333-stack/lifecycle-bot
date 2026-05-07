@@ -1910,7 +1910,7 @@ class BotService : Service() {
                             val wl = c.watchlist.toMutableList()
                             if (mint !in wl && wl.size < 20) {
                                 wl.add(mint)
-                                ConfigStore.save(applicationContext, c.copy(watchlist = wl))
+                                ConfigStore.saveWatchlistOnly(applicationContext, wl)
                                 addLog("Auto-added new token: $symbol ($mint)", mint)
                                 soundManager.playNewToken()
                             }
@@ -3487,15 +3487,24 @@ class BotService : Service() {
                             // so a duplicate from REST polling is a no-op.
                             val mcapUsd = mcapSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                                 .takeIf { it > 0.0 } ?: 150.0)
-                            com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(
+                            val addResult = com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(
                                 mint = mint,
                                 symbol = symbol,
                                 addedBy = "PUMP_PORTAL_WS",
                                 source = "PUMP_PORTAL",
                                 initialMcap = mcapUsd,
                             )
-                            ErrorLogger.info("BotService",
-                                "🆕 PumpPortal: $symbol ($name) mcap=${mcapSol.toInt()}SOL → watchlist")
+                            if (addResult.added) {
+                                ErrorLogger.info("BotService",
+                                    "🆕 PumpPortal: $symbol ($name) mcap=${mcapSol.toInt()}SOL → watchlist")
+                            } else {
+                                // V5.9.603 — don't spam operator logs with false
+                                // "watchlisted" events. PumpPortal often repeats the
+                                // same launch/migration frames; GlobalTradeRegistry is
+                                // the authority on whether it was actually enqueued.
+                                ErrorLogger.debug("BotService",
+                                    "↩ PumpPortal duplicate/skipped: $symbol (${mint.take(8)}…) reason=${addResult.reason}")
+                            }
                         }
                     } catch (_: Exception) {}
                 },

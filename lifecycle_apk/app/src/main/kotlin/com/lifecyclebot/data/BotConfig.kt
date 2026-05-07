@@ -607,6 +607,21 @@ object ConfigStore {
         }
     }
 
+
+    /**
+     * V5.9.603 — persist only the watchlist key.
+     *
+     * Background scanner/registry syncs are high-frequency and must never
+     * rewrite mode-authority fields such as paper_mode/auto_trade from a
+     * stale BotConfig snapshot. Full ConfigStore.save() is reserved for real
+     * settings changes; watchlist churn uses this narrow writer.
+     */
+    fun saveWatchlistOnly(ctx: Context, watchlist: List<String>) {
+        prefs(ctx).edit()
+            .putString("watchlist", watchlist.joinToString(","))
+            .apply()
+    }
+
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
