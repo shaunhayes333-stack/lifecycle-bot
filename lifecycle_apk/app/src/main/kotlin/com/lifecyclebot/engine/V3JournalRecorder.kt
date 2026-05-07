@@ -73,6 +73,28 @@ object V3JournalRecorder {
                 mint       = mint,
             )
             TradeHistoryStore.recordTrade(t)
+            // V5.9.495z39 P1 backfill — ensure every sub-trader buy populates
+            // entry-price + decimals into TokenLifecycleTracker so downstream
+            // PnL math (RealizedPnLCalculator / SellForensicsWriter) gets the
+            // correct cost basis even when the V3 trader bypasses Executor.
+            // Pump.fun/SPL memes default to 6 decimals; sub-traders that
+            // know the real decimals can call recordEntryMetadata themselves.
+            try {
+                if (mint.isNotBlank() && entryPrice > 0.0) {
+                    // entryPrice here is SOL/token (V3 sub-traders pass the
+                    // SOL-denominated entry price). Refresh the lifecycle
+                    // record idempotently — TokenLifecycleTracker.onBuyPending
+                    // creates the row if missing.
+                    com.lifecyclebot.engine.TokenLifecycleTracker.onBuyPending(
+                        mint = mint, symbol = symbol, venue = layer, sizeSol = sizeSol,
+                    )
+                    com.lifecyclebot.engine.TokenLifecycleTracker.recordEntryMetadata(
+                        mint = mint,
+                        entryPriceSol = entryPrice,
+                        entryDecimals = 6,
+                    )
+                }
+            } catch (_: Throwable) { /* never break the journal write */ }
             ErrorLogger.info("V3JournalRecorder",
                 "📓 [$layer] BUY $symbol @ ${"%.6f".format(entryPrice)} | size=${"%.4f".format(sizeSol)}◎ | score=$entryScore")
         } catch (e: Exception) {

@@ -9744,6 +9744,22 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 ErrorLogger.warn("BotService",
                     "💰 [TREASURY RECOVERY] ${ts.symbol} | Re-registered in CashGenerationAI | " +
                     "entry=${ts.position.entryPrice} tp=$recTpPct% sl=$recSlPct%")
+                // V5.9.495z39 P1 — operator spec item 5: re-registered
+                // treasury positions MUST NOT trigger an immediate TP sell
+                // until chain basis is loaded AND a live profitable quote is
+                // proven. Lock applies only to recoveries with no
+                // original-buy SOL basis (costSol <= 0). Persisted
+                // positions with valid costSol skip the lock — their
+                // basis is already known.
+                if (ts.position.costSol <= 0.0) {
+                    try {
+                        com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            reason = "TREASURY_RECOVERY_NO_BASIS",
+                        )
+                    } catch (_: Throwable) { /* fail-soft */ }
+                }
             }
             
             // V5.2: Calculate current P&L for potential Moonshot promotion

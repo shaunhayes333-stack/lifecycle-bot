@@ -7699,6 +7699,7 @@ class Executor(
             // for retries (200 → 300 → 500 → 800 → 1000bps cap) so the 3rd+
             // attempt has a real chance against pump.fun-class price drift.
             val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
+            val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
             onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits | broadcastRetries=$priorBroadcastRetries", tradeId.mint)
             
             var quote: com.lifecyclebot.network.SwapQuote? = null

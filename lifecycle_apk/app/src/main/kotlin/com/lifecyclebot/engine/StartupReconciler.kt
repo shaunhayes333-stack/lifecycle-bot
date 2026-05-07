@@ -175,6 +175,28 @@ class StartupReconciler(
                                 synchronized(status.tokens) { status.tokens[mint] = adoptTs }
                                 adoptedMints += mint
                                 onLog("📥 WALLET RECOVERY (DexScreener): ${adoptTs.symbol} | ${"%.4f".format(qty)} tokens @ \$${livePrice} | mcap=\$${pair.candle.marketCap.toLong()}")
+                                // V5.9.495z39 P1 — wallet-recovery re-registration
+                                // arrives with `costSol=0.0` (no memory of buy)
+                                // and `entryPrice=livePrice` (best guess only).
+                                // RecoveryLockTracker blocks profit-taking sells
+                                // until chain basis is loaded AND a live quote
+                                // proves profit after fees. Without this lock
+                                // the bot would immediately TP a treasury-recovered
+                                // position into a fake +X% PnL based on the
+                                // synthetic entryPrice.
+                                try {
+                                    com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(
+                                        mint = mint,
+                                        symbol = adoptTs.symbol,
+                                        reason = "WALLET_RECOVERY_DEXSCREENER",
+                                    )
+                                    com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
+                                        mint = mint,
+                                        symbol = adoptTs.symbol,
+                                        walletUiAmount = qty,
+                                        venue = "wallet_recovery",
+                                    )
+                                } catch (_: Throwable) { /* fail-soft */ }
                                 onAlert(
                                     "Wallet Recovery",
                                     "${adoptTs.symbol}: found in wallet, not in bot memory — adopted at current price \$${livePrice}. Bot will manage TP/SL."
