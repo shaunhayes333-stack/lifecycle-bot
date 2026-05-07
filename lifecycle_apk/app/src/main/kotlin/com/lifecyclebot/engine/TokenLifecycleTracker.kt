@@ -72,6 +72,7 @@ object TokenLifecycleTracker {
         val sellTxs: MutableList<String> = mutableListOf(),
         var entrySolSpent: Double = 0.0,
         var entryTokenQtyConfirmed: Double = 0.0,   // UI amount (decimals applied) confirmed on-chain
+        var entryTokenRawConfirmed: String = "0",   // BigInteger as string (chain-confirmed raw atomic units)
         var currentWalletTokenQty: Double = 0.0,    // last reconciler reading
         var soldTokenQty: Double = 0.0,
         var solRecovered: Double = 0.0,
@@ -81,6 +82,16 @@ object TokenLifecycleTracker {
         var openedAtMs: Long = System.currentTimeMillis(),
         var closedAtMs: Long? = null,
         var reconcileFailReason: String? = null,
+        // V5.9.495z39 — operator spec item 10:
+        // "add entry price data and token data like pool size to the token
+        //  tracker so we don't keep miscalculating prices."
+        var entryPriceSol: Double = 0.0,            // SOL/token at the moment of buy (chain-confirmed)
+        var entryPriceUsd: Double = 0.0,            // USD/token at the moment of buy
+        var entryDecimals: Int = 0,                 // SPL decimals for the token (cached)
+        var poolLiquidityUsd: Double = 0.0,         // pool liquidity (USD) at buy time
+        var poolTokenReservesRaw: String = "0",     // pool token reserves at buy time (raw atomic units, BigInteger string)
+        var poolSolReservesLamports: Long = 0L,     // pool SOL reserves at buy time (lamports)
+        var entryMetadataAtMs: Long = 0L,           // when this metadata was captured
     )
 
     private val records = ConcurrentHashMap<String, Record>(512)
@@ -162,6 +173,82 @@ object TokenLifecycleTracker {
         r.lastReconcileMs = System.currentTimeMillis()
         scheduleSave()
     }
+
+    /**
+     * V5.9.495z39 — operator spec item 10: capture entry price and pool
+     * data at buy-confirm time so the bot stops miscalculating prices.
+     *
+     * All inputs are optional; passing 0 / null / "0" leaves the existing
+     * field unchanged. Use whatever the venue provides:
+     *   • Jupiter quote → entryPriceSol = quote.inAmount / quote.outAmount
+     *   • DexScreener  → poolLiquidityUsd, poolTokenReservesRaw
+     *   • PumpPortal   → entryPriceSol from bonding-curve state
+     */
+    @Synchronized
+    fun recordEntryMetadata(
+        mint: String,
+        entryPriceSol: Double = 0.0,
+        entryPriceUsd: Double = 0.0,
+        entryDecimals: Int = 0,
+        entryTokenRawConfirmed: java.math.BigInteger? = null,
+        poolLiquidityUsd: Double = 0.0,
+        poolTokenReservesRaw: java.math.BigInteger? = null,
+        poolSolReservesLamports: Long = 0L,
+    ) {
+        val r = records[mint] ?: return
+        if (entryPriceSol > 0.0) r.entryPriceSol = entryPriceSol
+        if (entryPriceUsd > 0.0) r.entryPriceUsd = entryPriceUsd
+        if (entryDecimals > 0) r.entryDecimals = entryDecimals
+        if (entryTokenRawConfirmed != null && entryTokenRawConfirmed.signum() > 0) {
+            r.entryTokenRawConfirmed = entryTokenRawConfirmed.toString()
+        }
+        if (poolLiquidityUsd > 0.0) r.poolLiquidityUsd = poolLiquidityUsd
+        if (poolTokenReservesRaw != null && poolTokenReservesRaw.signum() > 0) {
+            r.poolTokenReservesRaw = poolTokenReservesRaw.toString()
+        }
+        if (poolSolReservesLamports > 0L) r.poolSolReservesLamports = poolSolReservesLamports
+        r.entryMetadataAtMs = System.currentTimeMillis()
+        scheduleSave()
+        ErrorLogger.info(TAG,
+            "📌 entry-meta ${r.symbol}: entryPriceSol=${"%.10f".format(r.entryPriceSol)} " +
+            "entryPriceUsd=${"%.6f".format(r.entryPriceUsd)} " +
+            "decimals=${r.entryDecimals} " +
+            "poolLiquidityUsd=${"%.0f".format(r.poolLiquidityUsd)} " +
+            "poolTokenRaw=${r.poolTokenReservesRaw} " +
+            "poolSolLamports=${r.poolSolReservesLamports}")
+    }
+
+    /** Read-only snapshot of entry metadata for a tracked mint. Null if not tracked. */
+    fun getEntryMetadata(mint: String): EntryMetadata? {
+        val r = records[mint] ?: return null
+        return EntryMetadata(
+            mint = r.mint,
+            entryPriceSol = r.entryPriceSol,
+            entryPriceUsd = r.entryPriceUsd,
+            entryDecimals = r.entryDecimals,
+            entryTokenRawConfirmed = runCatching { java.math.BigInteger(r.entryTokenRawConfirmed) }
+                .getOrDefault(java.math.BigInteger.ZERO),
+            entrySolSpent = r.entrySolSpent,
+            poolLiquidityUsd = r.poolLiquidityUsd,
+            poolTokenReservesRaw = runCatching { java.math.BigInteger(r.poolTokenReservesRaw) }
+                .getOrDefault(java.math.BigInteger.ZERO),
+            poolSolReservesLamports = r.poolSolReservesLamports,
+            atMs = r.entryMetadataAtMs,
+        )
+    }
+
+    data class EntryMetadata(
+        val mint: String,
+        val entryPriceSol: Double,
+        val entryPriceUsd: Double,
+        val entryDecimals: Int,
+        val entryTokenRawConfirmed: java.math.BigInteger,
+        val entrySolSpent: Double,
+        val poolLiquidityUsd: Double,
+        val poolTokenReservesRaw: java.math.BigInteger,
+        val poolSolReservesLamports: Long,
+        val atMs: Long,
+    )
 
     @Synchronized
     fun onSellPending(mint: String, sig: String? = null) {
@@ -338,6 +425,7 @@ object TokenLifecycleTracker {
                     if (r.sellTxs.isNotEmpty()) put("sellTxs", JSONArray(r.sellTxs))
                     put("entrySolSpent", r.entrySolSpent)
                     put("entryTokenQtyConfirmed", r.entryTokenQtyConfirmed)
+                    put("entryTokenRawConfirmed", r.entryTokenRawConfirmed)
                     put("currentWalletTokenQty", r.currentWalletTokenQty)
                     put("soldTokenQty", r.soldTokenQty)
                     put("solRecovered", r.solRecovered)
@@ -347,6 +435,14 @@ object TokenLifecycleTracker {
                     put("openedAtMs", r.openedAtMs)
                     r.closedAtMs?.let { put("closedAtMs", it) }
                     r.reconcileFailReason?.let { put("reconcileFailReason", it) }
+                    // V5.9.495z39 entry-metadata
+                    put("entryPriceSol", r.entryPriceSol)
+                    put("entryPriceUsd", r.entryPriceUsd)
+                    put("entryDecimals", r.entryDecimals)
+                    put("poolLiquidityUsd", r.poolLiquidityUsd)
+                    put("poolTokenReservesRaw", r.poolTokenReservesRaw)
+                    put("poolSolReservesLamports", r.poolSolReservesLamports)
+                    put("entryMetadataAtMs", r.entryMetadataAtMs)
                 })
             }
             File(ctx.filesDir, PERSIST_FILE).writeText(arr.toString())
@@ -379,6 +475,7 @@ object TokenLifecycleTracker {
                     sellTxs = sellTxs,
                     entrySolSpent = o.optDouble("entrySolSpent", 0.0),
                     entryTokenQtyConfirmed = o.optDouble("entryTokenQtyConfirmed", 0.0),
+                    entryTokenRawConfirmed = o.optString("entryTokenRawConfirmed", "0"),
                     currentWalletTokenQty = o.optDouble("currentWalletTokenQty", 0.0),
                     soldTokenQty = o.optDouble("soldTokenQty", 0.0),
                     solRecovered = o.optDouble("solRecovered", 0.0),
@@ -388,6 +485,13 @@ object TokenLifecycleTracker {
                     openedAtMs = o.optLong("openedAtMs", System.currentTimeMillis()),
                     closedAtMs = o.optLong("closedAtMs", 0L).takeIf { it > 0 },
                     reconcileFailReason = o.optString("reconcileFailReason").takeIf { it.isNotBlank() },
+                    entryPriceSol = o.optDouble("entryPriceSol", 0.0),
+                    entryPriceUsd = o.optDouble("entryPriceUsd", 0.0),
+                    entryDecimals = o.optInt("entryDecimals", 0),
+                    poolLiquidityUsd = o.optDouble("poolLiquidityUsd", 0.0),
+                    poolTokenReservesRaw = o.optString("poolTokenReservesRaw", "0"),
+                    poolSolReservesLamports = o.optLong("poolSolReservesLamports", 0L),
+                    entryMetadataAtMs = o.optLong("entryMetadataAtMs", 0L),
                 )
             }
             ErrorLogger.info(TAG, "📂 restored ${records.size} lifecycle records")

@@ -5304,6 +5304,29 @@ class Executor(
                 )
                 // V5.9.495z28 — token landed → flip lifecycle tracker to HELD.
                 try { TokenLifecycleTracker.onTokenLanded(ts.mint, finalQty) } catch (_: Throwable) {}
+
+                // V5.9.495z39 — operator spec item 10: capture entry price
+                // and pool data at chain-confirm time so we don't miscalculate
+                // prices later. Best-effort; never breaks the buy flow.
+                try {
+                    val decimals = wallet.getTokenAccountsWithDecimals()[ts.mint]?.second ?: 9
+                    val entryRaw = if (decimals > 0)
+                        java.math.BigDecimal(finalQty).movePointRight(decimals).toBigInteger()
+                    else java.math.BigInteger.ZERO
+                    val priceSolPerToken = if (finalQty > 0.0) sol / finalQty else 0.0
+                    val priceUsd = priceSolPerToken * (try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })
+                    val poolLiqUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+                    TokenLifecycleTracker.recordEntryMetadata(
+                        mint = ts.mint,
+                        entryPriceSol = priceSolPerToken,
+                        entryPriceUsd = priceUsd,
+                        entryDecimals = decimals,
+                        entryTokenRawConfirmed = entryRaw,
+                        poolLiquidityUsd = poolLiqUsd,
+                    )
+                } catch (e: Throwable) {
+                    ErrorLogger.warn("Executor", "recordEntryMetadata failed (non-fatal): ${e.message}")
+                }
             }
 
             // V5.9.15: PHANTOM GUARD — DO NOT persist or register in guardrails until
@@ -7337,7 +7360,42 @@ class Executor(
             "🔴 LIVE SELL START | reason=$reason | qty=${pos.qtyToken.fmt(4)} | wallet=${walletSol.fmt(4)} SOL",
             tokenAmount = pos.qtyToken, traderTag = "MEME",
         )
-        
+
+        // V5.9.495z39 — operator spec item 5:
+        // "Treasury recovery / re-registration must NOT trigger an
+        //  immediate sell until on-chain basis is confirmed."
+        // RecoveryLockTracker holds the mint when a position was
+        // re-registered (e.g. by treasury sweep) so the executor cannot
+        // sell into stale UI prices before chain basis is loaded.
+        if (com.lifecyclebot.engine.sell.RecoveryLockTracker.isLockedAwaitingChainBasis(ts.mint)) {
+            onLog("🔒 SELL DEFERRED: ${ts.symbol} — RECOVERY_POSITION_LOCKED_UNTIL_CHAIN_BASIS_CONFIRMED.", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                "🔒 RECOVERY_LOCK: skipping $reason exit until chain basis loaded.",
+                traderTag = "MEME",
+            )
+            return SellResult.FAILED_RETRYABLE
+        }
+
+        // V5.9.495z39 — operator spec item 1: amount-violation lock.
+        // SellAmountAuditor flagged this mint after a previous sell consumed
+        // materially more than requested. Refuse new sells until the
+        // reconciler clears the lock — the next forensic export will tell
+        // operator what happened.
+        if (com.lifecyclebot.engine.sell.SellAmountAuditor.isLocked(ts.mint)) {
+            val v = com.lifecyclebot.engine.sell.SellAmountAuditor.getViolation(ts.mint)
+            onLog("🔒 SELL BLOCKED: ${ts.symbol} — SELL_AMOUNT_VIOLATION lock " +
+                  "(over=${v?.overconsumedRaw} ${"%.1f".format(v?.overconsumedPct ?: 0.0)}%).", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_FAILED,
+                "🔒 SELL_AMOUNT_VIOLATION_LOCK active — manual reconciler unlock required.",
+                traderTag = "MEME",
+            )
+            return SellResult.FAILED_RETRYABLE
+        }
+
         // V5.9.290 FIX: If pendingVerify is still true but tokens exist (qtyToken > 0)
         // AND it's been > 120s since entry, force-clear pendingVerify here before the
         // isOpen guard. This mirrors the BotService fix: the verify coroutine runs for
@@ -8079,7 +8137,65 @@ class Executor(
                 val postSellBalances = wallet.getTokenAccountsWithDecimals()
                 val postSellMapEmpty = postSellBalances.isEmpty()
                 val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
-                
+
+                // V5.9.495z39 — operator spec items 1/4/6/7/8 wiring.
+                // SellFinalizationCoordinator runs the auditor + tx-meta
+                // finalizer + proportional-PnL calc + wallet refresh +
+                // canonical SELL_LANDED forensics in a single pass.
+                // Best-effort; never breaks the sell flow.
+                try {
+                    val decimals = postSellBalances[ts.mint]?.second
+                        ?: com.lifecyclebot.engine.TokenLifecycleTracker.getEntryMetadata(ts.mint)?.entryDecimals
+                        ?: 9
+                    val preTokenRaw = run {
+                        val ui = pos.qtyToken
+                        if (ui > 0.0 && decimals > 0) java.math.BigDecimal(ui).movePointRight(decimals).toBigInteger()
+                        else java.math.BigInteger.ZERO
+                    }
+                    val postTokenRaw = run {
+                        val ui = remainingTokens
+                        if (decimals > 0) java.math.BigDecimal(ui).movePointRight(decimals).toBigInteger()
+                        else java.math.BigInteger.ZERO
+                    }
+                    val walletPollRaw = if (postSellMapEmpty) null else postTokenRaw
+                    val entryMeta = com.lifecyclebot.engine.TokenLifecycleTracker.getEntryMetadata(ts.mint)
+                    val entrySolSpent = entryMeta?.entrySolSpent?.takeIf { it > 0.0 } ?: pos.costSol
+                    val entryTokenRaw = entryMeta?.entryTokenRawConfirmed?.takeIf { it.signum() > 0 } ?: preTokenRaw
+                    val intent = com.lifecyclebot.engine.sell.SellIntent.build(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        // liveSell is the FULL-balance path. Partial-class
+                        // reasons (PROFIT_LOCK / CAPITAL_RECOVERY /
+                        // PARTIAL_TAKE_PROFIT) are forbidden by SellIntent
+                        // when fraction=10_000 + drain=true; they must be
+                        // promoted to HARD_STOP / RUG_DRAIN here.
+                        reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
+                        requestedFractionBps = 10_000,    // liveSell is full-balance path
+                        confirmedWalletRaw = preTokenRaw.max(java.math.BigInteger.ONE),
+                        decimals = decimals,
+                        slippageBps = 0,                  // bookkeeping only — actual slip lives in profile
+                        emergencyDrain = true,
+                        entrySolSpent = entrySolSpent.coerceAtLeast(0.0),
+                        entryTokenRaw = entryTokenRaw.max(java.math.BigInteger.ONE),
+                    )
+                    com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
+                        intent = intent,
+                        preTokenBalanceRaw = preTokenRaw,
+                        postTokenBalanceRaw = postTokenRaw,
+                        walletPollRaw = walletPollRaw,
+                        solReceivedLamports = 0L,           // unknown here; coordinator will use sellSolReceived
+                        sellSolReceived = 0.0,              // realised SOL is logged elsewhere; pass 0 to mark degenerate
+                        feesSol = 0.0,
+                        decimals = decimals,
+                        slippageUsedBps = 0,
+                        sellSig = sig,
+                        traderTag = "MEME",
+                    )
+                } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("Executor",
+                        "SellFinalizationCoordinator.finalize threw (non-fatal): ${e.message}")
+                }
+
                 val originalTokens = pos.qtyToken
                 if (postSellMapEmpty) {
                     // V5.9.495w — operator triage 06 May 2026: SHELTERCOIN
@@ -8299,6 +8415,54 @@ class Executor(
             zeroBalanceRetries.remove(ts.mint + "_broadcast")
             
             onLog("📊 SELL DEBUG: solBack=${solBack.fmt(6)} | costSol=${pos.costSol.fmt(6)} | pnl=${pnl.fmt(6)} | pnlPct=${pnlP.fmtPct()}", tradeId.mint)
+
+            // V5.9.495z39 — operator spec items 4 / 8 / 9 wiring.
+            // Now that solBack/feeSol/netPnl are known, emit the canonical
+            // SELL_LANDED forensics row with chain-confirmed proportional
+            // cost-basis PnL. Belt-and-braces with the existing journal —
+            // this row uses the new field names the operator asked for.
+            try {
+                val decFinal = com.lifecyclebot.engine.TokenLifecycleTracker
+                    .getEntryMetadata(ts.mint)?.entryDecimals ?: 9
+                val entryMetaFinal = com.lifecyclebot.engine.TokenLifecycleTracker
+                    .getEntryMetadata(ts.mint)
+                val entrySolSpentFinal = entryMetaFinal?.entrySolSpent
+                    ?.takeIf { it > 0.0 } ?: pos.costSol
+                val entryTokenRawFinal = entryMetaFinal?.entryTokenRawConfirmed
+                    ?.takeIf { it.signum() > 0 }
+                    ?: java.math.BigDecimal(pos.qtyToken).movePointRight(decFinal).toBigInteger()
+                        .max(java.math.BigInteger.ONE)
+                val preTokenRawFinal = java.math.BigDecimal(pos.qtyToken)
+                    .movePointRight(decFinal).toBigInteger().max(java.math.BigInteger.ONE)
+                val intentFinal = com.lifecyclebot.engine.sell.SellIntent.build(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
+                    requestedFractionBps = 10_000,
+                    confirmedWalletRaw = preTokenRawFinal,
+                    decimals = decFinal,
+                    slippageBps = 0,
+                    emergencyDrain = true,
+                    entrySolSpent = entrySolSpentFinal.coerceAtLeast(0.0),
+                    entryTokenRaw = entryTokenRawFinal,
+                )
+                com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
+                    intent = intentFinal,
+                    preTokenBalanceRaw = preTokenRawFinal,
+                    postTokenBalanceRaw = java.math.BigInteger.ZERO,
+                    walletPollRaw = java.math.BigInteger.ZERO,
+                    solReceivedLamports = (solBack * 1_000_000_000.0).toLong().coerceAtLeast(0L),
+                    sellSolReceived = solBack,
+                    feesSol = feeSol,
+                    decimals = decFinal,
+                    slippageUsedBps = 0,
+                    sellSig = sig,
+                    traderTag = "MEME",
+                )
+            } catch (e: Throwable) {
+                com.lifecyclebot.engine.ErrorLogger.warn("Executor",
+                    "SellFinalizationCoordinator [final] threw (non-fatal): ${e.message}")
+            }
 
             val trade = Trade(
                 side = "SELL", 
