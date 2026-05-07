@@ -43,7 +43,19 @@ object PatternBacktester {
     )
 
     fun runBacktest(db: TradeDatabase): BacktestReport {
-        val trades = db.getAllTrades()
+        val rawTrades = db.getAllTrades()
+
+        // V5.9.495z21 — STRATEGY TRAINING GATE applied to chart-pattern
+        // backtest input. Filters out trades whose mint was flagged by the
+        // execution pipeline as a partial-bridge / output-mismatch / recovery
+        // event (target token never actually landed). Without this filter
+        // PatternAutoTuner would tune chart-pattern multipliers using
+        // phantom outcomes, biasing future entry sizing on patterns that
+        // never produced a real win or loss.
+        val trades = rawTrades.filter {
+            it.mint.isBlank() ||
+            com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(it.mint)
+        }
 
         if (trades.isEmpty()) {
             return BacktestReport(

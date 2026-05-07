@@ -971,10 +971,17 @@ class Executor(
                     "MOONSHOT", "TREASURY"
                 )
                 if (isMemeBaseClose) {
-                    if (isPaper) {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
-                    } else {
-                        com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
+                    // V5.9.495z21 — strategy training gate at this direct
+                    // FluidLearningAI call site (parallel to the gate inside
+                    // EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers).
+                    // Skip if the mint was flagged as a partial-bridge /
+                    // output-mismatch event by the execution pipeline.
+                    if (com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(ts.mint)) {
+                        if (isPaper) {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
+                        } else {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
+                        }
                     }
                 }
 
