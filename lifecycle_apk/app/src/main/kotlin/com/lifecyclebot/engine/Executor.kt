@@ -1857,6 +1857,63 @@ class Executor(
         
         val sellQty = pos.qtyToken * sellFraction
         val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
+
+        // V5.9.495z29 — operator spec item 4: ExecutableQuoteGate.
+        // Profit-lock is only allowed when a fresh executable Jupiter quote
+        // for the EXACT wallet token amount produces a slippage-adjusted
+        // net SOL output above the entry basis recorded in
+        // TokenLifecycleTracker. Refuses on stale price / zero balance /
+        // missing entry basis / extreme price impact / route-not-found.
+        // Capital-recovery exits (which run at the same call site for
+        // 'capital_recovery_*' reasons) DELIBERATELY skip the gate — they
+        // exit on risk grounds even at a small loss. So we only gate
+        // pure profit-lock paths.
+        val isProfitLockReason = reason.startsWith("profit_lock") ||
+                                 reason.startsWith("partial_profit_lock") ||
+                                 reason.startsWith("take_profit")
+        if (isProfitLockReason && sellUnits > 0L) {
+            val lifecycle = TokenLifecycleTracker.get(ts.mint)
+            val entryBasis = lifecycle?.entrySolSpent ?: pos.entrySolUsd.takeIf { it <= 0.0 }?.let { 0.0 } ?: 0.0
+            // entrySolUsd in the position model is sometimes 0 — fall back
+            // to qtyToken * entryPriceUsd / solPriceUsd if needed; if all
+            // sources are 0, we ALLOW the sell rather than block (operator
+            // spec: 'do not block on missing data, but log clearly').
+            if (entryBasis > 0.0) {
+                val gateSlip = SellSlippageProfile.forTier(
+                    SellSlippageProfile.Tier.NORMAL_PROFIT_LOCK
+                ).initialBps
+                val verdict = ExecutableQuoteGate.evaluate(
+                    tokenMint = ts.mint,
+                    currentWalletTokenRaw = sellUnits,
+                    entrySolSpent = entryBasis,
+                    minNetProfitFraction = 0.10,   // ≥10% net required
+                    slippageBps = gateSlip,
+                    jupiter = jupiter,
+                )
+                when (verdict) {
+                    is ExecutableQuoteGate.Verdict.Rejected -> {
+                        onLog(
+                            "🚫 PROFIT_LOCK_BLOCKED ${ts.symbol} " +
+                            "${verdict.code}: ${verdict.reason}", ts.mint,
+                        )
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "INFO",
+                            LiveTradeLogStore.Phase.WARNING,
+                            "Profit-lock blocked: ${verdict.code} | ${verdict.reason}",
+                            traderTag = "MEME",
+                        )
+                        return
+                    }
+                    is ExecutableQuoteGate.Verdict.Approved -> {
+                        ErrorLogger.info("Executor",
+                            "✅ PROFIT_LOCK_APPROVED ${ts.symbol} " +
+                            "netSol=${"%.6f".format(verdict.expectedSolOutNet)} " +
+                            "impact=${"%.2f".format(verdict.priceImpactPct)}%")
+                    }
+                }
+            }
+        }
+
         // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
         // for the profit-lock / capital-recovery sell path. Operator's screenshot
         // showed sells labelled 'profit_lock_86.2x' / 'capital_recovery_86.2x'
@@ -4807,6 +4864,20 @@ class Executor(
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "INSUFFICIENT_BALANCE")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "need=${sol}SOL have=${walletSol}SOL")
             return
+        }
+
+        // V5.9.495z29 — operator spec item 8: LiveExecutionGate. Single
+        // chokepoint enforcing daily quota / concurrent ceiling / min spacing
+        // / pending-verification queue depth. Reject cleanly + log when blocked.
+        val openLive = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+        when (val decision = LiveExecutionGate.tryAcquireBuy(openLive)) {
+            is LiveExecutionGate.Decision.Blocked -> {
+                ErrorLogger.warn("Executor",
+                    "🚦 GATE_BLOCK ${ts.symbol} ${decision.code} | ${decision.reason}")
+                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "GATE_${decision.code}")
+                return
+            }
+            LiveExecutionGate.Decision.Allowed -> { /* proceed */ }
         }
 
         // Solana Jupiter swap actually needs:

@@ -43,6 +43,21 @@ object FeeRetryQueue {
             ErrorLogger.error("FeeRetryQueue", "⚠ Not initialized — fee lost: ${amountSol.fmt(5)} SOL → $toAddress")
             return
         }
+        // V5.9.495z29 — operator spec item 7. Self-loop guard. If the
+        // fee destination is somehow the bot's own wallet (e.g. the
+        // configured fee wallet was rotated to the operator's own
+        // address), enqueueing a transfer to self causes a permanent
+        // "Account loaded twice" failure on every retry. Drop early
+        // with a clear log so the operator sees the misconfiguration.
+        try {
+            val selfPk = WalletManager.getWallet()?.publicKeyB58
+            if (selfPk != null && selfPk.equals(toAddress, ignoreCase = false)) {
+                ErrorLogger.warn("FeeRetryQueue",
+                    "⛔ Skipping self-loop fee transfer ${amountSol.fmt(5)} SOL → self ($reason). " +
+                    "Check fee wallet configuration.")
+                return
+            }
+        } catch (_: Throwable) { /* best-effort guard */ }
         val entry = FeeEntry(toAddress, amountSol, reason)
         val arr = loadArray(p)
         arr.put(entryToJson(entry))
@@ -103,6 +118,12 @@ object FeeRetryQueue {
                 "already processed",
                 "invalid account data",
                 "owner mismatch",
+                // V5.9.495z29 — operator spec item 7. "Account loaded twice"
+                // means the tx had the same account in two writable slots
+                // (typically because the destination matched the source).
+                // Burning retry slots on this is pointless.
+                "account loaded twice",
+                "loaded twice",
             )
 
             // Attempt retry

@@ -575,6 +575,31 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "TokenLifecycleTracker init error: ${e.message}", e)
         }
+
+        // V5.9.495z29 — Configure LiveExecutionGate from the saved BotConfig
+        // (operator spec item 8: throughput controls). The gate is a
+        // single in-process semaphore + rate limiter every live BUY must
+        // traverse; daily quota / concurrent ceiling / min spacing / pending
+        // verification queues all live here. Reading the config once on
+        // start is enough — config changes from the settings UI re-call this.
+        try {
+            val c = ConfigStore.load(applicationContext)
+            com.lifecyclebot.engine.LiveExecutionGate.configure(
+                com.lifecyclebot.engine.LiveExecutionGate.Config(
+                    highThroughputLiveMode             = c.highThroughputLiveMode,
+                    maxLiveTradesPerDay                = c.maxLiveTradesPerDay,
+                    maxConcurrentLivePositions         = c.maxConcurrentLivePositions,
+                    minSecondsBetweenLiveBuys          = c.minSecondsBetweenLiveBuys,
+                    maxPendingBuyVerifications         = c.maxPendingBuyVerifications,
+                    maxPendingSellVerifications        = c.maxPendingSellVerifications,
+                    hotPathTimeoutMs                   = c.hotPathTimeoutMs,
+                    walletReconcileTimeoutMs           = c.walletReconcileTimeoutMs,
+                    skipSlowBackgroundScansWhenLiveBusy = c.skipSlowBackgroundScansWhenLiveBusy,
+                )
+            )
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "LiveExecutionGate configure error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {

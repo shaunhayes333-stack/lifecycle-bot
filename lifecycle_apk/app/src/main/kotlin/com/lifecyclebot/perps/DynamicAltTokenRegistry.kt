@@ -448,6 +448,15 @@ object DynamicAltTokenRegistry {
         // Always fetch on first run (registry too small), otherwise respect TTL
         val tooSmall = registry.size < 200
         if (!tooSmall && now - lastDiscoveryCycle.get() < DISCOVERY_TTL_MS) return
+        // V5.9.495z29 — operator spec item 8: when live trading is busy
+        // (pending verifications backed up or near daily quota), skip the
+        // slow discovery cycle to keep CPU/IO free for the hot path.
+        try {
+            if (com.lifecyclebot.engine.LiveExecutionGate.shouldSkipSlowBackgroundScans()) {
+                ErrorLogger.debug(TAG, "🚦 skipping discovery cycle — live path busy")
+                return
+            }
+        } catch (_: Throwable) { /* fall through if gate not initialised */ }
         lastDiscoveryCycle.set(now)
 
         ErrorLogger.info(TAG, "Discovery cycle starting (${registry.size} tokens currently)")

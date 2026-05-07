@@ -180,4 +180,12 @@ dependencies {
     //   - Required for `SherpaTtsBridge` local TTS fallback path
     //   - JitPack builds from k2-fsa/sherpa-onnx at the given tag
     implementation("com.github.k2-fsa:sherpa-onnx:v1.12.39")
+
+    // V5.9.495z29 — operator spec item 10: acceptance test harness.
+    // JUnit + coroutines-test for pure-logic unit tests of TokenLifecycleTracker,
+    // SellSlippageProfile, ExecutableQuoteGate verdicts, LiveExecutionGate
+    // semaphore behaviour. Tests run via `./gradlew testDebugUnitTest` in CI.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.mockito:mockito-core:5.12.0")
 }

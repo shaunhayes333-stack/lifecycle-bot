@@ -11,6 +11,19 @@ data class BotConfig(
     // V5.9.495z26 — separate treasury wallet for income separation.
     // Auto-generated on first init by TreasuryWalletManager if blank.
     val treasuryPrivateKeyB58: String = "",
+    // V5.9.495z29 — operator spec item 8: high-throughput live mode +
+    // explicit live-trade rate-limit / quota / verification controls.
+    // The LiveExecutionGate is configured from these values at bot start
+    // and on every config save.
+    val highThroughputLiveMode: Boolean = false,
+    val maxLiveTradesPerDay: Int = 500,
+    val maxConcurrentLivePositions: Int = 12,
+    val minSecondsBetweenLiveBuys: Int = 4,
+    val maxPendingBuyVerifications: Int = 6,
+    val maxPendingSellVerifications: Int = 8,
+    val hotPathTimeoutMs: Long = 10_000L,
+    val walletReconcileTimeoutMs: Long = 12_000L,
+    val skipSlowBackgroundScansWhenLiveBusy: Boolean = true,
     val rpcUrl: String = "",  // User provides their own RPC URL in settings (Helius, QuickNode, etc.)
     // mode
     val paperMode: Boolean = true,
@@ -281,6 +294,16 @@ object ConfigStore {
             putString("wallet_address",               cfg.walletAddress)
             putString("rpc_url",                      cfg.rpcUrl)
             putBoolean("paper_mode",                  cfg.paperMode)
+            // V5.9.495z29 — operator spec item 8: throughput controls.
+            putBoolean("ht_live_mode",                  cfg.highThroughputLiveMode)
+            putInt    ("ht_max_trades_per_day",         cfg.maxLiveTradesPerDay)
+            putInt    ("ht_max_concurrent_live",        cfg.maxConcurrentLivePositions)
+            putInt    ("ht_min_seconds_between_buys",   cfg.minSecondsBetweenLiveBuys)
+            putInt    ("ht_max_pending_buy_verif",      cfg.maxPendingBuyVerifications)
+            putInt    ("ht_max_pending_sell_verif",     cfg.maxPendingSellVerifications)
+            putLong   ("ht_hot_path_timeout_ms",        cfg.hotPathTimeoutMs)
+            putLong   ("ht_wallet_reconcile_timeout_ms", cfg.walletReconcileTimeoutMs)
+            putBoolean("ht_skip_slow_scans_when_busy",  cfg.skipSlowBackgroundScansWhenLiveBusy)
             putBoolean("shadow_paper_enabled",        cfg.shadowPaperEnabled)
             putBoolean("moonshot_override_enabled",   cfg.moonshotOverrideEnabled)
             putBoolean("fluid_learning_enabled",      cfg.fluidLearningEnabled)
@@ -415,6 +438,16 @@ object ConfigStore {
             walletAddress               = p.getString("wallet_address", "") ?: "",
             rpcUrl                      = p.getString("rpc_url", "") ?: "",
             paperMode                   = p.getBoolean("paper_mode", true),
+            // V5.9.495z29 — operator spec item 8: throughput controls.
+            highThroughputLiveMode      = p.getBoolean("ht_live_mode", false),
+            maxLiveTradesPerDay         = p.getInt    ("ht_max_trades_per_day", 500),
+            maxConcurrentLivePositions  = p.getInt    ("ht_max_concurrent_live", 12),
+            minSecondsBetweenLiveBuys   = p.getInt    ("ht_min_seconds_between_buys", 4),
+            maxPendingBuyVerifications  = p.getInt    ("ht_max_pending_buy_verif", 6),
+            maxPendingSellVerifications = p.getInt    ("ht_max_pending_sell_verif", 8),
+            hotPathTimeoutMs            = p.getLong   ("ht_hot_path_timeout_ms", 10_000L),
+            walletReconcileTimeoutMs    = p.getLong   ("ht_wallet_reconcile_timeout_ms", 12_000L),
+            skipSlowBackgroundScansWhenLiveBusy = p.getBoolean("ht_skip_slow_scans_when_busy", true),
             shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", true),
             moonshotOverrideEnabled     = p.getBoolean("moonshot_override_enabled", true),
             fluidLearningEnabled        = p.getBoolean("fluid_learning_enabled", true),
