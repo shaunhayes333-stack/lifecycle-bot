@@ -659,10 +659,21 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         targetMint: String,
     ): String? {
+        // V5.9.600 BUG-3 FIX: SHORT via SOL→USDC bridge (same logic as tokenized assets).
         if (direction == PerpsDirection.SHORT) {
-            ErrorLogger.warn(TAG,
-                "⚠️ SHORT not supported on SPOT crypto swap for ${market.symbol} — perps retired, skipping live.")
-            return null
+            ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
+            val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
+            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
+                wallet     = wallet,
+                targetMint = USDC_MINT,
+                sizeUsd    = sizeSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0),
+            )
+            if (!bridge.success) {
+                ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
+                return null
+            }
+            val sig = bridge.swapTxSig ?: return null
+            return if (verifyBuyDelivered(wallet, USDC_MINT, balanceBefore, "${market.symbol}_SHORT")) sig else null
         }
         // V5.9.495z22 (item A): Mint Integrity Gate — refuse to swap into a
         // mint that doesn't pass the base58/symbol-tripwire check. Stops
@@ -793,10 +804,24 @@ object MarketsLiveExecutor {
         sizeSol: Double,
         targetMint: String,
     ): String? {
+        // V5.9.600 BUG-3 FIX: SHORT via SOL→USDC bridge.
+        // Real bearish exposure on tokenized assets: we swap sizeSol of SOL into USDC
+        // (locking USD value). If the underlying asset falls, the trader's SOL-equivalent
+        // value rises when they exit (USDC→SOL). Honest, no synthetic multipliers.
         if (direction == PerpsDirection.SHORT) {
-            ErrorLogger.warn(TAG,
-                "⚠️ SHORT not supported on tokenized spot asset ${market.symbol} — skipping live (use perps or paper).")
-            return null
+            ErrorLogger.info(TAG, "⬇️ SHORT ${market.symbol}: SOL→USDC bridge (bearish USD lock, ${sizeSol.fmt(4)} SOL)")
+            val balanceBefore = readTokenUi(wallet, USDC_MINT) ?: 0.0
+            val bridge = com.lifecyclebot.engine.UniversalBridgeEngine.prepareCapital(
+                wallet     = wallet,
+                targetMint = USDC_MINT,
+                sizeUsd    = sizeSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0),
+            )
+            if (!bridge.success) {
+                ErrorLogger.warn(TAG, "⬇️ SHORT ${market.symbol} bridge failed: ${bridge.errorMsg}")
+                return null
+            }
+            val sig = bridge.swapTxSig ?: return null
+            return if (verifyBuyDelivered(wallet, USDC_MINT, balanceBefore, "${market.symbol}_SHORT")) sig else null
         }
         // V5.9.495z22 (item A): Mint Integrity Gate — same defense as SPOT crypto path.
         when (val gate = com.lifecyclebot.engine.execution.MintIntegrityGate.validatePreBuy(market.symbol, targetMint)) {
@@ -1288,15 +1313,21 @@ object MarketsLiveExecutor {
             // Fall through to Jupiter close if Flash fails
         }
 
-        val tokenizedMint = TokenizedAssetRegistry.mintFor(market.symbol)
-        val cryptoMint = if (market.isCrypto) {
+        // V5.9.600 BUG-3 FIX: SHORT positions were opened via SOL→USDC bridge (not
+        // into the target token). On close we therefore swap USDC→SOL, not targetMint→SOL.
+        // Force useTokenized=false for non-Flash SHORTs so we hit the USDC close path.
+        val isShortBridge = direction == PerpsDirection.SHORT &&
+            !(leverage > 1.0 && market.isCrypto && market.symbol in FLASH_SUPPORTED_PUBLIC)
+
+        val tokenizedMint = if (isShortBridge) null else TokenizedAssetRegistry.mintFor(market.symbol)
+        val cryptoMint = if (!isShortBridge && market.isCrypto) {
             com.lifecyclebot.perps.DynamicAltTokenRegistry
                 .getTokenBySymbol(market.symbol)
                 ?.mint
                 ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
         } else null
         val targetMint = tokenizedMint ?: cryptoMint
-        val useTokenized = targetMint != null &&
+        val useTokenized = !isShortBridge && targetMint != null &&
             (market.isStock || market.isCommodity || market.isMetal || market.isForex || market.isCrypto)
 
         val (inputMint, amountUnits) = try {
@@ -1437,3 +1468,4 @@ object MarketsLiveExecutor {
     // Helper
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
 }
+
