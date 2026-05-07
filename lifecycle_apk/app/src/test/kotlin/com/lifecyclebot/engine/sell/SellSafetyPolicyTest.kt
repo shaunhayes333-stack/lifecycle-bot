@@ -28,7 +28,9 @@ class SellSafetyPolicyTest {
 
     @Test
     fun onlyManualEmergencyOrHardRugCanUseDrainLadder() {
-        assertEquals(1200, SellSafetyPolicy.maxSlippageBps("emergency_exit"))
+        // V5.9.495z43 retune — operator spec item 4 dropped non-manual cap
+        // from 1200 to 1000 bps. 9999 bps still requires manual panic flag.
+        assertEquals(1000, SellSafetyPolicy.maxSlippageBps("emergency_exit"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("MANUAL_EMERGENCY_RUG_DRAIN"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
     }

@@ -8462,6 +8462,15 @@ class Executor(
             
             onLog("📊 SELL DEBUG: solBack=${solBack.fmt(6)} | costSol=${pos.costSol.fmt(6)} | pnl=${pnl.fmt(6)} | pnlPct=${pnlP.fmtPct()}", tradeId.mint)
 
+            // V5.9.495z43 operator spec item E — record sell signature +
+            // schedule a reconciler pass after every confirmed sell so the
+            // host_tracker.last_sell_signature stops being "" forever.
+            try {
+                com.lifecyclebot.engine.sell.LiveWalletReconciler.recordSellSignature(ts.mint, sig)
+                com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "sell_confirmed_${ts.mint.take(6)}")
+            } catch (_: Throwable) { /* fail-soft */ }
+
+
             // V5.9.495z39 — operator spec items 4 / 8 / 9 wiring.
             // Now that solBack/feeSol/netPnl are known, emit the canonical
             // SELL_LANDED forensics row with chain-confirmed proportional
@@ -9881,14 +9890,57 @@ class Executor(
 
             if (labelTag.contains("PROFIT", ignoreCase = true) ||
                 labelTag.contains("PARTIAL", ignoreCase = true) ||
-                labelTag.contains("RESCUE", ignoreCase = true)) {
+                labelTag.contains("RESCUE", ignoreCase = true) ||
+                labelTag.contains("TREASURY", ignoreCase = true) ||
+                labelTag.contains("RECOVERY", ignoreCase = true) ||
+                labelTag.contains("TAKE_PROFIT", ignoreCase = true) ||
+                labelTag.contains("SWEEP", ignoreCase = true)) {
+                // V5.9.495z43 operator spec item B — PumpPortal partial sell
+                // hard ban. Forensics 20260508_071749 showed Winston/Goldie/
+                // GREMLIN consumed 547k–1.25M tokens on supposed 25% sweeps.
+                // Until exact-amount semantics are proven, ALL non-full-exit
+                // sells route Jupiter exact-in only.
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
-                    "PumpPortal direct sell disabled for partial/rescue until amount semantics are proven",
+                    "🚫 SEV_PUMPPORTAL_PARTIAL_BLOCKED label=$labelTag — Jupiter exact-in only.",
                     traderTag = traderTag,
                 )
+                com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
+                    mint = ts.mint, symbol = ts.symbol, labelTag = labelTag,
+                )
                 return null
+            }
+            // V5.9.495z43 operator spec item B — even for "full exit" labels,
+            // physically verify the requested fraction is >= 95% of the
+            // chain-confirmed wallet balance before allowing PumpPortal.
+            if (tokenUnits != null && tokenUnits > 0L) {
+                val verifiedRaw = try {
+                    val bal = wallet.getTokenAccountsWithDecimals()[ts.mint]
+                    val ui = bal?.first ?: 0.0
+                    val dec = bal?.second ?: 9
+                    if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
+                } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                if (verifiedRaw.signum() > 0) {
+                    val requested = java.math.BigInteger.valueOf(tokenUnits)
+                    // requested * 100 / verifiedRaw < 95  →  partial sell, reject.
+                    val pctTimes100 = requested.multiply(java.math.BigInteger.valueOf(100))
+                        .divide(verifiedRaw)
+                    if (pctTimes100 < java.math.BigInteger.valueOf(95)) {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+                            "🚫 SEV_PUMPPORTAL_FRACTION_BLOCKED requested=$tokenUnits verified=$verifiedRaw " +
+                            "(${pctTimes100}%) < 95% — Jupiter exact-in only.",
+                            traderTag = traderTag,
+                        )
+                        com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
+                            mint = ts.mint, symbol = ts.symbol,
+                            labelTag = "${labelTag}_FRACTION_${pctTimes100}",
+                        )
+                        return null
+                    }
+                }
             }
 
             // V5.9.495d — DEEP FORENSICS for sells. Snapshot wallet SOL +

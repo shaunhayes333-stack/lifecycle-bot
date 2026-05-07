@@ -14,11 +14,15 @@ object SellSafetyPolicy {
     }
     fun classify(reason: String?): ExitReason = SellReasonClassifier.fromString(reason)
     fun maxSlippageBps(reason: String?): Int = when (classify(reason)) {
+        // V5.9.495z43 — operator spec item 4 (slippage caps):
+        //   normal sells     200–500 bps
+        //   emergency auto   800–1000 bps max
+        //   3000/5000/7500/9999 bps require manual panic-drain flag.
         ExitReason.PROFIT_LOCK, ExitReason.PARTIAL_TAKE_PROFIT -> 500
         ExitReason.CAPITAL_RECOVERY -> 800
-        ExitReason.STOP_LOSS, ExitReason.HARD_STOP -> 1200
-        ExitReason.RUG_DRAIN -> if (isHardRug(reason) || isManualEmergency(reason)) 9999 else 1200
-        ExitReason.MANUAL_FULL_EXIT -> if (isManualEmergency(reason)) 9999 else 1200
+        ExitReason.STOP_LOSS, ExitReason.HARD_STOP -> 1000
+        ExitReason.RUG_DRAIN -> if (isHardRug(reason) || isManualEmergency(reason)) 9999 else 1000
+        ExitReason.MANUAL_FULL_EXIT -> if (isManualEmergency(reason)) 9999 else 1000
         ExitReason.UNKNOWN -> 500
     }
     fun initialSlippageBps(reason: String?): Int = when (classify(reason)) {
@@ -31,7 +35,7 @@ object SellSafetyPolicy {
         val base = when {
             max > 1200 && (isHardRug(reason) || isManualEmergency(reason)) -> listOf(500, 1500, 3000, 5000, 7500, 9999)
             classify(reason) == ExitReason.CAPITAL_RECOVERY -> listOf(200, 500, 800)
-            classify(reason) == ExitReason.STOP_LOSS || classify(reason) == ExitReason.HARD_STOP -> listOf(500, 800, 1200)
+        ExitReason.STOP_LOSS, ExitReason.HARD_STOP -> listOf(500, 800, 1000)
             else -> listOf(200, 500)
         }
         return base.map { it.coerceAtMost(max) }.distinct()

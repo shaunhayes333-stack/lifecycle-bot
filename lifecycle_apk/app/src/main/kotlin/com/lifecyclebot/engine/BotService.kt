@@ -6094,6 +6094,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 )
             } catch (_: Throwable) { /* never break the cycle */ }
 
+            // V5.9.495z43 operator spec item E — fire the live wallet
+            // reconciler from every scan cycle. Runs on IO so this is
+            // non-blocking. RPC empty-map is safely treated as UNKNOWN
+            // (no state change). Updates TokenLifecycleTracker for every
+            // tracked mint with chain-confirmed UI balance.
+            try {
+                com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
+                    wallet = wallet,
+                    reason = "cycle_${mint.take(6)}",
+                )
+            } catch (_: Throwable) { /* never break the cycle */ }
+
             // Primary price source: Dexscreener
             val pair = dex.getBestPair(mint) ?: run {
                 val ts = status.tokens[mint]
