@@ -771,7 +771,7 @@ object CryptoAltTrader {
                     com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
                 else
                     com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
-                com.lifecyclebot.engine.CryptoPositionState.record(pos.symbol, bucket)
+                com.lifecyclebot.engine.CryptoPositionState.record(pos.market.symbol, bucket)
             }
         } catch (_: Throwable) { /* best-effort */ }
         val cpsLine = try {
