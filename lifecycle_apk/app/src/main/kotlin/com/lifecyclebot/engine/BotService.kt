@@ -726,6 +726,17 @@ class BotService : Service() {
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
 
         if (marketsLaneOn) {
+            // V5.9.600 BUG-1 FIX: PerpsTraderAI was never getting setLiveMode called.
+            // Sub-traders all get setLiveMode(!cfg.paperMode) below, but PerpsTraderAI
+            // only had setTradingMode(isPaper) and was never reached from BotService.
+            // Wire it the same way as every other trader so the live/paper flag is
+            // consistent with the global config.
+            try {
+                com.lifecyclebot.perps.PerpsTraderAI.setLiveMode(!cfg.paperMode)
+                ErrorLogger.info("BotService", "⚡ PerpsTraderAI mode: ${if (cfg.paperMode) "PAPER" else "LIVE"}")
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "PerpsTraderAI setLiveMode error: ${e.message}")
+            }
             try {
                 com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
                 ErrorLogger.info("BotService", "⚡ PerpsExecutionEngine STARTED - Fully Automatic Trading ACTIVE")
@@ -11478,3 +11489,4 @@ internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
 // runs SmartChartScanner.scan() multi-TF so longer-horizon patterns
 // (Cup & Handle, Wedges, Dead Cat Bounce…) can actually fire.
 private val smartChartScanCounter = java.util.concurrent.atomic.AtomicLong(0)
+
