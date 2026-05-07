@@ -88,7 +88,31 @@ class LiveTradeLogActivity : Activity() {
             }
         }
 
+        // V5.9.495z22 (item D) — one-tap forensic export.
+        val exportBtn = Button(this).apply {
+            text = "Export"
+            setBackgroundColor(Color.parseColor("#1F2937"))
+            setTextColor(Color.parseColor("#34D399"))
+            setOnClickListener {
+                try {
+                    com.lifecyclebot.engine.execution.PositionWalletReconciler.forceTick()
+                    val file = com.lifecyclebot.engine.execution.ForensicReportExporter.dumpToFile(applicationContext)
+                    val intent = com.lifecyclebot.engine.execution.ForensicReportExporter.shareIntent(applicationContext, file)
+                    if (intent != null) {
+                        startActivity(android.content.Intent.createChooser(intent, "Export Forensic Report"))
+                    } else {
+                        android.widget.Toast.makeText(applicationContext,
+                            "Export written: ${file.name}", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(applicationContext,
+                        "Export failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
         header.addView(title)
+        header.addView(exportBtn)
         header.addView(clearBtn)
         outer.addView(header)
 
@@ -137,7 +161,12 @@ class LiveTradeLogActivity : Activity() {
                 it.latestPhase == Phase.SELL_VERIFY_TOKEN_GONE ||
                 it.latestPhase == Phase.SELL_VERIFY_SOL_RETURNED }
         val sweeps = groups.count { it.latestSide == "SWEEP" }
-        summaryView.text = "Trades: $total | Live: $live | Landed: $landed | Phantoms: $phantoms | Sweeps: $sweeps"
+        // V5.9.495z22 — surface PositionWalletReconciler phantom count alongside.
+        val recon = try { com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot() } catch (_: Throwable) { null }
+        val reconLine = if (recon != null && recon.totalChecked > 0) {
+            "  •  Recon: ✓${recon.healthy}  🚨${recon.phantoms}  ?${recon.noMint}  ⏳${recon.grace}"
+        } else ""
+        summaryView.text = "Trades: $total | Live: $live | Landed: $landed | Phantoms: $phantoms | Sweeps: $sweeps$reconLine"
 
         rootColumn.removeAllViews()
         if (groups.isEmpty()) {

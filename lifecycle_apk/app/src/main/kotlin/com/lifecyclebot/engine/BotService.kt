@@ -1668,6 +1668,24 @@ class BotService : Service() {
                 addLog("⚠️ Recovery loop start failed: ${e.message}")
             }
 
+            // V5.9.495z22 (item B) — PositionWalletReconciler. Periodic worker
+            // that compares each open position against actual host-wallet
+            // truth and fires a critical alert + forensics PHANTOM_POSITION
+            // event when a position's resolved mint has zero on-chain
+            // balance after the settlement grace window. Running in BOTH
+            // paper and live so phantoms in shadow runs are also flagged
+            // (HostWalletTokenTracker is live-truth either way).
+            try {
+                val w = wallet
+                if (w != null) {
+                    com.lifecyclebot.engine.execution.PositionWalletReconciler.installHostTrackerSource()
+                    com.lifecyclebot.engine.execution.PositionWalletReconciler.start(w)
+                    addLog("🛡 Position↔Wallet reconciler started")
+                }
+            } catch (e: Exception) {
+                addLog("⚠️ Reconciler start failed: ${e.message}")
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.6.9: RESTORE PERSISTED POSITIONS ON BOT START
             // 
@@ -2779,6 +2797,11 @@ class BotService : Service() {
         // V5.9.495z20 — stop recovery loop on bot stop.
         try {
             com.lifecyclebot.engine.execution.RecoveryExecutionLoop.stop()
+        } catch (_: Exception) {}
+
+        // V5.9.495z22 — stop reconciler loop on bot stop.
+        try {
+            com.lifecyclebot.engine.execution.PositionWalletReconciler.stop()
         } catch (_: Exception) {}
         
         // V5.7.8: In paper mode, purge only obviously bad trades (not all history)

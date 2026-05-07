@@ -236,9 +236,18 @@ object MarketsLiveExecutor {
         // V5.9.495p — wire crypto-trader BUY into LiveTradeLogStore so the
         // operator's "🔬 Live Forensics" view shows end-to-end crypto-alt
         // BUY activity (entry attempt, broadcast, success/failure).
-        val forensicsMint = try {
-            com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint ?: market.symbol
-        } catch (_: Throwable) { market.symbol }
+        // V5.9.495z22 (item C): NEVER use the symbol as a mint placeholder.
+        // The screenshot bug "mint: FLOKI...FLOKI" was the symbol leaking
+        // through this fallback. If no on-chain mint is registered we keep
+        // the forensics mint blank — the timeline still groups by tradeKey
+        // so the row stays useful, but no caller will mistake the symbol
+        // for an addressable mint downstream.
+        val resolvedMint: String? = try {
+            com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(market.symbol)?.mint
+                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                ?.takeIf { com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it) }
+        } catch (_: Throwable) { null }
+        val forensicsMint = resolvedMint ?: ""
         val forensicsKey = com.lifecyclebot.engine.LiveTradeLogStore.keyFor(forensicsMint, System.currentTimeMillis())
         com.lifecyclebot.engine.LiveTradeLogStore.log(
             tradeKey = forensicsKey,
@@ -645,6 +654,17 @@ object MarketsLiveExecutor {
                 "⚠️ SHORT not supported on SPOT crypto swap for ${market.symbol} — perps retired, skipping live.")
             return null
         }
+        // V5.9.495z22 (item A): Mint Integrity Gate — refuse to swap into a
+        // mint that doesn't pass the base58/symbol-tripwire check. Stops
+        // the FLOKI...FLOKI class of bug at the door.
+        when (val gate = com.lifecyclebot.engine.execution.MintIntegrityGate.validatePreBuy(market.symbol, targetMint)) {
+            is com.lifecyclebot.engine.execution.MintIntegrityGate.Result.Reject -> {
+                ErrorLogger.warn(TAG,
+                    "⛔ ${market.symbol} SPOT rejected by MintIntegrityGate: ${gate.code} — ${gate.reason}")
+                return null
+            }
+            else -> { /* Ok */ }
+        }
         // V5.9.310: Use UniversalBridgeEngine to pick best source token from wallet.
         // Previously always used SOL_MINT as input — if wallet had USDC/USDT but low SOL,
         // the swap would fail or get trimmed to near-zero.
@@ -767,6 +787,15 @@ object MarketsLiveExecutor {
             ErrorLogger.warn(TAG,
                 "⚠️ SHORT not supported on tokenized spot asset ${market.symbol} — skipping live (use perps or paper).")
             return null
+        }
+        // V5.9.495z22 (item A): Mint Integrity Gate — same defense as SPOT crypto path.
+        when (val gate = com.lifecyclebot.engine.execution.MintIntegrityGate.validatePreBuy(market.symbol, targetMint)) {
+            is com.lifecyclebot.engine.execution.MintIntegrityGate.Result.Reject -> {
+                ErrorLogger.warn(TAG,
+                    "⛔ ${market.symbol} tokenized rejected by MintIntegrityGate: ${gate.code} — ${gate.reason}")
+                return null
+            }
+            else -> { /* Ok */ }
         }
         val label = TokenizedAssetRegistry.routeLabel(market.symbol)
         // V5.9.309: WALLET BALANCE PRE-CHECK with RENT_RESERVE (same fix as crypto SPOT path)
