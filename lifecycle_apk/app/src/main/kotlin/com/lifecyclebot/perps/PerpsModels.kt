@@ -709,6 +709,9 @@ data class PerpsPosition(
     var status: PerpsPositionStatus = PerpsPositionStatus.OPEN,
     var partialCloseCount: Int = 0,
     var lastUpdateTime: Long = System.currentTimeMillis(),
+    // V5.9.600: Flash.trade perps position key — stored on live open, required for proper close.
+    // Null = spot/paper position or Flash key not yet resolved.
+    @Volatile var flashPositionKey: String? = null,
 ) {
     fun getUnrealizedPnlPct(): Double {
         val raw = ((currentPrice - entryPrice) / entryPrice * 100) * direction.multiplier
@@ -939,4 +942,5 @@ fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
 fun Double.formatUsd(): String = "$${String.format("%.2f", this)}"
 fun Double.formatPct(): String = "${String.format("%.2f", this)}%"
 fun Double.formatLeverage(): String = "${String.format("%.1f", this)}x"
+
 
