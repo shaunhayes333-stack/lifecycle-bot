@@ -81,6 +81,13 @@ object HostWalletTokenTracker {
         PositionStatus.SELL_VERIFYING,
     )
 
+    /** V5.9.601 — any of these means a sell/reconcile lifecycle is in flight. */
+    private val SELL_IN_FLIGHT_STATUSES: Set<PositionStatus> = setOf(
+        PositionStatus.EXIT_SIGNALLED,
+        PositionStatus.SELL_PENDING,
+        PositionStatus.SELL_VERIFYING,
+    )
+
     data class TrackedTokenPosition(
         val mint: String,
         var symbol: String?,
@@ -348,6 +355,14 @@ object HostWalletTokenTracker {
      */
     fun recordSellConfirmed(mint: String, symbol: String?, exitPrice: Double, pnlPct: Double, reason: String?) {
         val p = positions[mint] ?: return
+        // V5.9.601: host-wallet tracker is live-wallet truth only. Paper exits
+        // must never close, verify, profit-mark, or otherwise mutate a live
+        // wallet position.
+        if (reason?.contains("PAPER", ignoreCase = true) == true) {
+            emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, p.sellSignature,
+                "PAPER_EXIT_BLOCKED_FROM_HOST_TRACKER ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
+            return
+        }
         // If the wallet snapshot has already shown 0, recordWalletEmpty()
         // will collapse this to SOLD_CONFIRMED. Until then, mark verifying.
         if (p.status.priority < PositionStatus.SELL_VERIFYING.priority) {
@@ -356,7 +371,7 @@ object HostWalletTokenTracker {
         p.notes.add("sell exit reason=${reason ?: "?"} pnl=${pnlPct}%")
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, mint, symbol ?: p.symbol, p.sellSignature,
             "Tracker SELL_CONFIRMED ${symbol ?: p.symbol ?: mint.take(6)} exit=$exitPrice pnl=${pnlPct}% reason=${reason ?: "?"}")
-        // If we already know wallet is empty (e.g. paper exit) close immediately.
+        // If a confirmed live wallet snapshot already shows empty, close immediately.
         if (p.uiAmount <= 0.0) {
             p.status = PositionStatus.CLOSED
             emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, p.sellSignature,
@@ -482,6 +497,18 @@ object HostWalletTokenTracker {
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
     fun snapshot(): List<TrackedTokenPosition> = positions.values.toList()
+
+    /** V5.9.601: true when auto-sell must not start another executor job. */
+    fun isSellInFlight(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        val p = positions[mint] ?: return false
+        return p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
+    }
+
+    fun sellBlockReason(mint: String): String? {
+        val p = positions[mint] ?: return null
+        return if (isSellInFlight(mint)) "${p.status.name} attempt=${p.activeSellAttemptId ?: p.sellSignature ?: "?"}" else null
+    }
 
     fun getEntry(mint: String): TrackedTokenPosition? = positions[mint]
 

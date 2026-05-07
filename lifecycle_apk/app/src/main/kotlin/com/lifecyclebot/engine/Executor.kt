@@ -676,6 +676,83 @@ class Executor(
         return (cappedQty * scale).toLong().coerceAtLeast(1L)
     }
 
+    private data class ConfirmedSellAmount(
+        val requestedRaw: Long,
+        val requestedUi: Double,
+        val walletRaw: Long,
+        val walletUi: Double,
+        val decimals: Int,
+    )
+
+    /** V5.9.601: confirmed wallet balance only. RPC-empty-map means no broadcast. */
+    private fun resolveConfirmedSellAmountOrNull(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        requestedUiQty: Double,
+        fraction: Double? = null,
+        sellTradeKey: String? = null,
+        traderTag: String = "MEME",
+    ): ConfirmedSellAmount? {
+        if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
+        val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (e: Exception) {
+            ErrorLogger.warn("Executor", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
+            null
+        }
+        if (accounts == null || accounts.isEmpty()) {
+            LiveTradeLogStore.log(
+                sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                "RPC-EMPTY-MAP → BALANCE_UNKNOWN — sell broadcast blocked; caller tokenUnits/cache not authoritative",
+                traderTag = traderTag,
+            )
+            return null
+        }
+        val entry = accounts[ts.mint]
+        if (entry == null) {
+            LiveTradeLogStore.log(
+                sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                "BALANCE_UNKNOWN — exact owner+mint token account missing; sell broadcast blocked",
+                traderTag = traderTag,
+            )
+            return null
+        }
+        val (walletUi, dec) = entry
+        if (!walletUi.isFinite() || walletUi <= 0.0) return null
+        val decimals = dec.coerceAtLeast(0)
+        val scale = 10.0.pow(decimals.toDouble())
+        val walletRaw = (walletUi * scale).toLong().coerceAtLeast(0L)
+        if (walletRaw <= 0L) return null
+        val requestedUi = when {
+            fraction != null -> walletUi * fraction.coerceIn(0.0, 1.0)
+            requestedUiQty > walletUi -> walletUi
+            else -> requestedUiQty
+        }
+        val requestedRaw = (requestedUi * scale).toLong().coerceIn(1L, walletRaw)
+        return ConfirmedSellAmount(requestedRaw, requestedRaw.toDouble() / scale, walletRaw, walletUi, decimals)
+    }
+
+    private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
+        val stateReason = HostWalletTokenTracker.sellBlockReason(ts.mint)
+        if (stateReason != null && !com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason)) {
+            LiveTradeLogStore.log(
+                tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                "SELL_BLOCKED_ALREADY_IN_PROGRESS state=$stateReason reason=$reason", traderTag = "MEME",
+            )
+            return true
+        }
+        if (com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint)) {
+            LiveTradeLogStore.log(
+                tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                "SELL_BLOCKED_ALREADY_IN_PROGRESS lock=true reason=$reason", traderTag = "MEME",
+            )
+            return true
+        }
+        return false
+    }
+
     private fun reflectInt(target: Any?, vararg names: String): Int? {
         for (name in names) {
             val value = reflectValue(target, name) ?: continue
@@ -1921,14 +1998,17 @@ class Executor(
         // executing but never appearing in Live Trade Forensics — this entire
         // function was emitting onLog only and bypassed LiveTradeLogStore.
         val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
-        val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
-        // Per-broadcast-retry slippage escalation (mirrors V5.9.470 in liveSell)
-        val sellSlippage = when (priorBroadcastRetries) {
-            0    -> (c.slippageBps * 2)
-            1    -> 400
-            2    -> 600
-            else -> 1000
-        }.coerceAtMost(2000)
+        if (blockIfSellInFlight(ts, reason, sellTradeKey)) return
+        if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                "SELL_BLOCKED_ALREADY_IN_PROGRESS profit-lock reason=$reason",
+                traderTag = "MEME",
+            )
+            return
+        }
+        val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
 
         // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder mirroring
         // V5.9.478 in liveSell. Profit-lock sells previously did a single
@@ -1949,42 +2029,21 @@ class Executor(
         //   - PROFIT_LOCK         max 500–800 bps
         //   - CAPITAL_RECOVERY    max 1000–1500 bps
         //   - 7500/9999 bps is RUG_DRAIN territory only.
-        val isDrainExit = reason.contains("drain", ignoreCase = true) ||
-                          reason.contains("rug", ignoreCase = true) ||
-                          reason.contains("collapse", ignoreCase = true) ||
-                          reason.contains("emergency", ignoreCase = true) ||
-                          reason.contains("liquidity_collapse", ignoreCase = true)
+        val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
+                          (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
+                           com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason))
         val isProfitLock      = reason.contains("profit_lock", ignoreCase = true)
         val isCapitalRecovery = reason.contains("capital_recovery", ignoreCase = true)
-        val broadcastSlipLadder = when {
-            isDrainExit ->
-                listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
-                    .map { it.coerceAtLeast(sellSlippage) }
-                    .distinct()
-            isProfitLock ->
-                // hard cap at 800 bps for PROFIT_LOCK per operator spec.
-                listOf(sellSlippage.coerceAtLeast(300), 500, 800)
-                    .map { it.coerceAtLeast(sellSlippage).coerceAtMost(800) }
-                    .distinct()
-            isCapitalRecovery ->
-                // hard cap at 1500 bps for CAPITAL_RECOVERY.
-                listOf(sellSlippage.coerceAtLeast(500), 1000, 1500)
-                    .map { it.coerceAtLeast(sellSlippage).coerceAtMost(1500) }
-                    .distinct()
-            else ->
-                listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
-                    .map { it.coerceAtLeast(sellSlippage) }
-                    .distinct()
-        }
+        val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
         // Forensic guard — if we ever try to take a profit_lock/cap_rec
         // sell with slippage above its cap, surface a SELL_AMOUNT_VIOLATION
         // event so the operator sees it in forensics.
         run {
             val maxAllowed = when {
-                isProfitLock      -> 800
-                isCapitalRecovery -> 1500
-                isDrainExit       -> 9999
-                else              -> 5000
+                isProfitLock      -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+                isCapitalRecovery -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+                isDrainExit       -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+                else              -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
             }
             if (sellSlippage > maxAllowed) {
                 ErrorLogger.warn("Executor",
@@ -1994,10 +2053,10 @@ class Executor(
         // Tail-clamp the ladder so the broadcast loop physically cannot
         // escalate past the cap.
         val maxLadderBps = when {
-            isDrainExit       -> 9999
-            isCapitalRecovery -> 1500
-            isProfitLock      -> 800
-            else              -> 5000
+            isDrainExit       -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+            isCapitalRecovery -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+            isProfitLock      -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
+            else              -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
         }
         val broadcastSlipLadderCapped = broadcastSlipLadder.map { it.coerceAtMost(maxLadderBps) }.distinct()
 
@@ -2115,14 +2174,7 @@ class Executor(
                             continue
                         }
                     }
-                    val dynSlipCap = when {
-                        isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
-                        else -> when (broadcastAttempts) {
-                            1 -> 2000
-                            2 -> 5000
-                            else -> 9999
-                        }
-                    }.coerceAtLeast(currentSlip)
+                    val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -2269,6 +2321,7 @@ class Executor(
                         )
                         onLog("🚨 SELL meta.err [$reason] ${ts.symbol}: ${vsr.txErr} — position unchanged.", ts.mint)
                         TradeVerifier.endSell(ts.mint)
+                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                         return
                     }
                     TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
@@ -2280,11 +2333,13 @@ class Executor(
                             sig = finalSig, tokenAmount = sellQty, traderTag = "MEME",
                         )
                         TradeVerifier.endSell(ts.mint)
+                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                         return
                     }
                     null -> {
                         // verifier threw — for safety, decline to mutate position; operator can re-trigger exit.
                         TradeVerifier.endSell(ts.mint)
+                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                         return
                     }
                 }
@@ -2406,8 +2461,12 @@ class Executor(
                         },
                         traderTag = "MEME",
                     )
+                    com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                 }
-            } catch (_: Throwable) { /* never break the live path on reconcile */ }
+            } catch (_: Throwable) {
+                com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                /* never break the live path on reconcile */
+            }
             onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${finalSig.take(16)}…", ts.mint)
             onNotify("✅ Profit Locked",
                 "${ts.symbol} secured ${solBack.fmt(3)} SOL",
@@ -2443,6 +2502,7 @@ class Executor(
                 "$failureClass — ${e.javaClass.simpleName}: ${safe.take(120)} (attempt $broadcastRetries)",
                 traderTag = "MEME",
             )
+            com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
             ErrorLogger.warn("Executor", "PROFIT-LOCK SELL POST-QUOTE FAILURE: ${ts.symbol} class=$failureClass exc=${e.javaClass.simpleName} retry=$broadcastRetries")
             onLog("❌ Profit lock sell FAILED: $failureClass — ${safe.take(80)} (retry $broadcastRetries)", ts.mint)
         }
@@ -5008,6 +5068,7 @@ class Executor(
             // Jupiter Ultra → Metis ladder.
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
+
             val pumpFirstResult: Pair<String, Double>? = tryPumpPortalBuy(
                 ts = ts,
                 wallet = wallet,
@@ -5773,6 +5834,7 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        if (!ts.position.isPaperPosition && blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
         // as SELL_PENDING the moment any sell is requested. The downstream
         // SOL+token verification path (post-broadcast) flips it to CLEARED
@@ -5904,6 +5966,14 @@ class Executor(
             if (pct >= 0.9) {
                 doSell(ts, "[PARTIAL→FULL] $reason", activeWallet, walletBalance)
             } else {
+                val lockTradeKeyPre = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
+                if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) return
+                if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+                    LiveTradeLogStore.log(lockTradeKeyPre, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                        "SELL_BLOCKED_ALREADY_IN_PROGRESS partial reason=$reason", traderTag = "MEME")
+                    return
+                }
                 // V5.6.27: Implement actual partial sell for LIVE mode
                 try {
                     val c = cfg()
@@ -5913,39 +5983,19 @@ class Executor(
                     val newCost = pos.costSol * (1 - pct)
                     val newSoldPct = pos.partialSoldPct + (pct * 100)
                     
-                    val sellUnits = resolveSellUnits(ts, sellQty, wallet = activeWallet)
-                    // V5.9.474 — full forensics + V5.9.468 binding-order + V5.9.472 cap removal
-                    // for the LIVE partial-sell path. Was: NO LiveTradeLogStore emissions,
-                    // 500bps slippage hard-cap, no taker-bound binding order — i.e. all
-                    // of liveSell's bug surface preserved here. Now mirrors V5.9.470/472.
                     val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
-                    val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast_partial"] ?: 0
-                    val sellSlippage = when (priorBroadcastRetries) {
-                        0    -> (c.slippageBps * 2)
-                        1    -> 400
-                        2    -> 600
-                        else -> 1000
-                    }.coerceAtMost(2000)
-
-                    // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder
-                    // (mirrors V5.9.478 in liveSell + V5.9.479 in profit-lock).
-                    // V5.9.495v — capital_recovery + profit_lock now also drain-exit
-                    val isDrainExit = reason.contains("drain", ignoreCase = true) ||
-                                      reason.contains("rug", ignoreCase = true) ||
-                                      reason.contains("collapse", ignoreCase = true) ||
-                                      reason.contains("emergency", ignoreCase = true) ||
-                                      reason.contains("liquidity_collapse", ignoreCase = true) ||
-                                      reason.contains("capital_recovery", ignoreCase = true) ||
-                                      reason.contains("profit_lock", ignoreCase = true)
-                    val broadcastSlipLadder = if (isDrainExit) {
-                        listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
-                            .map { it.coerceAtLeast(sellSlippage) }
-                            .distinct()
-                    } else {
-                        listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
-                            .map { it.coerceAtLeast(sellSlippage) }
-                            .distinct()
-                    }
+                    val confirmedSell = resolveConfirmedSellAmountOrNull(ts, activeWallet, sellQty, pct, sellTradeKey)
+                        ?: run {
+                            com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                            onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)
+                            return
+                        }
+                    val sellUnits = confirmedSell.requestedRaw
+                    val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
+                    val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
+                    val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
+                                      (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
+                                       com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason))
 
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -6012,14 +6062,7 @@ class Executor(
                                     continue
                                 }
                             }
-                            val dynSlipCap = when {
-                                isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
-                                else -> when (broadcastAttempts) {
-                                    1 -> 2000
-                                    2 -> 5000
-                                    else -> 9999
-                                }
-                            }.coerceAtLeast(currentSlip)
+                            val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                             val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -6187,6 +6230,7 @@ class Executor(
                         solAmount = solBack,
                         traderTag = "MEME",
                     )
+                    com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                     
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)
@@ -6225,6 +6269,7 @@ class Executor(
                         "$failureClass — ${e.javaClass.simpleName}: ${safe.take(120)} (partial-sell attempt $broadcastRetries)",
                         traderTag = "MEME",
                     )
+                    com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                     ErrorLogger.error("Executor", "❌ LIVE PARTIAL SELL FAILED: ${ts.symbol} | class=$failureClass | ${e.message}")
                     onLog("❌ Live partial sell FAILED: $failureClass — ${safe.take(80)} (retry $broadcastRetries)", ts.mint)
                 }
@@ -6332,6 +6377,16 @@ class Executor(
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
             return SellResult.NO_WALLET
         } else {
+            if (blockIfSellInFlight(ts, reason, LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime))) {
+                return SellResult.FAILED_RETRYABLE
+            }
+            if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+                LiveTradeLogStore.log(
+                    LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime), ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$reason", traderTag = "MEME")
+                return SellResult.FAILED_RETRYABLE
+            }
             onLog("💰 Routing to liveSell", tradeId.mint)
             val result = liveSell(ts, reason, wallet, walletSol, tradeId)
             // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
@@ -6344,8 +6399,9 @@ class Executor(
         }
 
         } finally {
-            // Always release the sell guard so future sells on this token are allowed
+            // Always release the sell guards after the sell/verify lifecycle returns.
             sellInProgress.remove(ts.mint)
+            com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
         }
     }
 
@@ -7470,7 +7526,8 @@ class Executor(
         // reality. After 60s we fall back to the on-chain sanity
         // check to keep orphan protection for genuinely rugged tokens.
         val ageMs = System.currentTimeMillis() - pos.entryTime
-        val skipOnChainCheck = (ageMs < 60_000L) && tokenUnits > 0L
+        // V5.9.601: live sells may not skip exact owner+mint balance verification.
+        val skipOnChainCheck = false
         if (skipOnChainCheck) {
             onLog("⚡ FAST PATH: tokens verified on buy ${ageMs / 1000}s ago — skipping on-chain " +
                   "balance pre-check (tracker qty=$tokenUnits)", tradeId.mint)
@@ -7506,22 +7563,18 @@ class Executor(
             // we don't risk false sells. The orphan-alert path (line
             // below) still fires when the map is NON-EMPTY but this mint
             // is absent — that's the real "externally sold/rugged" case.
-            val rpcRescue = mapEmpty && tokenUnits > 0L
-            if (rpcRescue) {
-                val heldSec = (System.currentTimeMillis() - pos.entryTime) / 1000
-                onLog("🛟 RPC RESCUE: empty balance map blip — trusting tracker qty=$tokenUnits " +
-                      "from verified buy (${heldSec}s ago). Tokens on-chain, RPC is the problem.",
-                      tradeId.mint)
-                ErrorLogger.info("Executor", "RPC_RESCUE: ${ts.symbol} empty map → using tracker qty=$tokenUnits")
+            val rpcRescue = false
+            if (mapEmpty) {
+                val retryCount = zeroBalanceRetries.merge(ts.mint + "_balance_unknown", 1) { old, _ -> old + 1 } ?: 1
+                onLog("🛑 SELL BLOCKED: ${ts.symbol} RPC-EMPTY-MAP → BALANCE_UNKNOWN (retry $retryCount) — refusing cached tokenUnits broadcast", tradeId.mint)
+                ErrorLogger.warn("Executor", "RPC_EMPTY_MAP_BALANCE_UNKNOWN: ${ts.symbol} — broadcast blocked")
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.INFO,
-                    "🛟 RPC empty-map rescue — tracker qty=$tokenUnits from verified buy (${heldSec}s ago)",
+                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                    "RPC-EMPTY-MAP → BALANCE_UNKNOWN — broadcast blocked; caller tokenUnits/cache not authoritative",
                     traderTag = "MEME",
                 )
-                zeroBalanceRetries.remove(ts.mint)
-                // Fall through past the zero-balance and refinement blocks
-                // below — tokenUnits from the tracker is authoritative.
+                return SellResult.FAILED_RETRYABLE
             } else if (tokenData == null || tokenData.first <= 0.0) {
                 // V5.9.72 CRITICAL FIX: previous logic force-closed the position
                 // after 5 "zero balance" reads, calling tradeId.closed(...) and
@@ -7619,8 +7672,13 @@ class Executor(
             } // end else (tokenData non-null refinement branch) — V5.9.467
             
         } catch (e: Exception) {
-            onLog("⚠️ SELL DEBUG: Balance check failed: ${e.message?.take(60)}", tradeId.mint)
-            onLog("   Proceeding with tracked qty: $tokenUnits", tradeId.mint)
+            onLog("🛑 SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN after balance-check failure: ${e.message?.take(60)}", tradeId.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                "BALANCE_UNKNOWN after balance-check failure — broadcast blocked; cached tokenUnits not authoritative",
+                traderTag = "MEME",
+            )
+            return SellResult.FAILED_RETRYABLE
         }
 
         var pnl  = 0.0
@@ -7640,14 +7698,7 @@ class Executor(
             // Now: per-mint broadcastRetries counter increases the BASE slippage
             // for retries (200 → 300 → 500 → 800 → 1000bps cap) so the 3rd+
             // attempt has a real chance against pump.fun-class price drift.
-            val priorBroadcastRetries = zeroBalanceRetries[ts.mint + "_broadcast"] ?: 0
-            val baseSlippage = (c.slippageBps * 2).coerceAtMost(500)
-            val sellSlippage = when (priorBroadcastRetries) {
-                0    -> baseSlippage              // first attempt — normal 200bps
-                1    -> 400                        // 2nd attempt — moderate bump
-                2    -> 600                        // 3rd attempt — meme-volatility tolerance
-                else -> 1000                       // 4th+ attempt — pump.fun freefall protection
-            }.coerceAtMost(1000)
+            val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
             onLog("📊 SELL DEBUG: Requesting quote | slippage=${sellSlippage}bps | tokenUnits=$tokenUnits | broadcastRetries=$priorBroadcastRetries", tradeId.mint)
             
             var quote: com.lifecyclebot.network.SwapQuote? = null
@@ -7661,7 +7712,7 @@ class Executor(
             // This preserves the V5.9.103 'don't sell rugs at half price' intent
             // while letting genuinely volatile pump.fun memes complete after 2-3
             // 0x1788 retries.
-            val slippageLevels = listOf(sellSlippage, 600, 1000).distinct()
+            val slippageLevels = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
             
             for (slipLevel in slippageLevels) {
                 for (attempt in 1..2) {
@@ -7763,25 +7814,10 @@ class Executor(
             // catch unchanged — only SLIPPAGE escalates inline.
             // zeroBalanceRetries[mint+"_broadcast"] is still bumped per
             // failure for forensics + cross-call state.
-            val isDrainExit = reason.contains("drain", ignoreCase = true) ||
-                              reason.contains("rug", ignoreCase = true) ||
-                              reason.contains("collapse", ignoreCase = true) ||
-                              reason.contains("emergency", ignoreCase = true) ||
-                              reason.contains("liquidity_collapse", ignoreCase = true) ||
-                              reason.contains("capital_recovery", ignoreCase = true) ||
-                              reason.contains("profit_lock", ignoreCase = true)
-            val broadcastSlipLadder = if (isDrainExit) {
-                // V5.9.495v — Emergency: 5% / 15% / 30% / 50% / 75% / 99% — accept whatever to escape
-                listOf(sellSlippage.coerceAtLeast(500), 1500, 3000, 5000, 7500, 9999)
-                    .map { it.coerceAtLeast(sellSlippage) }
-                    .distinct()
-            } else {
-                // V5.9.495v — Normal escalation: 2% / 4% / 6% / 10% / 20% / 50%
-                // (added 50% tail so illiquid mints close rather than bleed open)
-                listOf(sellSlippage, 400, 600, 1000, 2000, 5000)
-                    .map { it.coerceAtLeast(sellSlippage) }
-                    .distinct()
-            }
+            val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
+                              (com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) ||
+                               com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason))
+            val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
             if (isDrainExit) {
                 onLog("🚨 DRAIN-EXIT mode for ${ts.symbol} ($reason): ladder=${broadcastSlipLadder.joinToString(",")}bps", tradeId.mint)
                 LiveTradeLogStore.log(
@@ -7881,14 +7917,7 @@ class Executor(
                     // on normal sells, 9999bps on drain-exit, ramping up across
                     // in-line retries. Jupiter's simulation picks the actual
                     // value within bounds based on real pool state.
-                    val dynSlipCap = when {
-                        isDrainExit -> if (broadcastAttempts == 1) 9000 else 9999
-                        else -> when (broadcastAttempts) {
-                            1 -> 2000
-                            2 -> 5000
-                            else -> 9999
-                        }
-                    }.coerceAtLeast(currentSlip)
+                    val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
@@ -9833,6 +9862,18 @@ class Executor(
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
 
+            if (labelTag.contains("PROFIT", ignoreCase = true) ||
+                labelTag.contains("PARTIAL", ignoreCase = true) ||
+                labelTag.contains("RESCUE", ignoreCase = true)) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+                    "PumpPortal direct sell disabled for partial/rescue until amount semantics are proven",
+                    traderTag = traderTag,
+                )
+                return null
+            }
+
             // V5.9.495d — DEEP FORENSICS for sells. Snapshot wallet SOL +
             // token balance pre-broadcast so the operator can see the
             // before/after at the trade screen. Async post-broadcast watcher
@@ -9891,10 +9932,11 @@ class Executor(
             if (preBalancesEmpty) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.WARNING,
-                    "🛟 RPC empty-map blip — proceeding with broadcast (caller's tokenUnits is authoritative)",
+                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                    "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; caller tokenUnits/cache not authoritative",
                     traderTag = traderTag,
                 )
+                return null
             }
 
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
