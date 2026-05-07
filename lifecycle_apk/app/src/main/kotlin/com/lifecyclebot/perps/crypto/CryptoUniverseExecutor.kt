@@ -80,9 +80,19 @@ object CryptoUniverseExecutor {
                 priceUsd   = priceUsd,
                 traderType = traderType,
             )
-            if (success) Outcome.Executed(txSig)
-            else Outcome.ExecFailed(resolution, "Jupiter/Bridge swap returned no signature.")
+            if (success) {
+                // V5.9.495z36 — clear failure history on a successful tx.
+                CryptoExecFailureTracker.recordSuccess(resolution.symbol)
+                Outcome.Executed(txSig)
+            } else {
+                // V5.9.495z36 — record the failure so the resolver can
+                // cool the symbol down after THRESHOLD failures rather
+                // than spamming Jupiter every scan.
+                CryptoExecFailureTracker.recordFailure(resolution.symbol)
+                Outcome.ExecFailed(resolution, "Jupiter/Bridge swap returned no signature.")
+            }
         } catch (e: Throwable) {
+            CryptoExecFailureTracker.recordFailure(resolution.symbol)
             CryptoUniverseForensics.logExecutionFailure(
                 symbol = resolution.symbol,
                 mint = resolution.mint ?: "no-mint",

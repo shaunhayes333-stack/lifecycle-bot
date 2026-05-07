@@ -80,6 +80,17 @@ object CryptoUniverseRouteResolver {
         } else null
 
         if (wrappedMint != null) {
+            // V5.9.495z36 — sticky-failure cool-down. If Jupiter has
+            // failed THRESHOLD times in the rolling window for this
+            // symbol, paper-only it for COOLDOWN_MS rather than
+            // hammering tx-build again.
+            if (CryptoExecFailureTracker.isCooledDown(sym)) {
+                val secs = CryptoExecFailureTracker.cooldownRemainingMs(sym) / 1000
+                return Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, wrappedMint,
+                    CryptoUniverseDiagCodes.ROUTE_NO_EXECUTOR,
+                    "Jupiter has returned no signature ${"%d"}+ times for $sym; cooling down ${secs}s. Paper-only until liquidity returns.",
+                    executable = false)
+            }
             return Resolution(sym, CryptoExecutionRoute.JUPITER_ROUTABLE, wrappedMint,
                 CryptoUniverseDiagCodes.ROUTE_JUPITER,
                 "Jupiter route via SPL mint ${wrappedMint.take(8)}…",

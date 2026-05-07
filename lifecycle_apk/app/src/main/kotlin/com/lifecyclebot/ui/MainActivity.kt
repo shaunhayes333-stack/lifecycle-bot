@@ -2958,6 +2958,28 @@ for legal compliance.
 
     private fun renderOpenPositions(positions: List<TokenState>) {
         llOpenPositions.removeAllViews()
+        // V5.9.495z36 — surface a clear PAPER/LIVE/MIXED chip on the
+        // Open Positions header. Operator-reported "paper positions
+        // polluting live UI" — leave no doubt about which mode each
+        // row is in.
+        try {
+            val chip = findViewById<TextView>(R.id.tvOpenPositionsModeChip)
+            if (chip != null) {
+                val paperCount = positions.count { it.position.isPaperPosition }
+                val liveCount = positions.size - paperCount
+                chip.text = when {
+                    positions.isEmpty()     -> ""
+                    liveCount == 0          -> "📝 PAPER"
+                    paperCount == 0         -> "💵 LIVE"
+                    else                    -> "📝 ${paperCount} paper · 💵 ${liveCount} live"
+                }
+                chip.setTextColor(when {
+                    paperCount > 0 && liveCount > 0 -> 0xFFFFAA00.toInt()  // mixed = amber
+                    paperCount > 0                  -> 0xFFB58CFF.toInt()  // paper = purple
+                    else                            -> 0xFF10B981.toInt()  // live = green
+                })
+            }
+        } catch (_: Throwable) { /* best-effort */ }
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
@@ -3010,10 +3032,15 @@ for legal compliance.
             }
             // Symbol + Trading Mode emoji
             val modeEmoji = pos.tradingModeEmoji.ifEmpty { "📈" }
+            // V5.9.495z36 — operator-reported "paper positions polluting
+            // live UI". Make the paper/live distinction visually obvious
+            // in the row title so the open-positions card can never be
+            // mistaken for a live wallet view.
+            val paperBadge = if (pos.isPaperPosition) " 📝" else ""
             info.addView(TextView(this).apply {
-                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}"
+                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}$paperBadge"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(white)
+                setTextColor(if (pos.isPaperPosition) 0xFFB58CFF.toInt() else white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             // V5.9.495m — SETTLE-IN COUNTDOWN CHIP. Mirrors the 45s post-buy
