@@ -3590,44 +3590,76 @@ class BotService : Service() {
                         // re-buying the same rug as soon as the price oracle
                         // catches up.
                         //
-                        // V5.9.495z23 — PEAK-AWARE EXEMPTION (operator: "why was
-                        // I not up 5x — soothsayer hit +99% in paper but live
-                        // got stopped out by RAPID_HARD_FLOOR_STOP"). If the
-                        // position has at any point peaked at ≥ +30% gain,
-                        // exempt it from the rapid hard floor and let the
-                        // trailing / dynamic-fluid stop manage the exit
-                        // instead. Winners that briefly drop -15% from entry
-                        // (e.g. after a +50% run-up that gives back to -10%
-                        // on a wick) used to be killed here; now they get a
-                        // chance to recover. The CATASTROPHE branch (≤ -25%)
-                        // ALWAYS fires regardless of peak — that's a rug, not
-                        // a wick.
+                        // V5.9.495z27 — REWRITE of z23 peak-protect.
+                        // Operator screenshot evidence: TWIG peaked +45% → fell
+                        // to -94%, USDS at -99%, HARRY at -95%, MOONCLUB at -73%,
+                        // Winston at -24% — all way past their displayed -20%
+                        // SL with no exit fired. Two compounding bugs:
+                        //
+                        //   1. DEAD ZONE between -15% and -25%: the dynamic
+                        //      stop block below this guard had `pnlPct >
+                        //      -HARD_FLOOR_STOP_PCT` so it never ran for
+                        //      positions deeper than -15%. With z23 also
+                        //      blocking the hard floor for peaked positions,
+                        //      any peaked position falling -15% to -25% had
+                        //      ZERO exit firing.
+                        //
+                        //   2. PEAK-PROTECT had no give-back ceiling: a
+                        //      position that peaked +45% could give back
+                        //      139 points before catastrophe (-25%) caught
+                        //      it — by which time the LP was usually pulled
+                        //      and the catastrophe sell failed.
+                        //
+                        // New logic — single linear if/else chain:
+                        //   a. CATASTROPHE (≤ -25%) always fires.
+                        //   b. DRAWDOWN_FROM_PEAK fires when peak ≥ +20% AND
+                        //      (peak - pnl) ≥ 25 points. So a position that
+                        //      peaked +45% exits no later than +20% pnl
+                        //      (locking in +20% instead of becoming -94%).
+                        //   c. HARD_FLOOR fires for never-winners (peak < +20%)
+                        //      that hit -15%.
+                        // The dynamic/trailing stop block below remains but
+                        // its condition is fixed in the same change to allow
+                        // it to run regardless of how deep the loss is.
                         val isCatastrophe = pnlPct <= -25.0
                         val peakGainPct   = ts.position.peakGainPct
-                        val peakProtected = peakGainPct >= 30.0 && !isCatastrophe
-                        if (pnlPct <= -HARD_FLOOR_STOP_PCT && !peakProtected) {
-                            val tag = if (isCatastrophe) "CATASTROPHE" else "HARD_FLOOR"
-                            ErrorLogger.warn("BotService", "🚨 RAPID STOP ($tag): ${ts.symbol} at ${pnlPct.toInt()}%")
-                            addLog("🛑 RAPID $tag STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-                            
-                            // Execute immediate sell
-                            executor.requestSell(
-                                ts = ts,
-                                reason = if (isCatastrophe) "RAPID_CATASTROPHE_STOP" else "RAPID_HARD_FLOOR_STOP",
-                                wallet = wallet,
-                                walletSol = effectiveBalance
-                            )
-                            
-                            // Force cooldown — 30 min on catastrophe, regular otherwise
-                            if (isCatastrophe) {
+                        val drawdownFromPeak = peakGainPct - pnlPct
+                        val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
+                        val neverWinner      = peakGainPct < 20.0
+
+                        when {
+                            isCatastrophe -> {
+                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
+                                addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
+                                executor.requestSell(
+                                    ts = ts, reason = "RAPID_CATASTROPHE_STOP",
+                                    wallet = wallet, walletSol = effectiveBalance
+                                )
                                 TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
-                            } else {
+                            }
+                            giveBackTrigger -> {
+                                // Peaked +20% or higher and gave back ≥25 points.
+                                // Exit immediately — lock whatever's left of the win.
+                                ErrorLogger.warn("BotService",
+                                    "🚨 DRAWDOWN_FROM_PEAK: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% drawdown=${drawdownFromPeak.toInt()}pts")
+                                addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
+                                executor.requestSell(
+                                    ts = ts, reason = "RAPID_DRAWDOWN_FROM_PEAK_STOP",
+                                    wallet = wallet, walletSol = effectiveBalance
+                                )
                                 TradeStateMachine.startCooldown(ts.mint)
                             }
-                        } else if (pnlPct <= -HARD_FLOOR_STOP_PCT && peakProtected) {
-                            // V5.9.495z23 — log the spare so the operator can audit
-                            // peak-protection saves vs over-rides via the timeline.
-                            addLog("🛡 PEAK-PROTECTED: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% — letting trailing stop manage")
+                            pnlPct <= -HARD_FLOOR_STOP_PCT && neverWinner -> {
+                                // Never had a meaningful peak AND hit -15%. Cut losses.
+                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}%")
+                                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT (never-winner)")
+                                executor.requestSell(
+                                    ts = ts, reason = "RAPID_HARD_FLOOR_STOP",
+                                    wallet = wallet, walletSol = effectiveBalance
+                                )
+                                TradeStateMachine.startCooldown(ts.mint)
+                            }
+                            else -> { /* let dynamic/trailing stop below handle it */ }
                         }
                         
                         // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)
@@ -3653,7 +3685,16 @@ class BotService : Service() {
                         }
                         
                         // Dynamic stop is already negative
-                        if (pnlPct <= dynamicStopPct && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                        // V5.9.495z27 — was `pnlPct > -HARD_FLOOR_STOP_PCT`,
+                        // which created a DEAD ZONE between -15% and -25% where
+                        // neither the hard-floor block above nor this trailing
+                        // block fired. Removed the condition so the dynamic
+                        // stop runs at every pnl depth. The when-block above
+                        // already handles -25% catastrophe and -15% hard-floor
+                        // exits with appropriate reason codes; this trailing
+                        // path only matters for non-catastrophe / non-floor
+                        // exits driven by FluidLearningAI's adaptive stop.
+                        if (pnlPct <= dynamicStopPct) {
                             val stopType = when {
                                 peakPnlPct > 5.0 -> "TRAILING"
                                 holdTimeSecs < 60 -> "ENTRY_PROTECT"
