@@ -572,6 +572,13 @@ object MetalsTrader {
             ErrorLogger.info(TAG, "🥇 V3 PASS: $symbol v3=${verdict.v3Score} blended=${verdict.blendedScore}")
         } catch (_: Exception) {}
         // V5.7.7 FIX: Refresh live wallet balance if uninitialized (0) — prevents all trades being silently blocked
+        // V5.9.600 BUG-5 FIX: always refresh live balance before sizing
+        if (!isPaperMode.get()) {
+            try {
+                val freshSol = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (freshSol > 0) liveWalletBalance = freshSol
+            } catch (_: Exception) {}
+        }
         if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
             try {
                 val fresh = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
@@ -652,6 +659,8 @@ object MetalsTrader {
                 ErrorLogger.warn(TAG, "🔴 LIVE metal trade failed: ${signal.market.symbol} — rolled back")
                 return
             }
+            // V5.9.600 BUG-5 FIX: immediately deduct committed capital so next concurrent open sizes correctly
+            liveWalletBalance = (liveWalletBalance - positionSizeSol).coerceAtLeast(0.0)
         }
         
         ErrorLogger.info(TAG, "🥇 OPENED: $typeLabel ${signal.direction.emoji} ${signal.market.symbol} @ \$${signal.price.fmt(2)} | size=${positionSizeSol}◎ | score=${signal.score}")
@@ -1083,7 +1092,7 @@ object MetalsTrader {
     // V5.7.6b: LIVE TRADING MODE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private var liveWalletBalance = 0.0
+    @Volatile private var liveWalletBalance = 0.0  // V5.9.600 BUG-5 FIX: @Volatile
     
     fun isLiveMode(): Boolean = !isPaperMode.get()
     fun isPaperMode(): Boolean = isPaperMode.get()
@@ -1143,6 +1152,7 @@ object MetalsTrader {
     }
 
 }
+
 
 
 
