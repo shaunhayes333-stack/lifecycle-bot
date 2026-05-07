@@ -271,6 +271,12 @@ object ConfigStore {
     private const val KEY_FILE = "bot_secrets"
 
     fun save(ctx: Context, cfg: BotConfig) {
+        // V5.9.495z31 — publish authoritative paperMode/autoTrade to
+        // the RuntimeModeAuthority so every reader sees the same mode.
+        com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
+            paperMode = cfg.paperMode,
+            autoTrade = cfg.autoTrade,
+        )
         secrets(ctx).edit().apply {
             putString("private_key_b58",     cfg.privateKeyB58)
             // V5.9.495z26 — treasury wallet private key (encrypted alongside trading key)
@@ -592,7 +598,13 @@ object ConfigStore {
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
             // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
             classicScoringMode          = p.getBoolean("classic_scoring_mode", true),
-        )
+        ).also {
+            // V5.9.495z31 — bootstrap RuntimeModeAuthority on load.
+            com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
+                paperMode = it.paperMode,
+                autoTrade = it.autoTrade,
+            )
+        }
     }
 
     private fun prefs(ctx: Context) =

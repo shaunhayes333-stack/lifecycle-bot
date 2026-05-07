@@ -197,11 +197,19 @@ object PipelineTracer {
             watchlistSize = watchlistSize
         )
         currentSnapshot = snapshot
-        
+
+        // V5.9.495z31 — publish the pipeline's mode to the authority,
+        // then assert consistency. If a desync is detected, surface it
+        // in the loop log so the operator can see immediately.
+        RuntimeModeAuthority.publishPipelineMode(paperMode)
+        val consistent = RuntimeModeAuthority.assertConsistentForLoop()
+
         ErrorLogger.info(TAG, "🔄 LOOP_START #$loopId | aggr=$aggression | " +
             "paper=$paperMode live=$liveMode | bal=${walletBalance}SOL | " +
-            "positions=$openPositions | watching=$watchlistSize")
-        
+            "positions=$openPositions | watching=$watchlistSize | " +
+            "RUNTIME_MODE_AUTHORITY=${RuntimeModeAuthority.authority()}" +
+            if (!consistent) " | ⚠ MODE_DESYNC" else "")
+
         return snapshot
     }
     
