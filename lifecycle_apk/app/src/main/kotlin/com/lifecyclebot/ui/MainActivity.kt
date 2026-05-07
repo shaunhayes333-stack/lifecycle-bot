@@ -578,6 +578,61 @@ class MainActivity : AppCompatActivity() {
                     bottomMargin = (132 * resources.displayMetrics.density).toInt()
                 }
                 rootDecor?.addView(brain, brainLp)
+
+                // V5.9.495z25 — Universe stat tile.
+                // Operator: "add the universe stat tile" — surfaces the live size
+                // of the persistent token universe so the operator can see the
+                // discovery loop is feeding (e.g. "🪙 487 mints +12 today").
+                // Tap → opens LiveTradeLogActivity (which already shows the
+                // PositionWalletReconciler counter strip too). Refreshes every
+                // 30s while MainActivity is foregrounded.
+                val universeTile = android.widget.TextView(this).apply {
+                    text = "🪙 Universe"
+                    setTextColor(android.graphics.Color.WHITE)
+                    textSize = 11f
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                    setBackgroundColor(android.graphics.Color.parseColor("#F59E0B"))
+                    val pad = (10 * resources.displayMetrics.density).toInt()
+                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
+                    elevation = 12f * resources.displayMetrics.density
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        // Long-form stats popup so operator can see both registries at once
+                        try {
+                            val altStats = com.lifecyclebot.perps.DynamicAltTokenRegistry.getStats()
+                            val memeStats = com.lifecyclebot.engine.MemeMintRegistry.stats()
+                            android.app.AlertDialog.Builder(this@MainActivity)
+                                .setTitle("🪙 Token Universe")
+                                .setMessage("ALT: $altStats\n\nMEME: $memeStats")
+                                .setPositiveButton("OK", null)
+                                .show()
+                        } catch (_: Exception) { /* never crash on stats display */ }
+                    }
+                }
+                val universeLp = android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+                    val mPx = (16 * resources.displayMetrics.density).toInt()
+                    rightMargin = mPx
+                    bottomMargin = (180 * resources.displayMetrics.density).toInt()
+                }
+                rootDecor?.addView(universeTile, universeLp)
+                // Periodic refresh on the main thread (30s)
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                val updater = object : Runnable {
+                    override fun run() {
+                        try {
+                            val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
+                            val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
+                            universeTile.text = "🪙 ${total + memeTotal} mints"
+                        } catch (_: Throwable) {}
+                        handler.postDelayed(this, 30_000L)
+                    }
+                }
+                handler.post(updater)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
             }

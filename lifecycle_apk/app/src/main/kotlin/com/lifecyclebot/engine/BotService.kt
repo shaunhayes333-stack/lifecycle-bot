@@ -537,6 +537,18 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "DynamicAltTokenRegistry init error: ${e.message}", e)
         }
+
+        // V5.9.495z25 — Initialize MemeMintRegistry. Persistent meme-mint
+        // memory (parallel to DynamicAltTokenRegistry but for the meme
+        // scanner). Survives restarts so the bot retains its discovery
+        // history across sessions and decisions stay consistent across
+        // trades on the same mint.
+        try {
+            com.lifecyclebot.engine.MemeMintRegistry.init(applicationContext)
+            addLog("🪙 Meme mint registry: ${com.lifecyclebot.engine.MemeMintRegistry.stats()}")
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "MemeMintRegistry init error: ${e.message}", e)
+        }
         
         // V5.6.28: Initialize CashGenerationAI for treasury persistence
         try {
@@ -1693,8 +1705,30 @@ class BotService : Service() {
                 val w = wallet
                 if (w != null) {
                     com.lifecyclebot.engine.execution.PositionWalletReconciler.installHostTrackerSource()
+                    // V5.9.495z25 — register CryptoAltTrader as its own
+                    // reconciler source so its open positions get phantom-
+                    // checked directly (not just transitively via the host
+                    // tracker).
+                    com.lifecyclebot.engine.execution.PositionWalletReconciler.registerSource("CryptoAltTrader") {
+                        try {
+                            com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().mapNotNull { p ->
+                                val resolvedMint = try {
+                                    com.lifecyclebot.perps.DynamicAltTokenRegistry
+                                        .getTokenBySymbol(p.market.symbol)?.mint
+                                        ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                                } catch (_: Throwable) { null }
+                                com.lifecyclebot.engine.execution.PositionWalletReconciler.ReportedPosition(
+                                    laneTag = "CRYPTO_ALT",
+                                    intendedSymbol = p.market.symbol,
+                                    resolvedMint = resolvedMint,
+                                    openedAtMs = p.openTime,
+                                    sizeUiAmount = p.sizeSol,
+                                )
+                            }
+                        } catch (_: Throwable) { emptyList() }
+                    }
                     com.lifecyclebot.engine.execution.PositionWalletReconciler.start(w)
-                    addLog("🛡 Position↔Wallet reconciler started")
+                    addLog("🛡 Position↔Wallet reconciler started (host + crypto-alt)")
                 }
             } catch (e: Exception) {
                 addLog("⚠️ Reconciler start failed: ${e.message}")
@@ -5061,6 +5095,16 @@ class BotService : Service() {
                                         logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
                                     )
                                 }
+                                // V5.9.495z25 — touch the persistent meme mint registry so
+                                // every mint the scanner has ever seen survives restarts.
+                                try {
+                                    com.lifecyclebot.engine.MemeMintRegistry.touch(
+                                        mint   = merged.mint,
+                                        symbol = merged.symbol,
+                                        name   = merged.symbol,
+                                        source = merged.allScanners.joinToString(","),
+                                    )
+                                } catch (_: Throwable) { /* never throw out of scanner */ }
                                 // ALWAYS seed liquidity from scanner - even for existing TokenState
                                 if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
                                     ts.lastLiquidityUsd = merged.liquidityUsd
