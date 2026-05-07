@@ -35,7 +35,7 @@ object SellSafetyPolicy {
         val base = when {
             max > 1200 && (isHardRug(reason) || isManualEmergency(reason)) -> listOf(500, 1500, 3000, 5000, 7500, 9999)
             classify(reason) == ExitReason.CAPITAL_RECOVERY -> listOf(200, 500, 800)
-        ExitReason.STOP_LOSS, ExitReason.HARD_STOP -> listOf(500, 800, 1000)
+            classify(reason) == ExitReason.STOP_LOSS || classify(reason) == ExitReason.HARD_STOP -> listOf(500, 800, 1000)
             else -> listOf(200, 500)
         }
         return base.map { it.coerceAtMost(max) }.distinct()
