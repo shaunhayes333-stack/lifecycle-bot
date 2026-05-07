@@ -135,7 +135,7 @@ object TokenizedStockTrader {
     private val preferLeverage = AtomicBoolean(true)
     
     // V5.7.6b: Live trading state
-    private var liveWalletBalance = 0.0  // Updated from connected wallet
+    @Volatile private var liveWalletBalance = 0.0  // V5.9.600 BUG-5 FIX: @Volatile prevents stale reads under concurrent coroutines
     
     private var engineJob: Job? = null
     private var monitorJob: Job? = null
@@ -623,8 +623,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val hasRoute: (PerpsMarket) -> Boolean = { m ->
             isPaperMode.get() || TokenizedAssetRegistry.hasRealRoute(m.symbol)
         }
-        val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) && hasRoute(it) }
-        val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) && hasRoute(it) }
+        // V5.9.600 BUG-2 FIX: In LIVE mode, skip stocks whose Pyth price feed is
+        // unreliable (market closed, stale oracle). Never open live positions against
+        // stale prices. Existing open positions still get monitored and exited normally.
+        val hasFreshPrice: (PerpsMarket) -> Boolean = { m ->
+            PerpsMarketDataFetcher.isLivePriceReliable(m, isPaperMode.get())
+        }
+        val pythStocks = PerpsMarket.values().filter { it.isStock && pythSupported.contains(it.symbol) && hasRoute(it) && hasFreshPrice(it) }
+        val otherStocks = PerpsMarket.values().filter { it.isStock && !pythSupported.contains(it.symbol) && hasRoute(it) && hasFreshPrice(it) }
         
         // V5.9.91: Crypto is fully owned by CryptoAltTrader now — TST
         // scanning them too produced duplicate low-conviction signals on the
@@ -1043,6 +1049,15 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // differs (paper wallet debit vs Jupiter swap).
 
         // PAPER MODE execution — only when in paper mode
+        // V5.9.600 BUG-5 FIX: always pull a fresh on-chain balance before sizing a live trade.
+        // The cached liveWalletBalance is only updated after closes; with concurrent opens it
+        // reads the same stale value N times → over-commit. Fetch live, clamp, then commit.
+        if (!isPaperMode.get() && liveWalletBalance <= 0.0) {
+            try {
+                val freshSol = com.lifecyclebot.engine.WalletManager.getWallet()?.getSolBalance() ?: 0.0
+                if (freshSol > 0) liveWalletBalance = freshSol
+            } catch (_: Exception) {}
+        }
         val balance = getEffectiveBalance()
         val sizeSol = balance * (DEFAULT_SIZE_PCT / 100)
         
@@ -1168,6 +1183,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 ErrorLogger.warn(TAG, "🔴 LIVE stock trade failed: ${signal.market.symbol} — position rolled back")
                 return
             }
+            // V5.9.600 BUG-5 FIX: immediately deduct committed capital from cached live balance
+            // so the next concurrent open sees reduced available capital.
+            liveWalletBalance = (liveWalletBalance - hiveSizeSol).coerceAtLeast(0.0)
             savePersistedState()
         }
         
@@ -1904,5 +1922,6 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // one is functionally identical (uses String.format) and is already
     // imported by sibling perps files.
 }
+
 
 
