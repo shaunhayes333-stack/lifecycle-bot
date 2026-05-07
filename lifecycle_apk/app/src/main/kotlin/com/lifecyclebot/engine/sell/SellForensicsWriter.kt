@@ -66,7 +66,7 @@ object SellForensicsWriter {
                 phase = if (sellAmountViolation)
                     LiveTradeLogStore.Phase.WARNING
                 else if (pnl.isProfit)
-                    LiveTradeLogStore.Phase.SELL_VERIFIED
+                    LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED
                 else
                     LiveTradeLogStore.Phase.INFO,
                 message = payload,
