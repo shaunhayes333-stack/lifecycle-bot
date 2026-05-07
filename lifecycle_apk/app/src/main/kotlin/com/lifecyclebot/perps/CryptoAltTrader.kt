@@ -1658,25 +1658,38 @@ object CryptoAltTrader {
                 "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
             )
 
-            val (success, txSig) = MarketsLiveExecutor.executeLiveTrade(
-                market      = signal.market,
-                direction   = signal.direction,
-                sizeSol     = sizeSol,
-                leverage    = if (isSpot) 1.0 else signal.leverage,
-                priceUsd    = signal.price,
-                traderType  = "CryptoAlt"
+            // V5.9.495z30 — Route via CryptoUniverseExecutor so non-executable
+            // assets (BTC w/ no CEX, XMR w/ no route, PAXG bridge, …) are
+            // classified up-front with a precise diag code instead of fake
+            // BUY_FAILED. Operator brief items B–G/J.
+            val outcome = com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.executeLiveTrade(
+                market     = signal.market,
+                direction  = signal.direction,
+                sizeSol    = sizeSol,
+                leverage   = if (isSpot) 1.0 else signal.leverage,
+                priceUsd   = signal.price,
+                traderType = "CryptoAlt",
             )
-            LiveAttemptStats.record(
-                "CryptoAlt",
-                if (success) LiveAttemptStats.Outcome.EXECUTED else LiveAttemptStats.Outcome.FAILED
-            )
-            if (success) {
-                ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${txSig ?: "ok"}")
-                try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
-                true
-            } else {
-                ErrorLogger.warn(TAG, "🪙 Live execution returned failure for ${signal.market.symbol}")
-                false
+            when (outcome) {
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.EXECUTED)
+                    ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${outcome.txSig ?: "ok"}")
+                    try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
+                    true
+                }
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
+                    ErrorLogger.info(TAG,
+                        "🪙 ROUTE DEFERRED: ${signal.market.symbol} → ${outcome.resolution.route} " +
+                        "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
+                    false
+                }
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
+                    ErrorLogger.warn(TAG,
+                        "🪙 Live exec FAILED for ${signal.market.symbol}: ${outcome.reason}")
+                    false
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "🪙 Live trade exception: ${e.message}", e)
@@ -1718,30 +1731,36 @@ object CryptoAltTrader {
                 "${if (isSpot) "SPOT" else "${signal.leverage.toInt()}x"}"
             )
 
-            // Execute via MarketsLiveExecutor (handles Jupiter swap + signing)
-            // Fee collection (0.5% spot / 1% leverage) is handled inside MarketsLiveExecutor.executeLiveTrade
-            val (success, txSig) = MarketsLiveExecutor.executeLiveTrade(
-                market      = signal.market,
-                direction   = signal.direction,
-                sizeSol     = sizeSol,
-                leverage    = if (isSpot) 1.0 else signal.leverage,
-                priceUsd    = signal.price,
-                traderType  = "CryptoAlt"
+            // V5.9.495z30 — Route via CryptoUniverseExecutor.
+            // Returns sizeSol on Executed, null on RouteDeferred / ExecFailed.
+            val outcome = com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.executeLiveTrade(
+                market     = signal.market,
+                direction  = signal.direction,
+                sizeSol    = sizeSol,
+                leverage   = if (isSpot) 1.0 else signal.leverage,
+                priceUsd   = signal.price,
+                traderType = "CryptoAlt",
             )
-
-            LiveAttemptStats.record(
-                "CryptoAlt",
-                if (success) LiveAttemptStats.Outcome.EXECUTED else LiveAttemptStats.Outcome.FAILED
-            )
-
-            if (success) {
-                ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${txSig ?: "ok"}")
-                // V5.9.8: Read fresh balance from wallet (not stale calculation)
-                try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
-                sizeSol
-            } else {
-                ErrorLogger.warn(TAG, "🪙 Live execution returned failure for ${signal.market.symbol}")
-                null
+            when (outcome) {
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.Executed -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.EXECUTED)
+                    ErrorLogger.info(TAG, "🪙 LIVE TRADE EXECUTED: ${signal.market.symbol} tx=${outcome.txSig ?: "ok"}")
+                    try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
+                    sizeSol
+                }
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
+                    ErrorLogger.info(TAG,
+                        "🪙 ROUTE DEFERRED: ${signal.market.symbol} → ${outcome.resolution.route} " +
+                        "[${outcome.resolution.diagCode}] ${outcome.resolution.humanMessage}")
+                    null
+                }
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.ExecFailed -> {
+                    LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.FAILED)
+                    ErrorLogger.warn(TAG,
+                        "🪙 Live exec FAILED for ${signal.market.symbol}: ${outcome.reason}")
+                    null
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "🪙 Live trade exception: ${e.message}", e)

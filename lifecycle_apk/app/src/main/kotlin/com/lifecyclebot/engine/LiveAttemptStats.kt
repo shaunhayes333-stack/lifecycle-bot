@@ -20,7 +20,15 @@ import kotlin.concurrent.withLock
  */
 object LiveAttemptStats {
 
-    enum class Outcome { EXECUTED, FLOOR_SKIPPED, FAILED }
+    enum class Outcome {
+        EXECUTED,
+        FLOOR_SKIPPED,
+        FAILED,
+        // V5.9.495z30 — route-discovery deferred (no executor wired
+        // yet for this crypto asset). Operator spec G: must NOT count
+        // as a buy failure.
+        ROUTE_DEFERRED,
+    }
 
     private data class Event(val tsMs: Long, val trader: String, val outcome: Outcome)
 
@@ -43,26 +51,35 @@ object LiveAttemptStats {
         val executed: Int,
         val floorSkipped: Int,
         val failed: Int,
+        val routeDeferred: Int = 0,
     )
 
     fun snapshot(): Snapshot {
         val now = System.currentTimeMillis()
         lock.withLock {
             trim(now)
-            var ex = 0; var fs = 0; var fa = 0
+            var ex = 0; var fs = 0; var fa = 0; var rd = 0
             for (e in events) when (e.outcome) {
-                Outcome.EXECUTED      -> ex++
-                Outcome.FLOOR_SKIPPED -> fs++
-                Outcome.FAILED        -> fa++
+                Outcome.EXECUTED        -> ex++
+                Outcome.FLOOR_SKIPPED   -> fs++
+                Outcome.FAILED          -> fa++
+                Outcome.ROUTE_DEFERRED  -> rd++
             }
-            return Snapshot(attempts = events.size, executed = ex, floorSkipped = fs, failed = fa)
+            return Snapshot(
+                attempts = events.size,
+                executed = ex,
+                floorSkipped = fs,
+                failed = fa,
+                routeDeferred = rd,
+            )
         }
     }
 
     /** Compact one-line summary for small UI badges. */
     fun summaryLine(): String {
         val s = snapshot()
-        return "5m: ${s.attempts} att · ${s.executed} live · ${s.floorSkipped} floor · ${s.failed} fail"
+        return "5m: ${s.attempts} att · ${s.executed} live · " +
+               "${s.floorSkipped} floor · ${s.failed} fail · ${s.routeDeferred} route-defer"
     }
 
     private fun trim(now: Long) {

@@ -431,15 +431,25 @@ object MarketsLiveExecutor {
             return@withContext Pair(true, txSignature)
         } else {
             failedExecutions.incrementAndGet()
-            ErrorLogger.warn(TAG, "LIVE TRADE FAILED for ${market.symbol}")
-            // V5.9.495p — forensics: BUY failed
+            // V5.9.495z30 — Replace the generic "no tx (mint missing, bridge
+            // fail, or insufficient SOL)" message with a structured diagnostic
+            // so route-discovery vs real-execution failures are not conflated.
+            // For crypto markets, CryptoUniverseExecutor classifies the route
+            // BEFORE we get here — by the time we log BUY_FAILED, we know an
+            // actual tx was attempted. So this message can now be honest.
+            val diagCode = if (market.isCrypto) {
+                com.lifecyclebot.perps.crypto.CryptoUniverseDiagCodes.TX_BUILD_FAILED
+            } else {
+                "MARKET_TX_BUILD_FAILED"
+            }
+            ErrorLogger.warn(TAG, "[$diagCode] LIVE TRADE FAILED for ${market.symbol}")
             com.lifecyclebot.engine.LiveTradeLogStore.log(
                 tradeKey = forensicsKey,
                 mint = forensicsMint,
                 symbol = market.symbol,
                 side = "BUY",
                 phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.BUY_FAILED,
-                message = "❌ ${traderType} ${market.symbol} — no tx (mint missing, bridge fail, or insufficient SOL)",
+                message = "❌ [$diagCode] ${traderType} ${market.symbol} — Jupiter/Bridge tx returned no signature.",
                 solAmount = sizeSol,
                 traderTag = "PERPS_${traderType.uppercase()}",
             )
