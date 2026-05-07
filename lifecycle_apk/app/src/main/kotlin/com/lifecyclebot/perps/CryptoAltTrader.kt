@@ -759,7 +759,25 @@ object CryptoAltTrader {
 
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
         ErrorLogger.info(TAG, "🪙 ALT SCAN #$scanNum STARTING")
-        ErrorLogger.info(TAG, "🪙 positions=${positions.size} | balance=${"%.2f".format(getBalance())} SOL")
+        // V5.9.495z34 — segregate live/paper/sim/watchlist counts so
+        // operators can tell whether a paper backlog is masking a real
+        // live position state. Operator-reported "CryptoAltTrader
+        // positions=51" was blending all three.
+        try {
+            val isPaper = isPaperMode.get()
+            // Refresh bucket counts from the in-memory map.
+            for ((id, pos) in positions.toMap()) {
+                val bucket = if (isPaper)
+                    com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
+                else
+                    com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
+                com.lifecyclebot.engine.CryptoPositionState.record(pos.symbol, bucket)
+            }
+        } catch (_: Throwable) { /* best-effort */ }
+        val cpsLine = try {
+            com.lifecyclebot.engine.CryptoPositionState.summaryLine()
+        } catch (_: Throwable) { "n/a" }
+        ErrorLogger.info(TAG, "🪙 positions=${positions.size} ($cpsLine) | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
         // All crypto markets that are NOT covered by the SOL perps engine

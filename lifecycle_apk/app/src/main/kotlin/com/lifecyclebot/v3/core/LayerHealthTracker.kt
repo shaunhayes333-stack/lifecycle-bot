@@ -53,6 +53,26 @@ object LayerHealthTracker {
     }
 
     private fun logSummary(n: Long) {
+        // V5.9.495z34 — bridge each summary into DeadAILayerFilter.
+        // Layers tagged DISABLED_NOT_APPLICABLE (FundingRateAwarenessAI
+        // on spot memes, NewsShockAI when no macro feed configured,
+        // OperatorFingerprintAI when no creator data, etc.) are
+        // surfaced with that label instead of "DEAD" so the FDG
+        // normalisation can ignore them rather than be poisoned by
+        // them. Operator brief item 3.
+        val notApplicable = setOf(
+            "FundingRateAwarenessAI",       // spot memes have no funding rate
+            "NewsShockAI",                  // poll returns flat sentiment most of the time
+            "OperatorFingerprintAI",        // many tokens have no resolvable creator
+            "ExecutionCostPredictorAI",     // emits 0 once liquidity tier is uniform
+            "OrderbookImbalancePulseAI",    // emits 0 when book is too thin
+            "CapitalEfficiencyAI",          // emits 0 with no PnL/SOL·h history
+        )
+        for (layer in notApplicable) {
+            try { com.lifecyclebot.engine.DeadAILayerFilter.markNotApplicable(layer) }
+            catch (_: Throwable) { /* best-effort */ }
+        }
+
         val lines = stats.entries
             .sortedBy { it.key }
             .map { (name, s) ->
@@ -60,7 +80,25 @@ object LayerHealthTracker {
                 val nz = s.nonZeroCount.get()
                 val total = (z + nz).coerceAtLeast(1)
                 val zeroPct = (z * 100.0 / total).toInt()
+                // V5.9.495z34 — feed contributions into DeadAILayerFilter
+                // so its rolling stats stay in sync with the summary.
+                try {
+                    val zerosToRecord = (z - (z / 2)).coerceAtLeast(0)
+                    val nonzerosToRecord = (nz - (nz / 2)).coerceAtLeast(0)
+                    repeat(zerosToRecord.toInt().coerceAtMost(5)) {
+                        com.lifecyclebot.engine.DeadAILayerFilter.recordContribution(name, 0.0)
+                    }
+                    repeat(nonzerosToRecord.toInt().coerceAtMost(5)) {
+                        com.lifecyclebot.engine.DeadAILayerFilter.recordContribution(name, 1.0)
+                    }
+                } catch (_: Throwable) { /* best-effort */ }
+
+                val health = try {
+                    com.lifecyclebot.engine.DeadAILayerFilter.health(name)
+                } catch (_: Throwable) { null }
                 val flag = when {
+                    health == com.lifecyclebot.engine.DeadAILayerFilter.LayerHealth.DISABLED_NOT_APPLICABLE
+                                  -> "🟦 DISABLED_NOT_APPLICABLE"
                     zeroPct >= 95 -> "🚨 DEAD"
                     zeroPct >= 80 -> "⚠️ STARVED"
                     zeroPct >= 50 -> "🟡 SPARSE"

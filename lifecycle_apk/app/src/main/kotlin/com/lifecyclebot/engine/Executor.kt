@@ -3676,6 +3676,10 @@ class Executor(
                     com.lifecyclebot.engine.WatchlistTtlPolicy.mark(
                         ts.symbol, decision.aiConfidence.toInt()
                     )
+                    com.lifecyclebot.engine.DeferActivityTracker.record(
+                        com.lifecyclebot.engine.DeferActivityTracker.Kind.DEFERRED,
+                        ts.symbol,
+                    )
                     ErrorLogger.info("Executor",
                         "🛡 ${ts.symbol}: ${gate.reason} — kept in watchlist (TTL refreshed)")
                 }

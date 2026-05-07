@@ -32,6 +32,23 @@ object SnipeAgeGate {
         return Decision.BACKGROUND_ONLY_OLD_TOKEN
     }
 
+    /**
+     * Convenience evaluator that ALSO records a defer-tracker event
+     * when the candidate is reclassified to background. Caller passes
+     * a symbol so the Meme tab tile can show context.
+     */
+    fun evaluateAndTrack(symbol: String, ageMinutes: Long, snipeModeOn: Boolean): Decision {
+        val d = evaluate(ageMinutes, snipeModeOn)
+        if (d == Decision.BACKGROUND_ONLY_OLD_TOKEN) {
+            try {
+                DeferActivityTracker.record(
+                    DeferActivityTracker.Kind.BACKGROUND_CLASSED, symbol
+                )
+            } catch (_: Throwable) { /* best-effort */ }
+        }
+        return d
+    }
+
     /** Convenience for callers that want to know whether to shove the
      *  token to background scans rather than drop it entirely. */
     fun shuntToBackground(ageMinutes: Long, snipeModeOn: Boolean): Boolean =

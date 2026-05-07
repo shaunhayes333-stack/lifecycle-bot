@@ -1775,14 +1775,14 @@ for legal compliance.
                         .count { rec -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
                 } catch (_: Throwable) { 0 }
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0) {
-                    gs.text = "🛡 Guards: clear"
+                    gs.text = "🛡 Guards: clear" + appendDeferTile()
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
                     val parts = mutableListOf<String>()
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
                     if (distrustPauses > 0) parts += "$distrustPauses cooling"
                     if (coachingCount > 0) parts += "$coachingCount coaching"
-                    gs.text = "🛡 Guards: " + parts.joinToString(" · ")
+                    gs.text = "🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile()
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
@@ -9924,6 +9924,19 @@ $preTweetText
             }
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
+    }
+
+    /**
+     * V5.9.495z34 — defer counter for the Guards strip on the Meme
+     * tab. Returns "" when no defer activity in the last 5 minutes,
+     * otherwise " · 🛡 24 deferred · 3 background-classed · 6 expired".
+     */
+    private fun appendDeferTile(): String {
+        return try {
+            val s = com.lifecyclebot.engine.DeferActivityTracker.snapshot()
+            val total = s.deferred + s.backgroundClassed + s.expired
+            if (total == 0) "" else " · 🛡 ${s.deferred} deferred · ${s.backgroundClassed} bg · ${s.expired} expired"
+        } catch (_: Throwable) { "" }
     }
 }
 

@@ -50,8 +50,17 @@ object WatchlistTtlPolicy {
         var removed = 0
         for ((k, v) in entries) {
             if (v.ts < cutoff) {
-                entries.remove(k, v)
-                removed++
+                if (entries.remove(k, v)) {
+                    removed++
+                    // V5.9.495z34 — surface expirations on the Meme tab
+                    // tile so operators see candidates ageing out (vs.
+                    // being deferred or background-classed).
+                    try {
+                        DeferActivityTracker.record(
+                            DeferActivityTracker.Kind.EXPIRED, k
+                        )
+                    } catch (_: Throwable) { /* best-effort */ }
+                }
             }
         }
         return removed
