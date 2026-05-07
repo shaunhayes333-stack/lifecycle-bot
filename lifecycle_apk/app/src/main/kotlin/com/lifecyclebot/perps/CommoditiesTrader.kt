@@ -299,12 +299,11 @@ object CommoditiesTrader {
         ErrorLogger.info(TAG, "🛢️ ═══════════════════════════════════════════════")
         ErrorLogger.info(TAG, "🛢️ COMMODITY SCAN #$scanNum | spot=${spotPositions.size} | leverage=${leveragePositions.size} | total=$totalPositions/$MAX_POSITIONS | balance=${"%.2f".format(paperBalance)} SOL")
         
-        // Get all commodity markets — in LIVE mode, commodities (CORN/WHEAT/HOGS/OIL/etc.)
-        // have NO verified tokenized Solana route. Scanning them in live mode wastes cycles
-        // and generates signal logs that can never execute. Live mode returns immediately.
-        // Paper mode continues normally for learning/stats purposes.
+        // V5.9.600 BUG-4 FIX: Commodities have no on-chain Solana routes — permanently
+        // paper-only. Return before ANY scan setup to stop wasting CPU every tick.
+        // The log is demoted to debug so it doesn't spam the live logs.
         if (!isPaperMode.get()) {
-            ErrorLogger.info(TAG, "🛢️ LIVE mode: no on-chain routes for commodities — skipping scan (paper-only universe)")
+            ErrorLogger.debug(TAG, "🛢️ LIVE mode: commodities are paper-only (no on-chain routes) — skipped")
             return
         }
         val commodityMarkets = PerpsMarket.values().filter { it.isCommodity }
@@ -656,6 +655,8 @@ object CommoditiesTrader {
                 )
             } catch (_: Exception) {}
         } else {
+            // V5.9.600: This branch is unreachable — commodities return early in live mode (no on-chain routes).
+            // Kept to satisfy compiler; executeLiveTradeAtSize is a dead call.
             val liveOk = executeLiveTradeAtSize(signal, positionSizeSol)
             if (!liveOk) {
                 if (signal.tradeType == TradeType.SPOT) spotPositions.remove(position.id)
@@ -1099,7 +1100,7 @@ object CommoditiesTrader {
     // V5.7.6b: LIVE TRADING MODE
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private var liveWalletBalance = 0.0
+    @Volatile private var liveWalletBalance = 0.0  // V5.9.600 BUG-5 FIX: @Volatile (paper-only but guard for safety)
     
     fun isLiveMode(): Boolean = !isPaperMode.get()
     fun isPaperMode(): Boolean = isPaperMode.get()
@@ -1159,6 +1160,7 @@ object CommoditiesTrader {
     }
 
 }
+
 
 
 
