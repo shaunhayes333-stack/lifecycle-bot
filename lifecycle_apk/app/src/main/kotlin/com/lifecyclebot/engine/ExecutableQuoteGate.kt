@@ -1,7 +1,6 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.network.JupiterApi
-import kotlinx.coroutines.runBlocking
 
 /**
  * V5.9.495z29 — Executable Quote Gate (operator spec item 4).
@@ -71,31 +70,25 @@ object ExecutableQuoteGate {
                 "TokenLifecycleTracker has no confirmed entrySolSpent — cannot validate profit")
         }
         // Fetch a fresh quote: tokenMint → SOL for the EXACT wallet amount.
+        // JupiterApi.getQuote is synchronous, returns SwapQuote with decoded fields.
         val q = try {
-            runBlocking {
-                jupiter.getQuote(
-                    inMint     = tokenMint,
-                    outMint    = JupiterApi.SOL_MINT,
-                    amount     = currentWalletTokenRaw,
-                    slippageBps = slippageBps,
-                )
-            }
+            jupiter.getQuote(
+                inputMint   = tokenMint,
+                outputMint  = JupiterApi.SOL_MINT,
+                amountRaw   = currentWalletTokenRaw,
+                slippageBps = slippageBps,
+            )
         } catch (e: Exception) {
             return Verdict.Rejected("QUOTE_FAILED",
                 "Jupiter quote threw: ${e.message?.take(80)}")
         }
-        if (q == null) {
-            return Verdict.Rejected("QUOTE_NULL",
-                "Jupiter returned no route for ${currentWalletTokenRaw} raw of ${tokenMint.take(8)}…")
-        }
 
-        val outAmount = q.outAmount.toLongOrNull() ?: 0L
-        val otherAmountThreshold = q.otherAmountThreshold.toLongOrNull() ?: outAmount
-        // otherAmountThreshold is the slippage-adjusted minimum the user
-        // is guaranteed to receive. That's the "net" we should compare
-        // against, NOT the rosier outAmount.
-        val netSol = otherAmountThreshold / 1_000_000_000.0
-        val priceImpactPct = q.priceImpactPct.toDoubleOrNull() ?: 0.0
+        val outAmount = q.outAmount
+        // Apply slippage to derive the worst-case net delivery the user is
+        // guaranteed to receive (mirrors Jupiter's otherAmountThreshold).
+        val netLamports = (outAmount.toDouble() * (1.0 - slippageBps / 10_000.0)).toLong()
+        val netSol = netLamports / 1_000_000_000.0
+        val priceImpactPct = q.priceImpactPct
 
         val requiredNetSol = entrySolSpent * (1.0 + minNetProfitFraction)
         if (netSol < requiredNetSol) {
@@ -123,7 +116,7 @@ object ExecutableQuoteGate {
         return Verdict.Approved(
             expectedSolOutNet = netSol,
             grossOutLamports  = outAmount,
-            netOutLamports    = otherAmountThreshold,
+            netOutLamports    = netLamports,
             priceImpactPct    = priceImpactPct,
         )
     }

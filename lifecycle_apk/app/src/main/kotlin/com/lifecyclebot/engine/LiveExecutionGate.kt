@@ -140,16 +140,16 @@ object LiveExecutionGate {
     fun shouldSkipSlowBackgroundScans(): Boolean {
         if (!cfg.skipSlowBackgroundScansWhenLiveBusy) return false
         val nearDailyCap = buysToday.get() >= cfg.maxLiveTradesPerDay * 0.9
-        val pendingPressure = pendingBuyVerifications.get() >= cfg.maxPendingBuyVerifications - 1 ||
-                              pendingSellVerifications.get() >= cfg.maxPendingSellVerifications - 1
+        val pendingPressure = pendingBuyVerifications() >= cfg.maxPendingBuyVerifications - 1 ||
+                              pendingSellVerifications() >= cfg.maxPendingSellVerifications - 1
         return nearDailyCap || pendingPressure
     }
 
     fun stats(): String {
         rollDayIfNeeded()
         return "today=${buysToday.get()}/${cfg.maxLiveTradesPerDay} · " +
-               "pendingBuys=${pendingBuyVerifications.get()}/${cfg.maxPendingBuyVerifications} · " +
-               "pendingSells=${pendingSellVerifications.get()}/${cfg.maxPendingSellVerifications}"
+               "pendingBuys=${pendingBuyVerifications()}/${cfg.maxPendingBuyVerifications} · " +
+               "pendingSells=${pendingSellVerifications()}/${cfg.maxPendingSellVerifications}"
     }
 
     /** Test/operator hook to reset counters (e.g. after a fresh-install). */
@@ -157,8 +157,6 @@ object LiveExecutionGate {
         lastBuyAtMs.set(0L)
         dayBucket.set(currentUtcDay())
         buysToday.set(0)
-        pendingBuyVerifications.set(0)
-        pendingSellVerifications.set(0)
     }
 
     private fun rollDayIfNeeded() {

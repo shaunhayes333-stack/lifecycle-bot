@@ -1873,11 +1873,11 @@ class Executor(
                                  reason.startsWith("take_profit")
         if (isProfitLockReason && sellUnits > 0L) {
             val lifecycle = TokenLifecycleTracker.get(ts.mint)
-            val entryBasis = lifecycle?.entrySolSpent ?: pos.entrySolUsd.takeIf { it <= 0.0 }?.let { 0.0 } ?: 0.0
-            // entrySolUsd in the position model is sometimes 0 — fall back
-            // to qtyToken * entryPriceUsd / solPriceUsd if needed; if all
-            // sources are 0, we ALLOW the sell rather than block (operator
-            // spec: 'do not block on missing data, but log clearly').
+            val entryBasis = lifecycle?.entrySolSpent ?: 0.0
+            // entryBasis falls back to 0 if the lifecycle tracker hasn't
+            // been populated yet (older positions pre-z28). In that case
+            // we let the profit-lock proceed (operator spec: 'do not
+            // block on missing data, log clearly').
             if (entryBasis > 0.0) {
                 val gateSlip = SellSlippageProfile.forTier(
                     SellSlippageProfile.Tier.NORMAL_PROFIT_LOCK
@@ -1897,7 +1897,8 @@ class Executor(
                             "${verdict.code}: ${verdict.reason}", ts.mint,
                         )
                         LiveTradeLogStore.log(
-                            sellTradeKey, ts.mint, ts.symbol, "INFO",
+                            LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                            ts.mint, ts.symbol, "INFO",
                             LiveTradeLogStore.Phase.WARNING,
                             "Profit-lock blocked: ${verdict.code} | ${verdict.reason}",
                             traderTag = "MEME",
