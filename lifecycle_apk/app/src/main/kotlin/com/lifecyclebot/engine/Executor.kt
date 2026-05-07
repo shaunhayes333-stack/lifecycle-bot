@@ -3655,6 +3655,10 @@ class Executor(
         }
         
         val isPaper = cfg().paperMode
+        // V5.9.495z32 — publish executor mode + mark hot tick so the
+        // RuntimeModeAuthority sees it and background lanes yield.
+        com.lifecyclebot.engine.RuntimeModeAuthority.publishExecutorMode(isPaper)
+        com.lifecyclebot.engine.HotPathLaneGate.markHotTick()
         ErrorLogger.info("Executor", "🔔 UNIFIED BUY: ${ts.symbol} | " +
             "quality=${decision.finalQuality} | edge=${decision.edgePhase} | " +
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +

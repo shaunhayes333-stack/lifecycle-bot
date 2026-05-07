@@ -1,27 +1,25 @@
 package com.lifecyclebot.engine
 
 /**
- * V5.9.495z31 — Snipe-mode age gate.
+ * V5.9.495z31 / z32 — Snipe-mode age gate.
  *
- * Operator-reported bug: UI mode says "Snipe: Token < 15 min old" but
- * the pipeline keeps processing 87h / 68h / 1732h / 6072h / 13338h
- * old tokens at the hot path. Fix:
- *
- *   - Add a hard age check at the hot-path entry.
- *   - Old tokens are NOT discarded — they're shunted to the
- *     background scan. The hot path simply refuses to spend on them.
+ * **Operator override (z32):** "we shouldn't block at 39% confidence
+ * we should wait to see if it changes. we block far too quickly and
+ * purge tokens way too quickly". So this gate NEVER discards a
+ * candidate. It only re-classifies stale tokens to the BACKGROUND
+ * lane so they keep being evaluated at lower priority while fresh
+ * tokens dominate the snipe hot path.
  *
  * Configurable so non-snipe modes still work as today.
  */
 object SnipeAgeGate {
 
-    /** When snipe mode is enabled, ages above this are background-only. */
+    /** When snipe mode is enabled, ages above this go to background lane. */
     const val SNIPE_MAX_AGE_MIN: Long = 15
 
     enum class Decision {
         SNIPE_AGE_PASS,           // age within threshold, hot path OK
-        SNIPE_AGE_REJECT,         // age over threshold, hot path NO
-        BACKGROUND_ONLY_OLD_TOKEN // explicit shunt to background scan
+        BACKGROUND_ONLY_OLD_TOKEN // re-classified to background scan, NOT purged
     }
 
     /**
@@ -31,7 +29,7 @@ object SnipeAgeGate {
     fun evaluate(ageMinutes: Long, snipeModeOn: Boolean): Decision {
         if (!snipeModeOn) return Decision.SNIPE_AGE_PASS
         if (ageMinutes <= SNIPE_MAX_AGE_MIN) return Decision.SNIPE_AGE_PASS
-        return Decision.SNIPE_AGE_REJECT
+        return Decision.BACKGROUND_ONLY_OLD_TOKEN
     }
 
     /** Convenience for callers that want to know whether to shove the

@@ -1715,7 +1715,26 @@ for legal compliance.
                     3, 4 -> "🟠"
                     else -> "🔴"
                 }
-                lp.text = "$icon TIER $tier · $trades trades · WR=${"%.1f".format(actual)}% " +
+                // V5.9.495z32 — augment label with TierState so users can
+                // see WHY a high tier is not "ready" (TIER_COUNT_UNLOCKED
+                // vs PROFITABILITY_LOCKED vs STREAK_GUARD_ACTIVE).
+                val streakBlocks = try {
+                    com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
+                } catch (_: Throwable) { 0 }
+                val tierStateSnap = com.lifecyclebot.engine.TierState.evaluate(
+                    tierCount = tier,
+                    tradeCount = trades,
+                    winRatePct = actual,
+                    targetWrPct = target,
+                    streakBlocks = streakBlocks,
+                )
+                val statusSuffix = when {
+                    tierStateSnap.isReady -> "READY"
+                    com.lifecyclebot.engine.TierState.Status.STREAK_GUARD_ACTIVE in tierStateSnap.statuses -> "STREAK_GUARD"
+                    com.lifecyclebot.engine.TierState.Status.PROFITABILITY_LOCKED in tierStateSnap.statuses -> "PROFITABILITY_LOCKED"
+                    else -> "COUNT_UNLOCKED"
+                }
+                lp.text = "$icon TIER $tier · $statusSuffix · $trades trades · WR=${"%.1f".format(actual)}% " +
                     "(target ${"%.1f".format(target)}%) · size×${"%.2f".format(sizeMult)}"
                 val color = when (tier) {
                     0    -> 0xFF6B7280.toInt()

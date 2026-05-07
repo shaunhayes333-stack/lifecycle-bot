@@ -1733,6 +1733,9 @@ object CryptoAltTrader {
 
             // V5.9.495z30 — Route via CryptoUniverseExecutor.
             // Returns sizeSol on Executed, null on RouteDeferred / ExecFailed.
+            // V5.9.495z32 — mark a hot tick so background lanes (Markets/
+            // Yahoo/Commodities/Personality) yield while we run.
+            com.lifecyclebot.engine.HotPathLaneGate.markHotTick()
             val outcome = com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.executeLiveTrade(
                 market     = signal.market,
                 direction  = signal.direction,

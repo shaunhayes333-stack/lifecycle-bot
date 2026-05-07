@@ -45,8 +45,8 @@ class RuntimePipelineGatesTest {
     // ── SnipeAgeGate ──────────────────────────────────────────────
 
     @Test
-    fun snipe_mode_rejects_old_tokens() {
-        assertEquals(SnipeAgeGate.Decision.SNIPE_AGE_REJECT,
+    fun snipe_mode_classifies_old_tokens_to_background_not_reject() {
+        assertEquals(SnipeAgeGate.Decision.BACKGROUND_ONLY_OLD_TOKEN,
             SnipeAgeGate.evaluate(ageMinutes = 87 * 60, snipeModeOn = true))
         assertTrue(SnipeAgeGate.shuntToBackground(87 * 60, snipeModeOn = true))
     }
@@ -66,12 +66,13 @@ class RuntimePipelineGatesTest {
     // ── EntryWaitOverrideGate ────────────────────────────────────
 
     @Test
-    fun fdg_blocks_entry_wait_with_high_risk_and_low_conf() {
+    fun fdg_defers_entry_wait_with_high_risk_and_low_conf() {
         val r = EntryWaitOverrideGate.evaluate(
             entryWait = true, riskHigh = true,
             moonshotOverride = false, confidence = 39
         )
-        assertEquals(EntryWaitOverrideGate.Verdict.FDG_BLOCK_ENTRY_WAIT, r.verdict)
+        assertEquals(EntryWaitOverrideGate.Verdict.FDG_DEFER_ENTRY_WAIT, r.verdict)
+        assertTrue("defer must keep token in watchlist for re-evaluation", r.keepInWatchlist)
     }
 
     @Test

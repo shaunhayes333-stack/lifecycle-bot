@@ -19,10 +19,15 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object WatchlistTtlPolicy {
 
-    /** TTL for snipe mode (seconds). */
-    const val SNIPE_TTL_SEC: Long = 60
-    /** TTL for non-snipe modes (seconds). */
-    const val NORMAL_TTL_SEC: Long = 600
+    /** TTL for snipe mode (seconds).
+     *  V5.9.495z32 — operator directive: "we purge tokens way too
+     *  quickly to find the max opportunities" — bumped from 60s →
+     *  300s (5 min) so candidates that need a couple of ticks to
+     *  ripen aren't dropped. */
+    const val SNIPE_TTL_SEC: Long = 300
+    /** TTL for non-snipe modes (seconds). z32 — bumped from 600s →
+     *  1800s (30 min). */
+    const val NORMAL_TTL_SEC: Long = 1800
 
     private data class Entry(val symbol: String, val ts: Long, val score: Int)
 

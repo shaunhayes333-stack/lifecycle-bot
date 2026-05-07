@@ -303,7 +303,27 @@ object EntryIntelligence {
         }
         
         ErrorLogger.info(TAG, "📊 Entry Score: $finalScore → $recommendation | risk=$riskLevel | ${reasons.take(3).joinToString(", ")}")
-        
+
+        // V5.9.495z32 — observational EntryWaitOverrideGate log. Operator
+        // directive: "we shouldn't block at 39% confidence — we should
+        // wait to see if it changes." The gate publishes its verdict
+        // here for visibility; FDG_DEFER_ENTRY_WAIT means "keep this
+        // candidate alive in the watchlist for the next tick". This is
+        // intentionally NOT a hard block.
+        try {
+            val isWait = recommendation == EntryRecommendation.WAIT
+            val isHighRisk = riskLevel.name == "HIGH" || riskLevel.name == "VERY_HIGH"
+            val gate = EntryWaitOverrideGate.evaluate(
+                entryWait = isWait,
+                riskHigh = isHighRisk,
+                moonshotOverride = false,
+                confidence = (confidence * 100).toInt(),
+            )
+            if (gate.verdict != EntryWaitOverrideGate.Verdict.ALLOW) {
+                ErrorLogger.info(TAG, "🛡 ${gate.verdict} | ${gate.reason}")
+            }
+        } catch (_: Throwable) { /* best-effort observational log only */ }
+
         return EntryScore(
             score = finalScore,
             recommendation = recommendation,

@@ -4169,6 +4169,18 @@ class BotService : Service() {
                 watchlistSize = GlobalTradeRegistry.size()
             )
             val frozenAggression = loopSnapshot.aggression
+
+            // V5.9.495z32 — sweep stale watchlist candidates per loop.
+            // Snipe-mode TTL = 5min, normal = 30min. Operator z32 directive:
+            // we MUST NOT purge fresh candidates aggressively, only stale.
+            try {
+                val snipeMode = false  // BotConfig has no snipeMode flag yet — passive sweep
+                val expired = com.lifecyclebot.engine.WatchlistTtlPolicy.sweepStale(snipeMode)
+                if (expired > 0) {
+                    ErrorLogger.debug("BotService",
+                        "♻️ WatchlistTtlPolicy: expired=$expired (size=${com.lifecyclebot.engine.WatchlistTtlPolicy.size()})")
+                }
+            } catch (_: Throwable) { /* best-effort */ }
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0: Clear FinalExecutionPermit state at start of each cycle
@@ -5169,6 +5181,16 @@ class BotService : Service() {
                         // Log to UI
                         addLog("📋 WATCHLISTED: ${merged.symbol} (${merged.primaryScanner})$boostLabel | liq=$${merged.liquidityUsd.toInt()} | conf=${merged.confidence} | #$newSize", merged.mint)
                         ErrorLogger.info("BotService", "WATCHLISTED: ${merged.symbol} | scanners=${merged.allScanners.size} | conf=${merged.confidence}")
+
+                        // V5.9.495z32 — track in WatchlistTtlPolicy so stale
+                        // candidates can be expired by the loop. TTL is 5min
+                        // in snipe / 30min otherwise (operator z32 directive:
+                        // do not purge tokens too quickly).
+                        try {
+                            com.lifecyclebot.engine.WatchlistTtlPolicy.mark(
+                                merged.symbol, merged.confidence
+                            )
+                        } catch (_: Throwable) { /* best-effort */ }
                         
                         // Play sound for new token
                         soundManager.playNewToken()
