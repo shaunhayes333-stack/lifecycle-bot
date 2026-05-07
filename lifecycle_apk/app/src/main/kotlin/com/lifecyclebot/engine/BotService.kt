@@ -1908,10 +1908,11 @@ class BotService : Service() {
                         val c = ConfigStore.load(applicationContext)
                         if (c.autoAddNewTokens) {
                             val wl = c.watchlist.toMutableList()
-                            if (mint !in wl && wl.size < 20) {
+                            val maxWatch = c.maxWatchlistSize.coerceAtLeast(500)
+                            if (mint !in wl && wl.size < maxWatch) {
                                 wl.add(mint)
                                 ConfigStore.saveWatchlistOnly(applicationContext, wl)
-                                addLog("Auto-added new token: $symbol ($mint)", mint)
+                                addLog("Auto-added new token: $symbol ($mint) — watchlist ${wl.size}/$maxWatch", mint)
                                 soundManager.playNewToken()
                             }
                         }
