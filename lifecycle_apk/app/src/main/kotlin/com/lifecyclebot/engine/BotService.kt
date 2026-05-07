@@ -9804,6 +9804,23 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     } catch (_: Throwable) { /* fail-soft */ }
                 }
             }
+
+            // V5.9.495z41 P1 — UNLOCK side of the recovery lock.
+            // Operator: "Wire tryUnlockWithChainBasis() invocation at the
+            // sell-evaluation tick — without an unlock caller, locked
+            // treasury positions stay locked forever."
+            // Rate-limited (30s/mint) and runs the chain work on IO so
+            // this call is safe to fire every tick. RecoveryLockUnlocker
+            // short-circuits when the mint isn't locked.
+            try {
+                val cfgSnap = ConfigStore.load(applicationContext)
+                com.lifecyclebot.engine.sell.RecoveryLockUnlocker.maybeAttemptUnlock(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    wallet = walletManager.getWallet(),
+                    jupiterApiKey = cfgSnap.jupiterApiKey,
+                )
+            } catch (_: Throwable) { /* never break the treasury tick */ }
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
             val currentPnlPct = if (ts.position.entryPrice > 0) {

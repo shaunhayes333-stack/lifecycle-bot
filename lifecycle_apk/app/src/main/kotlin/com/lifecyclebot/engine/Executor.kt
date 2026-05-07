@@ -7426,6 +7426,19 @@ class Executor(
         // RecoveryLockTracker holds the mint when a position was
         // re-registered (e.g. by treasury sweep) so the executor cannot
         // sell into stale UI prices before chain basis is loaded.
+        // V5.9.495z41 — opportunistically attempt unlock first (rate-limited
+        // 30s/mint, runs on IO). If this attempt fires AND chain basis is
+        // now provable + a profitable quote is available, the lock is
+        // cleared synchronously and we fall through to the normal sell
+        // path. Otherwise the early-return below still kicks in.
+        try {
+            com.lifecyclebot.engine.sell.RecoveryLockUnlocker.maybeAttemptUnlock(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                wallet = wallet,
+                jupiterApiKey = c.jupiterApiKey,
+            )
+        } catch (_: Throwable) { /* never break the sell tick */ }
         if (com.lifecyclebot.engine.sell.RecoveryLockTracker.isLockedAwaitingChainBasis(ts.mint)) {
             onLog("🔒 SELL DEFERRED: ${ts.symbol} — RECOVERY_POSITION_LOCKED_UNTIL_CHAIN_BASIS_CONFIRMED.", tradeId.mint)
             LiveTradeLogStore.log(
