@@ -282,10 +282,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
         if (rugcheck != null) {
             val risks = rugcheck.optJSONArray("risks")
+            // V5.9.495z39 — RED FLAG COUNT GATE.
+            // WCOR incident: 7 red flags (unlocked LP, 80%+ holder concentration, low liq,
+            // few LP providers) but numeric rugcheck score was not 0 so no hard block fired.
+            // Risk flags and numeric score are SEPARATE in the rugcheck API — both must gate.
+            // If >= 5 DANGER-level risks are present, hard block regardless of numeric score.
+            var redFlagCount = 0
             if (risks != null) {
                 for (i in 0 until risks.length()) {
                     val risk = risks.optJSONObject(i) ?: continue
                     val rName = risk.optString("name", "").lowercase()
+                    val rLevel = risk.optString("level", "").lowercase()
 
                     when {
                         rName.contains("mint") && rName.contains("enabled") -> mintDisabled = false
@@ -293,6 +300,12 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         rName.contains("mint") && rName.contains("disabled") -> mintDisabled = true
                         rName.contains("freeze") && rName.contains("disabled") -> freezeDisabled = true
                     }
+                    // Count DANGER-level flags (red icons in the UI)
+                    if (rLevel == "danger" || rLevel == "high") redFlagCount++
+                }
+                if (redFlagCount >= 5) {
+                    hard.add("$redFlagCount critical risk flags — extreme rug risk (WCOR-type token)")
+                    ErrorLogger.error(TAG, "🚫 RED_FLAG_GATE: $symbol — $redFlagCount danger-level flags >= 5 threshold → HARD BLOCK")
                 }
             }
 
@@ -491,14 +504,12 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             lpLockPct < 30.0 -> {
-                if (isPaperMode) {
-                    soft.add("LP only ${lpLockPct.toInt()}% locked (EXTREME RUG RISK)" to 40)
-                    penalty += 40
-                    ErrorLogger.warn(TAG, "⚠️ LP PAPER WARN: $symbol only ${lpLockPct.toInt()}% locked — high rug risk")
-                } else {
-                    hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity")
-                    ErrorLogger.error(TAG, "🚫 LP HARD BLOCK: $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
-                }
+                // V5.9.495z39 — WCOR FIX: LP <30% locked = HARD BLOCK in BOTH modes.
+                // Previously paper got a soft +40 penalty only — not enough to stop entry
+                // when other signals were positive. Real rugs work in paper too (they bleed
+                // the learning data with bad outcomes and cost paper SOL). Hard block both.
+                hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity instantly")
+                ErrorLogger.error(TAG, "🚫 LP HARD BLOCK (${if (isPaperMode) "paper" else "live"}): $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
             }
             lpLockPct < 70.0 -> {
                 // V5.9.310: was <50% live block, now <70% live block (Bernard's loss was at ~60% locked)
@@ -538,19 +549,23 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         // ── 5. Holder concentration
+        // V5.9.495z39 — WCOR FIX: >80% top holder concentration = HARD BLOCK in both modes.
+        // Previously this was only a soft +20 penalty. WCOR had 80%+ concentration and
+        // sailed through — one whale can rug at any moment with that ownership. No token
+        // with >80% concentration has a legitimate use case for entry.
         when {
             topHolderPct < 0 -> Unit
             topHolderPct > 80.0 -> {
-                soft.add("Top holders very concentrated (${topHolderPct.toInt()}%)" to 20)
-                penalty += 20
+                hard.add("Top holders own ${topHolderPct.toInt()}% of supply — single wallet can rug instantly")
+                ErrorLogger.error(TAG, "🚫 TOP_HOLDER HARD BLOCK: $symbol ${topHolderPct.toInt()}% > 80% threshold")
             }
             topHolderPct > 60.0 -> {
-                soft.add("Top holders concentrated (${topHolderPct.toInt()}%)" to 12)
-                penalty += 12
+                soft.add("Top holders concentrated (${topHolderPct.toInt()}%)" to 20)
+                penalty += 20
             }
             topHolderPct > 40.0 -> {
-                soft.add("Top holders moderate (${topHolderPct.toInt()}%)" to 5)
-                penalty += 5
+                soft.add("Top holders moderate (${topHolderPct.toInt()}%)" to 10)
+                penalty += 10
             }
         }
 
