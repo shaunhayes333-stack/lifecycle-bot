@@ -300,6 +300,13 @@ class BotService : Service() {
         @Volatile
         var userStartQueuedDuringStop = false
 
+        // V5.9.621 — inert-loop watchdog state. Updated on every scanner discovery.
+        @Volatile
+        var lastScannerDiscoveryMs: Long = 0L
+
+        @Volatile
+        var inertWatchdogFiredOnce: Boolean = false
+
         fun isManualStopRequested(ctx: Context): Boolean = try {
             ctx.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
@@ -1905,6 +1912,86 @@ class BotService : Service() {
             }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.9.621 — PAPER GHOST AUTO-PURGE
+        //
+        // Operator: "it shows 15 held tokens when its off". Paper positions
+        // are persisted forever (V5.9.122 — never drop for age <60d) so a
+        // restart in paper mode silently re-adopts every paper position
+        // ever opened. After hundreds of trades the watchlist accumulates
+        // a ghost backlog that:
+        //   • inflates the "Open" tile in the header
+        //   • blocks fresh entries on lane caps (ShitCoin 100, Quality 100)
+        //   • breaks the trader-side closePosition() chain because the
+        //     status.tokens entry has no live price feed (lastPrice=0)
+        //
+        // Fix: on every paper-mode start, walk persisted paper positions
+        // older than 24h that have NO live price feed and refund their
+        // costSol back to the unified paper wallet (preserving capital).
+        // Live positions are untouched — the on-chain ground truth still
+        // governs them.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (cfg.paperMode) {
+                val nowMs = System.currentTimeMillis()
+                val tokensSnapshot = synchronized(status.tokens) { status.tokens.values.toList() }
+                var purged = 0
+                var refundedSol = 0.0
+                for (ts in tokensSnapshot) {
+                    try {
+                        val pos = ts.position
+                        if (!pos.isOpen) continue
+                        // Only purge paper-side ghosts. Live positions skipped.
+                        val ageH = (nowMs - pos.entryTime) / 3600_000.0
+                        // No price feed available means the token will never
+                        // exit through normal exit logic — it's a true ghost.
+                        val price = try { resolveLivePrice(ts) } catch (_: Throwable) { 0.0 }
+                        val isGhost = ageH > 24.0 && price <= 0.0
+                        if (!isGhost) continue
+                        val refund = (pos.qtyToken * pos.entryPrice).coerceAtLeast(0.0)
+                        // Refund and clear
+                        try { creditUnifiedPaperSol(refund, source = "paper_ghost_purge[${ts.symbol}]") } catch (_: Throwable) {}
+                        try {
+                            com.lifecyclebot.engine.V3JournalRecorder.recordClose(
+                                symbol = ts.symbol, mint = ts.mint,
+                                entryPrice = pos.entryPrice, exitPrice = pos.entryPrice,
+                                sizeSol = refund, pnlPct = 0.0, pnlSol = 0.0,
+                                isPaper = true,
+                                layer = "GHOST_PURGE",
+                                exitReason = "PAPER_GHOST_NO_PRICE_${ageH.toInt()}H",
+                                holdMinutes = (ageH * 60).toLong(),
+                            )
+                        } catch (_: Throwable) {}
+                        // Clear from ALL trader-side caches so lane caps reset
+                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, pos.entryPrice,
+                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, pos.entryPrice,
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TIMEOUT) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, pos.entryPrice,
+                                com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TIME_EXIT) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, pos.entryPrice,
+                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT) } catch (_: Throwable) {}
+                        // Clear status.tokens position
+                        synchronized(status.tokens) {
+                            status.tokens[ts.mint]?.position = com.lifecyclebot.data.Position()
+                        }
+                        // Clear persistence row so it doesn't come back
+                        try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
+                        purged++
+                        refundedSol += refund
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "ghost-purge error for ${ts.symbol}: ${e.message}")
+                    }
+                }
+                if (purged > 0) {
+                    addLog("👻 Paper ghost purge: cleared $purged stale ghost(s), refunded ${"%.4f".format(refundedSol)} SOL")
+                    ErrorLogger.info("BotService", "👻 V5.9.621 paper ghost purge: $purged ghost positions cleared, ${refundedSol} SOL refunded")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Paper ghost purge failed: ${e.message}", e)
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
         // V5.9.430 — START-UP HARD-FLOOR CATCH-UP SWEEP
         //
         // Before the scan loop begins, iterate every restored/open position
@@ -1955,6 +2042,10 @@ class BotService : Service() {
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Startup hard-floor sweep failed: ${e.message}", e)
         }
+
+        // V5.9.621 — arm the inert-loop watchdog at start.
+        lastScannerDiscoveryMs = System.currentTimeMillis()
+        inertWatchdogFiredOnce = false
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
@@ -2243,6 +2334,9 @@ class BotService : Service() {
                             
                             // Mark identity as queued (not yet watchlisted)
                             identity.eligible(score, "enqueued to merge queue")
+
+                            // V5.9.621 — feed the inert-loop watchdog.
+                            lastScannerDiscoveryMs = System.currentTimeMillis()
                             
                             // Record scanner found a token (for staleness detection)
                             marketScanner?.recordNewTokenFound()
@@ -4654,6 +4748,60 @@ class BotService : Service() {
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 6 == 0 && marketScanner != null) {
                 marketScanner?.checkAndResetIfStale()
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.621 — INERT-LOOP WATCHDOG (every ~60s)
+            //
+            // Operator: "its been sitting now 'started' and absolutely nothing
+            // — no trades no Scanner nothing". Detected pathology: BotService
+            // is running, status.running=true, but the scanner's onTokenFound
+            // callback hasn't fired in N minutes despite PumpPortal showing
+            // 2000+ mints. This means either:
+            //   • SolanaMarketScanner died silently (coroutine cancelled)
+            //   • DataOrchestrator stream feeds disconnected
+            //   • PumpPortal WS dropped without onLost firing
+            //
+            // First trip (3min silence): force scanner soft-reset + stream
+            // reconnect. Second trip (5min silence): nuke + recreate the
+            // market scanner from scratch. Always logs loudly so the
+            // operator sees the recovery action.
+            // ═══════════════════════════════════════════════════════════════════
+            if (loopCount % 12 == 0) {  // ~60s cadence
+                try {
+                    val now = System.currentTimeMillis()
+                    val silenceMs = now - lastScannerDiscoveryMs
+                    when {
+                        silenceMs > 5 * 60_000L -> {
+                            ErrorLogger.error("BotService",
+                                "🚨 INERT-LOOP WATCHDOG (HARD): no scanner activity in ${silenceMs/1000}s — recreating scanner")
+                            addLog("🚨 INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — full reset")
+                            try { marketScanner?.stop() } catch (_: Throwable) {}
+                            marketScanner = null
+                            try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
+                            try { forceScannerSoftResetIfPossible() } catch (_: Throwable) {}
+                            // Reset clock so the soft-reset gets ~3min before another hard-reset
+                            lastScannerDiscoveryMs = now
+                            inertWatchdogFiredOnce = false
+                        }
+                        silenceMs > 3 * 60_000L && !inertWatchdogFiredOnce -> {
+                            ErrorLogger.warn("BotService",
+                                "⚠️ INERT-LOOP WATCHDOG (SOFT): ${silenceMs/1000}s of scanner silence — reconnecting streams")
+                            addLog("⚠️ INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — reconnect attempted")
+                            try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
+                            try { marketScanner?.checkAndResetIfStale() } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.AntiChokeManager.tick(
+                                isPaperMode = cfg.paperMode,
+                                wallet = wallet,
+                                tokens = status.tokens,
+                                loopCount = loopCount,
+                            ) } catch (_: Throwable) {}
+                            inertWatchdogFiredOnce = true
+                        }
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Inert watchdog tick error: ${e.message}")
+                }
             }
             
             // ═══════════════════════════════════════════════════════════════════

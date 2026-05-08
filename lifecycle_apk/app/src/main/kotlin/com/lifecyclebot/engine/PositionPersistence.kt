@@ -338,6 +338,23 @@ object PositionPersistence {
         prefs?.edit()?.clear()?.apply()
         ErrorLogger.info(TAG, "🧹 Cleared all persisted positions")
     }
+
+    /**
+     * V5.9.621 — Remove a single persisted position by mint.
+     * Used by the paper ghost auto-purge in BotService.startBot() so a
+     * cleared ghost doesn't reappear on the next restart.
+     */
+    fun removePosition(mint: String) {
+        try {
+            val current = loadPositions().toMutableMap()
+            if (current.remove(mint) != null) {
+                savePositionsInternal(current)
+                ErrorLogger.debug(TAG, "Removed persisted position for mint=${mint.take(8)}")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "removePosition error: ${e.message}")
+        }
+    }
     
     /**
      * Get count of persisted positions (without full load).
