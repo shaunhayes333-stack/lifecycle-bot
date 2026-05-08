@@ -2200,7 +2200,8 @@ class BotService : Service() {
             scanCfg.fullMarketScanEnabled ||
             scanCfg.v3EngineEnabled ||
             scanCfg.autoTrade ||
-            scanCfg.autoAddNewTokens
+            scanCfg.autoAddNewTokens ||
+            status.running
         val gateSummary = "meme=${scanCfg.memeTraderEnabled} mode=${scanCfg.tradingMode} fullScan=${scanCfg.fullMarketScanEnabled} " +
             "v3=${scanCfg.v3EngineEnabled} autoTrade=${scanCfg.autoTrade} autoAdd=${scanCfg.autoAddNewTokens}"
         ErrorLogger.info("BotService", "🛡 Meme intake gate: $gateSummary -> start=$memeIntakeRequired")
@@ -4632,8 +4633,22 @@ class BotService : Service() {
                 }
             }
 
-            // V5.7.6: Skip meme trading logic if meme trader is disabled
-            val memeEnabled = cfg.memeTraderEnabled || cfg.tradingMode == 0 || cfg.tradingMode == 2
+            // V5.9.631 — Meme lane must not silently disappear while the bot is running.
+            // Operator forensic log: CryptoAlt/Markets/Commodities/Metals/Forex all ran
+            // for an hour, but Meme showed no scanner/search/display/trades. Root cause:
+            // this branch treated config drift (memeTraderEnabled=false and mode not
+            // Meme/Both) as permission to `continue` forever, effectively making the
+            // Meme Trader invisible while every other desk stayed alive. Protected intake
+            // is infrastructure, not an optional execution gate; keep it awake whenever
+            // the bot is running or any global trading/discovery switch is active.
+            val memeEnabled = cfg.memeTraderEnabled ||
+                cfg.tradingMode == 0 ||
+                cfg.tradingMode == 2 ||
+                cfg.fullMarketScanEnabled ||
+                cfg.v3EngineEnabled ||
+                cfg.autoTrade ||
+                cfg.autoAddNewTokens ||
+                status.running
             if (!memeEnabled) {
                 // Meme trader disabled — still run markets watchdog before sleeping
                 try {
@@ -4895,13 +4910,30 @@ class BotService : Service() {
                     when {
                         silenceMs > 5 * 60_000L -> {
                             ErrorLogger.error("BotService",
-                                "🚨 INERT-LOOP WATCHDOG (HARD): no scanner activity in ${silenceMs/1000}s — recreating scanner")
-                            addLog("🚨 INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — full reset")
+                                "🚨 INERT-LOOP WATCHDOG (HARD): no scanner activity in ${silenceMs/1000}s — restarting scanner")
+                            addLog("🚨 INERT WATCHDOG: ${silenceMs/1000}s of scanner silence — restarting Solana scanner")
                             try { marketScanner?.stop() } catch (_: Throwable) {}
-                            marketScanner = null
+                            delay(500)
                             try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
-                            try { forceScannerSoftResetIfPossible() } catch (_: Throwable) {}
-                            // Reset clock so the soft-reset gets ~3min before another hard-reset
+                            val sc = marketScanner
+                            if (sc != null) {
+                                try {
+                                    sc.start()
+                                    addLog("✅ Solana scanner restarted by inert watchdog")
+                                    ErrorLogger.warn("BotService", "✅ Inert watchdog restarted existing SolanaMarketScanner")
+                                } catch (t: Throwable) {
+                                    ErrorLogger.error("BotService", "Scanner restart failed: ${t.message}", t)
+                                    addLog("❌ Scanner restart failed: ${t.message}")
+                                }
+                            } else {
+                                // V5.9.631 — never silently swallow a null scanner. Startup should
+                                // create it unconditionally while status.running=true; if it is null,
+                                // surface that as an operator-visible fault instead of pretending a
+                                // reset happened.
+                                ErrorLogger.error("BotService", "🚨 INERT WATCHDOG: marketScanner is NULL — startup creation failed; restart bot/service")
+                                addLog("🚨 Scanner missing: restart bot/service to recreate Solana scanner")
+                            }
+                            // Reset clock so the restart gets ~3min before another hard-reset
                             lastScannerDiscoveryMs = now
                             inertWatchdogFiredOnce = false
                         }
