@@ -3910,6 +3910,81 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
     }
 
+    private fun runRegimePulse() {
+        try {
+            listOf(
+                com.lifecyclebot.perps.PerpsMarket.SOL,
+                com.lifecyclebot.perps.PerpsMarket.BTC,
+                com.lifecyclebot.perps.PerpsMarket.ETH,
+            ).forEach { m ->
+                try {
+                    val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(m)
+                    if (data.price > 0) {
+                        com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(
+                            symbol = m.symbol,
+                            price = data.price,
+                            change24hPct = data.priceChange24hPct,
+                            volume = data.volume24h,
+                        )
+                    }
+                } catch (_: Throwable) {}
+            }
+            try {
+                val out = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime()
+                ErrorLogger.debug("BotService", "🌐 Regime pulse → ${out.mode} (${out.reasons.firstOrNull() ?: "—"})")
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
+    private fun runSentienceAutoTune() {
+        com.lifecyclebot.engine.SentienceHooks.maybeAutoTune(applicationContext)
+        val distrusted = try {
+            com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+                .filter { (_, rec) -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
+                .keys.toList()
+        } catch (_: Throwable) { emptyList() }
+        if (distrusted.isNotEmpty()) {
+            com.lifecyclebot.engine.SentienceHooks.nominateStrategiesToPause(distrusted)
+        }
+    }
+
+    private suspend fun runReconcileSweep() {
+        val cfgNow = ConfigStore.load(applicationContext)
+        val w = wallet ?: return
+        if (cfgNow.paperMode || !::executor.isInitialized) return
+
+        val activeMints = mutableSetOf<String>()
+        try {
+            synchronized(status.tokens) {
+                status.tokens.values.forEach { ts ->
+                    if (ts.position.isOpen) activeMints.add(ts.mint)
+                }
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
+                .forEach { activeMints.add(it.mint) }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
+                .forEach { activeMints.add(it.mint) }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
+                .forEach { activeMints.add(it.mint) }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
+                .forEach { activeMints.add(it.mint) }
+        } catch (_: Exception) {}
+        val swept = executor.liveSweepWalletTokens(w, w.getSolBalance(), activeMints)
+        if (swept > 0) {
+            ErrorLogger.warn("BotService",
+                "🔄 RECONCILE SWEEP: liquidated $swept orphan token(s) leaked from V3 exits")
+            addLog("🔄 Reconcile: cleared $swept orphan position(s) from wallet")
+        }
+    }
+
     // V5.9.495z53 — extracted from botLoop() to keep the synthesized
     // bytecode under the JVM 64KB method-size limit (build was failing with
     // "Couldn't transform method node: botLoop"). No behavior change.
@@ -4045,44 +4120,12 @@ class BotService : Service() {
             if (System.currentTimeMillis() - lastRegimePulseAt > regimePulseIntervalMs) {
                 lastRegimePulseAt = System.currentTimeMillis()
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        listOf(
-                            com.lifecyclebot.perps.PerpsMarket.SOL,
-                            com.lifecyclebot.perps.PerpsMarket.BTC,
-                            com.lifecyclebot.perps.PerpsMarket.ETH,
-                        ).forEach { m ->
-                            try {
-                                val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(m)
-                                if (data.price > 0) {
-                                    com.lifecyclebot.v4.meta.CrossMarketRegimeAI.updateMarketState(
-                                        symbol = m.symbol,
-                                        price = data.price,
-                                        change24hPct = data.priceChange24hPct,
-                                        volume = data.volume24h,
-                                    )
-                                }
-                            } catch (_: Throwable) {}
-                        }
-                        try {
-                            val out = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime()
-                            ErrorLogger.debug("BotService", "🌐 Regime pulse → ${out.mode} (${out.reasons.firstOrNull() ?: "—"})")
-                        } catch (_: Throwable) {}
-                    } catch (_: Throwable) {}
+                    try { runRegimePulse() } catch (_: Throwable) {}
                 }
             }
 
             // V5.9.401 — Sentience auto-tune + distrust nomination (rate-limited internally)
-            try {
-                com.lifecyclebot.engine.SentienceHooks.maybeAutoTune(applicationContext)
-                val distrusted = try {
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
-                        .filter { (_, rec) -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
-                        .keys.toList()
-                } catch (_: Throwable) { emptyList() }
-                if (distrusted.isNotEmpty()) {
-                    com.lifecyclebot.engine.SentienceHooks.nominateStrategiesToPause(distrusted)
-                }
-            } catch (_: Throwable) {}
+            try { runSentienceAutoTune() } catch (_: Throwable) {}
 
             // V5.9.402 — LLM Lab tick (creation + paper exec + cull, all internally gated).
             try { runLabUniverseTick() } catch (_: Throwable) {}
@@ -4770,47 +4813,8 @@ class BotService : Service() {
                 // Active V3 positions are passed as additionalPreservedMints so
                 // currently-held trades are NOT prematurely liquidated.
                 scope.launch {
-                    try {
-                        val cfgNow = ConfigStore.load(applicationContext)
-                        val w = wallet
-                        if (!cfgNow.paperMode && w != null && ::executor.isInitialized) {
-                            // Collect active mint set across the V3 stack so the
-                            // sweep doesn't liquidate live positions.
-                            val activeMints = mutableSetOf<String>()
-                            try {
-                                synchronized(status.tokens) {
-                                    status.tokens.values.forEach { ts ->
-                                        if (ts.position.isOpen) activeMints.add(ts.mint)
-                                    }
-                                }
-                            } catch (_: Exception) {}
-                            // Add V3 trader active positions as well — defensive belt
-                            try {
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
-                                    .forEach { activeMints.add(it.mint) }
-                            } catch (_: Exception) {}
-                            try {
-                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
-                                    .forEach { activeMints.add(it.mint) }
-                            } catch (_: Exception) {}
-                            try {
-                                com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions()
-                                    .forEach { activeMints.add(it.mint) }
-                            } catch (_: Exception) {}
-                            try {
-                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
-                                    .forEach { activeMints.add(it.mint) }
-                            } catch (_: Exception) {}
-                            val swept = executor.liveSweepWalletTokens(w, w.getSolBalance(), activeMints)
-                            if (swept > 0) {
-                                ErrorLogger.warn("BotService",
-                                    "🔄 RECONCILE SWEEP: liquidated $swept orphan token(s) leaked from V3 exits")
-                                addLog("🔄 Reconcile: cleared $swept orphan position(s) from wallet")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "Reconcile sweep error: ${e.message}")
-                    }
+                    try { runReconcileSweep() }
+                    catch (e: Exception) { ErrorLogger.debug("BotService", "Reconcile sweep error: ${e.message}") }
                 }
             }
             
