@@ -2905,8 +2905,7 @@ class BotService : Service() {
 
             // V5.9.8: Persist to SharedPrefs so balance survives app updates
             try {
-                getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
-                    .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
+                PaperWalletStore.persist(applicationContext, status.paperWalletSol)
             } catch (_: Exception) {}
         }
         
@@ -4859,8 +4858,7 @@ class BotService : Service() {
                 // V5.9.8: Persist paper wallet balance every 10 loops (~50s)
                 if (cfg.paperMode && status.paperWalletSol > 0.01) {
                     try {
-                        getSharedPreferences("bot_paper_wallet", android.content.Context.MODE_PRIVATE)
-                            .edit().putFloat("paper_wallet_sol", status.paperWalletSol.toFloat()).apply()
+                        PaperWalletStore.persist(applicationContext, status.paperWalletSol)
                     } catch (_: Exception) {}
                 }
             }

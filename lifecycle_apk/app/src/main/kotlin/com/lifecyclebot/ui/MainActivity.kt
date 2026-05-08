@@ -502,6 +502,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 com.lifecyclebot.engine.CurrencyManager(applicationContext)
             }
+            hydratePaperWalletForColdOpen("onCreate")
             
             // Refresh currency rates immediately
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -693,6 +694,7 @@ class MainActivity : AppCompatActivity() {
                 com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "onResume refresh error: ${e.message}")
             }
         }
+        hydratePaperWalletForColdOpen("onResume")
         // Update currency selector text (user may have changed currency)
         updateCurrencySelectorText()
     }
@@ -1510,6 +1512,30 @@ for legal compliance.
         candleChart.invalidate()
     }
 
+    /**
+     * V5.9.630 — Cold-open paper balance hydration.
+     * MainActivity can render before BotService.startBot() restores the paper wallet,
+     * so hydrate BotService.status from the persisted unified paper wallet immediately.
+     */
+    private fun hydratePaperWalletForColdOpen(reason: String) {
+        try {
+            val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            if (!cfg.paperMode) return
+            val restored = com.lifecyclebot.engine.PaperWalletStore.restore(applicationContext, cfg)
+            if (restored.balanceSol > 0.001 && com.lifecyclebot.engine.BotService.status.paperWalletSol <= 0.001) {
+                com.lifecyclebot.engine.BotService.status.paperWalletSol = restored.balanceSol
+                com.lifecyclebot.engine.BotService.status.paperWalletInitialized = true
+                com.lifecyclebot.engine.BotService.status.paperWalletLastRefreshMs = System.currentTimeMillis()
+                com.lifecyclebot.engine.ErrorLogger.info(
+                    "MainActivity",
+                    "💰 Paper wallet cold-open hydrate ($reason): ${"%.4f".format(restored.balanceSol)} SOL"
+                )
+            }
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "paper wallet cold-open hydrate failed: ${e.message}")
+        }
+    }
+
     // ── update UI ─────────────────────────────────────────────────────
 
     /**
@@ -1579,10 +1605,13 @@ for legal compliance.
         // ── hero balance — BotService.status is the single source of truth ──
         val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
-        val balSol = if (config.paperMode)
-            com.lifecyclebot.engine.BotService.status.paperWalletSol
-        else
+        val balSol = if (config.paperMode) {
+            val livePaper = com.lifecyclebot.engine.BotService.status.paperWalletSol
+            if (livePaper > 0.001) livePaper
+            else com.lifecyclebot.engine.PaperWalletStore.restore(applicationContext, config).balanceSol
+        } else {
             ws.solBalance
+        }
 
         if (balSol > 0.001) {
             tvBalanceLarge.text = currency.format(balSol)  // currency.format() converts SOL→display currency internally
