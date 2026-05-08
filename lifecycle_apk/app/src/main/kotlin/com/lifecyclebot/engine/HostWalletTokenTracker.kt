@@ -339,10 +339,21 @@ object HostWalletTokenTracker {
     /** Called when a sell tx is broadcast and accepted by the network. */
     fun recordSellPending(mint: String, sig: String?) {
         val p = positions[mint] ?: return
+        if (sig.isNullOrBlank()) {
+            // V5.9.607 — SELL_PENDING only after a real signature exists.
+            // No-signature sell attempts are failures, not pending/verifying.
+            p.status = PositionStatus.OPEN_TRACKING
+            p.activeSellAttemptId = null
+            emitForensic(LiveTradeLogStore.Phase.WARNING, mint, p.symbol, null,
+                "SELL_PENDING_REJECTED_NO_SIGNATURE ${p.symbol ?: mint.take(6)} — restored OPEN_TRACKING")
+            save()
+            return
+        }
         if (p.status.priority < PositionStatus.SELL_PENDING.priority) {
             p.status = PositionStatus.SELL_PENDING
         }
-        p.sellSignature = sig ?: p.sellSignature
+        p.sellSignature = sig
+        p.lastExitCheckMs = System.currentTimeMillis()
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_PENDING, mint, p.symbol, sig,
             "Tracker SELL_PENDING ${p.symbol ?: mint.take(6)}")
         save()
@@ -363,11 +374,22 @@ object HostWalletTokenTracker {
                 "PAPER_EXIT_BLOCKED_FROM_HOST_TRACKER ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
             return
         }
+        // SELL_VERIFYING is only valid after a real signature exists.
+        if (p.sellSignature.isNullOrBlank()) {
+            p.status = PositionStatus.OPEN_TRACKING
+            p.activeSellAttemptId = null
+            p.notes.add("sell failed/no signature reason=${reason ?: "?"}")
+            emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
+                "SELL_CONFIRMED_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} — restored OPEN_TRACKING")
+            save()
+            return
+        }
         // If the wallet snapshot has already shown 0, recordWalletEmpty()
         // will collapse this to SOLD_CONFIRMED. Until then, mark verifying.
         if (p.status.priority < PositionStatus.SELL_VERIFYING.priority) {
             p.status = PositionStatus.SELL_VERIFYING
         }
+        p.lastExitCheckMs = System.currentTimeMillis()
         p.notes.add("sell exit reason=${reason ?: "?"} pnl=${pnlPct}%")
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, mint, symbol ?: p.symbol, p.sellSignature,
             "Tracker SELL_CONFIRMED ${symbol ?: p.symbol ?: mint.take(6)} exit=$exitPrice pnl=${pnlPct}% reason=${reason ?: "?"}")
@@ -410,7 +432,25 @@ object HostWalletTokenTracker {
                 existing.rawAmount = rawApprox.toString()
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
-                if (rawApprox > DUST_RAW &&
+                if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && existing.sellSignature.isNullOrBlank()) {
+                    // V5.9.607 — SELL_VERIFYING is only valid after a real tx
+                    // signature exists. Forensics showed stuck rows with
+                    // last_sell_signature="" while wallet_uiAmount was still
+                    // present. Restore to OPEN_TRACKING so exit monitoring
+                    // continues instead of freezing the position forever.
+                    existing.status = PositionStatus.OPEN_TRACKING
+                    existing.activeSellAttemptId = null
+                    emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
+                        "SELL_VERIFYING without signature + wallet still holds qty=$uiAmount → restored OPEN_TRACKING")
+                } else if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && !existing.sellSignature.isNullOrBlank()) {
+                    val started = existing.lastExitCheckMs ?: now
+                    if (now - started > 120_000L) {
+                        existing.status = PositionStatus.OPEN_TRACKING
+                        existing.activeSellAttemptId = null
+                        emitForensic(LiveTradeLogStore.Phase.WARNING, mint, existing.symbol, existing.sellSignature,
+                            "SELL_VERIFYING_TIMEOUT wallet still holds qty=$uiAmount after ${(now-started)/1000}s → restored OPEN_TRACKING")
+                    }
+                } else if (rawApprox > DUST_RAW &&
                     existing.status in setOf(
                         PositionStatus.BUY_PENDING,
                         PositionStatus.BUY_CONFIRMED,

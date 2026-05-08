@@ -63,4 +63,38 @@ object CryptoUniverseForensics {
             )
         } catch (_: Throwable) { /* forensics is best-effort */ }
     }
+
+    fun logPhase(
+        phase: String,
+        symbol: String,
+        intendedMint: String?,
+        resolvedMint: String?,
+        inputMint: String?,
+        outputMint: String?,
+        routeType: String,
+        slippageBps: Int,
+        priceImpactPct: Double?,
+        txSignature: String?,
+        jobId: String?,
+        message: String,
+    ) {
+        val mint = resolvedMint ?: intendedMint ?: ""
+        val detail = "$phase | sym=$symbol intended=${intendedMint ?: "?"} resolved=${resolvedMint ?: "?"} " +
+            "in=${inputMint ?: "?"} out=${outputMint ?: "?"} route=$routeType slip=$slippageBps " +
+            "impact=${priceImpactPct?.let { "%.4f".format(it) } ?: "?"}% sig=${txSignature ?: ""} job=${jobId ?: "?"} | $message"
+        ErrorLogger.info(TAG, detail)
+        try {
+            LiveTradeLogStore.log(
+                tradeKey = "CU_${symbol}_${System.currentTimeMillis()}",
+                mint = mint,
+                symbol = symbol,
+                side = "BUY",
+                phase = LiveTradeLogStore.Phase.WARNING,
+                message = detail,
+                sig = txSignature,
+                traderTag = "CRYPTO_UNIVERSE",
+            )
+        } catch (_: Throwable) { /* forensics is best-effort */ }
+    }
+
 }

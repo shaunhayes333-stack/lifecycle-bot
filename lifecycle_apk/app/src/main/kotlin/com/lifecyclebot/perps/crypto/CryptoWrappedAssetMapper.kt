@@ -25,15 +25,24 @@ object CryptoWrappedAssetMapper {
         //    accept entries that look like real mint addresses (32–44
         //    base58 chars, NOT placeholder "cg:*" / "static:*").
         try {
-            val dyn = com.lifecyclebot.perps.DynamicAltTokenRegistry
-                .getTokenBySymbol(sym)
-                ?.mint
-                ?.takeIf {
-                    it.isNotBlank() &&
-                    !it.startsWith("cg:") &&
-                    !it.startsWith("static:") &&
-                    it.length in 32..44
-                }
+            val tok = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenBySymbol(sym)
+            val dyn = tok?.mint?.takeIf {
+                it.isNotBlank() &&
+                !it.startsWith("cg:") &&
+                !it.startsWith("static:") &&
+                com.lifecyclebot.engine.execution.MintIntegrityGate.isLikelyMint(it)
+            }?.takeIf {
+                // V5.9.607 — most KNOWN_SOLANA_MINTS seed as static_enum and
+                // must be allowed (FIDA/KMNO/TRUMP/TNSR/LDO/WBTC). But a few
+                // legacy symbol aliases (AAVE/SHIB in the forensic export) have
+                // no trustworthy Solana representation and must stay paper-only
+                // unless Jupiter/Dex later discovers a real dynamic mint.
+                val src = tok.source.lowercase()
+                val trustedDynamic = src.contains("jupiter") || src.contains("dex") ||
+                    src.contains("birdeye") || src.contains("restored_dyn")
+                val staticAliasDenied = tok.isStatic && sym in setOf("AAVE", "SHIB") && !trustedDynamic
+                !staticAliasDenied
+            }
             if (dyn != null) return dyn
         } catch (e: Throwable) {
             ErrorLogger.debug(TAG, "DynamicAltTokenRegistry lookup failed for $sym: ${e.message}")

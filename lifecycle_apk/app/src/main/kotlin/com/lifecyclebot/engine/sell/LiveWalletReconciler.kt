@@ -88,6 +88,7 @@ object LiveWalletReconciler {
             ErrorLogger.warn(TAG, "🟡 reconcile($reason): RPC returned empty map — skipped, NO state change.")
             return 0
         }
+        try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
         var updated = 0
         for ((mint, pair) in balances) {
             totalChecked.incrementAndGet()
@@ -104,6 +105,14 @@ object LiveWalletReconciler {
                 } else {
                     TokenLifecycleTracker.onTokenLanded(mint, uiAmount)
                     updated++
+                }
+                val price = try {
+                    com.lifecyclebot.perps.DynamicAltTokenRegistry.refreshPriceForMintBlocking(mint).takeIf { it > 0.0 }
+                        ?: com.lifecyclebot.network.DexscreenerApi().getBestPair(mint)?.candle?.priceUsd?.takeIf { it > 0.0 }
+                        ?: 0.0
+                } catch (_: Throwable) { 0.0 }
+                if (price > 0.0) {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.recordPriceUpdate(mint, price, 0.0)
                 }
             } catch (e: Throwable) {
                 ErrorLogger.warn(TAG, "reconcile update failed for ${mint.take(8)}…: ${e.message}")

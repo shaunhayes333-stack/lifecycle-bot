@@ -31,6 +31,7 @@ object MintIntegrityGate {
 
     /** Base58 alphabet — Solana addresses are base58-encoded 32-byte pubkeys. */
     private val BASE58_RE = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+    private val PLACEHOLDERS = setOf("", "no-mint", "null", "unknown", "ticker", "symbol")
 
     sealed class Result {
         data object Ok : Result()
@@ -48,7 +49,8 @@ object MintIntegrityGate {
         // Symbols rarely have lowercase + numbers in this length window —
         // double-check by rejecting strings that are pure uppercase letters
         // (e.g. "FLOKI...FLOKI") even if they happen to be 32+ chars.
-        if (s.all { it.isUpperCase() || it.isDigit() }) return false
+        val lower = s.lowercase()
+        if (lower in PLACEHOLDERS) return false
         return true
     }
 
@@ -64,23 +66,24 @@ object MintIntegrityGate {
         if (targetMint.isNullOrBlank()) {
             return reject(symbol, targetMint, "MINT_MISSING", "no on-chain mint resolved")
         }
-        if (targetMint.startsWith("cg:") || targetMint.startsWith("static:")) {
+        val normalized = targetMint.trim()
+        val lower = normalized.lowercase()
+        val sym = symbol?.trim().orEmpty()
+        if (lower in PLACEHOLDERS || (sym.isNotBlank() && normalized.equals(sym, ignoreCase = true))) {
+            return reject(symbol, targetMint, "MINT_PLACEHOLDER",
+                "value '$targetMint' is a placeholder/symbol, not an on-chain address")
+        }
+        if (normalized.startsWith("cg:") || normalized.startsWith("static:")) {
             return reject(symbol, targetMint, "MINT_PLACEHOLDER",
                 "registry placeholder $targetMint is not an on-chain address")
         }
-        if (!isLikelyMint(targetMint)) {
+        if (!isLikelyMint(normalized)) {
             return reject(symbol, targetMint, "MINT_NOT_BASE58",
                 "value '${targetMint.take(24)}' is not a valid base58 Solana mint")
         }
-        // Symbol-as-mint tripwire — the exact bug observed in the screenshots
-        // ("mint: FLOKI...FLOKI"). If the resolved mint is just SYMBOL repeated
-        // or includes the literal symbol token, it's a fallback string, not a
-        // real mint.
-        val sym = symbol?.uppercase()?.trim().orEmpty()
-        if (sym.isNotEmpty() && targetMint.uppercase().contains(sym) && targetMint.length < 44) {
-            return reject(symbol, targetMint, "MINT_LOOKS_LIKE_SYMBOL",
-                "resolved mint '$targetMint' embeds the symbol — looks like a placeholder")
-        }
+        // Do NOT reject because the mint visually contains the symbol. Real
+        // Solana mints can do this (KMNO -> KMNo3nJs...). Only placeholders,
+        // invalid base58, or invalid lengths are rejected.
         return Result.Ok
     }
 

@@ -74,78 +74,42 @@ object CryptoUniverseRouteResolver {
                 executable = false)
         }
 
-        // 1. Try wrapped/SPL representation (curated → dynamic registry).
-        val wrappedMint = if (cfg.cryptoUniverseAllowWrappedAssets) {
-            CryptoWrappedAssetMapper.resolveWrappedMint(sym)
-        } else null
-
-        if (wrappedMint != null) {
-            // V5.9.495z36 — sticky-failure cool-down. If Jupiter has
-            // failed THRESHOLD times in the rolling window for this
-            // symbol, paper-only it for COOLDOWN_MS rather than
-            // hammering tx-build again.
+        // 1. Resolve ANY real Solana SPL mint. This is deliberately NOT a
+        // curated "wrapped asset only" gate. Crypto Universe is funded via the
+        // app's SOL/USDC bridge rail and can trade any crypto token that has a
+        // real Solana mint and a Jupiter route.
+        val resolvedMint = CryptoWrappedAssetMapper.resolveWrappedMint(sym)
+        if (resolvedMint != null) {
             if (CryptoExecFailureTracker.isCooledDown(sym)) {
                 val secs = CryptoExecFailureTracker.cooldownRemainingMs(sym) / 1000
-                return Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, wrappedMint,
+                return Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, resolvedMint,
                     CryptoUniverseDiagCodes.ROUTE_NO_EXECUTOR,
-                    "Jupiter has returned no signature ${"%d"}+ times for $sym; cooling down ${secs}s. Paper-only until liquidity returns.",
+                    "Jupiter has returned no signature repeatedly for $sym; cooling down ${secs}s. Paper-only until liquidity returns.",
                     executable = false)
             }
-            return Resolution(sym, CryptoExecutionRoute.JUPITER_ROUTABLE, wrappedMint,
+            return Resolution(sym, CryptoExecutionRoute.JUPITER_ROUTABLE, resolvedMint,
                 CryptoUniverseDiagCodes.ROUTE_JUPITER,
-                "Jupiter route via SPL mint ${wrappedMint.take(8)}…",
+                "Resolved real Solana mint ${resolvedMint.take(8)}…; live eligibility will be proven by USDC/Jupiter quote.",
                 executable = cfg.cryptoUniverseLiveEnabled)
         }
 
-        // 2. No SPL route available — classify by native-only flag.
-        val isNative = CryptoWrappedAssetMapper.isNativeOnly(sym)
-        if (isNative) {
-            return when {
-                cfg.cryptoUniverseAllowCexAdapters && CryptoCexAdapter.isConfigured() ->
-                    Resolution(sym, CryptoExecutionRoute.CEX_REQUIRED, null,
-                        CryptoUniverseDiagCodes.ROUTE_CEX_REQUIRED,
-                        "Native-only asset routed via CEX adapter.",
-                        executable = true)
-                cfg.cryptoUniverseAllowBridgeAdapters && CryptoBridgeAdapter.isConfigured() ->
-                    Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,
-                        CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
-                        "Native-only asset routed via bridge adapter.",
-                        executable = true)
-                cfg.cryptoUniversePaperOnlyWhenNoExecutor ->
-                    Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, null,
-                        CryptoUniverseDiagCodes.ROUTE_PAPER_ONLY,
-                        "Native-only asset — no executor configured. Paper-only learning.",
-                        executable = false)
-                else ->
-                    Resolution(sym, CryptoExecutionRoute.CEX_REQUIRED, null,
-                        CryptoUniverseDiagCodes.ROUTE_CEX_REQUIRED,
-                        "Native-only asset (e.g. BTC/XMR/TON) — CEX or bridge adapter required.",
-                        executable = false)
-            }
-        }
-
-        // 3. Non-native, no wrapped SPL found. Could still be reachable
-        //    via bridge (PAXG / AXS / RENDER on non-Solana chains).
+        // 2. No real SPL mint means the bridge rail has no target. This is a
+        // route-discovery outcome, not a tx failure. Do not call live executor.
         return when {
             cfg.cryptoUniverseAllowBridgeAdapters && CryptoBridgeAdapter.isConfigured() ->
                 Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,
                     CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
-                    "Non-native asset — routed via bridge adapter.",
+                    "No Solana mint resolved; external bridge adapter required/configured.",
                     executable = true)
             cfg.cryptoUniverseAllowCexAdapters && CryptoCexAdapter.isConfigured() ->
                 Resolution(sym, CryptoExecutionRoute.CEX_REQUIRED, null,
                     CryptoUniverseDiagCodes.ROUTE_CEX_REQUIRED,
-                    "Non-native asset — CEX adapter route.",
+                    "No Solana mint resolved; CEX adapter route configured.",
                     executable = true)
-            cfg.cryptoUniversePaperOnlyWhenNoExecutor ->
+            else ->
                 Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, null,
                     CryptoUniverseDiagCodes.ROUTE_NO_WRAPPED_ASSET,
-                    "No Solana wrapped representation and no bridge/CEX adapter — paper-only.",
-                    executable = false)
-            else ->
-                Resolution(sym, CryptoExecutionRoute.NO_ROUTE_AVAILABLE, null,
-                    CryptoUniverseDiagCodes.ROUTE_NO_EXECUTOR,
-                    "No executor configured for this asset.",
+                    "No verified Solana SPL mint/Jupiter target resolved — paper-only until registry discovers one.",
                     executable = false)
         }.also {
             ErrorLogger.debug(TAG, "Resolved ${sym} → ${it.route} (${it.diagCode})")
