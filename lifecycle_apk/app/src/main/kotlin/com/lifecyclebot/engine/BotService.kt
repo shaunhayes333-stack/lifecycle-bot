@@ -2138,6 +2138,12 @@ class BotService : Service() {
                     cfg          = { ConfigStore.load(applicationContext) },
                     onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                         try {
+                            // V5.9.623 — scanner heartbeat means raw discovery, not only
+                            // post-filter enqueue. Prevents false "scan stale 9999s" while
+                            // the scanner is alive but candidates are returning early.
+                            lastScannerDiscoveryMs = System.currentTimeMillis()
+                            marketScanner?.recordNewTokenFound()
+
                             val c = ConfigStore.load(applicationContext)
                             
                             // ═══════════════════════════════════════════════════════════════════
@@ -2335,12 +2341,6 @@ class BotService : Service() {
                             // Mark identity as queued (not yet watchlisted)
                             identity.eligible(score, "enqueued to merge queue")
 
-                            // V5.9.621 — feed the inert-loop watchdog.
-                            lastScannerDiscoveryMs = System.currentTimeMillis()
-                            
-                            // Record scanner found a token (for staleness detection)
-                            marketScanner?.recordNewTokenFound()
-                            
                             // Debug log (watchlist add log happens in processQueue)
                             ErrorLogger.debug("BotService", "📥 ENQUEUED: ${identity.symbol} | ${source.name} | liq=$${liquidityUsd.toInt()} | score=$score")
                         } catch (e: Exception) {
@@ -4024,17 +4024,16 @@ class BotService : Service() {
     private fun processTokenMergeQueue(loopCount: Int) {
         val mergedTokens = TokenMergeQueue.processQueue()
         for (merged in mergedTokens) {
-            val addResult = GlobalTradeRegistry.addWithProbation(
+            // V5.9.623 — protected scanner/watchlist intake.
+            // Scanner hits that already passed the $500 Solana intake floor go straight
+            // onto the 500-token bench. Do NOT probation-route/choke here; upstream
+            // qualification layers decide whether anything can trade.
+            val addResult = GlobalTradeRegistry.addToWatchlist(
                 mint = merged.mint,
                 symbol = merged.symbol,
                 addedBy = merged.primaryScanner,
                 source = merged.allScanners.joinToString(","),
                 initialMcap = merged.marketCapUsd,
-                liquidityUsd = merged.liquidityUsd,
-                confidence = merged.confidence,
-                isMultiSource = merged.multiScannerBoost,
-                isEstimatedLiquidity = false,
-                price = 0.0,
             )
 
             if (addResult.added) {

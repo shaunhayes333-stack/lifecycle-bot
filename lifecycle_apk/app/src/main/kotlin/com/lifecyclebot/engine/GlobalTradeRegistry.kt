@@ -786,23 +786,15 @@ object GlobalTradeRegistry {
         return true
     }
 
-    /** V5.9.612 AntiChoke: prune old non-held watchlist entries to keep scanner inflow fresh. */
+    /**
+     * V5.9.623 protected intake pool.
+     * Scanner/watchlist is a 500-token discovery bench, not an AntiChoke garbage
+     * collection target. Keep this no-op so legacy callers cannot silently drain
+     * the pool again. Explicit user/manual removals still use removeFromWatchlist().
+     */
     fun pruneDormant(maxAgeMs: Long, maxRemove: Int, reason: String = "ANTI_CHOKE_DORMANT"): Int {
-        val now = System.currentTimeMillis()
-        val doomed = watchlist.values
-            .filter { !activePositions.containsKey(it.mint) }
-            .filter { now - it.addedAt > maxAgeMs }
-            .sortedBy { it.addedAt }
-            .take(maxRemove)
-        var removed = 0
-        for (entry in doomed) {
-            if (watchlist.remove(entry.mint) != null) {
-                totalTokensRemoved.incrementAndGet()
-                removed++
-                ErrorLogger.debug(TAG, "♻️ AntiChoke pruned ${entry.symbol} | age=${(now-entry.addedAt)/1000}s | reason=$reason")
-            }
-        }
-        return removed
+        ErrorLogger.debug(TAG, "🛡️ pruneDormant ignored — protected scanner/watchlist intake pool | reason=$reason")
+        return 0
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
