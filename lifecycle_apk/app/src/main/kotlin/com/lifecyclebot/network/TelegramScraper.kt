@@ -101,7 +101,7 @@ class TelegramScraper(private val botToken: String = "") {
         )
 
         // Extract timestamps from <time datetime="...">
-        val timeRegex = Regex("""datetime="([^"]+)"""")
+        val timeRegex = Regex("datetime=\"([^\"]+)\"")
         val timeMatches = timeRegex.findAll(html).map { it.groupValues[1] }.toList()
 
         val msgMatches = msgRegex.findAll(html).toList()

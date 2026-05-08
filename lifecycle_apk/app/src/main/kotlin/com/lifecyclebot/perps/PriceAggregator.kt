@@ -860,7 +860,7 @@ object PriceAggregator {
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {
                     val body = response.body?.string()
-                    val regex = """data-last-price="([0-9.]+)"""".toRegex()
+                    val regex = "data-last-price=\"([0-9.]+)\"".toRegex()
                     val match = regex.find(body ?: "")
                     if (match != null) {
                         val price = match.groupValues[1].toDoubleOrNull() ?: 0.0

@@ -105,7 +105,7 @@ class XScraper {
             RegexOption.DOT_MATCHES_ALL
         )
         // Extract timestamps from <span class="tweet-date"> ... title="..." >
-        val timeRegex = Regex("""title="([^"]+)"""")
+        val timeRegex = Regex("title=\"([^\"]+)\"")
 
         val tweetMatches = tweetRegex.findAll(html).toList()
 
