@@ -5644,13 +5644,35 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
     effectiveWatchlist.sortedByDescending { mint ->
         val ts = status.tokens[mint]
         if (ts == null) {
-            // V5.9.602 — unknown freshly-enqueued mints should not be buried
-            // behind stale high-liquidity backlog; give them a small chance
-            // to get their first Dex/Pump data fetch quickly.
-            25.0
+            // V5.9.624 — unknown freshly-enqueued mints should get hydrated,
+            // not buried. Also add a fair-coverage boost using registry metadata
+            // so the protected 500-token bench actually reaches qualification.
+            val entry = try { GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
+            val neverProcessedBoost = if ((entry?.processCount ?: 0) == 0) 120.0 else 0.0
+            val lrpBoost = entry?.lastProcessedAt?.let { last ->
+                if (last <= 0L) 160.0 else ((nowMs - last).coerceAtLeast(0L) / 1_000.0).coerceAtMost(180.0)
+            } ?: 80.0
+            45.0 + neverProcessedBoost + lrpBoost
         } else {
             var priority = 0.0
             if (ts.position.isOpen) priority += 10_000.0 // Open positions always first
+
+            // V5.9.624 — fair-coverage layer for the protected intake bench.
+            // Never/least-recently processed candidates get a bounded boost.
+            // This improves the AMOUNT of tokens that arrive to qualification
+            // without pruning the watchlist or starving open-position exits.
+            val entry = try { GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
+            val neverProcessedBoost = if ((entry?.processCount ?: 0) == 0) 140.0 else 0.0
+            val lrpBoost = entry?.lastProcessedAt?.let { last ->
+                if (last <= 0L) 180.0 else ((nowMs - last).coerceAtLeast(0L) / 1_000.0).coerceAtMost(160.0)
+            } ?: 90.0
+            priority += neverProcessedBoost + lrpBoost
+
+            // Deprioritize obvious shadow-only zombies, but never remove them.
+            // Quality/freshness can still lift a candidate back up when data changes.
+            if (ts.lastLiquidityUsd <= 0.0 && ts.phase in listOf("dying", "dead", "rug_likely", "distribution", "distributing")) {
+                priority -= 120.0
+            }
 
             // V5.9.602 — freshness/source boost for the meme snipe lane.
             // Previous ordering was liquidity-heavy, so old $2M+ tokens like
@@ -5813,6 +5835,7 @@ supervisorScope {
 
                 val completed = withTimeoutOrNull(tokenBudget) {
                     processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                    try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                     true
                 } ?: false
 
@@ -6101,266 +6124,165 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     }
 
     private suspend fun cleanupWatchlist() {
-        // V4.0: Use GlobalTradeRegistry as the source of truth
+        // V5.9.624 — PROTECTED MEME INTAKE: non-destructive shadow classifier.
+        //
+        // HARD OPERATOR RULE: the Meme Trader scanner/watchlist is a protected
+        // 500-token Solana intake bench. We build around it; we do NOT prune,
+        // choke, shrink, route around, reset, or delete candidates just because
+        // they are idle/stale/flat/low-liq/waiting. Earlier cleanup versions
+        // removed tokens from GlobalTradeRegistry/status.tokens and fed ordinary
+        // non-entry states into scanner rejectedMints. That improved short-term
+        // loop cleanliness but quietly reduced arrival volume and starved the
+        // learning/trading stack.
+        //
+        // This function now only annotates/telemeters candidate state. Safety
+        // decisions are handled by the entry gates; scheduler fairness handles
+        // processing budget. Open-position protection remains absolute.
         val registryWatchlist = GlobalTradeRegistry.getWatchlist()
-        if (registryWatchlist.size <= 3) return  // Keep at least 3 tokens
-        
+        if (registryWatchlist.isEmpty()) return
+
         val cfg = ConfigStore.load(applicationContext)
-        val tokensToRemove = mutableListOf<String>()
         val now = System.currentTimeMillis()
         val isPaperMode = cfg.paperMode
-        
-        // V5.2: PAPER MODE - Much longer thresholds for maximum learning exposure
-        // Tokens need time to develop patterns and generate trade signals
-        val staleThresholdMs = if (isPaperMode) 300_000L else 180_000L   // 5 min in paper, 3 min in real
-        val idleThresholdMs = if (isPaperMode) 600_000L else 300_000L    // 10 min idle in paper, 5 min in real
-        val maxWatchlistAge = if (isPaperMode) 7_200_000L else 1_800_000L  // V5.9.181: 2hr paper, 30min live — was 30min/15minl
-        
-        for (mint in registryWatchlist) {
-            val ts = status.tokens[mint]
-            
-            // Skip if we have an open position (check both status.tokens AND GlobalTradeRegistry)
-            if (ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)) {
-                continue
-            }
-            
-            // Remove if blocked by safety checker
-            if (ts?.safety?.isBlocked == true) {
-                tokensToRemove.add(mint)
-                val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
-                addLog("🚫 BLOCKED: ${ts.symbol} - $reason", mint)
-                marketScanner?.markTokenRejected(mint)
-                // V4.0: Register rejection in GlobalTradeRegistry
-                GlobalTradeRegistry.registerRejection(mint, ts.symbol, reason, "SAFETY_CHECK")
-                continue
-            }
-            
-            // Remove if explicitly blacklisted
-            if (TokenBlacklist.isBlocked(mint)) {
-                val reason = TokenBlacklist.getBlockReason(mint)
-                tokensToRemove.add(mint)
-                addLog("🚫 BLACKLIST: ${ts?.symbol ?: mint.take(8)} - $reason", mint)
-                marketScanner?.markTokenRejected(mint)
-                GlobalTradeRegistry.registerRejection(mint, ts?.symbol ?: mint.take(8), reason, "BLACKLIST")
-                continue
-            }
-            
-            // Check token state
-            if (ts != null) {
-                // V5.9.413 — HELD-POSITION STICKY GUARD (defense in depth).
-                // Skip every eviction predicate below when we hold this mint.
-                // The outer removals loop also guards, but short-circuiting
-                // here also prevents spurious GlobalTradeRegistry.registerRejection
-                // calls that would pollute the rejection cache for a mint
-                // we're actively managing.
-                if (GlobalTradeRegistry.hasOpenPosition(mint)) {
-                    continue
-                }
 
-                // V5.9.495h — FRESH-CANDIDATE GRACE PERIOD.
-                // Operator forensics (06 May 2026 export): 90 tokens nuked
-                // in a single cleanup pass — "sweep is killing tokens as
-                // soon as they land nothing can run. its too aggressive."
-                // Many were fresh PumpPortal arrivals in their first 60s
-                // before ModeRouter / EdgeLearning / LiquidityAI had time
-                // to build initial state. Phase classification ran early
-                // on 1-2 data points and labelled them "dying"/"distribution"
-                // → instant evict → registered as REJECTED for 8s →
-                // scanner re-rejected on next cycle.
-                //
-                // Grant a 90s grace where ONLY safety-blacklist + zero-liq
-                // can evict. Phase, stale, flat, idle predicates are all
-                // skipped during grace. This gives scanners + AI layers
-                // time to do their work upstream (operator's directive).
-                val ageInWatchlist = now - ts.addedToWatchlistAt
-                val GRACE_MS = 90_000L  // 90s breathing room
-                val isInGrace = ageInWatchlist < GRACE_MS
-                if (isInGrace) {
-                    // Hard-fail evictions still apply (catastrophic only):
-                    //  - liquidity literally 0 in live mode
-                    //  - explicit token blacklist (already handled above)
-                    if (!isPaperMode && ts.lastLiquidityUsd in 0.0..0.5) {
-                        tokensToRemove.add(mint)
-                        addLog("🛑 GRACE-DEAD: ${ts.symbol} (ZERO_LIQ within ${GRACE_MS/1000}s)", mint)
-                        marketScanner?.markTokenRejected(mint)
-                        GlobalTradeRegistry.registerRejection(mint, ts.symbol, "zero_liq_grace", "CLEANUP")
-                    }
-                    continue   // grace: skip phase/stale/flat/idle/wait predicates
-                }
+        val staleThresholdMs = if (isPaperMode) 300_000L else 180_000L
+        val idleThresholdMs = if (isPaperMode) 600_000L else 300_000L
+        val maxWatchlistAge = if (isPaperMode) 7_200_000L else 1_800_000L
+        val waitTimeout = if (isPaperMode) 300_000L else 120_000L
 
-                val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
-                val age = now - lastUpdate
-                val timeInWatchlist = now - ts.addedToWatchlistAt
-                
-                // Remove "idle" phase tokens ONLY if they've been idle for a while
-                // Give them time to transition to a better phase
-                if (ts.phase == "idle" && timeInWatchlist > idleThresholdMs && ts.history.size < 5) {
-                    tokensToRemove.add(mint)
-                    addLog("😴 IDLE PHASE: ${ts.symbol} - no activity", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "idle_phase", "CLEANUP")
-                    continue
-                }
-                
-                // AGGRESSIVE: Remove "dying", "dead", "rug_likely" phases —
-                // V5.9.495h — but ONLY after we have ≥3 candle observations.
-                // Earlier classifications on 1-2 ticks were misfiring on
-                // fresh launches (phase classifier defaults to "distribution"
-                // when buy/sell ratio is undefined on tick #1). Operator:
-                // "sweep is killing tokens as soon as they land". Letting
-                // the AI layers see at least 3 candles before pulling the
-                // trigger removes the false-positive evictions.
-                if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution") && ts.history.size >= 3) {
-                    tokensToRemove.add(mint)
-                    addLog("💀 BAD PHASE: ${ts.symbol} (${ts.phase})", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, ts.phase, "CLEANUP")
-                    continue
-                }
-                
-                // Remove if stale (no data for 30 seconds)
-                if (lastUpdate > 0 && age > staleThresholdMs) {
-                    tokensToRemove.add(mint)
-                    addLog("⏰ STALE: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "stale", "CLEANUP")
-                    continue
-                }
-                
-                // Remove if dead (very low liquidity) - but keep if we're in paper mode learning
-                if (ts.lastLiquidityUsd < 200 && !isPaperMode) {
-                    tokensToRemove.add(mint)
-                    addLog("💀 NO LIQ: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "no_liquidity", "CLEANUP")
-                    continue
-                }
-                
-                // Remove any token after max time if no trade executed
-                // But be generous - tokens need time to develop
-                if (timeInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
-                    tokensToRemove.add(mint)
-                    addLog("⏳ TIMEOUT: ${ts.symbol} - ${(maxWatchlistAge/60000)}min no trade", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "timeout", "CLEANUP")
-                    continue
-                }
-                
-                // Remove if WAIT signal for too long - but give more time in paper mode
-                val waitTimeout = if (isPaperMode) 300_000L else 120_000L  // 5 min in paper, 2 min in real
-                if (ts.signal == "WAIT" && timeInWatchlist > waitTimeout && ts.trades.isEmpty()) {
-                    tokensToRemove.add(mint)
-                    addLog("⏳ WAIT TIMEOUT: ${ts.symbol}", mint)
-                    marketScanner?.markTokenRejected(mint)
-                    GlobalTradeRegistry.registerRejection(mint, ts.symbol, "wait_timeout", "CLEANUP")
-                    continue
-                }
-                
-                // Remove if flat - but only after enough candles and in real mode
-                // Paper mode keeps flat tokens to learn from them too
-                if (!isPaperMode && ts.history.size >= 6) {
-                    val recentCandles = ts.history.takeLast(6)
-                    val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
-                    val avgPrice = recentCandles.map { it.priceUsd }.average()
-                    val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
-                    val totalBuys = recentCandles.sumOf { it.buysH1 }
-                    
-                    // Flat price (<1.5% range) AND no recent buys
-                    if (priceChangePercent < 1.5 && totalBuys < 2) {
-                        tokensToRemove.add(mint)
-                        addLog("📉 FLAT: ${ts.symbol}", mint)
-                        marketScanner?.markTokenRejected(mint)
-                        GlobalTradeRegistry.registerRejection(mint, ts.symbol, "flat", "CLEANUP")
-                        continue
-                    }
-                }
-            } else {
-                // No token state - remove it
-                tokensToRemove.add(mint)
+        var shadowTagged = 0
+        var hardSafetyTagged = 0
+        var staleTagged = 0
+        var idleTagged = 0
+        var phaseTagged = 0
+        var lowLiqTagged = 0
+        var timeoutTagged = 0
+        var waitTagged = 0
+        var flatTagged = 0
+        var missingStateTagged = 0
+
+        fun shadow(ts: com.lifecyclebot.data.TokenState?, mint: String, phase: String, message: String, hardSafety: Boolean = false) {
+            shadowTagged++
+            if (hardSafety) {
+                hardSafetyTagged++
+                // Only hard-safety shadows get per-token forensic logs. Ordinary
+                // stale/idle/wait/flat states are summarized below so a 500-token
+                // bench does not create its own logging/IO choke.
+                try {
+                    LiveTradeLogStore.log(
+                        tradeKey = "INTAKE_${mint.take(16)}",
+                        mint = mint,
+                        symbol = ts?.symbol ?: mint.take(6),
+                        side = "INFO",
+                        phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+                        message = "🛡 protected intake hard-shadow · $phase · $message",
+                        traderTag = "INTAKE",
+                    )
+                } catch (_: Throwable) {}
             }
         }
-        
-        // V4.0: Apply removals via GlobalTradeRegistry (NOT ConfigStore directly)
-        if (tokensToRemove.isNotEmpty()) {
-            // V5.9.413 — HELD-POSITION STICKY GUARD.
-            // Before this, `status.tokens.remove(mint)` fired unconditionally
-            // even when GlobalTradeRegistry.removeFromWatchlist refused the
-            // eviction because the mint had an active position. Result: the
-            // per-token bot loop stopped iterating the held mint → ts.ref
-            // went stale → pos.lastSeenPrice never updated → UI showed
-            // "stale / no live feed" and, worse, checkExit never fired
-            // (TP/SL/trailing never triggered) — the user's 7 held Quality
-            // positions showing dead data was the visible symptom, but every
-            // held layer was at risk.
-            val stillHeld = tokensToRemove.filter {
-                // V5.9.423 — defense-in-depth. GlobalTradeRegistry is the
-                // primary source of truth but Quality-layer positions were
-                // showing up stale in the UI despite being held. Also check
-                // each sub-trader's own `.hasPosition(mint)` so a missed
-                // registerPosition() call can never evict a live bag.
-                // V5.9.495z10 — and the canonical HostWalletTokenTracker
-                // wins over everything else: if the host wallet itself shows
-                // a balance for this mint, cleanup MUST NOT evict it.
-                HostWalletTokenTracker.hasOpenPosition(it) ||
-                GlobalTradeRegistry.hasOpenPosition(it) ||
-                com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(it)
-            }
-            val safeToEvict = tokensToRemove.filterNot {
-                HostWalletTokenTracker.hasOpenPosition(it) ||
-                GlobalTradeRegistry.hasOpenPosition(it) ||
-                com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(it) ||
-                com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(it)
-            }
-            if (stillHeld.isNotEmpty()) {
-                ErrorLogger.info(
-                    "BotService",
-                    "🛡️ Held-position sticky: kept ${stillHeld.size} mints in status.tokens (eviction blocked)"
-                )
-                // V5.9.495z10 — operator-spec forensic event so the timeline
-                // shows why specific mints were spared from cleanup.
-                for (mint in stillHeld) {
-                    val ts = synchronized(status.tokens) { status.tokens[mint] }
-                    val reason = when {
-                        HostWalletTokenTracker.hasOpenPosition(mint) -> "wallet_balance"
-                        GlobalTradeRegistry.hasOpenPosition(mint) -> "open_position"
-                        else -> "trader_registry"
-                    }
-                    try {
-                        LiveTradeLogStore.log(
-                            tradeKey = "TRACKER_${mint.take(16)}",
-                            mint = mint,
-                            symbol = ts?.symbol ?: mint.take(6),
-                            side = "INFO",
-                            phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
-                            message = "🛡 protected ${ts?.symbol ?: mint.take(6)} from watchlist eviction · reason=$reason",
-                            traderTag = "TRACKER",
-                        )
-                    } catch (_: Throwable) {}
-                }
-            }
-            for (mint in safeToEvict) {
-                GlobalTradeRegistry.removeFromWatchlist(mint, "CLEANUP")
+
+        for (mint in registryWatchlist) {
+            val ts = synchronized(status.tokens) { status.tokens[mint] }
+
+            // Held bags are never cleanup candidates. Exit management and the
+            // universal sweep own them, independent of scanner visibility.
+            if (
+                HostWalletTokenTracker.hasOpenPosition(mint) ||
+                ts?.position?.isOpen == true ||
+                GlobalTradeRegistry.hasOpenPosition(mint) ||
+                com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(mint) ||
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(mint) ||
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(mint) ||
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(mint) ||
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(mint) ||
+                com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(mint)
+            ) continue
+
+            if (ts == null) {
+                missingStateTagged++
+                shadow(null, mint, "MISSING_STATE", "registry mint awaiting TokenState hydrate")
+                continue
             }
 
-            // Also remove from status.tokens — but ONLY the non-held ones.
-            safeToEvict.forEach { mint ->
-                synchronized(status.tokens) {
-                    status.tokens.remove(mint)
-                }
+            val ageInWatchlist = now - ts.addedToWatchlistAt
+            val lastUpdate = ts.history.lastOrNull()?.ts ?: ts.addedToWatchlistAt
+            val dataAge = now - lastUpdate
+
+            if (ts.safety.isBlocked) {
+                val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
+                shadow(ts, mint, "SAFETY_SHADOW", reason, hardSafety = true)
+                // Do not mark scanner rejected and do not remove from registry.
+                // Entry/FDG safety will block execution while the candidate
+                // remains observable for learning, telemetry, and rehydration.
+                continue
             }
 
-            val newSize = GlobalTradeRegistry.size()
-            ErrorLogger.info("BotService", "Watchlist cleanup: removed ${safeToEvict.size} tokens, now $newSize remaining (GlobalTradeRegistry)")
-            addLog("🧹 Cleanup: -${safeToEvict.size} | now $newSize")
+            if (TokenBlacklist.isBlocked(mint)) {
+                val reason = TokenBlacklist.getBlockReason(mint)
+                shadow(ts, mint, "BLACKLIST_SHADOW", reason, hardSafety = true)
+                continue
+            }
+
+            if (ageInWatchlist < 90_000L) {
+                if (!isPaperMode && ts.lastLiquidityUsd in 0.0..0.5) {
+                    lowLiqTagged++
+                    shadow(ts, mint, "FRESH_ZERO_LIQ_SHADOW", "liq=${ts.lastLiquidityUsd}")
+                }
+                continue
+            }
+
+            if (ts.phase == "idle" && ageInWatchlist > idleThresholdMs && ts.history.size < 5) {
+                idleTagged++
+                shadow(ts, mint, "IDLE_SHADOW", "age=${ageInWatchlist / 1000}s history=${ts.history.size}")
+            }
+
+            if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution") && ts.history.size >= 3) {
+                phaseTagged++
+                shadow(ts, mint, "PHASE_SHADOW", "phase=${ts.phase} history=${ts.history.size}")
+            }
+
+            if (lastUpdate > 0 && dataAge > staleThresholdMs) {
+                staleTagged++
+                shadow(ts, mint, "STALE_SHADOW", "dataAge=${dataAge / 1000}s")
+            }
+
+            if (ts.lastLiquidityUsd < 200 && !isPaperMode) {
+                lowLiqTagged++
+                shadow(ts, mint, "LOW_LIQ_SHADOW", "liq=$${ts.lastLiquidityUsd.toInt()}")
+            }
+
+            if (ageInWatchlist > maxWatchlistAge && ts.trades.isEmpty()) {
+                timeoutTagged++
+                shadow(ts, mint, "TIMEOUT_SHADOW", "age=${ageInWatchlist / 60000}m no trade")
+            }
+
+            if (ts.signal == "WAIT" && ageInWatchlist > waitTimeout && ts.trades.isEmpty()) {
+                waitTagged++
+                shadow(ts, mint, "WAIT_SHADOW", "age=${ageInWatchlist / 1000}s")
+            }
+
+            if (!isPaperMode && ts.history.size >= 6) {
+                val recentCandles = ts.history.takeLast(6)
+                val priceRange = recentCandles.maxOf { it.priceUsd } - recentCandles.minOf { it.priceUsd }
+                val avgPrice = recentCandles.map { it.priceUsd }.average()
+                val priceChangePercent = if (avgPrice > 0) (priceRange / avgPrice) * 100 else 0.0
+                val totalBuys = recentCandles.sumOf { it.buysH1 }
+                if (priceChangePercent < 1.5 && totalBuys < 2) {
+                    flatTagged++
+                    shadow(ts, mint, "FLAT_SHADOW", "range=${"%.2f".format(priceChangePercent)}% buys=$totalBuys")
+                }
+            }
+        }
+
+        if (shadowTagged > 0) {
+            ErrorLogger.info(
+                "BotService",
+                "Protected intake shadow pass: tagged=$shadowTagged hard=$hardSafetyTagged stale=$staleTagged idle=$idleTagged phase=$phaseTagged lowLiq=$lowLiqTagged timeout=$timeoutTagged wait=$waitTagged flat=$flatTagged missing=$missingStateTagged watchlist=${registryWatchlist.size} removed=0"
+            )
+            if (hardSafetyTagged > 0) {
+                addLog("🛡 Intake protected: hardShadow=$hardSafetyTagged removed=0 watchlist=${registryWatchlist.size}")
+            }
         }
     }
 
@@ -6606,11 +6528,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 ErrorLogger.debug("BotService", "🛡️ Banned token ${ts.symbol} kept — held position")
                 return
             }
-            // Remove from watchlist to stop wasting resources
-            synchronized(status.tokens) {
-                status.tokens.remove(mint)
-            }
-            ErrorLogger.debug("BotService", "Removing banned token ${ts.symbol} from watchlist")
+            // V5.9.624 — protected intake rule: do not remove banned mints
+            // from status.tokens / scanner-visible state. Retain as shadow-only;
+            // entry remains blocked by BannedTokens while scheduler fairness and
+            // shadow deprioritization prevent it from becoming a loop choke.
+            try {
+                com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    reason = "BANNED_TOKEN_SHADOW",
+                    detail = "Banned token retained in protected intake; execution blocked",
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.debug("BotService", "Banned token ${ts.symbol} shadow-retained in protected intake")
             return
         }
         
@@ -6838,15 +6768,29 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         val drainedZombie = ts.lastLiquidityUsd <= 0.0 &&
             distributionCheck.reason?.contains("DRAIN", ignoreCase = true) == true
         if (drainedZombie) {
+            // V5.9.624 — protected intake rule: do NOT evict drained zombies from
+            // GlobalTradeRegistry/status.tokens. Tag them as shadow-only and let
+            // the fair scheduler deprioritize them. This preserves the scanner /
+            // watchlist as an intake universe while still preventing a drained
+            // token from becoming an entry candidate.
             try {
                 com.lifecyclebot.engine.MemePipelineTracer.blocked(
                     mint = ts.mint, symbol = ts.symbol,
-                    reason = "DRAINED_ZOMBIE_EVICTED",
-                    detail = "liq=\$0 + DISTRIBUTION_FADE — removed from watchlist to free cycle budget",
+                    reason = "DRAINED_ZOMBIE_SHADOW",
+                    detail = "liq=\$0 + DISTRIBUTION_FADE — shadow-only, retained in protected intake",
                 )
             } catch (_: Throwable) {}
-            try { GlobalTradeRegistry.removeFromWatchlist(ts.mint) } catch (_: Throwable) {}
-            try { synchronized(status.tokens) { status.tokens.remove(ts.mint) } } catch (_: Throwable) {}
+            try {
+                LiveTradeLogStore.log(
+                    tradeKey = "INTAKE_${ts.mint.take(16)}",
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    side = "INFO",
+                    phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+                    message = "🛡 drained zombie shadow-only retained in protected intake",
+                    traderTag = "INTAKE",
+                )
+            } catch (_: Throwable) {}
         }
         return  // Skip to next token (exit this coroutine)
     }

@@ -665,9 +665,13 @@ object GlobalTradeRegistry {
             rejectedBy = rejectedBy,
         )
 
-        // Also remove from watchlist if present (safe — guard above already
-        // returned for active positions).
-        removeFromWatchlist(mint, "REJECTED: $reason")
+        // V5.9.624 — PROTECTED MEME INTAKE.
+        // Rejection memory may block EXECUTION, but it must not amputate the
+        // scanner/watchlist intake pool. Earlier behavior removed the token
+        // here, so any caller of registerRejection() became an indirect
+        // watchlist choke. Keep the candidate observable for rehydration,
+        // telemetry, shadow learning, and fair scheduling.
+        ErrorLogger.debug(TAG, "🛡️ Rejection recorded for $symbol but intake retained | reason=$reason by=$rejectedBy")
     }
 
     /**
