@@ -2131,7 +2131,19 @@ class BotService : Service() {
         // Start full Solana market scanner
         val scanCfg = ConfigStore.load(applicationContext)
         ErrorLogger.info("BotService", "fullMarketScanEnabled = ${scanCfg.fullMarketScanEnabled}")
-        if (scanCfg.fullMarketScanEnabled) {
+        // V5.9.625 — Meme intake fail-open.
+        // Build 2500 showed 0 Meme Trader tokens while perps/markets ran. A
+        // persisted fullMarketScanEnabled=false silently kills the Solana intake
+        // even though V3/meme engines remain initialized. Under the protected
+        // scanner doctrine, an active bot must not silently run with Meme intake
+        // off. If V3/auto-trading is active, start the scanner anyway and make
+        // the override visible in logs.
+        val memeIntakeRequired = scanCfg.fullMarketScanEnabled || scanCfg.v3EngineEnabled || scanCfg.autoTrade || scanCfg.autoAddNewTokens
+        if (!scanCfg.fullMarketScanEnabled && memeIntakeRequired) {
+            ErrorLogger.warn("BotService", "🛡 MEME_INTAKE_FAIL_OPEN: fullMarketScanEnabled=false but V3/auto intake is active — starting Solana scanner anyway")
+            addLog("🛡 Meme intake fail-open: scanner started despite Full Scan toggle OFF")
+        }
+        if (memeIntakeRequired) {
             try {
                 ErrorLogger.info("BotService", "Creating market scanner...")
                 marketScanner = SolanaMarketScanner(
@@ -2225,84 +2237,63 @@ class BotService : Service() {
                             val paperMinScore = 1.0
                             val liveMinScore = 1.0
                             
-                            // Check 2a: MINIMUM LIQUIDITY
+                            // V5.9.625 — PROTECTED INTAKE MUST BE BEFORE GATES.
+                            // Build 2500 forensic symptom: every other universe was alive
+                            // (CryptoAlt/Stocks/Commodities), while Meme Trader showed 0
+                            // tokens. Root cause: this scanner callback still returned before
+                            // TokenMergeQueue for ordinary low-liq / blacklist / low-score
+                            // cases. That meant raw Solana discoveries never reached the
+                            // protected intake bench at all.
+                            //
+                            // New rule: scanner discovery always reaches the intake queue.
+                            // The checks below only tag lifecycle/telemetry; execution quality
+                            // is still enforced later by FDG, safety, blacklist, and sub-trader
+                            // gates. This improves token ARRIVAL and qualification coverage
+                            // without forcing a bad trade.
                             val minLiquidity = if (lenientScan) paperMinLiquidity else liveStrictMinLiquidity
-                            // V5.9.364 — multi-scanner bypass. priorScannerCount returns the
-                            // number of distinct scanners that already enqueued this mint inside
-                            // the 5s merge window. ≥1 prior scanner means THIS hit makes it ≥2,
-                            // i.e. multi-source confirmed → bypass the floor.
                             val priorScanners = TokenMergeQueue.priorScannerCount(identity.mint)
                             val multiScannerConfirmed = priorScanners >= 1
+                            val minScore = if (c.paperMode) paperMinScore else liveMinScore
+                            val modeLabel = if (c.paperMode) "PAPER" else "LIVE"
+
+                            var intakeTags = mutableListOf<String>()
                             if (!multiScannerConfirmed && liquidityUsd < minLiquidity) {
-                                TradeLifecycle.ineligible(identity.mint, "Liquidity too low: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
-                                return@SolanaMarketScanner
+                                intakeTags += "low_liq:${liquidityUsd.toInt()}<${minLiquidity.toInt()}"
+                                TradeLifecycle.ineligible(identity.mint, "INTAKE_SHADOW low liquidity: $${liquidityUsd.toInt()} < $${minLiquidity.toInt()}")
+                                ErrorLogger.debug("BotService", "🛡 INTAKE_SHADOW: ${identity.symbol} low-liq $${liquidityUsd.toInt()} < $${minLiquidity.toInt()} — queued anyway")
                             }
                             if (multiScannerConfirmed && liquidityUsd < minLiquidity) {
                                 MarketsTelemetry.multiScannerBypasses.incrementAndGet()
-                                ErrorLogger.info("BotService", "🟢 MULTI-SCANNER BYPASS: ${identity.symbol} liq=\$${liquidityUsd.toInt()} (${priorScanners + 1} scanners) — admitted below \$${minLiquidity.toInt()} floor")
+                                intakeTags += "multi_scanner_bypass:${priorScanners + 1}"
+                                ErrorLogger.info("BotService", "🟢 MULTI-SCANNER BYPASS: ${identity.symbol} liq=\$${liquidityUsd.toInt()} (${priorScanners + 1} scanners) — queued below \$${minLiquidity.toInt()} floor")
                             }
-                            
-                            // Check 2b: Blacklist (always check in live, optional in paper)
+
                             if (!c.paperMode && TokenBlacklist.isBlocked(identity.mint)) {
-                                // V5.9.473 — auto-rehabilitate false blacklists.
-                                //
-                                // Operator-reported bug: tokens with healthy
-                                // liquidity ($25k-$240k) showing as blacklisted
-                                // because a transient API hiccup (DexScreener
-                                // returning liq=0 momentarily) triggered the
-                                // DATA_CONFLICT path which became HARD_BLOCK
-                                // in live mode. Once blacklisted in-memory, the
-                                // token stays blocked for the entire session.
-                                //
-                                // The TokenSafetyChecker fix (V5.9.473) prevents
-                                // NEW false blacklists by ignoring liq<=1.0
-                                // readings, but the existing in-memory blacklist
-                                // is already polluted. This auto-prunes the
-                                // pollution without requiring a restart.
-                                //
-                                // Conservative criteria for rehabilitation:
-                                //   - Current liquidity ≥ $5,000  (clearly healthy)
-                                //   - Block reason starts with 'Safety: DATA_CONFLICT'
-                                //     (the specific false-positive class)
-                                //   - Real rug reasons (honeypot / scam / mint /
-                                //     2+ losses / etc) are NOT rehabilitated.
-                                //
-                                // BannedTokens (the permanent ban list) is
-                                // separate and unaffected.
                                 val blockReason = TokenBlacklist.getBlockReason(identity.mint)
                                 val isFalsePositive = blockReason.startsWith("Safety: DATA_CONFLICT", ignoreCase = true) ||
                                     blockReason.startsWith("Safety: Liquidity ", ignoreCase = true)
                                 if (isFalsePositive && liquidityUsd >= 5000.0) {
                                     TokenBlacklist.unblock(identity.mint)
+                                    intakeTags += "rehabilitated_blacklist"
                                     ErrorLogger.info("BotService", "🩹 REHABILITATED ${identity.symbol}: liq now \$${liquidityUsd.toInt()} — was falsely blacklisted via transient safety liquidity/data hiccup. Unblocking.")
                                     addLog("🩹 REHABILITATED ${identity.symbol}: liq=\$${liquidityUsd.toInt()} healthy, was false-blacklisted from safety liquidity/data hiccup")
-                                    // Fall through — continue eligibility checks
                                 } else {
-                                    TradeLifecycle.ineligible(identity.mint, "Blacklisted")
-                                    ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - blacklisted")
-                                    return@SolanaMarketScanner
+                                    intakeTags += "blacklist_shadow"
+                                    TradeLifecycle.ineligible(identity.mint, "INTAKE_SHADOW blacklisted")
+                                    ErrorLogger.debug("BotService", "🛡 INTAKE_SHADOW: ${identity.symbol} blacklisted — retained for protected intake, execution remains blocked")
                                 }
                             }
-                            
-                            // Check 2c: Minimum score threshold (now unified)
-                            val minScore = if (c.paperMode) paperMinScore else liveMinScore
+
                             if (score < minScore) {
-                                TradeLifecycle.ineligible(identity.mint, "Score too low: $score < $minScore")
-                                ErrorLogger.debug("BotService", "INELIGIBLE: ${identity.symbol} - score $score < $minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
-                                return@SolanaMarketScanner
+                                intakeTags += "low_score:$score<$minScore"
+                                TradeLifecycle.ineligible(identity.mint, "INTAKE_SHADOW score too low: $score < $minScore")
+                                ErrorLogger.debug("BotService", "🛡 INTAKE_SHADOW: ${identity.symbol} score $score < $minScore — queued anyway")
+                            } else {
+                                ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
                             }
-                            
-                            // V5.2.12: Log successful score admission for debugging
-                            ErrorLogger.debug("BotService", "✅ SCORE OK: ${identity.symbol} | score=$score >= minScore=$minScore (${if (c.paperMode) "PAPER" else "LIVE"} mode)")
-                            
-                            // V5.6.29d: REMOVED extra live-mode strictness - FDG handles this now
-                            // The AI layers and confidence gating provide sufficient protection
-                            
-                            // Mark as ELIGIBLE (passed all prereqs)
-                            val modeLabel = if (c.paperMode) "PAPER" else "LIVE"
-                            identity.eligible(score, "Passed $modeLabel eligibility")
-                            TradeLifecycle.eligible(identity.mint, score, "[$modeLabel] liq=$${liquidityUsd.toInt()}, score=$score")
+
+                            identity.eligible(score, "[$modeLabel] protected intake queued${if (intakeTags.isNotEmpty()) " shadow=${intakeTags.joinToString(",")}" else ""}")
+                            TradeLifecycle.eligible(identity.mint, score, "[$modeLabel] protected intake liq=$${liquidityUsd.toInt()}, score=$score${if (intakeTags.isNotEmpty()) ", shadow=${intakeTags.joinToString(",")}" else ""}")
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // STAGE 3: WATCHLIST ADMISSION (capacity check)
