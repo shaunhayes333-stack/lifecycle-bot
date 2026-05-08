@@ -5547,8 +5547,17 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
 // is processed every tick, irrespective of scanner visibility.
 val subTraderOpenMints: List<String> = try {
     val out = mutableSetOf<String>()
-    out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI
-        .getActivePositionsSnapshot().map { it.mint })
+    // V5.9.610 — the old implementation only force-included Treasury even
+    // though the comment promised all sub-trader stores. That let Moonshot /
+    // ShitCoin / Quality / BlueChip / Dip / Express mints fall out of the hot
+    // loop when scanner priority shifted, delaying exits and choking turnover.
+    try { out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().map { it.mint }) } catch (_: Throwable) {}
     out.toList()
 } catch (_: Exception) { emptyList() }
 
@@ -5564,8 +5573,8 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 
 val orderedMints = (forcedOpenMints + otherMints).distinct()
 
-val maxBatchMillis = 25_000L
-val perTokenTimeoutMs = 2_500L
+val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
+val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
 // V5.9.106: widen concurrency for fat watchlists. User logs showed
 // processed=20 / total=64 (44 deferred per tick) — the existing caps
 // couldn't keep up with the user's 50–100 token universe, so trades
@@ -5596,11 +5605,12 @@ val memeBootstrap = try {
 // intra-tick moves on fast-moving micro-caps.
 val maxParallel = if (memeBootstrap) {
     when {
-        orderedMints.size >= 60 -> 48
-        orderedMints.size >= 40 -> 32
-        orderedMints.size >= 20 -> 20
-        orderedMints.size >= 12 -> 14
-        orderedMints.size >= 6  -> 10
+        orderedMints.size >= 80 -> 96
+        orderedMints.size >= 60 -> 72
+        orderedMints.size >= 40 -> 48
+        orderedMints.size >= 20 -> 32
+        orderedMints.size >= 12 -> 20
+        orderedMints.size >= 6  -> 12
         else -> 6
     }
 } else {
@@ -8625,7 +8635,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 confidence = dipSignal.confidence.toDouble(),
                                 quality = "DIP",
                                 isPaperMode = cfg.paperMode,
-                                requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+                                requestedBook = TradeAuthorizer.ExecutionBook.DIP_HUNTER,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),

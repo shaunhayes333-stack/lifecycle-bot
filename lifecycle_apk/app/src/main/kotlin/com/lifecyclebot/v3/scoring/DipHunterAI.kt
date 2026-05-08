@@ -68,7 +68,8 @@ object DipHunterAI {
     // Position sizing - BOOTSTRAP TIGHT (start conservative, fluid learning will loosen)
     private const val BASE_POSITION_SOL = 0.05      // Conservative base for bootstrap
     private const val MAX_POSITION_SOL = 0.15       // Max 0.15 SOL per dip (reduced from 0.25)
-    private const val MAX_CONCURRENT_DIPS = 3       // Only 3 dip positions (reduced from 4)
+    private const val MAX_CONCURRENT_DIPS = 3       // Live safety cap
+    private const val PAPER_MAX_CONCURRENT_DIPS = 40 // V5.9.610: paper learner must not choke at 3 holds
     
     // Exit targets - FLUID (adapt as bot learns)
     // Bootstrap: Tighter exits (secure small wins while learning)
@@ -93,7 +94,10 @@ object DipHunterAI {
     
     // Daily limits - CRITICAL for bootstrap protection
     private const val DAILY_MAX_LOSS_SOL = 0.20     // Max 0.2 SOL daily loss
-    private const val DAILY_MAX_HUNTS = 15          // Max 15 dip hunts per day
+    private const val DAILY_MAX_HUNTS = 15          // Live safety cap
+    private const val PAPER_DAILY_MAX_HUNTS = 500   // V5.9.610: paper target = 500+ trades/day
+    private const val PAPER_RE_DIP_COOLDOWN_MS = 5L * 60_000L
+    private const val LIVE_RE_DIP_COOLDOWN_MS = 2L * 60L * 60_000L
     
     // ═══════════════════════════════════════════════════════════════════════════
     // STATE
@@ -214,14 +218,17 @@ object DipHunterAI {
         // DAILY LIMITS - CRITICAL FOR BOOTSTRAP PROTECTION
         // ═══════════════════════════════════════════════════════════════════
         
-        // Check daily hunt count
-        if (dailyHunts.get() >= DAILY_MAX_HUNTS) {
-            return noDip("DAILY_LIMIT: ${dailyHunts.get()}/$DAILY_MAX_HUNTS hunts")
+        // Check daily hunt count. Live remains conservative; paper bootstrap
+        // must generate enough examples to train the layer universe.
+        val maxDailyHunts = if (isPaperMode) PAPER_DAILY_MAX_HUNTS else DAILY_MAX_HUNTS
+        if (dailyHunts.get() >= maxDailyHunts) {
+            return noDip("DAILY_LIMIT: ${dailyHunts.get()}/$maxDailyHunts hunts")
         }
         
-        // Check daily loss limit
+        // Check daily loss limit only in live. Paper losses are learning labels,
+        // and the global paper wallet/proof-run systems already track drawdown.
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        if (dailyPnl <= -DAILY_MAX_LOSS_SOL) {
+        if (!isPaperMode && dailyPnl <= -DAILY_MAX_LOSS_SOL) {
             return noDip("DAILY_LOSS_LIMIT: ${dailyPnl.fmt(3)}◎")
         }
         
@@ -229,9 +236,11 @@ object DipHunterAI {
         // BASIC FILTERS
         // ═══════════════════════════════════════════════════════════════════
         
-        // Max concurrent dips
-        if (activeDips.size >= MAX_CONCURRENT_DIPS) {
-            return noDip("MAX_DIPS: ${activeDips.size}/$MAX_CONCURRENT_DIPS")
+        // Max concurrent dips. Paper gets high-throughput learning slots;
+        // live keeps the tiny safety cap.
+        val maxConcurrentDips = if (isPaperMode) PAPER_MAX_CONCURRENT_DIPS else MAX_CONCURRENT_DIPS
+        if (activeDips.size >= maxConcurrentDips) {
+            return noDip("MAX_DIPS: ${activeDips.size}/$maxConcurrentDips")
         }
         
         // Already have this dip
@@ -241,8 +250,9 @@ object DipHunterAI {
         
         // Recently dip-bought
         val lastDip = recentDips[mint]
-        if (lastDip != null && System.currentTimeMillis() - lastDip < 2 * 60 * 60 * 1000) {
-            return noDip("RECENT_DIP: waited < 2h")
+        val redipCooldown = if (isPaperMode) PAPER_RE_DIP_COOLDOWN_MS else LIVE_RE_DIP_COOLDOWN_MS
+        if (lastDip != null && System.currentTimeMillis() - lastDip < redipCooldown) {
+            return noDip("RECENT_DIP: waited < ${redipCooldown / 60_000}m")
         }
         
         // Market cap range
