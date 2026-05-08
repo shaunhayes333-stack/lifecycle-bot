@@ -3910,6 +3910,77 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
     }
 
+    // V5.9.495z53 — extracted from botLoop() to keep the synthesized
+    // bytecode under the JVM 64KB method-size limit (build was failing with
+    // "Couldn't transform method node: botLoop"). No behavior change.
+    private fun runLabUniverseTick() {
+        com.lifecyclebot.engine.lab.LlmLabEngine.tick {
+            val list = ArrayList<com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick>(
+                status.tokens.size
+            )
+            val regime = try {
+                val m = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime().mode
+                when (m) {
+                    com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
+                    com.lifecyclebot.v4.meta.GlobalRiskMode.TRENDING -> "BULL"
+                    com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_OFF -> "BEAR"
+                    else -> "CHOP"
+                }
+            } catch (_: Throwable) { "ANY" }
+            status.tokens.values.forEach { ts ->
+                val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
+                if (price <= 0) return@forEach
+                val score = (ts.entryScore.toInt()).coerceIn(0, 100)
+                list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
+                    symbol = ts.symbol.ifBlank { ts.mint.take(8) },
+                    mint = ts.mint,
+                    asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
+                    price = price,
+                    score = score,
+                    regime = regime,
+                ))
+            }
+            fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {
+                if (price <= 0.0 || symbol.isBlank()) return
+                list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
+                    symbol = symbol, mint = mint, asset = asset,
+                    price = price, score = 50, regime = regime,
+                ))
+            }
+            try {
+                com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.perps.TokenizedStockTrader.getActivePositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.STOCK, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.perps.PerpsTraderAI.getActivePositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.MARKETS, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.perps.ForexTrader.getAllPositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.FOREX, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.perps.MetalsTrader.getAllPositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.METAL, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.perps.CommoditiesTrader.getAllPositions().forEach { p ->
+                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.COMMODITY, p.currentPrice)
+                }
+            } catch (_: Throwable) {}
+            list
+        }
+    }
+
     private suspend fun botLoop() {
         ErrorLogger.info("BotService", "botLoop() started")
         
@@ -4014,83 +4085,7 @@ class BotService : Service() {
             } catch (_: Throwable) {}
 
             // V5.9.402 — LLM Lab tick (creation + paper exec + cull, all internally gated).
-            try {
-                com.lifecyclebot.engine.lab.LlmLabEngine.tick {
-                    // Universe feed: snapshot live tokens + their AATE composite scores
-                    val list = ArrayList<com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick>(
-                        status.tokens.size
-                    )
-                    val regime = try {
-                        val m = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime().mode
-                        when (m) {
-                            com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                            com.lifecyclebot.v4.meta.GlobalRiskMode.TRENDING -> "BULL"
-                            com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_OFF -> "BEAR"
-                            else -> "CHOP"
-                        }
-                    } catch (_: Throwable) { "ANY" }
-                    status.tokens.values.forEach { ts ->
-                        val price = ts.lastPrice.takeIf { it > 0 } ?: ts.history.lastOrNull()?.priceUsd ?: 0.0
-                        if (price <= 0) return@forEach
-                        val score = (ts.entryScore.toInt()).coerceIn(0, 100)
-                        list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
-                            symbol = ts.symbol.ifBlank { ts.mint.take(8) },
-                            mint = ts.mint,
-                            asset = com.lifecyclebot.engine.lab.LabAssetClass.MEME,
-                            price = price,
-                            score = score,
-                            regime = regime,
-                        ))
-                    }
-
-                    // V5.9.420 — feed non-MEME asset prices into the Lab universe.
-                    // Prior to this, the lab feed only emitted MEME ticks, so any
-                    // strategy with `asset = LabAssetClass.ALT` (or STOCK/MARKETS/
-                    // FOREX/METAL/COMMODITY) had no price data → its open Lab
-                    // positions never got a checkExit() and its UI rows showed
-                    // "entry → live" with the same price forever. Source per
-                    // asset: each markets-trader's open positions carry a fresh
-                    // `currentPrice` field updated every cycle.
-                    fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {
-                        if (price <= 0.0 || symbol.isBlank()) return
-                        list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
-                            symbol = symbol, mint = mint, asset = asset,
-                            price = price, score = 50, regime = regime,
-                        ))
-                    }
-                    try {
-                        com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.perps.TokenizedStockTrader.getActivePositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.STOCK, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.perps.PerpsTraderAI.getActivePositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.MARKETS, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.perps.ForexTrader.getAllPositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.FOREX, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.perps.MetalsTrader.getAllPositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.METAL, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.perps.CommoditiesTrader.getAllPositions().forEach { p ->
-                            pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.COMMODITY, p.currentPrice)
-                        }
-                    } catch (_: Throwable) {}
-                    list
-                }
-            } catch (_: Throwable) {}
+            try { runLabUniverseTick() } catch (_: Throwable) {}
 
             // ═══════════════════════════════════════════════════════════════════
             // V5.2: PIPELINE TRACE - Snapshot loop state at start
