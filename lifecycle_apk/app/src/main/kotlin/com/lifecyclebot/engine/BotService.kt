@@ -1795,6 +1795,16 @@ class BotService : Service() {
                     }
                     com.lifecyclebot.engine.execution.PositionWalletReconciler.start(w)
                     addLog("🛡 Position↔Wallet reconciler started (host + crypto-alt)")
+
+                    // V5.9.495z45 — operator forensics_20260508_143519 fix.
+                    // Cold-start trigger of LiveWalletReconciler so the
+                    // reconciler.totalChecked counter and the
+                    // HostWalletTokenTracker.applyWalletSnapshot pipeline
+                    // both kick over the moment the bot starts (not after
+                    // the first per-token cycle, which can be > 30s late).
+                    try {
+                        com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "bot_start")
+                    } catch (_: Throwable) { /* fail-soft */ }
                 }
             } catch (e: Exception) {
                 addLog("⚠️ Reconciler start failed: ${e.message}")

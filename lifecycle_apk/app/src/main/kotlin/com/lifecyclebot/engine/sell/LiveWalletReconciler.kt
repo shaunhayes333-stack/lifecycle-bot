@@ -89,6 +89,9 @@ object LiveWalletReconciler {
             return 0
         }
         try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
+        // V5.9.495z45 — operator forensics_20260508_143519 spec item G:
+        // re-evaluate UI safety flags after every successful wallet snapshot.
+        try { LiveSafetyFlags.reevaluate(balances) } catch (_: Throwable) {}
         var updated = 0
         for ((mint, pair) in balances) {
             totalChecked.incrementAndGet()
