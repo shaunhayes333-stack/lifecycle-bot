@@ -857,27 +857,22 @@ class SolanaMarketScanner(
             telemetryStaleDrops++
             ErrorLogger.warn("Scanner", "⚠️ Scanner STALE for ${staleDuration / 1000}s - forcing soft reset")
             onLog("⚠️ Scanner stale for ${staleDuration / 1000}s - soft reset")
-            val hard = GlobalTradeRegistry.size() == 0 && telemetryRawScanned == 0 && telemetryEnqueued == 0
-            forceReset(clearDiscoveryMemory = hard)
+            forceReset()
             lastNewTokenFoundMs = now
             return true
         }
         return false
     }
 
-    fun forceReset(clearDiscoveryMemory: Boolean = false) {
+    fun forceReset() {
         cooldownHitCount.clear()
         saturatedMints.clear()
-        if (clearDiscoveryMemory) {
-            seenMints.clear()
-            rejectedMints.clear()
-        }
         resetTelemetry()
         scanRotation = 0
         lastNewTokenFoundMs = System.currentTimeMillis()
         lastScanCycleMs = System.currentTimeMillis()
-        ErrorLogger.info("Scanner", "Force reset - cleared transient state${if (clearDiscoveryMemory) " + seen/rejected maps" else " only"}")
-        onLog(if (clearDiscoveryMemory) "🔄 Scanner hard reset - cleared seen/rejected maps" else "🔄 Scanner soft reset - preserved seen/rejected cooldowns")
+        ErrorLogger.info("Scanner", "Force reset - cleared transient state only")
+        onLog("🔄 Scanner soft reset - preserved seen/rejected cooldowns")
         try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
     }
 
