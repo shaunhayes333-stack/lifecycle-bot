@@ -61,15 +61,15 @@ object PerpsTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Position limits
-    private const val MAX_CONCURRENT_POSITIONS_LIVE = 5
-    private const val MAX_CONCURRENT_POSITIONS_PAPER = 20   // V5.7.4: More positions in paper for learning
+    private const val MAX_CONCURRENT_POSITIONS_LIVE = 20    // V5.9.611: live parity with paper
+    private const val MAX_CONCURRENT_POSITIONS_PAPER = 20   // Same brain, same flow; live differs only by real-money safety
     private const val MAX_POSITION_PCT_OF_BALANCE = 25.0
     private const val MIN_POSITION_SOL = 0.05
     
     // Daily limits
     private const val DAILY_MAX_LOSS_PCT = 15.0           // Max 15% daily drawdown
-    private const val DAILY_MAX_TRADES_LIVE = 30          // Prevent overtrading in LIVE mode
-    private const val DAILY_MAX_TRADES_PAPER = 999999     // V5.7.4: UNLIMITED trades in paper mode for learning
+    private const val DAILY_MAX_TRADES_LIVE = 999999      // V5.9.611: no artificial live quota
+    private const val DAILY_MAX_TRADES_PAPER = 999999     // Paper trains live behavior
     
     // Readiness thresholds
     private const val MIN_PAPER_TRADES_FOR_LIVE = 5000
@@ -403,23 +403,16 @@ object PerpsTraderAI {
         // PRE-FLIGHT CHECKS - V5.7.4: REMOVED ALL LIMITS FOR PAPER MODE
         // ═══════════════════════════════════════════════════════════════════
         
-        // Daily limits - UNLIMITED in paper mode
+        // V5.9.611 — paper is training for live: no live-only daily quota or
+        // position-count block. Keep the live drawdown stop as real-money safety.
         if (!isPaperMode) {
-            if (dailyTrades.get() >= DAILY_MAX_TRADES_LIVE) {
-                return noTradeSignal(market, "DAILY_TRADE_LIMIT", reasons)
-            }
-            
             val dailyPnlPct = getDailyPnlPct()
             if (dailyPnlPct <= -DAILY_MAX_LOSS_PCT) {
                 return noTradeSignal(market, "DAILY_LOSS_LIMIT", reasons)
             }
         }
-        
-        // Max positions - V5.7.4: NO LIMIT in paper mode for maximum learning
-        if (!isPaperMode) {
-            if (activePositions.size >= MAX_CONCURRENT_POSITIONS_LIVE) {
-                return noTradeSignal(market, "MAX_POSITIONS", reasons)
-            }
+        if (!isPaperMode && activePositions.size >= MAX_CONCURRENT_POSITIONS_LIVE) {
+            ErrorLogger.info(TAG, "♻️ LIVE PARITY: ignoring legacy perps position cap ${activePositions.size}/$MAX_CONCURRENT_POSITIONS_LIVE")
         }
         
         // Stock market hours - V5.7.4: SKIP CHECK in paper mode (24/7 learning)

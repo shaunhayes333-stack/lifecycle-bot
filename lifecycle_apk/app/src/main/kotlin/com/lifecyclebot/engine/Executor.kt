@@ -5147,9 +5147,9 @@ class Executor(
             return
         }
 
-        // V5.9.495z29 — operator spec item 8: LiveExecutionGate. Single
-        // chokepoint enforcing daily quota / concurrent ceiling / min spacing
-        // / pending-verification queue depth. Reject cleanly + log when blocked.
+        // V5.9.611 — LiveExecutionGate is now settlement-pressure only.
+        // Daily quota / concurrent ceiling / min spacing are NOT buy blockers:
+        // paper is training for live, so live must express the same fluid gates.
         // V5.9.495z52 — use liveMemeOpenCount() (filters out auto-imported
         // wallet dust ATAs, cross-lane CryptoUniverse / Markets positions,
         // and dust-balance residuals) instead of openCount() which counted

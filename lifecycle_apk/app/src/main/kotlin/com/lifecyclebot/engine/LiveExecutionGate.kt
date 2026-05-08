@@ -15,11 +15,13 @@ import java.util.concurrent.atomic.AtomicLong
  *   skipSlowBackgroundScansWhenLiveBusy."
  *
  * This gate is the single chokepoint every live BUY must traverse. It
- * enforces:
- *   • Daily quota          (rolling 24h window per UTC day boundary)
- *   • Concurrent ceiling   (open BUY_PENDING/HELD count vs config limit)
- *   • Min spacing          (minimum seconds between consecutive live buys)
+ * enforces real-money settlement pressure only:
  *   • Pending verification (don't pile up un-reconciled buys / sells)
+ *
+ * V5.9.611: daily quota, concurrent ceiling, and min-spacing are no longer
+ * buy blockers. Paper is training for live; live must use the same fluid
+ * scoring/routing behavior and differ only by core anti-rug / anti-drain /
+ * settlement safety rails.
  *
  * ALL state is in-process atomics — no SharedPreferences calls on the hot
  * path. Daily counter resets on UTC midnight. Concurrent counter is read
@@ -76,8 +78,8 @@ object LiveExecutionGate {
     fun configure(c: Config) {
         cfg = c
         ErrorLogger.info(TAG, "configured | mode=${if (c.highThroughputLiveMode) "HOT" else "STANDARD"} " +
-            "| daily=${c.maxLiveTradesPerDay} | concurrent=${c.maxConcurrentLivePositions} " +
-            "| spacing=${c.minSecondsBetweenLiveBuys}s | hotPathTimeout=${c.hotPathTimeoutMs}ms")
+            "| live=paper-fluid parity | pendingBuyMax=${c.maxPendingBuyVerifications} " +
+            "| pendingSellMax=${c.maxPendingSellVerifications} | hotPathTimeout=${c.hotPathTimeoutMs}ms")
     }
 
     fun config(): Config = cfg
@@ -92,25 +94,18 @@ object LiveExecutionGate {
     fun tryAcquireBuy(currentLiveOpenCount: Int): Decision {
         rollDayIfNeeded()
 
-        if (buysToday.get() >= cfg.maxLiveTradesPerDay) {
-            return Decision.Blocked("DAILY_QUOTA",
-                "live buys today=${buysToday.get()} ≥ daily cap ${cfg.maxLiveTradesPerDay}")
-        }
-        if (currentLiveOpenCount >= cfg.maxConcurrentLivePositions) {
-            return Decision.Blocked("CONCURRENT_CAP",
-                "open=${currentLiveOpenCount} ≥ concurrent cap ${cfg.maxConcurrentLivePositions}")
-        }
         val now = System.currentTimeMillis()
-        val sinceLast = (now - lastBuyAtMs.get()) / 1000.0
-        if (sinceLast < cfg.minSecondsBetweenLiveBuys) {
-            return Decision.Blocked("RATE_LIMIT",
-                "${"%.1f".format(sinceLast)}s since last buy < min ${cfg.minSecondsBetweenLiveBuys}s")
-        }
-        if (pendingBuyVerifications() >= cfg.maxPendingBuyVerifications) {
+
+        // V5.9.611 — DO NOT block live on daily quota, open-position count, or
+        // min spacing. Those made live physically different from paper and
+        // prevented the learned fluid strategy from expressing itself. Keep only
+        // settlement-pressure protection so we don't stack unverified chain ops.
+        val pendingBuys = pendingBuyVerifications()
+        if (pendingBuys >= cfg.maxPendingBuyVerifications) {
             return Decision.Blocked("PENDING_BUYS",
-                "pendingBuyVerifications=${pendingBuyVerifications()} ≥ ${cfg.maxPendingBuyVerifications}")
+                "pendingBuyVerifications=$pendingBuys ≥ ${cfg.maxPendingBuyVerifications}")
         }
-        // Reserve the slot atomically.
+
         lastBuyAtMs.set(now)
         buysToday.incrementAndGet()
         return Decision.Allowed
@@ -139,15 +134,14 @@ object LiveExecutionGate {
      */
     fun shouldSkipSlowBackgroundScans(): Boolean {
         if (!cfg.skipSlowBackgroundScansWhenLiveBusy) return false
-        val nearDailyCap = buysToday.get() >= cfg.maxLiveTradesPerDay * 0.9
         val pendingPressure = pendingBuyVerifications() >= cfg.maxPendingBuyVerifications - 1 ||
                               pendingSellVerifications() >= cfg.maxPendingSellVerifications - 1
-        return nearDailyCap || pendingPressure
+        return pendingPressure
     }
 
     fun stats(): String {
         rollDayIfNeeded()
-        return "today=${buysToday.get()}/${cfg.maxLiveTradesPerDay} · " +
+        return "today=${buysToday.get()} · " +
                "pendingBuys=${pendingBuyVerifications()}/${cfg.maxPendingBuyVerifications} · " +
                "pendingSells=${pendingSellVerifications()}/${cfg.maxPendingSellVerifications}"
     }

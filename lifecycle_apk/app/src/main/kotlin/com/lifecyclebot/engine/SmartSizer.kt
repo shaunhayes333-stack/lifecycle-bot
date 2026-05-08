@@ -499,29 +499,13 @@ object SmartSizer {
         }
 
         if (!isPaperMode) {
-            // Hard cap at the tier's live ceiling
-            if (openPositionCount >= maxLivePositions) {
-                ErrorLogger.warn("SmartSizer", "⚠️ LIVE POSITION CAP: $openPositionCount >= $maxLivePositions max (tier=${livePosTier.name}) | Blocking new entry")
-                return SizeResult(0.0, tier, basePct, aiScoreMult, 1.0, 1.0, 1.0, treasuryMult, houseMoneyBonus,
-                    "live_position_cap",
-                    "Live mode (${livePosTier.name}): $openPositionCount/$maxLivePositions positions — waiting for exits before new entries")
-            }
-            
-            // V5.9.495z23 — gentler diversification scaling. First N positions
-            // (`fullSizeSlots`) get FULL size so winners actually move the needle.
-            // After that the curve still tapers but to a higher floor (50% vs
-            // the old 35%) so position 8+ isn't dust.
-            val positionScaleFactor = when {
-                openPositionCount <= fullSizeSlots             -> 1.00
-                openPositionCount <= fullSizeSlots + 3         -> 0.85
-                openPositionCount <= fullSizeSlots + 6         -> 0.70
-                openPositionCount <= fullSizeSlots + 10        -> 0.60
-                else                                           -> 0.50
-            }
-            
-            size *= positionScaleFactor
-            if (positionScaleFactor < 1.0) {
-                ErrorLogger.info("SmartSizer", "📊 DIVERSIFICATION SCALE: $openPositionCount positions → size × $positionScaleFactor")
+            // V5.9.611 — live must mirror paper's learned entry behavior. Do not
+            // hard-block or shrink to dust because a wallet tier says we already
+            // have "too many" positions. Anti-drain protection lives in wallet
+            // balance/rent reserve, max-per-trade, liquidity ownership, settlement
+            // verification, and sell mutexes — not artificial position counts.
+            if (openPositionCount > maxLivePositions) {
+                ErrorLogger.info("SmartSizer", "♻️ LIVE PARITY: ignoring legacy position cap $openPositionCount/$maxLivePositions (tier=${livePosTier.name})")
             }
         }
 
@@ -534,25 +518,15 @@ object SmartSizer {
         // Higher treasury = can handle more total exposure
         // This allows scaling up as the bankroll grows
         // ══════════════════════════════════════════════════════════════
-        val maxExposurePct = if (isPaperMode) {
-            0.70  // 70% in paper mode
-        } else {
-            val solPrice = solPriceUsd.takeIf { it > 0 } ?: 100.0
-            val treasuryUsd = TreasuryManager.treasurySol * solPrice
-            val tier = ScalingMode.activeTier(treasuryUsd)
-            
-            when (tier) {
-                ScalingMode.Tier.INSTITUTIONAL -> 0.85  // 85% exposure allowed - big bankroll
-                ScalingMode.Tier.SCALED        -> 0.80  // 80% exposure
-                ScalingMode.Tier.GROWTH        -> 0.75  // 75% exposure
-                ScalingMode.Tier.STANDARD      -> 0.70  // 70% exposure (default)
-                ScalingMode.Tier.MICRO         -> 0.60  // 60% exposure - protect small stack
-            }
-        }
-        
-        val exposureRoom = (tradeable * maxExposurePct) - currentTotalExposure
-        ErrorLogger.info("SmartSizer", "📏 exposureRoom=$exposureRoom (tradeable*$maxExposurePct=${tradeable*maxExposurePct} - exposure=$currentTotalExposure)")
-        if (size > exposureRoom) { size = exposureRoom.coerceAtLeast(0.0); cappedBy = "exposureCap_${(maxExposurePct*100).toInt()}pct" }
+        // V5.9.611 — remove portfolio-exposure as a hard size/quantity block.
+        // Paper mode is training for live mode, so live cannot silently size to
+        // zero just because cumulative exposure is above a tier threshold. The
+        // bot still cannot drain the wallet in one hit because max-per-trade,
+        // live rent reserve, wallet balance checks, liquidity ownership caps,
+        // and chain settlement guards remain active.
+        val legacyExposurePct = if (isPaperMode) 0.70 else 0.70
+        val legacyExposureRoom = (tradeable * legacyExposurePct) - currentTotalExposure
+        ErrorLogger.info("SmartSizer", "📏 exposureRoom(observe-only)=$legacyExposureRoom (tradeable*$legacyExposurePct=${tradeable*legacyExposurePct} - exposure=$currentTotalExposure)")
 
         // ── Liquidity ownership cap (ScalingMode tier-aware) ─────────
         // PAPER MODE: Skip liquidity ownership cap - we want to learn
