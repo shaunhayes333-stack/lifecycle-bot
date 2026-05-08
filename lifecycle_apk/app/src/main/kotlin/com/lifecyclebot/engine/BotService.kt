@@ -2178,6 +2178,13 @@ class BotService : Service() {
 
         // Start protected Solana/Meme intake scanner.
         val scanCfg = ConfigStore.load(applicationContext)
+        // V5.9.629 — SOLANA WIDE-FEED RULE:
+        // When Meme Trader is enabled, every available Solana source is allowed
+        // to feed protected intake: PumpPortal new launches, DataOrchestrator,
+        // Pump.fun REST, DexScreener latest/trending/gainers/boosted, Raydium,
+        // GeckoTerminal, Meteora, Birdeye, and CoinGecko. The scanner/watchlist
+        // is not an execution gate; downstream FDG/safety/sub-traders qualify.
+        // Do not tie feed admission to autoTrade/autoAdd/V3 alone.
         // V5.9.628 — Meme scanner is owned by Meme Trader, not by unrelated
         // full-scan/auto-trade/V3 toggles. Latest-APK operator log showed
         // Markets/CryptoAlt/Forex alive while Meme Trader had literally 0 tokens
@@ -3744,8 +3751,21 @@ class BotService : Service() {
             com.lifecyclebot.network.PumpFunWS.start(
                 onNewToken = { mint, symbol, name, mcapSol ->
                     try {
-                        val shouldAdmit = cfg.autoAddNewTokens || cfg.v3EngineEnabled || cfg.autoTrade
+                        // V5.9.629 — PumpPortal is the high-throughput Meme launch feed
+                        // that made builds 2489/2490 ramp to ~40 open positions. It must
+                        // follow the same Meme-enabled semantics as the scanner and main
+                        // loop, not stale auto-add/V3/autoTrade toggles. If Meme Trader is
+                        // enabled or tradingMode is Meme/Both, admit fresh pump.fun launches.
+                        val liveCfg = ConfigStore.load(applicationContext)
+                        val shouldAdmit = liveCfg.memeTraderEnabled ||
+                            liveCfg.tradingMode == 0 ||
+                            liveCfg.tradingMode == 2 ||
+                            liveCfg.autoAddNewTokens ||
+                            liveCfg.v3EngineEnabled ||
+                            liveCfg.autoTrade
                         if (shouldAdmit) {
+                            lastScannerDiscoveryMs = System.currentTimeMillis()
+                            try { marketScanner?.recordNewTokenFound() } catch (_: Throwable) {}
                             val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                                 .takeIf { it > 0.0 } ?: 150.0
                             val mcapUsd = mcapSol * solUsd
