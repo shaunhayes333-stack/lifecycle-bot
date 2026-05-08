@@ -65,6 +65,22 @@ class BotService : Service() {
         const val MARKET_TRADER_KILL_SWITCH = false  // V5.9.362 — reinstated; switches in Settings now drive enable/disable per trader
 
         /**
+         * V5.9.614 — AntiChokeManager safety hook. When the choke goes RECOVERY
+         * because the watchlist is choked with unpriced pump.fun firehose mints,
+         * trigger a soft scanner reset so cooldown/saturation maps clear and
+         * the discovery feed can re-prioritise. Soft only — never clears
+         * seenMints/rejectedMints.
+         */
+        fun forceScannerSoftResetIfPossible() {
+            try {
+                val svc = instance ?: return
+                val sc = svc.marketScanner ?: return
+                sc.forceReset()
+            } catch (_: Throwable) { /* never break */ }
+        }
+
+
+        /**
          * V5.9.362 — runtime re-apply of the Markets Trader switches. Called
          * from MainActivity right after the Settings sheet save, so toggling
          * Perps/Stocks/Commodities/Metals/Forex/Alts in the UI takes effect

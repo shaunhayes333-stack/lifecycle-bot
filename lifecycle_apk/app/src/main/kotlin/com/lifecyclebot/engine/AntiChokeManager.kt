@@ -19,11 +19,20 @@ object AntiChokeManager {
     private const val TARGET_TRADES_PER_DAY = 500
     private const val TARGET_TRADES_PER_HOUR = TARGET_TRADES_PER_DAY / 24.0
     private const val TARGET_MS_PER_TRADE = (86_400_000L / TARGET_TRADES_PER_DAY) // ~172.8s
-    private const val CHECK_EVERY_MS = 20_000L
-    private const val GHOST_MIN_AGE_MS = 90_000L
-    private const val DORMANT_GRACE_MS = 90_000L
-    private const val DORMANT_CHOKE_MS = 6 * 60_000L
-    private const val MAX_PRUNE_PER_CHECK = 35
+    // V5.9.614 — operator forensics 2026-05-09 00:28-00:35: 7-min stagnation window
+    // with 200+ PumpPortal mints arriving but 0 trades. Old 20s cadence + 5x stagnation
+    // threshold meant RECOVERY only fired after ~14min — far too slow. Halved cadence
+    // and dropped RECOVERY threshold to ~3x (~9min) so the immune system fires before
+    // the operator notices. WATCH at 1x, SOFTEN at 1.5x, RECOVERY at 3x.
+    private const val CHECK_EVERY_MS = 10_000L
+    private const val GHOST_MIN_AGE_MS = 60_000L          // was 90s — clear ghosts faster
+    private const val DORMANT_GRACE_MS = 60_000L          // was 90s — start pruning sooner
+    private const val DORMANT_CHOKE_MS = 3 * 60_000L      // was 6min — half the dormancy budget
+    private const val MAX_PRUNE_PER_CHECK = 80            // was 35 — allow bigger sweeps in firehose conditions
+    private const val PRUNE_THRESHOLD = 40                // was 60 — start trimming earlier
+    private const val SOFTEN_STAGNATION_MULT = 1.5
+    private const val RECOVERY_STAGNATION_MULT = 3.0
+    private const val UNPRICED_GRACE_MS = 120_000L        // 2min unpriced → evict in RECOVERY
 
     enum class Level { CLEAR, WATCH, SOFTEN, RECOVERY }
 
@@ -72,12 +81,21 @@ object AntiChokeManager {
         val openInternal = internalOpenCount(tokens)
         val openWalletBefore = walletOpenCount(isPaperMode)
 
-        val starving = stagnantMs > TARGET_MS_PER_TRADE * 2 || projectedDaily < TARGET_TRADES_PER_DAY * 0.70
-        val clogged = watchlistSize > 80 && openInternal < 8 && stagnantMs > TARGET_MS_PER_TRADE
+        // V5.9.614 — wider trip-wires + new "unpriced firehose" detection.
+        // PumpPortal can dump hundreds of pre-graduation mints into the watchlist
+        // that have no DexScreener pair and never get evaluated. If the watchlist
+        // is fat AND most tokens lack a usable price, we are starving even though
+        // the feed looks healthy.
+        val unpricedFresh = countUnpricedFresh(tokens, now)
+        val firehose = watchlistSize >= PRUNE_THRESHOLD && unpricedFresh >= (watchlistSize / 2)
+
+        val starving = stagnantMs > TARGET_MS_PER_TRADE * SOFTEN_STAGNATION_MULT ||
+            projectedDaily < TARGET_TRADES_PER_DAY * 0.70
+        val clogged = watchlistSize > 60 && openInternal < 8 && stagnantMs > TARGET_MS_PER_TRADE
         val ghostPressure = openInternal >= 12 && openWalletBefore <= 2 && !isPaperMode
 
         level = when {
-            stagnantMs > TARGET_MS_PER_TRADE * 5 || ghostPressure -> Level.RECOVERY
+            stagnantMs > TARGET_MS_PER_TRADE * RECOVERY_STAGNATION_MULT || ghostPressure || firehose -> Level.RECOVERY
             starving || clogged -> Level.SOFTEN
             projectedDaily < TARGET_TRADES_PER_DAY * 0.90 -> Level.WATCH
             else -> Level.CLEAR
@@ -85,19 +103,85 @@ object AntiChokeManager {
 
         var ghosts = 0
         var pruned = 0
+        var unpricedEvicted = 0
         if (level == Level.SOFTEN || level == Level.RECOVERY) {
             ghosts += clearGhostInternalPositions(isPaperMode, wallet, tokens, now)
             pruned += pruneDormantWatchlist(tokens, now, aggressive = level == Level.RECOVERY)
             try { TradingCopilot.clearDemotionWeights() } catch (_: Throwable) {}
         }
+        if (level == Level.RECOVERY) {
+            // V5.9.614 — starvation breaker. Evict tokens that have been in the
+            // watchlist > UNPRICED_GRACE_MS without a usable price. They are
+            // pre-graduation pump.fun mints that DexScreener cannot price; the
+            // entry path returns early on every cycle and they choke turnover.
+            unpricedEvicted += evictUnpricedStale(tokens, now)
+            // Force a scanner soft-reset so the discovery feed unsticks from
+            // its cooldown / saturation state. Does NOT clear seenMints — we
+            // still want to dedupe genuine duplicates.
+            try {
+                val ms = (now - lastTradeProgressMs)
+                if (ms > TARGET_MS_PER_TRADE * RECOVERY_STAGNATION_MULT) {
+                    BotService.forceScannerSoftResetIfPossible()
+                }
+            } catch (_: Throwable) {}
+        }
 
         val openWalletAfter = walletOpenCount(isPaperMode)
         val msg = "${level.name}: trades24h=$trades24h/$TARGET_TRADES_PER_DAY projected=${projectedDaily.toInt()} " +
-            "stagnant=${stagnantMs/1000}s watch=$watchlistSize openInternal=$openInternal walletOpen=$openWalletAfter " +
-            "ghosts=$ghosts pruned=$pruned"
-        lastResult = Result(level, trades24h, TARGET_TRADES_PER_DAY, watchlistSize, openInternal, openWalletAfter, ghosts, pruned, msg)
+            "stagnant=${stagnantMs/1000}s watch=$watchlistSize unpricedFresh=$unpricedFresh " +
+            "openInternal=$openInternal walletOpen=$openWalletAfter " +
+            "ghosts=$ghosts pruned=$pruned unpricedEvicted=$unpricedEvicted"
+        lastResult = Result(level, trades24h, TARGET_TRADES_PER_DAY, watchlistSize, openInternal, openWalletAfter, ghosts, pruned + unpricedEvicted, msg)
         ErrorLogger.info(TAG, msg)
         return lastResult
+    }
+
+    /**
+     * V5.9.614 — count tokens in the watchlist that are old enough to expect
+     * a price by now but still have no usable price. These are the firehose
+     * symptoms: pump.fun pre-graduation mints with no DexScreener pair.
+     */
+    private fun countUnpricedFresh(tokens: MutableMap<String, TokenState>, now: Long): Int {
+        return synchronized(tokens) {
+            tokens.values.count { ts ->
+                val age = (ts.addedToWatchlistAt.takeIf { it > 0 })?.let { now - it } ?: 0L
+                val priceAge = if (ts.lastPriceUpdate > 0L) now - ts.lastPriceUpdate else Long.MAX_VALUE
+                val noPrice = ts.lastPrice <= 0.0 || priceAge > 90_000L
+                age > 30_000L && noPrice && !ts.position.hasTokens && !ts.position.pendingVerify
+            }
+        }
+    }
+
+    /**
+     * V5.9.614 — starvation breaker. Evict tokens that have aged past
+     * UNPRICED_GRACE_MS without a usable price. We are not throwing away
+     * good edges — these tokens have been polled and pump.fun/Birdeye
+     * fallbacks have all failed. Keeping them in the watchlist just
+     * starves the per-cycle budget for tokens that CAN be evaluated.
+     */
+    private fun evictUnpricedStale(tokens: MutableMap<String, TokenState>, now: Long): Int {
+        val targets = synchronized(tokens) {
+            tokens.values.filter { ts ->
+                val age = (ts.addedToWatchlistAt.takeIf { it > 0 })?.let { now - it } ?: 0L
+                val priceAge = if (ts.lastPriceUpdate > 0L) now - ts.lastPriceUpdate else Long.MAX_VALUE
+                val noPrice = ts.lastPrice <= 0.0 || priceAge > UNPRICED_GRACE_MS
+                age > UNPRICED_GRACE_MS && noPrice &&
+                    !ts.position.hasTokens && !ts.position.pendingVerify &&
+                    !hasAnySubTraderPosition(ts.mint)
+            }.map { it.mint }.toList()
+        }
+        var evicted = 0
+        for (mint in targets.take(MAX_PRUNE_PER_CHECK)) {
+            val removed = try { GlobalTradeRegistry.removeFromWatchlistForced(mint, "ANTI_CHOKE_UNPRICED") } catch (_: Throwable) { false }
+            if (removed) {
+                synchronized(tokens) { tokens.remove(mint) }
+                evicted++
+            }
+        }
+        if (evicted > 0) {
+            ErrorLogger.warn(TAG, "🧹 evicted $evicted unpriced stale token(s) from watchlist (firehose breaker)")
+        }
+        return evicted
     }
 
     private fun projectedDailyTrades(trades24h: Int, now: Long): Double {
@@ -199,7 +283,7 @@ object AntiChokeManager {
 
     private fun pruneDormantWatchlist(tokens: MutableMap<String, TokenState>, now: Long, aggressive: Boolean): Int {
         val entries = try { GlobalTradeRegistry.getWatchlistEntries() } catch (_: Throwable) { emptyList() }
-        if (entries.size < 60) return 0
+        if (entries.size < PRUNE_THRESHOLD) return 0
         val maxAge = if (aggressive) DORMANT_CHOKE_MS else DORMANT_CHOKE_MS * 2
         val candidates = entries
             .asSequence()
