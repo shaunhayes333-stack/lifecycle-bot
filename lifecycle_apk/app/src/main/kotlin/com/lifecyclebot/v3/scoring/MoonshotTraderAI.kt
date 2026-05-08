@@ -190,6 +190,18 @@ object MoonshotTraderAI {
         // open-positions UI render live P&L for Moonshot holdings that
         // live only in paperPositions (no status.tokens entry).
         var lastSeenPrice: Double = entryPrice,
+        // V5.9.618 — entry-context snapshot fed to AdaptiveLearningEngine on
+        // close so pattern weights can actually learn from real features
+        // instead of all-zero vectors. All optional/defaulted to preserve
+        // existing call sites; populated by BotService at construction.
+        val entryBuyPressurePct: Double = 0.0,
+        val entryAgeMinutes: Double = 0.0,
+        val entryHolderCount: Int = 0,
+        val entryTopHolderPct: Double = 0.0,
+        val entryRugcheckScore: Double = 0.0,
+        val entryEmaFanState: String = "",
+        val entryHolderGrowthRate: Double = 0.0,
+        val entryVolumeUsd: Double = 0.0,
     )
     
     data class PromotionCandidate(
@@ -532,10 +544,16 @@ object MoonshotTraderAI {
         // last hour). These are additive and never subtract — the bot leans
         // into running narratives but a non-meme symbol still scores normally.
         val narrative = try { MemeNarrativeAI.detect(symbol = symbol, name = symbol) } catch (_: Throwable) { null }
-        val narrativeBonus = narrative?.baseBonus ?: 0
+        val rawNarrativeBonus = narrative?.baseBonus ?: 0
         val cultBonus = try { CultMomentumAI.bonusFor(narrative?.cluster ?: MemeNarrativeAI.Cluster.UNKNOWN) } catch (_: Throwable) { 0 }
+        // V5.9.618 — closed feedback loop: scale narrative bonus by the cluster's
+        // proven win-rate (≥30 trades). Fail-open before then; net effect at low
+        // sample size is unchanged. This finally consumes the per-cluster WR data
+        // MemeNarrativeAI has been collecting since V5.9.404.
+        val clusterMult = try { MemeNarrativeAI.getClusterMultiplier(narrative?.cluster ?: MemeNarrativeAI.Cluster.UNKNOWN) } catch (_: Throwable) { 1.0 }
+        val narrativeBonus = (rawNarrativeBonus * clusterMult).toInt()
         if (narrativeBonus > 0 || cultBonus > 0) {
-            ErrorLogger.info(TAG, "${narrative?.cluster?.emoji ?: ""} ${symbol} narrative=${narrativeBonus} cult=${cultBonus} (kw=${narrative?.matchedKeyword})")
+            ErrorLogger.info(TAG, "${narrative?.cluster?.emoji ?: ""} ${symbol} narrative=${narrativeBonus} (raw=${rawNarrativeBonus} ×${"%.2f".format(clusterMult)}) cult=${cultBonus} (kw=${narrative?.matchedKeyword})")
         }
         score += narrativeBonus + cultBonus
         // Stash the cluster on the position later via addPosition (read by closePosition)
@@ -1010,14 +1028,25 @@ object MoonshotTraderAI {
                     pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
                     else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
                 }
+                // V5.9.618 — REAL feature vector. Pre-V5.9.618 every meme close fed
+                // AdaptiveLearningEngine an all-zero vector, so 5,000 trades produced
+                // pattern weights of pure noise. Now we use the entry-context snapshot
+                // captured at position open. volLiq derived; safe when liq=0.
+                val volLiq = if (pos.liquidityUsd > 0.0) pos.entryVolumeUsd / pos.liquidityUsd else 0.0
                 val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
-                    entryMcapUsd = 0.0, tokenAgeMinutes = 0.0,
-                    buyRatioPct = 0.0, volumeUsd = 0.0,
-                    liquidityUsd = 0.0, holderCount = 0,
-                    topHolderPct = 0.0, holderGrowthRate = 0.0,
+                    entryMcapUsd = pos.marketCapUsd,
+                    tokenAgeMinutes = pos.entryAgeMinutes,
+                    buyRatioPct = pos.entryBuyPressurePct,
+                    volumeUsd = pos.entryVolumeUsd,
+                    liquidityUsd = pos.liquidityUsd,
+                    holderCount = pos.entryHolderCount,
+                    topHolderPct = pos.entryTopHolderPct,
+                    holderGrowthRate = pos.entryHolderGrowthRate,
                     devWalletPct = 0.0, bondingCurveProgress = 0.0,
-                    rugcheckScore = 0.0, emaFanState = "",
-                    entryScore = 0.0, volumeLiquidityRatio = 0.0,
+                    rugcheckScore = pos.entryRugcheckScore,
+                    emaFanState = pos.entryEmaFanState,
+                    entryScore = pos.entryScore,
+                    volumeLiquidityRatio = volLiq,
                     priceFromAth = 0.0,
                     pnlPct = pnlPct,
                     maxGainPct = mfePct,

@@ -230,6 +230,20 @@ object ShitCoinTraderAI {
         // open-positions card render live P&L for shitcoin bags that live
         // only in paperPositions (no status.tokens entry).
         var lastSeenPrice: Double = entryPrice,
+        // V5.9.618 — entry-context snapshot fed to AdaptiveLearningEngine on
+        // close so pattern weights can actually learn from real features
+        // instead of all-zero vectors. All optional/defaulted to preserve
+        // existing call sites; populated by BotService at construction.
+        val entryBuyPressurePct: Double = 0.0,
+        val entryAgeMinutes: Double = 0.0,
+        val entryHolderCount: Int = 0,
+        val entryTopHolderPct: Double = 0.0,
+        val entryRugcheckScore: Double = 0.0,
+        val entryEmaFanState: String = "",
+        val entryHolderGrowthRate: Double = 0.0,
+        val entryVolumeUsd: Double = 0.0,
+        val entryMomentum: Double = 0.0,
+        val entryGraduationProgress: Double = 0.0,
     )
     
     data class ShitCoinSignal(
@@ -633,21 +647,25 @@ object ShitCoinTraderAI {
                     pnlPct <= -15.0 -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.BAD_DEAD_CAT
                     else -> com.lifecyclebot.engine.AdaptiveLearningEngine.TradeLabel.MID_CHOP
                 }
+                // V5.9.618 — REAL feature vector. Pre-V5.9.618 most fields were 0.0,
+                // making AdaptiveLearningEngine cluster all trades together regardless
+                // of entry conditions. Now we use the entry-context snapshot.
+                val volLiq = if (pos.liquidityUsd > 0.0) pos.entryVolumeUsd / pos.liquidityUsd else 0.0
                 val features = com.lifecyclebot.engine.AdaptiveLearningEngine.TradeFeatures(
                     entryMcapUsd = pos.marketCapUsd,
-                    tokenAgeMinutes = 0.0,
-                    buyRatioPct = 0.0,
-                    volumeUsd = 0.0,
+                    tokenAgeMinutes = pos.entryAgeMinutes,
+                    buyRatioPct = pos.entryBuyPressurePct,
+                    volumeUsd = pos.entryVolumeUsd,
                     liquidityUsd = pos.liquidityUsd,
-                    holderCount = 0,
-                    topHolderPct = 0.0,
-                    holderGrowthRate = 0.0,
+                    holderCount = pos.entryHolderCount,
+                    topHolderPct = pos.entryTopHolderPct,
+                    holderGrowthRate = pos.entryHolderGrowthRate,
                     devWalletPct = pos.bundlePct,
-                    bondingCurveProgress = 0.0,
-                    rugcheckScore = 0.0,
-                    emaFanState = "",
-                    entryScore = 0.0,
-                    volumeLiquidityRatio = 0.0,
+                    bondingCurveProgress = pos.entryGraduationProgress,
+                    rugcheckScore = pos.entryRugcheckScore,
+                    emaFanState = pos.entryEmaFanState,
+                    entryScore = pos.entryScore.toDouble(),
+                    volumeLiquidityRatio = volLiq,
                     priceFromAth = 0.0,
                     pnlPct = pnlPct,
                     maxGainPct = mfePct,
@@ -923,7 +941,25 @@ object ShitCoinTraderAI {
                 scoreReasons.add("dev+$devBonus")
             }
         }
-        
+
+        // V5.9.618 — NARRATIVE-AWARE ShitCoin scoring (additive only).
+        // ShitCoin scoring previously ignored MemeNarrativeAI entirely.
+        // Now we add a small bonus (0-10 pts) scaled by the cluster's proven
+        // win-rate. Fail-open during bootstrap (no clusters with ≥30 trades).
+        // Pure additive — never subtracts, never blocks an entry.
+        try {
+            val narrative = com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(symbol = symbol, name = symbol)
+            if (narrative.cluster != com.lifecyclebot.v3.scoring.MemeNarrativeAI.Cluster.UNKNOWN) {
+                val mult = com.lifecyclebot.v3.scoring.MemeNarrativeAI.getClusterMultiplier(narrative.cluster)
+                val rawBonus = narrative.baseBonus.coerceAtMost(10)  // cap raw at 10
+                val narrativeBonus = (rawBonus * mult).toInt().coerceAtLeast(0)
+                if (narrativeBonus > 0) {
+                    shitScore += narrativeBonus
+                    scoreReasons.add("narr+${narrativeBonus}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Calculate overall confidence
         shitConfidence = (
             (if (liquidityUsd > 5_000) 20 else 10) +
@@ -1367,7 +1403,13 @@ object ShitCoinTraderAI {
         )
         val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
         val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
-        val timeExitMaxHold   = holdMinutes >= (35 * timeExitMaxMult).toLong() && pnlPct < -0.5    // keep: flat cap
+        // V5.9.618 — WR-killer relaxation: was 35min/-0.5% which converted ~30-40%
+        // of would-be small winners into locked-in small losses (memes routinely chop
+        // -2% to +5% for 30-40min before the real move). Relaxed to 60min/-3% so the
+        // flat cap still exists as a backstop but stops crystallising recoverable bags.
+        // SL/HARD_FLOOR/RUG paths still handle real losers; this only relaxes the
+        // soft-flat branch. Net effect: more time, more wins, fewer bleed exits.
+        val timeExitMaxHold   = holdMinutes >= (60 * timeExitMaxMult).toLong() && pnlPct < -3.0    // V5.9.618: relaxed flat cap
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"

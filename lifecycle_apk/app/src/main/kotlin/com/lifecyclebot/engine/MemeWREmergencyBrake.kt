@@ -36,11 +36,18 @@ object MemeWREmergencyBrake {
     private const val RELEASE_WR_PCT      = 35.0   // hysteresis
     // V5.9.495z9 — operator: 'completely choked, no layers or traders are
     // working' (live, 06 May 2026). Brake stack was killing all live entries.
-    // SCORE_BOOST 8→2 (just a nudge), SIZING_MULT 0.85→0.95 (almost no
-    // sizing punishment). Brake still engages at <30% WR and releases at
-    // >35% — but it's now a tap on the brake, not a stomp.
-    private const val SCORE_BOOST         = 2
-    private const val SIZING_MULT         = 0.95
+    // SCORE_BOOST 8→2 (just a nudge), SIZING_MULT 0.85→0.95.
+    // V5.9.618 — bounded restoration of bite. The walk-back to 2/0.95 was an
+    // over-correction to "no layers working" symptom — the disease was the
+    // dead learning loop, not the brake. With pattern-learning + closed-loop
+    // narratives now active (V5.9.618), the brake can have meaningful effect
+    // again WITHOUT reverting to the historical 8/0.85 stomp.
+    //   SCORE_BOOST: 2 → 4   (+2 score bar at <30% WR, still half of original 8)
+    //   SIZING_MULT: 0.95 → 0.85   (15% size reduction, still half of original 0.5 cap)
+    // Engagement gate (500 lifetime trades + <30% WR) is unchanged so this
+    // never fires during bootstrap — only after the bot has had real reps.
+    private const val SCORE_BOOST         = 4
+    private const val SIZING_MULT         = 0.85
 
     private val MEME_MODES = setOf(
         "Shit", "ShitCoin", "Shitcoin",

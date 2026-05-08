@@ -147,4 +147,39 @@ object MemeNarrativeAI {
         clusterTrades.entries.sortedByDescending { it.value }.take(5).joinToString {
             "${it.key.emoji}${it.key.name}=${it.value}t/${"%.0f".format(winRatePct(it.key))}%"
         }
+
+    // ────────────────────────────────────────────────────────────────────
+    // V5.9.618 — closed feedback loop: cluster WR multiplier
+    // ────────────────────────────────────────────────────────────────────
+    /**
+     * Returns a 0.7..1.3 multiplier callers can apply to their narrative
+     * bonus, derived from the cluster's proven win-rate.
+     *
+     * Fail-open: returns 1.0 (no effect) until the cluster has at least
+     * MIN_TRADES samples, so during bootstrap nothing is choked. Above
+     * the threshold, the multiplier scales smoothly:
+     *
+     *   WR < 20%  → 0.70   (clearly bad cluster — shrink narrative bonus)
+     *   WR < 30%  → 0.85
+     *   WR 30-50% → 1.00   (par)
+     *   WR 50-70% → 1.15
+     *   WR ≥ 70%  → 1.30   (clearly good cluster — boost narrative bonus)
+     *
+     * Pure additive nudge — never blocks an entry, never inverts a score.
+     */
+    private const val CLUSTER_MIN_TRADES = 30
+
+    fun getClusterMultiplier(cluster: Cluster): Double {
+        if (cluster == Cluster.UNKNOWN) return 1.0
+        val trades = clusterTrades[cluster] ?: 0
+        if (trades < CLUSTER_MIN_TRADES) return 1.0      // bootstrap — fail-open
+        val wr = winRatePct(cluster)
+        return when {
+            wr < 20.0 -> 0.70
+            wr < 30.0 -> 0.85
+            wr < 50.0 -> 1.00
+            wr < 70.0 -> 1.15
+            else      -> 1.30
+        }
+    }
 }

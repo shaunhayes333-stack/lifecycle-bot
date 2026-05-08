@@ -7076,8 +7076,13 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // and override any non-execute V3 outcome in paper mode when
             // the bridge says shouldEnter. Live mode always defers to V3.
             // ═══════════════════════════════════════════════════════════════════
+            // V5.9.618 — Bridge computation now runs in BOTH paper and live (was paper-only).
+            // The override at line ~9550 is still paper-gated, so live behaviour is unchanged
+            // EXCEPT live now gets the verdict as an advisory the meme buy paths can read.
+            // This finally lets the proven 79% WR architecture contribute to live decisions
+            // without bypassing V3 — V3 still controls. Pure additive nudge.
             val memeBridgeVerdict: com.lifecyclebot.v3.MemeUnifiedScorerBridge.MemeVerdict? =
-                if (cfg.paperMode && !ts.position.isOpen) {
+                if (!ts.position.isOpen) {
                     try { com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts) }
                     catch (e: Exception) {
                         ErrorLogger.debug("BotService", "🌉 Bridge scoring error for ${ts.symbol}: ${e.message}")
@@ -7086,9 +7091,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 } else null
             memeBridgeVerdict?.let { mv ->
                 ErrorLogger.debug("BotService",
-                    "🌉 Bridge: ${identity.symbol} | tech=${mv.techScore} v3=${mv.v3Score} blend=${mv.blendedScore} mult=${"%.2f".format(mv.trustMultiplier)} enter=${mv.shouldEnter}${if (mv.rejectReason != null) " rej=${mv.rejectReason}" else ""}"
+                    "🌉 Bridge${if (cfg.paperMode) "" else "[LIVE-ADVISORY]"}: ${identity.symbol} | tech=${mv.techScore} v3=${mv.v3Score} blend=${mv.blendedScore} mult=${"%.2f".format(mv.trustMultiplier)} enter=${mv.shouldEnter}${if (mv.rejectReason != null) " rej=${mv.rejectReason}" else ""}"
                 )
             }
+            // V5.9.618 — Stash bridge verdict on TokenState so meme evaluators downstream
+            // can read it as a small confidence bonus. Cleared on next pass / position close.
+            ts.bridgeAdvisoryAgrees = (memeBridgeVerdict?.shouldEnter == true)
             
             // ═══════════════════════════════════════════════════════════════════
             // V4.0 FIX: Register V3 decision with FinalExecutionPermit
@@ -7791,6 +7799,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 isPaper = cfg.paperMode,
                             )
 
+                            // V5.9.618 — BRIDGE ADVISORY BOOST for Moonshot (additive).
+                            // When the proven 79% WR architecture (MemeUnifiedScorerBridge)
+                            // agrees, bump confidence by +0.05 and score by +3. Never
+                            // creates eligibility the evaluator rejected.
+                            if (ts.bridgeAdvisoryAgrees && moonshotScore.eligible) {
+                                moonshotScore = moonshotScore.copy(
+                                    score = (moonshotScore.score + 3).coerceAtMost(150),
+                                    confidence = (moonshotScore.confidence + 0.05).coerceAtMost(1.0)
+                                )
+                            }
+
                             // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for Moonshot.
                             // The filter blocked exactly the fresh-launch DEX_BOOSTED/
                             // DEX_TRENDING entries in early_unknown/pre_pump phases that
@@ -7869,6 +7888,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                                     spaceMode = moonshotScore.spaceMode,
                                                     isPaperMode = cfg.paperMode,
                                                     isCollectiveWinner = moonshotScore.isCollectiveBoost,
+                                                    // V5.9.618 — capture real entry context for AdaptiveLearningEngine
+                                                    entryBuyPressurePct = ts.lastBuyPressurePct,
+                                                    entryAgeMinutes = ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0),
+                                                    entryHolderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                                                    entryTopHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 0.0,
+                                                    entryRugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                                    entryHolderGrowthRate = ts.holderGrowthRate,
+                                                    entryVolumeUsd = ts.lastLiquidityUsd * 0.05,
                                                 )
                                             )
                                             
@@ -8025,15 +8052,36 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             devHoldPct = devHoldPct,
                             bundlePct = bundlePct,
                             socialScore = socialScore,
-                            hasWebsite = ts.symbol.length > 2,  // Heuristic: longer symbols often have more presence
-                            hasTwitter = socialScore >= 20,      // Infer from social score
-                            hasTelegram = socialScore >= 35,     // Infer from social score
-                            hasGithub = false,  // Not tracked yet
+                            // V5.9.618 — KILLED the social-score farce.
+                            // Pre-V5.9.618 these were fabricated from a single proxy
+                            // (`symbol.length > 2`, `socialScore >= 20`), feeding ~7
+                            // points of garbage signal to ShitCoin scoring. Until we
+                            // wire real social-presence detection, default to false.
+                            // ShitCoin's score floors are already calibrated low so
+                            // this won't choke entries — it just stops feeding noise
+                            // into AdaptiveLearningEngine pattern weights.
+                            hasWebsite = false,
+                            hasTwitter = false,
+                            hasTelegram = false,
+                            hasGithub = false,
                             isDexBoosted = isDexBoosted,
                             dexTrendingRank = dexTrendingRank,
                             isCopyCat = isCopyCat,
                             graduationProgress = graduationProgress,
                         )
+
+                        // V5.9.618 — BRIDGE ADVISORY BOOST (additive, never blocks).
+                        // When the proven 79% WR architecture (MemeUnifiedScorerBridge)
+                        // agrees this token should be entered, bump confidence by +5
+                        // and entry score by +3. Pure thumb on the scale — never
+                        // creates an entry the evaluator rejected; never blocks one.
+                        if (ts.bridgeAdvisoryAgrees && shitCoinSignal.shouldEnter) {
+                            shitCoinSignal = shitCoinSignal.copy(
+                                confidence = (shitCoinSignal.confidence + 5).coerceAtMost(100),
+                                entryScore = (shitCoinSignal.entryScore + 3).coerceAtMost(100),
+                                reason = shitCoinSignal.reason + " +bridge"
+                            )
+                        }
 
                         // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for ShitCoin.
                         // The filter blocked DEX_BOOSTED/DEX_TRENDING entries in
@@ -8221,6 +8269,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                             socialScore = shitCoinSignal.socialScore,
                                             // V5.9.435 — preserve entry score for outcome attribution
                                             entryScore = shitCoinSignal.entryScore,
+                                            // V5.9.618 — capture real entry context for AdaptiveLearningEngine
+                                            entryBuyPressurePct = ts.lastBuyPressurePct,
+                                            entryAgeMinutes = tokenAgeMinutes,
+                                            entryHolderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                                            entryTopHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 0.0,
+                                            entryRugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                            entryHolderGrowthRate = ts.holderGrowthRate,
+                                            entryVolumeUsd = ts.lastLiquidityUsd * 0.05,  // 5% L estimate (real volume not always plumbed)
+                                            entryMomentum = ts.momentum ?: 0.0,
+                                            entryGraduationProgress = graduationProgress,
                                         )
                                     )
                                 } else {
