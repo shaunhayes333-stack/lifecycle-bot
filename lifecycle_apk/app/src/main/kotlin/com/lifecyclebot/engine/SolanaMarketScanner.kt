@@ -2344,10 +2344,14 @@ class SolanaMarketScanner(
     private fun passesFilter(token: ScannedToken): Boolean {
         telemetryRawScanned++
 
+        // V5.9.626 — PROTECTED SCANNER INTAKE.
+        // This method used to be a pre-callback drop wall. That means raw source
+        // discovery could be alive while BotService/Meme Trader saw 0 tokens.
+        // Scanner-side judgments are now shadow telemetry only; downstream gates
+        // still decide execution quality.
         if (EfficiencyLayer.isLiquiditySuppressed(token.mint)) {
             telemetryLiqRejects++
-            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: liquidity-suppressed")
-            return false
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW liquidity-suppressed ${token.symbol} — emitting anyway")
         }
 
         val decision = EfficiencyLayer.shouldFullProcess(
@@ -2358,8 +2362,7 @@ class SolanaMarketScanner(
         )
 
         if (!decision.shouldProcess) {
-            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: ${decision.reason}")
-            return false
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW efficiency-skip ${token.symbol}: ${decision.reason} — emitting anyway")
         }
 
         val liqQuality = when (token.source) {
@@ -2373,22 +2376,21 @@ class SolanaMarketScanner(
 
         val passed = passesFilterInternal(token)
         if (!passed) {
-            markRejected(token.mint)
-            // V5.9.44: unified liquidity-reject telemetry floor (was paper=100, live=3000)
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW filter-fail ${token.symbol} — emitting anyway")
             val liqFloor = 100.0
             if (token.liquidityUsd < liqFloor && token.liquidityUsd > 0) {
                 telemetryLiqRejects++
                 EfficiencyLayer.registerLiquidityRejection(token.mint, token.liquidityUsd, liqFloor)
             }
         } else {
-            seenMints[token.mint] = System.currentTimeMillis()
             ErrorLogger.info(
                 "Scanner",
                 "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()} (${decision.reason})"
             )
         }
 
-        return passed
+        seenMints[token.mint] = System.currentTimeMillis()
+        return true
     }
 
     private fun passesFilterInternal(token: ScannedToken): Boolean {
@@ -2496,17 +2498,23 @@ class SolanaMarketScanner(
 
     private fun isSeen(mint: String): Boolean {
         val now = System.currentTimeMillis()
+        val registryHasMint = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { false }
 
         if (isSaturated(mint)) {
             telemetrySaturatedDrops++
-            return true
+            if (registryHasMint) return true
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_REPAIR: saturated mint ${mint.take(8)} not in registry — allowing re-emit")
         }
 
         rejectedMints[mint]?.let { rejectedAt ->
             val age = now - rejectedAt
             if (age < getRejectedTtl()) {
                 recordCooldownHit(mint)
-                return true
+                if (registryHasMint) return true
+                // V5.9.626 — rejectedMints is scanner memory only. It must not
+                // keep a candidate out of protected intake if registry/status
+                // never hydrated, which was one route to Meme Trader = 0 tokens.
+                ErrorLogger.debug("Scanner", "🛡 INTAKE_REPAIR: rejected memory for ${mint.take(8)} but registry missing — allowing re-emit")
             } else {
                 rejectedMints.remove(mint)
             }
@@ -2516,14 +2524,16 @@ class SolanaMarketScanner(
             val age = now - seenAt
             if (age < getSeenTtl()) {
                 recordCooldownHit(mint)
-                return true
+                if (registryHasMint) return true
+                ErrorLogger.debug("Scanner", "🛡 INTAKE_REPAIR: seen memory for ${mint.take(8)} but registry missing — allowing re-emit")
             } else {
                 seenMints.remove(mint)
             }
         }
 
         if (mint in cfg().watchlist) {
-            return true
+            if (registryHasMint) return true
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_REPAIR: config watchlist has ${mint.take(8)} but registry missing — allowing re-emit")
         }
 
         return false
@@ -2596,7 +2606,13 @@ class SolanaMarketScanner(
     }
 
     private fun emit(token: ScannedToken) {
-        if (aiShouldSkipToken(token.mint, token.symbol, token.liquidityUsd, token.mcapUsd)) return
+        // V5.9.626 — protected intake starts inside the scanner. AI skip is
+        // execution/priority advice, not an intake drop. Returning here can make
+        // BotService/Meme Trader show 0 tokens even while raw scanner sources are
+        // alive. Emit anyway and let downstream FDG/safety/sub-traders qualify.
+        if (aiShouldSkipToken(token.mint, token.symbol, token.liquidityUsd, token.mcapUsd)) {
+            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW_AI_SKIP: ${token.symbol} — emitted anyway")
+        }
 
         val aiBoost = getAISourceBoost(token.source)
         val scannerLearningBoost = ScannerLearning.getDiscoveryBonus(
@@ -2763,8 +2779,10 @@ class SolanaMarketScanner(
         }
 
         if (!passed) {
-            ErrorLogger.info("Scanner", "Rugcheck blocked ${token.symbol} (quickRugcheck returned false)")
-            return
+            // V5.9.626 — Rugcheck can block EXECUTION downstream, but the
+            // scanner must still emit to protected intake so the universe/UI and
+            // learning telemetry do not go dark. Keep the fatal signal in logs.
+            ErrorLogger.info("Scanner", "🛡 INTAKE_SHADOW_RUGCHECK: ${token.symbol} quickRugcheck=false — emitted to protected intake; execution gates may block")
         }
 
         emit(token)

@@ -2066,20 +2066,31 @@ class BotService : Service() {
                 onLog              = ::addLog,
                 onNotify           = { title, body, type -> sendTradeNotif(title, body, type) },
                 onNewTokenDetected = { mint, symbol, name ->
-                    // Auto-add new Pump.fun launches to watchlist if configured
+                    // V5.9.626 — DataOrchestrator/Pump.fun is a first-class
+                    // protected intake source. Do NOT save only to config
+                    // watchlist; that can leave GlobalTradeRegistry/status.tokens
+                    // empty while the UI says Meme Trader has 0 tokens.
                     try {
                         val c = ConfigStore.load(applicationContext)
-                        if (c.autoAddNewTokens) {
-                            val wl = c.watchlist.toMutableList()
-                            val maxWatch = c.maxWatchlistSize.coerceAtLeast(500)
-                            if (mint !in wl && wl.size < maxWatch) {
-                                wl.add(mint)
-                                ConfigStore.saveWatchlistOnly(applicationContext, wl)
-                                addLog("Auto-added new token: $symbol ($mint) — watchlist ${wl.size}/$maxWatch", mint)
-                                soundManager.playNewToken()
-                            }
+                        val shouldAdmit = c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade
+                        if (shouldAdmit) {
+                            admitProtectedMemeIntake(
+                                mint = mint,
+                                symbol = symbol,
+                                name = name,
+                                source = "DATA_ORCHESTRATOR",
+                                marketCapUsd = 0.0,
+                                liquidityUsd = 0.0,
+                                volumeH1 = 0.0,
+                                confidence = 55,
+                                allSources = setOf("DATA_ORCHESTRATOR", "PUMP_FUN_NEW"),
+                                playSound = true,
+                                operatorLog = true,
+                            )
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "DataOrchestrator protected intake error: ${e.message}")
+                    }
                 },
             onDevSell = { mint, pct ->
                 val ts = status.tokens[mint]
@@ -3669,65 +3680,34 @@ class BotService : Service() {
             com.lifecyclebot.network.PumpFunWS.start(
                 onNewToken = { mint, symbol, name, mcapSol ->
                     try {
-                        if (cfg.autoAddNewTokens) {
-                            // Forward to scanner's new-mint queue. The Scanner
-                            // already de-duplicates against seenMints/rejectedMints
-                            // so a duplicate from REST polling is a no-op.
-                            val mcapUsd = mcapSol * (com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                                .takeIf { it > 0.0 } ?: 150.0)
-                            val addResult = com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(
+                        val shouldAdmit = cfg.autoAddNewTokens || cfg.v3EngineEnabled || cfg.autoTrade
+                        if (shouldAdmit) {
+                            val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                                .takeIf { it > 0.0 } ?: 150.0
+                            val mcapUsd = mcapSol * solUsd
+                            // pump.fun bonding-curve liquidity ≈ mcap pre-graduation.
+                            val estLiq = (mcapUsd * 0.85).coerceAtLeast(0.0)
+                            admitProtectedMemeIntake(
                                 mint = mint,
                                 symbol = symbol,
-                                addedBy = "PUMP_PORTAL_WS",
-                                source = "PUMP_PORTAL",
-                                initialMcap = mcapUsd,
+                                name = name.ifBlank { symbol },
+                                source = "PUMP_PORTAL_WS",
+                                marketCapUsd = mcapUsd,
+                                liquidityUsd = estLiq,
+                                volumeH1 = 0.0,
+                                confidence = 80,
+                                allSources = setOf("PUMP_PORTAL_WS", "PUMP_PORTAL"),
+                                playSound = true,
+                                operatorLog = true,
                             )
-                            if (addResult.added) {
-                                // V5.9.605 — PumpPortal WS bypasses TokenMergeQueue,
-                                // so seed TokenState directly or the first live safety
-                                // check sees entryScore/liquidity as zero and throttles.
-                                try {
-                                    synchronized(status.tokens) {
-                                        val ts = status.tokens.getOrPut(mint) {
-                                            com.lifecyclebot.data.TokenState(
-                                                mint = mint,
-                                                symbol = symbol,
-                                                name = name.ifBlank { symbol },
-                                                candleTimeframeMinutes = 1,
-                                                source = "PUMP_PORTAL_WS",
-                                                logoUrl = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
-                                            )
-                                        }
-                                        // V5.9.495z49 — pump.fun bonding-curve
-                                        // liquidity ≈ mcap pre-graduation. Old
-                                        // 0.10× under-seeded ts.lastLiquidityUsd
-                                        // and silently failed safety's $2K floor.
-                                        val estLiq = (mcapUsd * 0.85).coerceAtLeast(0.0)
-                                        if (ts.lastMcap <= 0.0) ts.lastMcap = mcapUsd
-                                        if (ts.lastLiquidityUsd <= 0.0 && estLiq > 0.0) ts.lastLiquidityUsd = estLiq
-                                        if (ts.entryScore <= 0.0) ts.entryScore = 80.0
-                                        try {
-                                            com.lifecyclebot.engine.MemeMintRegistry.touch(
-                                                mint = mint,
-                                                symbol = symbol,
-                                                name = name.ifBlank { symbol },
-                                                source = "PUMP_PORTAL_WS",
-                                            )
-                                        } catch (_: Throwable) {}
-                                    }
-                                } catch (_: Throwable) {}
-                                ErrorLogger.info("BotService",
-                                    "🆕 PumpPortal: $symbol ($name) mcap=${mcapSol.toInt()}SOL → watchlist")
-                            } else {
-                                // V5.9.603 — don't spam operator logs with false
-                                // "watchlisted" events. PumpPortal often repeats the
-                                // same launch/migration frames; GlobalTradeRegistry is
-                                // the authority on whether it was actually enqueued.
-                                ErrorLogger.debug("BotService",
-                                    "↩ PumpPortal duplicate/skipped: $symbol (${mint.take(8)}…) reason=${addResult.reason}")
-                            }
+                            ErrorLogger.info(
+                                "BotService",
+                                "🆕 PumpPortal protected intake: $symbol ($name) mcap=${mcapSol.toInt()}SOL liqEst=\$${estLiq.toInt()}"
+                            )
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "PumpPortal protected intake error: ${e.message}")
+                    }
                 },
                 onMigration = { mint ->
                     ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
@@ -4012,85 +3992,158 @@ class BotService : Service() {
     }
 
     // V5.9.495z54c — extracted from botLoop() to fit JVM 64KB method limit.
+    /**
+     * V5.9.626 — CANONICAL PROTECTED MEME INTAKE.
+     *
+     * All raw Solana/meme discovery sources must converge here:
+     *   - SolanaMarketScanner → TokenMergeQueue
+     *   - PumpPortal WS
+     *   - DataOrchestrator Pump.fun callback
+     *   - any future discovery bridge
+     *
+     * This method is intentionally non-destructive and fail-open for ARRIVAL.
+     * It guarantees GlobalTradeRegistry + status.tokens hydration so the Meme
+     * Trader UI/loop cannot split-brain between "config watchlist", registry,
+     * and runtime token state. Entry quality is still enforced downstream by
+     * FDG/safety/sub-trader execution gates.
+     */
+    private fun admitProtectedMemeIntake(
+        mint: String,
+        symbol: String,
+        name: String = symbol,
+        source: String,
+        marketCapUsd: Double = 0.0,
+        liquidityUsd: Double = 0.0,
+        volumeH1: Double = 0.0,
+        confidence: Int = 50,
+        allSources: Set<String> = setOf(source),
+        playSound: Boolean = false,
+        operatorLog: Boolean = false,
+    ): Boolean {
+        if (mint.isBlank() || mint.length < 30) {
+            ErrorLogger.debug("BotService", "🛡 protected intake ignored invalid mint ${mint.take(8)} source=$source")
+            return false
+        }
+
+        val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
+        val addResult = try {
+            GlobalTradeRegistry.addToWatchlist(
+                mint = mint,
+                symbol = symbol.ifBlank { mint.take(6) },
+                addedBy = source,
+                source = joinedSources,
+                initialMcap = marketCapUsd,
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.error("BotService", "Protected intake registry add failed for ${symbol.ifBlank { mint.take(6) }}: ${e.message}", e)
+            null
+        }
+
+        // Hydrate runtime token state regardless of add result. Duplicates and
+        // legacy rejection memory must never leave registry/status/UI divergent.
+        try {
+            synchronized(status.tokens) {
+                val ts = status.tokens.getOrPut(mint) {
+                    com.lifecyclebot.data.TokenState(
+                        mint = mint,
+                        symbol = symbol.ifBlank { mint.take(6) },
+                        name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
+                        candleTimeframeMinutes = 1,
+                        source = joinedSources,
+                        logoUrl = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
+                    )
+                }
+                // symbol/name are immutable identity fields on TokenState; the
+                // getOrPut initializer above is the authority for first hydrate.
+                if (ts.source.isBlank()) ts.source = joinedSources
+
+                if (liquidityUsd > 0.0 && ts.lastLiquidityUsd <= 0.0) {
+                    ts.lastLiquidityUsd = liquidityUsd
+                }
+                if (marketCapUsd > 0.0 && ts.lastMcap <= 0.0) {
+                    ts.lastMcap = marketCapUsd
+                }
+                if (confidence > 0 && ts.entryScore <= 0.0) {
+                    ts.entryScore = confidence.toDouble()
+                }
+                if (volumeH1 > 0.0 && ts.history.isEmpty()) {
+                    val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
+                    val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else marketCapUsd
+                    val seedCandle = com.lifecyclebot.data.Candle(
+                        ts = System.currentTimeMillis(),
+                        priceUsd = seedPrice,
+                        marketCap = seedMcap,
+                        volumeH1 = volumeH1,
+                        volume24h = 0.0,
+                        buysH1 = 0,
+                        sellsH1 = 0,
+                        highUsd = seedPrice,
+                        lowUsd = seedPrice,
+                        openUsd = seedPrice,
+                    )
+                    synchronized(ts.history) { ts.history.addLast(seedCandle) }
+                }
+            }
+
+            try {
+                com.lifecyclebot.engine.MemeMintRegistry.touch(
+                    mint = mint,
+                    symbol = symbol.ifBlank { mint.take(6) },
+                    name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
+                    source = joinedSources,
+                )
+            } catch (_: Throwable) {}
+
+            try { orchestrator?.onTokenAdded(mint, symbol.ifBlank { mint.take(6) }) } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            ErrorLogger.error("BotService", "Protected intake TokenState hydrate failed for ${symbol.ifBlank { mint.take(6) }}: ${e.message}", e)
+        }
+
+        val added = addResult?.added == true
+        if (added) {
+            val newSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
+            TradeLifecycle.watchlisted(mint, newSize, "protected_intake: $source")
+            ErrorLogger.info(
+                "BotService",
+                "🛡 PROTECTED_INTAKE: ${symbol.ifBlank { mint.take(6) }} | source=$source | liq=\$${liquidityUsd.toInt()} | conf=$confidence | watch=$newSize"
+            )
+            if (operatorLog) {
+                addLog("📋 WATCHLISTED: ${symbol.ifBlank { mint.take(6) }} ($source) | liq=\$${liquidityUsd.toInt()} | conf=$confidence | #$newSize", mint)
+            }
+            if (playSound) soundManager.playNewToken()
+        } else {
+            ErrorLogger.debug(
+                "BotService",
+                "🛡 PROTECTED_INTAKE_HYDRATED: ${symbol.ifBlank { mint.take(6) }} | source=$source | reason=${addResult?.reason ?: "registry_error"}"
+            )
+        }
+        return added
+    }
+
     private fun processTokenMergeQueue(loopCount: Int) {
         val mergedTokens = TokenMergeQueue.processQueue()
         for (merged in mergedTokens) {
-            // V5.9.623 — protected scanner/watchlist intake.
-            // Scanner hits that already passed the $500 Solana intake floor go straight
-            // onto the 500-token bench. Do NOT probation-route/choke here; upstream
-            // qualification layers decide whether anything can trade.
-            val addResult = GlobalTradeRegistry.addToWatchlist(
+            val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
+            val scannersInfo = if (merged.allScanners.size > 1)
+                " (${merged.allScanners.joinToString("+")})" else ""
+
+            val added = admitProtectedMemeIntake(
                 mint = merged.mint,
                 symbol = merged.symbol,
-                addedBy = merged.primaryScanner,
-                source = merged.allScanners.joinToString(","),
-                initialMcap = merged.marketCapUsd,
+                name = merged.symbol,
+                source = merged.primaryScanner,
+                marketCapUsd = merged.marketCapUsd,
+                liquidityUsd = merged.liquidityUsd,
+                volumeH1 = merged.volumeH1,
+                confidence = merged.confidence,
+                allSources = merged.allScanners,
+                playSound = true,
+                operatorLog = true,
             )
 
-            if (addResult.added) {
-                val newSize = GlobalTradeRegistry.size()
-                val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
-                val scannersInfo = if (merged.allScanners.size > 1)
-                    " (${merged.allScanners.joinToString("+")})" else ""
-
-                TradeLifecycle.watchlisted(merged.mint, newSize, "merged: ${merged.primaryScanner}$scannersInfo")
-
-                addLog("📋 WATCHLISTED: ${merged.symbol} (${merged.primaryScanner})$boostLabel | liq=\$${merged.liquidityUsd.toInt()} | conf=${merged.confidence} | #$newSize", merged.mint)
-                ErrorLogger.info("BotService", "WATCHLISTED: ${merged.symbol} | scanners=${merged.allScanners.size} | conf=${merged.confidence}")
-
-                try {
-                    com.lifecyclebot.engine.WatchlistTtlPolicy.mark(merged.symbol, merged.confidence)
-                } catch (_: Throwable) {}
-
-                soundManager.playNewToken()
-
-                try {
-                    synchronized(status.tokens) {
-                        val ts = status.tokens.getOrPut(merged.mint) {
-                            com.lifecyclebot.data.TokenState(
-                                mint = merged.mint,
-                                symbol = merged.symbol,
-                                name = merged.symbol,
-                                candleTimeframeMinutes = 1,
-                                source = merged.allScanners.joinToString(","),
-                                logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
-                            )
-                        }
-                        try {
-                            com.lifecyclebot.engine.MemeMintRegistry.touch(
-                                mint = merged.mint, symbol = merged.symbol,
-                                name = merged.symbol,
-                                source = merged.allScanners.joinToString(","),
-                            )
-                        } catch (_: Throwable) {}
-                        if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
-                            ts.lastLiquidityUsd = merged.liquidityUsd
-                            ts.lastMcap = merged.marketCapUsd
-                            ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=\$${merged.liquidityUsd.toInt()}")
-                        }
-                        if (ts.entryScore <= 0.0 && merged.confidence > 0) {
-                            ts.entryScore = merged.confidence.toDouble()
-                        }
-                        if (ts.history.isEmpty() && merged.volumeH1 > 0) {
-                            val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
-                            val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else merged.marketCapUsd
-                            val seedCandle = com.lifecyclebot.data.Candle(
-                                ts = System.currentTimeMillis(),
-                                priceUsd = seedPrice, marketCap = seedMcap,
-                                volumeH1 = merged.volumeH1, volume24h = 0.0,
-                                buysH1 = 0, sellsH1 = 0,
-                                highUsd = seedPrice, lowUsd = seedPrice, openUsd = seedPrice,
-                            )
-                            synchronized(ts.history) { ts.history.addLast(seedCandle) }
-                            ErrorLogger.debug("BotService", "📊 VOL_SEED: ${merged.symbol} h1vol=\$${merged.volumeH1.toInt()}")
-                        }
-                    }
-                    orchestrator?.onTokenAdded(merged.mint, merged.symbol)
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "TokenState seed error: ${e.message}")
-                }
-            } else if (addResult.probation) {
-                addLog("⏳ PROBATION: ${merged.symbol} | ${addResult.reason}", merged.mint)
+            if (added) {
+                try { com.lifecyclebot.engine.WatchlistTtlPolicy.mark(merged.symbol, merged.confidence) } catch (_: Throwable) {}
+                TradeLifecycle.watchlisted(merged.mint, GlobalTradeRegistry.size(), "merged: ${merged.primaryScanner}$scannersInfo$boostLabel")
             }
         }
 
@@ -4102,30 +4155,26 @@ class BotService : Service() {
                     soundManager.playNewToken()
                     try {
                         val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                        val probLiq = probEntry?.initialLiquidity ?: 0.0
-                        val probMcap = probEntry?.initialMcap ?: 0.0
-                        synchronized(status.tokens) {
-                            val ts = status.tokens.getOrPut(result.mint) {
-                                com.lifecyclebot.data.TokenState(
-                                    mint = result.mint, symbol = result.symbol,
-                                    name = result.symbol, candleTimeframeMinutes = 1,
-                                    source = "PROBATION",
-                                    logoUrl = "https://cdn.dexscreener.com/tokens/solana/${result.mint}.png",
-                                )
-                            }
-                            if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
-                                ts.lastLiquidityUsd = probLiq
-                                ts.lastMcap = probMcap
-                                ErrorLogger.debug("BotService", "💧 Seeded PROMOTED ${result.symbol} liq=\$${probLiq.toInt()}")
-                            }
-                        }
-                        orchestrator?.onTokenAdded(result.mint, result.symbol)
+                        admitProtectedMemeIntake(
+                            mint = result.mint,
+                            symbol = result.symbol,
+                            name = result.symbol,
+                            source = "PROBATION",
+                            marketCapUsd = probEntry?.initialMcap ?: 0.0,
+                            liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
+                            confidence = 50,
+                            allSources = setOf("PROBATION"),
+                            playSound = false,
+                            operatorLog = false,
+                        )
                     } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "PROMOTED TokenState seed error: ${e.message}")
+                        ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
                     }
                 }
                 "REJECTED" -> {
-                    addLog("❌ PROBATION_REJECT: ${result.symbol} | ${result.reason}", result.mint)
+                    // V5.9.626 — probation rejection is execution memory only;
+                    // protected intake must not shrink or hide the universe.
+                    ErrorLogger.debug("BotService", "🛡 PROBATION_SHADOW: ${result.symbol} | ${result.reason}")
                 }
             }
         }

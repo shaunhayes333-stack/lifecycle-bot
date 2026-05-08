@@ -232,26 +232,27 @@ object GlobalTradeRegistry {
             return AddResult(false, "DUPLICATE: already watching since ${(now - existing.addedAt)/1000}s ago")
         }
 
-        // Check if recently rejected
+        // V5.9.626 — PROTECTED INTAKE: rejection/process memory must not
+        // block admission into the scanner/watchlist universe. Rejection memory
+        // is still useful for EXECUTION gates, but the intake bench must remain
+        // observable so candidates can hydrate, learn, rehabilitate, and be
+        // fairly re-qualified. Old behavior returned here and could make Meme
+        // Trader show 0 tokens even while raw discovery streams were alive.
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
             val elapsed = now - rejection.rejectedAt
-            if (elapsed < effectiveRejectionCooldownMs()) {
-                duplicatesBlocked.incrementAndGet()
-                return AddResult(false, "REJECTED: ${rejection.reason} (${elapsed/1000}s ago)")
-            } else {
-                // Cooldown expired, remove rejection
+            if (elapsed >= effectiveRejectionCooldownMs()) {
                 rejectedTokens.remove(mint)
+            } else {
+                ErrorLogger.debug(TAG, "🛡️ Protected intake admits $symbol despite rejection memory: ${rejection.reason} (${elapsed/1000}s ago)")
             }
         }
 
-        // Check if recently processed (prevent spam)
         val lastProcessed = recentlyProcessed[mint]
         if (lastProcessed != null) {
             val elapsed = now - lastProcessed
             if (elapsed < effectiveDuplicateCooldownMs()) {
-                duplicatesBlocked.incrementAndGet()
-                return AddResult(false, "COOLDOWN: processed ${elapsed/1000}s ago")
+                ErrorLogger.debug(TAG, "🛡️ Protected intake admits $symbol despite recent processed marker: ${elapsed/1000}s ago")
             }
         }
 
@@ -325,15 +326,14 @@ object GlobalTradeRegistry {
             return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
         }
 
-        // Check if recently rejected
+        // V5.9.626 — rejection memory cannot block protected intake.
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
             val elapsed = now - rejection.rejectedAt
-            if (elapsed < effectiveRejectionCooldownMs()) {
-                PipelineTracer.registryRejected(symbol, mint, "COOLDOWN: ${rejection.reason}")
-                return AddResult(false, "REJECTED: ${rejection.reason}")
-            } else {
+            if (elapsed >= effectiveRejectionCooldownMs()) {
                 rejectedTokens.remove(mint)
+            } else {
+                ErrorLogger.debug(TAG, "🛡️ Protected probation/intake admits $symbol despite rejection memory: ${rejection.reason}")
             }
         }
 
