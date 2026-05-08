@@ -36,6 +36,11 @@ object ModeLeniency {
     @JvmStatic
     fun useLenientGates(isPaperMode: Boolean): Boolean {
         if (isPaperMode) return true
+        // V5.9.612: if the bot is choking, soften live gates immediately so
+        // it can regain trade flow and gather data. This never bypasses hard
+        // anti-rug / anti-drain safety checks; it only selects paper-like soft
+        // thresholds for score/phase/cooldown style gates.
+        if (AntiChokeManager.isSoftening()) return true
         // V5.9.58: Check BOTH the local TradeHistoryStore AND the 30-Day
         // Proof Run. Users with a running proof (e.g. 1549 trades at 59%
         // WR) were seeing their "live-proven" flag stay off forever
@@ -67,6 +72,7 @@ object ModeLeniency {
     @JvmStatic
     fun label(isPaperMode: Boolean): String = when {
         isPaperMode -> "PAPER"
+        AntiChokeManager.isSoftening() -> "LIVE-ANTI-CHOKE"
         useLenientGates(false) -> "LIVE-PROVEN"
         else -> "LIVE-STRICT"
     }

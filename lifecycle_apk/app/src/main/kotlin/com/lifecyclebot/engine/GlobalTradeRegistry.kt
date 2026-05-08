@@ -7,53 +7,53 @@ import java.util.concurrent.atomic.AtomicLong
  * ═══════════════════════════════════════════════════════════════════════════════
  * GLOBAL TRADE REGISTRY - V4.0 THREAD-SAFE WATCHLIST & STATE MANAGEMENT
  * ═══════════════════════════════════════════════════════════════════════════════
- * 
+ *
  * PROBLEM SOLVED:
  * The watchlist was randomly resetting from 31 tokens to 1 due to:
  * 1. Multiple threads reading/writing to cfg.watchlist
  * 2. ConfigStore.save() being called with stale watchlist data
  * 3. No synchronization between BotService, scanners, and AI layers
  * 4. Race conditions when tokens are added/removed simultaneously
- * 
+ *
  * SOLUTION:
  * Single source of truth for ALL token tracking state:
  * - Watchlist (tokens being monitored)
  * - Active positions (across ALL layers)
  * - Duplicate suppression (prevent re-adding same token)
  * - Exposure tracking (total SOL committed)
- * 
+ *
  * USAGE:
  * - ALL watchlist mutations go through GlobalTradeRegistry
  * - ConfigStore.watchlist is READ-ONLY after init
  * - Scanners call addToWatchlist() instead of modifying cfg directly
  * - BotService calls getWatchlist() to get current list
- * 
+ *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object GlobalTradeRegistry {
-    
+
     private const val TAG = "GlobalTradeReg"
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // THREAD-SAFE WATCHLIST
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     // Master watchlist - ConcurrentHashMap for thread safety
     // Key: mint address, Value: WatchlistEntry with metadata
     private val watchlist = ConcurrentHashMap<String, WatchlistEntry>()
-    
+
     // Recently processed tokens - prevents duplicate processing in same cycle
     // Key: mint, Value: last processed timestamp
     private val recentlyProcessed = ConcurrentHashMap<String, Long>()
-    
+
     // Tokens that have been rejected - prevents re-adding rejected tokens
     // Key: mint, Value: RejectionEntry
     private val rejectedTokens = ConcurrentHashMap<String, RejectionEntry>()
-    
+
     // Active positions across ALL layers
     // Key: mint, Value: PositionEntry
     private val activePositions = ConcurrentHashMap<String, PositionEntry>()
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.0 PROBATION TIER
     // ═══════════════════════════════════════════════════════════════════════════
@@ -61,14 +61,14 @@ object GlobalTradeRegistry {
     // being promoted to the main watchlist. This prevents registry flooding.
     // Key: mint, Value: ProbationEntry
     private val probation = ConcurrentHashMap<String, ProbationEntry>()
-    
+
     // Counters
     private val totalTokensAdded = AtomicLong(0)
     private val totalTokensRemoved = AtomicLong(0)
     private val duplicatesBlocked = AtomicLong(0)
     private val probationPromotions = AtomicLong(0)
     private val probationRejections = AtomicLong(0)
-    
+
     // Timing constants
     // V5.9.162 — aggressive bootstrap volume boost. User: "it was smashing
     // out hundreds of trades an hour". 20s duplicate/rejection cooldowns on
@@ -96,24 +96,24 @@ object GlobalTradeRegistry {
 
     private fun effectiveProcessCooldownMs(): Long =
         if (isBootstrapPhase()) PROCESS_COOLDOWN_MS_BOOTSTRAP else PROCESS_COOLDOWN_MS
-    
+
     // V5.0 Probation constants
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
     private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
     private const val PROBATION_CONF_THRESHOLD_PAPER = 22   // V5.9.266: moderate (was 18 at V5.9.263)
     private const val PROBATION_MULTI_SOURCE_EXEMPT = true  // Multi-source tokens skip probation
-    
+
     // V5.2: Paper mode flag for more aggressive token acceptance
     @Volatile
     var isPaperMode: Boolean = false
-    
+
     // Maximum watchlist size to prevent memory issues
     // V5.2: Increased for paper mode learning - need more exposure
     // V5.9.369: 300→500 to give 100+ idle bench depth (user feedback)
     private const val MAX_WATCHLIST_SIZE = 500  // V5.9.369: was 300; bumped for memetrader idle pool target ≥100
     private const val MAX_PROBATION_SIZE = 500
-    
+
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
@@ -124,7 +124,7 @@ object GlobalTradeRegistry {
         var lastProcessedAt: Long = 0,
         var processCount: Int = 0,
     )
-    
+
     data class RejectionEntry(
         val mint: String,
         val symbol: String,
@@ -132,7 +132,7 @@ object GlobalTradeRegistry {
         val reason: String,
         val rejectedBy: String,  // "V3", "FDG", "FILTERS", etc.
     )
-    
+
     data class PositionEntry(
         val mint: String,
         val symbol: String,
@@ -141,7 +141,7 @@ object GlobalTradeRegistry {
         val sizeSol: Double,
         var currentPnlPct: Double = 0.0,
     )
-    
+
     /**
      * V5.0 PROBATION ENTRY
      * Tokens in probation need additional confirmation before being promoted.
@@ -163,15 +163,15 @@ object GlobalTradeRegistry {
         var currentPrice: Double = 0.0,
         var promotionReason: String? = null,
     )
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     // V4.0 CRITICAL: Flag to prevent re-initialization during runtime
     @Volatile
     private var initialized = false
-    
+
     /**
      * Initialize from ConfigStore watchlist.
      * Called once at bot startup. BLOCKED if already initialized.
@@ -182,10 +182,10 @@ object GlobalTradeRegistry {
             ErrorLogger.warn(TAG, "⚠️ init() called again with ${initialWatchlist.size} tokens - BLOCKED (already has ${watchlist.size} tokens)")
             return
         }
-        
+
         watchlist.clear()
         val now = System.currentTimeMillis()
-        
+
         for (mint in initialWatchlist) {
             if (mint.isNotBlank() && mint.length > 30) {
                 watchlist[mint] = WatchlistEntry(
@@ -198,15 +198,15 @@ object GlobalTradeRegistry {
                 )
             }
         }
-        
+
         initialized = true
         ErrorLogger.info(TAG, "✅ Initialized with ${watchlist.size} tokens from $defaultSource (ONE-TIME)")
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // WATCHLIST OPERATIONS
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Add a token to the watchlist.
      * Returns true if added, false if duplicate/rejected/full.
@@ -222,16 +222,16 @@ object GlobalTradeRegistry {
         if (mint.isBlank() || mint.length < 30) {
             return AddResult(false, "INVALID_MINT")
         }
-        
+
         val now = System.currentTimeMillis()
-        
+
         // Check if already in watchlist
         val existing = watchlist[mint]
         if (existing != null) {
             duplicatesBlocked.incrementAndGet()
             return AddResult(false, "DUPLICATE: already watching since ${(now - existing.addedAt)/1000}s ago")
         }
-        
+
         // Check if recently rejected
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
@@ -244,7 +244,7 @@ object GlobalTradeRegistry {
                 rejectedTokens.remove(mint)
             }
         }
-        
+
         // Check if recently processed (prevent spam)
         val lastProcessed = recentlyProcessed[mint]
         if (lastProcessed != null) {
@@ -254,11 +254,11 @@ object GlobalTradeRegistry {
                 return AddResult(false, "COOLDOWN: processed ${elapsed/1000}s ago")
             }
         }
-        
+
         // V5.2: No max size check - let watchlist grow as needed
         // Learning requires seeing many tokens
         // Stale tokens are pruned automatically by age/loss tracking
-        
+
         // Add to watchlist
         watchlist[mint] = WatchlistEntry(
             mint = mint,
@@ -268,19 +268,19 @@ object GlobalTradeRegistry {
             source = source,
             initialMcap = initialMcap,
         )
-        
+
         totalTokensAdded.incrementAndGet()
         ErrorLogger.debug(TAG, "➕ Added $symbol | by=$addedBy | source=$source | mcap=\$${initialMcap.toLong()}")
-        
+
         return AddResult(true, "ADDED")
     }
-    
+
     data class AddResult(
         val added: Boolean,
         val reason: String,
         val probation: Boolean = false,  // V5.0: True if token went to probation instead
     )
-    
+
     /**
      * V5.0: Add a token with probation awareness.
      * Low-confidence or single-source tokens go to probation first.
@@ -303,16 +303,16 @@ object GlobalTradeRegistry {
             PipelineTracer.registryRejected(symbol, mint, "INVALID_MINT")
             return AddResult(false, "INVALID_MINT")
         }
-        
+
         val now = System.currentTimeMillis()
-        
+
         // Check if already in watchlist
         if (watchlist.containsKey(mint)) {
             duplicatesBlocked.incrementAndGet()
             PipelineTracer.registryDuplicate(symbol, mint, "WATCHLIST")
             return AddResult(false, "DUPLICATE: already in watchlist")
         }
-        
+
         // Check if already in probation - update with additional scanner
         val existingProbation = probation[mint]
         if (existingProbation != null) {
@@ -324,7 +324,7 @@ object GlobalTradeRegistry {
             }
             return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
         }
-        
+
         // Check if recently rejected
         val rejection = rejectedTokens[mint]
         if (rejection != null) {
@@ -336,7 +336,7 @@ object GlobalTradeRegistry {
                 rejectedTokens.remove(mint)
             }
         }
-        
+
         // ═══════════════════════════════════════════════════════════════════
         // PROBATION ROUTING DECISION
         // V5.2: Paper mode is MUCH more lenient for maximum learning exposure
@@ -366,7 +366,7 @@ object GlobalTradeRegistry {
             // Otherwise, allow
             else -> false
         }
-        
+
         if (needsProbation) {
             return addToProbation(
                 mint = mint,
@@ -381,11 +381,11 @@ object GlobalTradeRegistry {
                 price = price,
             )
         }
-        
+
         // Direct add to watchlist
         return addToWatchlist(mint, symbol, addedBy, source, initialMcap)
     }
-    
+
     /**
      * V5.0: Add token to probation tier.
      */
@@ -411,7 +411,7 @@ object GlobalTradeRegistry {
                 ErrorLogger.debug(TAG, "🗑️ Probation pruned: ${oldest.symbol} (full)")
             }
         }
-        
+
         val now = System.currentTimeMillis()
         probation[mint] = ProbationEntry(
             mint = mint,
@@ -427,24 +427,24 @@ object GlobalTradeRegistry {
             priceAtAdd = price,
             currentPrice = price,
         )
-        
+
         val reason = when {
             isSingleSource -> "SINGLE_SOURCE"
             isEstimatedLiquidity -> "ESTIMATED_LIQ"
             confidence < PROBATION_CONF_THRESHOLD -> "LOW_CONF($confidence)"
             else -> "REVIEW_NEEDED"
         }
-        
+
         ErrorLogger.info(TAG, "⏳ PROBATION: $symbol | $reason | conf=$confidence | liq=$${liquidityUsd.toInt()}")
         return AddResult(false, "PROBATION: $reason", probation = true)
     }
-    
+
     /**
      * V5.0: Promote a token from probation to watchlist.
      */
     fun promoteFromProbation(mint: String, reason: String): AddResult {
         val entry = probation.remove(mint) ?: return AddResult(false, "NOT_IN_PROBATION")
-        
+
         // Add to watchlist
         val now = System.currentTimeMillis()
         watchlist[mint] = WatchlistEntry(
@@ -455,33 +455,33 @@ object GlobalTradeRegistry {
             source = entry.source,
             initialMcap = entry.initialMcap,
         )
-        
+
         totalTokensAdded.incrementAndGet()
         probationPromotions.incrementAndGet()
-        
+
         ErrorLogger.info(TAG, "✅ PROMOTED: ${entry.symbol} | reason=$reason | was in probation ${(now - entry.addedAt)/1000}s")
         return AddResult(true, "PROMOTED: $reason")
     }
-    
+
     /**
      * V5.0: Reject a token from probation.
      */
     fun rejectFromProbation(mint: String, reason: String) {
         val entry = probation.remove(mint) ?: return
-        
+
         registerRejection(mint, entry.symbol, "PROBATION_FAILED: $reason", "PROBATION")
         probationRejections.incrementAndGet()
-        
+
         ErrorLogger.info(TAG, "❌ PROBATION REJECTED: ${entry.symbol} | $reason")
     }
-    
+
     /**
      * V5.0: Update probation entry with new scanner confirmation.
      */
     fun updateProbationScanner(mint: String, scanner: String): Boolean {
         val entry = probation[mint] ?: return false
         entry.additionalScanners.add(scanner)
-        
+
         // Auto-promote if multi-scanner confirmed
         if (entry.additionalScanners.size >= 1 && entry.isSingleSource) {
             promoteFromProbation(mint, "SCANNER_CONFIRM: ${entry.additionalScanners.joinToString(",")}")
@@ -489,14 +489,14 @@ object GlobalTradeRegistry {
         }
         return false
     }
-    
+
     /**
      * V5.0: Update probation entry with RC score.
      */
     fun updateProbationRC(mint: String, rcScore: Int): Boolean {
         val entry = probation[mint] ?: return false
         entry.rcScore = rcScore
-        
+
         // V5.2: Good RC score can promote (RC >= 2 is great)
         if (rcScore >= 2) {
             promoteFromProbation(mint, "GOOD_RC:$rcScore")
@@ -509,7 +509,7 @@ object GlobalTradeRegistry {
         }
         return false
     }
-    
+
     /**
      * V5.0: Update probation entry with price.
      */
@@ -517,7 +517,7 @@ object GlobalTradeRegistry {
         val entry = probation[mint] ?: return
         entry.currentPrice = price
     }
-    
+
     /**
      * V5.0: Process probation tier - check for promotions/rejections.
      * Call this periodically from bot loop.
@@ -525,20 +525,20 @@ object GlobalTradeRegistry {
     fun processProbation(): List<ProbationResult> {
         val results = mutableListOf<ProbationResult>()
         val now = System.currentTimeMillis()
-        
+
         for ((mint, entry) in probation) {
             val elapsed = now - entry.addedAt
-            
+
             // Check timeout - reject if too long in probation
             if (elapsed >= PROBATION_MAX_TIME_MS) {
                 rejectFromProbation(mint, "TIMEOUT")
                 results.add(ProbationResult(mint, entry.symbol, "REJECTED", "TIMEOUT"))
                 continue
             }
-            
+
             // Check minimum time
             if (elapsed < PROBATION_MIN_TIME_MS) continue
-            
+
             // Check price action - promote if price held or increased
             if (entry.priceAtAdd > 0 && entry.currentPrice > 0) {
                 val priceChange = (entry.currentPrice - entry.priceAtAdd) / entry.priceAtAdd * 100
@@ -555,14 +555,14 @@ object GlobalTradeRegistry {
                     continue
                 }
             }
-            
+
             // Check if multi-scanner confirmed
             if (entry.additionalScanners.isNotEmpty()) {
                 promoteFromProbation(mint, "MULTI_CONFIRM")
                 results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM"))
                 continue
             }
-            
+
             // V5.2: Check if RC confirmed (RC >= 2 is great for promotion)
             if (entry.rcScore >= 2) {
                 promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
@@ -570,44 +570,44 @@ object GlobalTradeRegistry {
                 continue
             }
         }
-        
+
         return results
     }
-    
+
     data class ProbationResult(
         val mint: String,
         val symbol: String,
         val action: String,  // "PROMOTED" or "REJECTED"
         val reason: String,
     )
-    
+
     /**
      * V5.0: Get probation entries.
      */
     fun getProbationEntries(): List<ProbationEntry> = probation.values.toList()
-    
+
     /**
      * V5.0: Get probation entry for a specific token.
      */
     fun getProbationEntry(mint: String): ProbationEntry? = probation[mint]
-    
+
     /**
      * V5.0: Check if token is in probation.
      */
     fun isInProbation(mint: String): Boolean = probation.containsKey(mint)
-    
+
     /**
      * V5.0: Get probation size.
      */
     fun probationSize(): Int = probation.size
-    
+
     /**
      * V5.0: Get probation stats.
      */
     fun getProbationStats(): String {
         return "PROBATION: ${probation.size}/$MAX_PROBATION_SIZE | promoted=${probationPromotions.get()} | rejected=${probationRejections.get()}"
     }
-    
+
     /**
      * Remove a token from the watchlist.
      * V5.9.369 — never evict a mint that has an active position. Eviction
@@ -645,7 +645,7 @@ object GlobalTradeRegistry {
         }
         return false
     }
-    
+
     /**
      * Register that a token was rejected (so it won't be re-added).
      */
@@ -664,12 +664,12 @@ object GlobalTradeRegistry {
             reason = reason,
             rejectedBy = rejectedBy,
         )
-        
+
         // Also remove from watchlist if present (safe — guard above already
         // returned for active positions).
         removeFromWatchlist(mint, "REJECTED: $reason")
     }
-    
+
     /**
      * Mark a token as processed in this cycle.
      */
@@ -680,13 +680,13 @@ object GlobalTradeRegistry {
             it.processCount++
         }
     }
-    
+
     /**
      * V5.0: Get watchlist entry for a token (for UI display).
      * Returns null if token is not in watchlist.
      */
     fun getEntry(mint: String): WatchlistEntry? = watchlist[mint]
-    
+
     /**
      * Check if we can process a token (not processed too recently).
      */
@@ -694,7 +694,7 @@ object GlobalTradeRegistry {
         val lastProcessed = recentlyProcessed[mint] ?: return true
         return System.currentTimeMillis() - lastProcessed >= effectiveProcessCooldownMs()
     }
-    
+
     /**
      * Get current watchlist as a list of mint addresses.
      * This is the ONLY way to read the watchlist.
@@ -702,24 +702,24 @@ object GlobalTradeRegistry {
     fun getWatchlist(): List<String> {
         return watchlist.keys.toList()
     }
-    
+
     /**
      * Get watchlist entries with metadata.
      */
     fun getWatchlistEntries(): List<WatchlistEntry> {
         return watchlist.values.toList()
     }
-    
+
     /**
      * Get watchlist size.
      */
     fun size(): Int = watchlist.size
-    
+
     /**
      * Check if a token is in the watchlist.
      */
     fun isWatching(mint: String): Boolean = watchlist.containsKey(mint)
-    
+
     /**
      * Update symbol for a token (when we fetch actual data).
      */
@@ -728,11 +728,11 @@ object GlobalTradeRegistry {
             watchlist[mint] = entry.copy(symbol = symbol)
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // POSITION TRACKING
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Register an open position.
      */
@@ -746,7 +746,7 @@ object GlobalTradeRegistry {
         )
         ErrorLogger.debug(TAG, "📊 Position opened: $symbol | layer=$layer | size=$sizeSol SOL")
     }
-    
+
     /**
      * Close a position.
      */
@@ -757,31 +757,58 @@ object GlobalTradeRegistry {
         }
         return pos
     }
-    
+
     /**
      * Check if a position is open for a token.
      */
     fun hasOpenPosition(mint: String): Boolean = activePositions.containsKey(mint)
-    
+
     /**
      * Get all open positions.
      */
     fun getOpenPositions(): List<PositionEntry> = activePositions.values.toList()
-    
+
     /**
      * Get total exposure in SOL.
      */
     fun getTotalExposure(): Double = activePositions.values.sumOf { it.sizeSol }
-    
+
     /**
      * Get position count.
      */
     fun getPositionCount(): Int = activePositions.size
-    
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    /** V5.9.612 AntiChoke: clear a stale registry-only position when wallet / sub-trader truth proves unheld. */
+    fun clearPositionIfUnheld(mint: String, reason: String = "ANTI_CHOKE_UNHELD"): Boolean {
+        val pos = activePositions.remove(mint) ?: return false
+        ErrorLogger.warn(TAG, "👻 Cleared registry ghost position: ${pos.symbol} | layer=${pos.layer} | reason=$reason")
+        return true
+    }
+
+    /** V5.9.612 AntiChoke: prune old non-held watchlist entries to keep scanner inflow fresh. */
+    fun pruneDormant(maxAgeMs: Long, maxRemove: Int, reason: String = "ANTI_CHOKE_DORMANT"): Int {
+        val now = System.currentTimeMillis()
+        val doomed = watchlist.values
+            .filter { !activePositions.containsKey(it.mint) }
+            .filter { now - it.addedAt > maxAgeMs }
+            .sortedBy { it.addedAt }
+            .take(maxRemove)
+        var removed = 0
+        for (entry in doomed) {
+            if (watchlist.remove(entry.mint) != null) {
+                totalTokensRemoved.incrementAndGet()
+                removed++
+                ErrorLogger.debug(TAG, "♻️ AntiChoke pruned ${entry.symbol} | age=${(now-entry.addedAt)/1000}s | reason=$reason")
+            }
+        }
+        return removed
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // MAINTENANCE
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Prune oldest non-position entry from watchlist.
      * Returns true if an entry was removed.
@@ -790,7 +817,7 @@ object GlobalTradeRegistry {
         val oldest = watchlist.values
             .filter { !activePositions.containsKey(it.mint) }
             .minByOrNull { it.addedAt }
-        
+
         if (oldest != null) {
             watchlist.remove(oldest.mint)
             totalTokensRemoved.incrementAndGet()
@@ -799,7 +826,7 @@ object GlobalTradeRegistry {
         }
         return false
     }
-    
+
     /**
      * Clean up expired rejections and cooldowns.
      * Call this periodically (e.g., every loop).
@@ -819,7 +846,7 @@ object GlobalTradeRegistry {
         // Clean old processed entries
         recentlyProcessed.entries.removeIf { now - it.value > dupCd }
     }
-    
+
     /**
      * Sync watchlist back to ConfigStore.
      * Call this periodically to persist state.
@@ -828,7 +855,7 @@ object GlobalTradeRegistry {
         try {
             val cfg = com.lifecyclebot.data.ConfigStore.load(context)
             val currentList = getWatchlist()
-            
+
             // Only save if different
             if (cfg.watchlist.toSet() != currentList.toSet()) {
                 com.lifecyclebot.data.ConfigStore.saveWatchlistOnly(context, currentList)
@@ -838,7 +865,7 @@ object GlobalTradeRegistry {
             ErrorLogger.error(TAG, "Failed to sync to ConfigStore: ${e.message}", e)
         }
     }
-    
+
     /**
      * Get stats for logging/debugging.
      */
@@ -847,7 +874,7 @@ object GlobalTradeRegistry {
             "added=${totalTokensAdded.get()} removed=${totalTokensRemoved.get()} " +
             "dupes_blocked=${duplicatesBlocked.get()}"
     }
-    
+
     /**
      * Reset all state (for testing or full restart).
      * V4.0: Also resets initialized flag to allow reinit on next session.

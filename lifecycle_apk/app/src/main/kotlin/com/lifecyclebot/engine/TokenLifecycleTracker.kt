@@ -362,6 +362,25 @@ object TokenLifecycleTracker {
     }
 
     /**
+     * V5.9.612 AntiChoke: when a non-empty wallet snapshot proves this mint is
+     * not held, clear the lifecycle record so stale BUY_PENDING/HELD rows cannot
+     * throttle live execution forever. This is only called after wallet truth is
+     * known; RPC-empty maps must never use it.
+     */
+    @Synchronized
+    fun forceClearUnheld(mint: String, reason: String): Boolean {
+        val r = records[mint] ?: return false
+        if (r.status == Status.CLEARED || r.status == Status.RECONCILE_FAILED) return false
+        r.currentWalletTokenQty = 0.0
+        r.status = Status.CLEARED
+        r.closedAtMs = System.currentTimeMillis()
+        r.reconcileFailReason = reason
+        ErrorLogger.warn(TAG, "👻 FORCE_CLEARED_UNHELD ${r.symbol}: $reason")
+        scheduleSave()
+        return true
+    }
+
+    /**
      * V5.9.495z42 — purge a terminal record from the in-memory map.
      *
      * Only allowed when the record is CLEARED or RECONCILE_FAILED (operator

@@ -536,6 +536,29 @@ object HostWalletTokenTracker {
     fun getOpenCount(): Int = positions.values.count { it.status in OPEN_STATUSES }
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
+    /** Count positions with actual wallet token amount above dust. */
+    fun getActuallyHeldCount(): Int = positions.values.count { it.uiAmount > 0.000001 && it.status in OPEN_STATUSES }
+
+    /** True only when wallet-truth says this mint has a non-dust token amount. */
+    fun isActuallyHeld(mint: String): Boolean {
+        val p = positions[mint] ?: return false
+        return p.uiAmount > 0.000001 && p.status in OPEN_STATUSES
+    }
+
+    /** V5.9.612 AntiChoke: wallet snapshot proved zero; unblock internal ghost state. */
+    fun markUnheldByAntiChoke(mint: String, reason: String): Boolean {
+        val p = positions[mint] ?: return false
+        if (p.uiAmount > 0.000001) return false
+        p.status = PositionStatus.CLOSED
+        p.activeSellAttemptId = null
+        p.notes.add("anti-choke closed unheld: $reason")
+        emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, p.symbol, p.sellSignature,
+            "AntiChoke closed unheld tracker row: $reason")
+        save()
+        return true
+    }
+
+    /** Snapshot of every tracked position (open + closed) — diagnostics. */
     fun snapshot(): List<TrackedTokenPosition> = positions.values.toList()
 
     /** V5.9.601: true when auto-sell must not start another executor job. */

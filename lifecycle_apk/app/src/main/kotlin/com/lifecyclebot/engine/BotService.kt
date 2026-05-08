@@ -4729,6 +4729,19 @@ class BotService : Service() {
                 // (O(window=30)). The coaching state then steers entries via
                 // LifecycleStrategy.shouldTradeBase / FinalDecisionGate.
                 try { com.lifecyclebot.engine.TradingCopilot.update() } catch (_: Exception) {}
+                try {
+                    val antiChoke = com.lifecyclebot.engine.AntiChokeManager.tick(
+                        isPaperMode = cfg.paperMode,
+                        wallet = wallet,
+                        tokens = status.tokens,
+                        loopCount = loopCount,
+                    )
+                    if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {
+                        addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")
+                }
 
                 // V5.9.439 — LEARNING TRANSPARENCY LOG (~every 5 min).
                 // Surfaces the live snapshots of the three outcome-attribution

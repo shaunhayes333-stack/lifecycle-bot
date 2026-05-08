@@ -71,6 +71,9 @@ object FreeRangeMode {
     fun isWideOpen(): Boolean {
         if (operatorForceOn)  return true
         if (operatorForceOff) return false
+        // V5.9.612: if throughput is choking, temporarily restore free-range
+        // soft-gate behavior. Hard rug/drain safety lives outside this helper.
+        if (AntiChokeManager.isSoftening()) return true
         // V5.9.606 — restore the original operator contract documented above.
         // V5.9.422 accidentally tied free-range directly to QualityLadder.tier(),
         // so at ~3000 trades with WR below target the bot entered Tier 3
