@@ -3910,7 +3910,7 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
     }
 
-    private fun runRegimePulse() {
+    private suspend fun runRegimePulse() {
         try {
             listOf(
                 com.lifecyclebot.perps.PerpsMarket.SOL,
