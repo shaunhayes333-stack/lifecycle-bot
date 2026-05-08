@@ -4984,6 +4984,20 @@ class BotService : Service() {
                         // COLLECTIVE LEARNING SYNC - Share local knowledge with hive mind
                         // Uploads mode performance stats to Turso for all instances to learn
                         // ═══════════════════════════════════════════════════════════════════
+                        // V5.9.617: Auto-reconnect if hivemind dropped — was silent before.
+                        if (!com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                            try {
+                                val reconnected = com.lifecyclebot.collective.CollectiveLearning.ensureConnected()
+                                if (reconnected) {
+                                    addLog("🌐 Hivemind reconnected")
+                                    ErrorLogger.info("BotService", "CollectiveLearning auto-reconnect succeeded")
+                                } else {
+                                    addLog("🌐 Hivemind offline — running solo")
+                                }
+                            } catch (e: Exception) {
+                                ErrorLogger.debug("BotService", "Hivemind reconnect attempt failed: ${e.message}")
+                            }
+                        }
                         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                             try {
                                 // V3.2: Upload instance heartbeat for active instance counting

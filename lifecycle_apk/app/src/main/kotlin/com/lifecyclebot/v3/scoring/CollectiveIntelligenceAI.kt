@@ -206,8 +206,13 @@ object CollectiveIntelligenceAI {
         }
         
         try {
-            // 1. Check token prediction cache
-            val prediction = tokenPredictionCache[mint]
+            // V5.9.617: Prime per-token prediction from collective pattern data.
+            // Was dead code before — predictTokenSuccess was defined but never
+            // invoked, so the strongest hivemind signal (±15/-18 score, ±8/-10
+            // conf) never reached scoring. Now we compute it on demand.
+            val prediction = tokenPredictionCache[mint] ?: try {
+                predictTokenSuccess(mint, symbol, source, liquidityUsd)
+            } catch (_: Exception) { null }
             
             // 2. Check consensus signals
             val consensus = consensusCache[mint]
