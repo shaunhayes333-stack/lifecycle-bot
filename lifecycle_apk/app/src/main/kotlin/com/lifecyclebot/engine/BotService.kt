@@ -2072,7 +2072,10 @@ class BotService : Service() {
                     // empty while the UI says Meme Trader has 0 tokens.
                     try {
                         val c = ConfigStore.load(applicationContext)
-                        val shouldAdmit = c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade
+                        // V5.9.628 — DataOrchestrator Pump.fun discoveries belong to Meme
+                        // Trader too. If memeTraderEnabled is true, they must hydrate the
+                        // protected intake even when auto-add/V3/autoTrade are disabled.
+                        val shouldAdmit = c.memeTraderEnabled || c.tradingMode == 0 || c.tradingMode == 2 || c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade
                         if (shouldAdmit) {
                             admitProtectedMemeIntake(
                                 mint = mint,
@@ -2139,19 +2142,64 @@ class BotService : Service() {
         FinalExecutionPermit.isPaperMode = preScanCfg.paperMode
         addLog("📋 GlobalTradeRegistry initialized with ${GlobalTradeRegistry.size()} tokens (paperMode=${preScanCfg.paperMode})")
 
-        // Start full Solana market scanner
+        // V5.9.628 — Rehydrate persistent Meme mint memory into the live
+        // watchlist/status surfaces before scanner start. MemeMintRegistry is
+        // restored in onCreate(), but the trader/UI reads GlobalTradeRegistry +
+        // status.tokens. Without this bridge, a restart can show 0 Meme tokens
+        // until the scanner rediscovers everything.
+        try {
+            val restoredMemeMints = com.lifecyclebot.engine.MemeMintRegistry.getAll()
+            var hydrated = 0
+            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(500)
+            for (m in restoredMemeMints.sortedByDescending { it.lastSeenMs }.take(hydrateCap)) {
+                if (m.mint.isBlank()) continue
+                val ok = admitProtectedMemeIntake(
+                    mint = m.mint,
+                    symbol = m.symbol.ifBlank { m.mint.take(6) },
+                    name = m.name.ifBlank { m.symbol.ifBlank { m.mint.take(6) } },
+                    source = "MEME_REGISTRY_RESTORE",
+                    marketCapUsd = 0.0,
+                    liquidityUsd = 0.0,
+                    volumeH1 = 0.0,
+                    confidence = 50,
+                    allSources = setOf(m.source.ifBlank { "restored" }, "MEME_REGISTRY_RESTORE"),
+                    playSound = false,
+                    operatorLog = false,
+                )
+                if (ok || status.tokens.containsKey(m.mint)) hydrated++
+            }
+            if (restoredMemeMints.isNotEmpty()) {
+                addLog("🪙 Meme restore: hydrated $hydrated/${restoredMemeMints.size} persisted mints")
+                ErrorLogger.info("BotService", "🪙 Meme restore hydrated $hydrated/${restoredMemeMints.size} persisted mints into runtime")
+            }
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "Meme restore hydrate failed: ${e.message}")
+        }
+
+        // Start protected Solana/Meme intake scanner.
         val scanCfg = ConfigStore.load(applicationContext)
-        ErrorLogger.info("BotService", "fullMarketScanEnabled = ${scanCfg.fullMarketScanEnabled}")
-        // V5.9.625 — Meme intake fail-open.
-        // Build 2500 showed 0 Meme Trader tokens while perps/markets ran. A
-        // persisted fullMarketScanEnabled=false silently kills the Solana intake
-        // even though V3/meme engines remain initialized. Under the protected
-        // scanner doctrine, an active bot must not silently run with Meme intake
-        // off. If V3/auto-trading is active, start the scanner anyway and make
-        // the override visible in logs.
-        val memeIntakeRequired = scanCfg.fullMarketScanEnabled || scanCfg.v3EngineEnabled || scanCfg.autoTrade || scanCfg.autoAddNewTokens
+        // V5.9.628 — Meme scanner is owned by Meme Trader, not by unrelated
+        // full-scan/auto-trade/V3 toggles. Latest-APK operator log showed
+        // Markets/CryptoAlt/Forex alive while Meme Trader had literally 0 tokens
+        // and no scanner-start logs. Root cause: V5.9.625 only fail-opened when
+        // one of fullMarketScanEnabled/v3/autoTrade/autoAddNewTokens was true;
+        // a valid running bot can have all four false while memeTraderEnabled is
+        // still true. Under the protected-intake doctrine, Meme enabled means
+        // scanner starts. fullMarketScanEnabled now controls scan breadth only;
+        // it must never silently zero the Meme Trader universe.
+        val memeModeSelected = scanCfg.tradingMode == 0 || scanCfg.tradingMode == 2  // 0=Meme, 2=Both
+        val memeIntakeRequired = scanCfg.memeTraderEnabled ||
+            memeModeSelected ||
+            scanCfg.fullMarketScanEnabled ||
+            scanCfg.v3EngineEnabled ||
+            scanCfg.autoTrade ||
+            scanCfg.autoAddNewTokens
+        val gateSummary = "meme=${scanCfg.memeTraderEnabled} mode=${scanCfg.tradingMode} fullScan=${scanCfg.fullMarketScanEnabled} " +
+            "v3=${scanCfg.v3EngineEnabled} autoTrade=${scanCfg.autoTrade} autoAdd=${scanCfg.autoAddNewTokens}"
+        ErrorLogger.info("BotService", "🛡 Meme intake gate: $gateSummary -> start=$memeIntakeRequired")
+        addLog("🛡 Meme intake gate: $gateSummary → ${if (memeIntakeRequired) "START" else "OFF"}")
         if (!scanCfg.fullMarketScanEnabled && memeIntakeRequired) {
-            ErrorLogger.warn("BotService", "🛡 MEME_INTAKE_FAIL_OPEN: fullMarketScanEnabled=false but V3/auto intake is active — starting Solana scanner anyway")
+            ErrorLogger.warn("BotService", "🛡 MEME_INTAKE_FAIL_OPEN: fullMarketScanEnabled=false but Meme/V3/auto intake requires scanner — starting Solana scanner anyway")
             addLog("🛡 Meme intake fail-open: scanner started despite Full Scan toggle OFF")
         }
         if (memeIntakeRequired) {
@@ -2187,9 +2235,25 @@ class BotService : Service() {
                             
                             ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | score=$score | src=${source.name}")
                             
-                            // V4.0: Check GlobalTradeRegistry instead of local watchlist
+                            // V5.9.628 — duplicate registry hits must still hydrate runtime state.
+                            // After restart, GlobalTradeRegistry can remember a mint while status.tokens
+                            // is empty, leaving the Meme Trader UI at 0 tokens. Do not return until the
+                            // protected intake bridge has rebuilt TokenState + MemeMintRegistry surfaces.
                             if (GlobalTradeRegistry.isWatching(identity.mint)) {
-                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in GlobalTradeRegistry")
+                                admitProtectedMemeIntake(
+                                    mint = identity.mint,
+                                    symbol = identity.symbol,
+                                    name = name.ifBlank { identity.symbol },
+                                    source = source.name,
+                                    marketCapUsd = liquidityUsd * 10.0,
+                                    liquidityUsd = liquidityUsd,
+                                    volumeH1 = volumeH1,
+                                    confidence = score.toInt().coerceIn(1, 100),
+                                    allSources = setOf(source.name, "REGISTRY_DUPLICATE_HYDRATE"),
+                                    playSound = false,
+                                    operatorLog = false,
+                                )
+                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in GlobalTradeRegistry — hydrated runtime state")
                                 return@SolanaMarketScanner
                             }
                             
