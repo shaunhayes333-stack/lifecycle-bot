@@ -208,6 +208,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         name: String,
         pairCreatedAtMs: Long = 0L,
         currentLiquidityUsd: Double = -1.0,
+        score: Int = 0,
     ): SafetyReport {
         if (mint in WHITELISTED_MINTS) {
             val safeReport = SafetyReport(
@@ -222,7 +223,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         val cached = cache[mint]
-        if (cached != null && !cached.isStale) return cached
+        if (cached != null && !cached.isStale) {
+            // V5.9.605 — don't let a transient false-zero liquidity block
+            // suppress a fresh launch for the full 10-minute cache window.
+            // If the caller now has healthy liquidity, re-run safety instead
+            // of returning the stale HARD_BLOCK.
+            val cachedLiquidityBlock = cached.hardBlockReasons.any { it.startsWith("Liquidity ", ignoreCase = true) }
+            if (!(cachedLiquidityBlock && currentLiquidityUsd >= 2_000.0)) {
+                return cached
+            }
+            ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=$${currentLiquidityUsd.toInt()}")
+            cache.remove(mint)
+        }
 
         val isPaperMode = cfg().paperMode
 
@@ -359,10 +371,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         rcConfirmedRisky = false,
                         rcPending = true,
                         isPaperMode = isPaperMode,
-                        // Use a high-trust upstream score signal if the
-                        // caller passes one in via `score` arg; fall
-                        // back to 0 so live entries default to BLOCKED.
-                        score = 0,
+                        // V5.9.605 — use high-trust upstream score. This was
+                        // accidentally hardcoded to 0, so LIVE could never take
+                        // the documented RC_PENDING high-score override path.
+                        score = score,
                     )
                     val pen = com.lifecyclebot.engine.RugCheckPolicy.penaltyOrBlock(rcState)
                     when (rcState) {

@@ -2102,11 +2102,12 @@ class BotService : Service() {
                                 // BannedTokens (the permanent ban list) is
                                 // separate and unaffected.
                                 val blockReason = TokenBlacklist.getBlockReason(identity.mint)
-                                val isFalsePositive = blockReason.startsWith("Safety: DATA_CONFLICT", ignoreCase = true)
+                                val isFalsePositive = blockReason.startsWith("Safety: DATA_CONFLICT", ignoreCase = true) ||
+                                    blockReason.startsWith("Safety: Liquidity ", ignoreCase = true)
                                 if (isFalsePositive && liquidityUsd >= 5000.0) {
                                     TokenBlacklist.unblock(identity.mint)
-                                    ErrorLogger.info("BotService", "🩹 REHABILITATED ${identity.symbol}: liq now \$${liquidityUsd.toInt()} — was falsely blacklisted via DATA_CONFLICT (API hiccup). Unblocking.")
-                                    addLog("🩹 REHABILITATED ${identity.symbol}: liq=\$${liquidityUsd.toInt()} healthy, was false-blacklisted from API hiccup")
+                                    ErrorLogger.info("BotService", "🩹 REHABILITATED ${identity.symbol}: liq now \$${liquidityUsd.toInt()} — was falsely blacklisted via transient safety liquidity/data hiccup. Unblocking.")
+                                    addLog("🩹 REHABILITATED ${identity.symbol}: liq=\$${liquidityUsd.toInt()} healthy, was false-blacklisted from safety liquidity/data hiccup")
                                     // Fall through — continue eligibility checks
                                 } else {
                                     TradeLifecycle.ineligible(identity.mint, "Blacklisted")
@@ -3496,6 +3497,35 @@ class BotService : Service() {
                                 initialMcap = mcapUsd,
                             )
                             if (addResult.added) {
+                                // V5.9.605 — PumpPortal WS bypasses TokenMergeQueue,
+                                // so seed TokenState directly or the first live safety
+                                // check sees entryScore/liquidity as zero and throttles.
+                                try {
+                                    synchronized(status.tokens) {
+                                        val ts = status.tokens.getOrPut(mint) {
+                                            com.lifecyclebot.data.TokenState(
+                                                mint = mint,
+                                                symbol = symbol,
+                                                name = name.ifBlank { symbol },
+                                                candleTimeframeMinutes = 1,
+                                                source = "PUMP_PORTAL_WS",
+                                                logoUrl = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
+                                            )
+                                        }
+                                        val estLiq = (mcapUsd * 0.10).coerceAtLeast(0.0)
+                                        if (ts.lastMcap <= 0.0) ts.lastMcap = mcapUsd
+                                        if (ts.lastLiquidityUsd <= 0.0 && estLiq > 0.0) ts.lastLiquidityUsd = estLiq
+                                        if (ts.entryScore <= 0.0) ts.entryScore = 80.0
+                                        try {
+                                            com.lifecyclebot.engine.MemeMintRegistry.touch(
+                                                mint = mint,
+                                                symbol = symbol,
+                                                name = name.ifBlank { symbol },
+                                                source = "PUMP_PORTAL_WS",
+                                            )
+                                        } catch (_: Throwable) {}
+                                    }
+                                } catch (_: Throwable) {}
                                 ErrorLogger.info("BotService",
                                     "🆕 PumpPortal: $symbol ($name) mcap=${mcapSol.toInt()}SOL → watchlist")
                             } else {
@@ -5250,6 +5280,12 @@ class BotService : Service() {
                                     ts.lastMcap = merged.marketCapUsd
                                     ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=$${merged.liquidityUsd.toInt()}")
                                 }
+                                // V5.9.605 — safety runs before strategy evaluation on the
+                                // first tick. Seed discovery confidence into entryScore so
+                                // RC_PENDING live override can work for strong fresh tokens.
+                                if (ts.entryScore <= 0.0 && merged.confidence > 0) {
+                                    ts.entryScore = merged.confidence.toDouble()
+                                }
                                 // V5.9.331: Seed volumeH1 from scanner so VOL_GATE doesn't block
                                 // fresh tokens on their first evaluation tick (previously 0.0 → $500 fail)
                                 if (ts.history.isEmpty() && merged.volumeH1 > 0) {
@@ -6368,12 +6404,34 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         scope.launch {
             try {
                 val pairCreatedAt = pair.pairCreatedAtMs.takeIf { it > 0L } ?: pair.candle.ts
+                // V5.9.605 — LIVE MEME THROTTLE ROOT CAUSE:
+                // pair.liquidity can be 0 during first hydration/RPC races even
+                // when the scanner just admitted the same mint with real liquidity
+                // (operator log: CUCK scanner liq=$24k → safety LIQ HARD BLOCK $0).
+                // Resolve from best-known state before applying the live $2k floor.
+                val regEntry = try { GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
+                val registryLiqEstimate = (regEntry?.initialMcap ?: 0.0).let { mcap ->
+                    // PumpPortal entries pass mcap-derived USD here; use a conservative
+                    // 10% liquidity estimate only as a fallback to avoid false-zero blocks.
+                    if (mcap > 0.0) mcap * 0.10 else 0.0
+                }
+                val resolvedLiquidityUsd = listOf(
+                    pair.liquidity,
+                    ts.lastLiquidityUsd,
+                    registryLiqEstimate,
+                ).filter { it.isFinite() && it > 0.0 }.maxOrNull() ?: pair.liquidity
+
+                if (pair.liquidity <= 0.0 && resolvedLiquidityUsd > 0.0) {
+                    ErrorLogger.info("BotService", "💧 Safety liquidity fallback: ${ts.symbol} pair=$${pair.liquidity.toInt()} ts=$${ts.lastLiquidityUsd.toInt()} regEst=$${registryLiqEstimate.toInt()} → using $${resolvedLiquidityUsd.toInt()}")
+                }
+
                 val report = safetyChecker.check(
                     mint            = mint,
                     symbol          = ts.symbol,
                     name            = ts.name,
                     pairCreatedAtMs = pairCreatedAt,
-                    currentLiquidityUsd = pair.liquidity,  // V5.9.310: feed live liquidity for $5k floor enforcement
+                    currentLiquidityUsd = resolvedLiquidityUsd,  // V5.9.605: best-known liq, not raw pair zero
+                    score = ts.entryScore.toInt().coerceIn(0, 100), // V5.9.605: allow RC_PENDING live override for strong candidates
                 )
                 synchronized(ts) {
                     ts.safety       = report
@@ -6385,7 +6443,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         addLog("SAFETY BLOCK [${ts.symbol}]: $reason", mint)
                         sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
                             NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
-                        TokenBlacklist.block(mint, "Safety: $reason")
+                        val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && resolvedLiquidityUsd <= 0.0
+                        if (isTransientLiquidityBlock) {
+                            ErrorLogger.warn("BotService", "⚠️ NOT blacklisting ${ts.symbol}: transient unresolved liquidity safety block ($reason)")
+                        } else {
+                            TokenBlacklist.block(mint, "Safety: $reason")
+                        }
                         // Permanent ban for rug/scam patterns
                         if (reason.contains("rug", ignoreCase = true) || 
                             reason.contains("honeypot", ignoreCase = true) ||
