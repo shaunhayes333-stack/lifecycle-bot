@@ -6233,24 +6233,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             } catch (_: Throwable) { /* never break the cycle */ }
 
             // Primary price source: Dexscreener
+            // V5.9.615 — when DexScreener has no pair (pre-graduation pump.fun
+            // tokens), try the fallback price providers (pump.fun API / Birdeye).
+            // If they succeed, synthesize a PairInfo so the cycle can continue
+            // into the V3 / ShitCoin entry path. ShitCoin is *designed* for
+            // exactly these tokens; without this synthesize step we choke the
+            // entire pre-graduation meme lane the operator wants us to trade.
             val pair = dex.getBestPair(mint) ?: run {
-                val ts = status.tokens[mint]
-                if (ts != null) {
-                    val refreshed = tryFallbackPriceData(mint, ts)
-                    // V5.9.426 — EXIT SAFETY NET.
-                    // processTokenCycle used to return here unconditionally when
-                    // DexScreener had no pair, which meant exit checks (SL/TP/trail)
-                    // never ran for tokens whose primary feed went dead. Rugged
-                    // meme coins (ChadMogman -98%, MOGGING -93% in screenshots)
-                    // would sit bleeding forever. When fallback price is fresh
-                    // and the position is open, run a direct hard-floor SL at
-                    // the meme trader's canonical -20% floor. Partial/trail
-                    // logic still runs on normal cycles when pair succeeds.
-                    if (refreshed && ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
+                val ts = status.tokens[mint] ?: return
+                val refreshed = tryFallbackPriceData(mint, ts)
+                val synth = if (refreshed && ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
+                if (synth == null) {
+                    // No usable price — last-resort exit safety net.
+                    if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
                         runFallbackSafetyExit(ts, cfg, wallet)
                     }
+                    return
                 }
-                return  // skip full cycle — but we may have added fallback data
+                synth  // continue into the rest of the cycle with synthesized pair
             }
 
             // ═══════════════════════════════════════════════════════════════
@@ -11286,6 +11286,59 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "[FALLBACK_SAFETY] error: ${e.message}")
         }
+    }
+
+    /**
+     * V5.9.615 — Build a synthetic PairInfo from already-populated TokenState
+     * fallback data (pump.fun API / Birdeye delivered price+mcap+liquidity into
+     * ts.lastPrice / ts.lastMcap / ts.lastLiquidityUsd, but DexScreener has no
+     * pair). This lets processTokenCycle continue into V3/ShitCoin entry
+     * evaluation instead of returning early. Pre-graduation pump.fun tokens
+     * are the ShitCoin lane's designed target market.
+     *
+     * Field semantics:
+     *  - candle: synthetic 1-tick candle at current fallback price+mcap.
+     *    Volume / buys / sells default to 0 — downstream scorers already
+     *    handle "no data yet" via FluidLearningAI bootstrap heuristics.
+     *  - liquidity / fdv: copied from ts. For pump.fun bonding-curve tokens
+     *    this is mcap * 0.85 (set by tryFallbackPriceData seed path).
+     *  - url: tagged so downstream source-detection sees pump.fun, which
+     *    correctly routes the token into ShitCoinTraderAI.LaunchPlatform.PUMP_FUN.
+     */
+    private fun synthesizeFallbackPair(ts: com.lifecyclebot.data.TokenState): com.lifecyclebot.network.PairInfo? {
+        if (ts.lastPrice <= 0.0) return null
+        val nowMs = System.currentTimeMillis()
+        val candle = com.lifecyclebot.data.Candle(
+            ts = nowMs,
+            priceUsd = ts.lastPrice,
+            marketCap = ts.lastMcap.coerceAtLeast(0.0),
+            volumeH1 = 0.0,
+            volume24h = 0.0,
+            buysH1 = 0,
+            sellsH1 = 0,
+            highUsd = ts.lastPrice,
+            lowUsd = ts.lastPrice,
+            openUsd = ts.lastPrice,
+        )
+        // URL hint so processTokenCycle's source-inference still tags pump.fun
+        // correctly when ts.source is empty (the WS feed sets PUMP_PORTAL_WS,
+        // but defense-in-depth: anything else lands here too).
+        val url = if (ts.source.contains("PUMP", ignoreCase = true)) {
+            "https://pump.fun/${ts.mint}"
+        } else {
+            ""
+        }
+        return com.lifecyclebot.network.PairInfo(
+            pairAddress = "",                              // no on-chain pair yet (bonding curve)
+            baseSymbol = ts.symbol.ifBlank { ts.mint.take(6) },
+            baseName = ts.name.ifBlank { ts.symbol.ifBlank { ts.mint.take(6) } },
+            url = url,
+            candle = candle,
+            pairCreatedAtMs = ts.addedToWatchlistAt.takeIf { it > 0 } ?: nowMs,
+            liquidity = ts.lastLiquidityUsd.coerceAtLeast(0.0),
+            fdv = ts.lastFdv.takeIf { it > 0 } ?: ts.lastMcap.coerceAtLeast(0.0),
+            baseTokenAddress = ts.mint,
+        )
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {

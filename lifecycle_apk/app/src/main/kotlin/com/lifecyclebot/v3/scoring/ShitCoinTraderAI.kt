@@ -59,14 +59,14 @@ object ShitCoinTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     // Market cap filter - V5.2.12: Extended to $100K to flow into Quality layer
-    // ShitCoin: $0 - $100K (degen memes and early plays)
-    // Quality picks up at $100K+
+    // ShitCoin: $500 - $500K (pre-graduation memes and early plays — the lane is *designed* for the firehose)
+    // Quality picks up above this band
     private const val MAX_MARKET_CAP_USD = 500_000.0   // V5.9.343: walk-back to V5.9.325
-    private const val MIN_MARKET_CAP_USD = 1_000.0    // V5.2.12: Lowered from $2K for newer tokens
+    private const val MIN_MARKET_CAP_USD = 500.0     // V5.9.615: $500 floor — pre-graduation pump.fun tokens are the ShitCoin lane's designed prey
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 1_500.0   // V5.9.343: walk-back to V5.9.335
-    private const val MIN_LIQUIDITY_USD_MATURE = 3_000.0      // V5.9.343: walk-back to V5.9.335
+    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 300.0     // V5.9.615: pump.fun bonding curves at $500 mcap have ~$425 estimated liq; this lets fresh memes through
+    private const val MIN_LIQUIDITY_USD_MATURE = 2_000.0      // V5.9.615: still tightens as the bot learns, but the floor is realistic for sub-graduation tokens
     
     // Position sizing - V5.6: DYNAMIC scaling based on wallet balance
     private const val BASE_POSITION_SOL = 0.05        // Very small base (0.05 SOL ~ $7.50)
