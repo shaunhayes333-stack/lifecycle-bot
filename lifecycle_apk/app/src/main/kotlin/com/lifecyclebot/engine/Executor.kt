@@ -1932,6 +1932,11 @@ class Executor(
             return
         }
         
+        // V5.9.495z47 — outer vars so PartialSellMismatchDetector can verify
+        // post-sell wallet drop ≤ expected after broadcast confirms.
+        var preSellRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
+        var expectedConsumedRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
+        var decimalsForAudit: Int = 0
         val sellQty = run {
             // V5.9.495z46 P0 — operator spec items C/E (forensics 0508_143519):
             // replace `pos.qtyToken * sellFraction` ad-hoc math with the
@@ -1943,11 +1948,14 @@ class Executor(
             } catch (_: Throwable) { null }
             val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
             if (confirmed != null) {
+                preSellRawForAudit = confirmed.rawAmount
+                decimalsForAudit = confirmed.decimals
                 val sized = com.lifecyclebot.engine.sell.PartialSellSizer.size(
                     intendedFraction = sellFraction,
                     verifiedRemainingRaw = confirmed.rawAmount,
                 )
                 if (sized != null) {
+                    expectedConsumedRawForAudit = sized.rawAmount
                     val ui = java.math.BigDecimal(sized.rawAmount)
                         .movePointLeft(confirmed.decimals)
                         .toDouble()
@@ -2291,6 +2299,28 @@ class Executor(
             val finalSig: String = sig!!
             // V5.9.495y — register with TradeVerifier dedupe guard immediately after broadcast accepts.
             if (!finalSig.startsWith("PHANTOM_")) TradeVerifier.beginSell(ts.mint, finalSig, reason)
+
+            // V5.9.495z47 — operator P0 (forensics 0508_143519):
+            // PARTIAL_SELL_AMOUNT_MISMATCH detection. If the wallet drop
+            // exceeds the expected consumed raw by >5%, the detector locks
+            // the mint via SellAmountAuditor (which executor.liveSell early-
+            // returns on). Fail-soft: never block the success path.
+            if (!finalSig.startsWith("PHANTOM_")) {
+                try {
+                    if (decimalsForAudit > 0 &&
+                        expectedConsumedRawForAudit.signum() > 0 &&
+                        preSellRawForAudit.signum() > 0) {
+                        com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLock(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            decimals = decimalsForAudit,
+                            expectedConsumedRaw = expectedConsumedRawForAudit,
+                            preSellWalletRaw = preSellRawForAudit,
+                            wallet = wallet,
+                        )
+                    }
+                } catch (_: Throwable) { /* fail-soft */ }
+            }
 
             // V5.9.495s — POST-BROADCAST SELL VERIFY. Operator (06 May 2026):
             // "the capital recovery/profit lock sells in live in memes aren't
@@ -2683,7 +2713,44 @@ class Executor(
         } catch (_: Exception) { baseFraction }
         
         val sellFraction = treasuryAdjustedFraction
-        val sellQty      = pos.qtyToken * sellFraction
+        // V5.9.495z47 P0 — operator spec items C/E (forensics 0508_143519):
+        // checkPartialSell is the second partial-sell call site.
+        // Replace `pos.qtyToken * sellFraction` ad-hoc math with the verified-
+        // remaining clamp from SellAmountAuthority + PartialSellSizer, and
+        // capture pre-sell raw / decimals so PartialSellMismatchDetector can
+        // verify the post-sell wallet drop.
+        var preSellRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
+        var expectedConsumedRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
+        var decimalsForAudit: Int = 0
+        val sellQty: Double = run {
+            val resolution = try {
+                com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
+            } catch (_: Throwable) { null }
+            val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+            if (confirmed != null) {
+                preSellRawForAudit = confirmed.rawAmount
+                decimalsForAudit = confirmed.decimals
+                val sized = com.lifecyclebot.engine.sell.PartialSellSizer.size(
+                    intendedFraction = sellFraction,
+                    verifiedRemainingRaw = confirmed.rawAmount,
+                )
+                if (sized != null) {
+                    expectedConsumedRawForAudit = sized.rawAmount
+                    val ui = java.math.BigDecimal(sized.rawAmount)
+                        .movePointLeft(confirmed.decimals).toDouble()
+                    onLog("📐 PartialSellSizer ${ts.symbol}: verifiedRaw=${confirmed.rawAmount} " +
+                          "fraction=$sellFraction → rawAmount=${sized.rawAmount} (${"%.6f".format(ui)} ui) " +
+                          "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
+                    ui
+                } else {
+                    onLog("⚠️ PartialSellSizer dust-rejected for ${ts.symbol} — falling back to cached qty.", ts.mint)
+                    pos.qtyToken * sellFraction
+                }
+            } else {
+                onLog("⚠️ SellAmountAuthority UNKNOWN/ZERO for ${ts.symbol} — falling back to cached qty (pos.qtyToken=${pos.qtyToken}).", ts.mint)
+                pos.qtyToken * sellFraction
+            }
+        }
         val sellSol      = sellQty * actualPrice
         val newSoldPct   = soldPct + sellFraction * 100.0
         val newQty       = pos.qtyToken - sellQty
@@ -2835,6 +2902,27 @@ class Executor(
                     }
                 }
                 partialSellInFlight.remove(ts.mint)
+                // V5.9.495z47 — operator P0 (forensics 0508_143519):
+                // Verify post-sell wallet drop ≤ expected. If actual > expected
+                // by >5%, lock the mint via SellAmountAuditor (executor.liveSell
+                // early-returns on locked mints). Skip on PHANTOM_ sentinel
+                // sigs and fail-soft so we never block the success path.
+                if (!sig.startsWith("PHANTOM_")) {
+                    try {
+                        if (decimalsForAudit > 0 &&
+                            expectedConsumedRawForAudit.signum() > 0 &&
+                            preSellRawForAudit.signum() > 0) {
+                            com.lifecyclebot.engine.sell.PartialSellMismatchDetector.verifyAndMaybeLock(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                decimals = decimalsForAudit,
+                                expectedConsumedRaw = expectedConsumedRawForAudit,
+                                preSellWalletRaw = preSellRawForAudit,
+                                wallet = wallet,
+                            )
+                        }
+                    } catch (_: Throwable) { /* fail-soft */ }
+                }
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
                       "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
                 onNotify("💰 Live Partial Sell",
