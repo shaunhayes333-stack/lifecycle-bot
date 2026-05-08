@@ -1932,7 +1932,39 @@ class Executor(
             return
         }
         
-        val sellQty = pos.qtyToken * sellFraction
+        val sellQty = run {
+            // V5.9.495z46 P0 — operator spec items C/E (forensics 0508_143519):
+            // replace `pos.qtyToken * sellFraction` ad-hoc math with the
+            // verified-remaining clamp from PartialSellSizer + SellAmountAuthority.
+            // pos.qtyToken can be stale (cached from initial buy result);
+            // the wallet's chain-confirmed remaining balance is the truth.
+            val resolution = try {
+                com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
+            } catch (_: Throwable) { null }
+            val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+            if (confirmed != null) {
+                val sized = com.lifecyclebot.engine.sell.PartialSellSizer.size(
+                    intendedFraction = sellFraction,
+                    verifiedRemainingRaw = confirmed.rawAmount,
+                )
+                if (sized != null) {
+                    val ui = java.math.BigDecimal(sized.rawAmount)
+                        .movePointLeft(confirmed.decimals)
+                        .toDouble()
+                    onLog("📐 PartialSellSizer ${ts.symbol}: " +
+                          "verifiedRaw=${confirmed.rawAmount} fraction=${sellFraction} " +
+                          "→ rawAmount=${sized.rawAmount} (${"%.6f".format(ui)} ui) " +
+                          "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
+                    ui
+                } else {
+                    onLog("⚠️ PartialSellSizer dust-rejected for ${ts.symbol} — falling back to cached qty.", ts.mint)
+                    pos.qtyToken * sellFraction
+                }
+            } else {
+                onLog("⚠️ SellAmountAuthority UNKNOWN/ZERO for ${ts.symbol} — falling back to cached qty (pos.qtyToken=${pos.qtyToken}).", ts.mint)
+                pos.qtyToken * sellFraction
+            }
+        }
         val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
 
         // V5.9.495z29 — operator spec item 4: ExecutableQuoteGate.

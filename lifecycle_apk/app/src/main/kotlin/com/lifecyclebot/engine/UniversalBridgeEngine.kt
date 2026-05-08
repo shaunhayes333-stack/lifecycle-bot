@@ -381,15 +381,74 @@ object UniversalBridgeEngine {
         }
 
         // ── Post-trade verification: did the target token actually land? ──
-        // Wait briefly for wallet RPC to refresh, then compare balance delta.
-        kotlinx.coroutines.delay(2_500)
-        val postEntry: Pair<Double, Int>? = try {
-            wallet.getTokenAccountsWithDecimals()[targetMint]
-        } catch (_: Exception) { null }
-        val postTargetBal = postEntry?.first ?: 0.0
-        val targetDecimals = postEntry?.second ?: (TOKEN_DECIMALS[targetMint] ?: 6)
-        val deltaUi = postTargetBal - preTargetBal
-        val deltaRaw = (deltaUi * Math.pow(10.0, targetDecimals.toDouble())).toLong().coerceAtLeast(0L)
+        // V5.9.495z46 P0 — operator forensics 0508_143519 spec item B.
+        //
+        // Old code did a single 2.5s RPC poll then declared BUY_FAILED if
+        // delta=0. Forensics showed TRUMP/KMNO marked BUY_FAILED while the
+        // wallet UI clearly held the tokens — a stale RPC read was killing
+        // legitimate buys.
+        //
+        // New flow:
+        //   1. Parse the confirmed transaction's pre/postTokenBalances via
+        //      TxParseHelper. This is the on-chain ground truth and is not
+        //      subject to RPC token-account propagation lag.
+        //   2. If parser shows positive target delta → BUY_CONFIRMED.
+        //   3. Otherwise retry wallet RPC with backoff over up to ~22s
+        //      (5 attempts at 2/4/6/4/6s) before declaring failure.
+        //
+        // The combined window covers the operator-spec 15–30s requirement
+        // while still surfacing a hard failure when the swap genuinely
+        // didn't land.
+        var deltaUi: Double = 0.0
+        var deltaRaw: Long = 0L
+        var targetDecimals: Int = TOKEN_DECIMALS[targetMint] ?: 6
+        var verifySource: String = "tx_parse_pending"
+
+        // Step 1 — chain-truth parse via TxParseHelper.
+        try {
+            kotlinx.coroutines.delay(1_500)   // brief settle for RPC to see the tx
+            val parsed = com.lifecyclebot.engine.execution.TxParseHelper.parseAll(wallet, txSig)
+            val targetDelta = parsed?.tokenDeltas?.get(targetMint)
+            if (targetDelta != null && targetDelta.rawDelta.signum() > 0) {
+                targetDecimals = targetDelta.decimals
+                deltaRaw = targetDelta.rawDelta.toLong().coerceAtLeast(0L)
+                deltaUi = java.math.BigDecimal(targetDelta.rawDelta)
+                    .movePointLeft(targetDecimals).toDouble()
+                verifySource = "tx_parse_meta"
+                com.lifecyclebot.engine.execution.Forensics.log(
+                    com.lifecyclebot.engine.execution.Forensics.Event.TX_PARSE_INTERMEDIATE_ONLY,
+                    mint = targetMint,
+                    msg = "tx_parse_OK target+=$deltaRaw raw (${"%.6f".format(deltaUi)} ui) sig=${txSig.take(12)}",
+                )
+            }
+        } catch (_: Throwable) { /* fall through to RPC retry */ }
+
+        // Step 2 — only if tx_parse missed, retry wallet RPC with backoff.
+        if (deltaRaw <= 0L) {
+            val backoffsMs = longArrayOf(2_000L, 4_000L, 6_000L, 4_000L, 6_000L)
+            var attempt = 0
+            while (attempt < backoffsMs.size && deltaRaw <= 0L) {
+                kotlinx.coroutines.delay(backoffsMs[attempt])
+                attempt++
+                val postEntry: Pair<Double, Int>? = try {
+                    wallet.getTokenAccountsWithDecimals()[targetMint]
+                } catch (_: Exception) { null }
+                val postTargetBal = postEntry?.first ?: 0.0
+                targetDecimals = postEntry?.second ?: targetDecimals
+                val attemptDeltaUi = postTargetBal - preTargetBal
+                if (attemptDeltaUi > 0.0) {
+                    deltaUi = attemptDeltaUi
+                    deltaRaw = (deltaUi * Math.pow(10.0, targetDecimals.toDouble())).toLong().coerceAtLeast(0L)
+                    verifySource = "rpc_retry_attempt_$attempt"
+                    com.lifecyclebot.engine.execution.Forensics.log(
+                        com.lifecyclebot.engine.execution.Forensics.Event.TX_PARSE_INTERMEDIATE_ONLY,
+                        mint = targetMint,
+                        msg = "rpc_retry_OK attempt=$attempt postTarget=$postTargetBal preTarget=$preTargetBal",
+                    )
+                    break
+                }
+            }
+        }
 
         if (deltaRaw <= 0L) {
             // Target token did NOT land. This should be impossible on an atomic
@@ -431,7 +490,7 @@ object UniversalBridgeEngine {
             com.lifecyclebot.engine.execution.Forensics.log(
                 com.lifecyclebot.engine.execution.Forensics.Event.BUY_FAILED_NO_TARGET_TOKEN,
                 mint = targetMint,
-                msg = "tx=${txSig.take(12)} preTarget=$preTargetBal postTarget=$postTargetBal",
+                msg = "tx=${txSig.take(12)} preTarget=$preTargetBal verify=$verifySource (no positive delta after tx_parse + rpc retry)",
             )
             return@withContext BridgeResult(
                 success = false,
