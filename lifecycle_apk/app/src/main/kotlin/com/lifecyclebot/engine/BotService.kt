@@ -3910,6 +3910,134 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
     }
 
+    // V5.9.495z54c — extracted from botLoop() to fit JVM 64KB method limit.
+    private fun processTokenMergeQueue(loopCount: Int) {
+        val mergedTokens = TokenMergeQueue.processQueue()
+        for (merged in mergedTokens) {
+            val addResult = GlobalTradeRegistry.addWithProbation(
+                mint = merged.mint,
+                symbol = merged.symbol,
+                addedBy = merged.primaryScanner,
+                source = merged.allScanners.joinToString(","),
+                initialMcap = merged.marketCapUsd,
+                liquidityUsd = merged.liquidityUsd,
+                confidence = merged.confidence,
+                isMultiSource = merged.multiScannerBoost,
+                isEstimatedLiquidity = false,
+                price = 0.0,
+            )
+
+            if (addResult.added) {
+                val newSize = GlobalTradeRegistry.size()
+                val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
+                val scannersInfo = if (merged.allScanners.size > 1)
+                    " (${merged.allScanners.joinToString("+")})" else ""
+
+                TradeLifecycle.watchlisted(merged.mint, newSize, "merged: ${merged.primaryScanner}$scannersInfo")
+
+                addLog("📋 WATCHLISTED: ${merged.symbol} (${merged.primaryScanner})$boostLabel | liq=\$${merged.liquidityUsd.toInt()} | conf=${merged.confidence} | #$newSize", merged.mint)
+                ErrorLogger.info("BotService", "WATCHLISTED: ${merged.symbol} | scanners=${merged.allScanners.size} | conf=${merged.confidence}")
+
+                try {
+                    com.lifecyclebot.engine.WatchlistTtlPolicy.mark(merged.symbol, merged.confidence)
+                } catch (_: Throwable) {}
+
+                soundManager.playNewToken()
+
+                try {
+                    synchronized(status.tokens) {
+                        val ts = status.tokens.getOrPut(merged.mint) {
+                            com.lifecyclebot.data.TokenState(
+                                mint = merged.mint,
+                                symbol = merged.symbol,
+                                name = merged.symbol,
+                                candleTimeframeMinutes = 1,
+                                source = merged.allScanners.joinToString(","),
+                                logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
+                            )
+                        }
+                        try {
+                            com.lifecyclebot.engine.MemeMintRegistry.touch(
+                                mint = merged.mint, symbol = merged.symbol,
+                                name = merged.symbol,
+                                source = merged.allScanners.joinToString(","),
+                            )
+                        } catch (_: Throwable) {}
+                        if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
+                            ts.lastLiquidityUsd = merged.liquidityUsd
+                            ts.lastMcap = merged.marketCapUsd
+                            ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=\$${merged.liquidityUsd.toInt()}")
+                        }
+                        if (ts.entryScore <= 0.0 && merged.confidence > 0) {
+                            ts.entryScore = merged.confidence.toDouble()
+                        }
+                        if (ts.history.isEmpty() && merged.volumeH1 > 0) {
+                            val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
+                            val seedMcap = if (ts.lastMcap > 0) ts.lastMcap else merged.marketCapUsd
+                            val seedCandle = com.lifecyclebot.data.Candle(
+                                ts = System.currentTimeMillis(),
+                                priceUsd = seedPrice, marketCap = seedMcap,
+                                volumeH1 = merged.volumeH1, volume24h = 0.0,
+                                buysH1 = 0, sellsH1 = 0,
+                                highUsd = seedPrice, lowUsd = seedPrice, openUsd = seedPrice,
+                            )
+                            synchronized(ts.history) { ts.history.addLast(seedCandle) }
+                            ErrorLogger.debug("BotService", "📊 VOL_SEED: ${merged.symbol} h1vol=\$${merged.volumeH1.toInt()}")
+                        }
+                    }
+                    orchestrator?.onTokenAdded(merged.mint, merged.symbol)
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "TokenState seed error: ${e.message}")
+                }
+            } else if (addResult.probation) {
+                addLog("⏳ PROBATION: ${merged.symbol} | ${addResult.reason}", merged.mint)
+            }
+        }
+
+        val probationResults = GlobalTradeRegistry.processProbation()
+        for (result in probationResults) {
+            when (result.action) {
+                "PROMOTED" -> {
+                    addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
+                    soundManager.playNewToken()
+                    try {
+                        val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
+                        val probLiq = probEntry?.initialLiquidity ?: 0.0
+                        val probMcap = probEntry?.initialMcap ?: 0.0
+                        synchronized(status.tokens) {
+                            val ts = status.tokens.getOrPut(result.mint) {
+                                com.lifecyclebot.data.TokenState(
+                                    mint = result.mint, symbol = result.symbol,
+                                    name = result.symbol, candleTimeframeMinutes = 1,
+                                    source = "PROBATION",
+                                    logoUrl = "https://cdn.dexscreener.com/tokens/solana/${result.mint}.png",
+                                )
+                            }
+                            if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
+                                ts.lastLiquidityUsd = probLiq
+                                ts.lastMcap = probMcap
+                                ErrorLogger.debug("BotService", "💧 Seeded PROMOTED ${result.symbol} liq=\$${probLiq.toInt()}")
+                            }
+                        }
+                        orchestrator?.onTokenAdded(result.mint, result.symbol)
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "PROMOTED TokenState seed error: ${e.message}")
+                    }
+                }
+                "REJECTED" -> {
+                    addLog("❌ PROBATION_REJECT: ${result.symbol} | ${result.reason}", result.mint)
+                }
+            }
+        }
+
+        if (loopCount % 30 == 0 && TokenMergeQueue.getPendingCount() > 0) {
+            addLog("🔀 ${TokenMergeQueue.getStats()}")
+        }
+        if (loopCount % 30 == 0 && GlobalTradeRegistry.probationSize() > 0) {
+            addLog("⏳ ${GlobalTradeRegistry.getProbationStats()}")
+        }
+    }
+
     private suspend fun runRegimePulse() {
         try {
             listOf(
@@ -5304,173 +5432,8 @@ class BotService : Service() {
             //   - Token found by DEX_BOOSTED + PUMP_FUN = 1 add with confidence boost
             //   - Processes every 2 seconds after 5-second merge window
             // ═══════════════════════════════════════════════════════════════════
-            try {
-                val mergedTokens = TokenMergeQueue.processQueue()
-                for (merged in mergedTokens) {
-                    // V5.2: No watchlist limits - let it grow as needed
-                    // Learning requires exposure to many tokens
-                    
-                    // V5.0: Use addWithProbation for smarter routing
-                    // Low confidence or single-source tokens go to probation first
-                    val addResult = GlobalTradeRegistry.addWithProbation(
-                        mint = merged.mint,
-                        symbol = merged.symbol,
-                        addedBy = merged.primaryScanner,
-                        source = merged.allScanners.joinToString(","),
-                        initialMcap = merged.marketCapUsd,
-                        liquidityUsd = merged.liquidityUsd,
-                        confidence = merged.confidence,
-                        isMultiSource = merged.multiScannerBoost,
-                        isEstimatedLiquidity = false,  // TODO: Track this in MergeQueue
-                        price = 0.0,  // Will be updated when token data is fetched
-                    )
-                    
-                    if (addResult.added) {
-                        val newSize = GlobalTradeRegistry.size()
-                        val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
-                        val scannersInfo = if (merged.allScanners.size > 1) 
-                            " (${merged.allScanners.joinToString("+")})" else ""
-                        
-                        // Track in TradeLifecycle
-                        TradeLifecycle.watchlisted(merged.mint, newSize, "merged: ${merged.primaryScanner}$scannersInfo")
-                        
-                        // Log to UI
-                        addLog("📋 WATCHLISTED: ${merged.symbol} (${merged.primaryScanner})$boostLabel | liq=$${merged.liquidityUsd.toInt()} | conf=${merged.confidence} | #$newSize", merged.mint)
-                        ErrorLogger.info("BotService", "WATCHLISTED: ${merged.symbol} | scanners=${merged.allScanners.size} | conf=${merged.confidence}")
-
-                        // V5.9.495z32 — track in WatchlistTtlPolicy so stale
-                        // candidates can be expired by the loop. TTL is 5min
-                        // in snipe / 30min otherwise (operator z32 directive:
-                        // do not purge tokens too quickly).
-                        try {
-                            com.lifecyclebot.engine.WatchlistTtlPolicy.mark(
-                                merged.symbol, merged.confidence
-                            )
-                        } catch (_: Throwable) { /* best-effort */ }
-                        
-                        // Play sound for new token
-                        soundManager.playNewToken()
-                        
-                        // V5.6.29d: Seed TokenState SYNCHRONOUSLY - async was causing race condition
-                        // where bot loop would evaluate token before liquidity was seeded
-                        try {
-                            synchronized(status.tokens) {
-                                val ts = status.tokens.getOrPut(merged.mint) {
-                                    com.lifecyclebot.data.TokenState(
-                                        mint = merged.mint,
-                                        symbol = merged.symbol,
-                                        name = merged.symbol,
-                                        candleTimeframeMinutes = 1,
-                                        source = merged.allScanners.joinToString(","),
-                                        logoUrl = "https://cdn.dexscreener.com/tokens/solana/${merged.mint}.png",
-                                    )
-                                }
-                                // V5.9.495z25 — touch the persistent meme mint registry so
-                                // every mint the scanner has ever seen survives restarts.
-                                try {
-                                    com.lifecyclebot.engine.MemeMintRegistry.touch(
-                                        mint   = merged.mint,
-                                        symbol = merged.symbol,
-                                        name   = merged.symbol,
-                                        source = merged.allScanners.joinToString(","),
-                                    )
-                                } catch (_: Throwable) { /* never throw out of scanner */ }
-                                // ALWAYS seed liquidity from scanner - even for existing TokenState
-                                if (ts.lastLiquidityUsd <= 0 && merged.liquidityUsd > 0) {
-                                    ts.lastLiquidityUsd = merged.liquidityUsd
-                                    ts.lastMcap = merged.marketCapUsd
-                                    ErrorLogger.debug("BotService", "💧 Seeded ${merged.symbol} liq=$${merged.liquidityUsd.toInt()}")
-                                }
-                                // V5.9.605 — safety runs before strategy evaluation on the
-                                // first tick. Seed discovery confidence into entryScore so
-                                // RC_PENDING live override can work for strong fresh tokens.
-                                if (ts.entryScore <= 0.0 && merged.confidence > 0) {
-                                    ts.entryScore = merged.confidence.toDouble()
-                                }
-                                // V5.9.331: Seed volumeH1 from scanner so VOL_GATE doesn't block
-                                // fresh tokens on their first evaluation tick (previously 0.0 → $500 fail)
-                                if (ts.history.isEmpty() && merged.volumeH1 > 0) {
-                                    val seedPrice = if (ts.lastPrice > 0) ts.lastPrice else 0.0
-                                    val seedMcap  = if (ts.lastMcap  > 0) ts.lastMcap  else merged.marketCapUsd
-                                    val seedCandle = com.lifecyclebot.data.Candle(
-                                        ts          = System.currentTimeMillis(),
-                                        priceUsd    = seedPrice,
-                                        marketCap   = seedMcap,
-                                        volumeH1    = merged.volumeH1,
-                                        volume24h   = 0.0,
-                                        buysH1      = 0,
-                                        sellsH1     = 0,
-                                        highUsd     = seedPrice,
-                                        lowUsd      = seedPrice,
-                                        openUsd     = seedPrice,
-                                    )
-                                    synchronized(ts.history) { ts.history.addLast(seedCandle) }
-                                    ErrorLogger.debug("BotService", "📊 VOL_SEED: ${merged.symbol} h1vol=$${merged.volumeH1.toInt()}")
-                                }
-                            }
-                            orchestrator?.onTokenAdded(merged.mint, merged.symbol)
-                        } catch (e: Exception) {
-                            ErrorLogger.debug("BotService", "TokenState seed error: ${e.message}")
-                        }
-                    } else if (addResult.probation) {
-                        // V5.0: Token went to probation
-                        addLog("⏳ PROBATION: ${merged.symbol} | ${addResult.reason}", merged.mint)
-                    }
-                }
-                
-                // V5.0: Process probation tier - check for promotions/rejections
-                val probationResults = GlobalTradeRegistry.processProbation()
-                for (result in probationResults) {
-                    when (result.action) {
-                        "PROMOTED" -> {
-                            addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
-                            soundManager.playNewToken()
-                            
-                            // V5.6.29d: Seed TokenState SYNCHRONOUSLY for promoted token
-                            try {
-                                val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                                val probLiq = probEntry?.initialLiquidity ?: 0.0
-                                val probMcap = probEntry?.initialMcap ?: 0.0
-                                synchronized(status.tokens) {
-                                    val ts = status.tokens.getOrPut(result.mint) {
-                                        com.lifecyclebot.data.TokenState(
-                                            mint = result.mint,
-                                            symbol = result.symbol,
-                                            name = result.symbol,
-                                            candleTimeframeMinutes = 1,
-                                            source = "PROBATION",
-                                            logoUrl = "https://cdn.dexscreener.com/tokens/solana/${result.mint}.png",
-                                        )
-                                    }
-                                    if (ts.lastLiquidityUsd <= 0 && probLiq > 0) {
-                                        ts.lastLiquidityUsd = probLiq
-                                        ts.lastMcap = probMcap
-                                        ErrorLogger.debug("BotService", "💧 Seeded PROMOTED ${result.symbol} liq=$${probLiq.toInt()}")
-                                    }
-                                }
-                                orchestrator?.onTokenAdded(result.mint, result.symbol)
-                            } catch (e: Exception) {
-                                ErrorLogger.debug("BotService", "PROMOTED TokenState seed error: ${e.message}")
-                            }
-                        }
-                        "REJECTED" -> {
-                            addLog("❌ PROBATION_REJECT: ${result.symbol} | ${result.reason}", result.mint)
-                        }
-                    }
-                }
-                
-                // Log merge queue stats every 30 cycles
-                if (loopCount % 30 == 0 && TokenMergeQueue.getPendingCount() > 0) {
-                    addLog("🔀 ${TokenMergeQueue.getStats()}")
-                }
-                
-                // Log probation stats every 30 cycles
-                if (loopCount % 30 == 0 && GlobalTradeRegistry.probationSize() > 0) {
-                    addLog("⏳ ${GlobalTradeRegistry.getProbationStats()}")
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("BotService", "MergeQueue error: ${e.message}")
-            }
+            try { processTokenMergeQueue(loopCount) }
+            catch (e: Exception) { ErrorLogger.debug("BotService", "MergeQueue error: ${e.message}") }
             
             // ═══════════════════════════════════════════════════════════════════
             // V5.2 FIX: GET EFFECTIVE WATCHLIST FROM GLOBALTRADEREGISTRY
