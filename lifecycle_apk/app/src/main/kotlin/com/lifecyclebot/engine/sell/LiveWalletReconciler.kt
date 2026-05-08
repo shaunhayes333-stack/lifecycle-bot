@@ -110,9 +110,24 @@ object LiveWalletReconciler {
                     updated++
                 }
                 val price = try {
-                    com.lifecyclebot.perps.DynamicAltTokenRegistry.refreshPriceForMintBlocking(mint).takeIf { it > 0.0 }
-                        ?: com.lifecyclebot.network.DexscreenerApi().getBestPair(mint)?.candle?.priceUsd?.takeIf { it > 0.0 }
-                        ?: 0.0
+                    // V5.9.495z48 — operator P0 (Message 472): full fallback chain
+                    // (DexScreener → GeckoTerminal → Jupiter → cached → entry).
+                    // Prevents stop-losses and trailing stops from silently failing
+                    // when one source has an outage.
+                    val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
+                                 catch (_: Throwable) { 0.0 }
+                    val resolved = PriceResolverFallback.resolve(mint, solUsd)
+                    if (resolved != null) {
+                        // Surface source so operators can see WHICH chain step won.
+                        if (resolved.source != PriceResolverFallback.Source.DEXSCREENER) {
+                            ErrorLogger.info(TAG,
+                                "🪙 price ${mint.take(8)}… → ${"%.6f".format(resolved.priceUsd)} via ${resolved.source}")
+                        }
+                        resolved.priceUsd
+                    } else {
+                        // Final hop: legacy DynamicAltTokenRegistry blocking refresh.
+                        com.lifecyclebot.perps.DynamicAltTokenRegistry.refreshPriceForMintBlocking(mint).takeIf { it > 0.0 } ?: 0.0
+                    }
                 } catch (_: Throwable) { 0.0 }
                 if (price > 0.0) {
                     com.lifecyclebot.engine.HostWalletTokenTracker.recordPriceUpdate(mint, price, 0.0)
