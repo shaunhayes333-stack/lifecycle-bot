@@ -263,8 +263,15 @@ object FluidLearningAI {
         // alive and letting score=5 / buyPressure=5% garbage through all quality gates.
         // Raw trade count is immune to the adaptive regression feedback loop.
         val rawTotalTrades = getTotalTradeCount()
-        if (rawTotalTrades >= BOOTSTRAP_PHASE_END) return false   // 1000+ trades = no assist
-        if (getLearningProgress() >= 0.60) return false           // secondary progress check
+        // V5.9.606 — paper learning was starving at ~3000 trades: free-range
+        // had re-opened, but this bootstrap assist still hard-stopped at 1000,
+        // so Treasury/bridge had no force-entry path despite WR < target.
+        // Keep paper assist alive while FreeRangeMode says the bot still needs
+        // exposure. Live remains on the original stricter 1000-trade cutoff.
+        val freeRangeLearning = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
+        if (!isPaper && rawTotalTrades >= BOOTSTRAP_PHASE_END) return false
+        if (isPaper && !freeRangeLearning && rawTotalTrades >= BOOTSTRAP_PHASE_END) return false
+        if (!freeRangeLearning && getLearningProgress() >= 0.60) return false           // secondary progress check
         
         // V5.2: Quick age check - only wait 1 minute
         if (tokenAgeMinutes < MIN_TOKEN_AGE_BOOTSTRAP) {

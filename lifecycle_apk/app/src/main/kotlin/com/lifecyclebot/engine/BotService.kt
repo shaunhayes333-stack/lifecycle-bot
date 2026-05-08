@@ -6842,8 +6842,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             else                -> 2_000.0
         }
         if (lastVolumeH1 < minVolumeH1) {
-            ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
-            return
+            // V5.9.606 — in paper/free-range, unknown volume from fresh
+            // PumpPortal/Dex hydration must not silently starve V3. If the
+            // token has real liquidity/mcap, let downstream scoring decide.
+            val unknownVolumeButTradable = cfg.paperMode && wideOpen && lastVolumeH1 <= 0.0 &&
+                (ts.lastLiquidityUsd >= 2_000.0 || ts.lastMcap >= 10_000.0)
+            if (!unknownVolumeButTradable) {
+                ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
+                return
+            }
+            ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | paper free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()}")
         }
     }
 

@@ -71,13 +71,23 @@ object FreeRangeMode {
     fun isWideOpen(): Boolean {
         if (operatorForceOn)  return true
         if (operatorForceOff) return false
-        // V5.9.422 — single source of truth is now QualityLadder.
-        // Tier 0 = wide-open (free-range active). Any positive tier means
-        // the bot is underperforming its phase target and at least one
-        // defensive guard is armed. The 3000-floor / 5000-ceil numerics
-        // still live inside QualityLadder's tier bands for operator
-        // intuition, but we no longer short-circuit on raw trade count.
-        return try { QualityLadder.tier() == 0 } catch (_: Throwable) { true }
+        // V5.9.606 — restore the original operator contract documented above.
+        // V5.9.422 accidentally tied free-range directly to QualityLadder.tier(),
+        // so at ~3000 trades with WR below target the bot entered Tier 3
+        // PROFITABILITY_LOCKED and re-enabled cooldown/volume/loss guards.
+        // Result: paper mode still found hundreds of candidates but barely
+        // traded. QualityLadder may reduce size / surface readiness, but it
+        // must not shut off the learning firehose before 5000 unless the bot
+        // is actually healthy enough to graduate.
+        return try {
+            val snap = TradeHistoryStore.getLifetimeStats()
+            val trades = snap.totalSells
+            when {
+                trades < WIDE_OPEN_FLOOR_TRADES -> true
+                trades < WIDE_OPEN_CEIL_TRADES  -> !(snap.winRate >= GRADUATE_WIN_RATE_PCT && snap.realizedPnlSol >= GRADUATE_MIN_PNL_SOL)
+                else                            -> false
+            }
+        } catch (_: Throwable) { true }
     }
 
     /**
