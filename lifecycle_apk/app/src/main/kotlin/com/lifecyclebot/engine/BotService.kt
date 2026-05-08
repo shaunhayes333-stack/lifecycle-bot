@@ -6580,6 +6580,26 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     if (distributionCheck.shouldBlock && !ts.position.isOpen) {
         ErrorLogger.info("BotService", "🔻 ${ts.symbol} DISTRIBUTION_FADE: ${distributionCheck.reason}")
         ts.phase = "distributing"   // V5.9.407 — surface gate reason in UI
+        // V5.9.495z50 — operator log 17:43 evidence:
+        // The watchlist gets dominated by drained/rugged tokens (HEG, Harambe,
+        // Hitler etc.) that keep firing DISTRIBUTION_FADE every cycle. These
+        // zombies starve fresh high-liq candidates (HANTY $3242, GIGARAT $21733)
+        // out of the per-cycle processing budget. When a token is draining
+        // ($0 current liquidity) AND not held, evict it from watchlist + status
+        // immediately so fresh candidates get a fair shot.
+        val drainedZombie = ts.lastLiquidityUsd <= 0.0 &&
+            distributionCheck.reason?.contains("DRAIN", ignoreCase = true) == true
+        if (drainedZombie) {
+            try {
+                com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                    mint = ts.mint, symbol = ts.symbol,
+                    reason = "DRAINED_ZOMBIE_EVICTED",
+                    detail = "liq=\$0 + DISTRIBUTION_FADE — removed from watchlist to free cycle budget",
+                )
+            } catch (_: Throwable) {}
+            try { GlobalTradeRegistry.removeFromWatchlist(ts.mint) } catch (_: Throwable) {}
+            try { synchronized(status.tokens) { status.tokens.remove(ts.mint) } } catch (_: Throwable) {}
+        }
         return  // Skip to next token (exit this coroutine)
     }
     
@@ -6887,7 +6907,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
-        
+        // V5.9.495z50 — confirm V3 engine reached for this candidate so the
+        // operator can verify the watchlist→V3 handoff fires.
+        try {
+            com.lifecyclebot.engine.MemePipelineTracer.stage(
+                "V3_REACHED", ts.mint, ts.symbol,
+                "src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore.toInt()}",
+            )
+        } catch (_: Throwable) {}        
         // ═══════════════════════════════════════════════════════════════════
         // V3.3: CHECK FOR RECOVERY OPPORTUNITY FIRST
         // If this token was stopped out but has bounced, consider re-entry
