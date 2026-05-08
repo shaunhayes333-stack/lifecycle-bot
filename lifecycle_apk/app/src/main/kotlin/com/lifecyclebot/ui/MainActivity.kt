@@ -5366,13 +5366,17 @@ This cannot be undone!
             val profitFactor = stats.profitFactor  // stays on recent-in-memory avg w / avg l
             val totalPnlSol = rt.totalRealizedPnlSol.takeIf { it != 0.0 } ?: stats.totalPnlSol
 
-            // Profitability gates
-            val WR_READY      = 50.0   // minimum win rate to go live
-            val WR_ALMOST     = 45.0   // almost-there zone
-            val PF_READY      = 1.3    // profit factor (gross wins / gross losses)
+            // V5.9.620 — Profitability gates re-baselined to the 5000-trade
+            // maturity ladder (V5.9.616 / FDG.LearningPhase). Previously this
+            // tab ran on a 500-trade scale and showed "Continuous / READY"
+            // while FDG was still in pure bootstrap — the numbers didn't
+            // match the brain's actual readiness state.
+            val WR_READY      = 50.0     // minimum win rate to go live
+            val WR_ALMOST     = 45.0     // almost-there zone
+            val PF_READY      = 1.3      // profit factor (gross wins / gross losses)
             val PF_ALMOST     = 1.1
-            val TRADES_READY  = 500    // enough sample for statistical confidence
-            val TRADES_ALMOST = 300
+            val TRADES_READY  = 5000     // matches FDG MATURE phase (V5.9.616 ladder)
+            val TRADES_ALMOST = 3000     // matches FDG LEARNING→MATURE transition
 
             val isProfitable   = totalPnlSol > 0.0
             val wrOk           = winRate >= WR_READY
@@ -5382,15 +5386,20 @@ This cannot be undone!
             val isReady      = wrOk && pfOk && tradesOk && isProfitable
             val isAlmostReady = winRate >= WR_ALMOST && profitFactor >= PF_ALMOST && meaningfulTrades >= TRADES_ALMOST
 
-            // Determine phase
+            // V5.9.620 — phase boundaries match FDG ladder exactly:
+            //   <1000  Bootstrap       (FDG bootstrap floors active)
+            //   <3000  Learning        (FDG learning, EV gating off)
+            //   <5000  Mature          (FDG mature, EV gating on)
+            //   >=5000 Continuous      (full maturity, trusted)
             val phase = when {
-                meaningfulTrades < 400  -> "Bootstrap"
-                meaningfulTrades < 1200 -> "Mature"
+                meaningfulTrades < 1000 -> "Bootstrap"
+                meaningfulTrades < 3000 -> "Learning"
+                meaningfulTrades < 5000 -> "Mature"
                 else                    -> "Continuous"
             }
 
-            // Readiness score (0-100%):
-            //   40% from trades (need 500 decisive)
+            // V5.9.620 — Readiness score (0-100%) re-weighted for 5000-trade target:
+            //   40% from trades (need 5000 decisive — was 500)
             //   35% from win rate (need 50%)
             //   25% from profit factor (need 1.3)
             val tradesScore   = minOf(meaningfulTrades.toDouble() / TRADES_READY.toDouble(), 1.0) * 40.0
@@ -5416,6 +5425,7 @@ This cannot be undone!
             tvReadinessPhase.text = phase
             tvReadinessPhase.setTextColor(when (phase) {
                 "Bootstrap"  -> amber
+                "Learning"   -> Color.parseColor("#FFD54F")  // V5.9.620 — new mid phase
                 "Mature"     -> Color.parseColor("#00BFFF")
                 "Continuous" -> green
                 else         -> white

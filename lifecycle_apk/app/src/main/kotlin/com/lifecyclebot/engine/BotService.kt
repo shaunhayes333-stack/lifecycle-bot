@@ -4998,6 +4998,17 @@ class BotService : Service() {
                                 ErrorLogger.debug("BotService", "Hivemind reconnect attempt failed: ${e.message}")
                             }
                         }
+
+                        // V5.9.619 — throughput-floor heartbeat. Operator-facing tripwire so
+                        // any choke that drags the bot below 500 trades/24h is visible
+                        // immediately. Pure telemetry — never blocks anything.
+                        try {
+                            val throughputMsg = com.lifecyclebot.v3.scoring.MemeEdgeAI.throughputStatus()
+                            ErrorLogger.info("BotService", "📊 $throughputMsg")
+                            if (throughputMsg.startsWith("ALERT")) {
+                                addLog("📊 $throughputMsg")
+                            }
+                        } catch (_: Exception) {}
                         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                             try {
                                 // V3.2: Upload instance heartbeat for active instance counting
@@ -7810,6 +7821,49 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 )
                             }
 
+                            // V5.9.619 — MEME EDGE AI for Moonshot. Same bounded
+                            // pattern-readback / WR sizing / streak / cluster guard
+                            // pipeline as ShitCoin. Cold-start no-op; ramps to 20%.
+                            val moonshotNarrative = try {
+                                com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(ts.symbol).cluster
+                            } catch (_: Exception) {
+                                com.lifecyclebot.v3.scoring.MemeNarrativeAI.Cluster.UNKNOWN
+                            }
+                            val moonshotOpenInCluster = try {
+                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().count { pos ->
+                                    runCatching {
+                                        com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(pos.symbol).cluster == moonshotNarrative
+                                    }.getOrDefault(false)
+                                }
+                            } catch (_: Exception) { 0 }
+                            val moonshotEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
+                                layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.MOONSHOT,
+                                mcapUsd = ts.lastMcap,
+                                tokenAgeMinutes = tokenAgeMinutes,
+                                buyRatioPct = ts.lastBuyPressurePct,
+                                volumeUsd = ts.lastLiquidityUsd * 0.05,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                                holderGrowthRate = ts.holderGrowthRate,
+                                rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                baseEntryScore = moonshotScore.score.toDouble(),
+                                narrativeCluster = moonshotNarrative,
+                                openClusterCount = moonshotOpenInCluster,
+                            )
+                            if (moonshotScore.eligible &&
+                                (moonshotEdge.scoreNudge != 0.0 ||
+                                 moonshotEdge.confidenceNudge != 0.0 ||
+                                 moonshotEdge.sizeMultiplier != 1.0)) {
+                                val edgeSized = (moonshotScore.suggestedSizeSol * moonshotEdge.sizeMultiplier)
+                                    .coerceAtLeast(0.01)
+                                moonshotScore = moonshotScore.copy(
+                                    score = (moonshotScore.score + moonshotEdge.scoreNudge.toInt()).coerceIn(0, 150),
+                                    confidence = (moonshotScore.confidence + moonshotEdge.confidenceNudge / 100.0).coerceIn(0.0, 1.0),
+                                    suggestedSizeSol = edgeSized
+                                )
+                            }
+
                             // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for Moonshot.
                             // The filter blocked exactly the fresh-launch DEX_BOOSTED/
                             // DEX_TRENDING entries in early_unknown/pre_pump phases that
@@ -8083,6 +8137,45 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             )
                         }
 
+                        // V5.9.619 — MEME EDGE AI — pattern-rate readback + layer WR sizing
+                        // + streak Kelly damping + cluster correlation guard. All bounded:
+                        // score nudge +/-8, size 0.70..1.40. Cold-start (<200 trades) is a
+                        // no-op; ramps to 20% pattern blend by 5K trades. Never blocks.
+                        val shitCoinNarrative = try {
+                            com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(ts.symbol).cluster
+                        } catch (_: Exception) {
+                            com.lifecyclebot.v3.scoring.MemeNarrativeAI.Cluster.UNKNOWN
+                        }
+                        val shitCoinOpenInCluster = try {
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().count { pos ->
+                                runCatching {
+                                    com.lifecyclebot.v3.scoring.MemeNarrativeAI.detect(pos.symbol).cluster == shitCoinNarrative
+                                }.getOrDefault(false)
+                            }
+                        } catch (_: Exception) { 0 }
+                        val shitCoinEdge = com.lifecyclebot.v3.scoring.MemeEdgeAI.evaluate(
+                            layer = com.lifecyclebot.v3.scoring.MemeEdgeAI.Layer.SHITCOIN,
+                            mcapUsd = ts.lastMcap,
+                            tokenAgeMinutes = tokenAgeMinutes,
+                            buyRatioPct = ts.lastBuyPressurePct,
+                            volumeUsd = ts.lastLiquidityUsd * 0.05,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
+                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                            holderGrowthRate = ts.holderGrowthRate,
+                            rugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                            baseEntryScore = shitCoinSignal.entryScore.toDouble(),
+                            narrativeCluster = shitCoinNarrative,
+                            openClusterCount = shitCoinOpenInCluster,
+                        )
+                        if (shitCoinEdge.scoreNudge != 0.0 || shitCoinEdge.confidenceNudge != 0.0) {
+                            shitCoinSignal = shitCoinSignal.copy(
+                                entryScore = (shitCoinSignal.entryScore + shitCoinEdge.scoreNudge.toInt()).coerceIn(0, 100),
+                                confidence = (shitCoinSignal.confidence + shitCoinEdge.confidenceNudge.toInt()).coerceIn(0, 100),
+                                reason = shitCoinSignal.reason + " +edge[" + shitCoinEdge.explanation + "]"
+                            )
+                        }
+
                         // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for ShitCoin.
                         // The filter blocked DEX_BOOSTED/DEX_TRENDING entries in
                         // early_unknown/pre_pump phases at score<60 — exactly the
@@ -8163,7 +8256,9 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             }
                             // V4.1: Apply bootstrap size multiplier for micro-positions
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
-                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
+                            // V5.9.619 — apply MemeEdgeAI size multiplier (bounded 0.70..1.40).
+                            val edgeSizeMult = shitCoinEdge.sizeMultiplier
+                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct

@@ -304,6 +304,9 @@ object FinalDecisionGate {
      * to drop scoring if need be unchoke trading the scanner and watchlist
      * instantly". This is the lever AntiChoke pulls.
      */
+    /** V5.9.620 — public read for UI / status panels. */
+    fun isAdaptiveRelaxationActive(): Boolean = adaptiveRelaxationActive
+
     fun forceAdaptiveRelaxation(reason: String) {
         if (adaptiveRelaxationActive) return
         adaptiveRelaxationActive = true
@@ -358,7 +361,22 @@ object FinalDecisionGate {
 
     fun getAdjustedThresholds(tradeCount: Int, winRate: Double): AdjustedThresholds {
         val phase = getLearningPhase(tradeCount)
-        val progress = getLearningProgress(tradeCount, winRate)
+        // V5.9.620 — ANTI-CHOKE TEETH. When adaptive relaxation is active
+        // (driven by AntiChokeManager SOFTEN/RECOVERY), pin the lerp
+        // progress to 0.0. This drops EVERY downstream floor — rugcheck,
+        // buy-pressure, top-holder, confidence, edge gates — back to
+        // bootstrap levels regardless of trade count. Without this,
+        // forceAdaptiveRelaxation() only halved the confidence floor
+        // (line 443) and bypassed two specific soft-blocks; the
+        // 5000-trade ladder thresholds kept blocking entries during a
+        // starvation event. Operator: "the choke manager isnt doing
+        // its job — its meant to be able to drop scoring if need be
+        // and unchoke trading instantly."
+        val rawProgress = getLearningProgress(tradeCount, winRate)
+        val progress = if (adaptiveRelaxationActive) 0.0 else rawProgress
+        // EV gating must also drop while relaxed — it's the steepest
+        // late-phase choke point.
+        val evGating = !adaptiveRelaxationActive && phase == LearningPhase.MATURE
 
         return AdjustedThresholds(
             learningPhase = phase,
@@ -372,7 +390,7 @@ object FinalDecisionGate {
             edgeMinBuyPressure = lerp(38.0, 52.0, progress),
             edgeMinLiquidity = lerp(1500.0, 4000.0, progress),
             edgeMinScore = lerp(20.0, 40.0, progress),
-            evGatingEnabled = phase == LearningPhase.MATURE,
+            evGatingEnabled = evGating,
             maxRugProbability = lerp(0.35, 0.12, progress),
         )
     }
