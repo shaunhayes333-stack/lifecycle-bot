@@ -122,11 +122,12 @@ object ServiceWatchdog {
             
             try {
                 // Check if bot was supposed to be running
-                val runtimePrefs = context.getSharedPreferences("bot_runtime", Context.MODE_PRIVATE)
-                val wasRunning = runtimePrefs.getBoolean("was_running_before_shutdown", false)
+                val runtimePrefs = context.getSharedPreferences(BotService.RUNTIME_PREFS, Context.MODE_PRIVATE)
+                val wasRunning = runtimePrefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+                val manualStop = runtimePrefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
                 
-                if (!wasRunning) {
-                    ErrorLogger.debug("ServiceWatchdog", "Bot was not running, skipping restart")
+                if (!wasRunning || manualStop) {
+                    ErrorLogger.debug("ServiceWatchdog", "Bot was not intended to run, skipping restart (wasRunning=$wasRunning manualStop=$manualStop)")
                     return Result.success()
                 }
                 

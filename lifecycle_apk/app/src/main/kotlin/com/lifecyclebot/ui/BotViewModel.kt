@@ -140,17 +140,28 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startBot() {
-        val intent = Intent(ctx, BotService::class.java).apply { action = BotService.ACTION_START }
+        val intent = Intent(ctx, BotService::class.java).apply {
+            action = BotService.ACTION_START
+            putExtra(BotService.EXTRA_USER_REQUESTED, true)
+        }
+        BotService.status.running = true
+        _ui.value = _ui.value.copy(running = true)
         ctx.startForegroundService(intent)
     }
 
     fun stopBot() {
-        val intent = Intent(ctx, BotService::class.java).apply { action = BotService.ACTION_STOP }
+        val intent = Intent(ctx, BotService::class.java).apply {
+            action = BotService.ACTION_STOP
+            putExtra(BotService.EXTRA_USER_REQUESTED, true)
+        }
+        BotService.status.running = false
+        _ui.value = _ui.value.copy(running = false)
         ctx.startService(intent)
     }
 
     fun toggleBot() {
-        if (_ui.value.running) stopBot() else startBot()
+        val liveRunning = BotService.status.running
+        if (liveRunning) stopBot() else startBot()
     }
     
     fun forceRefresh() {

@@ -38,6 +38,10 @@ class BotService : Service() {
             set(value) { _instance = if (value != null) java.lang.ref.WeakReference(value) else null }
         const val ACTION_START  = "com.lifecyclebot.START"
         const val ACTION_STOP   = "com.lifecyclebot.STOP"
+        const val EXTRA_USER_REQUESTED = "com.lifecyclebot.USER_REQUESTED"
+        const val RUNTIME_PREFS = "bot_runtime"
+        const val KEY_WAS_RUNNING_BEFORE_SHUTDOWN = "was_running_before_shutdown"
+        const val KEY_MANUAL_STOP_REQUESTED = "manual_stop_requested"
         const val CHANNEL_ID           = "bot_running"
         const val CHANNEL_TRADE        = "trade_signals"
         const val CHANNEL_TRADE_SILENT = "trade_signals_silent"
@@ -276,6 +280,14 @@ class BotService : Service() {
         // them again. Symptom: "30 button presses, bot won't restart".
         @Volatile
         var stopInProgress = false
+
+        @Volatile
+        var userStartQueuedDuringStop = false
+
+        fun isManualStopRequested(ctx: Context): Boolean = try {
+            ctx.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+        } catch (_: Throwable) { false }
     }
 
     // Coroutine exception handler - logs errors without crashing
@@ -992,6 +1004,29 @@ class BotService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                val userRequested = intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)
+                val manualStop = isManualStopRequested(applicationContext)
+
+                // V5.9.609 — stale keep-alive / watchdog / lifecycle alarms must
+                // not undo a user stop. Only a fresh UI/user start may clear the
+                // manual-stop latch. This fixes the meme bot randomly starting
+                // after Stop because an older ACTION_START alarm fired later.
+                if (manualStop && !userRequested) {
+                    ErrorLogger.warn("BotService", "Ignoring non-user ACTION_START because manual stop latch is active")
+                    cancelAllRestartAlarms()
+                    try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+                    return START_NOT_STICKY
+                }
+                if (userRequested) {
+                    userStartQueuedDuringStop = stopInProgress
+                    try {
+                        getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                            .apply()
+                    } catch (_: Exception) {}
+                }
+
                 if (stopInProgress) {
                     // V5.9.148 — queue the start until stopBot() has fully drained.
                     // Otherwise the tail of stopBot stops the traders we just started.
@@ -1006,9 +1041,13 @@ class BotService : Service() {
                             ErrorLogger.error("BotService", "stopBot() did not complete in 60s — force-clearing flag")
                             stopInProgress = false
                         }
-                        if (!status.running) startBot()
+                        if (!status.running && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
+                            userStartQueuedDuringStop = false
+                            startBot()
+                        }
                     }
                 } else if (!status.running) {
+                    userStartQueuedDuringStop = false
                     scope.launch { startBot() }
                 } else {
                     // Bot already running - just reschedule keep-alive
@@ -1016,14 +1055,21 @@ class BotService : Service() {
                 }
             }
             ACTION_STOP  -> {
-                // V5.9.42: Clear the "was running" flag IMMEDIATELY on the main
-                // thread (.apply is non-blocking — just queues to the prefs
-                // writer thread). Then run the heavy stopBot() work on the
-                // background scope so we never ANR the main thread during stop.
+                // V5.9.609 — make user Stop authoritative immediately. The old
+                // code only cleared was_running, while already-scheduled alarms
+                // (90s/3m keep-alive, onDestroy, onTaskRemoved) could still fire
+                // ACTION_START and make the bot appear to randomly restart.
                 try {
-                    getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-                        .edit().putBoolean("was_running_before_shutdown", false).apply()
+                    getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+                        .putBoolean(KEY_MANUAL_STOP_REQUESTED, true)
+                        .apply()
                 } catch (_: Exception) {}
+                userStartQueuedDuringStop = false
+                status.running = false
+                cancelAllRestartAlarms()
+                try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
                 scope.launch { stopBot() }
             }
         }
@@ -1055,7 +1101,7 @@ class BotService : Service() {
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
         
         // Try to close open positions if bot was running and closePositionsOnStop is enabled
-        if (status.running) {
+        if (status.running && !isManualStopRequested(applicationContext)) {
             try {
                 val cfg = ConfigStore.load(applicationContext)
                 
@@ -1294,7 +1340,7 @@ class BotService : Service() {
         super.onTaskRemoved(rootIntent)
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
         
-        if (status.running) {
+        if (status.running && !isManualStopRequested(applicationContext)) {
             // V5.6.8: Multiple restart mechanisms for aggressive OEMs
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
@@ -2682,8 +2728,12 @@ class BotService : Service() {
         }
         
         // Persist running state so BootReceiver can restart after reboot
-        getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-            .edit().putBoolean("was_running_before_shutdown", true).apply()
+        getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+            .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+            .apply()
+        userStartQueuedDuringStop = false
         // Acquire partial wake lock — keeps CPU alive during transaction confirmation
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading").also {
@@ -2911,7 +2961,17 @@ class BotService : Service() {
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
+        status.running = false  // visible immediately; stopInProgress remains the cleanup truth
         try {
+            try {
+                getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, true)
+                    .apply()
+            } catch (_: Exception) {}
+        cancelAllRestartAlarms()
+        try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
@@ -3317,8 +3377,11 @@ class BotService : Service() {
         // closeAll, stopForeground/stopSelf), SharedPreferences has plenty of time
         // to flush before the process dies.
         try {
-            getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("was_running_before_shutdown", false).apply()
+            getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+                .putBoolean(KEY_MANUAL_STOP_REQUESTED, !userStartQueuedDuringStop)
+                .apply()
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to clear was_running flag: ${e.message}", e)
         }
@@ -3453,17 +3516,29 @@ class BotService : Service() {
         }
     }
     
-    private fun cancelKeepAliveAlarm() {
+    private fun cancelAllRestartAlarms() {
         val restartIntent = Intent(applicationContext, BotService::class.java).apply {
             action = ACTION_START
         }
-        val pi = android.app.PendingIntent.getService(
-            this, 999, restartIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
         val am = getSystemService(android.app.AlarmManager::class.java)
-        am?.cancel(pi)
-        ErrorLogger.info("BotService", "Keep-alive alarm cancelled")
+        for (requestCode in intArrayOf(1, 2, 3, 997, 999)) {
+            try {
+                val pi = android.app.PendingIntent.getService(
+                    this,
+                    requestCode,
+                    restartIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                am?.cancel(pi)
+                pi.cancel()
+            } catch (_: Exception) {}
+        }
+        ErrorLogger.info("BotService", "All restart alarms cancelled")
+    }
+
+    private fun cancelKeepAliveAlarm() {
+        cancelAllRestartAlarms()
+        ErrorLogger.info("BotService", "Keep-alive alarms cancelled")
     }
 
     // ── V5.9.484 — external push-data streams + LLM ───────────────────

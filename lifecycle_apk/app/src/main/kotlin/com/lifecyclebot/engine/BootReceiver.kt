@@ -25,10 +25,11 @@ class BootReceiver : BroadcastReceiver() {
         if (action != Intent.ACTION_BOOT_COMPLETED &&
             action != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
-        val prefs = context.getSharedPreferences("bot_runtime", Context.MODE_PRIVATE)
-        val wasRunning = prefs.getBoolean("was_running_before_shutdown", false)
+        val prefs = context.getSharedPreferences(BotService.RUNTIME_PREFS, Context.MODE_PRIVATE)
+        val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+        val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
 
-        if (wasRunning) {
+        if (wasRunning && !manualStop) {
             val svcIntent = Intent(context, BotService::class.java).apply {
                 this.action = BotService.ACTION_START
             }

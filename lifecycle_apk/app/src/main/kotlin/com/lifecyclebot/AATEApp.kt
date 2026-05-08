@@ -106,9 +106,10 @@ class AATEApp : Application() {
         // Initialize ServiceWatchdog if bot was supposed to be running
         // This ensures the watchdog is scheduled even after app restart
         try {
-            val prefs = getSharedPreferences("bot_runtime", MODE_PRIVATE)
-            val wasRunning = prefs.getBoolean("was_running_before_shutdown", false)
-            if (wasRunning) {
+            val prefs = getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE)
+            val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
+            if (wasRunning && !manualStop) {
                 ServiceWatchdog.schedule(this)
                 ErrorLogger.info("App", "ServiceWatchdog scheduled (bot was running)")
             }
@@ -224,8 +225,9 @@ class AATEApp : Application() {
      */
     private fun scheduleServiceRestart() {
         try {
-            val prefs = getSharedPreferences("bot_runtime", MODE_PRIVATE)
-            val wasRunning = prefs.getBoolean("was_running_before_shutdown", false)
+            val prefs = getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE)
+            val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
 
             // V5.9.495z11 — RANDOM RESTART FIX. Only fire a 3-second
             // ACTION_START alarm if the bot really is NOT running right
@@ -235,7 +237,7 @@ class AATEApp : Application() {
             // the start path 3 seconds later, which the user perceived as
             // "the bot randomly stops and starts when it wants".
             val isRunningNow = try { BotService.status.running } catch (_: Throwable) { false }
-            if (wasRunning && !isRunningNow) {
+            if (wasRunning && !manualStop && !isRunningNow) {
                 ErrorLogger.info("App", "Bot was running - scheduling restart in 3 seconds")
                 
                 val restartIntent = Intent(this, BotService::class.java).apply {
