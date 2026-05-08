@@ -4636,8 +4636,49 @@ class BotService : Service() {
             // SCANNER STALENESS CHECK - every 6 loops (~30 seconds)
             // If no new tokens found for 2 minutes, reset scanner maps
             // ═══════════════════════════════════════════════════════════════════
-            if (loopCount % 6 == 0 && marketScanner != null) {
-                marketScanner?.checkAndResetIfStale()
+            if (loopCount % 6 == 0) {
+                try {
+                    val scanEnabled = ConfigStore.load(applicationContext).fullMarketScanEnabled
+                    val scanner = marketScanner
+                    if (!scanEnabled) {
+                        if (scanner != null) {
+                            scanner.stop()
+                            marketScanner = null
+                            addLog("🌐 Scanner disabled by config — stopped")
+                        }
+                    } else if (scanner == null || !scanner.isAlive() || scanner.hasZeroOutputFor(120_000L)) {
+                        try { scanner?.stop() } catch (_: Throwable) {}
+                        ErrorLogger.warn("BotService", "Scanner watchdog restart: null=${scanner == null} alive=${scanner?.isAlive()} zero=${scanner?.hasZeroOutputFor(120_000L)}")
+                        addLog("🛠 Scanner watchdog: restarting discovery feed")
+                        marketScanner = SolanaMarketScanner(
+                            cfg = { ConfigStore.load(applicationContext) },
+                            onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                                try {
+                                    TradeLifecycle.discovered(mint, symbol, score, source.name)
+                                    TokenMergeQueue.enqueue(
+                                        mint = mint,
+                                        symbol = symbol.ifBlank { name.ifBlank { mint.take(8) } },
+                                        scanner = source.name,
+                                        marketCapUsd = liquidityUsd * 10.0,
+                                        liquidityUsd = liquidityUsd,
+                                        volumeH1 = volumeH1,
+                                    )
+                                    marketScanner?.recordNewTokenFound()
+                                    ErrorLogger.debug("BotService", "📥 WATCHDOG_ENQUEUED: $symbol | ${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score")
+                                } catch (e: Throwable) {
+                                    ErrorLogger.error("BotService", "Scanner watchdog enqueue error: ${e.message}", e)
+                                }
+                            },
+                            onLog = ::addLog,
+                            getBrain = { botBrain },
+                        )
+                        marketScanner?.start()
+                    } else {
+                        scanner.checkAndResetIfStale()
+                    }
+                } catch (e: Throwable) {
+                    ErrorLogger.error("BotService", "Scanner watchdog error: ${e.message}", e)
+                }
             }
             
             // ═══════════════════════════════════════════════════════════════════

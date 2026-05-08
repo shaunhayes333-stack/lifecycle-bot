@@ -57,7 +57,7 @@ object ProjectSniperAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08         // Base snipe size
     private const val MAX_POSITION_SOL = 0.25          // Max per snipe
-    private const val MAX_CONCURRENT_MISSIONS = 15      // V5.9.495z12: 5→15 — never choke trader volume
+    private const val MAX_CONCURRENT_MISSIONS = 80      // V5.9.613: remove mission choke for 500/day throughput
     
     // Exit parameters - TIGHT for launch plays
     private const val STOP_LOSS_PCT = -12.0            // Abort if down 12%
@@ -67,7 +67,7 @@ object ProjectSniperAI {
     private const val MOONSHOT_PCT = 150.0             // Let it run if mooning
     
     // Daily limits
-    private const val DAILY_MAX_MISSIONS = 50          // Max snipes per day
+    private const val DAILY_MAX_MISSIONS = 500         // V5.9.613: daily throughput parity
     private const val DAILY_MAX_LOSS_SOL = 1.5         // Daily loss cap
     
     // ═══════════════════════════════════════════════════════════════════════════

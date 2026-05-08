@@ -73,7 +73,7 @@ object CashGenerationAI {
 
     // Trade frequency - V5.2.12: Raised max positions for more learning volume
     private const val MIN_TRADES_PER_DAY = 100
-    private const val MAX_CONCURRENT_POSITIONS = 25  // V5.9.495z12: 6→25 — operator mandate "200-500 trades/day", treasury can no longer be the global throttle
+    private const val MAX_CONCURRENT_POSITIONS = 80  // V5.9.613: no treasury lane choke under 500/day target
 
     // ═══════════════════════════════════════════════════════════════════════════
     // COMPOUNDING & IMMEDIATE TRADING

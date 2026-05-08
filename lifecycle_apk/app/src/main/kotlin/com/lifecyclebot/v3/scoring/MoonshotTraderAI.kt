@@ -79,12 +79,12 @@ object MoonshotTraderAI {
     // Position sizing - moderate but aggressive
     private const val BASE_POSITION_SOL = 0.08
     private const val MAX_POSITION_SOL = 0.40
-    private const val MAX_CONCURRENT_POSITIONS = 25  // V5.9.495z12: 10→25 — never choke trader volume even when mature
+    private const val MAX_CONCURRENT_POSITIONS = 80  // V5.9.613: no hidden moonshot lane choke
     // V5.9.316: REVERT V5.9.218 cap reduction. Restored bootstrap cap of 30
     // (build #1941 era) so the trader can fan out across many mcap bands /
     // modes concurrently during bootstrap learning. The 8-slot V5.9.218
     // "quality gate" was strangling the moonshot discovery surface.
-    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 50  // V5.9.495z12: 30→50 — bootstrap = max looseness
+    private const val MAX_CONCURRENT_POSITIONS_BOOTSTRAP = 100 // V5.9.613: bootstrap = no position choke
     private fun effectiveMaxPositions(): Int = try {
         if (FluidLearningAI.getLearningProgress() < 0.40) MAX_CONCURRENT_POSITIONS_BOOTSTRAP
         else MAX_CONCURRENT_POSITIONS

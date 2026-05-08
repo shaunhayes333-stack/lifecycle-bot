@@ -2176,7 +2176,10 @@ for legal compliance.
             try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
             try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            val openCount = openMints.size
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
+            val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Exception) { 0 }
+            val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Exception) { 0 }
+            val openCount = maxOf(openMints.size, hostOpen, lifecycleOpen)
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             
@@ -6308,7 +6311,13 @@ This cannot be undone!
             val insiderSuffix = if (insiderBuys > 0 || insiderExits > 0) {
                 " · 🐋$insiderBuys/$insiderExits"
             } else ""
-            "RAW ${tele.raw} → ENQ ${tele.enq} → MQ $mqSize → WL ${activeTokens.size}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
+            val scannerPulse = if (tele.src > 0 || tele.ok > 0 || tele.err > 0) {
+                "SRC ${tele.src}/${tele.ok}/${tele.err} → RAW ${tele.raw} → ENQ ${tele.enq}"
+            } else {
+                "RAW ${tele.raw} → ENQ ${tele.enq}"
+            }
+            "$scannerPulse → MQ $mqSize → WL ${activeTokens.size}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
+                (if (!tele.alive && tele.ageSec > 90) " · ⚠scan stale ${tele.ageSec}s" else "") +
                 (if (bypassCount > 0) " · 🟢Bypass $bypassCount" else "") +
                 insiderSuffix
         } catch (_: Exception) { "" }
@@ -6318,9 +6327,28 @@ This cannot be undone!
             "Watchlist (${activeTokens.size})"
         }
         
-        activeTokens.forEach { ts ->
+        // V5.9.613 — watchlist UI must be lightweight. The scanner can hold
+        // hundreds of candidates, but drawing hundreds of nested cards + images
+        // every UI tick OOMs low-memory Android heaps. Render the most relevant
+        // slice only; the header still shows the true full count.
+        val maxWatchlistRows = when (columnCount) {
+            3 -> 24
+            2 -> 32
+            else -> 40
+        }
+        val activeVisible = activeTokens
+            .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
+                .thenByDescending { it.position.isOpen }
+                .thenByDescending { it.entryScore }
+                .thenByDescending { it.lastV3Score ?: 0 }
+                .thenByDescending { it.lastLiquidityUsd })
+            .take(maxWatchlistRows)
+        activeVisible.forEach { ts ->
             val card = buildTokenCard(ts, active, solPrice, scaleFactor, state)
             llTokenList.addView(card)
+        }
+        if (activeTokens.size > activeVisible.size) {
+            llTokenList.addView(buildListFooter("showing ${activeVisible.size}/${activeTokens.size} — scanner still tracking all"))
         }
         
         // ═══════════════════════════════════════════════════════════════════════
@@ -6331,9 +6359,17 @@ This cannot be undone!
             llIdleList.visibility = android.view.View.VISIBLE
             tvIdleHeader.text = "Idle (${idleTokens.size})"
             
-            idleTokens.forEach { ts ->
+            val maxIdleRows = 12
+            val idleVisible = idleTokens
+                .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd }
+                    .thenByDescending { it.entryScore })
+                .take(maxIdleRows)
+            idleVisible.forEach { ts ->
                 val card = buildTokenCard(ts, active, solPrice, scaleFactor, state, isIdle = true)
                 llIdleList.addView(card)
+            }
+            if (idleTokens.size > idleVisible.size) {
+                llIdleList.addView(buildListFooter("showing ${idleVisible.size}/${idleTokens.size} idle"))
             }
         } else {
             tvIdleHeader.visibility = android.view.View.GONE
@@ -6341,6 +6377,17 @@ This cannot be undone!
         }
     }
     
+    private fun buildListFooter(textValue: String): android.view.View {
+        return TextView(this).apply {
+            text = textValue
+            textSize = 10f
+            setTextColor(muted)
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 6, 0, 8)
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+    }
+
     /**
      * Build a probation card with scaled text/elements
      */
@@ -6443,14 +6490,13 @@ This cannot be undone!
      * Build a token card for watchlist or idle column with scaled text/elements
      */
     private fun buildTokenCard(
-        ts: com.lifecyclebot.data.TokenState, 
-        active: String, 
-        solPrice: Double, 
+        ts: com.lifecyclebot.data.TokenState,
+        active: String,
+        solPrice: Double,
         scale: Float,
         state: UiState,
         isIdle: Boolean = false
     ): android.view.View {
-        // Calculate % change from reference price
         val refPrice = when {
             ts.position.isOpen -> ts.position.entryPrice
             ts.history.isNotEmpty() -> ts.history.first().priceUsd
@@ -6460,12 +6506,9 @@ This cannot be undone!
             ((ts.lastPrice - refPrice) / refPrice) * 100.0
         } else 0.0
         val changeCol = if (pctChange >= 0) green else red
-        
-        // Get scanner info from GlobalTradeRegistry
+
         val registryEntry = com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(ts.mint)
         val scannerSource = registryEntry?.addedBy ?: ts.source.ifBlank { "UNKNOWN" }
-        
-        // Get RC score
         val rcScore = ts.safety.rugcheckScore.takeIf { it >= 0 }
         val rcColor = when {
             rcScore == null -> muted
@@ -6474,113 +6517,17 @@ This cannot be undone!
             rcScore <= 40 -> 0xFFFFCC00.toInt()
             else -> green
         }
-        
-        // Get V3 info
         val v3Score = ts.lastV3Score
         val v3Conf = ts.lastV3Confidence
         val buyPct = ts.lastBuyPressurePct.takeIf { it != 50.0 && it > 0 }
         val entryScr = ts.entryScore.takeIf { it > 0 }
-        
-        // Build card with scaling
-        val paddingH = (10 * scale).toInt()
-        val paddingV = (10 * scale).toInt()
-        
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(paddingH, paddingV, paddingH, paddingV)
-            isClickable = true
-            isFocusable = true
-            background = when {
-                ts.mint == active -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_selected_bg)
-                isIdle -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)?.mutate()?.also {
-                    it.alpha = 128  // Dim idle cards
-                }
-                else -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
-            }
-            setOnClickListener {
-                vm.saveConfig(state.config.copy(activeToken = ts.mint))
-                etActiveToken.setText(ts.mint)
-                settingsPopulated = false
-            }
+
+        fun compactUsd(v: Double): String = when {
+            v >= 1_000_000 -> "$%.1fM".format(v / 1_000_000.0)
+            v >= 1_000 -> "$%.0fK".format(v / 1_000.0)
+            v > 0 -> "$%.0f".format(v)
+            else -> "—"
         }
-        
-        // Row 1: Logo + Symbol + % Change
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        
-        // Logo (scaled)
-        val logoSize = (32 * scale).toInt()
-        val logoView = android.widget.ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(logoSize, logoSize).also {
-                it.marginEnd = (8 * scale).toInt()
-            }
-            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png"
-            load(logoUrl) {
-                crossfade(true)
-                placeholder(R.drawable.ic_token_placeholder)
-                error(R.drawable.ic_token_placeholder)
-                transformations(coil.transform.CircleCropTransformation())
-            }
-            if (isIdle) alpha = 0.6f
-        }
-        row1.addView(logoView)
-        
-        // Symbol + MCap column
-        val symbolCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        
-        val baseTextSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
-        val smallTextSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-        
-        symbolCol.addView(TextView(this).apply {
-            text = ts.symbol.ifBlank { ts.mint.take(8) }
-            textSize = (baseTextSize + 1) * scale
-            setTextColor(if (isIdle) muted else white)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        })
-        
-        // MCap + Liq
-        val mcapStr = when {
-            ts.lastMcap >= 1_000_000 -> "$%.2fM".format(ts.lastMcap / 1_000_000)
-            ts.lastMcap >= 1_000 -> "$%.1fK".format(ts.lastMcap / 1_000)
-            else -> "$%.0f".format(ts.lastMcap)
-        }
-        val liqStr = when {
-            ts.lastLiquidityUsd >= 1_000_000 -> "$%.1fM".format(ts.lastLiquidityUsd / 1_000_000)
-            ts.lastLiquidityUsd >= 1_000 -> "$%.0fK".format(ts.lastLiquidityUsd / 1_000)
-            else -> "$%.0f".format(ts.lastLiquidityUsd)
-        }
-        symbolCol.addView(TextView(this).apply {
-            text = "MC:$mcapStr L:$liqStr"
-            textSize = smallTextSize * scale
-            setTextColor(muted)
-        })
-        row1.addView(symbolCol)
-        
-        // % Change
-        val changeStr = "%+.1f%%".format(pctChange)
-        row1.addView(TextView(this).apply {
-            text = changeStr
-            textSize = (baseTextSize - 1) * scale
-            setTextColor(if (isIdle) muted else changeCol)
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        })
-        card.addView(row1)
-        
-        // Row 2: Scanner + RC + V3 Score + Conf + Buy%
-        val row2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(0, (4 * scale).toInt(), 0, 0)
-        }
-        
-        // Scanner source badge
         val sourceShort = when {
             scannerSource.contains("PUMP", true) -> "PF"
             scannerSource.contains("RAYDIUM", true) -> "RD"
@@ -6590,85 +6537,12 @@ This cannot be undone!
             scannerSource.contains("VOLUME", true) -> "VL"
             else -> scannerSource.take(2).uppercase()
         }
-        row2.addView(TextView(this).apply {
-            text = sourceShort
-            textSize = 8f * scale
-            setTextColor(0xFF14F195.toInt())
-            setPadding(3, 1, 3, 1)
-            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)
-        })
-        
-        // RC Score
-        if (rcScore != null) {
-            row2.addView(TextView(this).apply {
-                text = " RC:$rcScore"
-                textSize = 9f * scale
-                setTextColor(if (isIdle) muted else rcColor)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
+        val phaseShort = when (ts.phase.lowercase()) {
+            "early_pump" -> "EARLY"
+            "accumulation" -> "ACC"
+            "distribution" -> "DIST"
+            else -> ts.phase.uppercase().take(6).ifBlank { "SCAN" }
         }
-        
-        // V3 Score
-        if ((v3Score ?: 0) > 0) {
-            row2.addView(TextView(this).apply {
-                text = " V3:$v3Score"
-                textSize = 9f * scale
-                setTextColor(if (isIdle) muted else white)
-            })
-        }
-        
-        // Confidence
-        if ((v3Conf ?: 0) > 0) {
-            val confColor = when {
-                (v3Conf ?: 0) >= 50 -> green
-                (v3Conf ?: 0) >= 25 -> 0xFFFFCC00.toInt()
-                else -> muted
-            }
-            row2.addView(TextView(this).apply {
-                text = " ${v3Conf}%"
-                textSize = 9f * scale
-                setTextColor(if (isIdle) muted else confColor)
-            })
-        }
-        
-        // Buy pressure
-        if (buyPct != null) {
-            val bpColor = when {
-                buyPct >= 60 -> green
-                buyPct <= 40 -> red
-                else -> white
-            }
-            row2.addView(TextView(this).apply {
-                text = " B:${buyPct.toInt()}%"
-                textSize = 9f * scale
-                setTextColor(if (isIdle) muted else bpColor)
-            })
-        }
-        card.addView(row2)
-        
-        // Row 3: Entry Score + Phase
-        val row3 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(0, (3 * scale).toInt(), 0, 0)
-        }
-        
-        if (entryScr != null && entryScr > 0) {
-            val entryColor = when {
-                entryScr >= 70 -> green
-                entryScr >= 50 -> 0xFFFFCC00.toInt()
-                else -> red
-            }
-            row3.addView(TextView(this).apply {
-                text = "Entry:$entryScr"
-                textSize = 9f * scale
-                setTextColor(if (isIdle) muted else entryColor)
-                typeface = android.graphics.Typeface.MONOSPACE
-            })
-        }
-        
-        // Phase with color coding
-        val phaseText = " ${ts.phase.uppercase()}"
         val phaseColor = when (ts.phase.lowercase()) {
             "early_pump", "pump", "breakout" -> green
             "accumulation", "healthy" -> 0xFF00DDFF.toInt()
@@ -6676,18 +6550,88 @@ This cannot be undone!
             "idle", "blocked", "dead" -> muted
             else -> white
         }
-        row3.addView(TextView(this).apply {
-            text = phaseText
-            textSize = 9f * scale
-            setTextColor(phaseColor)
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((8 * scale).toInt(), (6 * scale).toInt(), (8 * scale).toInt(), (6 * scale).toInt())
+            isClickable = true
+            isFocusable = true
+            background = when {
+                ts.mint == active -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_selected_bg)
+                isIdle -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)?.mutate()?.also { it.alpha = 120 }
+                else -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
+            }
+            setOnClickListener {
+                vm.saveConfig(state.config.copy(activeToken = ts.mint))
+                etActiveToken.setText(ts.mint)
+                settingsPopulated = false
+            }
+        }
+
+        val baseTextSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
+        val smallTextSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
+
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        row1.addView(TextView(this).apply {
+            text = ts.symbol.ifBlank { ts.mint.take(8) }
+            textSize = (baseTextSize + 0.5f) * scale
+            setTextColor(if (isIdle) muted else white)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            maxLines = 1
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        row1.addView(TextView(this).apply {
+            text = "%+.1f%%".format(pctChange)
+            textSize = (baseTextSize - 1f) * scale
+            setTextColor(if (isIdle) muted else changeCol)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        card.addView(row1)
+
+        val row2 = TextView(this).apply {
+            val rcPart = rcScore?.let { " RC:$it" } ?: ""
+            val v3Part = if ((v3Score ?: 0) > 0) " V3:$v3Score" else ""
+            val confPart = if ((v3Conf ?: 0) > 0) " C:${v3Conf}%" else ""
+            val buyPart = buyPct?.let { " B:${it.toInt()}%" } ?: ""
+            val entryPart = entryScr?.let { " E:${it.toInt()}" } ?: ""
+            text = "$sourceShort$rcPart$v3Part$confPart$buyPart$entryPart"
+            textSize = smallTextSize * scale
+            setTextColor(if (isIdle) muted else white)
             typeface = android.graphics.Typeface.MONOSPACE
+            maxLines = 1
+            setPadding(0, (2 * scale).toInt(), 0, 0)
+        }
+        card.addView(row2)
+
+        val row3 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, (2 * scale).toInt(), 0, 0)
+        }
+        row3.addView(TextView(this).apply {
+            text = "MC:${compactUsd(ts.lastMcap)} L:${compactUsd(ts.lastLiquidityUsd)}"
+            textSize = smallTextSize * scale
+            setTextColor(muted)
+            typeface = android.graphics.Typeface.MONOSPACE
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            maxLines = 1
+        })
+        row3.addView(TextView(this).apply {
+            text = phaseShort
+            textSize = smallTextSize * scale
+            setTextColor(if (isIdle) muted else phaseColor)
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(4, 1, 4, 1)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)
         })
         card.addView(row3)
-        
-        // Wrapper with margin
+
         val wrapper = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, (6 * scale).toInt())
+            setPadding(0, 0, 0, (4 * scale).toInt())
         }
         wrapper.addView(card)
         return wrapper

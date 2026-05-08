@@ -68,8 +68,8 @@ object DipHunterAI {
     // Position sizing - BOOTSTRAP TIGHT (start conservative, fluid learning will loosen)
     private const val BASE_POSITION_SOL = 0.05      // Conservative base for bootstrap
     private const val MAX_POSITION_SOL = 0.15       // Max 0.15 SOL per dip (reduced from 0.25)
-    private const val MAX_CONCURRENT_DIPS = 3       // Live safety cap
-    private const val PAPER_MAX_CONCURRENT_DIPS = 40 // V5.9.610: paper learner must not choke at 3 holds
+    private const val MAX_CONCURRENT_DIPS = 80      // V5.9.613: live throughput parity — no 3-position choke
+    private const val PAPER_MAX_CONCURRENT_DIPS = 80 // V5.9.613: paper/live parity — no position choke
     
     // Exit targets - FLUID (adapt as bot learns)
     // Bootstrap: Tighter exits (secure small wins while learning)
@@ -94,7 +94,7 @@ object DipHunterAI {
     
     // Daily limits - CRITICAL for bootstrap protection
     private const val DAILY_MAX_LOSS_SOL = 0.20     // Max 0.2 SOL daily loss
-    private const val DAILY_MAX_HUNTS = 15          // Live safety cap
+    private const val DAILY_MAX_HUNTS = 500         // V5.9.613: live throughput parity with paper target
     private const val PAPER_DAILY_MAX_HUNTS = 500   // V5.9.610: paper target = 500+ trades/day
     private const val PAPER_RE_DIP_COOLDOWN_MS = 5L * 60_000L
     private const val LIVE_RE_DIP_COOLDOWN_MS = 2L * 60L * 60_000L

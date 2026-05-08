@@ -741,6 +741,11 @@ class SolanaMarketScanner(
     @Volatile private var telemetryEnqueued = 0
     @Volatile private var telemetryStaleDrops = 0
     @Volatile private var telemetrySaturatedDrops = 0
+    @Volatile private var telemetrySourceAttempts = 0
+    @Volatile private var telemetrySourceSuccesses = 0
+    @Volatile private var telemetrySourceErrors = 0
+    @Volatile private var lastScanCycleMs = 0L
+    @Volatile private var lastSourceAttemptMs = 0L
     private var lastTelemetryLogMs = 0L
 
     private val semaphore = Semaphore(6)
@@ -757,7 +762,7 @@ class SolanaMarketScanner(
     fun getCachedRcScore(mint: String): Int? = rcScoreCache[mint]
 
     fun getThroughputTelemetry(): String {
-        return "RAW=$telemetryRawScanned CD=$telemetryCooldownHits RUG=$telemetryRugRejects LIQ=$telemetryLiqRejects ENQ=$telemetryEnqueued STALE=$telemetryStaleDrops SAT=$telemetrySaturatedDrops"
+        return "SRC=$telemetrySourceAttempts OK=$telemetrySourceSuccesses ERR=$telemetrySourceErrors RAW=$telemetryRawScanned CD=$telemetryCooldownHits RUG=$telemetryRugRejects LIQ=$telemetryLiqRejects ENQ=$telemetryEnqueued STALE=$telemetryStaleDrops SAT=$telemetrySaturatedDrops"
     }
 
     /**
@@ -772,6 +777,11 @@ class SolanaMarketScanner(
         val enq: Int,
         val stale: Int,
         val sat: Int,
+        val src: Int = 0,
+        val ok: Int = 0,
+        val err: Int = 0,
+        val alive: Boolean = false,
+        val ageSec: Long = 9999L,
     )
     fun getThroughputTelemetrySnapshot(): ThroughputSnapshot = ThroughputSnapshot(
         raw     = telemetryRawScanned,
@@ -781,6 +791,11 @@ class SolanaMarketScanner(
         enq     = telemetryEnqueued,
         stale   = telemetryStaleDrops,
         sat     = telemetrySaturatedDrops,
+        src     = telemetrySourceAttempts,
+        ok      = telemetrySourceSuccesses,
+        err     = telemetrySourceErrors,
+        alive   = isAlive(),
+        ageSec  = (System.currentTimeMillis() - maxOf(lastScanCycleMs, lastSourceAttemptMs, lastNewTokenFoundMs)) / 1000L,
     )
 
     fun resetTelemetry() {
@@ -791,6 +806,9 @@ class SolanaMarketScanner(
         telemetryEnqueued = 0
         telemetryStaleDrops = 0
         telemetrySaturatedDrops = 0
+        telemetrySourceAttempts = 0
+        telemetrySourceSuccesses = 0
+        telemetrySourceErrors = 0
     }
 
     private fun isSaturated(mint: String): Boolean {
@@ -811,7 +829,18 @@ class SolanaMarketScanner(
 
     fun getStatus(): String {
         val staleSeconds = (System.currentTimeMillis() - lastNewTokenFoundMs) / 1000
-        return "Scanner: running=$isRunning seenMints=${seenMints.size} rejectedMints=${rejectedMints.size} scanRotation=$scanRotation stale=${staleSeconds}s"
+        return "Scanner: running=$isRunning alive=${isAlive()} seenMints=${seenMints.size} rejectedMints=${rejectedMints.size} scanRotation=$scanRotation stale=${staleSeconds}s src=$telemetrySourceAttempts ok=$telemetrySourceSuccesses err=$telemetrySourceErrors"
+    }
+
+    fun isAlive(): Boolean {
+        val jobActive = scanJob?.isActive == true
+        val recentPulse = System.currentTimeMillis() - maxOf(lastScanCycleMs, lastSourceAttemptMs, lastNewTokenFoundMs) < 90_000L
+        return isRunning && jobActive && recentPulse
+    }
+
+    fun hasZeroOutputFor(ms: Long): Boolean {
+        val age = System.currentTimeMillis() - maxOf(lastSourceAttemptMs, lastNewTokenFoundMs, lastScanCycleMs)
+        return isRunning && age > ms && telemetryRawScanned == 0 && telemetryEnqueued == 0
     }
 
     fun recordNewTokenFound() {
@@ -828,20 +857,28 @@ class SolanaMarketScanner(
             telemetryStaleDrops++
             ErrorLogger.warn("Scanner", "⚠️ Scanner STALE for ${staleDuration / 1000}s - forcing soft reset")
             onLog("⚠️ Scanner stale for ${staleDuration / 1000}s - soft reset")
-            forceReset()
+            val hard = GlobalTradeRegistry.size() == 0 && telemetryRawScanned == 0 && telemetryEnqueued == 0
+            forceReset(clearDiscoveryMemory = hard)
             lastNewTokenFoundMs = now
             return true
         }
         return false
     }
 
-    fun forceReset() {
+    fun forceReset(clearDiscoveryMemory: Boolean = false) {
         cooldownHitCount.clear()
         saturatedMints.clear()
+        if (clearDiscoveryMemory) {
+            seenMints.clear()
+            rejectedMints.clear()
+        }
         resetTelemetry()
         scanRotation = 0
-        ErrorLogger.info("Scanner", "Force reset - cleared transient state only")
-        onLog("🔄 Scanner soft reset - preserved seen/rejected cooldowns")
+        lastNewTokenFoundMs = System.currentTimeMillis()
+        lastScanCycleMs = System.currentTimeMillis()
+        ErrorLogger.info("Scanner", "Force reset - cleared transient state${if (clearDiscoveryMemory) " + seen/rejected maps" else " only"}")
+        onLog(if (clearDiscoveryMemory) "🔄 Scanner hard reset - cleared seen/rejected maps" else "🔄 Scanner soft reset - preserved seen/rejected cooldowns")
+        try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
     }
 
     private val scannerExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -858,12 +895,18 @@ class SolanaMarketScanner(
     }
 
     private suspend fun runScan(name: String, block: suspend () -> Unit) {
+        telemetrySourceAttempts++
+        lastSourceAttemptMs = System.currentTimeMillis()
         try {
             block()
+            telemetrySourceSuccesses++
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            telemetrySourceErrors++
             ErrorLogger.warn("Scanner", "$name error: ${e.message}")
+        } finally {
+            try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
         }
     }
 
@@ -875,6 +918,8 @@ class SolanaMarketScanner(
 
         ErrorLogger.info("Scanner", "SolanaMarketScanner.start() called")
         isRunning = true
+        lastScanCycleMs = System.currentTimeMillis()
+        lastSourceAttemptMs = lastScanCycleMs
         scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + scannerExceptionHandler)
         scanJob = scope?.launch {
             ErrorLogger.info("Scanner", "scanLoop starting...")
@@ -996,6 +1041,8 @@ class SolanaMarketScanner(
                     ""
                 }
 
+                lastScanCycleMs = System.currentTimeMillis()
+                try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
                 scanRotation = (scanRotation + 1) % 4
 
                 if (scanRotation == 0 && seenMints.size > 200) {

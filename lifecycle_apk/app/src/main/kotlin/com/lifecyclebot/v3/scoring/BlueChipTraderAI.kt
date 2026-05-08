@@ -56,7 +56,7 @@ object BlueChipTraderAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.15         // Larger than Treasury (0.05)
     private const val MAX_POSITION_SOL = 0.5           // Up to 0.5 SOL per trade
-    private const val MAX_CONCURRENT_POSITIONS = 15    // V5.9.343: walk-back to V5.9.336
+    private const val MAX_CONCURRENT_POSITIONS = 80    // V5.9.613: remove hidden lane choke
     
     // Daily limits
     private const val DAILY_MAX_LOSS_SOL = 1.0         // ~$150 daily loss limit
