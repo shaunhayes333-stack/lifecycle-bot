@@ -229,19 +229,12 @@ class BotOrchestrator(
     private fun checkPreScoreMemoryKill(candidate: CandidateSnapshot): PreScoreKill? {
         return try {
             val memoryScore = com.lifecyclebot.engine.TokenWinMemory.getMemoryScoreForMint(candidate.mint)
-            // V5.9.63: User reported volume choked by shadow-kills.
-            // Previous -10 threshold blocked tokens after just ONE
-            // -31% paper loss (memory = -15 fires a single trade deep).
-            // In paper we're supposed to be LEARNING — push the floor
-            // to -25 so only tokens with multiple bad prints get skipped.
-            // Live keeps the tighter -12 so we don't chase proven losers
-            // with real SOL.
-            val isPaper = try {
-                com.lifecyclebot.engine.BotService.instance?.let {
-                    com.lifecyclebot.data.ConfigStore.load(it.applicationContext).paperMode
-                } ?: true
-            } catch (_: Exception) { true }
-            val floor = if (isPaper) -25 else -12
+            // V5.9.495z51 — operator directive: paper-learned thresholds MUST
+            // flow into live mode. Previous live=-12 / paper=-25 split blocked
+            // ~30pts of live entries. Converged to -25 (the paper-learned
+            // value) for both modes. Paper mode discovered this is the right
+            // floor; live mode now uses the same.
+            val floor = -25
             if (memoryScore <= floor) {
                 logger.stage(
                     "PRE_SCORE_KILL",
@@ -284,13 +277,9 @@ class BotOrchestrator(
             (10 + (p * 30)).toInt().coerceIn(10, 40)
         } catch (_: Exception) { 35 }
 
-        // V5.9.63: also loosened — paper -25, live -12 (was -10 both)
-        val memoryFloorPre = try {
-            val isPaper = com.lifecyclebot.engine.BotService.instance?.let {
-                com.lifecyclebot.data.ConfigStore.load(it.applicationContext).paperMode
-            } ?: true
-            if (isPaper) -25 else -12
-        } catch (_: Exception) { -12 }
+        // V5.9.495z51 — operator directive: paper-learned thresholds flow into
+        // live. Previous live=-12 / paper=-25 split. Converged to -25.
+        val memoryFloorPre = -25
         val shouldKillEarly = effectiveConfidence < fluidKillFloor || memoryScore <= memoryFloorPre
         if (!shouldKillEarly) return null
 
@@ -339,11 +328,12 @@ class BotOrchestrator(
 
         if (band !in executionBands) return null
 
-        val liquidityFloor = when {
-            isPaperMode -> 3000.0
-            setupQuality == "B" -> 7500.0
-            else -> 10000.0
-        }
+        // V5.9.495z51 — operator directive: paper-learned $3K floor flows
+        // into live. Previous live=$7500 (B-grade) / live=$10000 (else) /
+        // paper=$3000 split blocked legitimate fresh-launch entries (operator
+        // log: ROFL liq=$121K bypassed but mid-tier $3-7K candidates failed).
+        // Converged to $3000 for both modes — paper learning settled here.
+        val liquidityFloor = 3000.0
 
         if (candidate.liquidityUsd >= liquidityFloor) return null
 

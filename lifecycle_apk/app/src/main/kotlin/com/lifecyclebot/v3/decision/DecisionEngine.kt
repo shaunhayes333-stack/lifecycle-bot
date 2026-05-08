@@ -262,11 +262,13 @@ class FinalDecisionEngine(
         val minScoreForExecute = try {
             val fluidExecuteFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecuteFloor()
             val configMinScore = com.lifecyclebot.engine.V3ConfidenceConfig.getMinScoreForExecute(config.executeStandardMin)
-            val rawFloor = minOf(fluidExecuteFloor, configMinScore)
-            // V5.9: Live mode always enforces minimum "mature" floor (score >= 34).
-            // Paper mode uses the fluid floor so bootstrap learning can happen freely.
-            val isLive = !isPaperMode
-            if (isLive) rawFloor.coerceAtLeast(34) else rawFloor
+            // V5.9.495z51 — operator directive: paper-learned thresholds MUST
+            // flow into live mode. The previous live-only `coerceAtLeast(34)`
+            // override imposed a hard 34-point floor on live regardless of
+            // what paper learning had discovered, which was ~14 points above
+            // the fluid floor at bootstrap. Removed — both modes now use the
+            // SAME `minOf(fluidExecuteFloor, configMinScore)`.
+            minOf(fluidExecuteFloor, configMinScore)
         } catch (e: Exception) {
             config.executeStandardMin
         }
