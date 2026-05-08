@@ -1351,12 +1351,30 @@ object MarketsLiveExecutor {
             if (useTokenized) {
                 val tokenData = balances[targetMint!!]
                 if (tokenData == null || tokenData.first <= 0) {
-                    ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — non-empty map, mint genuinely absent. Skipping (token not held).")
-                    return@withContext Pair(false, null)
+                    if (market.isCrypto) {
+                        // V5.9.608 — Crypto Universe can open symbol exposure as
+                        // USDC collateral without holding a target SPL token. If
+                        // no target-token balance exists, close the proportional
+                        // USDC collateral instead of orphaning/retrying forever.
+                        val usdcData = balances[USDC_MINT]
+                        if (usdcData == null || usdcData.first <= 0) {
+                            ErrorLogger.warn(TAG, "No ${market.symbol} token and no USDC collateral to close — skipping.")
+                            return@withContext Pair(false, null)
+                        }
+                        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
+                        val positionUsdcValue = sizeSol * solPrice
+                        val usdcToSell = minOf(positionUsdcValue, usdcData.first * 0.95)
+                        ErrorLogger.info(TAG, "  🌉 ${market.symbol}: no target token held; closing USDC collateral | ${"$"}${usdcToSell.fmt(2)} USDC → SOL")
+                        Pair(USDC_MINT, (usdcToSell * 1_000_000).toLong())
+                    } else {
+                        ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — non-empty map, mint genuinely absent. Skipping (token not held).")
+                        return@withContext Pair(false, null)
+                    }
+                } else {
+                    val decimals = tokenData.second
+                    val units = (tokenData.first * Math.pow(10.0, decimals.toDouble())).toLong()
+                    Pair(targetMint, units)
                 }
-                val decimals = tokenData.second
-                val units = (tokenData.first * Math.pow(10.0, decimals.toDouble())).toLong()
-                Pair(targetMint, units)
             } else {
                 // V5.9.310: USDC-parked or no-mint position close.
                 // Use UniversalBridgeEngine.releaseCapital to swap back to SOL.
