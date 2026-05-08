@@ -513,14 +513,39 @@ object LayerReadinessRegistry {
     fun readinessOf(layer: String): LayerReadiness {
         val s = states[layer] ?: return LayerReadiness.DISCONNECTED
         val n = s.settledOutcomes
-        val ev = s.positiveEvSamples - (n - s.positiveEvSamples)  // wins - losses
+        val wins = s.positiveEvSamples
+        val losses = n - wins
+        val ev = wins - losses                                // wins - losses
+        // V5.9.616 — RE-BASELINED LADDER for 5000-trade maturity.
+        //
+        // Old ladder DEGRADED any layer with n>=50 and ev<0. With a 27% WR
+        // bootstrap bot, EVERY layer hit this gate the moment it had 50
+        // settled samples and the bot deadlocked: layers DEGRADED → FDG
+        // 32% floor → no entries → no trades → layers stay DEGRADED.
+        //
+        // Operator rule: "the bot should never choke. its meant to go out
+        // of learning at maturity which is 5000 trades."
+        //
+        // New ladder treats <500 settled samples as still bootstrapping —
+        // the layer is allowed to be unprofitable while it gathers signal.
+        // DEGRADED is reserved for genuinely broken layers: 500+ settled
+        // samples AND a really bad ratio (more than 70% losses).
+        //
+        // 0:               RECEIVING_SIGNALS
+        // 1-99:            LEARNING_ONLY
+        // 100-499:         PAPER_ELIGIBLE   (still bootstrap; can't be DEGRADED)
+        // 500-1999:        LIVE_ELIGIBLE
+        // 2000+ ev>0:      TRUSTED
+        // 500+  ratio<-70%: DEGRADED (genuinely broken signal)
+        // else:            LIVE_ELIGIBLE
+        val lossRatio = if (n > 0) losses.toDouble() / n.toDouble() else 0.0
         return when {
             n == 0L -> LayerReadiness.RECEIVING_SIGNALS
-            n in 1..19 -> LayerReadiness.LEARNING_ONLY
-            n in 20..49 -> LayerReadiness.PAPER_ELIGIBLE
-            n in 50..99 -> LayerReadiness.LIVE_ELIGIBLE
-            n >= 100 && ev > 0 -> LayerReadiness.TRUSTED
-            n >= 50 && ev < 0 -> LayerReadiness.DEGRADED
+            n in 1..99 -> LayerReadiness.LEARNING_ONLY
+            n in 100..499 -> LayerReadiness.PAPER_ELIGIBLE
+            n >= 2000L && ev > 0 -> LayerReadiness.TRUSTED
+            n >= 500L && lossRatio >= 0.70 -> LayerReadiness.DEGRADED
+            n >= 500L -> LayerReadiness.LIVE_ELIGIBLE
             else -> LayerReadiness.LIVE_ELIGIBLE
         }
     }

@@ -151,16 +151,43 @@ object FinalDecisionGate {
         MATURE
     }
 
+    // V5.9.616 — ALIGN WITH FluidLearningAI 5000-TRADE MATURITY LADDER.
+    // Operator: "learning trade totals are 5000 to maturity". The old 500-trade
+    // FDG ladder made the bot register 53% maturity at trade #265 and full
+    // mature at trade #500, which (combined with V5.9.616 readiness rules)
+    // slammed AI_DEGRADED 32% confidence floors on every entry from trade
+    // #50+. Re-baselined to bootstrap=0-1000, learning=1000-3000, mature=3000+
+    // matching FluidLearningAI.BOOTSTRAP_PHASE_END / MATURE_PHASE_END /
+    // EXPERT_PHASE_END so the two systems agree on phase boundaries.
+    private const val FDG_BOOTSTRAP_END = 1000
+    private const val FDG_LEARNING_END = 3000
+    private const val FDG_EXPERT_END = 5000
+
     fun getLearningPhase(tradeCount: Int): LearningPhase = when {
-        tradeCount <= 50 -> LearningPhase.BOOTSTRAP
-        tradeCount <= 500 -> LearningPhase.LEARNING
+        tradeCount <= FDG_BOOTSTRAP_END -> LearningPhase.BOOTSTRAP
+        tradeCount <= FDG_LEARNING_END -> LearningPhase.LEARNING
         else -> LearningPhase.MATURE
     }
 
     fun getLearningProgress(tradeCount: Int, winRate: Double): Double {
-        val tradeProgress = (tradeCount.toDouble() / 500.0).coerceIn(0.0, 1.0)
-        val winRateBonus = if (winRate > 50.0) 0.1 else 0.0
-        return (tradeProgress + winRateBonus).coerceIn(0.0, 1.0)
+        // V5.9.616 — 4-phase curve to 5000 trades.
+        // 0-1000:    0.0 → 0.50  (bootstrap)
+        // 1000-3000: 0.50 → 0.80 (learning)
+        // 3000-5000: 0.80 → 1.0  (expert)
+        // Win-rate bonus removed: a 27% WR bot doesn't deserve a +10% maturity
+        // gift just because it had a lucky streak. Maturity is purely volume.
+        val baseProgress = when {
+            tradeCount <= FDG_BOOTSTRAP_END ->
+                (tradeCount.toDouble() / FDG_BOOTSTRAP_END) * 0.50
+            tradeCount <= FDG_LEARNING_END ->
+                0.50 + ((tradeCount - FDG_BOOTSTRAP_END).toDouble() /
+                        (FDG_LEARNING_END - FDG_BOOTSTRAP_END)) * 0.30
+            tradeCount <= FDG_EXPERT_END ->
+                0.80 + ((tradeCount - FDG_LEARNING_END).toDouble() /
+                        (FDG_EXPERT_END - FDG_LEARNING_END)) * 0.20
+            else -> 1.0
+        }
+        return baseProgress.coerceIn(0.0, 1.0)
     }
 
     fun lerp(loose: Double, strict: Double, progress: Double): Double {
@@ -248,15 +275,51 @@ object FinalDecisionGate {
 
     fun recordTradeExecuted() {
         if (adaptiveRelaxationActive) {
-            relaxationTradesUsed++
-            if (relaxationTradesUsed >= MAX_RELAXATION_TRADES) {
-                adaptiveRelaxationActive = false
-                relaxationTradesUsed = 0
-                ErrorLogger.info("FDG", "🔒 Adaptive relaxation deactivated (used $MAX_RELAXATION_TRADES relaxed trades)")
+            // V5.9.616 — do NOT consume relaxation budget while AntiChoke is
+            // forcing it on. The 3-trade cap was meant for in-FDG soft-block
+            // recovery, not for the bot-wide starvation immune system. While
+            // AntiChoke says SOFTEN/RECOVERY, relaxation persists until the
+            // operator's trade-rate target is recovered.
+            val antiChokeForcing = try {
+                com.lifecyclebot.engine.AntiChokeManager.isSoftening()
+            } catch (_: Throwable) { false }
+            if (!antiChokeForcing) {
+                relaxationTradesUsed++
+                if (relaxationTradesUsed >= MAX_RELAXATION_TRADES) {
+                    adaptiveRelaxationActive = false
+                    relaxationTradesUsed = 0
+                    ErrorLogger.info("FDG", "🔒 Adaptive relaxation deactivated (used $MAX_RELAXATION_TRADES relaxed trades)")
+                }
             }
         }
         consecutiveBlockCount = 0
         lastBlockReason = null
+    }
+
+    /**
+     * V5.9.616 — AntiChoke → FDG bridge. AntiChokeManager calls this when
+     * it transitions to SOFTEN or RECOVERY so confidence floors relax
+     * immediately, without waiting for 20 consecutive blocks. The operator
+     * rule is: "the choke manager isnt doing its job. its meant to be able
+     * to drop scoring if need be unchoke trading the scanner and watchlist
+     * instantly". This is the lever AntiChoke pulls.
+     */
+    fun forceAdaptiveRelaxation(reason: String) {
+        if (adaptiveRelaxationActive) return
+        adaptiveRelaxationActive = true
+        relaxationTradesUsed = 0
+        ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION FORCED by $reason — confidence floors dropped")
+    }
+
+    /**
+     * V5.9.616 — explicit clear (for AntiChoke when it returns to CLEAR).
+     */
+    fun clearAdaptiveRelaxation(reason: String) {
+        if (!adaptiveRelaxationActive) return
+        adaptiveRelaxationActive = false
+        relaxationTradesUsed = 0
+        consecutiveBlockCount = 0
+        ErrorLogger.info("FDG", "🔒 Adaptive relaxation cleared by $reason")
     }
 
     fun shouldBypassSoftBlock(blockType: String): Boolean {
@@ -694,8 +757,19 @@ object FinalDecisionGate {
             0
         }
 
+        // V5.9.616 — earlyAIDegraded gated by sample count.
+        // Before, ANY 27% session win rate flipped this true at trade #20,
+        // slamming the 32% confidence floor on a baby bot. Now requires the
+        // bot to have at least 500 settled trades (10% of the 5000-trade
+        // maturity target) AND an entry-AI win rate < 25% OR catastrophic
+        // exit PnL. Below 500 trades the bot is allowed to be unprofitable
+        // while it gathers signal — that's literally what bootstrap is for.
+        val totalSettled = currentConditions.totalSessionTrades + currentConditions.historicalTradeCount
         val earlyAIDegraded = try {
-            currentConditions.entryAiWinRate < 30.0 || currentConditions.exitAiAvgPnl < -10.0
+            totalSettled >= 500 && (
+                currentConditions.entryAiWinRate < 25.0 ||
+                currentConditions.exitAiAvgPnl < -15.0
+            )
         } catch (_: Exception) {
             false
         }
@@ -759,8 +833,27 @@ object FinalDecisionGate {
         val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
         val isBootstrapPhase = if (classicMode) learningProgress < 0.25 else learningProgress < 0.40  // V5.9.341 classic / V5.9.165 modern
         val isPaperMode = mode == TradeMode.PAPER
-        // V5.6.28f: Allow confidence floor bypass for BOTH modes during learning
-        val canBypassConfidenceFloors = isBootstrapPhase
+        // V5.9.616 — UNCHOKE BRIDGE.
+        // The confidence-floor bypass must STAY TRUE in any of these cases:
+        //   1. We're still inside bootstrap (learningProgress < 0.40) — the
+        //      bot can't learn out of a 27% WR if every entry is rejected.
+        //   2. Total settled trades < 1000 — full bootstrap volume target,
+        //      regardless of how the FluidLearningAI maturity curve maps.
+        //      Operator rule: "the bot should never choke. its meant to go
+        //      out of learning at maturity which is 5000 trades."
+        //   3. AntiChokeManager is currently in SOFTEN or RECOVERY — the
+        //      anti-choke immune system has detected starvation and is
+        //      explicitly asking gates to relax. FDG must obey.
+        //   4. FDG.adaptiveRelaxationActive — the in-FDG soft-block bypass.
+        val totalTradesForBypass = currentConditions.totalSessionTrades +
+            currentConditions.historicalTradeCount
+        val antiChokeRelaxing = try {
+            com.lifecyclebot.engine.AntiChokeManager.isSoftening()
+        } catch (_: Throwable) { false }
+        val canBypassConfidenceFloors = isBootstrapPhase ||
+            totalTradesForBypass < 1000 ||
+            antiChokeRelaxing ||
+            adaptiveRelaxationActive
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -920,8 +1013,14 @@ object FinalDecisionGate {
         // Degraded AI means we need MORE learning data, not less. Paper trades with low
         // confidence when AI is degraded are precisely the training signal needed to recover.
         // V5.6.28f: Apply same rule to LIVE - unified learning
-        if (confidence < 32.0 && earlyAIDegraded && !canBypassConfidenceFloors) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
+        // V5.9.616 — graduated floor:
+        //   - <1000 trades: floor never engages (canBypassConfidenceFloors above
+        //     handles this). Defensive belt-and-braces here.
+        //   - 1000-3000 trades (learning phase): 22% floor — still loose.
+        //   - 3000+ trades: 32% floor — original rule.
+        val aiDegradedFloor = if (totalSettled < 3000) 22.0 else 32.0
+        if (confidence < aiDegradedFloor && earlyAIDegraded && !canBypassConfidenceFloors) {
+            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | floor=${aiDegradedFloor.toInt()}% | DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
 
             return FinalDecision(
                 shouldTrade = false,
@@ -930,14 +1029,14 @@ object FinalDecisionGate {
                 quality = candidate.setupQuality,
                 confidence = confidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_32%",
+                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_${aiDegradedFloor.toInt()}%",
                 blockLevel = BlockLevel.CONFIDENCE,
                 sizeSol = 0.0,
                 tags = listOf("ai_degraded_confidence_floor", "hard_kill"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "AI_DEGRADED + conf < 32% = REJECT",
-                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= 32%"))
+                approvalReason = "AI_DEGRADED + conf < ${aiDegradedFloor.toInt()}% = REJECT",
+                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= ${aiDegradedFloor.toInt()}%"))
             )
         }
 

@@ -108,6 +108,21 @@ object AntiChokeManager {
             ghosts += clearGhostInternalPositions(isPaperMode, wallet, tokens, now)
             pruned += pruneDormantWatchlist(tokens, now, aggressive = level == Level.RECOVERY)
             try { TradingCopilot.clearDemotionWeights() } catch (_: Throwable) {}
+            // V5.9.616 — UNCHOKE BRIDGE: force FDG to drop confidence floors
+            // immediately. Operator rule: "the choke manager isnt doing its
+            // job. its meant to be able to drop scoring if need be unchoke
+            // trading the scanner and watchlist instantly". This is the
+            // call that pulls FDG's adaptive relaxation lever directly.
+            try {
+                FinalDecisionGate.forceAdaptiveRelaxation("AntiChoke=${level.name}")
+            } catch (_: Throwable) {}
+        }
+        if (level == Level.CLEAR) {
+            // Trade-rate recovered — clear the relaxation that AntiChoke
+            // forced earlier so FDG returns to its normal selectivity.
+            try {
+                FinalDecisionGate.clearAdaptiveRelaxation("AntiChoke=CLEAR")
+            } catch (_: Throwable) {}
         }
         if (level == Level.RECOVERY) {
             // V5.9.614 — starvation breaker. Evict tokens that have been in the

@@ -398,16 +398,36 @@ object EfficiencyLayer {
         val bootstrap: Boolean,
     )
     
-    @Volatile private var lastLoggedFdgState: FdgState? = null
-    
+    // V5.9.616 — per-mode dedupe. Old impl kept ONE last-state field which
+    // ping-ponged between LIVE/PAPER on every cycle, causing the dedupe to
+    // never catch a duplicate and producing 10 FLUID CONF lines per pulse.
+    // Operator forensics: "10 lines every 30 seconds, can't read the log".
+    private val lastLoggedFdgStatePerMode = java.util.concurrent.ConcurrentHashMap<String, FdgState>()
+    @Volatile private var lastFdgLogMs: Long = 0L
+    private const val FDG_MIN_LOG_INTERVAL_MS = 30_000L  // hard rate-limit, 1 line / 30s / mode
+
     /**
      * Check if FDG state has changed and should be logged.
-     * Returns true if state is different from last logged state.
+     * Returns true if state is different from last logged state for this mode.
      */
     fun shouldLogFdgState(current: FdgState): Boolean {
-        val last = lastLoggedFdgState
+        val last = lastLoggedFdgStatePerMode[current.mode]
+        val now = System.currentTimeMillis()
+        // Always log first state or genuine state changes (subject to rate limit).
         if (last == null || current != last) {
-            lastLoggedFdgState = current
+            if (now - lastFdgLogMs < 1_000L && last != null) {
+                // Rapid fire from many candidates in the same scan tick — only
+                // let the first per-mode through, dedupe the rest.
+                return false
+            }
+            lastLoggedFdgStatePerMode[current.mode] = current
+            lastFdgLogMs = now
+            return true
+        }
+        // Same state as before for this mode → suppress unless 30s have elapsed
+        // (so a long-static state gets at most one heartbeat per minute mode).
+        if (now - lastFdgLogMs >= FDG_MIN_LOG_INTERVAL_MS) {
+            lastFdgLogMs = now
             return true
         }
         return false
