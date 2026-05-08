@@ -27,22 +27,39 @@ class CryptoUniverseRouteResolverTest {
     )
 
     @Test
-    fun btc_native_no_adapters_is_cex_required_or_paper_only_not_buy_failed() {
+    fun btc_resolves_to_jupiter_or_bridged_when_live_enabled() {
+        // V5.9.495 operator commit (Allow Crypto Universe USDC-collateral
+        // symbol exposure without target mint): missing-SPL is no longer a
+        // live-trade blocker; symbol routes via USDC collateral. With
+        // cryptoUniverseLiveEnabled = true (default), BTC must resolve to
+        // either JUPITER_ROUTABLE (if a wrapped mint exists) or
+        // BRIDGED_WRAPPED_ASSET (symbol-only) and be executable.
         CryptoUniverseConfigStore.set(cfg(bridge = false, cex = false, paperFallback = false))
         val r = CryptoUniverseRouteResolver.resolve(PerpsMarket.BTC, walletSolBalance = 5.0, sizeSol = 0.05)
-        assertEquals(CryptoExecutionRoute.CEX_REQUIRED, r.route)
-        assertEquals(CryptoUniverseDiagCodes.ROUTE_CEX_REQUIRED, r.diagCode)
-        assertTrue("BTC w/o adapters must NOT be executable", !r.executable)
+        assertTrue(
+            "BTC must route via Jupiter or USDC-bridge, got ${r.route}",
+            r.route == CryptoExecutionRoute.JUPITER_ROUTABLE ||
+            r.route == CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET
+        )
+        assertTrue("BTC must be executable when live is enabled", r.executable)
     }
 
     @Test
-    fun xmr_no_route_no_adapters_with_paper_fallback_is_paper_only() {
-        CryptoUniverseConfigStore.set(cfg(bridge = false, cex = false, paperFallback = true))
-        // XMR is not in PerpsMarket enum (operator may or may not have it),
-        // so use BTC equivalent (also native-only) and paper fallback.
+    fun btc_not_executable_when_live_disabled() {
+        // Same path as above but with cryptoUniverseLiveEnabled=false → the
+        // resolver still selects the route (so the operator can audit the
+        // resolution decision) but executable must be false.
+        CryptoUniverseConfigStore.set(CryptoUniverseConfig(
+            cryptoUniverseAllowBridgeAdapters = false,
+            cryptoUniverseAllowCexAdapters = false,
+            cryptoUniversePaperOnlyWhenNoExecutor = true,
+            cryptoUniverseLiveEnabled = false,
+        ))
         val r = CryptoUniverseRouteResolver.resolve(PerpsMarket.BTC, walletSolBalance = 5.0, sizeSol = 0.05)
-        assertEquals(CryptoExecutionRoute.PAPER_ONLY, r.route)
-        assertTrue(!r.executable)
+        assertTrue(
+            "BTC must NOT be executable with live disabled, got route=${r.route} executable=${r.executable}",
+            !r.executable
+        )
     }
 
     @Test
