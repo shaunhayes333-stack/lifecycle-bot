@@ -577,7 +577,8 @@ object EfficiencyLayer {
         candidateQueue.clear()
         cachedWallet = null
         cachedPrice = null
-        lastLoggedFdgState = null
+        lastLoggedFdgStatePerMode.clear()
+        lastFdgLogMs = 0L
         discoverySkipped.set(0)
         discoveryProcessed.set(0)
         ErrorLogger.info(TAG, "Efficiency layer reset")
