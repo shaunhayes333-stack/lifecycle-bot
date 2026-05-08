@@ -50,6 +50,17 @@ object LiveWalletReconciler {
     private val lastSellSig  = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val lastBuySig   = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    // V5.9.495z49 — operator log 17:03 evidence:
+    //   "🟡 reconcile(cycle_xxx): RPC returned empty map" × 25 in 5s.
+    // BotService.processTokenCycle calls reconcileNow once per watchlisted
+    // token (≥70 calls/cycle). Calls 2..N hit RPC rate-limit, return empty,
+    // and ALSO starve the actual liveBuy RPC budget — silently choking the
+    // meme trader. Throttle to one real reconcile per 30 s; subsequent
+    // per-token nudges become no-ops at the entry of reconcileNow.
+    private const val MIN_RECONCILE_GAP_MS = 30_000L
+    private val lastReconcileStartMs = AtomicLong(0L)
+    private val skippedDueToCooldown = AtomicInteger(0)
+
     fun totalChecked(): Int  = totalChecked.get()
     fun totalUpdated(): Int  = totalUpdated.get()
     fun totalRuns(): Int     = totalRuns.get()
@@ -67,11 +78,29 @@ object LiveWalletReconciler {
     /** Trigger one reconciliation pass. Non-blocking — runs on IO. */
     fun reconcileNow(wallet: SolanaWallet?, reason: String) {
         val w = wallet ?: return
+        // V5.9.495z49 — throttle: per-token callers (BotService.processTokenCycle)
+        // would fire 70+ reconciles per cycle, causing RPC rate-limit cascade
+        // that starved the actual liveBuy. Allow at most one real reconcile
+        // per 30 s; collapse the rest into a no-op with a count.
+        val now = System.currentTimeMillis()
+        val last = lastReconcileStartMs.get()
+        if (now - last < MIN_RECONCILE_GAP_MS && last > 0L) {
+            skippedDueToCooldown.incrementAndGet()
+            return
+        }
+        // CAS so two threads can't both pass the gap check.
+        if (!lastReconcileStartMs.compareAndSet(last, now)) {
+            skippedDueToCooldown.incrementAndGet()
+            return
+        }
         scope.launch {
             try { reconcileBlocking(w, reason) }
             catch (e: Throwable) { ErrorLogger.warn(TAG, "reconcile threw: ${e.message}") }
         }
     }
+
+    /** Operator/test diagnostic for the throttle. */
+    fun skippedDueToCooldown(): Int = skippedDueToCooldown.get()
 
     /** Synchronous variant used by tests + bot-start path. */
     fun reconcileBlocking(wallet: SolanaWallet, reason: String): Int {

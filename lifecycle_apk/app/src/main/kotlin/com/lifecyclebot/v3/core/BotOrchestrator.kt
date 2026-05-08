@@ -69,11 +69,19 @@ class BotOrchestrator(
 
         lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
         logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
+        com.lifecyclebot.engine.MemePipelineTracer.stage(
+            "V3_ELIGIBLE", candidate.mint, candidate.symbol,
+            "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m",
+        )
 
         val preScoreMemoryKill = checkPreScoreMemoryKill(candidate)
         if (preScoreMemoryKill != null) {
             lifecycle.mark(candidate.mint, LifecycleState.WATCH)
             shadowTracker.trackEarly(candidate, preScoreMemoryKill.memoryScore, preScoreMemoryKill.reason)
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol,
+                reason = "PRE_SCORE_MEMORY_KILL", detail = preScoreMemoryKill.reason,
+            )
             return ProcessResult.Watch(0.0, 0.0)
         }
 
@@ -136,6 +144,10 @@ class BotOrchestrator(
             )
             lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
             shadowTracker.track(candidate, scoreCard, confidence.effective.toInt(), earlyKill.reason)
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol,
+                reason = "PRE_PROPOSAL_KILL", detail = earlyKill.reason,
+            )
             return ProcessResult.ShadowOnly(
                 score = scoreCard.total.toDouble(),
                 confidence = confidence.effective.toDouble(),
@@ -389,6 +401,11 @@ class BotOrchestrator(
             )
             lifecycle.mark(candidate.mint, LifecycleState.WATCH)
             shadowTracker.track(candidate, scoreCard, confidence, "C_GRADE_LOOPER_BLOCKED")
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol,
+                reason = "C_GRADE_LOOPER_BLOCKED",
+                detail = "quality=$setupQuality conf=${decision.effectiveConfidence}",
+            )
             return ProcessResult.Watch(
                 score = decision.finalScore.toDouble(),
                 confidence = confidence.toDouble()
@@ -408,6 +425,10 @@ class BotOrchestrator(
         lifecycle.mark(candidate.mint, LifecycleState.BLOCKED_FATAL)
         shadowTracker.track(candidate, scoreCard, effectiveConfidence, decision.fatalReason ?: "FATAL")
         lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+        com.lifecyclebot.engine.MemePipelineTracer.blocked(
+            candidate.mint, candidate.symbol,
+            reason = "BLOCK_FATAL", detail = decision.fatalReason ?: "FATAL",
+        )
 
         openShadowTradeForLearning(
             candidate = candidate,
@@ -429,6 +450,11 @@ class BotOrchestrator(
         lifecycle.mark(candidate.mint, LifecycleState.WATCH)
         shadowTracker.track(candidate, scoreCard, effectiveConfidence, "WATCH")
         lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+        com.lifecyclebot.engine.MemePipelineTracer.blocked(
+            candidate.mint, candidate.symbol,
+            reason = "DECISION_WATCH",
+            detail = "score=${decision.finalScore} conf=${effectiveConfidence} band=${decision.band}",
+        )
 
         openShadowTradeForLearning(
             candidate = candidate,
@@ -451,6 +477,11 @@ class BotOrchestrator(
         decision: DecisionResult
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
+        com.lifecyclebot.engine.MemePipelineTracer.blocked(
+            candidate.mint, candidate.symbol,
+            reason = "DECISION_REJECT",
+            detail = "score=${decision.finalScore} conf=${effectiveConfidence} band=${decision.band}",
+        )
 
         if (decision.finalScore >= ctx.config.shadowTrackNearMissMin) {
             shadowTracker.track(candidate, scoreCard, effectiveConfidence, "NEAR_MISS_REJECT")
@@ -478,6 +509,12 @@ class BotOrchestrator(
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTE_READY)
 
+        // V5.9.495z49 — operator P0: meme-pipeline tracing.
+        com.lifecyclebot.engine.MemePipelineTracer.stage(
+            "V3_EXECUTE_READY", candidate.mint, candidate.symbol,
+            "band=${decision.band} score=${decision.finalScore} conf=${confidenceEffective}",
+        )
+
         val size = smartSizer.compute(
             band = decision.band,
             wallet = wallet,
@@ -493,11 +530,32 @@ class BotOrchestrator(
             lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
             shadowTracker.track(candidate, scoreCard, confidenceEffective, "SIZE_ZERO")
             lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol, reason = "SIZE_ZERO",
+                detail = "smartSizer returned 0 — band=${decision.band} conf=${confidenceEffective}",
+            )
             return ProcessResult.Rejected("SIZE_ZERO")
         }
 
+        com.lifecyclebot.engine.MemePipelineTracer.stage(
+            "EXECUTOR_START", candidate.mint, candidate.symbol,
+            "size=${"%.4f".format(size.sizeSol)} SOL",
+        )
         val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTED)
+
+        if (execResult.success) {
+            com.lifecyclebot.engine.MemePipelineTracer.stage(
+                "EXECUTOR_DONE", candidate.mint, candidate.symbol,
+                "sig=${execResult.txSignature?.take(16) ?: "<paper/stub>"} size=${"%.4f".format(execResult.executedSize)} SOL",
+            )
+        } else {
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol,
+                reason = "EXECUTOR_FAILED",
+                detail = "err=${execResult.error?.take(80) ?: "?"}",
+            )
+        }
 
         val breakdown = scoreCard.components.joinToString(" ") { "${it.name}=${it.value}" }
 

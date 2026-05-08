@@ -552,11 +552,25 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             if (currentLiquidityUsd in 0.0..1_999.0) {
                 hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$2,000 live floor — too thin to exit safely")
                 ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()}")
+                try {
+                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                        mint = mint, symbol = symbol,
+                        reason = "SAFETY_LIQ_HARD_BLOCK_LIVE",
+                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$2000 floor",
+                    )
+                } catch (_: Throwable) {}
             }
             // Volume floor: if we couldn't get current liquidity, treat as unknown→block
             if (currentLiquidityUsd < 0) {
                 hard.add("Liquidity UNKNOWN — refusing live buy until verified")
                 ErrorLogger.error(TAG, "🚫 LIQ-UNKNOWN HARD BLOCK (live): $symbol")
+                try {
+                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                        mint = mint, symbol = symbol,
+                        reason = "SAFETY_LIQ_UNKNOWN_HARD_BLOCK_LIVE",
+                        detail = "currentLiq=UNKNOWN",
+                    )
+                } catch (_: Throwable) {}
             }
         }
 

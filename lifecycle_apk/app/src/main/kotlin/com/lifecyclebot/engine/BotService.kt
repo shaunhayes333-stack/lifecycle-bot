@@ -3522,7 +3522,11 @@ class BotService : Service() {
                                                 logoUrl = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
                                             )
                                         }
-                                        val estLiq = (mcapUsd * 0.10).coerceAtLeast(0.0)
+                                        // V5.9.495z49 — pump.fun bonding-curve
+                                        // liquidity ≈ mcap pre-graduation. Old
+                                        // 0.10× under-seeded ts.lastLiquidityUsd
+                                        // and silently failed safety's $2K floor.
+                                        val estLiq = (mcapUsd * 0.85).coerceAtLeast(0.0)
                                         if (ts.lastMcap <= 0.0) ts.lastMcap = mcapUsd
                                         if (ts.lastLiquidityUsd <= 0.0 && estLiq > 0.0) ts.lastLiquidityUsd = estLiq
                                         if (ts.entryScore <= 0.0) ts.entryScore = 80.0
@@ -6420,10 +6424,22 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 // (operator log: CUCK scanner liq=$24k → safety LIQ HARD BLOCK $0).
                 // Resolve from best-known state before applying the live $2k floor.
                 val regEntry = try { GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
+                // V5.9.495z49 — operator log 17:03 evidence: PumpPortal fresh
+                // launches (mcap=27-31 SOL ≈ $2400-$2750 USD) were getting
+                // estimated at $240-$275 (× 0.10) and silently failing the
+                // live $2K hard floor → "🚫 LIQ HARD BLOCK SLIMEY $299" etc.
+                // The pump.fun bonding curve actually has liquidity ≈ mcap
+                // BEFORE graduation (the curve's SOL reserve dominates), so
+                // 0.10× wildly under-estimates pre-graduation tokens.
+                // Use 0.85× when source is PumpPortal (and pair.liquidity
+                // is still 0 — not yet on Raydium). For graduated/other
+                // sources, keep the original conservative 0.10 multiplier.
+                val isPumpBondingCurve = (pair.liquidity <= 0.0) &&
+                    (regEntry?.source?.contains("PUMP", ignoreCase = true) == true)
                 val registryLiqEstimate = (regEntry?.initialMcap ?: 0.0).let { mcap ->
-                    // PumpPortal entries pass mcap-derived USD here; use a conservative
-                    // 10% liquidity estimate only as a fallback to avoid false-zero blocks.
-                    if (mcap > 0.0) mcap * 0.10 else 0.0
+                    if (mcap > 0.0) {
+                        if (isPumpBondingCurve) mcap * 0.85 else mcap * 0.10
+                    } else 0.0
                 }
                 val resolvedLiquidityUsd = listOf(
                     pair.liquidity,
