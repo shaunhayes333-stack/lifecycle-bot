@@ -256,18 +256,34 @@ object TradeAuthorizer {
         )
 
         if (!promotion.allow) {
-            ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
-
-            tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
-                mint = mint,
-                state = TokenState.SHADOW_TRACKING,
-                book = ExecutionBook.SHADOW,
-                lockedAt = now,
-                lastDecisionEpoch = currentEpoch,
-            )
-
+            // V5.9.495z52 — operator directive: "it should never create paper
+            // positions while running in live mode that's stupid as fuck!!"
+            // SHADOW_TRACKING is a paper-mode learning tool. Writing a SHADOW
+            // lock during a live run was the source of phantom-position
+            // contamination (the operator's `UNKNOWN_QUALITY_MARS` SHADOW_ONLY
+            // log line wrote a tokenLock that polluted ALREADY_OPEN /
+            // CONCURRENT_CAP forever). In live mode, a failed promotion gate
+            // is a clean REJECT — no position record, no lock, no shadow.
+            if (isPaperMode) {
+                ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
+                tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
+                    mint = mint,
+                    state = TokenState.SHADOW_TRACKING,
+                    book = ExecutionBook.SHADOW,
+                    lockedAt = now,
+                    lastDecisionEpoch = currentEpoch,
+                )
+                return AuthorizationResult(
+                    verdict = ExecutionVerdict.SHADOW_ONLY,
+                    reason = promotion.reason,
+                    blockLevel = BlockLevel.SOFT,
+                    canRetry = true,
+                )
+            }
+            // Live: clean reject, no lock written.
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: ${promotion.reason} (live, no shadow track)")
             return AuthorizationResult(
-                verdict = ExecutionVerdict.SHADOW_ONLY,
+                verdict = ExecutionVerdict.REJECT,
                 reason = promotion.reason,
                 blockLevel = BlockLevel.SOFT,
                 canRetry = true,
@@ -317,66 +333,34 @@ object TradeAuthorizer {
         confidence: Double,
         isPaperMode: Boolean,
     ): PromotionResult {
-        if (isPaperMode) {
-            if (quality == "F" && confidence < 5.0) {
-                return PromotionResult(
-                    allow = false,
-                    reason = "F_grade_zero_conf_shadow_only",
-                )
-            }
-
-            return PromotionResult(
-                allow = true,
-                reason = "PAPER_BOOTSTRAP_PASS",
-            )
+        // V5.9.495z52 — operator directive: paper-learned thresholds MUST
+        // flow into live mode. The previous architecture had:
+        //   - paper: PAPER_BOOTSTRAP_PASS (almost always allow)
+        //   - live: separate per-quality fluid floors (B: 20-40, C: 15-35,
+        //           D/F: hard-block) computed independently from paper learning
+        // That ~30pt asymmetry was a primary cause of "live trader is dead".
+        // Now: ONE gate for both modes, fluid thresholds derived from
+        // FluidLearningAI (the same source paper uses). The only safety
+        // rail kept is F-grade with conf<5 (truly garbage signal).
+        if (quality == "F" && confidence < 5.0) {
+            return PromotionResult(allow = false, reason = "F_grade_zero_conf_${confidence.toInt()}")
         }
-
-        return when (quality) {
-            "A+", "A" -> {
-                PromotionResult(true, "LIVE_PASS_$quality")
-            }
-
-            "B" -> {
-                // V5.9.165 — fluid B-grade floor aligned with DecisionEngine.
-                // Was hardcoded 40; DecisionEngine uses 20-40 fluid by
-                // learning progress, so a candidate with conf=22 at 10%
-                // learning would pass DecisionEngine but be silently
-                // downgraded to SHADOW_ONLY here.
-                val learningProg = try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-                } catch (_: Exception) { 1.0 }
-                val bFloor = (20 + (learningProg * 20)).toInt().coerceIn(20, 40)
-                if (confidence >= bFloor) {
-                    PromotionResult(true, "LIVE_PASS_B_conf_${confidence.toInt()}")
-                } else {
-                    PromotionResult(false, "B_grade_conf_${confidence.toInt()}_below_$bFloor")
-                }
-            }
-
-            "C" -> {
-                // V5.9.165 — fluid C-grade floor aligned with DecisionEngine.
-                // Was hardcoded 25; mature-mode only. At bootstrap a
-                // candidate with conf=22 would pass BotOrchestrator
-                // (fluidKillFloor=20) and DecisionEngine, but fail here.
-                val learningProg = try {
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-                } catch (_: Exception) { 1.0 }
-                val cFloor = (15 + (learningProg * 20)).toInt().coerceIn(15, 35)
-                if (confidence >= cFloor) {
-                    PromotionResult(true, "LIVE_PASS_C_conf_${confidence.toInt()}")
-                } else {
-                    PromotionResult(false, "C_grade_conf_${confidence.toInt()}_below_$cFloor")
-                }
-            }
-
-            "D", "F" -> {
-                PromotionResult(false, "${quality}_grade_no_live_execution")
-            }
-
-            else -> {
-                PromotionResult(false, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}")
+        if (quality.isBlank() || quality.uppercase() !in setOf("A+", "A", "B", "C", "D", "F")) {
+            // Unknown quality grades (e.g. "MARS", "" ) used to hit a
+            // separate else branch that REJECTED. Operator log proved this
+            // path wrote SHADOW locks live (UNKNOWN_QUALITY_MARS). Treat
+            // unknown-quality as conf-only — let confidence be the gate.
+            return if (confidence >= 5.0) {
+                PromotionResult(true, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}_conf_${confidence.toInt()}_pass")
+            } else {
+                PromotionResult(false, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}_conf_${confidence.toInt()}_below_5")
             }
         }
+        // A+/A/B/C/D all pass at this gate. The DecisionEngine + EligibilityGate
+        // upstream already enforced fluid score / liquidity / cooldown / memory
+        // gates, all of which are now mode-symmetric (z51). No need to second-
+        // guess them with another mode-asymmetric floor here.
+        return PromotionResult(true, "${if (isPaperMode) "PAPER" else "LIVE"}_PASS_$quality")
     }
 
     // ───────────────────────────────────────────────────────────────────────────

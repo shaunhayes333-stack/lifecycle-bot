@@ -157,13 +157,24 @@ class ExposureGuard(
     fun isTokenAlreadyOpen(mint: String): Boolean {
         // V5.9.495z6 — operator spec F: ALREADY_OPEN must consult ALL state
         // sources (open position by mint OR wallet token raw balance by mint).
-        // The exposure guard's local openMints set can drift from on-chain
-        // truth (e.g. after an orphan recovery). Consult WalletReconciler's
-        // canonical knownMints registry as well so we never let a token slip
-        // through ALREADY_OPEN just because the V3 set went stale.
+        // V5.9.495z52 — operator directive (5th escalation): rugged-dust ATAs
+        // in the wallet kept tokens like ROFL flagged ALREADY_OPEN forever
+        // even though `positions=0`. Replaced the unconditional
+        // `WalletReconciler.knownMintContains(mint)` (which returns true for
+        // ANY SPL ATA including dust) with a TokenLifecycleTracker lookup
+        // that only returns true if the bot itself has a confirmed
+        // non-dust live meme position for THIS mint.
         if (mint in openMints) return true
         return try {
-            com.lifecyclebot.engine.WalletReconciler.knownMintContains(mint)
+            val r = com.lifecyclebot.engine.TokenLifecycleTracker.get(mint)
+                ?: return false
+            !r.buyTx.isNullOrBlank() &&
+                r.currentWalletTokenQty > 0.01 &&
+                r.status != com.lifecyclebot.engine.TokenLifecycleTracker.Status.SELL_CONFIRMED &&
+                r.status != com.lifecyclebot.engine.TokenLifecycleTracker.Status.CLEARED &&
+                r.status != com.lifecyclebot.engine.TokenLifecycleTracker.Status.RECONCILE_FAILED &&
+                r.venue.lowercase().trim() !in setOf("cryptoalt", "crypto", "perps",
+                    "markets", "stocks", "tokenized_stocks", "auto-import")
         } catch (_: Throwable) { false }
     }
 

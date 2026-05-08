@@ -5150,7 +5150,11 @@ class Executor(
         // V5.9.495z29 — operator spec item 8: LiveExecutionGate. Single
         // chokepoint enforcing daily quota / concurrent ceiling / min spacing
         // / pending-verification queue depth. Reject cleanly + log when blocked.
-        val openLive = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+        // V5.9.495z52 — use liveMemeOpenCount() (filters out auto-imported
+        // wallet dust ATAs, cross-lane CryptoUniverse / Markets positions,
+        // and dust-balance residuals) instead of openCount() which counted
+        // all 34 phantom records and falsely tripped concurrent_cap=12.
+        val openLive = try { TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Throwable) { 0 }
         when (val decision = LiveExecutionGate.tryAcquireBuy(openLive)) {
             is LiveExecutionGate.Decision.Blocked -> {
                 ErrorLogger.warn("Executor",

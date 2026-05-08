@@ -113,6 +113,40 @@ object TokenLifecycleTracker {
     fun all(): List<Record> = records.values.toList()
     fun openCount(): Int = records.values.count { !it.status.isTerminal() }
 
+    /**
+     * V5.9.495z52 — operator directive: phantom 34 positions in operator's
+     * log were poisoning the concurrent-cap math. They were a mix of:
+     *   • Auto-imported wallet ATAs (rugged dust from old trades)
+     *   • Cross-lane positions (CryptoUniverse / Markets)
+     *   • SHADOW_TRACKING locks (now blocked in z52 TradeAuthorizer)
+     *   • Records stuck in RESIDUAL_HELD / RECONCILE_FAILED
+     *
+     * `liveMemeOpenCount()` returns ONLY records the meme trader should
+     * count toward its concurrent cap:
+     *   • venue is NOT cryptoalt / markets / auto-import
+     *   • buyTx is non-blank (we actually broadcast a buy)
+     *   • currentWalletTokenQty > dust threshold
+     *   • status is non-terminal AND not RECONCILE_FAILED (transient)
+     *
+     * Used by `LiveExecutionGate.tryAcquireBuy()` instead of `openCount()`.
+     */
+    private val nonMemeVenues = setOf(
+        "cryptoalt", "crypto", "perps", "markets", "stocks",
+        "tokenized_stocks", "auto-import",
+    )
+    private const val DUST_UI_THRESHOLD = 0.01
+
+    fun liveMemeOpenCount(): Int = try {
+        records.values.count { r ->
+            val v = r.venue.lowercase().trim()
+            v !in nonMemeVenues &&
+                !r.buyTx.isNullOrBlank() &&
+                r.currentWalletTokenQty > DUST_UI_THRESHOLD &&
+                r.status != Status.RECONCILE_FAILED &&
+                !r.status.isTerminal()
+        }
+    } catch (_: Throwable) { 0 }
+
     /** Stats for diagnostics export and the Universe / Forensics tile. */
     fun stats(): String {
         val by = records.values.groupingBy { it.status.name }.eachCount()
