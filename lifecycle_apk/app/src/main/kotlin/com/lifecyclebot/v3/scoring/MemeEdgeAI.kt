@@ -204,22 +204,27 @@ object MemeEdgeAI {
         }
     } catch (_: Exception) { null }
 
-    private fun recentStreak(layer: Layer, lookback: Int): Int = try {
-        val all = TradeHistoryStore.getAllSells()
-        val recent = all.asSequence()
-            .filter { matchesLayer(it, layer) }
-            .toList()
-            .takeLast(lookback)
-            .reversed()
-        if (recent.isEmpty()) return 0
-        val firstWin = recent.first().pnlPct > 0.0
-        var streak = 0
-        for (t in recent) {
-            val isWin = t.pnlPct > 0.0
-            if (isWin == firstWin) streak++ else break
-        }
-        if (firstWin) streak else -streak
-    } catch (_: Exception) { 0 }
+    private fun recentStreak(layer: Layer, lookback: Int): Int {
+        return try {
+            val all = TradeHistoryStore.getAllSells()
+            val recent = all.asSequence()
+                .filter { matchesLayer(it, layer) }
+                .toList()
+                .takeLast(lookback)
+                .reversed()
+            if (recent.isEmpty()) {
+                0
+            } else {
+                val firstWin = recent.first().pnlPct > 0.0
+                var streak = 0
+                for (t in recent) {
+                    val isWin = t.pnlPct > 0.0
+                    if (isWin == firstWin) streak++ else break
+                }
+                if (firstWin) streak else -streak
+            }
+        } catch (_: Exception) { 0 }
+    }
 
     private fun matchesLayer(t: Trade, layer: Layer): Boolean {
         val m = t.tradingMode.uppercase()
