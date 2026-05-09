@@ -270,6 +270,9 @@ object TokenMergeQueue {
     }
 
     fun isPending(mint: String): Boolean = pendingDiscoveries.containsKey(mint)
+    
+    /** V5.9.651 — depth of the merge queue (used by ForensicLogger LOOP_TOP snapshot). */
+    fun size(): Int = pendingDiscoveries.size
 
     /**
      * V5.9.364 — return the number of distinct scanners that have already

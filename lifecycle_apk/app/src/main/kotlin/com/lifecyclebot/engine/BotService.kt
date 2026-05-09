@@ -1735,6 +1735,8 @@ class BotService : Service() {
      * Returns true if a scanner is alive after this call, false on failure.
      */
     private fun bootMemeScanner(reason: String): Boolean {
+        // V5.9.651 — forensic heal entry
+        ForensicLogger.phase(ForensicLogger.PHASE.SCANNER_HEAL, "_scanner", "reason=$reason existing=${marketScanner != null}")
         val existing = marketScanner
         if (existing != null) {
             return try {
@@ -1812,6 +1814,8 @@ class BotService : Service() {
     }
 
     fun startBot() {
+        // V5.9.651 — forensic lifecycle marker
+        ForensicLogger.lifecycle("BOT_START_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}")
         // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
         // BotViewModel.startBot() pre-sets BotService.status.running = true
         // for instant UI feedback BEFORE the service even starts. The old
@@ -2391,6 +2395,19 @@ class BotService : Service() {
                     cfg          = { ConfigStore.load(applicationContext) },
                     onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                         try {
+                            // V5.9.651 — forensic visibility for the ORIGINAL
+                            // (full-fat) scanner callback path. Critical for
+                            // distinguishing whether non-PumpPortal scanner
+                            // sources (DexGainers, Boosted, PumpFunTrending,
+                            // scanTopVolume, etc.) are firing here vs. the
+                            // V5.9.646 simplified bootMemeScanner self-heal
+                            // path. Operator can grep "🧬[SCAN_CB]" to see
+                            // the full source mix in real time.
+                            ForensicLogger.phase(
+                                ForensicLogger.PHASE.SCAN_CB,
+                                symbol,
+                                "path=STARTUP src=${source.name} liq=$$liquidityUsd score=$score vol=$$volumeH1"
+                            )
                             // V5.9.623 — scanner heartbeat means raw discovery, not only
                             // post-filter enqueue. Prevents false "scan stale 9999s" while
                             // the scanner is alive but candidates are returning early.
@@ -3358,6 +3375,8 @@ class BotService : Service() {
     }
 
     fun stopBot() {
+        // V5.9.651 — forensic stop marker
+        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
@@ -4328,8 +4347,16 @@ class BotService : Service() {
     ): Boolean {
         if (mint.isBlank() || mint.length < 30) {
             ErrorLogger.debug("BotService", "🛡 protected intake ignored invalid mint ${mint.take(8)} source=$source")
+            ForensicLogger.gate(ForensicLogger.PHASE.INTAKE, symbol.ifBlank { mint.take(6) }, allow=false, reason="INVALID_MINT mint=${mint.take(8)} src=$source")
             return false
         }
+
+        // V5.9.651 — forensic intake entry log
+        ForensicLogger.phase(
+            ForensicLogger.PHASE.INTAKE,
+            symbol.ifBlank { mint.take(6) },
+            "src=$source liq=$$liquidityUsd mcap=$$marketCapUsd vol1h=$$volumeH1 conf=$confidence sources=${allSources.size}"
+        )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
         val addResult = try {
@@ -4644,6 +4671,7 @@ class BotService : Service() {
 
     private suspend fun botLoop() {
         ErrorLogger.info("BotService", "botLoop() started")
+        ForensicLogger.lifecycle("BOTLOOP_STARTED", "scope.active=${scope.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
         
         // START RAPID STOP-LOSS MONITOR IN PARALLEL
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -4689,6 +4717,25 @@ class BotService : Service() {
         while (status.running) {
           try {
             loopCount++
+
+            // V5.9.651 — forensic per-loop snapshot every ~30s (loopCount % 6).
+            // Operator can grep "🧬[LOOP_TOP]" to see exact pipeline state at
+            // any moment: watchlist size, merge queue depth, open positions,
+            // balance, scanner alive, etc.
+            if (loopCount % 6 == 0) {
+                try {
+                    val sc = marketScanner
+                    val scAlive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
+                    val mqDepth = try { TokenMergeQueue.size() } catch (_: Throwable) { -1 }
+                    val wlSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
+                    val openCount = status.tokens.values.count { it.position.isOpen }
+                    val cfg = ConfigStore.load(applicationContext)
+                    ForensicLogger.snapshot(
+                        "LOOP_TOP",
+                        "loop=$loopCount running=${status.running} loopJob=${loopJob?.isActive} scAlive=$scAlive mq=$mqDepth wl=$wlSize open=$openCount paper=${cfg.paperMode} v3=${cfg.v3EngineEnabled} memeT=${cfg.memeTraderEnabled} mode=${cfg.tradingMode}"
+                    )
+                } catch (_: Throwable) {}
+            }
 
             // V5.9.454 — WALLET RE-SYNC FIX.
             // BotService's local `wallet` var previously only updated
@@ -7657,6 +7704,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+        // V5.9.651 — forensic V3 entry. Operator wants to see EVERY V3
+        // evaluation: which mints reach V3, what score/conf they have,
+        // what V3 verdict was. Pair this with V3_DECIDE log emitted
+        // after V3Engine returns.
+        ForensicLogger.phase(
+            ForensicLogger.PHASE.V3,
+            ts.symbol,
+            "stage=ENTRY src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore.toInt()} mcap=$${ts.lastMcap.toInt()}"
+        )
         // V5.9.495z50 — confirm V3 engine reached for this candidate so the
         // operator can verify the watchlist→V3 handoff fires.
         try {
@@ -8654,6 +8710,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+                // V5.9.651 — forensic LANE_EVAL marker so operator can grep
+                // "🧬[LANE_EVAL]" and instantly see whether ShitCoin even
+                // entered evaluation for each watchlist token.
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.LANE_EVAL,
+                    ts.symbol,
+                    "lane=SHITCOIN paper=${cfg.paperMode} v3Ready=${try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false }} liq=$${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                )
                 // V5.9.409 — V3 is now the meme authority. If V3 is enabled,
                 // the parallel ShitCoin execution path is suppressed — V3 +
                 // FDG decide the entry and Executor.v3Buy performs it, with
