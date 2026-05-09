@@ -81,7 +81,7 @@ object CryptoAltTrader {
     // concurrency governors. Large ceiling kept purely as a sanity bound
     // so a runaway loop can't allocate unbounded memory.
     // V5.9.189: was 10,000 — way too many. 3% per pos × 20 = 60% max exposure as designed.
-    private const val MAX_POSITIONS         = 50   // V5.9.219b: 100 → 50 — user preference, exposure cap naturally limits active count
+    private const val MAX_POSITIONS         = 100  // V5.9.653: 50 → 100 — operator wants aggressive bootstrap learning. Was V5.9.219b "user preference" that throttled paper trades to ~1/cycle. Operator override: "memetrader and crypto trader are meant to be trading early in bootstrap so they learn and start adjusting".
 
     // V5.9.219: Tokens with no active price feeds on any source — skip to avoid spam
     private val NO_FEED_SYMBOLS = setOf("BLAST", "SCROLL", "CVXF", "PORTAL")
@@ -89,7 +89,7 @@ object CryptoAltTrader {
     // by REPLACING the weakest open position (lowest entry score) when the
     // incoming signal outscores it. Keeps capital rotating instead of
     // saturating at 110+ dead trades.
-    private const val SOFT_CAP_POSITIONS    = 40   // V5.9.219b: trigger replacement at 40 positions
+    private const val SOFT_CAP_POSITIONS    = 80   // V5.9.653: 40 → 80 — paired with MAX_POSITIONS bump. Soft cap triggers replace-only mode; bootstrap learning needs more exposure.
     private const val REPLACE_SCORE_MARGIN  = 8   // incoming must beat worst-held by at least this
 
     // V5.9.221: Stagnant + loser eviction thresholds
