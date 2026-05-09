@@ -1757,6 +1757,18 @@ class BotService : Service() {
                 cfg          = { ConfigStore.load(applicationContext) },
                 onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                     try {
+                        // V5.9.650 — operator-requested visibility. Operator's
+                        // log dump showed only PUMP_PORTAL_WS reaching protected
+                        // intake; non-PumpPortal scanner sources never appear.
+                        // This INFO line proves whether the scanner's onTokenFound
+                        // callback is firing for the OTHER 13+ sources at all
+                        // (DexGainers/Losers/Profiles/Boosted/PumpFunTrending/
+                        //  scanTopVolume/scanPumpFunVolume/scanPumpFunActive/
+                        //  scanEmergencyDexProfiles, etc).
+                        ErrorLogger.info(
+                            "BotService",
+                            "🔍 SCANNER_CALLBACK_FIRE: $symbol src=${source.name} liq=\$$liquidityUsd score=$score"
+                        )
                         lastScannerDiscoveryMs = System.currentTimeMillis()
                         marketScanner?.recordNewTokenFound()
                         admitProtectedMemeIntake(
@@ -8649,8 +8661,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 // scoring upstream. The ShitCoin block remains active only
                 // as a FALLBACK when V3 is disabled / not ready, preserving
                 // backward compatibility.
+                // V5.9.650 — operator override: in PAPER mode, run ShitCoin in
+                // PARALLEL with V3 instead of muting it. V5.9.409 made V3 the
+                // sole meme authority, but operator's V5.9.649 device showed V3
+                // returning WATCH/REJECTED for ALL 300+ watchlist candidates
+                // (low historical paper WR 7%, FDG floor=15%). With ShitCoin
+                // muted, the meme trader took ZERO trades while CryptoAlt's
+                // TRUMP fired immediately — proving the executor works but the
+                // V3-only meme gate is too tight. In paper mode, parallel
+                // ShitCoin gives the bot LEARNING exposure on the meme stream
+                // and lets us see actual rejection reasons in the log.
+                // LIVE mode is unchanged — V3 still owns memes there.
                 val v3OwnsMemes = try {
-                    cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()
+                    !cfg.paperMode && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()
                 } catch (_: Throwable) { false }
                 if (v3OwnsMemes) {
                     // Tag the token so FDG + cross-talk see the meme lane
