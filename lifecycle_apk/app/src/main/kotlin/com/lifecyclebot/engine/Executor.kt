@@ -4303,6 +4303,11 @@ class Executor(
         if (cfg().paperMode || wallet == null) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
+            // V5.9.643 — capture non-null wallet here so Kotlin smart-cast
+            // survives through the when(guard) branches without losing nullability
+            // info (the compiler loses the smart cast after seeing wallet passed
+            // to runShadowPaperBuy which accepts SolanaWallet?, re-widening it).
+            val safeWallet = wallet  // wallet is guaranteed non-null in this branch
             val guard = security.checkBuy(
                 mint         = tradeId.mint,
                 symbol       = tradeId.symbol,
@@ -4320,7 +4325,7 @@ class Executor(
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", wallet, walletSol)
+                        runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)
                     }
                     return
                 }
@@ -4329,16 +4334,16 @@ class Executor(
                     if (!WalletPositionLock.canOpen("Meme", effSol, walletSol)) {
                         onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
                         if (cfg().shadowPaperEnabled) {
-                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", wallet, walletSol)
+                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
                         }
                         return
                     }
                     ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${effSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
-                    liveBuy(ts, effSol, score, wallet, walletSol, tradeId, quality, skipGraduated)
+                    liveBuy(ts, effSol, score, safeWallet, walletSol, tradeId, quality, skipGraduated)
                     WalletPositionLock.recordOpen("Meme", effSol)
                     
                     if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, effSol, score, quality, "parallel", wallet, walletSol)
+                        runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)
                     }
                 }
             }
