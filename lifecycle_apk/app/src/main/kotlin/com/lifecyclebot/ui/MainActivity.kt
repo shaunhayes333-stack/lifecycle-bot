@@ -6282,12 +6282,22 @@ This cannot be undone!
         // V5.2: THREE-COLUMN LAYOUT - Probation | Watchlist | Idle
         // ═══════════════════════════════════════════════════════════════════════
         
-        // Separate tokens into active vs idle
+        // V5.9.640 — Watchlist means the upstream qualification bench.
+        // Fresh protected-intake tokens default to phase="idle" until the first
+        // scoring pass touches them, but they are STILL watchlist candidates.
+        // Only true non-qualifying/shadow states belong in the side column.
         val activeTokens = mutableListOf<com.lifecyclebot.data.TokenState>()
         val idleTokens = mutableListOf<com.lifecyclebot.data.TokenState>()
+        val shadowPhases = setOf(
+            "blocked", "dead", "dying", "rug_likely", "distribution", "distributing",
+            "safety_shadow", "blacklist_shadow", "idle_shadow", "stale_shadow",
+            "timeout_shadow", "wait_shadow", "flat_shadow", "low_liq_shadow",
+            "fresh_zero_liq_shadow", "phase_shadow", "shadow"
+        )
         
         state.tokens.values.forEach { ts ->
-            if (ts.phase == "idle" || ts.phase == "blocked" || ts.phase == "dead") {
+            val phase = ts.phase.lowercase()
+            if (phase in shadowPhases || ts.safety.isBlocked) {
                 idleTokens.add(ts)
             } else {
                 activeTokens.add(ts)

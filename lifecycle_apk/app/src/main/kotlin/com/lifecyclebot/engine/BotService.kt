@@ -6568,10 +6568,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 continue
             }
 
-            if (ts.phase == "idle" && ageInWatchlist > idleThresholdMs && ts.history.size < 5) {
-                idleTagged++
-                shadow(ts, mint, "IDLE_SHADOW", "age=${ageInWatchlist / 1000}s history=${ts.history.size}")
-            }
+            // V5.9.640 — do NOT shadow ordinary idle candidates. "idle" is the
+            // default pre-qualification phase for fresh protected-intake tokens,
+            // not a failure state. Everything is meant to hit the watchlist bench
+            // for upstream qualification; only explicit blocked/dead/stale states
+            // should be side-lined. The old IDLE_SHADOW block is intentionally
+            // removed.
 
             if (ts.phase in listOf("dying", "dead", "rug_likely", "distribution") && ts.history.size >= 3) {
                 phaseTagged++
