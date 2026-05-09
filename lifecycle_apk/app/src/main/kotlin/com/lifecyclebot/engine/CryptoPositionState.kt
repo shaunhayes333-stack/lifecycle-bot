@@ -41,6 +41,41 @@ object CryptoPositionState {
         buckets[bucket]?.remove(symbol.uppercase())
     }
 
+    /**
+     * V5.9.654 — Operator's 10-Point Triage #1 (lane segregation purity).
+     *
+     * Operator-reported drift bug (CryptoAlt diagnostic line):
+     *     "positions=1 (live=0 paper=45 sim=0 watch=0)"
+     *
+     * Root cause: `record()` only ADDS to the bucket; nothing ever removed
+     * a symbol when its position closed. After a few scan cycles, the
+     * PAPER bucket accumulated every symbol ever held this session even
+     * though the live `positions` map was nearly empty. The diagnostic
+     * line then misled the operator (and the V5.9.653 agent) into
+     * believing the position cap was binding.
+     *
+     * `replaceBucket()` rebuilds a bucket atomically from the caller's
+     * current truth set. Callers (CryptoAltTrader.runScanCycle) pass
+     * exactly the symbols backed by an open `AltPosition` — so once this
+     * is wired, the diagnostic count can never exceed the real
+     * `positions.size`.
+     */
+    fun replaceBucket(bucket: Bucket, symbols: Collection<String>) {
+        val target = buckets[bucket] ?: return
+        val incoming = symbols.map { it.uppercase() }.toSet()
+        // Drop stale.
+        target.retainAll(incoming)
+        // Add any missing.
+        target.addAll(incoming)
+        // V5.9.654 — preserve the live-wins-over-paper invariant from
+        // record(): if we just rewrote the LIVE bucket, anything in there
+        // must not also be in PAPER/SIM.
+        if (bucket == Bucket.LIVE) {
+            buckets[Bucket.PAPER]?.removeAll(incoming)
+            buckets[Bucket.SIMULATED]?.removeAll(incoming)
+        }
+    }
+
     fun count(bucket: Bucket): Int = buckets[bucket]?.size ?: 0
 
     fun snapshot(): Map<Bucket, Int> = Bucket.values().associateWith { count(it) }

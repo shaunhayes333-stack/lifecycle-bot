@@ -763,16 +763,19 @@ object CryptoAltTrader {
         // operators can tell whether a paper backlog is masking a real
         // live position state. Operator-reported "CryptoAltTrader
         // positions=51" was blending all three.
+        // V5.9.654 — operator 10-Point Triage #1: replace the open-loop
+        // record() (which monotonically grew the bucket and produced
+        // "paper=45" with positions=1) with replaceBucket() so the
+        // diagnostic count is exactly the open `positions` map for the
+        // current mode and stale symbols are evicted automatically.
         try {
             val isPaper = isPaperMode.get()
-            // Refresh bucket counts from the in-memory map.
-            for ((id, pos) in positions.toMap()) {
-                val bucket = if (isPaper)
-                    com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
-                else
-                    com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
-                com.lifecyclebot.engine.CryptoPositionState.record(pos.market.symbol, bucket)
-            }
+            val bucket = if (isPaper)
+                com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
+            else
+                com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
+            val openSymbols = positions.values.map { it.market.symbol }
+            com.lifecyclebot.engine.CryptoPositionState.replaceBucket(bucket, openSymbols)
         } catch (_: Throwable) { /* best-effort */ }
         val cpsLine = try {
             com.lifecyclebot.engine.CryptoPositionState.summaryLine()
@@ -2051,6 +2054,19 @@ object CryptoAltTrader {
         // V5.9.432 — drop partial-ladder + trail state for this position.
         partialLadderHit.remove(positionId)
         trailPeakPct.remove(positionId)
+        // V5.9.654 — operator 10-Point Triage #1: release the symbol from
+        // the per-mode CryptoPositionState bucket so the diagnostic
+        // "live=… paper=… sim=… watch=…" line cannot drift away from the
+        // real `positions` map. Belt-and-braces with the per-cycle
+        // replaceBucket() rebuild in runScanCycle.
+        try {
+            val isPaper = isPaperMode.get()
+            val bucket = if (isPaper)
+                com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
+            else
+                com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
+            com.lifecyclebot.engine.CryptoPositionState.release(pos.market.symbol, bucket)
+        } catch (_: Throwable) { /* best-effort */ }
         // V5.9.178 — persist the map without this position.
         persistAltPositions()
         // V5.9.171 — clear from local orphan store since capital is being
