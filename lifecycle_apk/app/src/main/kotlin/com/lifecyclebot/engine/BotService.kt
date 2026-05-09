@@ -1919,7 +1919,7 @@ class BotService : Service() {
             }
 
         // ═══════════════════════════════════════════════════════════════════
-        // V5.9.621 — PAPER GHOST AUTO-PURGE
+        // V5.9.621 — PAPER GHOST AUTO-PURGE (V5.9.636: deferred + non-poisoning)
         //
         // Operator: "it shows 15 held tokens when its off". Paper positions
         // are persisted forever (V5.9.122 — never drop for age <60d) so a
@@ -1931,14 +1931,22 @@ class BotService : Service() {
         //   • breaks the trader-side closePosition() chain because the
         //     status.tokens entry has no live price feed (lastPrice=0)
         //
-        // Fix: on every paper-mode start, walk persisted paper positions
-        // older than 24h that have NO live price feed and refund their
-        // costSol back to the unified paper wallet (preserving capital).
-        // Live positions are untouched — the on-chain ground truth still
-        // governs them.
+        // V5.9.636 fix: defer the purge by 90s and run it in scope.launch
+        // so it does NOT block startBot() on the main coroutine, AND
+        // dropped the four sub-trader closePosition() calls because they
+        // tagged ghosts as STOP_LOSS / TIMEOUT / TIME_EXIT and falsely
+        // depressed each lane's lifetime WR. The purge now only refunds
+        // the paper SOL, journals the close, clears status.tokens, and
+        // removes the persistence row — sub-trader caps will refresh
+        // naturally on their next regime sync. The 90-second defer also
+        // gives DataOrchestrator + price feeds time to come back online,
+        // so a transient cold-boot price gap doesn't get classified as a
+        // ghost.
         // ═══════════════════════════════════════════════════════════════════
-        try {
-            if (cfg.paperMode) {
+        scope.launch {
+            try {
+                kotlinx.coroutines.delay(90_000L)
+                if (!cfg.paperMode) return@launch
                 val nowMs = System.currentTimeMillis()
                 val tokensSnapshot = synchronized(status.tokens) { status.tokens.values.toList() }
                 var purged = 0
@@ -1947,15 +1955,11 @@ class BotService : Service() {
                     try {
                         val pos = ts.position
                         if (!pos.isOpen) continue
-                        // Only purge paper-side ghosts. Live positions skipped.
                         val ageH = (nowMs - pos.entryTime) / 3600_000.0
-                        // No price feed available means the token will never
-                        // exit through normal exit logic — it's a true ghost.
                         val price = try { resolveLivePrice(ts) } catch (_: Throwable) { 0.0 }
                         val isGhost = ageH > 24.0 && price <= 0.0
                         if (!isGhost) continue
                         val refund = (pos.qtyToken * pos.entryPrice).coerceAtLeast(0.0)
-                        // Refund and clear
                         try { creditUnifiedPaperSol(refund, source = "paper_ghost_purge[${ts.symbol}]") } catch (_: Throwable) {}
                         try {
                             com.lifecyclebot.engine.V3JournalRecorder.recordClose(
@@ -1968,20 +1972,15 @@ class BotService : Service() {
                                 holdMinutes = (ageH * 60).toLong(),
                             )
                         } catch (_: Throwable) {}
-                        // Clear from ALL trader-side caches so lane caps reset
-                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, pos.entryPrice,
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, pos.entryPrice,
-                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TIMEOUT) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, pos.entryPrice,
-                                com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TIME_EXIT) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, pos.entryPrice,
-                                com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TIME_EXIT) } catch (_: Throwable) {}
-                        // Clear status.tokens position
+                        // V5.9.636 — DO NOT call sub-trader closePosition() with
+                        // STOP_LOSS / TIMEOUT / TIME_EXIT here. Those calls
+                        // poisoned ShitCoin/Quality/Moonshot/BlueChip lifetime
+                        // win-rate counters with phantom losses on every
+                        // restart, which is exactly the kind of regression we
+                        // are trying to undo.
                         synchronized(status.tokens) {
                             status.tokens[ts.mint]?.position = com.lifecyclebot.data.Position()
                         }
-                        // Clear persistence row so it doesn't come back
                         try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
                         purged++
                         refundedSol += refund
@@ -1990,12 +1989,12 @@ class BotService : Service() {
                     }
                 }
                 if (purged > 0) {
-                    addLog("👻 Paper ghost purge: cleared $purged stale ghost(s), refunded ${"%.4f".format(refundedSol)} SOL")
-                    ErrorLogger.info("BotService", "👻 V5.9.621 paper ghost purge: $purged ghost positions cleared, ${refundedSol} SOL refunded")
+                    addLog("👻 Paper ghost purge (deferred): cleared $purged stale ghost(s), refunded ${"%.4f".format(refundedSol)} SOL")
+                    ErrorLogger.info("BotService", "👻 V5.9.636 deferred paper ghost purge: $purged ghost positions cleared, ${refundedSol} SOL refunded (sub-trader stats untouched)")
                 }
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Deferred paper ghost purge failed: ${e.message}", e)
             }
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "Paper ghost purge failed: ${e.message}", e)
         }
 
         // ═══════════════════════════════════════════════════════════════════

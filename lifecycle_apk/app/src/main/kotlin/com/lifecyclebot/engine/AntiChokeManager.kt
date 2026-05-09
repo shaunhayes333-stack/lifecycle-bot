@@ -261,7 +261,52 @@ object AntiChokeManager {
             com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(mint)
     } catch (_: Throwable) { false }
 
-    /** V5.9.623 — protected intake pool: AntiChoke cannot prune watchlist entries. */
-    private fun pruneDormantWatchlist(tokens: MutableMap<String, TokenState>, now: Long, aggressive: Boolean): Int = 0
+    /**
+     * V5.9.636 — restore build-2488 dormant-watchlist pruning.
+     *
+     * V5.9.623 turned this into a `= 0` no-op as part of "protected intake
+     * pool" doctrine, but combined with the V5.9.626 scanner letting every
+     * token through, the watchlist accumulated thousands of stale entries
+     * with no positions, no trades, no live price feed — crowding out
+     * fresh high-quality candidates from the merge queue.
+     *
+     * Restored implementation only prunes entries that:
+     *   1. Are old enough (past DORMANT_GRACE_MS, past DORMANT_CHOKE_MS).
+     *   2. Have NO open position in any sub-trader (ShitCoin/Quality/etc.).
+     *   3. Have NO open position on the host wallet (real on-chain holdings).
+     *   4. Have no recent trades AND a thin history (< 3 ticks).
+     * It walks at most MAX_PRUNE_PER_CHECK and only when watchlist size > 60.
+     * Real candidates and held positions are never touched.
+     */
+    private fun pruneDormantWatchlist(tokens: MutableMap<String, TokenState>, now: Long, aggressive: Boolean): Int {
+        val entries = try { GlobalTradeRegistry.getWatchlistEntries() } catch (_: Throwable) { emptyList() }
+        if (entries.size < 60) return 0
+        val maxAge = if (aggressive) DORMANT_CHOKE_MS else DORMANT_CHOKE_MS * 2
+        val candidates = entries
+            .asSequence()
+            .filter { now - it.addedAt > DORMANT_GRACE_MS }
+            .filter { !hasAnySubTraderPosition(it.mint) }
+            .filter { !HostWalletTokenTracker.hasOpenPosition(it.mint) }
+            .mapNotNull { e ->
+                val ts = synchronized(tokens) { tokens[e.mint] }
+                val tokenAge = now - (ts?.addedToWatchlistAt ?: e.addedAt)
+                val noTrade = ts?.trades?.isEmpty() ?: true
+                val weakHistory = (ts?.history?.size ?: 0) < 3
+                val stale = tokenAge > maxAge || (ts != null && noTrade && weakHistory && tokenAge > DORMANT_CHOKE_MS)
+                if (stale) e else null
+            }
+            .sortedBy { it.addedAt }
+            .take(MAX_PRUNE_PER_CHECK)
+            .toList()
 
+        var pruned = 0
+        for (e in candidates) {
+            val removed = try { GlobalTradeRegistry.removeFromWatchlistForced(e.mint, "ANTI_CHOKE_DORMANT") } catch (_: Throwable) { false }
+            if (removed) {
+                synchronized(tokens) { tokens.remove(e.mint) }
+                pruned++
+            }
+        }
+        return pruned
+    }
 }

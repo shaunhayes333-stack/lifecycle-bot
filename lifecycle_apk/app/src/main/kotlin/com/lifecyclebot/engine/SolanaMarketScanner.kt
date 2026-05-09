@@ -2344,14 +2344,19 @@ class SolanaMarketScanner(
     private fun passesFilter(token: ScannedToken): Boolean {
         telemetryRawScanned++
 
-        // V5.9.626 — PROTECTED SCANNER INTAKE.
-        // This method used to be a pre-callback drop wall. That means raw source
-        // discovery could be alive while BotService/Meme Trader saw 0 tokens.
-        // Scanner-side judgments are now shadow telemetry only; downstream gates
-        // still decide execution quality.
+        // V5.9.636 — restore build-2488 hard-block semantics on top of V5.9.626
+        // shadow telemetry. Build 2488 dropped tokens that failed liquidity
+        // suppression / efficiency / internal filter; V5.9.626 made every
+        // gate "shadow telemetry only" (return true unconditionally) which
+        // flooded the watchlist with thousands of unpriced/blacklisted/
+        // sub-floor tokens, starving the merge queue and saturating the
+        // intake pool with garbage. We keep the V5.9.626 logs for forensic
+        // visibility but restore the hard drops so good candidates aren't
+        // crowded out.
         if (EfficiencyLayer.isLiquiditySuppressed(token.mint)) {
             telemetryLiqRejects++
-            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW liquidity-suppressed ${token.symbol} — emitting anyway")
+            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: liquidity-suppressed")
+            return false
         }
 
         val decision = EfficiencyLayer.shouldFullProcess(
@@ -2362,7 +2367,8 @@ class SolanaMarketScanner(
         )
 
         if (!decision.shouldProcess) {
-            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW efficiency-skip ${token.symbol}: ${decision.reason} — emitting anyway")
+            ErrorLogger.debug("Scanner", "SKIP ${token.symbol}: ${decision.reason}")
+            return false
         }
 
         val liqQuality = when (token.source) {
@@ -2376,21 +2382,22 @@ class SolanaMarketScanner(
 
         val passed = passesFilterInternal(token)
         if (!passed) {
-            ErrorLogger.debug("Scanner", "🛡 INTAKE_SHADOW filter-fail ${token.symbol} — emitting anyway")
+            markRejected(token.mint)
+            // V5.9.44: unified liquidity-reject telemetry floor (was paper=100, live=3000)
             val liqFloor = 100.0
             if (token.liquidityUsd < liqFloor && token.liquidityUsd > 0) {
                 telemetryLiqRejects++
                 EfficiencyLayer.registerLiquidityRejection(token.mint, token.liquidityUsd, liqFloor)
             }
         } else {
+            seenMints[token.mint] = System.currentTimeMillis()
             ErrorLogger.info(
                 "Scanner",
                 "FILTER PASS ${token.symbol}: liq=\$${token.liquidityUsd.toInt()} score=${token.score.toInt()} (${decision.reason})"
             )
         }
 
-        seenMints[token.mint] = System.currentTimeMillis()
-        return true
+        return passed
     }
 
     private fun passesFilterInternal(token: ScannedToken): Boolean {
