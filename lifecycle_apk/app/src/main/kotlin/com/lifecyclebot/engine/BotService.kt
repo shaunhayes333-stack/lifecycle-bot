@@ -1666,6 +1666,85 @@ class BotService : Service() {
     }
 
 
+    /**
+     * V5.9.645 — single-purpose meme scanner self-heal builder.
+     *
+     * Used only by:
+     *   • inert-loop watchdog HARD branch when marketScanner is null
+     *   • 30-second post-startup self-heal in startBot
+     *
+     * The full-fat construction at startBot (with TradeIdentity, lifecycle,
+     * blacklist diagnostics) stays the source of truth at boot. This path
+     * only needs to GET A SCANNER ALIVE so tokens flow into protected intake.
+     * admitProtectedMemeIntake already enforces the same gates internally.
+     *
+     * Returns true if a scanner is alive after this call, false on failure.
+     */
+    private fun bootMemeScanner(reason: String): Boolean {
+        val existing = marketScanner
+        if (existing != null) {
+            return try {
+                if (!existing.isAlive()) {
+                    ErrorLogger.warn("BotService", "🩹 SELF_HEAL($reason): existing scanner not alive — restarting")
+                    addLog("🩹 Self-heal($reason): scanner not alive — restarting")
+                    try { existing.stop() } catch (_: Throwable) {}
+                    existing.start()
+                }
+                true
+            } catch (t: Throwable) {
+                ErrorLogger.error("BotService", "🚨 SELF_HEAL($reason) restart failed: ${t.message}", t)
+                false
+            }
+        }
+        return try {
+            ErrorLogger.warn("BotService", "🩹 SELF_HEAL($reason): constructing fresh SolanaMarketScanner")
+            addLog("🩹 Self-heal($reason): building Solana scanner from scratch")
+            val sc = SolanaMarketScanner(
+                cfg          = { ConfigStore.load(applicationContext) },
+                onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                    try {
+                        lastScannerDiscoveryMs = System.currentTimeMillis()
+                        marketScanner?.recordNewTokenFound()
+                        admitProtectedMemeIntake(
+                            mint = mint,
+                            symbol = symbol,
+                            name = name.ifBlank { symbol },
+                            source = "SCANNER_HEAL_${source.name}",
+                            marketCapUsd = liquidityUsd * 10.0,
+                            liquidityUsd = liquidityUsd,
+                            volumeH1 = volumeH1,
+                            confidence = score.toInt().coerceIn(1, 100),
+                            allSources = setOf(source.name, "SCANNER_HEAL"),
+                            playSound = false,
+                            operatorLog = false,
+                        )
+                        TokenMergeQueue.enqueue(
+                            mint = mint,
+                            symbol = symbol,
+                            scanner = source.name,
+                            marketCapUsd = liquidityUsd * 10,
+                            liquidityUsd = liquidityUsd,
+                            volumeH1 = volumeH1,
+                        )
+                    } catch (e: Throwable) {
+                        ErrorLogger.debug("BotService", "self-heal callback error for $symbol: ${e.message}")
+                    }
+                },
+                onLog = ::addLog,
+                getBrain = { botBrain },
+            )
+            marketScanner = sc
+            sc.start()
+            ErrorLogger.warn("BotService", "✅ SELF_HEAL($reason): scanner constructed and started")
+            addLog("✅ Self-heal($reason): meme scanner is live")
+            true
+        } catch (t: Throwable) {
+            ErrorLogger.error("BotService", "🚨 SELF_HEAL($reason) construction failed: ${t.message}", t)
+            addLog("❌ Self-heal($reason) failed: ${t.message}")
+            false
+        }
+    }
+
     fun startBot() {
         if (status.running) return
         
@@ -2469,6 +2548,24 @@ class BotService : Service() {
         } else {
             ErrorLogger.warn("BotService", "Market scanner DISABLED in config")
             addLog("⚠️ Market scanner disabled — enable in settings")
+        }
+
+        // V5.9.645 — 30-second post-startup self-heal. If the construction
+        // above failed silently (try/catch ate it, MemeMintRegistry pre-hydration
+        // hung, callback closure threw), we still get a scanner alive.
+        scope.launch {
+            try {
+                delay(30_000)
+                if (status.running) {
+                    val sc = marketScanner
+                    val alive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
+                    ErrorLogger.info("BotService", "🩺 STARTUP_CHECK_30S: marketScanner=${if (sc==null) "NULL" else "OK"} alive=$alive running=${status.running}")
+                    if (sc == null || !alive) {
+                        addLog("🩹 Startup check (30s): scanner ${if (sc==null) "NULL" else "not alive"} — booting via self-heal")
+                        bootMemeScanner(reason = "STARTUP_30S")
+                    }
+                }
+            } catch (_: Throwable) {}
         }
 
         // Seed candle history for all watchlist tokens
@@ -4958,6 +5055,35 @@ class BotService : Service() {
                 marketScanner?.checkAndResetIfStale()
             }
 
+            // V5.9.645 — 🩺 SCANNER HEARTBEAT (every ~30s).
+            // Operator-requested visibility line so silent scanner failures are
+            // immediately obvious in the log dump. Format intentionally compact
+            // so it survives any export/grep filter.
+            if (loopCount % 6 == 0) {
+                try {
+                    val sc = marketScanner
+                    if (sc == null) {
+                        ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${status.running} watch=${GlobalTradeRegistry.size()}")
+                        if (status.running) {
+                            addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
+                            bootMemeScanner(reason = "HEARTBEAT_NULL")
+                        }
+                    } else {
+                        val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
+                        if (snap != null) {
+                            ErrorLogger.info(
+                                "BotService",
+                                "🩺 SCANNER_HEARTBEAT: alive=${snap.alive} ageSec=${snap.ageSec} src=${snap.src} ok=${snap.ok} err=${snap.err} raw=${snap.raw} enq=${snap.enq} cd=${snap.cd} liqRej=${snap.liqRej} watch=${GlobalTradeRegistry.size()}"
+                            )
+                        } else {
+                            ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: snapshot=null watch=${GlobalTradeRegistry.size()}")
+                        }
+                    }
+                } catch (e: Throwable) {
+                    ErrorLogger.debug("BotService", "Scanner heartbeat tick error: ${e.message}")
+                }
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // V5.9.621 — INERT-LOOP WATCHDOG (every ~60s)
             //
@@ -4998,12 +5124,14 @@ class BotService : Service() {
                                     addLog("❌ Scanner restart failed: ${t.message}")
                                 }
                             } else {
-                                // V5.9.631 — never silently swallow a null scanner. Startup should
-                                // create it unconditionally while status.running=true; if it is null,
-                                // surface that as an operator-visible fault instead of pretending a
-                                // reset happened.
-                                ErrorLogger.error("BotService", "🚨 INERT WATCHDOG: marketScanner is NULL — startup creation failed; restart bot/service")
-                                addLog("🚨 Scanner missing: restart bot/service to recreate Solana scanner")
+                                // V5.9.645 — never silently swallow a null scanner.
+                                // Self-heal the scanner instead of telling the operator
+                                // to restart. The construction is now wrapped in
+                                // bootMemeScanner() so we can call it idempotently from
+                                // any recovery path.
+                                ErrorLogger.error("BotService", "🚨 INERT WATCHDOG: marketScanner is NULL — auto-recovering via bootMemeScanner")
+                                addLog("🚨 Scanner missing — auto-recovering via self-heal")
+                                bootMemeScanner(reason = "INERT_WATCHDOG_NULL")
                             }
                             // Reset clock so the restart gets ~3min before another hard-reset
                             lastScannerDiscoveryMs = now
