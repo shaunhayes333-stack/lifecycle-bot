@@ -4854,6 +4854,20 @@ class BotService : Service() {
                 // Record healthy status for watchdog (every 5 loops ~ 25 seconds)
                 ServiceWatchdog.recordHealthy(applicationContext)
             }
+
+            // V5.9.633 — periodic Reject-Reason Aggregator dump (~60s cadence).
+            // Operator-facing visibility for "1518 mints scanned but only 85
+            // executed" forensics: tells you which gate is the loudest dampener
+            // right now (e.g. "MOONSHOT:low_buy_pressure=423(42%)").
+            if (loopCount % 12 == 0) {
+                try {
+                    val line = RejectionTelemetry.summaryLine(top = 5)
+                    if (RejectionTelemetry.totalWindowCount() > 0L) {
+                        ErrorLogger.info("BotService", line)
+                        addLog(line)
+                    }
+                } catch (_: Throwable) {}
+            }
             
             // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)
             // V4.0: Use GlobalTradeRegistry.size() for check
@@ -7621,6 +7635,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     // Track for learning but do NOT create position
                                 } else {
                                     ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | REJECTED | ${authResult.reason}")
+                                    RejectionTelemetry.record("TREASURY", authResult.reason)
                                 }
                                 // Skip execution - do NOT proceed to buy
                             } else {
@@ -8127,6 +8142,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             if (!moonshotScore.eligible) {
                                 // V5.9.244: Log moonshot rejections at INFO so we can diagnose silence
                                 ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | REJECTED | ${moonshotScore.rejectReason} | mcap=${(ts.lastMcap/1000).toInt()}K liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()}% v3=${ts.lastV3Score ?: "null"}")
+                                RejectionTelemetry.record("MOONSHOT", moonshotScore.rejectReason)
                             }
                             if (moonshotScore.eligible) {
                                 // V5.2.8 FIX: Ensure Moonshot never uses 0% TP/SL
@@ -8539,6 +8555,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | SHADOW_ONLY | ${authResult.reason}")
                                 } else {
                                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | REJECTED | ${authResult.reason}")
+                                    RejectionTelemetry.record("SHITCOIN", authResult.reason)
                                 }
                             } else {
                                 // AUTHORIZED - proceed with execution
@@ -8716,6 +8733,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
 
                         if (!manipAuthResult.isExecutable()) {
                             ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ${if (manipAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${manipAuthResult.reason}")
+                            if (!manipAuthResult.isShadowOnly()) RejectionTelemetry.record("MANIP", manipAuthResult.reason)
                         } else {
                             ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ENTER | " +
                                 "score=${manipSignal.manipScore} | " +
@@ -8864,6 +8882,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             )
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
+                                if (!authResult.isShadowOnly()) RejectionTelemetry.record("EXPRESS", authResult.reason)
                             } else {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
                                     "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
@@ -9054,6 +9073,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
+                                if (!authResult.isShadowOnly()) RejectionTelemetry.record("DIP", authResult.reason)
                             } else {
                                 ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
                                     "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
@@ -9228,6 +9248,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 )
                             } else {
                                 ErrorLogger.info("BotService", "[V3|AUTH] ${identity.symbol} | REJECTED | ${authResult.reason}")
+                                RejectionTelemetry.record("V3_AUTH", authResult.reason)
                             }
                         } else {
                             // AUTHORIZED - proceed with execution
@@ -9540,6 +9561,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     } else {
                         // True rejection - shadow track and return
                         ErrorLogger.info("BotService", "[DECISION] ${identity.symbol} | REJECT | ${result.reason}")
+                        RejectionTelemetry.record("DECISION", result.reason)
                         
                         // Shadow track
                         ShadowLearningEngine.onFdgBlockedTrade(
@@ -9912,6 +9934,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
 
                         ErrorLogger.info("BotService", "⚡ V3 REJECT: ${identity.symbol} | " +
                             "${result.reason} | $fdgTag")
+                        RejectionTelemetry.record("V3", result.reason)
 
                         // Track comparison
                         com.lifecyclebot.v3.V3EngineManager.recordDecisionComparison(
@@ -10166,6 +10189,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             
             ErrorLogger.info("BotService", "🚫 FDG BLOCKED: ${identity.symbol} | " +
                 "reason=${fdgDecision.blockReason} | level=${fdgDecision.blockLevel}")
+            RejectionTelemetry.record("FDG", fdgDecision.blockReason ?: "UNKNOWN")
             
             // Record this for learning (simulation only, no execution)
             executor.brain?.recordBlockedTrade(
