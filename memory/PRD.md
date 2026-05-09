@@ -27,6 +27,12 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 ```
 
 ## Recent Build History (latest first)
+- **V5.9.654** (2026-05-09) — 10-Point Triage #1: CryptoPositionState bucket purity. Fixed `paper=45 / positions=1`
+  drift bug where `record()` only added to buckets and never released on close — every symbol ever held this
+  session accumulated, making the diagnostic line completely detached from reality. Added `replaceBucket()` method
+  for atomic per-cycle rebuild from the real `positions` map; wired it into `runScanCycle` and added
+  belt-and-braces `release()` in `closePosition`. This also retroactively explains why V5.9.653's cap bump felt
+  unnecessary: paper=45 was a stale historical count, not real cap pressure. CI ✅ green.
 - **V5.9.653** (2026-05-09) — Bumped CryptoAlt position caps for aggressive bootstrap learning. Operator complaint
   "it bought one single token. all of the memetrader and crypto trader are meant to be trading early in bootstrap
   so they learn and start adjusting". Root cause: CryptoAltTrader.MAX_POSITIONS=50 / SOFT_CAP=40 (V5.9.219b "user
