@@ -27,7 +27,22 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 ```
 
 ## Recent Build History (latest first)
-- **V5.9.650** (2026-05-09) — Triage agent RCA on operator's "still not trading + only 1 source feeds watchlist" complaint.
+- **V5.9.653** (2026-05-09) — Bumped CryptoAlt position caps for aggressive bootstrap learning. Operator complaint
+  "it bought one single token. all of the memetrader and crypto trader are meant to be trading early in bootstrap
+  so they learn and start adjusting". Root cause: CryptoAltTrader.MAX_POSITIONS=50 / SOFT_CAP=40 (V5.9.219b "user
+  preference") was throttling aggressive entry. Operator screenshot showed paper=45/50 — 5 slots free, hence
+  execSignals=1 per cycle. Reverted to V5.9.654 originals: MAX=100, SOFT_CAP=80. CI #2533 building.
+- **V5.9.652** (2026-05-09) — Fixed CI build failure. V5.9.651's inline LOOP_TOP forensic snapshot pushed botLoop
+  bytecode over the JVM 64KB method-size limit. Extracted the snapshot block into `private fun emitLoopTopSnapshot(loopCount)`.
+  Same content, same call site, no behavior change. Brace 3467/3467. CI #2532 ✅ green.
+- **V5.9.651** (2026-05-09) — Full forensic logging system. New `ForensicLogger` object with structured INFO-level
+  emit (`🧬[PHASE] #seq SYMBOL field=val`) survives operator log exports. Phases instrumented: LIFECYCLE / LOOP_TOP /
+  INTAKE / SCAN_CB (path=STARTUP) / SCANNER_HEAL / SAFETY (allow/deny + reasons + pen) / V3 (entry per evaluable
+  mint) / LANE_EVAL (ShitCoin entry). Helpers: phase/gate/decision/exec/lifecycle/tick/snapshot. Default ON.
+  TokenMergeQueue.size() helper added for LOOP_TOP. CI ✅ via V5.9.652 fix.
+- **V5.9.650** (2026-05-09) — Triage agent RCA on "still not trading". Two surgical fixes: (1) PAPER mode runs
+  ShitCoin in parallel with V3 (`v3OwnsMemes` requires `!cfg.paperMode`). (2) `🔍 SCANNER_CALLBACK_FIRE` INFO
+  log at top of bootMemeScanner callback. CI #2531 ✅ green.
   Two surgical fixes: (1) in PAPER mode only, ShitCoin trader runs in parallel with V3 instead of being muted
   (`v3OwnsMemes` now requires `!cfg.paperMode`). V5.9.409 had silenced ShitCoin when V3 enabled, but V3 was
   rejecting all 300+ watchlist candidates due to low historical paper WR (7% over 414 trades). With ShitCoin
