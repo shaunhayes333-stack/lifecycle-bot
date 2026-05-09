@@ -4914,7 +4914,7 @@ class BotService : Service() {
                     }
                     val memeCap = if (cfg.paperMode) cfg.maxConcurrentPositions else cfg.maxConcurrentLivePositions
                     val cbState = try {
-                        SecurityGuard.getCircuitBreakerState()
+                        if (::securityGuard.isInitialized) securityGuard.getCircuitBreakerState() else null
                     } catch (_: Throwable) { null }
                     val haltedTag = when {
                         cbState == null              -> ""
@@ -4955,11 +4955,13 @@ class BotService : Service() {
                         //    clear it. The next loss will re-halt it; we just
                         //    don't want a permanent stuck halt blocking buys.
                         try {
-                            val cb = SecurityGuard.getCircuitBreakerState()
-                            if (cb.isHalted) {
-                                ErrorLogger.warn("BotService",
-                                    "🔓 FREEZE_DETECTOR: SecurityGuard halted (${cb.haltReason}) — clearing halt")
-                                SecurityGuard.clearHalt()
+                            if (::securityGuard.isInitialized) {
+                                val cb = securityGuard.getCircuitBreakerState()
+                                if (cb.isHalted) {
+                                    ErrorLogger.warn("BotService",
+                                        "🔓 FREEZE_DETECTOR: SecurityGuard halted (${cb.haltReason}) — clearing halt")
+                                    securityGuard.clearHalt()
+                                }
                             }
                         } catch (_: Throwable) {}
 
