@@ -2276,10 +2276,11 @@ class BotService : Service() {
                                 ErrorLogger.info("BotService", "🟢 MEME_DIRECT_INTAKE: ${identity.symbol} | src=${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score | watch=${GlobalTradeRegistry.size()}")
                             }
                             
-                            // V5.9.628 — duplicate registry hits must still hydrate runtime state.
-                            // After restart, GlobalTradeRegistry can remember a mint while status.tokens
-                            // is empty, leaving the Meme Trader UI at 0 tokens. Do not return until the
-                            // protected intake bridge has rebuilt TokenState + MemeMintRegistry surfaces.
+                            // V5.9.642b — duplicate registry hits hydrate runtime state but
+                            // MUST NOT return early. With MemeMintRegistry pre-hydration, every
+                            // scanner discovery is "already watching" on restart, so the early
+                            // return was silently blocking ALL tokens from reaching TokenMergeQueue
+                            // and botLoop evaluation. Hydrate and fall through.
                             if (GlobalTradeRegistry.isWatching(identity.mint)) {
                                 admitProtectedMemeIntake(
                                     mint = identity.mint,
@@ -2294,8 +2295,8 @@ class BotService : Service() {
                                     playSound = false,
                                     operatorLog = false,
                                 )
-                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in GlobalTradeRegistry — hydrated runtime state")
-                                return@SolanaMarketScanner
+                                ErrorLogger.debug("BotService", "Token ${identity.symbol} already in registry — hydrated, continuing to queue")
+                                // fall through to TokenMergeQueue below — do NOT return here
                             }
                             
                             // ═══════════════════════════════════════════════════════════════════
