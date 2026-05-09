@@ -368,18 +368,34 @@ object GlobalTradeRegistry {
         }
 
         if (needsProbation) {
-            return addToProbation(
-                mint = mint,
-                symbol = symbol,
-                addedBy = addedBy,
-                source = source,
-                initialMcap = initialMcap,
-                liquidityUsd = liquidityUsd,
-                confidence = confidence,
-                isEstimatedLiquidity = isEstimatedLiquidity,
-                isSingleSource = !isMultiSource,
-                price = price,
-            )
+            // V5.9.642 — HYBRID 2440+PROTECTED INTAKE: probation is no
+            // longer a holding pen. It is observational metadata only. The
+            // scanner/watchlist bench must receive every valid Solana
+            // candidate for upstream qualification; FDG/V3/sub-traders own
+            // execution quality. Keep the probation record for UI/forensics,
+            // but also admit the mint to the watchlist immediately.
+            try {
+                addToProbation(
+                    mint = mint,
+                    symbol = symbol,
+                    addedBy = addedBy,
+                    source = source,
+                    initialMcap = initialMcap,
+                    liquidityUsd = liquidityUsd,
+                    confidence = confidence,
+                    isEstimatedLiquidity = isEstimatedLiquidity,
+                    isSingleSource = !isMultiSource,
+                    price = price,
+                )
+            } catch (e: Throwable) {
+                ErrorLogger.debug(TAG, "probation-observe failed for $symbol: ${e.message}")
+            }
+            val admitted = addToWatchlist(mint, symbol, addedBy, source, initialMcap)
+            return if (admitted.added) {
+                admitted.copy(reason = "ADDED_PROBATION_OBSERVED")
+            } else {
+                admitted
+            }
         }
 
         // Direct add to watchlist

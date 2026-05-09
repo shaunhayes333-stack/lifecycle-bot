@@ -4296,7 +4296,9 @@ class Executor(
         val labMult = labNudge?.sizeMultiplier ?: 1.0
         val effSol = (sol * sizeMult * labMult).coerceIn(sol * 0.5, sol * 1.75)
 
-        if (cfg().paperMode || wallet == null) {
+        val routePaper = cfg().paperMode || wallet == null
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=${if (routePaper) "PAPER" else "LIVE_PRECHECK"} | cfgPaper=${cfg().paperMode} | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
+        if (routePaper) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
             val guard = security.checkBuy(
@@ -4310,6 +4312,7 @@ class Executor(
             )
             when (guard) {
                 is GuardResult.Block -> {
+                    ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_BLOCK ${ts.symbol} | reason=${guard.reason} | fatal=${guard.fatal}")
                     onLog("🚫 Buy blocked: ${guard.reason}", tradeId.mint)
                     sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
@@ -4328,6 +4331,7 @@ class Executor(
                         }
                         return
                     }
+                    ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${effSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
                     liveBuy(ts, effSol, score, wallet, walletSol, tradeId, quality, skipGraduated)
                     WalletPositionLock.recordOpen("Meme", effSol)
                     
@@ -4737,6 +4741,7 @@ class Executor(
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE V3_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | cfgPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
         
         if (isPaper) {
             paperBuy(

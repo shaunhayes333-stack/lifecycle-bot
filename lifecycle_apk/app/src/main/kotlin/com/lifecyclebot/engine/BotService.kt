@@ -4172,7 +4172,10 @@ class BotService : Service() {
                         name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
                         candleTimeframeMinutes = 1,
                         source = joinedSources,
-                        logoUrl = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
+                        // V5.9.642 — no-logo intake. Missing/broken token images
+                        // must never be part of the scanner/watchlist contract.
+                        // UI placeholders handle logos; execution only needs mint.
+                        logoUrl = "",
                     )
                 }
                 // symbol/name are immutable identity fields on TokenState; the
@@ -6747,7 +6750,9 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     pairAddress = pair.pairAddress,
                     pairUrl    = pair.url,
                     source     = "WATCHLIST",  // Tokens loaded from config
-                    logoUrl    = "https://cdn.dexscreener.com/tokens/solana/$mint.png",
+                    // V5.9.642 — no-logo watchlist hydrate. Do not make token
+                    // surfacing depend on DexScreener image availability.
+                    logoUrl    = "",
                 )
             }
             val ts = status.tokens[mint] ?: return
@@ -9865,9 +9870,10 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     val hasProvenEdge   = provenEdge.hasProvenEdge
 
     val allowSkipForLearning = isBootstrap || hasProvenEdge
+    val pre5000LearningOpen = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
 
-    if ((edgeVerdictStr == "SKIP" && !allowSkipForLearning) || confValue < minBootstrapConf) {
+    if (!pre5000LearningOpen && ((edgeVerdictStr == "SKIP" && !allowSkipForLearning) || confValue < minBootstrapConf)) {
         // V5.9.270 FIX: CRITICAL — ONLY skip ENTRY if score is too low.
         // NEVER return here if position is already OPEN — that would kill the exit path
         // and leave live positions completely unmonitored (no TP/SL/treasury exit checks).
@@ -9894,8 +9900,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     }
     
     // Log when skip override is used
-    if (allowSkipForLearning && edgeVerdictStr == "SKIP") {
-        val reason = if (hasProvenEdge) "PROVEN_EDGE (wr=${provenWinRate.toInt()}% n=$meaningfulCount)" else "BOOTSTRAP"
+    if ((allowSkipForLearning || pre5000LearningOpen) && edgeVerdictStr == "SKIP") {
+        val reason = when {
+            pre5000LearningOpen -> "LEARNING_OPEN_PRE5000"
+            hasProvenEdge -> "PROVEN_EDGE (wr=${provenWinRate.toInt()}% n=$meaningfulCount)"
+            else -> "BOOTSTRAP"
+        }
         ErrorLogger.info("BotService", "[V3|SKIP_OVERRIDE] ${identity.symbol} | $reason | " +
             "edge=$edgeVerdictStr conf=${confValue.toInt()} learning=${(learningProgress * 100).toInt()}% | allowing through")
     }
@@ -9922,7 +9932,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     
     // V5.9: If bootstrap SKIP override was used at gate 1, don't re-block at gate 2.
     // These tokens are deliberately let through for learning even with conf=0.
-    if (isCGrade && confValue < fluidCGradeConfFloor && !allowSkipForLearning) {
+    if (!pre5000LearningOpen && isCGrade && confValue < fluidCGradeConfFloor && !allowSkipForLearning) {
         // V5.9.270 FIX: Same as gate 1 — ONLY block ENTRY, never kill exit path for open positions
         if (!ts.position.isOpen) {
             ErrorLogger.info("BotService", "[V3|PROMOTION_GATE] ${identity.symbol} | allow=false | " +
@@ -10004,6 +10014,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             brain = executor.brain,
             tradingModeTag = tradingModeTag,
         )
+        ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 ENGINE: PRIMARY DECISION AUTHORITY
@@ -10118,7 +10129,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         // look. If it says shouldEnter we override V3 with
                         // a small position. Live mode still defers to V3.
                         // ═════════════════════════════════════════════════════
-                        if (cfg.paperMode && !useV3Decision) {
+                        val bridgeAllowed = !useV3Decision && (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
+                        if (bridgeAllowed) {
                             try {
                                 val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)
                                 if (verdict.shouldEnter) {
@@ -10126,10 +10138,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     // bootstrap learning trades; the meme
                                     // trader's adaptive sizing kicks in once
                                     // the layer-accuracy data accumulates.
-                                    val bridgeSize = 0.05
+                                    // V5.9.642: available in paper AND
+                                    // pre-5000/proven-edge live so V3_REJECT
+                                    // cannot totally starve the learning
+                                    // firehose. Final TradeAuthorizer +
+                                    // Executor still enforce wallet/live safety.
+                                    val bridgeSize = if (cfg.paperMode) 0.05 else 0.01
                                     useV3Decision = true
                                     v3SizeSol = bridgeSize
-                                    v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)}"
+                                    v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)} mode=${if (cfg.paperMode) "paper" else "live-learning"}"
                                     ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
                                     addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
                                 } else {
@@ -10196,6 +10213,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             isBanned = BannedTokens.isBanned(mint),
         )
         
+        ErrorLogger.info("BotService", "🧬 MEME_SPINE AUTH ${identity.symbol} | verdict=${authResult.verdict} | reason=${authResult.reason} | paper=${cfg.paperMode} | liq=${ts.lastLiquidityUsd.toInt()}")
+
         // If TradeAuthorizer says SHADOW_ONLY, track but don't execute
         if (authResult.isShadowOnly()) {
             ErrorLogger.info("BotService", "[V3|TRADE_AUTH] ${identity.symbol} | SHADOW_ONLY | ${authResult.reason}")
@@ -10298,6 +10317,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // must never stop in paper. Live stays gated for safety.
             val pauseBlocks = !cfg.paperMode && cbState.isPaused
             if (!cbState.isHalted && !pauseBlocks) {
+                ErrorLogger.info("BotService", "🧬 MEME_SPINE EXECUTOR_ROUTE ${identity.symbol} | paper=${cfg.paperMode} | v3=$useV3Decision | size=${actualInitialSize.fmt(4)} | wallet=${effectiveBalance.fmt(4)} | auto=${cfg.autoTrade}")
                 executor.maybeActWithDecision(
                     ts                 = ts,
                     decision           = decision,
