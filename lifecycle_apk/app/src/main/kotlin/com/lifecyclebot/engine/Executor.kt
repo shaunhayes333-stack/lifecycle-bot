@@ -4296,9 +4296,11 @@ class Executor(
         val labMult = labNudge?.sizeMultiplier ?: 1.0
         val effSol = (sol * sizeMult * labMult).coerceIn(sol * 0.5, sol * 1.75)
 
-        val routePaper = cfg().paperMode || wallet == null
-        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=${if (routePaper) "PAPER" else "LIVE_PRECHECK"} | cfgPaper=${cfg().paperMode} | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
-        if (routePaper) {
+        // V5.9.642: spine log uses a separate val so the compiler keeps
+        // its smart cast on `wallet` inside the else branch (non-null guaranteed).
+        val spineRoute = if (cfg().paperMode || wallet == null) "PAPER" else "LIVE_PRECHECK"
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | cfgPaper=${cfg().paperMode} | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
+        if (cfg().paperMode || wallet == null) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else {
             val guard = security.checkBuy(
