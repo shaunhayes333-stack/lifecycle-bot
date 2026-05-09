@@ -2251,6 +2251,30 @@ class BotService : Service() {
                             TradeLifecycle.discovered(identity.mint, identity.symbol, score, source.name)
                             
                             ErrorLogger.debug("BotService", "DISCOVERED: ${identity.symbol} | liq=$${liquidityUsd.toInt()} | score=$score | src=${source.name}")
+
+                            // V5.9.638 — restore pre-1900 arrival semantics.
+                            // Known-good builds around 1890/1900 made scanner discoveries visible
+                            // to the Meme runtime first, then let downstream gates decide execution.
+                            // Later protected-intake rewrites could leave the UI at 0 tokens while
+                            // CryptoAlt/Markets stayed alive. A raw scanner hit must hydrate
+                            // GlobalTradeRegistry + status.tokens immediately so the Meme trader has
+                            // candidates to process even if merge/probation/telemetry layers wobble.
+                            val immediateAdmitted = admitProtectedMemeIntake(
+                                mint = identity.mint,
+                                symbol = identity.symbol,
+                                name = name.ifBlank { identity.symbol },
+                                source = "SCANNER_DIRECT_${source.name}",
+                                marketCapUsd = liquidityUsd * 10.0,
+                                liquidityUsd = liquidityUsd,
+                                volumeH1 = volumeH1,
+                                confidence = score.toInt().coerceIn(1, 100),
+                                allSources = setOf(source.name, "SCANNER_DIRECT"),
+                                playSound = false,
+                                operatorLog = false,
+                            )
+                            if (immediateAdmitted) {
+                                ErrorLogger.info("BotService", "🟢 MEME_DIRECT_INTAKE: ${identity.symbol} | src=${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score | watch=${GlobalTradeRegistry.size()}")
+                            }
                             
                             // V5.9.628 — duplicate registry hits must still hydrate runtime state.
                             // After restart, GlobalTradeRegistry can remember a mint while status.tokens

@@ -929,13 +929,13 @@ object CashGenerationAI {
     fun getLastPriceUpdateMs(mint: String): Long? = lastPriceUpdate[mint]
 
     fun clearAllPositions() {
-        synchronized(activePositions) {
-            val count = activePositions.size
-            activePositions.clear()
-            currentPrices.clear()
-            lastPriceUpdate.clear()
-            ErrorLogger.info(TAG, "💰 CLEARED $count Treasury positions on shutdown")
-        }
+        val paperCount = synchronized(paperPositions) { paperPositions.size }
+        val liveCount = synchronized(livePositions) { livePositions.size }
+        synchronized(paperPositions) { paperPositions.clear() }
+        synchronized(livePositions) { livePositions.clear() }
+        currentPrices.clear()
+        lastPriceUpdate.clear()
+        ErrorLogger.info(TAG, "💰 CLEARED ${paperCount + liveCount} Treasury positions on shutdown (paper=$paperCount live=$liveCount)")
     }
 
     fun checkAllPositionsForExit(): List<Pair<String, ExitSignal>> {

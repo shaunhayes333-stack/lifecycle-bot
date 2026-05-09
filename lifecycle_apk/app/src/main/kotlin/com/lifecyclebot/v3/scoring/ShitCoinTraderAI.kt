@@ -437,11 +437,11 @@ object ShitCoinTraderAI {
      * This ensures UI updates correctly even if individual closes fail
      */
     fun clearAllPositions() {
-        synchronized(activePositions) {
-            val count = activePositions.size
-            activePositions.clear()
-            ErrorLogger.info(TAG, "💩 CLEARED $count ShitCoin positions on shutdown")
-        }
+        val paperCount = paperPositions.size
+        val liveCount = livePositions.size
+        synchronized(paperPositions) { paperPositions.clear() }
+        synchronized(livePositions) { livePositions.clear() }
+        ErrorLogger.info(TAG, "💩 CLEARED ${paperCount + liveCount} ShitCoin positions on shutdown (paper=$paperCount live=$liveCount)")
     }
     
     fun addPosition(position: ShitCoinPosition) {
