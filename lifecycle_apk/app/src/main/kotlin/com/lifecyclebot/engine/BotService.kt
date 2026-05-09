@@ -343,6 +343,13 @@ class BotService : Service() {
     private lateinit var securityGuard: SecurityGuard
     private var orchestrator: DataOrchestrator? = null
     private var marketScanner: SolanaMarketScanner? = null
+
+    // V5.9.634c — freeze-detector state. Lives on the class (not as botLoop
+    // locals) so the detector body can be extracted into runFreezeDetectorTick
+    // and keep botLoop under the JVM 64KB per-method bytecode limit.
+    private var freezeLastExecCount: Long = -1L
+    private var freezeLastExecChangeMs: Long = 0L
+    private var freezeRecoveryFiredAt: Long = 0L
     internal var tradeDb: TradeDatabase? = null
     internal var botBrain: BotBrain? = null
     lateinit var soundManager: SoundManager
@@ -4460,15 +4467,13 @@ class BotService : Service() {
         var lastRegimePulseAt = 0L
         val regimePulseIntervalMs = 60_000L
 
-        // V5.9.634 — FREEZE DETECTOR + CAP DIAGNOSTICS
-        // Operator forensic: bot reaches 85 trades/13 open then halts entirely
-        // for 30+ minutes despite intake flowing. We track the canonical
-        // exec counter; if it doesn't move for 3 minutes while scanner is alive
-        // and we have open positions, we trigger an automated unfreeze.
-        var lastKnownExecCount = com.lifecyclebot.engine.CanonicalLearningCounters.executedTradesTotal.get()
-        var lastExecChangeMs = System.currentTimeMillis()
-        var freezeRecoveryFiredAt = 0L
-        val freezeStaleThresholdMs = 3 * 60_000L
+        // V5.9.634c — freeze-detector state moved to class fields and the
+        // detector body extracted into runFreezeDetectorTick() because the
+        // inline version pushed botLoop past the JVM 64KB per-method limit.
+        if (freezeLastExecCount < 0L) {
+            freezeLastExecCount = com.lifecyclebot.engine.CanonicalLearningCounters.executedTradesTotal.get()
+            freezeLastExecChangeMs = System.currentTimeMillis()
+        }
 
         var loopCount = 0
         while (status.running) {
@@ -4880,108 +4885,11 @@ class BotService : Service() {
             }
 
             // V5.9.634 — FREEZE DETECTOR + CAP DIAGNOSTICS (~60s cadence).
-            //
-            // Symptom this fixes: bot ramps to ~85 trades / 13 open then halts
-            // for 30+ minutes while PumpPortal intake is still flowing and
-            // scanner is alive. Either:
-            //   (a) all sub-traders are silently rejecting every candidate
-            //       (RejectStats above will tell us which one), OR
-            //   (b) every open position is stuck pendingVerify / dead and the
-            //       per-lane concurrent cap is thus saturated, OR
-            //   (c) some boolean flag (paused, halted, distrusted) flipped on
-            //       and never flipped back.
-            //
-            // We track the canonical exec counter — if it doesn't tick for
-            // 3 minutes while scanner is alive AND we have open positions,
-            // we fire one automated recovery and emit a loud operator log.
-            // Recovery actions are cheap and idempotent.
+            // See runFreezeDetectorTick() for full description. Extracted to
+            // a separate suspend function in V5.9.634c because botLoop hit the
+            // JVM 64KB per-method bytecode limit.
             if (loopCount % 12 == 0) {
-                try {
-                    val now = System.currentTimeMillis()
-                    val curExec = com.lifecyclebot.engine.CanonicalLearningCounters
-                        .executedTradesTotal.get()
-                    if (curExec != lastKnownExecCount) {
-                        lastKnownExecCount = curExec
-                        lastExecChangeMs = now
-                    }
-
-                    // ── Cap diagnostics: per-lane open count + caps ────────
-                    val memeOpen = status.tokens.values.count { ts ->
-                        try { ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
-                    }
-                    val memePending = status.tokens.values.count { ts ->
-                        try { ts.position.pendingVerify && ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
-                    }
-                    val memeCap = if (cfg.paperMode) cfg.maxConcurrentPositions else cfg.maxConcurrentLivePositions
-                    val cbState = try {
-                        if (::securityGuard.isInitialized) securityGuard.getCircuitBreakerState() else null
-                    } catch (_: Throwable) { null }
-                    val haltedTag = when {
-                        cbState == null              -> ""
-                        cbState.isHalted             -> " · HALTED:${cbState.haltReason.take(30)}"
-                        cbState.consecutiveLosses>=3 -> " · streak=${cbState.consecutiveLosses}"
-                        else                         -> ""
-                    }
-                    val freezeAgeSec = (now - lastExecChangeMs) / 1000
-                    val capLine = "🪪 caps: meme=$memeOpen/$memeCap (pending=$memePending) · execAge=${freezeAgeSec}s · execTotal=$curExec$haltedTag"
-                    ErrorLogger.info("BotService", capLine)
-                    addLog(capLine)
-
-                    // ── Freeze detector ────────────────────────────────────
-                    val staleMs = now - lastExecChangeMs
-                    val scannerAlive = marketScanner != null
-                    val haveOpens = memeOpen > 0
-                    val canFireAgain = (now - freezeRecoveryFiredAt) > 5 * 60_000L
-                    if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain) {
-                        freezeRecoveryFiredAt = now
-                        ErrorLogger.error("BotService",
-                            "🔓 FREEZE_DETECTOR: 0 executions in ${staleMs/1000}s while scanner alive + memeOpen=$memeOpen — running auto-unfreeze")
-                        addLog("🔓 FREEZE_DETECTOR fired (${staleMs/1000}s stale) — auto-unfreezing")
-
-                        // 1) Force pendingVerify watchdog to fire next tick by
-                        //    rolling its timer back. The existing watchdog will
-                        //    clear stuck ghosts via on-chain re-check.
-                        lastPendingVerifyWatchdogAt = 0L
-
-                        // 2) Reset scanner staleness in case it's silently
-                        //    paused on a saturated cooldown map.
-                        try { marketScanner?.checkAndResetIfStale() } catch (_: Throwable) {}
-
-                        // 3) Reconnect external streams (PumpPortal /
-                        //    DataOrchestrator / Pyth Hermes) — fail-open.
-                        try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
-
-                        // 4) If SecurityGuard is halted from a stale streak,
-                        //    clear it. The next loss will re-halt it; we just
-                        //    don't want a permanent stuck halt blocking buys.
-                        try {
-                            if (::securityGuard.isInitialized) {
-                                val cb = securityGuard.getCircuitBreakerState()
-                                if (cb.isHalted) {
-                                    ErrorLogger.warn("BotService",
-                                        "🔓 FREEZE_DETECTOR: SecurityGuard halted (${cb.haltReason}) — clearing halt")
-                                    securityGuard.clearHalt()
-                                }
-                            }
-                        } catch (_: Throwable) {}
-
-                        // 5) Clear FinalDecisionGate's learning state — V5.9.182
-                        //    already exposes this for the same reason at boot.
-                        try { FinalDecisionGate.resetLearningState() } catch (_: Throwable) {}
-
-                        // 6) Bump the AntiChokeManager.
-                        try { com.lifecyclebot.engine.AntiChokeManager.tick(
-                            isPaperMode = cfg.paperMode,
-                            wallet = wallet,
-                            tokens = status.tokens,
-                            loopCount = loopCount,
-                        ) } catch (_: Throwable) {}
-
-                        addLog("🔓 FREEZE_DETECTOR: cleared verify-watchdog · scanner reset · streams reconnected · halt cleared · FDG learning state cleared")
-                    }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "Freeze detector tick error: ${e.message}")
-                }
+                runFreezeDetectorTick(loopCount, cfg)
             }
             
             // AGGRESSIVE WATCHLIST CLEANUP - every 5 loops (about 25 seconds)
@@ -6316,6 +6224,120 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
      * once. Cheap on the happy path (returns immediately if no
      * trigger), and finally fires the sells we keep missing.
      */
+
+    /**
+     * V5.9.634 — Freeze Detector + Cap Diagnostics
+     *
+     * Symptom this fixes: bot ramps to ~85 trades / 13 open then halts
+     * entirely for 30+ minutes while PumpPortal intake is still flowing
+     * and the scanner is alive. Either:
+     *   (a) all sub-traders are silently rejecting every candidate
+     *       (RejectStats from V5.9.633 will tell us which one), OR
+     *   (b) every open position is stuck pendingVerify / dead and the
+     *       per-lane concurrent cap is thus saturated, OR
+     *   (c) some boolean flag (paused, halted, distrusted) flipped on
+     *       and never flipped back.
+     *
+     * We track [CanonicalLearningCounters.executedTradesTotal] — if it
+     * has not advanced for 3 minutes WHILE marketScanner != null AND
+     * we have at least one open meme position, fire one automated
+     * unfreeze. All actions are cheap and idempotent. Self-rate-limited
+     * to one fire per 5 minutes.
+     *
+     * Extracted from botLoop in V5.9.634c so the loop stays under the
+     * JVM 64KB per-method bytecode ceiling.
+     */
+    private suspend fun runFreezeDetectorTick(
+        loopCount: Int,
+        cfg: com.lifecyclebot.data.BotConfig,
+    ) {
+        try {
+            val now = System.currentTimeMillis()
+            val curExec = com.lifecyclebot.engine.CanonicalLearningCounters
+                .executedTradesTotal.get()
+            if (curExec != freezeLastExecCount) {
+                freezeLastExecCount = curExec
+                freezeLastExecChangeMs = now
+            }
+
+            // ── Cap diagnostics: per-lane open count + caps ────────
+            val memeOpen = status.tokens.values.count { ts ->
+                try { ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
+            }
+            val memePending = status.tokens.values.count { ts ->
+                try { ts.position.pendingVerify && ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
+            }
+            val memeCap = if (cfg.paperMode) cfg.maxConcurrentPositions else cfg.maxConcurrentLivePositions
+            val cbState = try {
+                if (::securityGuard.isInitialized) securityGuard.getCircuitBreakerState() else null
+            } catch (_: Throwable) { null }
+            val haltedTag = when {
+                cbState == null              -> ""
+                cbState.isHalted             -> " · HALTED:${cbState.haltReason.take(30)}"
+                cbState.consecutiveLosses>=3 -> " · streak=${cbState.consecutiveLosses}"
+                else                         -> ""
+            }
+            val freezeAgeSec = (now - freezeLastExecChangeMs) / 1000
+            val capLine = "🪪 caps: meme=$memeOpen/$memeCap (pending=$memePending) · execAge=${freezeAgeSec}s · execTotal=$curExec$haltedTag"
+            ErrorLogger.info("BotService", capLine)
+            addLog(capLine)
+
+            // ── Freeze detector ────────────────────────────────────
+            val staleMs = now - freezeLastExecChangeMs
+            val scannerAlive = marketScanner != null
+            val haveOpens = memeOpen > 0
+            val canFireAgain = (now - freezeRecoveryFiredAt) > 5 * 60_000L
+            val freezeStaleThresholdMs = 3 * 60_000L
+            if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain) {
+                freezeRecoveryFiredAt = now
+                ErrorLogger.error("BotService",
+                    "🔓 FREEZE_DETECTOR: 0 executions in ${staleMs/1000}s while scanner alive + memeOpen=$memeOpen — running auto-unfreeze")
+                addLog("🔓 FREEZE_DETECTOR fired (${staleMs/1000}s stale) — auto-unfreezing")
+
+                // 1) Reset scanner staleness in case it's silently
+                //    paused on a saturated cooldown map.
+                try { marketScanner?.checkAndResetIfStale() } catch (_: Throwable) {}
+
+                // 2) Reconnect external streams (PumpPortal /
+                //    DataOrchestrator / Pyth Hermes), fail-open.
+                try { orchestrator?.reconnectStreams() } catch (_: Throwable) {}
+
+                // 3) If SecurityGuard is halted from a stale streak,
+                //    clear it. The next loss will re-halt it; we just
+                //    don't want a permanent stuck halt blocking buys.
+                try {
+                    if (::securityGuard.isInitialized) {
+                        val cb = securityGuard.getCircuitBreakerState()
+                        if (cb.isHalted) {
+                            ErrorLogger.warn("BotService",
+                                "🔓 FREEZE_DETECTOR: SecurityGuard halted (${cb.haltReason}) — clearing halt")
+                            securityGuard.clearHalt()
+                        }
+                    }
+                } catch (_: Throwable) {}
+
+                // 4) Clear FinalDecisionGate's learning state — V5.9.182
+                //    already exposes this for the same reason at boot.
+                try { FinalDecisionGate.resetLearningState() } catch (_: Throwable) {}
+
+                // 5) Bump the AntiChokeManager.
+                try {
+                    com.lifecyclebot.engine.AntiChokeManager.tick(
+                        isPaperMode = cfg.paperMode,
+                        wallet      = wallet,
+                        tokens      = status.tokens,
+                        loopCount   = loopCount,
+                    )
+                } catch (_: Throwable) {}
+
+                addLog("🔓 FREEZE_DETECTOR: scanner reset · streams reconnected · halt cleared · FDG learning state cleared")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug("BotService", "Freeze detector tick error: ${e.message}")
+        }
+    }
+
+
     private fun sweepUniversalExits(
         cfg: com.lifecyclebot.data.BotConfig,
         wallet: com.lifecyclebot.network.SolanaWallet?,
