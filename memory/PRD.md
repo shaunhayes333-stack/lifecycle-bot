@@ -27,7 +27,26 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 ```
 
 ## Recent Build History (latest first)
-- **V5.9.647** (2026-05-09) — Fixed startBot/onStartCommand guard (third smoking gun in this session).
+- **V5.9.650** (2026-05-09) — Triage agent RCA on operator's "still not trading + only 1 source feeds watchlist" complaint.
+  Two surgical fixes: (1) in PAPER mode only, ShitCoin trader runs in parallel with V3 instead of being muted
+  (`v3OwnsMemes` now requires `!cfg.paperMode`). V5.9.409 had silenced ShitCoin when V3 enabled, but V3 was
+  rejecting all 300+ watchlist candidates due to low historical paper WR (7% over 414 trades). With ShitCoin
+  muted too, meme lane took zero trades. (2) Added `🔍 SCANNER_CALLBACK_FIRE` INFO log at top of bootMemeScanner
+  callback so next operator log dump definitively shows whether the 13+ non-PumpPortal scanner sources are
+  firing their callback at all. CI #2531 building.
+- **V5.9.649** (2026-05-09) — Fixed dashboard MEME tab "20% Win Rate" with subline "0W 0L 0S" data pollution.
+  MainActivity.kt:2139 was falling through to TradeHistoryStore's cross-trader 24h winRate when the
+  meme-specific RunTracker30D showed 0W+0L. On MEME tab now returns 0 instead of cross-trader fallback.
+  CI #2530 ✅ green.
+- **V5.9.648** (2026-05-09) — Demoted SafetyChecker hard blocks to soft penalties in PAPER mode (operator override
+  of V5.9.495z39's "block both modes" policy). LP <30% locked → +40 penalty in paper. RED_FLAG_GATE 5+ flags
+  → +35 penalty in paper. LIVE mode unchanged (still hard-blocks). Operator: "rc score 1 and above $500 market
+  cap and above goes to upstream for qualification". CI #2529 ✅ green.
+- **V5.9.647** (2026-05-09) — Fixed startBot/onStartCommand guard. BotViewModel.kt pre-sets `status.running=true`
+  for instant UI feedback BEFORE the service starts; service-side checks `if (!status.running)` then short-circuit
+  startBot. Result: every Start tap was a no-op for the actual trade-execution loop. Fix: 3 guards changed from
+  `status.running` to `loopJob?.isActive` (real source of truth). Confirmed working — operator's V5.9.647 device
+  finally produced `PIPELINE LOOP_START`, `BlueChipAI BLUE CHIP QUALIFIED: TRUMP`, watchlist 264→320+. CI #2528 ✅ green.
   Operator screenshot V5.9.646 showed Watchlist (44) tokens flowing in via the V5.9.646 self-heal,
   but every entry was IDLE +0.0% — even `BlueChipAI: BLUE CHIP QUALIFIED: TRUMP score=70 conf=90% size=0.3210 SOL`
   never executed. Root cause: `BotViewModel.kt:147` pre-sets `BotService.status.running = true` for instant UI feedback
