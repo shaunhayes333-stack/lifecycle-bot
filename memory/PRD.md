@@ -27,6 +27,15 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 ```
 
 ## Recent Build History (latest first)
+- **V5.9.655** (2026-05-09) — **THE BOOTSTRAP CHOKE.** Operator install of V5.9.654 produced 0 trades from
+  392 watchlist tokens in 90s. Forensic logs revealed only ONE token (`Girl`, a pre-bot ModeRouter token) ever
+  reached SAFETY — 391 PumpPortal mints silently died at `processTokenCycle` line 6958. Root cause:
+  `admitProtectedMemeIntake` seeded `lastMcap` and `lastLiquidityUsd` but NEVER seeded `ts.lastPrice`. For
+  fresh pump.fun mints DexScreener has no pair, all oracle fallbacks fail within the 1.2s budget, and
+  `synthesizeFallbackPair` requires `lastPrice > 0.0` → silent return, no SAFETY/V3/LANE_EVAL log. Fix: pump.fun
+  has fixed 1B supply by protocol, so pre-seed `lastPrice = mcap / 1_000_000_000` at intake (same formula
+  `tryFallbackPriceData` uses at line 12363 when oracle finally hits). Also seed empty-history candle and added
+  ForensicLogger.gate at the silent-return path so any future regression is loud. CI ✅ green.
 - **V5.9.654** (2026-05-09) — 10-Point Triage #1: CryptoPositionState bucket purity. Fixed `paper=45 / positions=1`
   drift bug where `record()` only added to buckets and never released on close — every symbol ever held this
   session accumulated, making the diagnostic line completely detached from reality. Added `replaceBucket()` method
