@@ -27,15 +27,35 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 ```
 
 ## Recent Build History (latest first)
-- **V5.9.645** (2026-05-09) — Self-healing meme scanner + 🩺 heartbeat. Operator log dump V5.9.644 confirmed
-  Solana scanner was completely silent (0 'Scanner' log lines in 60s) while every other lane was alive.
-  Smoking gun: BotService inert-watchdog HARD branch logged 'restart bot/service' when marketScanner==null
-  instead of recreating it. Fix: added `private fun bootMemeScanner(reason)` (idempotent self-heal builder
-  with stripped-down callback that delegates to `admitProtectedMemeIntake` + `TokenMergeQueue.enqueue`),
-  replaced the dead-end watchdog null-branch with a `bootMemeScanner()` call, added a 30s post-startup
-  self-heal launched from scope, and added a `🩺 SCANNER_HEARTBEAT` INFO log every ~30s in botLoop with
-  src/ok/err/raw/enq/cd/liqRej/watch counters so silent failures are immediately visible. Brace count
-  3409/3409 balanced. CI #2526 ✅ green.
+- **V5.9.647** (2026-05-09) — Fixed startBot/onStartCommand guard (third smoking gun in this session).
+  Operator screenshot V5.9.646 showed Watchlist (44) tokens flowing in via the V5.9.646 self-heal,
+  but every entry was IDLE +0.0% — even `BlueChipAI: BLUE CHIP QUALIFIED: TRUMP score=70 conf=90% size=0.3210 SOL`
+  never executed. Root cause: `BotViewModel.kt:147` pre-sets `BotService.status.running = true` for instant UI feedback
+  BEFORE the foreground service starts. Then `BotService.onStartCommand` line 1133 checks
+  `else if (!status.running)` which evaluates FALSE → `scope.launch { startBot() }` is NEVER called.
+  Even if it were, `startBot()` line 1803 had `if (status.running) return` which would also short-circuit.
+  Net effect: every single Start tap was a no-op for the actual trade-execution loop. Sub-traders
+  (CryptoAlt/Markets/Forex/Metals/Commodities/Perps/Insider/Replay) auto-start in onCreate so they
+  kept running, the V5.9.646 onCreate scanner self-heal kept feeding the watchlist, but the meme/V3
+  trade-execution path (BlueChip qualifications, ShitCoin/Moonshot scoring, FluidLearningAI, FDG
+  decisions, wallet buys) was permanently dead because all of those live inside `botLoop()` which
+  was the only thing that didn't run. Fix: 3 guards changed from `status.running` to
+  `loopJob?.isActive` (the actual source of truth for whether botLoop is running). The ViewModel
+  pre-set is now harmless. CI #2528 ✅ green.
+- **V5.9.646** (2026-05-09) — onCreate-anchored meme scanner self-heal. Operator log dump V5.9.645
+  showed every other lane alive but no scanner logs at all (no `🛡 Meme intake gate`, no
+  `Creating market scanner...`, no `🩺 SCANNER_HEARTBEAT`, no `🩹 Self-heal`). startBot was never
+  called in that 30-second window, so all V5.9.645 hooks (which lived inside startBot/botLoop)
+  never fired. Fix: anchor the scanner self-heal in onCreate via a long-running scope.launch
+  coroutine that fires bootMemeScanner() every 30s after a 15s settle delay, gated only on
+  `!isManualStopRequested && memeWanted` (no dependency on status.running). Scanner now self-heals
+  whenever the BotService is alive, regardless of whether startBot ran. CI #2527 ✅ green.
+  → Operator confirmed V5.9.646 worked: Watchlist (44), 238 mints scanned, MemeMintRegistry
+  persisted 45 mints, scanner pipeline `SRC 5/5/0 → RAW 65 → ENQ 65 → MQ 44 → WL 44` healthy.
+- **V5.9.645** (2026-05-09) — Self-healing meme scanner + 🩺 heartbeat. Added bootMemeScanner(),
+  replaced inert-watchdog null-branch dead-end with a self-heal call, added 30s post-startup check,
+  added 🩺 SCANNER_HEARTBEAT every ~30s in botLoop. Partially worked but symptom remained because
+  startBot itself wasn't running (root cause not yet found). CI #2526 ✅ green.
 - V5.9.644 — SmartSizer + MemeEdgeAI + FDG bootstrap fixes (parallel fork agent, not us).
 - V5.9.638 — restore pre-1900 direct meme intake (parallel fork agent).
 - V5.9.636 → V5.9.642b — sequence of "restore" attempts by parallel fork agents.
@@ -58,19 +78,18 @@ Native Kotlin Android Solana trading bot (Fork session). Build a super-smart, mu
 - V5.9.621 — Paper Ghost Auto-Purge + Inert-Loop Watchdog.
 
 ## Active Issues / Pending User Verification
-- **P0** Verify V5.9.645 actually unblocks Meme Trader on the user's device after fresh install.
-  Expected post-fix: within 60s of `🚀 Starting bot...` log, see at least one of:
-    • `🩺 SCANNER_HEARTBEAT: alive=true ageSec=… src=… ok=… …` every ~30s
-    • `🩹 Self-heal(STARTUP_30S): …` if initial construction failed
-    • `🟢 MEME_DIRECT_INTAKE: …` from the original startup-path callback firing
-  And Meme Trader UI shows tokens > 0 within minutes.
-- **P0** If V5.9.645 STILL shows 0 meme tokens after self-heal fires, the next debug step is:
-  the heartbeat will reveal whether (a) marketScanner stays NULL → construction itself is failing
-  (probably an exception in `SolanaMarketScanner` constructor or `admitProtectedMemeIntake`),
-  (b) marketScanner exists but `alive=false` → scanLoop coroutine is dying, or
-  (c) marketScanner alive but src=0 → all upstream sources (PumpPortal/DexScreener/Birdeye) are returning empty.
-- **Side issue (not blocker)** Operator wallet at 0.19 SOL spread across 51 stock positions (≈0.0037 SOL each).
-  CryptoAlt fails every signal with "Insufficient balance". User is refreshing balance manually; no code change needed.
+- **P0** Verify V5.9.647 actually unblocks the trade-execution loop on the user's device.
+  Expected post-fix on next install: within 60s of tapping Start, the log should show:
+    • `BotService: startBot() called` (first ErrorLogger.info inside startBot)
+    • `BotService: Foreground service started`
+    • `BotService: botLoop() started`
+    • At least one `🩺 SCANNER_HEARTBEAT` line every ~30s
+    • Trade-execution lines following any BlueChip/Quality/ShitCoin/Moonshot qualification
+    • Watchlist entries transitioning from IDLE to BUYING/HOLDING
+  And the Recent Trades section should populate within a few minutes.
+- **P0** If V5.9.647 STILL shows 'No trades yet' after botLoop starts, the next step is to find what
+  rejection layer is blocking entries. The 🩺 heartbeat will show if scanner is feeding the queue.
+  Then look for FDG/TradingCopilot/AntiChoke decisions in the log.
 
 ## Backlog (P1/P2/P3)
 - P1: True Leverage for Markets Lane (Drift/Parcl/Mango via Kotlin HTTP)
