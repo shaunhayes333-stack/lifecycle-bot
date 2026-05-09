@@ -2075,7 +2075,10 @@ class BotService : Service() {
                         // V5.9.628 — DataOrchestrator Pump.fun discoveries belong to Meme
                         // Trader too. If memeTraderEnabled is true, they must hydrate the
                         // protected intake even when auto-add/V3/autoTrade are disabled.
-                        val shouldAdmit = c.memeTraderEnabled || c.tradingMode == 0 || c.tradingMode == 2 || c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade
+                        // V5.9.632 — keep parity with startBot scanner gate + botLoop meme gate
+                        // (V5.9.631 added `|| status.running` in those two but missed THIS feed).
+                        // If the bot is running and Meme intake is logically active, admit.
+                        val shouldAdmit = c.memeTraderEnabled || c.tradingMode == 0 || c.tradingMode == 2 || c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade || status.running
                         if (shouldAdmit) {
                             admitProtectedMemeIntake(
                                 mint = mint,
@@ -3756,13 +3759,18 @@ class BotService : Service() {
                         // follow the same Meme-enabled semantics as the scanner and main
                         // loop, not stale auto-add/V3/autoTrade toggles. If Meme Trader is
                         // enabled or tradingMode is Meme/Both, admit fresh pump.fun launches.
+                        // V5.9.632 — keep parity with startBot scanner gate + botLoop meme gate
+                        // (V5.9.631 added `|| status.running` in those two but missed THIS feed,
+                        // which is the highest-volume Meme intake stream). Scanner-gate parity:
+                        // if the bot is up, PumpPortal feeds the protected intake.
                         val liveCfg = ConfigStore.load(applicationContext)
                         val shouldAdmit = liveCfg.memeTraderEnabled ||
                             liveCfg.tradingMode == 0 ||
                             liveCfg.tradingMode == 2 ||
                             liveCfg.autoAddNewTokens ||
                             liveCfg.v3EngineEnabled ||
-                            liveCfg.autoTrade
+                            liveCfg.autoTrade ||
+                            status.running
                         if (shouldAdmit) {
                             lastScannerDiscoveryMs = System.currentTimeMillis()
                             try { marketScanner?.recordNewTokenFound() } catch (_: Throwable) {}
