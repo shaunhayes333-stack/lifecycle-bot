@@ -1024,6 +1024,60 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "Markets trust quarantine error: ${e.message}")
         }
 
+        // V5.9.646 — onCreate-anchored meme scanner self-heal.
+        //
+        // Operator log dump V5.9.645 confirmed: every other lane (CryptoAlt,
+        // Markets, Forex, Metals, Commodities, Perps, Insider, Replay) is
+        // alive because they all auto-start inside onCreate(). The meme
+        // scanner is the ONLY lane that depends on startBot() running, so
+        // any Android lifecycle quirk (START_NOT_STICKY auto-restart, an
+        // ACTION_START intent that doesn't propagate, a stop→start race
+        // that flips to the "already running" branch at line 1083, or
+        // onCreate firing without onStartCommand) leaves the meme scanner
+        // permanently dead while every other engine is producing signals.
+        //
+        // This onCreate-anchored heal coroutine closes that gap by running
+        // bootMemeScanner() periodically, gated only on:
+        //   • user has NOT manually stopped the bot
+        //   • some meme-related config toggle is on (memeTraderEnabled,
+        //     tradingMode 0/2, fullMarketScan, v3, autoTrade, autoAdd)
+        //
+        // It does NOT require status.running because the symptom we are
+        // fixing is exactly that startBot never set status.running=true.
+        scope.launch {
+            try {
+                kotlinx.coroutines.delay(15_000)  // let onCreate wiring settle
+                while (true) {
+                    try {
+                        val cfg = ConfigStore.load(applicationContext)
+                        val manualStop = isManualStopRequested(applicationContext)
+                        val memeWanted = cfg.memeTraderEnabled ||
+                            cfg.tradingMode == 0 || cfg.tradingMode == 2 ||
+                            cfg.fullMarketScanEnabled ||
+                            cfg.v3EngineEnabled ||
+                            cfg.autoTrade ||
+                            cfg.autoAddNewTokens
+                        if (!manualStop && memeWanted) {
+                            val sc = marketScanner
+                            val alive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
+                            if (sc == null || !alive) {
+                                ErrorLogger.warn(
+                                    "BotService",
+                                    "🩹 ONCREATE_HEAL: meme scanner ${if (sc==null) "NULL" else "not alive"} — booting (manualStop=$manualStop, memeTraderEnabled=${cfg.memeTraderEnabled}, mode=${cfg.tradingMode}, status.running=${status.running})"
+                                )
+                                bootMemeScanner(reason = "ONCREATE_HEAL")
+                            } else {
+                                ErrorLogger.debug("BotService", "ONCREATE_HEAL: scanner alive — no action")
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.debug("BotService", "ONCREATE_HEAL tick error: ${e.message}")
+                    }
+                    kotlinx.coroutines.delay(30_000)
+                }
+            } catch (_: Throwable) {}
+        }
+
         } catch (e: Exception) {
             ErrorLogger.crash("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
             android.util.Log.e("BotService", "onCreate CRASH: ${e.javaClass.simpleName}: ${e.message}", e)
