@@ -4669,6 +4669,28 @@ class BotService : Service() {
         }
     }
 
+    /**
+     * V5.9.652 — extracted from botLoop() to dodge JVM 64KB method-size limit.
+     * Emits one INFO-level forensic LOOP_TOP snapshot with full pipeline state
+     * so the operator can grep "🧬[LOOP_TOP]" and instantly see what the bot
+     * thinks the world looks like: scanner alive, merge queue depth, watchlist
+     * size, open position count, paper/live mode, V3 toggle, etc.
+     */
+    private fun emitLoopTopSnapshot(loopCount: Int) {
+        try {
+            val sc = marketScanner
+            val scAlive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
+            val mqDepth = try { TokenMergeQueue.size() } catch (_: Throwable) { -1 }
+            val wlSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
+            val openCount = status.tokens.values.count { it.position.isOpen }
+            val cfg = ConfigStore.load(applicationContext)
+            ForensicLogger.snapshot(
+                "LOOP_TOP",
+                "loop=$loopCount running=${status.running} loopJob=${loopJob?.isActive} scAlive=$scAlive mq=$mqDepth wl=$wlSize open=$openCount paper=${cfg.paperMode} v3=${cfg.v3EngineEnabled} memeT=${cfg.memeTraderEnabled} mode=${cfg.tradingMode}"
+            )
+        } catch (_: Throwable) {}
+    }
+
     private suspend fun botLoop() {
         ErrorLogger.info("BotService", "botLoop() started")
         ForensicLogger.lifecycle("BOTLOOP_STARTED", "scope.active=${scope.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
@@ -4718,23 +4740,11 @@ class BotService : Service() {
           try {
             loopCount++
 
-            // V5.9.651 — forensic per-loop snapshot every ~30s (loopCount % 6).
-            // Operator can grep "🧬[LOOP_TOP]" to see exact pipeline state at
-            // any moment: watchlist size, merge queue depth, open positions,
-            // balance, scanner alive, etc.
+            // V5.9.652 — extracted to emitLoopTopSnapshot() to keep botLoop
+            // under the JVM 64KB method size limit. Same content, different
+            // method, no behavior change.
             if (loopCount % 6 == 0) {
-                try {
-                    val sc = marketScanner
-                    val scAlive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
-                    val mqDepth = try { TokenMergeQueue.size() } catch (_: Throwable) { -1 }
-                    val wlSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
-                    val openCount = status.tokens.values.count { it.position.isOpen }
-                    val cfg = ConfigStore.load(applicationContext)
-                    ForensicLogger.snapshot(
-                        "LOOP_TOP",
-                        "loop=$loopCount running=${status.running} loopJob=${loopJob?.isActive} scAlive=$scAlive mq=$mqDepth wl=$wlSize open=$openCount paper=${cfg.paperMode} v3=${cfg.v3EngineEnabled} memeT=${cfg.memeTraderEnabled} mode=${cfg.tradingMode}"
-                    )
-                } catch (_: Throwable) {}
+                emitLoopTopSnapshot(loopCount)
             }
 
             // V5.9.454 — WALLET RE-SYNC FIX.
