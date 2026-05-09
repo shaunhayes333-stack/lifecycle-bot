@@ -4399,6 +4399,24 @@ class BotService : Service() {
                 if (marketCapUsd > 0.0 && ts.lastMcap <= 0.0) {
                     ts.lastMcap = marketCapUsd
                 }
+                // V5.9.655 — operator triage: 391 of 392 PumpPortal tokens
+                // were never reaching SAFETY/V3/LANE_EVAL because
+                // synthesizeFallbackPair() requires ts.lastPrice > 0.0 and
+                // intake never seeded a price. DexScreener/Birdeye/Oracle
+                // fallbacks all fail for brand-new pump.fun mints (not yet
+                // indexed), so processTokenCycle silently returned at the
+                // line 6958 ?: run { … return } branch with zero log
+                // output. Pump.fun tokens are always 1B supply by protocol,
+                // so priceUsd = mcap / 1_000_000_000 is exact and free.
+                // tryFallbackPriceData uses the same formula at line 12363
+                // when the pump.fun frontend API later succeeds — we just
+                // pre-seed it so the bot can start scoring/safety-checking
+                // immediately instead of waiting for an oracle round-trip
+                // that often fails for fresh launches.
+                if (marketCapUsd > 0.0 && ts.lastPrice <= 0.0) {
+                    ts.lastPrice = marketCapUsd / 1_000_000_000.0
+                    ts.lastPriceUpdate = System.currentTimeMillis()
+                }
                 if (confidence > 0 && ts.entryScore <= 0.0) {
                     ts.entryScore = confidence.toDouble()
                 }
@@ -4416,6 +4434,27 @@ class BotService : Service() {
                         highUsd = seedPrice,
                         lowUsd = seedPrice,
                         openUsd = seedPrice,
+                    )
+                    synchronized(ts.history) { ts.history.addLast(seedCandle) }
+                }
+                // V5.9.655 — fresh-mint candle seed even when volumeH1=0 (brand
+                // new pump.fun launches always have volumeH1=0 at intake). This
+                // gives processTokenCycle's hot-path momentum/history readers a
+                // non-empty history list immediately rather than waiting for
+                // the next DexScreener tick. seedPrice is now non-zero thanks
+                // to the mcap/1B fallback above, so the candle is meaningful.
+                if (ts.history.isEmpty() && ts.lastPrice > 0.0) {
+                    val seedCandle = com.lifecyclebot.data.Candle(
+                        ts = System.currentTimeMillis(),
+                        priceUsd = ts.lastPrice,
+                        marketCap = ts.lastMcap.coerceAtLeast(marketCapUsd),
+                        volumeH1 = 0.0,
+                        volume24h = 0.0,
+                        buysH1 = 0,
+                        sellsH1 = 0,
+                        highUsd = ts.lastPrice,
+                        lowUsd = ts.lastPrice,
+                        openUsd = ts.lastPrice,
                     )
                     synchronized(ts.history) { ts.history.addLast(seedCandle) }
                 }
@@ -6951,6 +6990,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 val refreshed = tryFallbackPriceData(mint, ts)
                 val synth = if (refreshed && ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
                 if (synth == null) {
+                    // V5.9.655 — operator triage: this silent return was the
+                    // root cause of "0 trades from 392 watchlist tokens". The
+                    // mcap/1B intake-time price seed (admitProtectedMemeIntake)
+                    // should make ts.lastPrice > 0.0 before we ever reach this
+                    // branch for PumpPortal mints, but if we still land here
+                    // something is genuinely off — log loudly so the operator
+                    // doesn't have to wait another debug cycle to see it.
+                    ForensicLogger.gate(
+                        ForensicLogger.PHASE.INTAKE,
+                        ts.symbol,
+                        allow = false,
+                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed",
+                    )
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
                         runFallbackSafetyExit(ts, cfg, wallet)
