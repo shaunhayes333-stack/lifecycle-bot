@@ -913,13 +913,28 @@ class SolanaMarketScanner(
 
         ErrorLogger.info("Scanner", "SolanaMarketScanner.start() called")
         isRunning = true
-        lastScanCycleMs = System.currentTimeMillis()
-        lastSourceAttemptMs = lastScanCycleMs
+        val now = System.currentTimeMillis()
+        lastScanCycleMs = now
+        lastSourceAttemptMs = now
+        lastNewTokenFoundMs = now
         scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + scannerExceptionHandler)
+
+        // V5.9.639 — 2461 scanner-authority restore.
+        // Do NOT run the cold API test before the real scan loop. On device,
+        // runTestScan can stall on external Dex/Pump/profile calls; when it
+        // sits ahead of scanLoop the UI shows Scanning but MarketsTelemetry
+        // stays at its default snapshot: RAW 0 / ENQ 0 / scan stale 9999s.
+        // Publish a heartbeat immediately, start the real loop first, and run
+        // the diagnostic probe in a separate best-effort coroutine.
+        try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
         scanJob = scope?.launch {
-            ErrorLogger.info("Scanner", "scanLoop starting...")
-            runTestScan()
+            ErrorLogger.info("Scanner", "scanLoop starting immediately (cold test is non-blocking)...")
             scanLoop()
+        }
+        scope?.launch {
+            try { runTestScan() } catch (t: Throwable) {
+                ErrorLogger.warn("Scanner", "non-blocking test scan failed: ${t.message}")
+            }
         }
         onLog("SolanaMarketScanner started")
     }
@@ -1083,6 +1098,14 @@ class SolanaMarketScanner(
                 delay(100)
                 runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
 
+                // V5.9.639 — hard fallback for the 2461 scanner-authority path.
+                // If every rich source returned before constructing a ScannedToken,
+                // RAW remains unchanged. Do a minimal direct profile pass so the
+                // Meme universe cannot sit at RAW 0 / WL 0 while the bot is running.
+                if (telemetryRawScanned == 0 && telemetryEnqueued == 0) {
+                    runScan("scanEmergencyDexProfiles") { scanEmergencyDexProfiles() }
+                }
+
                 onLog("✅ Scan cycle #$scanRotation complete")
 
                 cleanupSeenMaps()
@@ -1132,6 +1155,64 @@ class SolanaMarketScanner(
             }
 
             delay(scanIntervalMs)
+        }
+    }
+
+    private suspend fun scanEmergencyDexProfiles() {
+        val url = "https://api.dexscreener.com/token-profiles/latest/v1?chainId=solana"
+        ErrorLogger.warn("Scanner", "🛟 Emergency scanner fallback: fetching latest Solana token profiles")
+        val body = getWithRetry(url, maxRetries = 2) ?: return
+        try {
+            val profiles = if (body.trim().startsWith("[")) JSONArray(body) else return
+            var found = 0
+            for (i in 0 until minOf(profiles.length(), 80)) {
+                if (found >= 30) break
+                val profile = profiles.optJSONObject(i) ?: continue
+                if (profile.optString("chainId", "") != "solana") continue
+                val mint = profile.optString("tokenAddress", "")
+                if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
+
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                val symbol = pair?.baseSymbol?.takeIf { it.isNotBlank() }
+                    ?: profile.optString("symbol", "").ifBlank { mint.take(6) }
+                if (symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
+                val name = pair?.baseName?.takeIf { it.isNotBlank() }
+                    ?: profile.optString("name", "").ifBlank { symbol }
+                val liq = (pair?.liquidity ?: 0.0).let { if (it > 0.0) it else 500.0 }
+                val vol = pair?.candle?.volumeH1 ?: 0.0
+                val mcap = pair?.candle?.marketCap ?: (liq * 10.0)
+                val ageHours = pair?.pairCreatedAtMs?.let { (System.currentTimeMillis() - it) / 3_600_000.0 } ?: 24.0
+                val tx = pair?.candle?.let { it.buysH1 + it.sellsH1 } ?: 0
+
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = symbol,
+                    name = name,
+                    source = TokenSource.DEX_TRENDING,
+                    liquidityUsd = liq,
+                    volumeH1 = vol,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = "solana-emergency",
+                    priceChangeH1 = 0.0,
+                    txCountH1 = tx,
+                    score = scoreToken(liq, vol, tx, mcap, 0.0, ageHours).coerceAtLeast(10.0),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                }
+            }
+            if (found > 0) {
+                ErrorLogger.warn("Scanner", "🛟 Emergency scanner fallback emitted $found candidates")
+                onLog("🛟 Emergency scanner fallback emitted $found candidates")
+            } else {
+                ErrorLogger.warn("Scanner", "🛟 Emergency scanner fallback found 0 candidates")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.warn("Scanner", "Emergency scanner fallback error: ${e.message}")
         }
     }
 
