@@ -1125,12 +1125,12 @@ class BotService : Service() {
                             ErrorLogger.error("BotService", "stopBot() did not complete in 60s — force-clearing flag")
                             stopInProgress = false
                         }
-                        if (!status.running && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
+                        if (loopJob?.isActive != true && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
                             userStartQueuedDuringStop = false
                             startBot()
                         }
                     }
-                } else if (!status.running) {
+                } else if (loopJob?.isActive != true) {
                     userStartQueuedDuringStop = false
                     scope.launch { startBot() }
                 } else {
@@ -1800,7 +1800,27 @@ class BotService : Service() {
     }
 
     fun startBot() {
-        if (status.running) return
+        // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
+        // BotViewModel.startBot() pre-sets BotService.status.running = true
+        // for instant UI feedback BEFORE the service even starts. The old
+        // guard `if (status.running) return` therefore short-circuited every
+        // single startBot() invocation triggered by onStartCommand →
+        // ACTION_START, leaving botLoop() permanently inactive. Net effect:
+        // sub-traders that auto-start in onCreate (CryptoAlt, Markets, Forex,
+        // Metals, Commodities, Perps) keep producing signals, the V5.9.646
+        // onCreate-anchored scanner self-heal still feeds the watchlist, but
+        // the meme/V3 trade-execution path (BlueChip qualifications,
+        // ShitCoin/Moonshot scoring, FluidLearningAI, FinalDecisionGate,
+        // wallet-confirmed buys) never fires because botLoop() is gated by
+        // `while (status.running)` and only LAUNCHED inside startBot().
+        // Operator screenshot V5.9.646 confirmed the symptom: 44 watchlist
+        // entries, every one IDLE +0.0%, BlueChipAI logging
+        // 'BLUE CHIP QUALIFIED: TRUMP score=70 conf=90% size=0.3210 SOL'
+        // but no execution log following.
+        if (loopJob?.isActive == true) {
+            ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — skipping")
+            return
+        }
         
         try {
             ErrorLogger.info("BotService", "startBot() called")
