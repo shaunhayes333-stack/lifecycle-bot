@@ -1050,6 +1050,18 @@ object MetalsTrader {
             .apply()
     }
 
+    /** V5.9.635 — Soft reset wired into TradeHistoryStore.clearAllTrades()
+     *  so every counter the UI reads from this trader zeros out together
+     *  with the journal. Positions and paper balance are NOT touched. */
+    fun resetCounters() {
+        totalTrades.set(0)
+        winningTrades.set(0)
+        losingTrades.set(0)
+        totalPnlSol = 0.0
+        saveState()
+        ErrorLogger.info(TAG, "🧹 MetalsTrader counters reset")
+    }
+
     fun loadState() {
         val p = prefs() ?: return
         val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()

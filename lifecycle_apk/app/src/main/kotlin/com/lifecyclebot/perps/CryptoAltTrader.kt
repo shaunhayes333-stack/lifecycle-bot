@@ -2468,6 +2468,18 @@ object CryptoAltTrader {
             ?.apply()
     }
 
+    /** V5.9.635 — Wired into TradeHistoryStore.clearAllTrades() for unified
+     *  Clear UX. Resets counters only; positions and balance preserved. */
+    fun resetCounters() {
+        totalTrades.set(0)
+        winningTrades.set(0)
+        losingTrades.set(0)
+        scratchTrades.set(0)
+        totalPnlSol = 0.0
+        saveToSharedPrefs()
+        ErrorLogger.info(TAG, "🧹 CryptoAltTrader counters reset")
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // PERSISTENCE
     // ═══════════════════════════════════════════════════════════════════════════

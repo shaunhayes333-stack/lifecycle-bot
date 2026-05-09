@@ -1058,6 +1058,17 @@ object CommoditiesTrader {
             .apply()
     }
 
+    /** V5.9.635 — Wired into TradeHistoryStore.clearAllTrades() for unified
+     *  Clear UX. Resets counters only; positions and balance preserved. */
+    fun resetCounters() {
+        totalTrades.set(0)
+        winningTrades.set(0)
+        losingTrades.set(0)
+        totalPnlSol = 0.0
+        saveState()
+        ErrorLogger.info(TAG, "🧹 CommoditiesTrader counters reset")
+    }
+
     fun loadState() {
         val p = prefs() ?: return
         val savedBal = p.getFloat(KEY_BALANCE, 0f).toDouble()

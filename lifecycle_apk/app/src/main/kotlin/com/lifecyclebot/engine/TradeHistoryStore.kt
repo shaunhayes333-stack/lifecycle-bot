@@ -292,7 +292,13 @@ object TradeHistoryStore {
         return synchronized(lock) { trades.toList() }
     }
 
-    /** MANUAL CLEAR — only clears visual journal rows; lifetime counters preserved. */
+    /** MANUAL CLEAR — V5.9.635 unified semantics: clears journal rows AND
+     *  every cross-lane counter the UI reads from, so the main-screen
+     *  pills (24h Trades, All Traders, lane breakdown, Live Readiness),
+     *  the Journal page, and the per-lane sub-trader cards all show 0
+     *  together. Learned AI weights, PatternClassifier memory, SmartSizer
+     *  trust, FluidLearningAI progress, and the active 30-Day Proof Run
+     *  timeline are PRESERVED — only the visible scoreboard resets. */
     fun clearAllTrades() {
         synchronized(lock) { trades.clear() }
         ioHandler?.post {
@@ -302,6 +308,30 @@ object TradeHistoryStore {
                 ErrorLogger.error("TradeHistoryStore", "SQLite clear failed: ${e.message}")
             }
         }
+        // V5.9.635 — also reset the lifetime counters that fed
+        // getStats().totalWins / totalLosses / totalPnlSol — these used to
+        // persist across Clear and made the "All Traders" line out-of-sync
+        // with the empty Journal.
+        lifetimeSells          = 0
+        lifetimeWins           = 0
+        lifetimeLosses         = 0
+        lifetimeScratches      = 0
+        lifetimeWinPnlSum      = 0.0
+        lifetimeRealizedPnlSol = 0.0
+        try { saveLifetimeStats() } catch (_: Exception) {}
+
+        // V5.9.635 — also reset RunTracker30D counters (preserves proof-run
+        // timeline) and every lane sub-trader's persisted counters so the
+        // lane breakdown pills (M/A/P/S/FX/MT/CD), the top-bar 24h trade
+        // pill, and the per-lane cards all align with the empty Journal.
+        try { com.lifecyclebot.engine.RunTracker30D.resetTradeStatsForJournalClear() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.CryptoAltTrader.resetCounters() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.PerpsTraderAI.resetCounters() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.TokenizedStockTrader.resetCounters() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.ForexTrader.resetCounters() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.MetalsTrader.resetCounters() } catch (_: Throwable) {}
+        try { com.lifecyclebot.perps.CommoditiesTrader.resetCounters() } catch (_: Throwable) {}
+
         ErrorLogger.info("TradeHistoryStore",
             "🗑️ MANUAL CLEAR: Journal rows cleared (lifetime=${lifetimeSells} sells preserved — learned AI intact)")
     }

@@ -804,6 +804,42 @@ SYSTEM
         save()
         ErrorLogger.info(TAG, "🧹 RunTracker30D reset")
     }
+
+    /**
+     * V5.9.635 — Soft reset for "Clear Journal" UX.
+     *
+     * Zeros every TRADE-derived counter (totalTrades, wins/losses/scratches,
+     * realized PnL, best/worst trade, all 7 AssetBuckets) so the main-screen
+     * pills, lane breakdown M/A/P/S/FX/MT/CD, and Live Readiness gauges
+     * align with an empty TradeHistoryStore.
+     *
+     * Preserves the proof-run identity (startTime, startBalance,
+     * currentBalance, peakBalance, maxDrawdown, equityCurve, dailySummaries)
+     * so the 30-Day Proof Run card keeps running on the same Day-X timeline
+     * — operator just rebases their counters, not their run.
+     */
+    fun resetTradeStatsForJournalClear() {
+        totalTrades = 0
+        wins = 0
+        losses = 0
+        scratches = 0
+        totalRealizedPnlSol = 0.0
+        bestTradePnlPct = 0.0
+        worstTradePnlPct = 0.0
+        executionFailures = 0
+        missedTrades = 0
+        tradeLog.clear()
+        // Per-lane buckets the M/A/P/S/FX/MT/CD breakdown reads from.
+        memeBucket.trades = 0;   memeBucket.wins = 0;   memeBucket.losses = 0;   memeBucket.scratches = 0;   memeBucket.pnlSol = 0.0
+        altsBucket.trades = 0;   altsBucket.wins = 0;   altsBucket.losses = 0;   altsBucket.scratches = 0;   altsBucket.pnlSol = 0.0
+        perpsBucket.trades = 0;  perpsBucket.wins = 0;  perpsBucket.losses = 0;  perpsBucket.scratches = 0;  perpsBucket.pnlSol = 0.0
+        stocksBucket.trades = 0; stocksBucket.wins = 0; stocksBucket.losses = 0; stocksBucket.scratches = 0; stocksBucket.pnlSol = 0.0
+        forexBucket.trades = 0;  forexBucket.wins = 0;  forexBucket.losses = 0;  forexBucket.scratches = 0;  forexBucket.pnlSol = 0.0
+        metalsBucket.trades = 0; metalsBucket.wins = 0; metalsBucket.losses = 0; metalsBucket.scratches = 0; metalsBucket.pnlSol = 0.0
+        commodBucket.trades = 0; commodBucket.wins = 0; commodBucket.losses = 0; commodBucket.scratches = 0; commodBucket.pnlSol = 0.0
+        save()
+        ErrorLogger.info(TAG, "🧹 RunTracker30D trade stats reset (proof-run timeline preserved)")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════
     // V5.6.28f: SYNC FUNCTION - Align stats across different tracking systems

@@ -292,7 +292,6 @@ object PerpsTraderAI {
         val now = System.currentTimeMillis()
         if (!force && now - lastSaveTime < SAVE_THROTTLE_MS) return
         lastSaveTime = now
-        
         p.edit().apply {
             // Flags
             putBoolean("isEnabled", isEnabled.get())
@@ -330,6 +329,29 @@ object PerpsTraderAI {
             apply()
         }
     }
+
+    /** V5.9.635 — Wired into TradeHistoryStore.clearAllTrades() for unified
+     *  Clear UX. Resets lifetime trade counters only; positions, balance,
+     *  learning state, and discipline scores are preserved. */
+    fun resetCounters() {
+        lifetimeTrades.set(0)
+        lifetimeWins.set(0)
+        lifetimeLosses.set(0)
+        lifetimePnlBps.set(0)
+        lifetimeBestPnlBps.set(0)
+        lifetimeWorstPnlBps.set(Long.MAX_VALUE)
+        currentStreak.set(0)
+        maxWinStreak.set(0)
+        maxLossStreak.set(0)
+        consecutiveLosses.set(0)
+        dailyTrades.set(0)
+        dailyWins.set(0)
+        dailyLosses.set(0)
+        dailyPnlBps.set(0)
+        save(force = true)
+        ErrorLogger.info(TAG, "🧹 PerpsTraderAI counters reset")
+    }
+
     
     // ═══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION & MODE

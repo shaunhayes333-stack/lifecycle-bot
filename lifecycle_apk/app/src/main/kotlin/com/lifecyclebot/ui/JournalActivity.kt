@@ -487,15 +487,20 @@ class JournalActivity : AppCompatActivity() {
         val tradeCount = com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("Clear Journal Only?")
+            .setTitle("Clear All Trade Stats?")
             .setMessage(
-                "This will permanently delete $tradeCount journal rows.\n\n" +
-                    "Your win rate / daily stats on this screen will reset to 0.\n\n" +
-                    "✅ Learned AI values are PRESERVED:\n" +
+                "This will reset $tradeCount journal rows AND every visible trade counter on the main screen:\n\n" +
+                    "• Trade Journal rows + lifetime W/L/PnL\n" +
+                    "• 24h Trades pill + Live Readiness gauges\n" +
+                    "• All Traders summary + lane breakdown (M/A/P/S/FX/MT/CD)\n" +
+                    "• Per-lane sub-trader counters (Crypto / Perps / Stocks / Forex / Metals / Commodities)\n\n" +
+                    "✅ PRESERVED:\n" +
                     "• BehaviorAI (streak, tilt, discipline)\n" +
                     "• FluidLearningAI (learning progress %)\n" +
                     "• ML Engine weights\n" +
-                    "• Pattern classifier / SmartSizer memory\n\n" +
+                    "• Pattern classifier / SmartSizer memory\n" +
+                    "• Open positions + paper / live wallet balance\n" +
+                    "• Active 30-Day Proof Run (timeline keeps running on the same Day-X)\n\n" +
                     "(To wipe learned intelligence, use Behavior → Reset All Learning.)\n\n" +
                     "This action cannot be undone."
             )

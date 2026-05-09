@@ -1672,6 +1672,16 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     fun getWinningTrades(): Int = winningTrades.get()
     
     fun getTotalPnlSol(): Double = totalPnlSol
+
+    /** V5.9.635 — Wired into TradeHistoryStore.clearAllTrades() for unified
+     *  Clear UX. Resets counters only; positions and balance preserved. */
+    fun resetCounters() {
+        totalTrades.set(0)
+        winningTrades.set(0)
+        losingTrades.set(0)
+        totalPnlSol = 0.0
+        ErrorLogger.info(TAG, "🧹 TokenizedStockTrader counters reset")
+    }
     
     fun getStats(): Map<String, Any> = mapOf(
         "isRunning" to isRunning.get(),
