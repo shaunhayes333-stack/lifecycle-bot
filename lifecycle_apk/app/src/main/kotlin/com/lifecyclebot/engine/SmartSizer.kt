@@ -307,26 +307,39 @@ object SmartSizer {
         size *= memoryMult
         
         // ── LIQUIDITY DEPTH ADJUSTMENT ─────────────────────────────────
-        // Scale position based on liquidity - bigger positions when more depth
-        val liquidityMult = when {
-            liquidityUsd >= 500_000 -> 1.50  // Very deep liquidity - can size up
-            liquidityUsd >= 200_000 -> 1.30
-            liquidityUsd >= 100_000 -> 1.15
-            liquidityUsd >= 50_000  -> 1.00  // Normal
-            liquidityUsd >= 20_000  -> 0.85  // Low liquidity - smaller positions
-            liquidityUsd >= 10_000  -> 0.70
-            else                    -> 0.60  // Very low - minimal position
+        // V5.9.643 — meme-aware liquidity scaling.
+        // Pump.fun / early Solana tokens naturally launch at $1k-$30k liquidity —
+        // the old 0.60x at <$10k was crushing sizing on exactly the tokens we want.
+        // Paper mode: no penalty (learning should not be distorted by this gate).
+        // Live mode: thresholds shifted down to match real meme launch profiles.
+        val liquidityMult = if (isPaperMode) {
+            1.0  // no penalty in paper — don't starve learning
+        } else {
+            when {
+                liquidityUsd >= 500_000 -> 1.40  // Very deep — can size up
+                liquidityUsd >= 200_000 -> 1.20
+                liquidityUsd >= 100_000 -> 1.10
+                liquidityUsd >= 50_000  -> 1.00  // Normal
+                liquidityUsd >= 20_000  -> 1.00  // Meme-normal — no penalty
+                liquidityUsd >= 10_000  -> 0.90  // Borderline — small reduction
+                liquidityUsd >= 5_000   -> 0.80  // Low but valid meme launch range
+                liquidityUsd >= 1_000   -> 0.70  // Very low — reduce but not zero
+                else                    -> 0.60  // Sub $1k — minimal position
+            }
         }
         size *= liquidityMult
         
         // ── VOLATILITY/CONFIDENCE ADJUSTMENT ───────────────────────────
-        // Higher confidence = accept more risk, lower = reduce exposure
+        // V5.9.643 — narrowed range: aiBasePct already encodes confidence, so
+        // applying a second full confidence multiplier was double-penalising low-
+        // confidence tokens (e.g. conf=45 → 4% base × 0.85 = effectively 3.4%).
+        // This secondary mult now operates in a ±15% band only to nudge at extremes.
         val confidenceMult = when {
-            aiConfidence >= 85 -> 1.30  // Very high confidence - size up
-            aiConfidence >= 70 -> 1.15
-            aiConfidence >= 55 -> 1.00  // Normal
-            aiConfidence >= 40 -> 0.85
-            else               -> 0.70  // Low confidence = minimal exposure
+            aiConfidence >= 85 -> 1.15  // Very high confidence — small boost
+            aiConfidence >= 70 -> 1.08
+            aiConfidence >= 45 -> 1.00  // Normal band — no change
+            aiConfidence >= 30 -> 0.90  // Genuinely low — mild reduction
+            else               -> 0.80  // Very low confidence — moderate cut
         }
         size *= confidenceMult
         

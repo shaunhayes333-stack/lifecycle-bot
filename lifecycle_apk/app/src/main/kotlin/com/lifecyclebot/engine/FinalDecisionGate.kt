@@ -259,7 +259,7 @@ object FinalDecisionGate {
     private var adaptiveRelaxationActive = false
     private const val DANGER_ZONE_BYPASS_THRESHOLD = 20 // V5.9.213: raised from 8 — stops junk entering after losing streak
     private const val MEMORY_BYPASS_THRESHOLD = 25 // V5.9.213: raised from 10
-    private const val MAX_RELAXATION_TRADES = 3
+    private const val MAX_RELAXATION_TRADES = 15  // V5.9.643: raised 3→15 (3 trades burned out too fast when AntiChoke not actively holding forceAdaptiveRelaxation; starvation recovered in 3 trades then floors snapped back)
     private var relaxationTradesUsed = 0
 
     fun recordBlock(reason: String) {

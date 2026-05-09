@@ -43,14 +43,20 @@ object MemeEdgeAI {
     private const val MAX_SIZE_MULT     = 1.40
     private const val MIN_SIZE_MULT     = 0.70
 
-    // Maturity ramp - cold-start identical to pre-V5.9.619.
+    // V5.9.643 — bootstrap ramp: pattern feedback now contributes from trade 1.
+    // Previous design had 0% for <200 trades — this starved bootstrap learning of
+    // the one signal that actually improves with every closed trade. New ramp starts
+    // at 3% (enough to add directional signal without over-fitting on thin data).
     private fun patternBlend(tradeCount: Int): Double = when {
-        tradeCount < 200   -> 0.00
-        tradeCount < 500   -> 0.05
-        tradeCount < 1000  -> 0.08
-        tradeCount < 2000  -> 0.12
-        tradeCount < 5000  -> 0.16
-        else               -> 0.20
+        tradeCount < 20    -> 0.03   // Cold-start: tiny nudge, mostly exploratory
+        tradeCount < 50    -> 0.05   // Bootstrap warming up
+        tradeCount < 100   -> 0.07   // Patterns accumulating
+        tradeCount < 200   -> 0.10   // Enough data for real adjustment
+        tradeCount < 500   -> 0.13
+        tradeCount < 1000  -> 0.16
+        tradeCount < 2000  -> 0.18
+        tradeCount < 5000  -> 0.19
+        else               -> 0.20   // Full maturity
     }
 
     enum class Layer { SHITCOIN, MOONSHOT }
@@ -133,8 +139,15 @@ object MemeEdgeAI {
         val layerWr = layerRollingWinRate(layer, lookback = 50)
         if (layerWr != null) {
             val (wr, n) = layerWr
+            // V5.9.643 — lower minimum from 20 to 5 so sizing nudges arrive
+            // during bootstrap rather than after 20+ trades per layer.
             val sizingFromWr = when {
-                n < 20       -> 1.0
+                n < 5        -> 1.0   // too sparse — neutral
+                n < 10       -> when {  // small sample: gentler range
+                    wr < 30.0 -> 0.88
+                    wr > 65.0 -> 1.08
+                    else -> 1.0
+                }
                 wr < 25.0    -> 0.75
                 wr < 35.0    -> 0.90
                 wr in 45.0..55.0 -> 1.0
