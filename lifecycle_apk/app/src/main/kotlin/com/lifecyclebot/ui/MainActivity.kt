@@ -2136,9 +2136,20 @@ for legal compliance.
             tvStats24hTrades.text = "$topBarTradeCount"
             
             // Win rate: Use RunTracker30D meme-trader-specific WR.
+            // V5.9.649 — fix data pollution where MEME tab showed e.g. "20%"
+            // while the W/L/S subline read "0W 0L 0S". Operator screenshot:
+            // "20% winrate?. it hasnt made a single trade in the memetrader
+            // yet so that is wrong." The bug was a fallback to
+            // persistedStats.winRate24h (TradeHistoryStore 24h-window WR
+            // including ALL traders) when meme-decisive was 0. That stale
+            // historical/cross-trader % bled into the meme tile and
+            // contradicted its own subline. Fix: on MEME tab, never fall
+            // through to persistedStats — show 0 so the headline number
+            // matches the W/L/S subline byte-for-byte. Other tabs unchanged.
             val winRate = when {
-                memeDecisive >= 1                 -> memeWrRT.toInt()
-                persistedStats.winRate24h > 0     -> persistedStats.winRate24h
+                memeDecisive >= 1                     -> memeWrRT.toInt()
+                currentReadinessTab == "MEME"         -> 0
+                persistedStats.winRate24h > 0         -> persistedStats.winRate24h
                 else -> 0
             }
             
