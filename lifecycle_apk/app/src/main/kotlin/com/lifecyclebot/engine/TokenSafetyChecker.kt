@@ -316,8 +316,21 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     if (rLevel == "danger" || rLevel == "high") redFlagCount++
                 }
                 if (redFlagCount >= 5) {
-                    hard.add("$redFlagCount critical risk flags — extreme rug risk (WCOR-type token)")
-                    ErrorLogger.error(TAG, "🚫 RED_FLAG_GATE: $symbol — $redFlagCount danger-level flags >= 5 threshold → HARD BLOCK")
+                    // V5.9.648 — operator override: in PAPER mode, never hard-block on
+                    // red-flag count. Demote to a strong soft penalty so the token still
+                    // routes upstream for qualification and feeds learning data on
+                    // outcome (rug vs survive). Real rugs in paper don't lose real SOL —
+                    // they generate the exact training signal the bot needs to LEARN
+                    // when red-flag-gated tokens actually fail. Hard block remains in
+                    // live mode where the rug really costs money.
+                    if (isPaperMode) {
+                        soft.add("$redFlagCount critical risk flags (paper soft, learning data)" to 35)
+                        penalty += 35
+                        ErrorLogger.info(TAG, "⚠️ RED_FLAG_SOFT (paper): $symbol — $redFlagCount danger flags → +35 penalty, routing upstream for qualification")
+                    } else {
+                        hard.add("$redFlagCount critical risk flags — extreme rug risk (WCOR-type token)")
+                        ErrorLogger.error(TAG, "🚫 RED_FLAG_GATE: $symbol — $redFlagCount danger-level flags >= 5 threshold → HARD BLOCK")
+                    }
                 }
             }
 
@@ -516,12 +529,22 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 }
             }
             lpLockPct < 30.0 -> {
-                // V5.9.495z39 — WCOR FIX: LP <30% locked = HARD BLOCK in BOTH modes.
-                // Previously paper got a soft +40 penalty only — not enough to stop entry
-                // when other signals were positive. Real rugs work in paper too (they bleed
-                // the learning data with bad outcomes and cost paper SOL). Hard block both.
-                hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity instantly")
-                ErrorLogger.error(TAG, "🚫 LP HARD BLOCK (${if (isPaperMode) "paper" else "live"}): $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
+                // V5.9.648 — operator override of V5.9.495z39's "block both modes"
+                // policy. Operator: "rc score 1 and above $500 market cap and above
+                // goes to upstream for qualification". The previous WCOR fix was
+                // hard-blocking 100% of new pump.fun launches in paper because they
+                // typically launch with 0% LP locked before migration. Real rugs in
+                // paper don't burn real SOL — they generate the exact training data
+                // the bot needs. Hard block remains in LIVE mode where 0% locked
+                // genuinely means devs can pull liquidity instantly.
+                if (isPaperMode) {
+                    soft.add("LP only ${lpLockPct.toInt()}% locked (paper soft, learning data)" to 40)
+                    penalty += 40
+                    ErrorLogger.info(TAG, "⚠️ LP_LOCK_SOFT (paper): $symbol ${lpLockPct.toInt()}% locked → +40 penalty, routing upstream for qualification")
+                } else {
+                    hard.add("LP only ${lpLockPct.toInt()}% locked — EXTREME RUG RISK, devs can pull liquidity instantly")
+                    ErrorLogger.error(TAG, "🚫 LP HARD BLOCK (live): $symbol only ${lpLockPct.toInt()}% locked — blocking to prevent rug")
+                }
             }
             lpLockPct < 70.0 -> {
                 // V5.9.310: was <50% live block, now <70% live block (Bernard's loss was at ~60% locked)
