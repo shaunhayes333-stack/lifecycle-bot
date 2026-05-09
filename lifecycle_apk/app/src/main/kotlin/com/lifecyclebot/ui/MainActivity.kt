@@ -1766,6 +1766,7 @@ for legal compliance.
                     streakBlocks = streakBlocks,
                 )
                 val statusSuffix = when {
+                    trades < 5000 -> "LEARNING_OPEN"
                     tierStateSnap.isReady -> "READY"
                     com.lifecyclebot.engine.TierState.Status.STREAK_GUARD_ACTIVE in tierStateSnap.statuses -> "STREAK_GUARD"
                     com.lifecyclebot.engine.TierState.Status.PROFITABILITY_LOCKED in tierStateSnap.statuses -> "PROFITABILITY_LOCKED"

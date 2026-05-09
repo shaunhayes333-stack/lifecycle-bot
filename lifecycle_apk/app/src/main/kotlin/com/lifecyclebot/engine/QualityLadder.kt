@@ -14,13 +14,14 @@ package com.lifecyclebot.engine
  *
  *   Trade band         Target WR            Max tier
  *   ──────────────────────────────────────────────────
- *   0 – 500            0 % (discovery)      0 (wide open)
- *   500 – 1500         15 % → 25 %          2
- *   1500 – 3000        25 % → 35 %          3
- *   3000 – 4000        35 % → 50 %          4
- *   4000 – 5000        50 % → 70 %          5
+ *   0 – 5000           learning target only 0 (wide open)
  *   5000 – 7000        70 % → 85 %          5
  *   7000+              85 %                 5
+ *
+ * V5.9.641 — operator rule restored: mature/defensive values do not apply
+ * until the 5000-trade maturity point. Before 5000 trades, this ladder may
+ * report coaching targets in the UI, but must not trigger PROFITABILITY_LOCKED
+ * or re-enable cooldown/rug/trust gates that choke the learning firehose.
  *
  * Tiers:
  *   0 — wide open (free-range). No guards fire. Size ×1.00.
@@ -100,10 +101,11 @@ object QualityLadder {
     }
 
     private fun phaseCap(trades: Int): Int = when {
-        trades < 500  -> 0
-        trades < 1500 -> 2
-        trades < 3000 -> 3
-        trades < 4000 -> 4
+        // V5.9.641 — hard restore of the 5000-trade maturity rule.
+        // Below 5000, QualityLadder is coaching/telemetry only; it must not
+        // impose PROFITABILITY_LOCKED or defensive tiers that stop Meme from
+        // producing the paper/live trade volume needed to learn.
+        trades < 5000 -> 0
         else          -> 5
     }
 
@@ -119,7 +121,7 @@ object QualityLadder {
         return try {
             val snap = TradeHistoryStore.getLifetimeStats()
             val trades = snap.totalSells
-            if (trades < 500) return 0
+            if (trades < 5000) return 0
             val target = targetWrForTrades(trades)
             val actual = snap.winRate
             if (actual >= target) return 0                        // earned freedom
