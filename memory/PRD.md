@@ -203,9 +203,53 @@ Expanded diagnostic dump sections (NEW):
 - ANR top blocking call sites (grouped, most frequent first).
 - Stall % of uptime metric.
 
-Ring buffer cap raised 200 → 300. Reset clears every new counter.
-Wired TradeHistoryStore.recordTrade → recordExec for the new
-recent-executions section.
+## V5.9.671 — V5.9.672 changelog (May 11, 2026)
+
+### V5.9.671 — fix THE ANR root cause: cache EncryptedSharedPreferences (May 11)
+ConfigStore.secrets() previously rebuilt the MasterKey + EncryptedSharedPreferences
+on every call, which fired an Android Keystore Binder IPC + AES-GCM operation
+init on the main thread per UI poll. Operator dump showed 431 hits on this frame
+with stall % 49% of uptime. Fix: @Volatile cachedSecrets + double-checked locking
+so the EncryptedSharedPreferences instance is built ONCE per process and reused.
+Confirmed by operator: ConfigStore.secrets dropped to 0 hits; bot loop reached
+V3 with score>0 for the first time post-regression; first live BUY since the
+regression fired (`rmgSDM sol=0.042`).
+
+### V5.9.672 — VOL_GATE live-mode bypass + silent-drop forensics + watchlist render throttle (May 11)
+Three surgical fixes on top of V5.9.671 in response to operator's second pipeline
+dump (post-cache-fix). LIVE buys regressed because:
+
+1. **VOL_GATE live-mode bypass restored (BotService.kt:8011-8035)**.
+   V5.9.606's unknownVolumeButTradable bypass gated on `cfg.paperMode &&`,
+   which silently dropped every fresh PumpPortal/Dex hydration in LIVE mode
+   (vol1h=0 but liq=$2.3k is the canonical state of a newly-listed meme).
+   Operator confirmed live buys worked end-to-end 4 days ago — this was THE
+   regression. Drop the paperMode-only guard; the bypass now applies in both
+   paper and live, gated by the same liq/mcap thresholds. Downstream V3 +
+   scoring still decide whether the token is buy-worthy.
+
+2. **Silent-drop forensics (BotService.kt:7988-7997 + 8024-8032)**.
+   The LOSS_STREAK guard and VOL_GATE both returned silently with debug-only
+   logs and no ForensicLogger event — so a SAFETY-allowed token would
+   disappear without leaving a trace in the pipeline funnel. Added
+   ForensicLogger.gate(PHASE.V3, allow=false, reason="V3_SKIPPED loss_streak ...")
+   and similar for vol_gate, so both drops now show up in the snapshot's
+   gate block tally. Pure additive — no behaviour change.
+
+3. **Watchlist render throttle (MainActivity.kt:356-367 + 2849-2865 + 6424-6432)**.
+   Operator's post-cache-fix dump showed `MainActivity.buildTokenCard` as the
+   new top ANR blocker (11 hits, stall % 62.2%). The pollLoop ticks every
+   2.5s and renderWatchlist tears down + recreates up to 40 cards per tick;
+   each card spawns ~10 fresh TextViews, each triggering native
+   AssetManager.applyStyle / theme attribute parsing. Fix:
+   - 6s throttle on the full renderWatchlist rebuild, bypassed only on
+     *structural* change (active mint or open-position count).
+   - Token count deliberately excluded from the structural check because
+     scanner intake constantly nudges it (3-7/s in operator dumps) — using
+     it would defeat the throttle entirely.
+   - Row caps lowered: 3-col 24→16, 2-col 32→20, 1-col 40→24. Header still
+     surfaces the true full count; visible slice still sorted by active /
+     open / entryScore / lastV3Score / lastLiquidityUsd.
 
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.

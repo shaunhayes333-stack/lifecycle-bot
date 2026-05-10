@@ -7985,6 +7985,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         if (!wideOpen && lossBlockUntil > 0L) {
             val remainingMin = (lossBlockUntil - System.currentTimeMillis()) / 60_000L
             ErrorLogger.debug("BotService", "🛑 [LOSS_STREAK] ${identity.symbol} | SKIP | 3-loss streak — blocked ${remainingMin}min more")
+            // V5.9.672 — surface the silent drop in the pipeline funnel so the
+            // operator can see exactly how many SAFETY-allowed candidates die
+            // here. Reuses the V3 phase bucket since this is a pre-V3 reject.
+            try {
+                ForensicLogger.gate(
+                    ForensicLogger.PHASE.V3, ts.symbol,
+                    allow = false,
+                    reason = "V3_SKIPPED loss_streak | ${remainingMin}min left | src=${ts.source}"
+                )
+            } catch (_: Throwable) {}
             return
         }
 
@@ -7999,16 +8009,30 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             else                -> 2_000.0
         }
         if (lastVolumeH1 < minVolumeH1) {
-            // V5.9.606 — in paper/free-range, unknown volume from fresh
-            // PumpPortal/Dex hydration must not silently starve V3. If the
-            // token has real liquidity/mcap, let downstream scoring decide.
-            val unknownVolumeButTradable = cfg.paperMode && wideOpen && lastVolumeH1 <= 0.0 &&
+            // V5.9.672 — restore LIVE-mode VOL_GATE bypass. V5.9.606 only
+            // granted the unknown-volume-but-tradable pass in paper mode,
+            // which silently dropped every fresh PumpPortal/Dex hydration
+            // in live mode (vol1h=0 but liq=$2.3k is the normal state for
+            // a newly-listed meme). Operator confirmed live buys worked
+            // end-to-end 4 days ago — this was the regression. Drop the
+            // paperMode-only guard; downstream V3 + scoring still decide
+            // whether the token is buy-worthy.
+            val unknownVolumeButTradable = wideOpen && lastVolumeH1 <= 0.0 &&
                 (ts.lastLiquidityUsd >= 2_000.0 || ts.lastMcap >= 10_000.0)
             if (!unknownVolumeButTradable) {
                 ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
+                // V5.9.672 — funnel visibility for the second pre-V3 silent
+                // drop. Same justification as the LOSS_STREAK gate above.
+                try {
+                    ForensicLogger.gate(
+                        ForensicLogger.PHASE.V3, ts.symbol,
+                        allow = false,
+                        reason = "V3_SKIPPED vol_gate | h1vol=\$${lastVolumeH1.toInt()} < \$${minVolumeH1.toInt()} | liq=\$${ts.lastLiquidityUsd.toInt()}"
+                    )
+                } catch (_: Throwable) {}
                 return
             }
-            ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | paper free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()}")
+            ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
         }
     }
 

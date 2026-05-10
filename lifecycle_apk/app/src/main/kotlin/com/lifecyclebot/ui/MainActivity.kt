@@ -352,6 +352,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvIdleHeader: TextView         // V5.2: Idle header
     private lateinit var etAddMint: EditText
     private lateinit var btnAddToken: Button
+
+    // V5.9.672 — Watchlist render throttle. The pollLoop ticks every 2.5s
+    // and renderWatchlist tears down + recreates up to 40 token cards on
+    // every tick (each card creates ~10 TextViews → AssetManager native
+    // applyStyle / theme attribute lookups). Operator pipeline-health dump
+    // showed buildTokenCard as the top ANR blocker at 62% main-thread stall.
+    // Cheapest non-rewrite fix: throttle the FULL rebuild to ~6s, and skip
+    // it entirely when neither the active mint, the open-position count,
+    // nor the visible watchlist size changed.
+    private var lastWatchlistRenderMs: Long = 0L
+    private var lastWatchlistOpenCount: Int = -1
+    private var lastWatchlistActiveMint: String = ""
     
     // V5.2.8: 30-Day Run Stats views
     private lateinit var card30DayRun: View
@@ -2834,7 +2846,23 @@ for legal compliance.
         }
 
         // ── watchlist ─────────────────────────────────────────────────
-        renderWatchlist(state)
+        // V5.9.672 — render throttle. Skip the full teardown+rebuild when
+        // 6s haven't elapsed AND none of the *structural* signals changed.
+        // We deliberately exclude raw token count from the structural check
+        // because the scanner intake constantly nudges the count (3-7/s in
+        // operator dumps) — using it would defeat the throttle entirely.
+        val nowWl = System.currentTimeMillis()
+        val openCountWl = state.openPositions.size
+        val activeMintWl = state.config.activeToken
+        val structuralChange = openCountWl != lastWatchlistOpenCount ||
+            activeMintWl != lastWatchlistActiveMint
+        val timeElapsed = (nowWl - lastWatchlistRenderMs) >= 6_000L
+        if (structuralChange || timeElapsed || lastWatchlistRenderMs == 0L) {
+            renderWatchlist(state)
+            lastWatchlistRenderMs = nowWl
+            lastWatchlistOpenCount = openCountWl
+            lastWatchlistActiveMint = activeMintWl
+        }
 
         // ── bottom bar ────────────────────────────────────────────────
         val running = state.running
@@ -6421,10 +6449,14 @@ This cannot be undone!
         // hundreds of candidates, but drawing hundreds of nested cards + images
         // every UI tick OOMs low-memory Android heaps. Render the most relevant
         // slice only; the header still shows the true full count.
+        // V5.9.672 — caps lowered (24/32/40 → 16/20/24). Each buildTokenCard
+        // creates ~10 fresh TextViews which each trigger native AssetManager
+        // theme/attribute parsing. Operator dump showed 62% main-thread stall
+        // pinned to buildTokenCard. The header still surfaces the full count.
         val maxWatchlistRows = when (columnCount) {
-            3 -> 24
-            2 -> 32
-            else -> 40
+            3 -> 16
+            2 -> 20
+            else -> 24
         }
         val activeVisible = activeTokens
             .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
