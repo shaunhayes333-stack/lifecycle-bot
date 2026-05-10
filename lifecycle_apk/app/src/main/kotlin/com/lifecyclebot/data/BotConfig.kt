@@ -625,31 +625,57 @@ object ConfigStore {
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
+    // V5.9.671 — operator pipeline-health dump revealed THE smoking gun:
+    //   [257]  at com.lifecyclebot.data.ConfigStore.secrets
+    //
+    // Every BotViewModel.pollLoop tick called MainActivity.updateUi which
+    // called ConfigStore.load which called this secrets() helper, and
+    // each call rebuilt the MasterKey + EncryptedSharedPreferences from
+    // scratch. That triggers an Android Keystore Binder IPC + AES-GCM
+    // operation init on the main thread — hundreds of milliseconds each
+    // call, sometimes seconds. Stack traces in the operator dump showed
+    // freezes of 5–14s in this exact frame.
+    //
+    // EncryptedSharedPreferences is explicitly designed to be created
+    // ONCE per process and reused. Cache the instance with a volatile
+    // backing field + double-checked locking so concurrent callers
+    // share the same wrapper.
+    @Volatile private var cachedSecrets: android.content.SharedPreferences? = null
+    private val secretsInitLock = Any()
+
     private fun secrets(ctx: Context): android.content.SharedPreferences {
-        try {
-            val masterKey = MasterKey.Builder(ctx)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            return EncryptedSharedPreferences.create(
-                ctx, KEY_FILE, masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
-        } catch (e: Exception) {
-            // V5.0: If encryption fails (e.g., MasterKey invalidated after signing key change),
-            // the old encrypted data is unrecoverable. Fall back to unencrypted storage.
-            // 
-            // This is a ONE-TIME issue: after this update, the consistent release.keystore
-            // ensures future updates won't change the signing key or invalidate MasterKey.
-            //
-            // User will need to re-enter API keys once after this update.
-            android.util.Log.w("ConfigStore", "EncryptedPrefs failed (signing key changed?): ${e.message}")
-            android.util.Log.w("ConfigStore", "Using fallback storage - API keys will need to be re-entered once")
-            
-            // Return regular SharedPreferences as fallback
-            // NOT ideal for security but preserves functionality
-            // Future versions can migrate back to encrypted once signing is stable
-            return ctx.getSharedPreferences("${KEY_FILE}_fallback", Context.MODE_PRIVATE)
+        // Fast path: instance already built, no synchronisation needed.
+        cachedSecrets?.let { return it }
+        synchronized(secretsInitLock) {
+            // Re-check under lock (double-checked locking).
+            cachedSecrets?.let { return it }
+            val built = try {
+                val masterKey = MasterKey.Builder(ctx.applicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    ctx.applicationContext, KEY_FILE, masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                // V5.0: If encryption fails (e.g., MasterKey invalidated after signing key change),
+                // the old encrypted data is unrecoverable. Fall back to unencrypted storage.
+                //
+                // This is a ONE-TIME issue: after this update, the consistent release.keystore
+                // ensures future updates won't change the signing key or invalidate MasterKey.
+                //
+                // User will need to re-enter API keys once after this update.
+                android.util.Log.w("ConfigStore", "EncryptedPrefs failed (signing key changed?): ${e.message}")
+                android.util.Log.w("ConfigStore", "Using fallback storage - API keys will need to be re-entered once")
+
+                // Return regular SharedPreferences as fallback
+                // NOT ideal for security but preserves functionality
+                // Future versions can migrate back to encrypted once signing is stable
+                ctx.applicationContext.getSharedPreferences("${KEY_FILE}_fallback", Context.MODE_PRIVATE)
+            }
+            cachedSecrets = built
+            return built
         }
     }
 }
