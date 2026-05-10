@@ -1,1 +1,12 @@
 *.bak
+
+# Sandbox-only directories created by the Emergent dev container.
+# These are NOT part of the Android trading bot — never push to GitHub.
+/backend/
+/frontend/
+/temp_clone/
+/logs_extract/
+**/node_modules/
+**/.cache/
+__pycache__/
+*.pyc

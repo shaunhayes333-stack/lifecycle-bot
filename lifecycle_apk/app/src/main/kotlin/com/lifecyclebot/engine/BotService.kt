@@ -4715,13 +4715,15 @@ class BotService : Service() {
      * thinks the world looks like: scanner alive, merge queue depth, watchlist
      * size, open position count, paper/live mode, V3 toggle, etc.
      */
-    private fun emitBotLoopTick(loopCount: Int, prevCycleMs: Long) {
-        // V5.9.659 — extracted from botLoop body to stay under the JVM
-        // 64KB method size limit. Operator-facing structured trace; one
-        // line per loop iteration. Grep '🧬[BOT_LOOP_TICK]' to confirm
-        // the loop is alive and to see how long the previous full cycle
-        // took (a value > 30000 ms means the loop is sluggish).
+    private var lastBotLoopTickMs: Long = System.currentTimeMillis()
+
+    private fun emitBotLoopTick(loopCount: Int) {
+        // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
+        // method size. Tracks its own prev-cycle delta via class field.
         try {
+            val now = System.currentTimeMillis()
+            val prevCycleMs = now - lastBotLoopTickMs
+            lastBotLoopTickMs = now
             val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
             ForensicLogger.phase(
                 ForensicLogger.PHASE.SCAN_CB,
@@ -4757,6 +4759,120 @@ class BotService : Service() {
                 "loop=$loopCount running=${status.running} loopJob=${loopJob?.isActive} scAlive=$scAlive mq=$mqDepth wl=$wlSize open=$openCount paper=${cfg.paperMode} v3=${cfg.v3EngineEnabled} memeT=${cfg.memeTraderEnabled} mode=${cfg.tradingMode}"
             )
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB
+     * method size limit. Same cadence (every 6 loops, ~30s), same
+     * behavior. Operator-facing visibility line for silent scanner
+     * failures + auto-recovery if marketScanner went null while running.
+     */
+    private fun runScannerHeartbeat() {
+        try {
+            val sc = marketScanner
+            if (sc == null) {
+                ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${status.running} watch=${GlobalTradeRegistry.size()}")
+                if (status.running) {
+                    addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
+                    bootMemeScanner(reason = "HEARTBEAT_NULL")
+                }
+            } else {
+                val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
+                if (snap != null) {
+                    ErrorLogger.info(
+                        "BotService",
+                        "🩺 SCANNER_HEARTBEAT: alive=${snap.alive} ageSec=${snap.ageSec} src=${snap.src} ok=${snap.ok} err=${snap.err} raw=${snap.raw} enq=${snap.enq} cd=${snap.cd} liqRej=${snap.liqRej} watch=${GlobalTradeRegistry.size()}"
+                    )
+                } else {
+                    ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: snapshot=null watch=${GlobalTradeRegistry.size()}")
+                }
+            }
+        } catch (e: Throwable) {
+            ErrorLogger.debug("BotService", "Scanner heartbeat tick error: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB
+     * method size limit. Same cadence (every 10 loops), same behavior.
+     * Periodic SOL price refresh + SymbolicContext refresh + per-lane
+     * health watchdogs, all gated by isMarketsLaneEnabled() so the
+     * Markets engine is not silently restarted when the master toggle
+     * is OFF.
+     */
+    private suspend fun runMarketsEngineWatchdog(
+        loopCount: Int,
+        cfg: com.lifecyclebot.data.BotConfig,
+    ) {
+        // V5.9.9: Periodic SOL price refresh — critical for USD display
+        // Without this, paper mode with no wallet = stale $0 price
+        try {
+            val freshPrice = com.lifecyclebot.engine.WalletManager
+                .getInstance(applicationContext).fetchSolPrice()
+            if (freshPrice > 50.0) {
+                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = freshPrice
+            }
+        } catch (_: Exception) {}
+
+        // V5.9.10: Refresh global SymbolicContext — feeds all 50+ AI modules
+        // + FinalDecisionGate with live 16-channel symbolic intelligence
+        try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
+
+        try {
+            // V5.9.469 — gate ALL Markets watchdogs by the master toggle.
+            val marketsLaneOn = isMarketsLaneEnabled(cfg)
+            if (!marketsLaneOn && com.lifecyclebot.perps.PerpsExecutionEngine.isRunning()) {
+                ErrorLogger.info("BotService", "📴 Markets toggled OFF mid-session — stopping PerpsExecutionEngine + sub-traders")
+                addLog("📴 Markets toggled OFF — stopping engine + sub-traders")
+                try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
+                try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
+                try { com.lifecyclebot.perps.CommoditiesTrader.stop() } catch (_: Exception) {}
+                try { com.lifecyclebot.perps.MetalsTrader.stop() } catch (_: Exception) {}
+                try { com.lifecyclebot.perps.ForexTrader.stop() } catch (_: Exception) {}
+            }
+
+            // PerpsExecutionEngine watchdog — only when Markets toggle is ON
+            if (marketsLaneOn) {
+                val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
+                if (!healthy) {
+                    ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
+                    addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
+                    com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                    delay(500)
+                    com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
+                    addLog("⚡ Markets engine restarted by watchdog")
+                }
+            }
+            // CryptoAltTrader watchdog — only if enabled (V5.9.345: exempt from kill-switch)
+            if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
+                addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
+                com.lifecyclebot.perps.CryptoAltTrader.start()
+            }
+            // TokenizedStockTrader watchdog — only if Markets+stocks enabled
+            if (marketsLaneOn && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
+                ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
+                addLog("📈 Stock trader watchdog: unhealthy, restarting…")
+                com.lifecyclebot.perps.TokenizedStockTrader.start()
+            }
+            // CommoditiesTrader watchdog — only if Markets+commodities enabled
+            if (marketsLaneOn && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
+                ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
+                com.lifecyclebot.perps.CommoditiesTrader.start()
+            }
+            // MetalsTrader watchdog — only if Markets+metals enabled
+            if (marketsLaneOn && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
+                ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
+                com.lifecyclebot.perps.MetalsTrader.start()
+            }
+            // ForexTrader watchdog — only if Markets+forex enabled
+            if (marketsLaneOn && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
+                ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
+                com.lifecyclebot.perps.ForexTrader.start()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
+        }
     }
 
     private suspend fun botLoop() {
@@ -5276,33 +5392,10 @@ class BotService : Service() {
                 marketScanner?.checkAndResetIfStale()
             }
 
-            // V5.9.645 — 🩺 SCANNER HEARTBEAT (every ~30s).
-            // Operator-requested visibility line so silent scanner failures are
-            // immediately obvious in the log dump. Format intentionally compact
-            // so it survives any export/grep filter.
+            // V5.9.660 — extracted to runScannerHeartbeat() to keep
+            // botLoop under the JVM 64KB method size limit.
             if (loopCount % 6 == 0) {
-                try {
-                    val sc = marketScanner
-                    if (sc == null) {
-                        ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${status.running} watch=${GlobalTradeRegistry.size()}")
-                        if (status.running) {
-                            addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
-                            bootMemeScanner(reason = "HEARTBEAT_NULL")
-                        }
-                    } else {
-                        val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
-                        if (snap != null) {
-                            ErrorLogger.info(
-                                "BotService",
-                                "🩺 SCANNER_HEARTBEAT: alive=${snap.alive} ageSec=${snap.ageSec} src=${snap.src} ok=${snap.ok} err=${snap.err} raw=${snap.raw} enq=${snap.enq} cd=${snap.cd} liqRej=${snap.liqRej} watch=${GlobalTradeRegistry.size()}"
-                            )
-                        } else {
-                            ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: snapshot=null watch=${GlobalTradeRegistry.size()}")
-                        }
-                    }
-                } catch (e: Throwable) {
-                    ErrorLogger.debug("BotService", "Scanner heartbeat tick error: ${e.message}")
-                }
+                runScannerHeartbeat()
             }
 
             // ═══════════════════════════════════════════════════════════════════
@@ -5393,85 +5486,11 @@ class BotService : Service() {
                 }
             }
             
-            // ═══════════════════════════════════════════════════════════════════
-            // MARKETS ENGINE WATCHDOG — every 10 loops
-            // Detects when PerpsExecutionEngine loop died silently and restarts it
-            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.660 — extracted to runMarketsEngineWatchdog() to keep
+            // botLoop under the JVM 64KB method size limit. Same cadence
+            // (every 10 loops), same behavior. See helper for full body.
             if (loopCount % 10 == 0) {
-                // V5.9.9: Periodic SOL price refresh — critical for USD display
-                // Without this, paper mode with no wallet = stale $0 price
-                try {
-                    val freshPrice = com.lifecyclebot.engine.WalletManager
-                        .getInstance(applicationContext).fetchSolPrice()
-                    if (freshPrice > 50.0) {
-                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = freshPrice
-                    }
-                } catch (_: Exception) {}
-
-                // V5.9.10: Refresh global SymbolicContext — feeds all 50+ AI modules
-                // + FinalDecisionGate with live 16-channel symbolic intelligence
-                try { com.lifecyclebot.engine.SymbolicContext.refresh() } catch (_: Exception) {}
-
-                try {
-                    // V5.9.469 — gate ALL Markets watchdogs by the master toggle.
-                    // Was previously "ALWAYS runs" which caused the operator-reported
-                    // "Markets keeps starting in live whether the toggle is on or not"
-                    // bug — the engine got restarted every 10 ticks regardless of
-                    // marketsTraderEnabled. Now: when Markets is toggled OFF, we
-                    // STOP the engine if it was running and skip the watchdogs entirely.
-                    val marketsLaneOn = isMarketsLaneEnabled(cfg)
-                    if (!marketsLaneOn && com.lifecyclebot.perps.PerpsExecutionEngine.isRunning()) {
-                        ErrorLogger.info("BotService", "📴 Markets toggled OFF mid-session — stopping PerpsExecutionEngine + sub-traders")
-                        addLog("📴 Markets toggled OFF — stopping engine + sub-traders")
-                        try { com.lifecyclebot.perps.PerpsExecutionEngine.stop() } catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.CommoditiesTrader.stop() } catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.MetalsTrader.stop() } catch (_: Exception) {}
-                        try { com.lifecyclebot.perps.ForexTrader.stop() } catch (_: Exception) {}
-                    }
-
-                    // PerpsExecutionEngine watchdog — only when Markets toggle is ON
-                    if (marketsLaneOn) {
-                        val healthy = com.lifecyclebot.perps.PerpsExecutionEngine.isHealthy()
-                        if (!healthy) {
-                            ErrorLogger.warn("BotService", "⚠️ PerpsExecutionEngine NOT HEALTHY (loop #$loopCount) — restarting…")
-                            addLog("⚡ Markets engine watchdog: engine unhealthy, restarting…")
-                            com.lifecyclebot.perps.PerpsExecutionEngine.stop()
-                            delay(500)
-                            com.lifecyclebot.perps.PerpsExecutionEngine.start(applicationContext)
-                            addLog("⚡ Markets engine restarted by watchdog")
-                        }
-                    }
-                    // CryptoAltTrader watchdog — only if enabled (V5.9.345: exempt from kill-switch)
-                    if (cfg.cryptoAltsEnabled && !com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ CryptoAltTrader unhealthy (loop #$loopCount) — restarting…")
-                        addLog("🪙 CryptoAlt watchdog: unhealthy, restarting…")
-                        com.lifecyclebot.perps.CryptoAltTrader.start()
-                    }
-                    // TokenizedStockTrader watchdog — only if Markets+stocks enabled
-                    if (marketsLaneOn && cfg.stocksEnabled && !com.lifecyclebot.perps.TokenizedStockTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ TokenizedStockTrader unhealthy (loop #$loopCount) — restarting…")
-                        addLog("📈 Stock trader watchdog: unhealthy, restarting…")
-                        com.lifecyclebot.perps.TokenizedStockTrader.start()
-                    }
-                    // CommoditiesTrader watchdog — only if Markets+commodities enabled
-                    if (marketsLaneOn && cfg.commoditiesEnabled && !com.lifecyclebot.perps.CommoditiesTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ CommoditiesTrader unhealthy (loop #$loopCount) — restarting…")
-                        com.lifecyclebot.perps.CommoditiesTrader.start()
-                    }
-                    // MetalsTrader watchdog — only if Markets+metals enabled
-                    if (marketsLaneOn && cfg.metalsEnabled && !com.lifecyclebot.perps.MetalsTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ MetalsTrader unhealthy (loop #$loopCount) — restarting…")
-                        com.lifecyclebot.perps.MetalsTrader.start()
-                    }
-                    // ForexTrader watchdog — only if Markets+forex enabled
-                    if (marketsLaneOn && cfg.forexEnabled && !com.lifecyclebot.perps.ForexTrader.isHealthy()) {
-                        ErrorLogger.warn("BotService", "⚠️ ForexTrader unhealthy (loop #$loopCount) — restarting…")
-                        com.lifecyclebot.perps.ForexTrader.start()
-                    }
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "Markets watchdog error: ${e.message}", e)
-                }
+                runMarketsEngineWatchdog(loopCount, cfg)
             }
 
             // ═══════════════════════════════════════════════════════════════════
@@ -6332,40 +6351,13 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 }
 
 val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
-
-// V5.9.659 — operator triage: watchlist exploded to 3,776 tokens (3148 →
-// 3776 in 3 min). Each chunk processes maxParallel mints under a 1.2s
-// per-token timeout. With 3,776 mints the per-tick supervisorScope can
-// burn through chunks for many minutes before any individual mint gets
-// re-visited, and the 9 trading layers (ShitCoin / Moonshot / Quality /
-// BlueChip / DipHunter / etc.) can't fire because they're downstream of
-// processTokenCycle. The operator log showed ZERO 🧬[SCAN_CB] enter
-// markers in 3 minutes — the loop was effectively starved.
-//
-// CAP: process at most MAX_PER_TICK (top-priority) candidates per tick.
-// Open positions are ALWAYS included (forcedOpenMints already at front
-// of orderedMintsRaw via line 6295). After the cap we still cycle the
-// rest via the per-token round-robin freshness/age boost in
-// prioritizedWatchlist; we just don't try to evaluate ALL 3,776 in one
-// tick.
-//
-// 300 chosen because:
-//   - At maxParallel=96 paper bootstrap, 300 = ~3 chunks × 1.2s = ~3.6s
-//     wall-clock before the loop returns to the FDG / regime pulse /
-//     reconciler / sub-trader scan blocks.
-//   - Fresh PumpPortal mints (the highest-edge path) get freshBoost up
-//     to 350 for <60s old, so they always sort into the top 300.
-//   - Open positions are unconditionally included via forcedOpenMints.
-//
-// Anything beyond 300 IS NOT lost — it stays in status.tokens and gets
-// promoted next tick by lrpBoost (lastProcessedAt boost grows with age).
-val ORDERED_MINTS_CAP_PER_TICK = 300
-val orderedMints = if (orderedMintsRaw.size > ORDERED_MINTS_CAP_PER_TICK) {
-    emitWatchlistCapTrace(ORDERED_MINTS_CAP_PER_TICK, orderedMintsRaw.size, forcedOpenMints.size)
-    orderedMintsRaw.take(ORDERED_MINTS_CAP_PER_TICK)
-} else {
-    orderedMintsRaw
-}
+// V5.9.659b — cap per-tick iteration to keep loop responsive (full
+// rationale in emitWatchlistCapTrace docstring). Single-line form to
+// minimize bytecode in this method body — botLoop is at the JVM 64KB
+// limit and any addition trips it.
+val orderedMints = if (orderedMintsRaw.size > 300) {
+    emitWatchlistCapTrace(300, orderedMintsRaw.size, forcedOpenMints.size); orderedMintsRaw.take(300)
+} else orderedMintsRaw
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
