@@ -6948,6 +6948,33 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
+        // V5.9.657 — operator triage round 3: the outer try-catch at the
+        // bottom of this 5000-line function does ONLY:
+        //     ts.lastError = e.message
+        //     addLog("Error [$mint]: ${e.message}", mint)
+        // addLog() writes to status.logs (a 600-line in-memory UI buffer)
+        // — it does NOT emit to logcat OR to ErrorLogger. Operator install
+        // log of V5.9.655 showed 0 SAFETY/V3/LANE_EVAL forensic lines for
+        // 392 tokens; if even ONE exception is being thrown anywhere
+        // upstream of those forensic phases (synth-pair, candle history
+        // sync, SymbolicContext refresh, BondingCurveTracker, etc.), the
+        // entire pipeline is swallowed silently. We had no way to see it.
+        //
+        // This entry-marker log proves processTokenCycle is being called
+        // for each mint. Paired with the loud catch at line ~11984, the
+        // operator now sees EITHER `🧬[SCAN_CB] enter mint=…` for every
+        // tick OR a loud `🧬[SCAN_CB] EXCEPTION` line — never silent.
+        //
+        // The phase=SCAN_CB tag distinguishes this from INTAKE (which
+        // fires once at admit time) and lets the operator grep for
+        // "SCAN_CB enter" to count actual cycle invocations.
+        try {
+            ForensicLogger.phase(
+                ForensicLogger.PHASE.SCAN_CB,
+                status.tokens[mint]?.symbol ?: mint.take(6),
+                "enter mint=${mint.take(8)} paper=${cfg.paperMode}",
+            )
+        } catch (_: Throwable) { /* never let logging stop the cycle */ }
         try {
             // V5.9.495z42 P1 — opportunistic recovery-lock unlock attempt at
             // the top of every per-token cycle. Covers all V3 sub-trader
@@ -11982,8 +12009,38 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         )
 
         } catch (e: Exception) {
+            // V5.9.657 — operator triage round 3: this catch was SILENT
+            // before. addLog() only writes to status.logs (UI buffer);
+            // exceptions never reached logcat or ErrorLogger. If
+            // processTokenCycle threw anywhere in its 5000-line body
+            // (synth-pair path, candle sync, SymbolicContext refresh,
+            // BondingCurveTracker, V3, ShitCoin lane, …) the whole
+            // pipeline died silently and the operator saw 0 trades with
+            // no SAFETY/V3/LANE_EVAL forensic logs.
+            //
+            // Triple-write: in-app log (existing), ErrorLogger.error (so
+            // it lands in logcat AND the AATE error_logs SQLite store),
+            // and ForensicLogger.gate (so it shows in the same forensic
+            // grep stream as the rest of the pipeline). The
+            // `allow=false` gate marks the cycle as failed so funnel
+            // counters don't double-count it as "made it through".
             status.tokens[mint]?.lastError = e.message ?: "unknown"
             addLog("Error [$mint]: ${e.message}", mint)
+            try {
+                ErrorLogger.error(
+                    "BotService",
+                    "🧬[SCAN_CB] EXCEPTION mint=${mint.take(8)} sym=${status.tokens[mint]?.symbol ?: "?"} cls=${e.javaClass.simpleName} msg=${e.message}",
+                    e,
+                )
+            } catch (_: Throwable) {}
+            try {
+                ForensicLogger.gate(
+                    ForensicLogger.PHASE.SCAN_CB,
+                    status.tokens[mint]?.symbol ?: mint.take(6),
+                    allow = false,
+                    reason = "EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message?.take(120)}",
+                )
+            } catch (_: Throwable) {}
         }
     }
     // ═══════════════════════════════════════════════════════════════════════════
