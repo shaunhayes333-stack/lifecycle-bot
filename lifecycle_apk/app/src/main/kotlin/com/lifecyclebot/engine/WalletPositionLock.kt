@@ -79,14 +79,16 @@ object WalletPositionLock {
             val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
             val laneAfter = laneDeployed + sizeSol
             if (laneAfter > laneCapSol) {
-                ErrorLogger.info(TAG, "🔒 BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | " +
-                    "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (${maxExposurePct.toInt()}% cap) | " +
-                    "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)")
+                val reason = "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (${maxExposurePct.toInt()}% cap) | " +
+                    "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)"
+                ErrorLogger.info(TAG, "🔒 BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | $reason")
+                try { PipelineHealthCollector.event("WALLET_LOCK/BLOCK_GLOBAL_AND_LANE", traderName, reason) } catch (_: Throwable) {}
                 return false
             }
             // Lane is under its reservation — log the reason we're letting it through past the global cap.
-            ErrorLogger.info(TAG, "🛡 LANE-RESERVED ALLOW: $traderName ${String.format("%.4f", sizeSol)} SOL | " +
-                "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (over global, but lane under ${laneCapPct.toInt()}% reservation)")
+            val reason = "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (over global, but lane under ${laneCapPct.toInt()}% reservation)"
+            ErrorLogger.info(TAG, "🛡 LANE-RESERVED ALLOW: $traderName ${String.format("%.4f", sizeSol)} SOL | $reason")
+            try { PipelineHealthCollector.event("WALLET_LOCK/LANE_RESERVED_ALLOW", traderName, reason) } catch (_: Throwable) {}
             return true
         }
 
@@ -96,8 +98,9 @@ object WalletPositionLock {
         val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
         val laneAfter = laneDeployed + sizeSol
         if (laneAfter > laneCapSol) {
-            ErrorLogger.info(TAG, "🔒 LANE-CAP BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | " +
-                "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)")
+            val reason = "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)"
+            ErrorLogger.info(TAG, "🔒 LANE-CAP BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | $reason")
+            try { PipelineHealthCollector.event("WALLET_LOCK/BLOCK_LANE_CAP", traderName, reason) } catch (_: Throwable) {}
             return false
         }
 

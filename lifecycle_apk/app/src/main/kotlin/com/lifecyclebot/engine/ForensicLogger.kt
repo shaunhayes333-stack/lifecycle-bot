@@ -50,6 +50,7 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  $fields")
+        try { PipelineHealthCollector.onPhase(p.tag, symbol, fields) } catch (_: Throwable) {}
     }
 
     fun gate(p: PHASE, symbol: String, allow: Boolean, reason: String) {
@@ -57,24 +58,28 @@ object ForensicLogger {
         val n = seq.incrementAndGet()
         val mark = if (allow) "✅" else "🚫"
         ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  $mark $reason")
+        try { PipelineHealthCollector.onGate(p.tag, symbol, allow, reason) } catch (_: Throwable) {}
     }
 
     fun decision(p: PHASE, symbol: String, verdict: String, score: Int, conf: Int, reason: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
         ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  verdict=$verdict score=$score conf=$conf  reason=$reason")
+        try { PipelineHealthCollector.onDecision(p.tag, symbol, verdict, score, conf, reason) } catch (_: Throwable) {}
     }
 
     fun exec(action: String, symbol: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
         ErrorLogger.info("FORENSIC", "🧬[EXEC] #$n $symbol  $action  $fields")
+        try { PipelineHealthCollector.onExec(action, symbol, fields) } catch (_: Throwable) {}
     }
 
     fun lifecycle(event: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
         ErrorLogger.info("FORENSIC", "🧬[LIFECYCLE] #$n $event  $fields")
+        try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
     }
 
     fun tick(symbol: String, stage: String, ms: Long, extra: String = "") {
@@ -87,5 +92,6 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         ErrorLogger.info("FORENSIC", "🧬[$label] #$n $fields")
+        try { PipelineHealthCollector.onSnapshot(label, fields) } catch (_: Throwable) {}
     }
 }

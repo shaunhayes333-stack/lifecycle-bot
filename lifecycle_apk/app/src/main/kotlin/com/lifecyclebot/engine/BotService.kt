@@ -374,6 +374,12 @@ class BotService : Service() {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
+            // V5.9.666 — install Choreographer-based ANR / long-frame
+            // detector so the in-app Pipeline Health panel captures
+            // every main-thread stutter with elapsed delta. onCreate
+            // runs on the main thread, so this is the right anchor
+            // point. Idempotent.
+            try { PipelineHealthCollector.installAnrWatcherOnMainThread() } catch (_: Throwable) {}
             // V5.9.495z8 — register canonical learning subscribers once at startup.
             // Idempotent: subsequent calls are no-ops. Wires FluidLearningAI
             // mirror + LayerReadinessRegistry samples to the canonical bus.

@@ -226,6 +226,7 @@ object CryptoUniverseExecutor {
 
         if (!landed) {
             CryptoUniverseForensics.logPhase("CU_DELTA_LATE_TRUST_SIG", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "confirmed signature; ATA not yet visible — registered with reconciler chain for async catch-up")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.event("CRYPTO_UNIVERSE/DELTA_LATE_TRUST_SIG", symbol, "sig=${sig.take(16)}…  mint=${mint.take(8)}…  trusting confirmed signature; reconciler will pick up the ATA when it settles") } catch (_: Throwable) {}
         }
 
         CryptoExecFailureTracker.recordSuccess(symbol)

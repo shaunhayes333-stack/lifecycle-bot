@@ -86,6 +86,7 @@
         <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.LiveTradeLogActivity" android:exported="false" android:screenOrientation="portrait" android:label="Live Trade Forensics"/>
         <activity android:name=".ui.LearningCounterActivity" android:exported="false" android:screenOrientation="portrait" android:label="Learning Pipeline"/>
+        <activity android:name=".ui.PipelineHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="Pipeline Health"/>
 
         <provider
             android:name="androidx.core.content.FileProvider"

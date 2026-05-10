@@ -88,6 +88,11 @@ class ErrorLogActivity : AppCompatActivity() {
             loadLogs()
             Toast.makeText(this, "Logs refreshed", Toast.LENGTH_SHORT).show()
         }
+
+        // V5.9.666 — Pipeline Health launcher.
+        findViewById<Button>(R.id.openPipelineHealthButton)?.setOnClickListener {
+            startActivity(Intent(this, PipelineHealthActivity::class.java))
+        }
     }
 
     private fun setupFilter() {

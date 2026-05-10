@@ -6951,6 +6951,14 @@ This cannot be undone!
         findViewById<View>(R.id.btnQuickLogs)?.setOnClickListener {
             startActivity(Intent(this, ErrorLogActivity::class.java))
         }
+        // V5.9.666 — long-press the Logs button to open the in-app
+        // Pipeline Health panel (CI funnel mirror + ANR + recent
+        // forensic events, all clipboard-exportable).
+        findViewById<View>(R.id.btnQuickLogs)?.setOnLongClickListener {
+            startActivity(Intent(this, PipelineHealthActivity::class.java))
+            performHaptic()
+            true
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // V3.2 AI FEATURE BUTTONS
