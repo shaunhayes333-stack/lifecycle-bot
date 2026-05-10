@@ -347,14 +347,24 @@ object TradeAuthorizer {
             return PromotionResult(allow = false, reason = "F_grade_zero_conf_${confidence.toInt()}")
         }
         if (quality.isBlank() || quality.uppercase() !in setOf("A+", "A", "B", "C", "D", "F")) {
-            // Unknown quality grades (e.g. "MARS", "" ) used to hit a
-            // separate else branch that REJECTED. Operator log proved this
-            // path wrote SHADOW locks live (UNKNOWN_QUALITY_MARS). Treat
+            // Unknown quality grades (e.g. "MARS", "ORBITAL", "LUNAR" — the
+            // Moonshot strategy strings — or "" ) used to hit a separate
+            // else branch that REJECTED. Operator log proved this path
+            // wrote SHADOW locks live (UNKNOWN_QUALITY_MARS). Treat
             // unknown-quality as conf-only — let confidence be the gate.
-            return if (confidence >= 5.0) {
+            // V5.9.662b — operator: 'meme trader only. moonshot bluechip
+            // the quality layer and the v3 layer'. V5.9.662 unblocked
+            // Moonshot at MoonshotTraderAI but every candidate then hit
+            // here as UNKNOWN_QUALITY_ORBITAL_conf_1_below_5 because
+            // brand-new launches score conf≈1. In paper mode learning
+            // we want to collect labelled samples, so drop the floor to
+            // 1 here (live mode keeps the strict 5 floor — same lesson
+            // as everywhere else in the V5.9.662 family of fixes).
+            val unknownQualConfFloor = if (isPaperMode) 1.0 else 5.0
+            return if (confidence >= unknownQualConfFloor) {
                 PromotionResult(true, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}_conf_${confidence.toInt()}_pass")
             } else {
-                PromotionResult(false, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}_conf_${confidence.toInt()}_below_5")
+                PromotionResult(false, "UNKNOWN_QUALITY_${quality.ifBlank { "BLANK" }}_conf_${confidence.toInt()}_below_${unknownQualConfFloor.toInt()}")
             }
         }
         // A+/A/B/C/D all pass at this gate. The DecisionEngine + EligibilityGate
