@@ -257,6 +257,21 @@ object TradeHistoryStore {
         }
         bumpLifetimeFor(trade)
         insertTradeAsync(trade)
+        // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
+        // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
+        // structured INFO log on every recordTrade so the operator can grep
+        // for "TRADEJRNL_REC" in logcat and immediately see whether the trade
+        // execution path is calling this function. If this log is absent for
+        // every BUY/SELL the bot reports in its UI counters, the bug is
+        // upstream (Executor / V3JournalRecorder lost a recordTrade call).
+        // If this log fires N times but JournalActivity still shows 0, the
+        // bug is in JournalActivity rendering — totally different RCA.
+        try {
+            ErrorLogger.info(
+                "TradeHistoryStore",
+                "📓 TRADEJRNL_REC side=${trade.side} mode=${trade.mode} sym=${trade.mint.take(6)} sol=${"%.3f".format(trade.sol)} pnl=${"%.3f".format(trade.pnlSol)} reason=${trade.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
+            )
+        } catch (_: Throwable) { /* never let logging break the record path */ }
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
         try {

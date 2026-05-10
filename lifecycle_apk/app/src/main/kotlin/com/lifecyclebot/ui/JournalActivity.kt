@@ -183,6 +183,7 @@ class JournalActivity : AppCompatActivity() {
     private fun startPolling() {
         pollJob?.cancel()
         pollJob = lifecycleScope.launch {
+            var pollCount = 0
             while (isActive) {
                 try {
                     // V5.9.330: Fetch data on IO thread, render on main.
@@ -193,7 +194,33 @@ class JournalActivity : AppCompatActivity() {
                     }
                     // buildJournal renders on the main thread (required for View ops)
                     refreshTradesWithTokens(tokens)
-                } catch (_: Exception) {
+                    // V5.9.658 — operator triage: user reports Journal screen
+                    // shows 0 trades but bot is clearly trading (875 24h
+                    // trades, 15 open positions). The previous catch
+                    // swallowed every exception silently — Journal could be
+                    // crashing on every poll and the operator would just see
+                    // the pristine XML layout state forever. Emit a
+                    // structured trace per poll so the operator can grep
+                    // "JOURNAL_POLL" and confirm whether the activity is
+                    // even refreshing, plus the size of the trade store at
+                    // the time of the poll.
+                    val storeSize = try {
+                        com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
+                    } catch (_: Throwable) { -1 }
+                    com.lifecyclebot.engine.ErrorLogger.info(
+                        "JournalActivity",
+                        "📓 JOURNAL_POLL #${++pollCount} ok | tokens=${tokens.size} | storeTrades=$storeSize | filter=${currentModeFilter ?: "ALL"}",
+                    )
+                } catch (e: Exception) {
+                    // V5.9.658 — was: catch (_: Exception) {} (silent).
+                    // If buildJournal/Render throws, log it with the class
+                    // and message so the bug is diagnosable instead of
+                    // hiding behind the empty XML layout state forever.
+                    com.lifecyclebot.engine.ErrorLogger.error(
+                        "JournalActivity",
+                        "📓 JOURNAL_POLL EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message}",
+                        e,
+                    )
                 }
                 // V5.9.330: Slowed from 2s → 10s. Building 100-View lists on
                 // the main thread 30x/min was burning CPU and causing frame drops.
@@ -302,7 +329,15 @@ class JournalActivity : AppCompatActivity() {
     private fun refreshTrades() {
         try {
             buildJournal(getTokensSnapshot())
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // V5.9.658 — was silent. Log loudly so we know whether the
+            // pristine-XML-layout state is from buildJournal crashing or
+            // from the polling loop never firing.
+            com.lifecyclebot.engine.ErrorLogger.error(
+                "JournalActivity",
+                "📓 refreshTrades EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message}",
+                e,
+            )
             showEmptyJournal()
         }
     }
@@ -311,7 +346,13 @@ class JournalActivity : AppCompatActivity() {
     private fun refreshTradesWithTokens(tokens: Map<String, TokenState>) {
         try {
             buildJournal(tokens)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // V5.9.658 — see refreshTrades comment.
+            com.lifecyclebot.engine.ErrorLogger.error(
+                "JournalActivity",
+                "📓 refreshTradesWithTokens EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message}",
+                e,
+            )
             showEmptyJournal()
         }
     }
