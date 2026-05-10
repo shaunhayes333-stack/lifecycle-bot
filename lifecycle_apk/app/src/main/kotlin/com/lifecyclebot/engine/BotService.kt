@@ -4920,19 +4920,16 @@ class BotService : Service() {
         }
 
         var loopCount = 0
-        var lastTickStartMs = System.currentTimeMillis()
+        // V5.9.660 — lastTickStartMs removed; emitBotLoopTick tracks its
+        // own prev-cycle delta via class field lastBotLoopTickMs.
         while (status.running) {
           try {
             loopCount++
 
-            // V5.9.659 — operator triage: BOT_LOOP_TICK heartbeat at the
-            // top of every iteration. Extracted to keep botLoop under the
-            // JVM 64KB method size limit (handoff warned about this).
-            run {
-                val now = System.currentTimeMillis()
-                emitBotLoopTick(loopCount, now - lastTickStartMs)
-                lastTickStartMs = now
-            }
+            // V5.9.660 — BOT_LOOP_TICK heartbeat. emitBotLoopTick now
+            // tracks prev-cycle delta via its own class field (saves a
+            // few bytes of botLoop bytecode).
+            emitBotLoopTick(loopCount)
 
             // V5.9.652 — extracted to emitLoopTopSnapshot() to keep botLoop
             // under the JVM 64KB method size limit. Same content, different
