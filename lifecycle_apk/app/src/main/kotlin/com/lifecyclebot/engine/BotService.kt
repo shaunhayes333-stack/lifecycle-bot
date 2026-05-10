@@ -2170,54 +2170,63 @@ class BotService : Service() {
 
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.430 — START-UP HARD-FLOOR CATCH-UP SWEEP
+        // V5.9.665 — operator ANR fix: deferred + paced.
         //
-        // Before the scan loop begins, iterate every restored/open position
-        // and force-exit anything already at <= -20% PnL. This clears the
-        // backlog of stuck underwater positions (GOBLININU -97.7%, SPEEDRUN
-        // -16%, etc.) on the first tick after installing this APK, rather
-        // than waiting for the next scan cycle to walk every token.
+        // Originally this sweep ran SYNCHRONOUSLY on the startBot() body,
+        // walking every restored position and calling resolveLivePrice() +
+        // executor.requestSell() inline. With dozens of restored live
+        // positions on a fresh install, this burst of synchronous network
+        // I/O blocked the IO scope long enough to cascade UI stalls and
+        // the operator's "freezes + ANR warnings the moment I go live"
+        // symptom.
         //
-        // Uses the same resolveLivePrice fan-out as the in-loop universal
-        // hard floor (V5.9.429). Runs once per startBot() — does not repeat.
+        // Now: wrapped in scope.launch with a 5s startup grace, plus a
+        // 250ms gap between positions. The botLoop launches first, the
+        // UI gets responsive, and the sweep still does its job in the
+        // background.
         // ═══════════════════════════════════════════════════════════════════
-        try {
-            val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-            val wallet = null as com.lifecyclebot.network.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
-            val snapshot = synchronized(status.tokens) { status.tokens.values.toList() }
-            var swept = 0
-            for (ts in snapshot) {
-                try {
-                    val pos = ts.position
-                    if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) continue
-                    val price = resolveLivePrice(ts)
-                    if (price <= 0.0) continue
-                    val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
-                    if (pnlPct <= -20.0) {
-                        ErrorLogger.warn("BotService",
-                            "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% — closing stale underwater position")
-                        addLog("🛑 STARTUP SWEEP: ${ts.symbol} ${pnlPct.toInt()}% — forced exit")
-                        executor.requestSell(
-                            ts = ts,
-                            reason = "STARTUP_SWEEP_HARD_FLOOR_${pnlPct.toInt()}PCT",
-                            wallet = wallet,
-                            walletSol = effectiveBalance,
-                        )
-                        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,
-                                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
-                        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,
-                                com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
-                        swept++
+        scope.launch {
+            try {
+                kotlinx.coroutines.delay(5_000L)  // let bot loop + orchestrator fully wire up
+                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+                val sweepWallet = null as com.lifecyclebot.network.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
+                val snapshot = synchronized(status.tokens) { status.tokens.values.toList() }
+                var swept = 0
+                for (ts in snapshot) {
+                    try {
+                        val pos = ts.position
+                        if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) continue
+                        val price = resolveLivePrice(ts)
+                        if (price <= 0.0) continue
+                        val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
+                        if (pnlPct <= -20.0) {
+                            ErrorLogger.warn("BotService",
+                                "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% — closing stale underwater position")
+                            addLog("🛑 STARTUP SWEEP: ${ts.symbol} ${pnlPct.toInt()}% — forced exit")
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "STARTUP_SWEEP_HARD_FLOOR_${pnlPct.toInt()}PCT",
+                                wallet = sweepWallet,
+                                walletSol = effectiveBalance,
+                            )
+                            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,
+                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,
+                                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS) } catch (_: Exception) {}
+                            swept++
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "startup-sweep error for ${ts.symbol}: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "startup-sweep error for ${ts.symbol}: ${e.message}")
+                    kotlinx.coroutines.delay(250L)  // pace network I/O so we never block the dispatcher
                 }
+                if (swept > 0) {
+                    addLog("🧹 Startup sweep: force-closed $swept underwater position(s) below -20%")
+                    ErrorLogger.info("BotService", "Startup hard-floor sweep cleared $swept stuck positions (deferred)")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Startup hard-floor sweep failed: ${e.message}", e)
             }
-            if (swept > 0) {
-                addLog("🧹 Startup sweep: force-closed $swept underwater position(s) below -20%")
-                ErrorLogger.info("BotService", "Startup hard-floor sweep cleared $swept stuck positions")
-            }
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "Startup hard-floor sweep failed: ${e.message}", e)
         }
 
         // V5.9.621 — arm the inert-loop watchdog at start.
@@ -3701,6 +3710,21 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
             com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions()
+            // V5.9.665 — operator regression fix.
+            // Before wiping HostWalletTokenTracker / TokenLifecycleTracker,
+            // give LiveWalletReconciler one synchronous pass so any swap
+            // that landed on chain after the last verifyWalletDelta poll
+            // (Jupiter ATA still settling) is captured into the position
+            // store BEFORE the trackers get cleared. Without this, late-
+            // landing swaps would be silently dropped on stop.
+            try {
+                val w = wallet
+                if (w != null) {
+                    com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "stop_pre_tracker_clear")
+                }
+            } catch (rcEx: Throwable) {
+                ErrorLogger.debug("BotService", "pre-clear reconcile soft-failed: ${rcEx.message}")
+            }
             // V5.9.661c — also wipe the lifecycle + host-wallet trackers
             // so the main UI "Open" counter (uses maxOf of all sources)
             // actually drops to 0. Operator: 'still showed 11 as per

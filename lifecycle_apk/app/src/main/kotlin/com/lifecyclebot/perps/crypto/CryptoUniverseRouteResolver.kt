@@ -93,14 +93,25 @@ object CryptoUniverseRouteResolver {
                 executable = cfg.cryptoUniverseLiveEnabled)
         }
 
-        // 2. No target SPL mint is NOT a live-trade blocker for Crypto Universe.
-        // The product model is symbol/exposure based: fund through the SOL/USDC
-        // rail, hold USDC collateral, and track/close the market exposure by
-        // symbol. A mint is only an optional spot-token route, not eligibility.
-        return Resolution(sym, CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET, null,
-            CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
-            "No target SPL mint required: routing ${sym} as USDC-collateral crypto exposure by symbol.",
-            executable = cfg.cryptoUniverseLiveEnabled).also {
+        // 2. No real SPL mint means the bridge rail has no target. This is a
+        // route-discovery outcome, not a tx failure. Do not call live executor.
+        return when {
+            cfg.cryptoUniverseAllowBridgeAdapters && CryptoBridgeAdapter.isConfigured() ->
+                Resolution(sym, CryptoExecutionRoute.BRIDGE_REQUIRED, null,
+                    CryptoUniverseDiagCodes.ROUTE_BRIDGE_REQUIRED,
+                    "No Solana mint resolved; external bridge adapter required/configured.",
+                    executable = true)
+            cfg.cryptoUniverseAllowCexAdapters && CryptoCexAdapter.isConfigured() ->
+                Resolution(sym, CryptoExecutionRoute.CEX_REQUIRED, null,
+                    CryptoUniverseDiagCodes.ROUTE_CEX_REQUIRED,
+                    "No Solana mint resolved; CEX adapter route configured.",
+                    executable = true)
+            else ->
+                Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, null,
+                    CryptoUniverseDiagCodes.ROUTE_NO_WRAPPED_ASSET,
+                    "No verified Solana SPL mint/Jupiter target resolved — paper-only until registry discovers one.",
+                    executable = false)
+        }.also {
             ErrorLogger.debug(TAG, "Resolved ${sym} → ${it.route} (${it.diagCode})")
         }
     }

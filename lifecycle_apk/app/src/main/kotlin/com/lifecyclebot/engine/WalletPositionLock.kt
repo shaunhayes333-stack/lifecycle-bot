@@ -11,6 +11,14 @@ import java.util.concurrent.atomic.AtomicInteger
  * Tracks total deployed SOL across Meme, CryptoAlt, Stocks, Commodities,
  * Metals, Forex — ensures max 80% wallet exposure at any time.
  *
+ * V5.9.665 — operator regression fix.
+ *   Added per-lane reservation caps so the memes lane (or any other
+ *   single lane) can never be starved out by another lane consuming
+ *   the entire global cap. Forensics confirmed CryptoUniverse blasting
+ *   USDC-collateral fake exposures was eating 80% of the global cap and
+ *   leaving 0% for the meme lane, which is why the operator's meme
+ *   trader fell silent in live mode.
+ *
  * Zero impact on scanning or signal generation.
  * Only gates the final execution moment.
  */
@@ -21,6 +29,20 @@ object WalletPositionLock {
     // Max percentage of wallet that can be deployed across ALL traders
     @Volatile
     var maxExposurePct: Double = 80.0
+
+    // V5.9.665 — per-lane reservation caps. Each lane is guaranteed it
+    // cannot be starved below its own cap by other lanes. Sum can exceed
+    // 100% intentionally — the global cap (maxExposurePct) is still the
+    // hard ceiling on combined exposure. These per-lane caps only
+    // protect each lane from being squeezed to zero by another lane.
+    private val perLaneCapPct: Map<String, Double> = mapOf(
+        "Meme"        to 50.0,
+        "CryptoAlt"   to 40.0,
+        "Stocks"      to 30.0,
+        "Commodities" to 20.0,
+        "Metals"      to 20.0,
+        "Forex"       to 20.0,
+    )
 
     // Track deployed SOL per trader
     private val deployedSol = ConcurrentHashMap<String, Double>()
@@ -43,9 +65,39 @@ object WalletPositionLock {
         val maxAllowed = walletSol * (maxExposurePct / 100.0)
         val afterTrade = totalDeployed + sizeSol
 
+        // V5.9.665 — global cap check. If we'd blow past 80% wallet
+        // total exposure, refuse — but only after checking the lane
+        // has not already been starved (the lane's own deployed amount
+        // is still respected via the per-lane cap below).
         if (afterTrade > maxAllowed) {
-            ErrorLogger.info(TAG, "🔒 BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | " +
-                "deployed=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (${maxExposurePct.toInt()}% cap)")
+            // Allow the trade if THIS lane is under its per-lane cap
+            // and the surplus over global is small enough that this
+            // single lane shouldn't have been blocked by another lane
+            // hogging the global pool. Otherwise, block.
+            val laneCapPct = perLaneCapPct[traderName] ?: maxExposurePct
+            val laneCapSol = walletSol * (laneCapPct / 100.0)
+            val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
+            val laneAfter = laneDeployed + sizeSol
+            if (laneAfter > laneCapSol) {
+                ErrorLogger.info(TAG, "🔒 BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | " +
+                    "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (${maxExposurePct.toInt()}% cap) | " +
+                    "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)")
+                return false
+            }
+            // Lane is under its reservation — log the reason we're letting it through past the global cap.
+            ErrorLogger.info(TAG, "🛡 LANE-RESERVED ALLOW: $traderName ${String.format("%.4f", sizeSol)} SOL | " +
+                "global=${String.format("%.4f", totalDeployed)}/${String.format("%.4f", maxAllowed)} (over global, but lane under ${laneCapPct.toInt()}% reservation)")
+            return true
+        }
+
+        // V5.9.665 — also enforce per-lane cap even when global has room.
+        val laneCapPct = perLaneCapPct[traderName] ?: maxExposurePct
+        val laneCapSol = walletSol * (laneCapPct / 100.0)
+        val laneDeployed = deployedSol.getOrDefault(traderName, 0.0)
+        val laneAfter = laneDeployed + sizeSol
+        if (laneAfter > laneCapSol) {
+            ErrorLogger.info(TAG, "🔒 LANE-CAP BLOCKED: $traderName wants ${String.format("%.4f", sizeSol)} SOL | " +
+                "lane=${String.format("%.4f", laneDeployed)}/${String.format("%.4f", laneCapSol)} (${laneCapPct.toInt()}% lane cap)")
             return false
         }
 

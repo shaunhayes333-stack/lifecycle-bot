@@ -75,14 +75,14 @@ object CryptoUniverseExecutor {
             message = resolution.humanMessage,
         )
 
-        if (!resolution.executable) {
+        if (!resolution.executable || mint.isNullOrBlank()) {
             CryptoUniverseForensics.logPhase(
                 phase = "CU_ROUTE_FORCED_PAPER",
                 symbol = symbol,
                 intendedMint = mint,
                 resolvedMint = mint,
                 inputMint = USDC_MINT,
-                outputMint = mint ?: USDC_MINT,
+                outputMint = mint,
                 routeType = resolution.route.name,
                 slippageBps = SLIPPAGE_BPS,
                 priceImpactPct = null,
@@ -90,23 +90,8 @@ object CryptoUniverseExecutor {
                 jobId = job.id,
                 message = resolution.diagCode + " | " + resolution.humanMessage,
             )
-            CryptoUniverseForensics.logRouteOutcome(symbol, mint ?: "USDC_COLLATERAL", resolution.diagCode, resolution.humanMessage, sizeSol)
+            CryptoUniverseForensics.logRouteOutcome(symbol, mint ?: "no-mint", resolution.diagCode, resolution.humanMessage, sizeSol)
             return@runAwaited Outcome.RouteDeferred(resolution)
-        }
-
-        // No target mint: execute the symbol as USDC-collateral exposure. This
-        // is the Crypto Universe path the operator asked for — NOT paper-only,
-        // and NOT gated on a Solana mint. The bot opens/closes the position by
-        // symbol while real wallet capital is moved/held as USDC.
-        if (mint.isNullOrBlank()) {
-            return@runAwaited executeUsdcCollateralExposure(
-                wallet = wallet,
-                symbol = symbol,
-                resolution = resolution,
-                sizeSol = sizeSol,
-                priceUsd = priceUsd,
-                jobId = job.id,
-            )
         }
 
         when (val gate = MintIntegrityGate.validatePreBuy(symbol, mint)) {
@@ -220,83 +205,31 @@ object CryptoUniverseExecutor {
         CryptoUniverseForensics.logPhase("CU_CONFIRM_OK", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "signSendAndConfirm returned")
 
         val landed = verifyWalletDelta(wallet, mint, before, symbol, job.id, sig, routeQuote.priceImpactPct)
-        if (!landed) {
-            CryptoExecFailureTracker.recordFailure(symbol)
-            val reason = "wallet delta failed after confirmed signature"
-            CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, reason, sizeSol)
-            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "confirmed signature but target wallet delta failed")
-            return@runAwaited Outcome.ExecFailed(resolution, reason)
-        }
 
+        // V5.9.665 — operator regression fix.
+        // Previously: if verifyWalletDelta returned false (24s of polling and
+        // no ATA visible) we returned Outcome.ExecFailed and skipped the
+        // tracker chain entirely. That falsely rejected swaps that DID land
+        // on chain — Jupiter had already confirmed the signature and the
+        // operator's wallet held the tokens; only our local
+        // getTokenAccountsWithDecimals() read was lagging.
+        // New behavior: if the swap signature is confirmed but our local
+        // wallet read hasn't caught up, register the buy with the existing
+        // tracker / reconciler architecture (HostWalletTokenTracker +
+        // LiveWalletReconciler) so the position is captured the moment the
+        // ATA becomes visible. We still treat this as Executed because the
+        // trade really did land on chain.
         try { TokenLifecycleTracker.onTokenLanded(mint, readTokenUi(wallet, mint) ?: bridge.targetAmountUi) } catch (_: Throwable) {}
         try { HostWalletTokenTracker.recordBuyPending(mint, symbol, sig) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(mint, sig) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "crypto_universe_buy_${symbol}") } catch (_: Throwable) {}
 
+        if (!landed) {
+            CryptoUniverseForensics.logPhase("CU_DELTA_LATE_TRUST_SIG", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "confirmed signature; ATA not yet visible — registered with reconciler chain for async catch-up")
+        }
+
         CryptoExecFailureTracker.recordSuccess(symbol)
         Outcome.Executed(sig)
-    }
-
-
-    private suspend fun executeUsdcCollateralExposure(
-        wallet: SolanaWallet,
-        symbol: String,
-        resolution: CryptoUniverseRouteResolver.Resolution,
-        sizeSol: Double,
-        priceUsd: Double,
-        jobId: String,
-    ): Outcome {
-        val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        val sizeUsd = sizeSol * solPriceUsd
-        val beforeUsdc = readTokenUi(wallet, USDC_MINT) ?: 0.0
-
-        CryptoUniverseForensics.logPhase("CU_ROUTE_ELIGIBLE_LIVE", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "symbol exposure; no target SPL mint required")
-        CryptoUniverseForensics.logPhase("CU_QUOTE_OK", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "USDC collateral route; target price feed=$priceUsd")
-        CryptoUniverseForensics.logPhase("CU_TX_BUILD_START", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "UniversalBridge prepareCapital USDC sizeUsd=${"%.2f".format(sizeUsd)}")
-
-        val bridge = try {
-            UniversalBridgeEngine.prepareCapital(wallet, targetMint = USDC_MINT, sizeUsd = sizeUsd)
-        } catch (ce: CancellationException) {
-            CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "cancelled: ${ce.message}")
-            throw ce
-        } catch (t: Throwable) {
-            CryptoExecFailureTracker.recordFailure(symbol)
-            CryptoUniverseForensics.logExecutionFailure(symbol, "USDC_COLLATERAL", CryptoUniverseDiagCodes.TX_BUILD_FAILED, t.message ?: "USDC collateral build threw", sizeSol)
-            CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "${t.javaClass.simpleName}: ${t.message}")
-            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, null, null, "CAPITAL_RAIL", USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, null, jobId, "USDC collateral route failed")
-            return Outcome.ExecFailed(resolution, t.message ?: "USDC collateral route failed")
-        }
-
-        val sig = bridge.swapTxSig?.trim().orEmpty()
-        if (!bridge.success) {
-            CryptoExecFailureTracker.recordFailure(symbol)
-            val reason = bridge.errorMsg.ifBlank { "USDC collateral route failed" }
-            CryptoUniverseForensics.logExecutionFailure(symbol, "USDC_COLLATERAL", CryptoUniverseDiagCodes.TX_BUILD_FAILED, reason, sizeSol)
-            CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, reason)
-            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, reason)
-            return Outcome.ExecFailed(resolution, reason)
-        }
-
-        val afterUsdc = readTokenUi(wallet, USDC_MINT) ?: beforeUsdc
-        val collateralAvailable = afterUsdc >= (sizeUsd * 0.95) || afterUsdc >= beforeUsdc
-        if (!collateralAvailable) {
-            CryptoExecFailureTracker.recordFailure(symbol)
-            val reason = "USDC collateral not visible after bridge: before=$beforeUsdc after=$afterUsdc required=${"%.2f".format(sizeUsd)}"
-            CryptoUniverseForensics.logExecutionFailure(symbol, "USDC_COLLATERAL", CryptoUniverseDiagCodes.TX_BUILD_FAILED, reason, sizeSol)
-            CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_FAILED", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, reason)
-            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, "USDC collateral verification failed")
-            return Outcome.ExecFailed(resolution, reason)
-        }
-
-        CryptoUniverseForensics.logPhase("CU_TX_BUILD_OK", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, if (sig.isBlank()) "USDC already available; no swap tx needed" else "USDC bridge tx built/sent")
-        CryptoUniverseForensics.logPhase("CU_TX_SEND_OK_SIGNATURE", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, if (sig.isBlank()) "NO_SWAP_NEEDED_USDC_AVAILABLE" else "signature non-empty")
-        CryptoUniverseForensics.logPhase("CU_CONFIRM_OK", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, "USDC collateral confirmed for symbol exposure")
-        CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_OK", symbol, null, null, bridge.sourceMint, USDC_MINT, "USDC_COLLATERAL_EXPOSURE", SLIPPAGE_BPS, null, sig.takeIf { it.isNotBlank() }, jobId, "USDC before=$beforeUsdc after=$afterUsdc exposure=${"%.2f".format(sizeUsd)}")
-
-        try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(USDC_MINT, sig) } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "crypto_universe_usdc_${symbol}") } catch (_: Throwable) {}
-        CryptoExecFailureTracker.recordSuccess(symbol)
-        return Outcome.Executed(sig.takeIf { it.isNotBlank() })
     }
 
     private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? = try {
@@ -312,16 +245,19 @@ object CryptoUniverseExecutor {
         sig: String,
         impact: Double?,
     ): Boolean {
-        repeat(5) { idx ->
+        // V5.9.665 — extended from 5×3s = 15s to 8×3s = 24s to give Jupiter
+        // ATA settlement more breathing room before the reconciler-async
+        // fallback path kicks in.
+        repeat(8) { idx ->
             kotlinx.coroutines.delay(3_000L)
             val now = readTokenUi(wallet, mint)
             if (now != null && now > before) {
-                CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_OK", symbol, mint, mint, "CAPITAL_RAIL", mint, CryptoExecutionRoute.JUPITER_ROUTABLE.name, SLIPPAGE_BPS, impact, sig, jobId, "before=$before now=$now poll=${idx + 1}/5")
+                CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_OK", symbol, mint, mint, "CAPITAL_RAIL", mint, CryptoExecutionRoute.JUPITER_ROUTABLE.name, SLIPPAGE_BPS, impact, sig, jobId, "before=$before now=$now poll=${idx + 1}/8")
                 return true
             }
         }
         val now = readTokenUi(wallet, mint)
-        CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, CryptoExecutionRoute.JUPITER_ROUTABLE.name, SLIPPAGE_BPS, impact, sig, jobId, "before=$before now=${now ?: -1.0}")
+        CryptoUniverseForensics.logPhase("CU_WALLET_DELTA_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, CryptoExecutionRoute.JUPITER_ROUTABLE.name, SLIPPAGE_BPS, impact, sig, jobId, "before=$before now=${now ?: -1.0} (24s polled)")
         return false
     }
 }
