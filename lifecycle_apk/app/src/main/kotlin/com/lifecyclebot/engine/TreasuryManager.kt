@@ -355,8 +355,18 @@ object TreasuryManager {
      * with sub-cent contributions (e.g. a +$0.05 sell would otherwise
      * produce a $0.015 lock event). 0.003 SOL ≈ $0.40-0.50 USD at typical
      * SOL prices.
+     *
+     * V5.9.663b — operator: 'the 70/30 profit split isnt working anymore.
+     * its meant to be in paper and live. the architecture is there already'.
+     * In paper-learning the bot does many small fast trades — most close
+     * below 0.003 SOL profit → ALL got skipped → treasury never grew. The
+     * 0.003 floor exists to protect the LIVE on-chain ledger from rounding
+     * noise + gas-vs-reward asymmetry. Paper has no gas cost, so its floor
+     * can be far lower without polluting anything. Use 0.0001 SOL
+     * (~$0.015) in paper, keep 0.003 SOL in live.
      */
-    const val MEME_SELL_MIN_PROFIT_SOL = 0.003
+    const val MEME_SELL_MIN_PROFIT_SOL = 0.003          // live floor
+    const val MEME_SELL_MIN_PROFIT_SOL_PAPER = 0.0001   // paper floor
 
     /**
      * V5.9.428 — 100% of realized profit from a treasury-scalp sell goes to
@@ -404,9 +414,16 @@ object TreasuryManager {
         if (realizedProfitSol <= 0.0) return 0.0
         // V5.9.495z17 — operator: skip dust splits below ~$0.40 USD so the
         // treasury ledger doesn't fill with rounding-error events.
-        if (realizedProfitSol < MEME_SELL_MIN_PROFIT_SOL) {
+        // V5.9.663b — paper mode uses a 30x lower floor because there's no
+        // gas cost. See MEME_SELL_MIN_PROFIT_SOL_PAPER doc.
+        val isPaper = try {
+            val svc = BotService.instance
+            if (svc != null) com.lifecyclebot.data.ConfigStore.load(svc.applicationContext).paperMode else true
+        } catch (_: Throwable) { true }  // default to paper-floor on error
+        val floor = if (isPaper) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
+        if (realizedProfitSol < floor) {
             ErrorLogger.debug("Treasury",
-                "🪙 70/30 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < dust floor ${MEME_SELL_MIN_PROFIT_SOL}◎")
+                "🪙 70/30 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
             return 0.0
         }
         val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT

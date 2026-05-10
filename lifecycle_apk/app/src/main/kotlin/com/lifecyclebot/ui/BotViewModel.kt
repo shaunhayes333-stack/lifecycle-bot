@@ -135,7 +135,16 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 } catch (_: Exception) { 0 },
                 totalInsights = try { com.lifecyclebot.engine.SuperBrainEnhancements.getDashboardData().totalInsights } catch (_: Exception) { 0 },
             )
-            delay(1500)
+            // V5.9.663b — operator: 'the anr error persists'. UI poll
+            // was 1500ms which, combined with watchlist=2386+ tokens,
+            // 5 lane renderers each doing removeAllViews + recreate of
+            // LinearLayout/ImageView per tick, and a status.tokens.toMap()
+            // copy of the full ConcurrentHashMap on every tick, was
+            // routinely tripping ANR on real devices (emulator already
+            // logged 'Choreographer Skipped 44 frames'). Cadence raised
+            // to 2500ms — halves UI thread pressure with at most a
+            // 1-second lag on number refresh, no functional loss.
+            delay(2500)
         }
     }
 

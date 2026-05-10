@@ -271,7 +271,20 @@ object QualityTraderAI {
         }
 
         // Age filter - FLUID: Lower during learning to gather data
-        val minAgeRequired = if (learningProgress < 0.5) MIN_AGE_MINUTES_BOOTSTRAP else MIN_AGE_MINUTES_MATURE
+        // V5.9.663b — operator: 'theres 9 traders total on the memetrader
+        // tho. quality isnt buying.' Smoke logcat showed every Quality
+        // candidate (LENNY, Anaka, BiTCHES, TROLLASS) skipped with
+        //   '[⭐ QUALITY SKIP] LENNY | Too new: 0min < 5min'
+        // Pump.fun launches are 0..1min old; by the time they hit 5min
+        // most have already pumped + dumped. In paper mode at <0.5
+        // learning progress, drop the floor to 1 min so the lane can
+        // collect labelled samples like the rest of the V5.9.662
+        // family. Live mode + mature paper unchanged.
+        val minAgeRequired = when {
+            isPaperMode && learningProgress < 0.5 -> 1.0  // paper-bootstrap
+            learningProgress < 0.5                -> MIN_AGE_MINUTES_BOOTSTRAP.toDouble()
+            else                                  -> MIN_AGE_MINUTES_MATURE.toDouble()
+        }
         
         if (tokenAgeMinutes < minAgeRequired) {
             return QualitySignal(false, reason = "Too new: ${tokenAgeMinutes.toInt()}min < ${minAgeRequired.toInt()}min (learning=${(learningProgress*100).toInt()}%)")
