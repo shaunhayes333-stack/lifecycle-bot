@@ -7917,7 +7917,32 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // Strategy output (phase, entry/exit scores, quality) feeds into V3
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
-    if (!ts.position.isOpen && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()) {
+    val _v3PosOpen      = ts.position.isOpen
+    val _v3CfgEnabled   = cfg.v3EngineEnabled
+    val _v3MgrReady     = try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false }
+
+    // V5.9.668 — drop-off visibility BEFORE the V3 gate. Operator
+    // forensics dump showed only 13/269 SAFETY-allowed candidates
+    // reaching V3. Without this audit, we couldn't tell why most
+    // got skipped. Pure additive log; the actual V3 path below is
+    // unchanged.
+    if (_v3PosOpen || !_v3CfgEnabled || !_v3MgrReady) {
+        try {
+            val reason = buildString {
+                if (_v3PosOpen) append("position_open ")
+                if (!_v3CfgEnabled) append("v3_disabled ")
+                if (!_v3MgrReady) append("v3_not_ready ")
+            }.trim()
+            ForensicLogger.gate(
+                ForensicLogger.PHASE.V3,
+                ts.symbol,
+                allow = false,
+                reason = "V3_SKIPPED $reason | src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()}"
+            )
+        } catch (_: Throwable) {}
+    }
+
+    if (!_v3PosOpen && _v3CfgEnabled && _v3MgrReady) {
         // V5.9.651 — forensic V3 entry. Operator wants to see EVERY V3
         // evaluation: which mints reach V3, what score/conf they have,
         // what V3 verdict was. Pair this with V3_DECIDE log emitted
@@ -12142,11 +12167,22 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 )
             } catch (_: Throwable) {}
             try {
+                // V5.9.668 — append the offending stack-frame to the
+                // forensic gate reason so the operator can see WHICH
+                // line threw the exception in the same dump as the
+                // pipeline funnel. The IOOBE in PENIS / Index -1
+                // showed up here — without the frame info we couldn't
+                // localise it. Falls back gracefully if no AATE-package
+                // frame is present.
+                val ourFrame = e.stackTrace?.firstOrNull { it.className?.startsWith("com.lifecyclebot") == true }
+                val frameSuffix = if (ourFrame != null) {
+                    " at ${ourFrame.className.substringAfterLast('.')}.${ourFrame.methodName}:${ourFrame.lineNumber}"
+                } else ""
                 ForensicLogger.gate(
                     ForensicLogger.PHASE.SCAN_CB,
                     status.tokens[mint]?.symbol ?: mint.take(6),
                     allow = false,
-                    reason = "EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message?.take(120)}",
+                    reason = "EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message?.take(120)}$frameSuffix",
                 )
             } catch (_: Throwable) {}
         }
