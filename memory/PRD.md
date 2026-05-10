@@ -85,15 +85,79 @@ Removed ACTIVE TOKEN field from dialog_settings.xml + SettingsBottomSheet.kt.
 - "Ladder" status pill on Memes tab.
 - "Maturity" pill next to proof-run header showing TRADES X/5000 + STRICTNESS Y%.
 
+## V5.9.664 — V5.9.665b changelog (May 10, 2026)
+
+### V5.9.664 — Scanner ANR throttle
+Doubled inter-source delay between deep-scan calls from 100ms to 200ms in
+SolanaMarketScanner.kt. Conservative throttle, no logic changes.
+
+### V5.9.665 — restore live trading: 4 surgical regression fixes
+Operator forensics_20260511_010802 + live test report:
+1. Meme trader did nothing in live mode.
+2. Bought TRUMP "didn't land" (Jupiter confirmed but bot rejected swap).
+3. Tried SHIB twice → bought USDC (USDC-collateral masquerade).
+4. Bot freezes + ANR warnings the moment user switches to live.
+
+Troubleshoot agent RCA identified three regressions:
+- 758ecca26 (May 8) added `executeUsdcCollateralExposure()` and stripped
+  the resolver's bridge/CEX/paper-only fallback, causing live trades to
+  silently terminate at USDC.
+- V5.9.661 wipes HostWalletTokenTracker on stop before
+  LiveWalletReconciler can capture late-landing swaps.
+- WalletPositionLock global 80% cap can be entirely consumed by one lane,
+  starving memes when CryptoUniverse fires heavily.
+
+Plus a fourth issue surfaced from the user's live-start ANR symptom:
+- V5.9.430 STARTUP_SWEEP_HARD_FLOOR ran synchronously on the startBot()
+  body, walking every restored position with blocking network I/O.
+
+Fixes (V5.9.665):
+- **Fix #1**: Clean revert of 758ecca26 (CryptoUniverseRouteResolver,
+  CryptoUniverseExecutor, MarketsLiveExecutor). Removes
+  executeUsdcCollateralExposure entirely; restores branched
+  Bridge/CEX/Paper fallback when no SPL mint resolves.
+- **Fix #2**: CryptoUniverseExecutor.kt verifyWalletDelta extended
+  5×3s = 15s → 8×3s = 24s. On timeout, register the buy via
+  HostWalletTokenTracker + LiveWalletReconciler and return
+  Outcome.Executed with phase log `CU_DELTA_LATE_TRUST_SIG` instead
+  of false-rejecting confirmed Jupiter swaps.
+- **Fix #2b**: BotService.kt stop path now calls
+  LiveWalletReconciler.reconcileNow(wallet, "stop_pre_tracker_clear")
+  immediately before TokenLifecycleTracker.clearAll() /
+  HostWalletTokenTracker.clearAll() so late-landing swaps get
+  captured into the position store before the trackers are wiped.
+- **Fix #3**: WalletPositionLock per-lane reservation caps added —
+  Meme=50%, CryptoAlt=40%, Stocks=30%, Commodities/Metals/Forex=20%.
+  No lane can ever be starved below its own reservation by another
+  lane consuming the global 80% cap.
+- **Fix #5 (live-start ANR)**: BotService.kt STARTUP_SWEEP_HARD_FLOOR
+  now wrapped in `scope.launch` with a 5s startup grace and a 250ms
+  delay between positions. Bot loop launches first; sweep runs
+  asynchronously in the background.
+
+### V5.9.665b — fix unit test for restored route-resolver contract
+CryptoUniverseRouteResolverTest rewritten to validate the restored
+contract (BTC routes to JUPITER_ROUTABLE if wrapped mint registered,
+else PAPER_ONLY + executable=false) instead of the regressed
+"always executable, mint=null" path.
+
+CI status: Build ✅ + Runtime Smoke Test ✅ both green on commit a5ff2f32e.
+Smoke test pipeline counters improved vs prior runs:
+LANE_EVAL 11→46, V3 89→114, EXECUTE/BUY 3437→3608, JRNL 188→215.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.
 - BotService.kt is at the JVM 64KB cap on botLoop — extract before adding inline blocks.
 - Position close on stop must be UNCONDITIONAL (V5.9.661).
+- **V5.9.665**: BEFORE clearAll() of trackers on stop, call
+  LiveWalletReconciler.reconcileNow() to capture late-landing swaps.
 - Smoke test must actually start the bot (V5.9.661b) — UI-only launches don't count.
 - All lanes (not just ShitCoin) must collect paper-learning samples (V5.9.662 family).
 - Penalty strictness scales with trade maturity (path to 5000 trades) (V5.9.662d).
 - Open positions get refresh priority over watchlist scanning (V5.9.663c).
+- **V5.9.665**: Never run synchronous network I/O on startBot()'s body —
+  always wrap in scope.launch with a startup grace.
 - ALWAYS pull and read smoke test artifacts (`logcat_full.txt` + `funnel_summary.txt`)
   before commenting on pipeline state. Do not assume — read.
 
