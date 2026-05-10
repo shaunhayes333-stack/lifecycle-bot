@@ -4715,6 +4715,35 @@ class BotService : Service() {
      * thinks the world looks like: scanner alive, merge queue depth, watchlist
      * size, open position count, paper/live mode, V3 toggle, etc.
      */
+    private fun emitBotLoopTick(loopCount: Int, prevCycleMs: Long) {
+        // V5.9.659 — extracted from botLoop body to stay under the JVM
+        // 64KB method size limit. Operator-facing structured trace; one
+        // line per loop iteration. Grep '🧬[BOT_LOOP_TICK]' to confirm
+        // the loop is alive and to see how long the previous full cycle
+        // took (a value > 30000 ms means the loop is sluggish).
+        try {
+            val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
+            ForensicLogger.phase(
+                ForensicLogger.PHASE.SCAN_CB,
+                "_loop",
+                "🧬[BOT_LOOP_TICK] n=$loopCount watch=$watchSize prevCycleMs=$prevCycleMs",
+            )
+        } catch (_: Throwable) { /* never block the loop on a logging failure */ }
+    }
+
+    private fun emitWatchlistCapTrace(cap: Int, total: Int, forcedOpen: Int) {
+        // V5.9.659 — extracted helper. Single forensic line whenever the
+        // per-tick watchlist iteration is capped.
+        try {
+            ForensicLogger.phase(
+                ForensicLogger.PHASE.SCAN_CB,
+                "_cap",
+                "🧬[WATCHLIST_CAP] tickCap=$cap total=$total forcedOpen=$forcedOpen",
+            )
+        } catch (_: Throwable) {}
+    }
+
+
     private fun emitLoopTopSnapshot(loopCount: Int) {
         try {
             val sc = marketScanner
@@ -4780,34 +4809,13 @@ class BotService : Service() {
           try {
             loopCount++
 
-            // V5.9.659 — operator triage: 3-min log slice on build 2545
-            // (V5.9.657) showed ZERO 🧬[SCAN_CB] enter forensics for any
-            // mint despite watchlist=3776. The bot was effectively frozen
-            // — only PumpPortal WS intake / FDG ticker / scheduled
-            // closed-market traders were firing. botLoop itself must have
-            // been alive (FDG fires from inside the loop) but the
-            // watchlist iteration was either not reaching processTokenCycle
-            // OR each tick was so slow that 3 minutes saw <1 cycle.
-            //
-            // BOT_LOOP_TICK fires at the very top of every iteration with
-            // the loop count, watchlist size, time-since-last-tick and
-            // current memory pressure. The operator can grep
-            // "🧬[BOT_LOOP_TICK]" and immediately see:
-            //   - frequency of ticks (one every ~5s = healthy, one every
-            //     60s+ = sluggish, none = scope dead)
-            //   - watchlist growth (if it just keeps climbing, intake is
-            //     outpacing eviction and the cap below kicks in)
-            //   - cycle wall-clock (tookMs = previous full-cycle duration)
+            // V5.9.659 — operator triage: BOT_LOOP_TICK heartbeat at the
+            // top of every iteration. Extracted to keep botLoop under the
+            // JVM 64KB method size limit (handoff warned about this).
             run {
                 val now = System.currentTimeMillis()
-                val tookMs = now - lastTickStartMs
+                emitBotLoopTick(loopCount, now - lastTickStartMs)
                 lastTickStartMs = now
-                val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
-                ForensicLogger.phase(
-                    ForensicLogger.PHASE.SCAN_CB,
-                    "_loop",
-                    "🧬[BOT_LOOP_TICK] n=$loopCount watch=$watchSize prevCycleMs=$tookMs",
-                )
             }
 
             // V5.9.652 — extracted to emitLoopTopSnapshot() to keep botLoop
@@ -6353,15 +6361,8 @@ val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
 // promoted next tick by lrpBoost (lastProcessedAt boost grows with age).
 val ORDERED_MINTS_CAP_PER_TICK = 300
 val orderedMints = if (orderedMintsRaw.size > ORDERED_MINTS_CAP_PER_TICK) {
-    val capped = orderedMintsRaw.take(ORDERED_MINTS_CAP_PER_TICK)
-    try {
-        ForensicLogger.phase(
-            ForensicLogger.PHASE.SCAN_CB,
-            "_cap",
-            "🧬[WATCHLIST_CAP] tickCap=$ORDERED_MINTS_CAP_PER_TICK total=${orderedMintsRaw.size} forcedOpen=${forcedOpenMints.size}",
-        )
-    } catch (_: Throwable) {}
-    capped
+    emitWatchlistCapTrace(ORDERED_MINTS_CAP_PER_TICK, orderedMintsRaw.size, forcedOpenMints.size)
+    orderedMintsRaw.take(ORDERED_MINTS_CAP_PER_TICK)
 } else {
     orderedMintsRaw
 }
