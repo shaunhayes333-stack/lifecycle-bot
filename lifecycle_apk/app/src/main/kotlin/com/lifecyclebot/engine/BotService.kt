@@ -4775,9 +4775,40 @@ class BotService : Service() {
         }
 
         var loopCount = 0
+        var lastTickStartMs = System.currentTimeMillis()
         while (status.running) {
           try {
             loopCount++
+
+            // V5.9.659 — operator triage: 3-min log slice on build 2545
+            // (V5.9.657) showed ZERO 🧬[SCAN_CB] enter forensics for any
+            // mint despite watchlist=3776. The bot was effectively frozen
+            // — only PumpPortal WS intake / FDG ticker / scheduled
+            // closed-market traders were firing. botLoop itself must have
+            // been alive (FDG fires from inside the loop) but the
+            // watchlist iteration was either not reaching processTokenCycle
+            // OR each tick was so slow that 3 minutes saw <1 cycle.
+            //
+            // BOT_LOOP_TICK fires at the very top of every iteration with
+            // the loop count, watchlist size, time-since-last-tick and
+            // current memory pressure. The operator can grep
+            // "🧬[BOT_LOOP_TICK]" and immediately see:
+            //   - frequency of ticks (one every ~5s = healthy, one every
+            //     60s+ = sluggish, none = scope dead)
+            //   - watchlist growth (if it just keeps climbing, intake is
+            //     outpacing eviction and the cap below kicks in)
+            //   - cycle wall-clock (tookMs = previous full-cycle duration)
+            run {
+                val now = System.currentTimeMillis()
+                val tookMs = now - lastTickStartMs
+                lastTickStartMs = now
+                val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.SCAN_CB,
+                    "_loop",
+                    "🧬[BOT_LOOP_TICK] n=$loopCount watch=$watchSize prevCycleMs=$tookMs",
+                )
+            }
 
             // V5.9.652 — extracted to emitLoopTopSnapshot() to keep botLoop
             // under the JVM 64KB method size limit. Same content, different
@@ -6292,7 +6323,48 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
     mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
 }
 
-val orderedMints = (forcedOpenMints + otherMints).distinct()
+val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
+
+// V5.9.659 — operator triage: watchlist exploded to 3,776 tokens (3148 →
+// 3776 in 3 min). Each chunk processes maxParallel mints under a 1.2s
+// per-token timeout. With 3,776 mints the per-tick supervisorScope can
+// burn through chunks for many minutes before any individual mint gets
+// re-visited, and the 9 trading layers (ShitCoin / Moonshot / Quality /
+// BlueChip / DipHunter / etc.) can't fire because they're downstream of
+// processTokenCycle. The operator log showed ZERO 🧬[SCAN_CB] enter
+// markers in 3 minutes — the loop was effectively starved.
+//
+// CAP: process at most MAX_PER_TICK (top-priority) candidates per tick.
+// Open positions are ALWAYS included (forcedOpenMints already at front
+// of orderedMintsRaw via line 6295). After the cap we still cycle the
+// rest via the per-token round-robin freshness/age boost in
+// prioritizedWatchlist; we just don't try to evaluate ALL 3,776 in one
+// tick.
+//
+// 300 chosen because:
+//   - At maxParallel=96 paper bootstrap, 300 = ~3 chunks × 1.2s = ~3.6s
+//     wall-clock before the loop returns to the FDG / regime pulse /
+//     reconciler / sub-trader scan blocks.
+//   - Fresh PumpPortal mints (the highest-edge path) get freshBoost up
+//     to 350 for <60s old, so they always sort into the top 300.
+//   - Open positions are unconditionally included via forcedOpenMints.
+//
+// Anything beyond 300 IS NOT lost — it stays in status.tokens and gets
+// promoted next tick by lrpBoost (lastProcessedAt boost grows with age).
+val ORDERED_MINTS_CAP_PER_TICK = 300
+val orderedMints = if (orderedMintsRaw.size > ORDERED_MINTS_CAP_PER_TICK) {
+    val capped = orderedMintsRaw.take(ORDERED_MINTS_CAP_PER_TICK)
+    try {
+        ForensicLogger.phase(
+            ForensicLogger.PHASE.SCAN_CB,
+            "_cap",
+            "🧬[WATCHLIST_CAP] tickCap=$ORDERED_MINTS_CAP_PER_TICK total=${orderedMintsRaw.size} forcedOpen=${forcedOpenMints.size}",
+        )
+    } catch (_: Throwable) {}
+    capped
+} else {
+    orderedMintsRaw
+}
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
