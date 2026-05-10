@@ -1,23 +1,28 @@
 # AATE — Native Kotlin Android Solana Trading Bot
 
 ## Original Problem Statement
-Upgrading a Native Kotlin Android Solana trading bot (AATE) to V5.7+ (now at V5.9.661+).
+Upgrading a Native Kotlin Android Solana trading bot (AATE) to V5.7+ (now V5.9.662+).
 Builds via GitHub Actions CI only — NO local compiler. Multi-lane architecture (Memes,
 Crypto/Alts, Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Runs as a
 foreground Service with a 50+ AI-module pipeline gated through processTokenCycle and
-9 trading layers.
+9 trading layers (ShitCoin, Moonshot, Quality, BlueChip, CashGen, V3, Markets, etc.).
 
 ## Architecture (Key Files)
 - engine/BotService.kt              — central engine (~12,950 lines, JVM 64KB-managed)
 - engine/Executor.kt                — buy/sell, closeAllPositions, liveSweepWalletTokens
 - engine/SmokeTestReceiver.kt       — debug-only CI broadcast entry-point (V5.9.661b)
+- engine/TokenLifecycleTracker.kt   — clearAll() V5.9.661c
+- engine/HostWalletTokenTracker.kt  — clearAll() V5.9.661c
+- engine/LifecycleStrategy.kt       — paper-mode confidence floors (V5.9.662)
 - ui/MainActivity.kt + activity_main.xml — main UI, btnToggle = "Start Bot"
 - ui/SecurityActivity.kt            — PIN gate (smoke test bypasses via pre-seeded prefs)
-- v3/scoring/{ShitCoin,Moonshot,BlueChip,Quality,Manipulated,CashGen}TraderAI.kt
+- v3/scoring/MoonshotTraderAI.kt    — minRcScore=1 for paper learning (V5.9.662)
+- v3/risk/FatalRiskChecker.kt       — paper-learning rugScore bypass (V5.9.662)
+- v3/scoring/{ShitCoin,BlueChip,Quality,Manipulated,CashGen}TraderAI.kt
 - perps/{CryptoAltTrader,MarketsTrader,TokenizedStockTrader,...}.kt
 - ci/runtime-test.sh + .github/workflows/runtime-test.yml — Android emulator smoke test
 
-## Recent Sessions — Implementation History
+## Implementation History — Recent Sessions
 
 ### V5.9.659 → V5.9.660b (May 10) — JVM 64KB botLoop fix
 - Extracted Markets Engine Watchdog (~85 lines) into runMarketsEngineWatchdog()
@@ -26,26 +31,40 @@ foreground Service with a 50+ AI-module pipeline gated through processTokenCycle
 - Tightened .gitignore so /backend, /frontend, node_modules don't leak into commits
 - 660b fixed call-site mismatch (2-arg → 1-arg) — CI green
 
-### V5.9.661 (May 10) — Unconditional position close on every stop
-- Removed `if (cfg.closePositionsOnStop)` gate in stopBot() (line ~3450)
-- Removed same gate in onDestroy() (line ~1192)
-- Result: every stop now executes paperSell/liveSell + liveSweepWalletTokens +
+### V5.9.661 (May 10) — Unconditional position close on every stop ✅ user-verified
+- Removed `if (cfg.closePositionsOnStop)` gate in stopBot() and onDestroy()
+- Every stop now executes paperSell/liveSell + liveSweepWalletTokens +
   purgeOrphanedTokensOnStop, regardless of the legacy toggle.
-- The `cfg.closePositionsOnStop` field is kept in BotConfig for backward-compat
-  but is now a no-op.
+- User confirmed: paper SOL credited back, live tokens swept on stop.
 
 ### V5.9.661b (May 10) — Runtime Smoke Test actually starts the bot
 - New SmokeTestReceiver.kt: debug-only BroadcastReceiver, action
   `com.lifecyclebot.aate.SMOKE_AUTOSTART`. Hard-guarded on FLAG_DEBUGGABLE.
-  Pre-seeds aate_security PIN bypass + forces paper_mode=true + starts BotService
-  with EXTRA_USER_REQUESTED=true.
 - runtime-test.sh: broadcast (path A) + UI tap of btnToggle (path B fallback).
 - Funnel summary now tracks SMOKE / BOT_LOOP_TICK / SCAN_CB / TRADEJRNL_REC.
 
+### V5.9.661c (May 10) — UI "11 Open" stale counter fix
+- New `TokenLifecycleTracker.clearAll()` and `HostWalletTokenTracker.clearAll()`.
+- stopBot() calls both — UI's `maxOf(laneStores, hostOpen, lifecycleOpen)`
+  now drops to 0 on stop.
+
+### V5.9.662 (May 10) — Unblock Moonshot/Quality/BlueChip/V3 from paper-learning choke
+- Operator: only ShitCoin/Memes were firing; the other lanes silent due to:
+  • MoonshotTraderAI: `minRcScore = 5 in paper` blocked rugcheckScore=1 launches.
+    Lowered to 1 in paper, live unchanged at 15.
+  • FatalRiskChecker: `EXTREME_RUG_RISK_100` and `EXTREME_RUG_CRITICAL_score=3..5`
+    blocked all fresh tokens. Added paper-learning bypass when secondary rug
+    flags (zeroHolders/pureSellPressure/liquidityDraining/unsellableSignal)
+    are clean. Hard 0..2 block kept (-48% Day-1 ground truth from V5.9.412).
+  • LifecycleStrategy: paperEdgeSkipFloor (5%) + paperLowQualityFloor (10%)
+    were blocking conf=8..9% candidates. Both lowered to 1% in paper mode.
+
 ## Known Issues / In-Progress
-- P0: Verify V5.9.661 actually closes paper SOL + live tokens on operator's device.
-- P0: Verify V5.9.661b smoke test produces non-zero BOT_LOOP_TICK + SCAN_CB on CI emulator.
+- P0: User-verify V5.9.662 — confirm Moonshot/Quality/BlueChip/V3 now fire
+  alongside ShitCoin in paper learning.
 - P1: True leverage for Markets lane (Drift/Parcl/Mango HTTP). Not started.
+- P1: Markets `📈 SIGNAL` logs are produced (e.g. ORCL/META/NFLX) but no
+  BUY follow-up — investigate `Executor` accept-criteria for Markets signals.
 - P2: Strategy Leaderboard tile, PnL streak tile, Brain Health pill, Tune History tab.
 - P2: "Ladder" status pill on Memes tab.
 
@@ -55,10 +74,12 @@ foreground Service with a 50+ AI-module pipeline gated through processTokenCycle
 - BotService.kt is at the JVM 64KB cap on botLoop — extract before adding inline blocks.
 - Position close on stop must be UNCONDITIONAL (V5.9.661).
 - Smoke test must actually start the bot (V5.9.661b) — UI-only launches don't count.
+- All lanes (not just ShitCoin) must collect paper-learning samples (V5.9.662).
 
 ## 3rd Party Integrations
 - GitHub Actions (CI + Android emulator runtime smoke test)
-- PumpPortal WS, Birdeye, Pyth, DexScreener, Jupiter API V6, Binance, CoinGecko
+- PumpPortal WS, Birdeye, Pyth, DexScreener, Jupiter API V6, Binance, CoinGecko,
+  Yahoo Finance V8 (stocks)
 
 ## Tech Stack
 - Native Kotlin Android Application
