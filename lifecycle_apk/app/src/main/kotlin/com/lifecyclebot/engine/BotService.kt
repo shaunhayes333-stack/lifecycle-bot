@@ -6987,8 +6987,25 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // entire pre-graduation meme lane the operator wants us to trade.
             val pair = dex.getBestPair(mint) ?: run {
                 val ts = status.tokens[mint] ?: return
+                // V5.9.656 — operator triage round 2: fast path for tokens
+                // that already have a usable lastPrice (set by the V5.9.655
+                // intake-time mcap/1B seed for fresh PumpPortal mints). Skip
+                // tryFallbackPriceData entirely — those four sequential HTTP
+                // calls (Birdeye, DexScreenerOracle, BirdeyeOracle, pump.fun
+                // frontend) consume up to 15-20s on cold cache, which blows
+                // through the 1.2s/token paper budget and causes
+                // withTimeoutOrNull to silently drop the token before we
+                // reach the synth check. With a seeded price we don't need
+                // oracle confirmation to start scoring/safety-checking.
+                if (ts.lastPrice > 0.0) {
+                    val fastSynth = synthesizeFallbackPair(ts)
+                    if (fastSynth != null) {
+                        // Continue with the seeded synth pair.
+                        return@run fastSynth
+                    }
+                }
                 val refreshed = tryFallbackPriceData(mint, ts)
-                val synth = if (refreshed && ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
+                val synth = if (ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
                 if (synth == null) {
                     // V5.9.655 — operator triage: this silent return was the
                     // root cause of "0 trades from 392 watchlist tokens". The
