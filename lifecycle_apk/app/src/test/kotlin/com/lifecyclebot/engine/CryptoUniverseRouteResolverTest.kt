@@ -11,8 +11,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * V5.9.495z31 — Acceptance tests for the CryptoUniverse route
- * resolver. Mirrors operator-brief items A–J.
+ * V5.9.665 — restored route-resolver contract (post-revert of 758ecca26).
+ *
+ * The resolver behavior:
+ *   1. Symbol has a registered Solana SPL mint → JUPITER_ROUTABLE,
+ *      executable iff cryptoUniverseLiveEnabled.
+ *   2. Symbol has no SPL mint:
+ *      - If bridge adapter enabled AND configured → BRIDGE_REQUIRED, executable.
+ *      - Else if CEX adapter enabled AND configured → CEX_REQUIRED, executable.
+ *      - Else → PAPER_ONLY, NOT executable.
+ *   3. Insufficient SOL on wallet → INSUFFICIENT_SOL, NOT executable.
+ *
+ * The previous "USDC-collateral symbol exposure without target mint"
+ * regression (commit 758ecca26) was reverted because it caused live
+ * trades to silently end at USDC instead of bridging through to the
+ * intended target asset.
  */
 class CryptoUniverseRouteResolverTest {
 
@@ -27,28 +40,28 @@ class CryptoUniverseRouteResolverTest {
     )
 
     @Test
-    fun btc_resolves_to_jupiter_or_bridged_when_live_enabled() {
-        // V5.9.495 operator commit (Allow Crypto Universe USDC-collateral
-        // symbol exposure without target mint): missing-SPL is no longer a
-        // live-trade blocker; symbol routes via USDC collateral. With
-        // cryptoUniverseLiveEnabled = true (default), BTC must resolve to
-        // either JUPITER_ROUTABLE (if a wrapped mint exists) or
-        // BRIDGED_WRAPPED_ASSET (symbol-only) and be executable.
-        CryptoUniverseConfigStore.set(cfg(bridge = false, cex = false, paperFallback = false))
+    fun btc_resolves_to_jupiter_when_wrapped_mint_registered_else_paper_only() {
+        // BTC may or may not have a wrapped SPL mint registered in
+        // CryptoWrappedAssetMapper depending on registry state. Either
+        // outcome is acceptable; what matters is we never silently
+        // route a non-Solana asset to USDC-collateral exposure.
+        CryptoUniverseConfigStore.set(cfg(bridge = false, cex = false, paperFallback = true))
         val r = CryptoUniverseRouteResolver.resolve(PerpsMarket.BTC, walletSolBalance = 5.0, sizeSol = 0.05)
         assertTrue(
-            "BTC must route via Jupiter or USDC-bridge, got ${r.route}",
+            "BTC must route to JUPITER_ROUTABLE (wrapped) or PAPER_ONLY (no SPL) — got ${r.route}",
             r.route == CryptoExecutionRoute.JUPITER_ROUTABLE ||
-            r.route == CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET
+            r.route == CryptoExecutionRoute.PAPER_ONLY
         )
-        assertTrue("BTC must be executable when live is enabled", r.executable)
+        if (r.route == CryptoExecutionRoute.PAPER_ONLY) {
+            assertTrue("BTC PAPER_ONLY must NOT be executable", !r.executable)
+        }
     }
 
     @Test
     fun btc_not_executable_when_live_disabled() {
-        // Same path as above but with cryptoUniverseLiveEnabled=false → the
-        // resolver still selects the route (so the operator can audit the
-        // resolution decision) but executable must be false.
+        // With cryptoUniverseLiveEnabled=false, even a Jupiter-routable
+        // BTC must report executable=false. Resolver still selects the
+        // route so audit logs show the resolution decision.
         CryptoUniverseConfigStore.set(CryptoUniverseConfig(
             cryptoUniverseAllowBridgeAdapters = false,
             cryptoUniverseAllowCexAdapters = false,
