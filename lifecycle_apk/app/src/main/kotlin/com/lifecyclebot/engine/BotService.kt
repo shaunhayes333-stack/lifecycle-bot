@@ -2720,7 +2720,17 @@ class BotService : Service() {
             onLog = { msg -> addLog("🧠 $msg") },
             onParamChanged = { name, old, new, reason ->
                 addLog("🧠 $name $old→$new ($reason)")
-                sendTradeNotif("🧠 Bot adapted", "$name → $new", NotificationHistory.NotifEntry.NotifType.INFO)
+                // V5.9.667 — operator regression fix.
+                // bad_behaviour: keys are noisy by nature (every newly-
+                // promoted pattern fires this callback). The operator
+                // screenshot showed "Bot adapted bad_behaviour:..."
+                // notifications stacking once per second. Drop the
+                // system notification for these keys; the in-app log
+                // line above + Behavior tab is enough visibility.
+                // Genuine parameter tunes still notify normally.
+                if (!name.startsWith("bad_behaviour:")) {
+                    sendTradeNotif("🧠 Bot adapted", "$name → $new", NotificationHistory.NotifEntry.NotifType.INFO)
+                }
             },
         )
         botBrain = brain2; brain2.start()

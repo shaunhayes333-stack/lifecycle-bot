@@ -657,6 +657,15 @@ class BotBrain(
      * Only human override (clearBadPattern) can lift a suppression.
      * This ensures the bot never un-learns a hard-earned lesson.
      */
+    // V5.9.667 — track last-seen bad-behaviour status per key so we
+    // only fire the operator-facing onParamChanged callback (and any
+    // notifications it triggers) when a pattern TRANSITIONS into a new
+    // confirmed-bad / suppressed state. Without this, every brain tick
+    // re-emitted every existing bad pattern → the operator's screen
+    // got flooded with "🧠 Bot adapted bad_behaviour:..." notifications
+    // every second.
+    private val lastBadStatus = mutableMapOf<String, String>()
+
     private fun evaluateBadBehaviours() {
         val promoted = db.evaluateBadPatterns()
         val allBad   = db.getBadPatterns()
@@ -666,11 +675,23 @@ class BotBrain(
         badBehaviourLog       = allBad
         totalSuppressedPatterns = allBad.count { it.status != "MONITORING" }
 
-        // Log newly promoted patterns
+        // Log + escalate ONLY truly newly-promoted patterns. Brain ticks
+        // re-evaluate the registry every cycle; without this transition
+        // gate, the same SUPPRESSED key would re-fire on every tick.
         promoted.forEach { bad ->
+            val prev = lastBadStatus[bad.featureKey]
+            if (prev == bad.status) return@forEach   // already in this state — don't re-spam
+            lastBadStatus[bad.featureKey] = bad.status
+
             val icon = if (bad.status == "SUPPRESSED") "🚫" else "⚠️"
             onLog("$icon BAD PATTERN ${bad.status}: ${bad.featureKey}")
             onLog("   ${bad.notes}")
+            // Note: BotService listens to onParamChanged and may push
+            // a system notification. For bad_behaviour: keys it now
+            // suppresses notifications and logs in-app only (V5.9.667
+            // BotService change). The transition gate above keeps the
+            // log line itself rare too — at most one entry per key
+            // per status transition.
             onParamChanged(
                 "bad_behaviour:${bad.featureKey}",
                 0.0,
@@ -696,6 +717,18 @@ class BotBrain(
      *   - source alone
      *   - exit timing patterns
      * Takes the maximum penalty across all matching keys.
+     *
+     * V5.9.667 — operator regression fix.
+     *   Apply a TRADE-MATURITY RAMP to the raw stored strength so
+     *   the bot doesn't lock in 80.0 / 45.0 penalties during the
+     *   bootstrap window when it has barely seen 500 trades and
+     *   has had no opportunity to learn yet. Mirrors the existing
+     *   V5.9.662d ramp on tilt/discipline strictness.
+     *
+     *   At    0 trades: penalty × 0.0  (none)
+     *   At 1000 trades: penalty × 0.20
+     *   At 2500 trades: penalty × 0.50
+     *   At 5000 trades: penalty × 1.00 (full strength)
      */
     fun getSuppressionPenalty(phase: String, emaFan: String, source: String = ""): Double {
         val keys = buildList {
@@ -704,13 +737,24 @@ class BotBrain(
             add("ema=${emaFan}")
             if (source.isNotBlank()) add("source=${source}")
         }
-        return keys.maxOfOrNull { suppressedPatterns[it] ?: 0.0 } ?: 0.0
+        val rawPenalty = keys.maxOfOrNull { suppressedPatterns[it] ?: 0.0 } ?: 0.0
+        if (rawPenalty <= 0.0) return 0.0
+        val total = try { db.getTotalTrades() } catch (_: Throwable) { 0 }
+        val maturity = (total.toDouble() / 5000.0).coerceIn(0.0, 1.0)
+        return rawPenalty * maturity
     }
 
-    /** Whether a specific pattern is hard-suppressed (near-blocked) */
+    /** Whether a specific pattern is hard-suppressed (near-blocked).
+     *
+     *  V5.9.667 — apply same maturity ramp; sub-2500-trade bots
+     *  cannot hard-suppress anything.
+     */
     fun isHardSuppressed(phase: String, emaFan: String): Boolean {
         val key = "phase=${phase}+ema=${emaFan}"
-        return (suppressedPatterns[key] ?: 0.0) >= 70.0
+        val raw = suppressedPatterns[key] ?: 0.0
+        if (raw < 70.0) return false
+        val total = try { db.getTotalTrades() } catch (_: Throwable) { 0 }
+        return total >= 2500
     }
 
     /** Full bad behaviour report for UI display */
