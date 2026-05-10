@@ -251,6 +251,46 @@ dump (post-cache-fix). LIVE buys regressed because:
      surfaces the true full count; visible slice still sorted by active /
      open / entryScore / lastV3Score / lastLiquidityUsd.
 
+### V5.9.673 — CRITICAL: stop orphaning positions on Android system-kill (May 11)
+Operator reported: RMG buy verified-landed at 05:29:23 (+353% gain, 436195
+tokens) became INVISIBLE to the bot after the bot "randomly stopped and
+started". Token sits in wallet untracked → no trailing stop, no take-profit,
+no exit logic. ROOT CAUSE found in BotService.onDestroy():
+
+When Android kills the foreground service (OOM / Doze / battery / ANR — all
+of which were happening at 49-62% main-thread stall pre-V5.9.671/672),
+onDestroy fires with ~5 seconds before SIGKILL. The V5.9.661 mandate
+("every stop MUST close all positions") was triggering executor.closeAllPositions
+on this path too. But a Jupiter swap needs 10-30s, far longer than the
+5s window. Net result:
+  1. closeAllPositions tries to liquidate.
+  2. Mid-swap, process gets SIGKILLed.
+  3. WORSE: position.isOpen was sometimes mutated to false locally BEFORE
+     the actual swap landed, so the AlarmManager-scheduled 5s restart
+     came back to a state with no open position — even though the tokens
+     were still on-chain. ORPHAN.
+
+The V5.9.661 mandate was correct intent for USER-INITIATED stops (which run
+through stopBot() and close positions there, then set the manual-stop flag
+that onDestroy now reads correctly). For SYSTEM-INITIATED destroys, the new
+behaviour is:
+  - DO NOT attempt closeAllPositions.
+  - Force-save all open positions via PositionPersistence.saveAllPositions(force=true)
+    so the 30s rate-limiter doesn't skip this critical pre-death flush.
+  - Emit forensic event ONDESTROY_SYSTEM_KILL with openCount and persisted=true.
+  - Schedule the 5s restart (unchanged).
+  - On restart, the existing PositionPersistence.restorePositions + StartupReconciler
+    chain re-adopts the position from on-chain truth.
+
+Also added (StartupReconciler.kt:97-119):
+  - Forensic wallet-sweep dump on every reconcile: count of token accounts,
+    non-zero non-SOL count, already-tracked count, and a per-mint breakdown
+    of every non-zero non-SOL token in the wallet showing alreadyTracked
+    status. Emits ForensicLogger.lifecycle("WALLET_SWEEP", ...) so operator
+    can verify on-chain RMG (or any orphaned position) is visible to the
+    sweep and trace exactly where adoption is failing if it still doesn't
+    register.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.

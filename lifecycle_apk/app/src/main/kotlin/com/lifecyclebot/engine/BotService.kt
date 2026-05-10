@@ -1190,40 +1190,42 @@ class BotService : Service() {
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
         
-        // Try to close open positions if bot was running.
-        // V5.9.661 — UNCONDITIONAL: per operator mandate, every stop MUST
-        // close all open positions regardless of cfg.closePositionsOnStop.
-        // Paper mode credits paper SOL via paperSell; live mode hits
-        // Jupiter for a real on-chain swap-to-SOL via liveSell. The
-        // closePositionsOnStop flag is now ignored for safety — tokens
-        // stranded in the host wallet because the user toggled it off
-        // was the V5.9.660-era complaint.
+        // V5.9.673 — DO NOT attempt to liquidate positions on a SYSTEM-INITIATED
+        // destroy. The V5.9.661 mandate ("every stop MUST close all positions")
+        // was meant for USER-INITIATED stops (which run through stopBot() and
+        // already close positions there before destroy fires). When Android
+        // kills us for OOM / Doze / battery / ANR reasons, we have ~5 seconds
+        // before SIGKILL — far less than the 10-30s a Jupiter swap needs.
+        // Attempting the swap here usually:
+        //   1. Fails because the process dies mid-swap.
+        //   2. WORSE: mutates position.isOpen = false locally before the swap
+        //      lands, so the AlarmManager-scheduled restart sees no open
+        //      position even though the tokens are still on-chain → ORPHAN.
+        // Operator confirmed RMG buy (+353% gain, 436195 tokens) became
+        // invisible to the bot after one such kill-restart cycle. New
+        // behaviour: persist position state durably so the restart's
+        // PositionPersistence.restorePositions + StartupReconciler chain can
+        // re-adopt the position from on-chain truth on next boot.
         if (status.running && !isManualStopRequested(applicationContext)) {
             try {
-                val cfg = ConfigStore.load(applicationContext)
-                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-
-                // Get a synchronized copy of tokens
-                val tokensCopy = synchronized(status.tokens) {
-                    status.tokens.toMap()
-                }
-
+                val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                 val openCount = tokensCopy.values.count { it.position.isOpen }
-                if (openCount > 0) {
-                    ErrorLogger.warn("BotService", "onDestroy: Attempting to close $openCount open position(s) [unconditional]")
-
-                    // Try to close positions - this may fail if Android kills us mid-way
-                    executor.closeAllPositions(
-                        tokens = tokensCopy,
-                        wallet = wallet,
-                        walletSol = effectiveBalance,
-                        paperMode = cfg.paperMode,
-                    )
-                }
+                ErrorLogger.warn("BotService",
+                    "onDestroy: SYSTEM-INITIATED destroy (not manual stop). " +
+                    "$openCount open position(s) — persisting to disk for restart recovery. " +
+                    "NOT attempting close (would orphan positions due to 5s SIGKILL window).")
+                // Force-save so the 30s rate-limiter in saveAllPositions does
+                // not skip this critical pre-death flush.
+                PositionPersistence.saveAllPositions(tokensCopy, force = true)
+                ForensicLogger.lifecycle(
+                    "ONDESTROY_SYSTEM_KILL",
+                    "openCount=$openCount persisted=true closeAttempted=false"
+                )
             } catch (e: Exception) {
-                ErrorLogger.error("BotService", "onDestroy: Error closing positions: ${e.message}", e)
+                ErrorLogger.error("BotService",
+                    "onDestroy: Could not persist positions before system kill: ${e.message}", e)
             }
-            
+
             // Schedule a restart
             ErrorLogger.warn("BotService", "Bot was running - scheduling restart in 5 seconds")
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {

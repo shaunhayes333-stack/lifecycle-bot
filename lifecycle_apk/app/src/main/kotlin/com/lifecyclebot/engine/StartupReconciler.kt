@@ -99,6 +99,25 @@ class StartupReconciler(
             val tokenAccounts = wallet.getTokenAccounts()
             val trackedMints = openPositions.map { it.mint }.toSet()
 
+            // V5.9.673 — forensic visibility of the wallet sweep. Operator
+            // saw an on-chain RMG position (+353% gain, 436195 tokens) go
+            // invisible to the bot after a system-kill / restart cycle.
+            // Until this dump landed we could not tell whether the sweep
+            // even ran, whether getTokenAccounts() returned the mint, or
+            // whether DexScreener adoption silently failed downstream.
+            try {
+                val nonZero = tokenAccounts.filter { (m, q) -> q > 0.0 && m != "So11111111111111111111111111111111111111112" }
+                onLog("🔎 WALLET SWEEP: ${tokenAccounts.size} token account(s), ${nonZero.size} non-zero non-SOL, ${trackedMints.size} already tracked")
+                nonZero.forEach { (mint, qty) ->
+                    val seen = mint in trackedMints
+                    onLog("   • ${mint.take(12)}… qty=${"%.4f".format(qty)} alreadyTracked=$seen")
+                }
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WALLET_SWEEP",
+                    "accounts=${tokenAccounts.size} nonZero=${nonZero.size} tracked=${trackedMints.size}"
+                )
+            } catch (_: Throwable) { /* logging must never block reconcile */ }
+
             // V5.9.256: WALLET TOKEN MEMORY RECOVERY
             // Before the standard adoption path runs, ask WalletTokenMemory if it knows
             // about any tokens in the wallet that aren't yet in status.tokens.
