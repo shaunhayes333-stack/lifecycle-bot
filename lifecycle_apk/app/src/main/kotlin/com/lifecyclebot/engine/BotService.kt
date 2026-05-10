@@ -1184,33 +1184,35 @@ class BotService : Service() {
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
         
-        // Try to close open positions if bot was running and closePositionsOnStop is enabled
+        // Try to close open positions if bot was running.
+        // V5.9.661 — UNCONDITIONAL: per operator mandate, every stop MUST
+        // close all open positions regardless of cfg.closePositionsOnStop.
+        // Paper mode credits paper SOL via paperSell; live mode hits
+        // Jupiter for a real on-chain swap-to-SOL via liveSell. The
+        // closePositionsOnStop flag is now ignored for safety — tokens
+        // stranded in the host wallet because the user toggled it off
+        // was the V5.9.660-era complaint.
         if (status.running && !isManualStopRequested(applicationContext)) {
             try {
                 val cfg = ConfigStore.load(applicationContext)
-                
-                if (cfg.closePositionsOnStop) {
-                    val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
-                    
-                    // Get a synchronized copy of tokens
-                    val tokensCopy = synchronized(status.tokens) {
-                        status.tokens.toMap()
-                    }
-                    
-                    val openCount = tokensCopy.values.count { it.position.isOpen }
-                    if (openCount > 0) {
-                        ErrorLogger.warn("BotService", "onDestroy: Attempting to close $openCount open position(s)")
-                        
-                        // Try to close positions - this may fail if Android kills us mid-way
-                        executor.closeAllPositions(
-                            tokens = tokensCopy,
-                            wallet = wallet,
-                            walletSol = effectiveBalance,
-                            paperMode = cfg.paperMode,
-                        )
-                    }
-                } else {
-                    ErrorLogger.warn("BotService", "onDestroy: closePositionsOnStop=false, positions will remain open")
+                val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+
+                // Get a synchronized copy of tokens
+                val tokensCopy = synchronized(status.tokens) {
+                    status.tokens.toMap()
+                }
+
+                val openCount = tokensCopy.values.count { it.position.isOpen }
+                if (openCount > 0) {
+                    ErrorLogger.warn("BotService", "onDestroy: Attempting to close $openCount open position(s) [unconditional]")
+
+                    // Try to close positions - this may fail if Android kills us mid-way
+                    executor.closeAllPositions(
+                        tokens = tokensCopy,
+                        wallet = wallet,
+                        walletSol = effectiveBalance,
+                        paperMode = cfg.paperMode,
+                    )
                 }
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "onDestroy: Error closing positions: ${e.message}", e)
@@ -3442,12 +3444,17 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "Paper purge error (non-fatal): ${e.message}")
         }
         
-        // IMPORTANT: Close all open positions BEFORE stopping (if enabled in config)
-        // This ensures funds are returned and no positions are left dangling
+        // IMPORTANT: Close all open positions BEFORE stopping.
+        // V5.9.661 — UNCONDITIONAL on every stop. Per operator mandate,
+        // every stop MUST close all open positions and sweep the live
+        // wallet, regardless of the legacy cfg.closePositionsOnStop
+        // toggle. That flag is now ignored for safety: live tokens
+        // stranded in the host wallet, and paper SOL never returning,
+        // were both traced to this gate being false.
         try {
             val cfg = ConfigStore.load(applicationContext)
-            
-            if (cfg.closePositionsOnStop) {
+
+            run {
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
 
                 // V5.9.454 — STOP-PATH WALLET RECOVERY.
@@ -3677,21 +3684,6 @@ class BotService : Service() {
                 // Also purge any orphaned tokens (live mode only)
                 if (!cfg.paperMode && wallet != null) {
                     purgeOrphanedTokensOnStop(cfg)
-                }
-            } else {
-                val openCount = synchronized(status.tokens) {
-                    status.tokens.values.count { it.position.isOpen }
-                }
-                val treasuryCount = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().size
-                val blueChipCount = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
-                val shitCoinCount = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size
-                val qualityCount = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().size
-                val moonshotCount = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
-                val totalOpen = openCount + treasuryCount + blueChipCount + shitCoinCount + qualityCount + moonshotCount
-                
-                if (totalOpen > 0) {
-                    addLog("⚠️ $totalOpen position(s) left open (closePositionsOnStop=false) | " +
-                        "main=$openCount treasury=$treasuryCount bluechip=$blueChipCount shitcoin=$shitCoinCount quality=$qualityCount moonshot=$moonshotCount")
                 }
             }
         } catch (e: Exception) {
