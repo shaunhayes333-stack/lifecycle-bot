@@ -821,32 +821,6 @@ object V3EngineManager {
         com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = { candidate, size, _, _ ->
             val callback = onExecuteCallback
 
-            // V5.9.669 — operator regression fix.
-            //   BotService initialises V3 with onExecute=null (V3 is the
-            //   architectural decision authority; legacy path actually
-            //   executes the trade). The previous wiring still tried to
-            //   invoke the null callback and returned success=false with
-            //   the misleading message 'No execution callback configured'
-            //   — operator's logs showed dozens of MEME_ENTRY_BLOCKED |
-            //   reason=EXECUTOR_FAILED entries even though the legacy
-            //   path actually executed the trade just fine.
-            //
-            //   When callback is null, treat this as decision-only mode:
-            //   acknowledge the decision (success=true, size echoed back)
-            //   and let the legacy executor own the real execution path.
-            //   Zero double-trades because V3_EXECUTE_SAME_TICK + the
-            //   same-token guards already gate the legacy path. Only
-            //   diagnostic noise is removed.
-            if (callback == null) {
-                return@executeCallback com.lifecyclebot.v3.execution.TradeExecutionResult(
-                    success = true,
-                    txSignature = null,
-                    executedSize = size.sizeSol,
-                    executedPrice = null,
-                    error = null,
-                )
-            }
-
             val request = ExecuteRequest(
                 mint = candidate.mint,
                 symbol = candidate.symbol,
@@ -855,7 +829,7 @@ object V3EngineManager {
             )
 
             val result = try {
-                callback.invoke(request)
+                callback?.invoke(request)
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Execution callback error: ${e.message}", e)
                 null
@@ -866,7 +840,7 @@ object V3EngineManager {
                 txSignature = result?.txSignature,
                 executedSize = result?.executedSol ?: 0.0,
                 executedPrice = result?.executedPrice,
-                error = result?.error ?: "Execution failed"
+                error = result?.error ?: if (callback == null) "No execution callback configured" else "Execution failed"
             )
         }
     }

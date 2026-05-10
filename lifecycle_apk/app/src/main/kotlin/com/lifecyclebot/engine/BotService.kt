@@ -1524,6 +1524,82 @@ class BotService : Service() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.669: V3 EXECUTION BRIDGE
+    // ═══════════════════════════════════════════════════════════════════════════
+    /**
+     * Routes V3 engine execution decisions into the real executor.doBuy
+     * pipeline. V3 is a MAIN TRADER wired to the learning loop; previously
+     * its onExecute was null, so V3 decisions silently failed and legacy
+     * traders executed instead (at a fraction of V3's sizing and without
+     * feeding V3's outcome tracker).
+     *
+     * Reuses the same wallet/walletSol resolution as manualBuy() (V5.9.495o
+     * cached-balance fallback pattern).
+     *
+     * Returns ExecuteResult so V3's TradeExecutor.executeCallback can
+     * register the entry, track for outcomes, and learn from the trade.
+     */
+    fun runV3Execution(req: com.lifecyclebot.v3.ExecuteRequest): com.lifecyclebot.v3.ExecuteResult {
+        if (!req.isBuy) {
+            return com.lifecyclebot.v3.ExecuteResult(success = false, error = "V3 sell-side not wired here")
+        }
+        if (!::executor.isInitialized) {
+            return com.lifecyclebot.v3.ExecuteResult(success = false, error = "executor not initialised")
+        }
+
+        val ts = status.tokens[req.mint]
+            ?: return com.lifecyclebot.v3.ExecuteResult(success = false, error = "token not in watchlist")
+        if (ts.position.isOpen) {
+            return com.lifecyclebot.v3.ExecuteResult(success = false, error = "position already open")
+        }
+
+        val cfgNow = ConfigStore.load(applicationContext)
+        val isPaper = cfgNow.paperMode
+        val w = wallet
+        val walletSol = if (isPaper) {
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Throwable) { 0.0 }
+        } else {
+            val cached = try {
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
+            } catch (_: Throwable) { 0.0 }
+            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
+        }
+
+        // Live preflight: wallet present + adequate SOL with fee buffer.
+        if (!isPaper) {
+            if (w == null) return com.lifecyclebot.v3.ExecuteResult(success = false, error = "live wallet not connected")
+            if (walletSol < req.sizeSol + 0.01) {
+                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(req.sizeSol + 0.01)}")
+            }
+        }
+
+        return try {
+            ErrorLogger.info("BotService",
+                "⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}")
+            executor.doBuy(
+                ts = ts,
+                sol = req.sizeSol,
+                score = 50.0,
+                wallet = w,
+                walletSol = walletSol,
+                identity = null,
+                quality = "V3",
+                skipGraduated = false,
+            )
+            val lastPrice = ts.lastPrice
+            com.lifecyclebot.v3.ExecuteResult(
+                success = true,
+                txSignature = null,
+                executedSol = req.sizeSol,
+                executedPrice = if (lastPrice > 0.0) lastPrice else null,
+            )
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "runV3Execution error for ${ts.symbol}", e)
+            com.lifecyclebot.v3.ExecuteResult(success = false, error = "exec exception: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // V5.9.317: MANUAL TRADE API (paper + live, end-to-end)
     // ═══════════════════════════════════════════════════════════════════════════
     // Routes to executor.doBuy / executor.doSell which already handle all
@@ -3034,7 +3110,31 @@ class BotService : Service() {
             try {
                 com.lifecyclebot.v3.V3EngineManager.initialize(
                     botCfg = cfg,
-                    onExecute = null,  // V3 doesn't execute directly - decisions flow through FDG
+                    // V5.9.669 — operator regression fix.
+                    //   V3 is a MAIN TRADER (wired to the learning loop)
+                    //   and was previously passed onExecute=null with the
+                    //   wrong assumption that 'V3 doesn't execute directly'.
+                    //   Result: every V3 EXECUTE_AGGRESSIVE decision threw
+                    //   'No execution callback configured' and trades fell
+                    //   back to legacy traders (ShitCoinAI / MoonshotAI)
+                    //   which execute at a fraction of V3's intended size
+                    //   and are NOT wired into the V3 learning loop. V3
+                    //   was learning nothing because nothing was reaching
+                    //   its outcome tracker.
+                    //
+                    //   Now: route V3's execution requests to the real
+                    //   executor.doBuy() at V3's chosen size. The same
+                    //   wallet/walletSol resolution used by manualBuy
+                    //   (V5.9.495o pattern) so live mode picks the cached
+                    //   balance and paper mode reads CashGenerationAI.
+                    //   Legacy traders continue feeding signals INTO V3's
+                    //   scoring matrix as designed, but V3 owns the
+                    //   execution side. Existing V3_EXECUTE_SAME_TICK
+                    //   guards prevent legacy from double-trading the
+                    //   same token in the same tick.
+                    onExecute = { req ->
+                        runV3Execution(req)
+                    },
                     onLog = { msg, mint -> addLog("⚡ $msg", mint) }
                 )
                 
