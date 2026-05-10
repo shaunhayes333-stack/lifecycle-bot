@@ -39,7 +39,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private var currentConfig: BotConfig? = null
     
     // Views
-    private lateinit var etActiveToken: EditText
+    // V5.9.663 — etActiveToken removed from dialog_settings.xml per
+    // operator: 'we don't need it'. The same id still exists on
+    // activity_main.xml; MainActivity owns the read/write of
+    // cfg.activeToken from there. Do NOT re-add a findViewById here
+    // or it will NullPointerException on the Settings sheet.
     private lateinit var spMode: Spinner
     private lateinit var spAutoTrade: Spinner
     private lateinit var etStopLoss: EditText
@@ -115,7 +119,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     }
     
     private fun bindViews(view: View) {
-        etActiveToken = view.findViewById(R.id.etActiveToken)
+        // V5.9.663 — etActiveToken binding removed (id no longer in layout).
         spMode = view.findViewById(R.id.spMode)
         spAutoTrade = view.findViewById(R.id.spAutoTrade)
         etStopLoss = view.findViewById(R.id.etStopLoss)
@@ -312,7 +316,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private fun populateFromConfig() {
         val cfg = currentConfig ?: return
         
-        etActiveToken.setText(cfg.activeToken)
+        // V5.9.663 — no etActiveToken on this sheet anymore.
         
         // Mode spinner (0=PAPER, 1=LIVE)
         spMode.setSelection(if (cfg.paperMode) 0 else 1)
@@ -380,7 +384,9 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         val cfg = currentConfig ?: return
         
         val newConfig = cfg.copy(
-            activeToken = etActiveToken.text.toString().trim(),
+            // V5.9.663 — activeToken preserved as-is from existing config;
+            // edits happen via the etActiveToken field on activity_main.xml.
+            activeToken = cfg.activeToken,
             paperMode = spMode.selectedItemPosition == 0,  // 0=PAPER, 1=LIVE
             autoTrade = spAutoTrade.selectedItemPosition == 1,  // 0=OFF, 1=ON
             // V5.7.6: Trading Mode
