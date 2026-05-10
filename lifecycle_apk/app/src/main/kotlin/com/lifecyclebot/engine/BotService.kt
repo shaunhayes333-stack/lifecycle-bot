@@ -6342,34 +6342,24 @@ val v3OpenMints: List<String> = synchronized(status.tokens) {
 
 val forcedOpenMints = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
 
-val otherMintsRaw = prioritizedWatchlist.filterNot { mint ->
+val otherMints = prioritizedWatchlist.filterNot { mint ->
     mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
 }
 
-// V5.9.663c — operator: 'can we give refresh priority to open positions
-// and push the watchlist price refresh out to 3 seconds maybe?'
-// Open positions (forcedOpenMints) need fresh prices EVERY tick so
-// fluid stops + take-profits don't miss intra-tick moves. Watchlist
-// candidates only need a price refresh roughly every 3 seconds since
-// they're being evaluated for FUTURE entries — a 2s freshness lag on
-// non-held tokens is fine, and it cuts main-thread contention by ~3x
-// (the user's ~2400-token watchlist was the leading ANR contributor).
-//
-// Cadence:
-//   loopCount % 3 == 0  → full watchlist scan (otherMintsRaw all in)
-//   loopCount % 3 != 0  → open positions only (otherMints empty)
-//
-// forcedOpenMints is ALWAYS processed regardless of cadence.
-val watchlistTick = (loopCount % 3 == 0)
-val otherMints = if (watchlistTick) otherMintsRaw else emptyList()
-
+// V5.9.663d — V5.9.663c reverted: gating watchlist to every-3rd-tick
+// stopped the bot from trading and didn't help ANR. Operator: 'remove
+// the last change. let's lower the watchlist size to 250.'
+// Watchlist cap dropped from 300 → 250 in the next block.
 val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
 // V5.9.659b — cap per-tick iteration to keep loop responsive (full
 // rationale in emitWatchlistCapTrace docstring). Single-line form to
 // minimize bytecode in this method body — botLoop is at the JVM 64KB
 // limit and any addition trips it.
-val orderedMints = if (orderedMintsRaw.size > 300) {
-    emitWatchlistCapTrace(300, orderedMintsRaw.size, forcedOpenMints.size); orderedMintsRaw.take(300)
+// V5.9.663d — operator: 'lets lower the watchlist size to 250'.
+// Reduced from 300 to give the loop more headroom on devices that
+// were tripping ANR on V5.9.663c.
+val orderedMints = if (orderedMintsRaw.size > 250) {
+    emitWatchlistCapTrace(250, orderedMintsRaw.size, forcedOpenMints.size); orderedMintsRaw.take(250)
 } else orderedMintsRaw
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
