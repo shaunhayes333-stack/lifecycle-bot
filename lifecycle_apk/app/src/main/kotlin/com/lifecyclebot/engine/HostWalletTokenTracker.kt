@@ -616,4 +616,24 @@ object HostWalletTokenTracker {
         val unknown = positions.values.count { it.status == PositionStatus.UNKNOWN_NEEDS_RECONCILE }
         return "open=$open · closed=$closed · unknown=$unknown · total=${positions.size}"
     }
+
+    /**
+     * V5.9.661c — wipe every tracked position. Called from
+     * BotService.stopBot() so the UI's "Open" counter (which unions
+     * getOpenTrackedPositions() with the other lane stores) drops to
+     * 0 alongside the rest of the position state on stop.
+     *
+     * Live-mode safety note: in live mode the bot's stopBot() calls
+     * liveSweepWalletTokens() FIRST, which broadcasts on-chain swaps
+     * for every non-stablecoin holding. This clearAll() runs only
+     * after that sweep, so we are not lying about wallet contents —
+     * the next applyWalletSnapshot tick from the wallet poller will
+     * re-import any leftovers (e.g. stablecoins) on the next start.
+     */
+    @Synchronized
+    fun clearAll() {
+        val n = positions.size
+        positions.clear()
+        try { com.lifecyclebot.engine.ErrorLogger.info(TAG, "🧹 HostWalletTokenTracker.clearAll(): wiped $n entries") } catch (_: Throwable) {}
+    }
 }

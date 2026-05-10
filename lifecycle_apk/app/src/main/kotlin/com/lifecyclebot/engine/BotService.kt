@@ -3701,7 +3701,14 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
             com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions()
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions()
-            addLog("✅ Cleared all layer position tracking")
+            // V5.9.661c — also wipe the lifecycle + host-wallet trackers
+            // so the main UI "Open" counter (uses maxOf of all sources)
+            // actually drops to 0. Operator: 'still showed 11 as per
+            // screen shot with the bot off'. Root cause was these two
+            // trackers retaining their counts past stop.
+            com.lifecyclebot.engine.TokenLifecycleTracker.clearAll()
+            com.lifecyclebot.engine.HostWalletTokenTracker.clearAll()
+            addLog("✅ Cleared all layer position tracking + lifecycle/host trackers")
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing layer positions: ${clearEx.message}", clearEx)
         }

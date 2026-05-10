@@ -400,6 +400,21 @@ object TokenLifecycleTracker {
         return true
     }
 
+    /**
+     * V5.9.661c — wipe every record (open + terminal). Called from
+     * BotService.stopBot() so the UI's "Open" counter (which reads
+     * openCount() from this tracker) drops to 0 alongside the rest of
+     * the position state. Without this, paper mode showed e.g. "11
+     * Open" forever even though every other store had been cleared.
+     */
+    @Synchronized
+    fun clearAll() {
+        val n = records.size
+        records.clear()
+        scheduleSave()
+        ErrorLogger.info(TAG, "🧹 TokenLifecycleTracker.clearAll(): wiped $n records")
+    }
+
     /** Auto-import: an unknown wallet token was detected during reconciliation. */
     @Synchronized
     fun autoImportFromWallet(mint: String, symbol: String, walletUiAmount: Double, venue: String) {
