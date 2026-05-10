@@ -272,6 +272,16 @@ object TradeHistoryStore {
                 "📓 TRADEJRNL_REC side=${trade.side} mode=${trade.mode} sym=${trade.mint.take(6)} sol=${"%.3f".format(trade.sol)} pnl=${"%.3f".format(trade.pnlSol)} reason=${trade.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
             )
             PipelineHealthCollector.onTradeJournal()
+            // V5.9.670 — also record into the recent-executions ring so the
+            // Pipeline Health dump can surface the last 30 trades verbatim.
+            PipelineHealthCollector.recordExec(
+                side    = trade.side,
+                mode    = trade.mode,
+                symbol  = trade.mint.take(6),
+                sizeSol = trade.sol,
+                pnlSol  = trade.pnlSol,
+                reason  = trade.reason,
+            )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
