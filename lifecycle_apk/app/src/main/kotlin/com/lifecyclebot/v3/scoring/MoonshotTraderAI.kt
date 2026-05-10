@@ -447,11 +447,17 @@ object MoonshotTraderAI {
         
         // 5. Safety check - fluid RC threshold
         // V5.9.404 — restored build #1941 era leniency. Was 10/20 (V5.5+).
-        // Brand-new pump.fun launches frequently have rugcheckScore=0 in the
-        // first minute; the 10-paper floor was rejecting the very tokens
-        // that produced 500%+ trades. Soft scoring + on-chain holders/lp
-        // checks downstream still filter true rugs.
-        val minRcScore = if (isPaper) 5 else 15
+        // V5.9.662 — operator: 'meme trader only. moonshot bluechip the
+        // quality layer and the v3 layer' aren't firing. Logs showed
+        // every Moonshot candidate rejected with 'rugcheck_1_below_min_5'
+        // because brand-new pump.fun launches default to rugcheckScore=1
+        // (pending) and the 5-paper floor was strangling Moonshot the
+        // same way it had strangled it pre-V5.9.404. ShitCoin already
+        // bypasses RC_SCORE_1 with a TradeAuth PAPER_LEARNING bypass.
+        // Mirror that here for paper mode only — drop the floor to 1 in
+        // paper-learning so Moonshot can also collect labelled samples.
+        // Live mode keeps the 15 minimum unchanged.
+        val minRcScore = if (isPaper) 1 else 15
         if (rugcheckScore < minRcScore) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }

@@ -1155,8 +1155,15 @@ class LifecycleStrategy(
         // blocked. Drop quality=C floor 25→10 so anything ≥10% conf flows to
         // FluidLearningAI for layer training. Quality penalty + size cascade
         // floor (now 0.75 in paper) keep loss exposure tiny on weak setups.
-        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 5.0
-        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 10.0
+        // V5.9.662 — operator: only meme/ShitCoin firing, Quality/BlueChip/
+        // Moonshot/V3 silent. The 5%/10% paper floors were starving every
+        // non-ShitCoin lane during paper learning because brand-new tokens
+        // routinely score conf=8..9% on first eval. Drop both floors to 1%
+        // in paper mode so Quality/BlueChip can collect labelled samples.
+        // Live mode would never even hit this branch (isPaperMode=false),
+        // so live behaviour is unchanged.
+        val paperEdgeSkipFloor = isPaperMode && edgeVeto && edgeConfidence < 1.0
+        val paperLowQualityFloor = isPaperMode && setupQuality == "C" && edgeConfidence < 1.0
 
         // V5.9.318: TradingCopilot life-coach overlay. Read-only consume of the
         // current coaching directive. Drives 4 dynamic effects:
