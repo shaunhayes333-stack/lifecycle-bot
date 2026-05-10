@@ -10544,6 +10544,21 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             tradingModeTag = tradingModeTag,
         )
         ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")
+        // V5.9.669 — operator pipeline-health visibility. FDG previously
+        // wasn't wired into the in-app funnel counter (counter stuck at 0
+        // even when FDG was firing). Now every FDG eval registers as a
+        // FDG phase event, with allow/block tally driven by canExecute().
+        try {
+            ForensicLogger.phase(
+                ForensicLogger.PHASE.FDG, identity.symbol,
+                "can=${fdgDecision.canExecute()} qual=${fdgDecision.quality} conf=${fdgDecision.confidence.toInt()} size=${fdgDecision.sizeSol.fmt(4)} reason=${fdgDecision.blockReason ?: "none"}"
+            )
+            ForensicLogger.gate(
+                ForensicLogger.PHASE.FDG, identity.symbol,
+                allow = fdgDecision.canExecute(),
+                reason = fdgDecision.blockReason ?: "ok"
+            )
+        } catch (_: Throwable) {}
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 ENGINE: PRIMARY DECISION AUTHORITY
