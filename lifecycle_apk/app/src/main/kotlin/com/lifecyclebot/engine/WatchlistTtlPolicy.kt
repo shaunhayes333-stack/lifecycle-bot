@@ -43,9 +43,28 @@ object WatchlistTtlPolicy {
     /**
      * Removes any entries older than the given TTL. Returns the
      * number of expired entries.
+     *
+     * V5.9.663e — adaptive saturation sweep. The base TTL (300s snipe /
+     * 1800s normal) is the operator's preferred "don't purge too quick"
+     * pace, but when the watchlist is saturated (>= 200 entries, the
+     * same threshold the scanner backpressure uses) we shorten TTL so
+     * dead/stale tokens drain faster and make room for fresh candidates
+     * the scanner is currently rate-limiting itself on. Pairs with the
+     * SolanaMarketScanner backpressure: once watchlist drops back below
+     * 150 the full TTL returns and full-speed scanning resumes.
+     *
+     *   size <  150          → full TTL (operator-preferred slow purge)
+     *   size in [150, 200)   → 50% TTL  (early drain mode)
+     *   size >= 200          → 25% TTL  (saturation drain mode)
      */
     fun sweepStale(snipeModeOn: Boolean): Int {
-        val ttlMs = (if (snipeModeOn) SNIPE_TTL_SEC else NORMAL_TTL_SEC) * 1000L
+        val baseTtlMs = (if (snipeModeOn) SNIPE_TTL_SEC else NORMAL_TTL_SEC) * 1000L
+        val sz = entries.size
+        val ttlMs = when {
+            sz >= 200 -> baseTtlMs / 4
+            sz >= 150 -> baseTtlMs / 2
+            else      -> baseTtlMs
+        }
         val cutoff = System.currentTimeMillis() - ttlMs
         var removed = 0
         for ((k, v) in entries) {

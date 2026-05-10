@@ -1064,6 +1064,26 @@ class SolanaMarketScanner(
                 onLog("🌐 Scan #$scanRotation$tn - Starting scan cycle")
                 ErrorLogger.info("Scanner", "Scan cycle #$scanRotation starting")
 
+                // V5.9.663e — operator-approved BACKPRESSURE throttle.
+                // Smoke logs proved the scanner was outrunning the loop:
+                //   'Watchlist processing deferred 204 token(s);
+                //    processed=96 total=300'
+                // When the watchlist is at/near the loop's per-tick
+                // cap (250, set by V5.9.663d in BotService.kt), running
+                // all 13 scan sources just dumps more mints onto a
+                // fully-saturated loop, starving the main thread and
+                // tripping ANR. While saturated, only run the priority
+                // Pump.fun scans (those produce the highest-quality
+                // candidates the bot actually trades). Once the loop
+                // drains via TTL/churn below the threshold, full
+                // 13-source scanning auto-resumes — no manual reset.
+                val saturationThreshold = 200
+                val watchlistNow = GlobalTradeRegistry.size()
+                val backpressure  = watchlistNow >= saturationThreshold
+                if (backpressure) {
+                    onLog("⏸ BACKPRESSURE: watchlist=$watchlistNow ≥ $saturationThreshold — running priority sources only this cycle")
+                    ErrorLogger.info("Scanner", "BACKPRESSURE active: watchlist=$watchlistNow → skipping deep-scan sources")
+                }
 
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
                 runScan("scanPumpFunDirect") { scanPumpFunDirect() }
@@ -1071,32 +1091,34 @@ class SolanaMarketScanner(
                 runScan("scanPumpFunActive") { scanPumpFunActive() }
                 delay(200)
 
-                onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
-                runScan("scanPumpGraduates") { scanPumpGraduates() }
-                delay(100)
-                runScan("scanDexBoosted") { scanDexBoosted() }
-                delay(100)
-                runScan("scanFreshLaunches") { scanFreshLaunches() }
-                delay(100)
-                runScan("scanDexTrending") { scanDexTrending() }
-                delay(100)
-                runScan("scanDexGainers") { scanDexGainers() }
-                delay(100)
-                runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
-                delay(100)
-                runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
-                delay(100)
-                runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                delay(100)
-                runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
-                delay(100)
-                runScan("scanGeckoTrendingPools") { scanGeckoTrendingPools() }
-                delay(100)
-                runScan("scanGeckoTopPoolsByVolume") { scanGeckoTopPoolsByVolume() }
-                delay(100)
-                runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
-                delay(100)
-                runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
+                if (!backpressure) {
+                    onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
+                    runScan("scanPumpGraduates") { scanPumpGraduates() }
+                    delay(100)
+                    runScan("scanDexBoosted") { scanDexBoosted() }
+                    delay(100)
+                    runScan("scanFreshLaunches") { scanFreshLaunches() }
+                    delay(100)
+                    runScan("scanDexTrending") { scanDexTrending() }
+                    delay(100)
+                    runScan("scanDexGainers") { scanDexGainers() }
+                    delay(100)
+                    runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                    delay(100)
+                    runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
+                    delay(100)
+                    runScan("scanPumpFunVolume") { scanPumpFunVolume() }
+                    delay(100)
+                    runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
+                    delay(100)
+                    runScan("scanGeckoTrendingPools") { scanGeckoTrendingPools() }
+                    delay(100)
+                    runScan("scanGeckoTopPoolsByVolume") { scanGeckoTopPoolsByVolume() }
+                    delay(100)
+                    runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
+                    delay(100)
+                    runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
+                }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
                 // If every rich source returned before constructing a ScannedToken,
