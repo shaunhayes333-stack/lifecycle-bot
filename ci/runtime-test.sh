@@ -41,10 +41,22 @@ adb shell pm grant com.lifecyclebot.aate android.permission.WRITE_EXTERNAL_STORA
 adb shell appops set com.lifecyclebot.aate RUN_IN_BACKGROUND allow || true
 echo "::endgroup::"
 
-echo "::group::Clear logcat + launch MainActivity"
+echo "::group::Clear logcat + launch LAUNCHER activity"
 adb logcat -c
-adb shell am start -W -n com.lifecyclebot.aate/.ui.MainActivity
-sleep 3
+# V5.9.657 — first runtime-test run failed with:
+#   "Activity class {com.lifecyclebot.aate/com.lifecyclebot.aate.ui.MainActivity}
+#    does not exist."
+# Two issues:
+#   1. The kotlin namespace is `com.lifecyclebot` while applicationId is
+#      `com.lifecyclebot.aate`. `am start -n PKG/.cls` uses PKG as the
+#      class prefix (would yield com.lifecyclebot.aate.ui.MainActivity)
+#      but the actual class lives under com.lifecyclebot.ui.MainActivity.
+#   2. MainActivity is android:exported="false" — only SecurityActivity
+#      has the MAIN/LAUNCHER intent-filter and exported=true. Use the
+#      `monkey -c LAUNCHER` form so we always hit the LAUNCHER target
+#      regardless of which class it points to.
+adb shell monkey -p com.lifecyclebot.aate -c android.intent.category.LAUNCHER 1 || true
+sleep 4
 adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
 adb pull /sdcard/ui.xml "$WS/ui_dump.xml" || true
 echo "::endgroup::"
@@ -70,15 +82,16 @@ tail -n 60 "$WS/logcat_filtered.txt" || true
 echo "::endgroup::"
 
 echo "::group::Pipeline funnel summary"
-# Counts of each forensic phase. Use plain ASCII tags inside the grep so
-# the regex doesn't depend on emoji width.
-FN_INTAKE=$(grep -c "INTAKE\]" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_SAFETY=$(grep -c "SAFETY\]" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_V3=$(grep -c "V3\]" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_LANE=$(grep -c "LANE_EVAL\]" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_NOPAIR=$(grep -c "NO_PAIR_NO_FALLBACK" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_BUY=$(grep -cE "EXECUTE|DynScan EXECUTE|paperBuy|liveBuy" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
-FN_SELL=$(grep -cE "liveSell|paperSell|EXIT_FILLED" "$WS/logcat_full.txt" 2>/dev/null || echo 0)
+# V5.9.657 — counts of each forensic phase. `grep -c` exits 1 when zero
+# matches but still prints "0", so `... || echo 0` would emit "0\n0".
+# Use `|| true` to swallow the non-zero exit and keep grep's own "0".
+FN_INTAKE=$(grep -c "INTAKE\]"      "$WS/logcat_full.txt" || true)
+FN_SAFETY=$(grep -c "SAFETY\]"      "$WS/logcat_full.txt" || true)
+FN_V3=$(    grep -c "V3\]"          "$WS/logcat_full.txt" || true)
+FN_LANE=$(  grep -c "LANE_EVAL\]"   "$WS/logcat_full.txt" || true)
+FN_NOPAIR=$(grep -c "NO_PAIR_NO_FALLBACK" "$WS/logcat_full.txt" || true)
+FN_BUY=$(   grep -cE "EXECUTE|DynScan EXECUTE|paperBuy|liveBuy" "$WS/logcat_full.txt" || true)
+FN_SELL=$(  grep -cE "liveSell|paperSell|EXIT_FILLED" "$WS/logcat_full.txt" || true)
 cat > "$WS/funnel_summary.txt" <<SUMMARY
 ===== Pipeline funnel (after ${CAPTURE_SECONDS}s capture) =====
   INTAKE:                $FN_INTAKE
