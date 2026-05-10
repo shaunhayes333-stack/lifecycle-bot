@@ -79,6 +79,8 @@ jobs:
           script: echo "Generated AVD snapshot for caching."
 
       - name: Build, install, run, capture logcat
+        env:
+          CAPTURE_SECONDS: ${{ github.event.inputs.capture_seconds || '180' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -87,97 +89,8 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          working-directory: lifecycle_apk
-          script: |
-            set -e
-            CAPTURE_SECONDS="${{ github.event.inputs.capture_seconds || '180' }}"
-            echo "::group::Build debug APK"
-            chmod +x gradlew || true
-            mkdir -p gradle/wrapper
-            curl -sL -o gradle/wrapper/gradle-wrapper.jar \
-              "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-            ./gradlew assembleDebug --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
-            APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
-            echo "APK=$APK"
-            echo "::endgroup::"
-
-            echo "::group::Wait for boot complete + grant runtime perms"
-            adb wait-for-device
-            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
-            sleep 5
-            echo "::endgroup::"
-
-            echo "::group::Install APK"
-            adb install -r -t "$APK"
-            adb shell pm grant com.lifecyclebot.aate android.permission.POST_NOTIFICATIONS || true
-            adb shell pm grant com.lifecyclebot.aate android.permission.READ_EXTERNAL_STORAGE || true
-            adb shell pm grant com.lifecyclebot.aate android.permission.WRITE_EXTERNAL_STORAGE || true
-            adb shell appops set com.lifecyclebot.aate RUN_IN_BACKGROUND allow || true
-            echo "::endgroup::"
-
-            echo "::group::Clear logcat + launch MainActivity"
-            adb logcat -c
-            adb shell am start -W -n com.lifecyclebot.aate/.ui.MainActivity
-            sleep 3
-            # Best-effort: tap the start button via UI Automator if present.
-            # The "Start" button in MainActivity has data-testid-equivalent
-            # contentDescription="start_bot_button" (see ui/MainActivity.kt).
-            # If that tap fails the bot still autostarts via the foreground
-            # service registered in AndroidManifest.xml — we capture either
-            # way.
-            adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
-            adb pull /sdcard/ui.xml "$GITHUB_WORKSPACE/ui_dump.xml" || true
-            echo "::endgroup::"
-
-            echo "::group::Capture logcat for ${CAPTURE_SECONDS}s"
-            adb logcat -v time > "$GITHUB_WORKSPACE/logcat_full.txt" &
-            LOGCAT_PID=$!
-            sleep "$CAPTURE_SECONDS"
-            kill "$LOGCAT_PID" || true
-            sleep 2
-            echo "::endgroup::"
-
-            echo "::group::Filter logcat to forensic + trader lines"
-            # Mirror the operator's exported-error-log filter shape so the
-            # downloaded artifact is grep-friendly for the agent.
-            grep -E "FORENSIC|🧬|BotService|FDG|FluidLearn|🛡|💩|🪙|🔵|💎|🚀|SAFETY|V3Engine|CryptoAlt|MemeT|ShitCoin|Moonshot|BlueChip|Quality|Treasury|Pump|Birdeye|Jupiter|Executor|TradeAuth|TokenLifecycle" \
-              "$GITHUB_WORKSPACE/logcat_full.txt" \
-              > "$GITHUB_WORKSPACE/logcat_filtered.txt" || true
-
-            echo "=== filtered line count ==="
-            wc -l "$GITHUB_WORKSPACE/logcat_filtered.txt" || true
-            echo "=== first 80 lines of filtered ==="
-            head -n 80 "$GITHUB_WORKSPACE/logcat_filtered.txt" || true
-            echo "=== last 80 lines of filtered ==="
-            tail -n 80 "$GITHUB_WORKSPACE/logcat_filtered.txt" || true
-            echo "::endgroup::"
-
-            echo "::group::Pipeline funnel summary (for quick eyeball)"
-            FN_INTAKE=$(grep -c "🧬\[INTAKE\]" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_SAFETY=$(grep -c "🧬\[SAFETY\]" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_V3=$(grep -c "🧬\[V3\]" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_LANE=$(grep -c "🧬\[LANE_EVAL\]" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_NOPAIR=$(grep -c "NO_PAIR_NO_FALLBACK" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_BUY=$(grep -cE "EXECUTE|💩 BUY|🪙⚡ DynScan EXECUTE" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            FN_SELL=$(grep -cE "💸 SELL|liveSell|paperSell|EXIT_FILLED" "$GITHUB_WORKSPACE/logcat_full.txt" || echo 0)
-            cat <<SUMMARY > "$GITHUB_WORKSPACE/funnel_summary.txt"
-            ===== Pipeline funnel (after ${CAPTURE_SECONDS}s capture) =====
-              INTAKE:                $FN_INTAKE
-              SAFETY:                $FN_SAFETY
-              V3:                    $FN_V3
-              LANE_EVAL:             $FN_LANE
-              NO_PAIR_NO_FALLBACK:   $FN_NOPAIR
-              EXECUTE/BUY:           $FN_BUY
-              SELL:                  $FN_SELL
-            ===== Interpretation =====
-              INTAKE >0 SAFETY=0  → tokens reach intake but never enter scan loop
-              SAFETY=0 V3=0       → processTokenCycle skipping or timing out
-              V3 >0  LANE_EVAL=0  → V3 disabled or short-circuiting
-              NO_PAIR_NO_FALLBACK → V5.9.656 fast-path failed, no price seed
-              EXECUTE=0           → all gates pass but Executor not invoked
-            SUMMARY
-            cat "$GITHUB_WORKSPACE/funnel_summary.txt"
-            echo "::endgroup::"
+          working-directory: .
+          script: bash ci/runtime-test.sh
 
       - uses: actions/upload-artifact@v4
         if: always()
