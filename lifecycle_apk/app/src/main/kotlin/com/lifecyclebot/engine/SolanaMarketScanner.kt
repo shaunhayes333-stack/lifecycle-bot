@@ -1093,30 +1093,32 @@ class SolanaMarketScanner(
 
                 if (!backpressure) {
                     onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
+                    // V5.9.664 — ANR mitigation: doubled inter-source delay 100→200ms
+                    // to give main thread breathing room between heavy emits.
                     runScan("scanPumpGraduates") { scanPumpGraduates() }
-                    delay(100)
+                    delay(200)
                     runScan("scanDexBoosted") { scanDexBoosted() }
-                    delay(100)
+                    delay(200)
                     runScan("scanFreshLaunches") { scanFreshLaunches() }
-                    delay(100)
+                    delay(200)
                     runScan("scanDexTrending") { scanDexTrending() }
-                    delay(100)
+                    delay(200)
                     runScan("scanDexGainers") { scanDexGainers() }
-                    delay(100)
+                    delay(200)
                     runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
-                    delay(100)
+                    delay(200)
                     runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
-                    delay(100)
+                    delay(200)
                     runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                    delay(100)
+                    delay(200)
                     runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
-                    delay(100)
+                    delay(200)
                     runScan("scanGeckoTrendingPools") { scanGeckoTrendingPools() }
-                    delay(100)
+                    delay(200)
                     runScan("scanGeckoTopPoolsByVolume") { scanGeckoTopPoolsByVolume() }
-                    delay(100)
+                    delay(200)
                     runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
-                    delay(100)
+                    delay(200)
                     runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
                 }
 
