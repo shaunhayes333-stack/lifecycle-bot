@@ -229,7 +229,10 @@ object BehaviorLearning {
                 totalBadRecorded.incrementAndGet()
 
                 if (isBigLoss) {
-                    ErrorLogger.info(TAG, "❌ BIG LOSS pattern recorded: $exactSignature | ${pnlPct.toInt()}%")
+                    // V5.9.662c — operator: log spam every ~5s on paper
+                    // rugfest. Demoted from info → debug; pattern is still
+                    // recorded above via recordBadPattern().
+                    ErrorLogger.debug(TAG, "❌ BIG LOSS pattern recorded: $exactSignature | ${pnlPct.toInt()}%")
                 }
             }
         } catch (e: Exception) {

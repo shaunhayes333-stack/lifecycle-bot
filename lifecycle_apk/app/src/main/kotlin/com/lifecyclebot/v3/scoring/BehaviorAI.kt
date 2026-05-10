@@ -217,11 +217,41 @@ object BehaviorAI {
                 consecutiveLosses.incrementAndGet()
                 consecutiveWins.set(0)
                 
-                // V5.2: Paper mode - track stats but NO penalties
+                // V5.9.662d — operator clarification: 'its meant to be
+                // learning and adjusting. but not that strictly. it needs
+                // more range of data to be that sure about its decisions
+                // check the path to 5000 trades and beyond.'
+                //
+                // V5.9.662c zeroed paper penalties entirely — too far.
+                // Right model: SCALE the penalty by sample size so the
+                // bot is gentle pre-5000 trades (paired with FreeRangeMode
+                // WIDE_OPEN_FLOOR_TRADES=3000 / CEIL=5000) and ramps to
+                // full strictness from 5000 onwards.
+                //
+                //   trades <  3000  → 5% of full penalty   (basically off)
+                //   3000..4999      → linear 5% → 100%
+                //   trades >= 5000  → full original deltas
+                //
+                // Stats counters above (bigLossCount, sessionLosses,
+                // consecutiveLosses) are always incremented so learning
+                // STILL happens — only the tilt/discipline reaction scales.
                 if (isPaperMode) {
-                    disciplineScore.addAndGet(-2)  // Minor tracking only
-                    tiltLevel.addAndGet(3)         // Minor tilt (for stats display)
-                    ErrorLogger.info(TAG, "💀 PAPER BIG LOSS: $mint ${pnlPct.toInt()}% | No penalty (learning mode)")
+                    val totalTrades = try {
+                        com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                    } catch (_: Throwable) { 0 }
+                    val maturityScale = when {
+                        totalTrades >= 5000 -> 1.0
+                        totalTrades >= 3000 -> 0.05 + 0.95 * (totalTrades - 3000) / 2000.0
+                        else                -> 0.05
+                    }
+                    val discDelta = (-15.0 * maturityScale).toInt()  // full strictness = -15
+                    val tiltDelta = (25.0 * maturityScale).toInt()   // full strictness = +25
+                    if (discDelta != 0) disciplineScore.addAndGet(discDelta)
+                    if (tiltDelta != 0) tiltLevel.addAndGet(tiltDelta)
+                    ErrorLogger.debug(
+                        TAG,
+                        "💀 PAPER BIG LOSS: $mint ${pnlPct.toInt()}% | trades=$totalTrades scale=${"%.2f".format(maturityScale)} disc${discDelta} tilt+${tiltDelta}"
+                    )
                 } else {
                     // Live mode: Still gentler than before
                     disciplineScore.addAndGet(-10)  // Was -15
@@ -242,10 +272,23 @@ object BehaviorAI {
                 consecutiveLosses.incrementAndGet()
                 consecutiveWins.set(0)
                 
-                // V5.2: Paper mode - NO penalties
+                // V5.9.662d — same trade-maturity ramp as the BIG_LOSS
+                // branch above. -2..-BIG_LOSS_PCT range is small daily
+                // wear-and-tear; ramp to full -3 disc / +8 tilt only at
+                // 5000 trades.
                 if (isPaperMode) {
-                    disciplineScore.addAndGet(-1)  // Tiny tracking
-                    tiltLevel.addAndGet(1)
+                    val totalTrades = try {
+                        com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                    } catch (_: Throwable) { 0 }
+                    val maturityScale = when {
+                        totalTrades >= 5000 -> 1.0
+                        totalTrades >= 3000 -> 0.05 + 0.95 * (totalTrades - 3000) / 2000.0
+                        else                -> 0.05
+                    }
+                    val discDelta = (-3.0 * maturityScale).toInt()
+                    val tiltDelta = (8.0 * maturityScale).toInt()
+                    if (discDelta != 0) disciplineScore.addAndGet(discDelta)
+                    if (tiltDelta != 0) tiltLevel.addAndGet(tiltDelta)
                 } else {
                     // Live mode: Gentler penalties
                     disciplineScore.addAndGet(-2)  // Was -3
