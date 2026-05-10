@@ -89,7 +89,7 @@ jobs:
           disable-animations: true
           working-directory: lifecycle_apk
           script: |
-            set -euo pipefail
+            set -e
             CAPTURE_SECONDS="${{ github.event.inputs.capture_seconds || '180' }}"
             echo "::group::Build debug APK"
             chmod +x gradlew || true
