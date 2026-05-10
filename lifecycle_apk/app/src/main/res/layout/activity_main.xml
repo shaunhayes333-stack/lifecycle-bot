@@ -767,6 +767,7 @@
                         android:gravity="center"
                         android:padding="10dp"
                         android:background="@drawable/section_card_bg"
+                        android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -778,6 +779,30 @@
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0/0"
                             android:textColor="#7C3AED" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <!-- V5.9.666: Pipeline Health Tile (CI funnel mirror + ANR + clipboard export) -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickPipeline"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🩺" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Pipeline" android:textColor="#10B981" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvPipelineTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ANR 0"
+                            android:textColor="#10B981" android:textSize="8sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
                 </LinearLayout>

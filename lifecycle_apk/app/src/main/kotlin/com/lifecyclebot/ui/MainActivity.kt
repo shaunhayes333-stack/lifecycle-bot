@@ -681,6 +681,8 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // Auto-save settings when app goes to background
         saveCurrentSettings()
+        // V5.9.666 — pause Pipeline tile badge refresher
+        try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
     }
     
     override fun onResume() {
@@ -697,6 +699,33 @@ class MainActivity : AppCompatActivity() {
         hydratePaperWalletForColdOpen("onResume")
         // Update currency selector text (user may have changed currency)
         updateCurrencySelectorText()
+        // V5.9.666 — start Pipeline tile badge refresher (every 3s).
+        try { pipelineTileHandler.post(pipelineTileRefresh) } catch (_: Throwable) {}
+    }
+
+    // V5.9.666 — Pipeline tile badge live updater. Reads
+    // PipelineHealthCollector counters and updates the small stat
+    // line on the row-2 Pipeline tile (e.g. "ANR 0" when healthy,
+    // "ANR 12" amber, "ANR 47" red). Cheap; does not block UI.
+    private val pipelineTileHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pipelineTileRefresh = object : Runnable {
+        override fun run() {
+            try {
+                val tv = findViewById<android.widget.TextView>(R.id.tvPipelineTileStats)
+                if (tv != null) {
+                    val snap = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
+                    val anr = snap.anrHints
+                    val exec = snap.phaseCounts["EXEC"] ?: 0L
+                    tv.text = "ANR $anr · EXEC $exec"
+                    tv.setTextColor(when {
+                        anr == 0  -> 0xFF10B981.toInt()
+                        anr < 5   -> 0xFFF59E0B.toInt()
+                        else      -> 0xFFEF4444.toInt()
+                    })
+                }
+            } catch (_: Throwable) { /* never let UI tick crash main */ }
+            pipelineTileHandler.postDelayed(this, 3_000L)
+        }
     }
 
     override fun onStop() {
@@ -6953,11 +6982,19 @@ This cannot be undone!
         }
         // V5.9.666 — long-press the Logs button to open the in-app
         // Pipeline Health panel (CI funnel mirror + ANR + recent
-        // forensic events, all clipboard-exportable).
+        // forensic events, all clipboard-exportable). Power-user
+        // shortcut; the proper Pipeline tile in row 2 is the
+        // primary discoverable entry point.
         findViewById<View>(R.id.btnQuickLogs)?.setOnLongClickListener {
             startActivity(Intent(this, PipelineHealthActivity::class.java))
             performHaptic()
             true
+        }
+
+        // V5.9.666 — Pipeline Health tile (row 2). Primary entry point.
+        findViewById<View>(R.id.btnQuickPipeline)?.setOnClickListener {
+            startActivity(Intent(this, PipelineHealthActivity::class.java))
+            performHaptic()
         }
 
         // ═══════════════════════════════════════════════════════════════════
