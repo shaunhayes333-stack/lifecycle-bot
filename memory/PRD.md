@@ -85,7 +85,7 @@ Removed ACTIVE TOKEN field from dialog_settings.xml + SettingsBottomSheet.kt.
 - "Ladder" status pill on Memes tab.
 - "Maturity" pill next to proof-run header showing TRADES X/5000 + STRICTNESS Y%.
 
-## V5.9.664 — V5.9.665b changelog (May 10, 2026)
+## V5.9.664 — V5.9.670 changelog (May 10–11, 2026)
 
 ### V5.9.664 — Scanner ANR throttle
 Doubled inter-source delay between deep-scan calls from 100ms to 200ms in
@@ -98,52 +98,114 @@ Operator forensics_20260511_010802 + live test report:
 3. Tried SHIB twice → bought USDC (USDC-collateral masquerade).
 4. Bot freezes + ANR warnings the moment user switches to live.
 
-Troubleshoot agent RCA identified three regressions:
-- 758ecca26 (May 8) added `executeUsdcCollateralExposure()` and stripped
-  the resolver's bridge/CEX/paper-only fallback, causing live trades to
-  silently terminate at USDC.
-- V5.9.661 wipes HostWalletTokenTracker on stop before
-  LiveWalletReconciler can capture late-landing swaps.
-- WalletPositionLock global 80% cap can be entirely consumed by one lane,
-  starving memes when CryptoUniverse fires heavily.
-
-Plus a fourth issue surfaced from the user's live-start ANR symptom:
-- V5.9.430 STARTUP_SWEEP_HARD_FLOOR ran synchronously on the startBot()
-  body, walking every restored position with blocking network I/O.
-
-Fixes (V5.9.665):
-- **Fix #1**: Clean revert of 758ecca26 (CryptoUniverseRouteResolver,
+Troubleshoot agent RCA identified three regressions. Fixes shipped:
+- Fix #1: Clean revert of 758ecca26 (CryptoUniverseRouteResolver,
   CryptoUniverseExecutor, MarketsLiveExecutor). Removes
   executeUsdcCollateralExposure entirely; restores branched
   Bridge/CEX/Paper fallback when no SPL mint resolves.
-- **Fix #2**: CryptoUniverseExecutor.kt verifyWalletDelta extended
+- Fix #2: CryptoUniverseExecutor.kt verifyWalletDelta extended
   5×3s = 15s → 8×3s = 24s. On timeout, register the buy via
-  HostWalletTokenTracker + LiveWalletReconciler and return
-  Outcome.Executed with phase log `CU_DELTA_LATE_TRUST_SIG` instead
-  of false-rejecting confirmed Jupiter swaps.
-- **Fix #2b**: BotService.kt stop path now calls
-  LiveWalletReconciler.reconcileNow(wallet, "stop_pre_tracker_clear")
-  immediately before TokenLifecycleTracker.clearAll() /
-  HostWalletTokenTracker.clearAll() so late-landing swaps get
-  captured into the position store before the trackers are wiped.
-- **Fix #3**: WalletPositionLock per-lane reservation caps added —
+  HostWalletTokenTracker + LiveWalletReconciler.
+- Fix #2b: BotService.kt stop path now calls reconcileNow() before
+  TokenLifecycleTracker.clearAll() / HostWalletTokenTracker.clearAll().
+- Fix #3: WalletPositionLock per-lane reservation caps —
   Meme=50%, CryptoAlt=40%, Stocks=30%, Commodities/Metals/Forex=20%.
-  No lane can ever be starved below its own reservation by another
-  lane consuming the global 80% cap.
-- **Fix #5 (live-start ANR)**: BotService.kt STARTUP_SWEEP_HARD_FLOOR
-  now wrapped in `scope.launch` with a 5s startup grace and a 250ms
-  delay between positions. Bot loop launches first; sweep runs
-  asynchronously in the background.
+- Fix #5 (live-start ANR): STARTUP_SWEEP_HARD_FLOOR wrapped in
+  scope.launch with 5s grace + 250ms inter-position pacing.
 
 ### V5.9.665b — fix unit test for restored route-resolver contract
-CryptoUniverseRouteResolverTest rewritten to validate the restored
-contract (BTC routes to JUPITER_ROUTABLE if wrapped mint registered,
-else PAPER_ONLY + executable=false) instead of the regressed
-"always executable, mint=null" path.
+CryptoUniverseRouteResolverTest rewritten to validate restored contract
+(BTC routes JUPITER_ROUTABLE if wrapped mint registered, else PAPER_ONLY
++ executable=false).
 
-CI status: Build ✅ + Runtime Smoke Test ✅ both green on commit a5ff2f32e.
-Smoke test pipeline counters improved vs prior runs:
-LANE_EVAL 11→46, V3 89→114, EXECUTE/BUY 3437→3608, JRNL 188→215.
+### V5.9.666 — In-app Pipeline Health panel + ANR detector + clipboard export
+- PipelineHealthCollector singleton. Mirrors CI funnel via ForensicLogger
+  hooks (zero call-site changes for phase counters).
+- PipelineHealthActivity: headline grid (LOOP/EXEC/JRNL/MAX FRAME),
+  ANR badge, auto-refresh, Copy to Clipboard, Reset.
+- Choreographer-based ANR detector: long-frame (>700ms) events
+  recorded with delta + counter.
+- Hooks: TradeHistoryStore.onTradeJournal, WalletPositionLock events,
+  CryptoUniverseExecutor DELTA_LATE_TRUST_SIG events.
+
+### V5.9.666b — Pipeline tile on main UI
+Added 🩺 Pipeline tile to row 2 (next to Lab) with click-to-open and
+live ANR + EXEC stats badge refreshed every 3s. Long-press on Logs
+kept as power-user shortcut.
+
+### V5.9.667 — bad_behaviour penalty stacking + notification spam fix
+- BotBrain.getSuppressionPenalty + isHardSuppressed: maturity ramp
+  applied at READ time (mirrors V5.9.662d ramp on tilt/discipline).
+  At 0 trades: penalty × 0.0; at 5000+: full strength. Sub-2500-trade
+  bots cannot hard-suppress anything.
+- BotBrain.evaluateBadBehaviours: lastBadStatus map keyed by
+  featureKey; only fires onParamChanged on TRANSITION (not every tick).
+- BotService.onParamChanged: suppresses system notification for
+  bad_behaviour: prefixed keys.
+
+### V5.9.668 — surgical fixes from operator's first Pipeline Health dump
+- A) Stack-trace freeze capture: capture main-thread stack on long
+  frames (later proven inadequate — captured POST-freeze; superseded
+  by V5.9.670 watchdog).
+- B) IOOBE crash localisation: append 'at ClassName.method:line'
+  for the first com.lifecyclebot frame to GATE_BLOCK reason.
+- C) SAFETY → V3 drop-off visibility: emit GATE_BLOCK on PHASE.V3
+  with reason 'V3_SKIPPED position_open | v3_disabled | v3_not_ready'.
+- D) Lock-free PipelineHealthCollector ring buffer (ConcurrentLinkedDeque
+  + AtomicInteger size counter) — pipeline writers never block UI poll.
+
+### V5.9.669 (corrected) — wire V3 as a main trader to the real executor
+Operator correction: 'legacy and v3 are meant to work together! v3 is
+one of the main traders! legacy feeds into v3s decision matrix. legacy
+isnt isnt even wired to the learning system!'
+
+Earlier V5.9.669 attempt was wrong (silenced V3's no-callback error
+without wiring real execution). Build failed on Kotlin lambda label
+which fortunately prevented broken fix from shipping.
+
+CORRECT FIX:
+- Wire V3EngineManager.initialize(onExecute = ...) to a new
+  BotService.runV3Execution(req) bridge that:
+  * Reuses manualBuy()-style wallet/walletSol resolution.
+  * Calls executor.doBuy(ts, sol = req.sizeSol, ..., quality='V3')
+    with V3's actual chosen size (was being dropped to ~0.06 SOL via
+    legacy backup; V3 wanted ~0.95 SOL, ~15× larger).
+  * Returns ExecuteResult so V3's TradeExecutor.executeCallback
+    registers the entry into v3Entries / outcome tracker. V3 finally
+    learns from every trade it makes.
+- Plus: FDG counter wired into pipeline funnel via
+  ForensicLogger.phase(PHASE.FDG, ...) + gate(PHASE.FDG,
+  allow=fdgDecision.canExecute(), ...).
+
+### V5.9.670 — proper watchdog ANR sampler + maxed-out diagnostic dump
+Operator feedback on V5.9.668/669: every ANR_HINT stack trace just
+showed captureMainThreadStack itself. The Choreographer-based sampler
+captured the stack AFTER the main thread unblocked.
+
+V5.9.670 fix (watchdog-thread sampler):
+- Spawn 'ANR_Watchdog' HandlerThread (MIN_PRIORITY).
+- Every 250ms watchdog posts no-op Runnable to main Handler that
+  updates AtomicLong 'ackTs'. If ackTs hasn't moved in >700ms, sample
+  mainThread.stackTrace AT THAT MOMENT — captures the actual
+  blocking call site.
+- De-dup: same top frame blocking for 10s+ emits ONE ANR_HINT event +
+  increments anrStackCounts. Dump shows top 20 grouped.
+- Stack filter strips PipelineHealthCollector / VMStack /
+  Thread.getStackTrace from operator-visible trace.
+
+Expanded diagnostic dump sections (NEW):
+- Bot-loop cycle timing (cycles seen, avg/max/last 10).
+- Top block reasons histogram across gate types.
+- Intake by source (PUMP_PORTAL_WS / RAYDIUM / DATA_ORCHESTRATOR).
+- LANE_EVAL by lane (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP).
+- Top intaked symbols (top 15 by hit count).
+- Recent executions (last 30 BUY/SELL with mode/size/pnl/reason).
+- ANR top blocking call sites (grouped, most frequent first).
+- Stall % of uptime metric.
+
+Ring buffer cap raised 200 → 300. Reset clears every new counter.
+Wired TradeHistoryStore.recordTrade → recordExec for the new
+recent-executions section.
 
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
