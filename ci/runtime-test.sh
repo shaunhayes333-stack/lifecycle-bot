@@ -67,6 +67,38 @@ adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
 adb pull /sdcard/ui.xml "$WS/ui_dump.xml" || true
 echo "::endgroup::"
 
+echo "::group::V5.9.661 — actually start the bot (smoke broadcast + UI fallback)"
+# Path A (preferred): SmokeTestReceiver. Bypasses PIN + forces paper +
+# starts BotService directly. Hard-guarded server-side on FLAG_DEBUGGABLE.
+adb shell am broadcast \
+    -a com.lifecyclebot.aate.SMOKE_AUTOSTART \
+    -n com.lifecyclebot.aate/com.lifecyclebot.engine.SmokeTestReceiver \
+    --ez paper true \
+    || echo "::warning::SMOKE_AUTOSTART broadcast failed; falling back to UI tap"
+sleep 3
+
+# Path B (fallback): drive the UI. Re-dump the hierarchy and look for
+# resource-id=btnToggle ('Start Bot' button on activity_main). If found,
+# tap its center. Useful when (A) didn't deliver the broadcast (e.g.
+# build wasn't debuggable on this runner image).
+adb shell uiautomator dump /sdcard/ui2.xml 2>/dev/null || true
+adb pull /sdcard/ui2.xml "$WS/ui_dump_after_broadcast.xml" || true
+BTN_BOUNDS=$(grep -oE 'resource-id="[^"]*btnToggle"[^/]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' "$WS/ui_dump_after_broadcast.xml" 2>/dev/null \
+    | grep -oE 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -1 || true)
+if [ -n "$BTN_BOUNDS" ]; then
+    # bounds="[x1,y1][x2,y2]" — compute center.
+    COORDS=$(echo "$BTN_BOUNDS" | grep -oE '[0-9]+')
+    X1=$(echo "$COORDS" | sed -n '1p'); Y1=$(echo "$COORDS" | sed -n '2p')
+    X2=$(echo "$COORDS" | sed -n '3p'); Y2=$(echo "$COORDS" | sed -n '4p')
+    CX=$(( (X1 + X2) / 2 )); CY=$(( (Y1 + Y2) / 2 ))
+    echo "btnToggle bounds=$BTN_BOUNDS  → tapping ($CX,$CY) as UI fallback"
+    adb shell input tap "$CX" "$CY" || true
+    sleep 2
+else
+    echo "btnToggle not in UI dump — staying with broadcast-only path"
+fi
+echo "::endgroup::"
+
 echo "::group::Capture logcat for ${CAPTURE_SECONDS}s"
 adb logcat -v time > "$WS/logcat_full.txt" &
 LOGCAT_PID=$!
@@ -98,8 +130,20 @@ FN_LANE=$(  grep -c "LANE_EVAL\]"   "$WS/logcat_full.txt" || true)
 FN_NOPAIR=$(grep -c "NO_PAIR_NO_FALLBACK" "$WS/logcat_full.txt" || true)
 FN_BUY=$(   grep -cE "EXECUTE|DynScan EXECUTE|paperBuy|liveBuy" "$WS/logcat_full.txt" || true)
 FN_SELL=$(  grep -cE "liveSell|paperSell|EXIT_FILLED" "$WS/logcat_full.txt" || true)
+# V5.9.661 — heartbeats added for the new operator-facing markers so
+# we can tell the loop is actually running (not just that the APK
+# launched). BOT_LOOP_TICK proves botLoop is iterating; SCAN_CB
+# proves processTokenCycle is being called; TRADEJRNL_REC proves
+# Executor is journalling. SMOKE proves the receiver fired.
+FN_LOOP=$(    grep -c "BOT_LOOP_TICK" "$WS/logcat_full.txt" || true)
+FN_SCANCB=$(  grep -c "SCAN_CB"       "$WS/logcat_full.txt" || true)
+FN_JRNL=$(    grep -c "TRADEJRNL_REC" "$WS/logcat_full.txt" || true)
+FN_SMOKE=$(   grep -c "SMOKE_AUTOSTART" "$WS/logcat_full.txt" || true)
 cat > "$WS/funnel_summary.txt" <<SUMMARY
 ===== Pipeline funnel (after ${CAPTURE_SECONDS}s capture) =====
+  SMOKE_AUTOSTART:       $FN_SMOKE     (V5.9.661 receiver hits — should be ≥1)
+  BOT_LOOP_TICK:         $FN_LOOP      (botLoop iterations — should grow over time)
+  SCAN_CB enter:         $FN_SCANCB    (processTokenCycle invocations)
   INTAKE:                $FN_INTAKE
   SAFETY:                $FN_SAFETY
   V3:                    $FN_V3
@@ -107,12 +151,16 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   NO_PAIR_NO_FALLBACK:   $FN_NOPAIR
   EXECUTE/BUY:           $FN_BUY
   SELL:                  $FN_SELL
+  TRADEJRNL_REC:         $FN_JRNL      (V5.9.658 journal write hits)
 ===== Interpretation =====
-  INTAKE >0 SAFETY=0  -> tokens reach intake but never enter scan loop
+  SMOKE=0             -> SmokeTestReceiver never fired (debuggable=false?)
+  SMOKE>0 LOOP=0      -> receiver fired but BotService didn't enter botLoop
+  LOOP>0 SCAN_CB=0    -> botLoop running but watchlist empty (no tokens yet)
+  SCAN_CB>0 SAFETY=0  -> processTokenCycle running but rejecting all tokens early
   SAFETY=0 V3=0       -> processTokenCycle skipping or timing out
-  V3 >0  LANE_EVAL=0  -> V3 disabled or short-circuiting
-  NO_PAIR_NO_FALLBACK -> V5.9.656 fast-path failed, no price seed
+  V3>0 LANE_EVAL=0    -> V3 disabled or short-circuiting
   EXECUTE=0           -> all gates pass but Executor not invoked
+  EXECUTE>0 JRNL=0    -> Executor running but TradeHistoryStore not writing
 SUMMARY
 cat "$WS/funnel_summary.txt"
 echo "::endgroup::"

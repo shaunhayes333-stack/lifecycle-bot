@@ -113,6 +113,23 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"/>
 
+        <!--
+          V5.9.661 — debug-only smoke test entry-point.
+          Used by ci/runtime-test.sh + .github/workflows/runtime-test.yml
+          to start BotService directly via `adb shell am broadcast`. The
+          receiver itself hard-guards on FLAG_DEBUGGABLE so this is a
+          no-op on signed/release APKs even if a malicious app fires
+          the same broadcast.
+        -->
+        <receiver
+            android:name=".engine.SmokeTestReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.lifecyclebot.aate.SMOKE_AUTOSTART"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Auto-restart bot after device reboot if it was running -->
         <receiver
             android:name=".engine.BootReceiver"
