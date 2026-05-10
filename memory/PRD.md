@@ -291,6 +291,49 @@ Also added (StartupReconciler.kt:97-119):
     sweep and trace exactly where adoption is failing if it still doesn't
     register.
 
+### V5.9.674 — kill 5-10min START dead-zone: STUCK-LOOP RESCUE + Doze-bypass dual restart (May 11)
+Operator: "I can physically be sitting in the app and the bot just stops.
+The app remains open. I restart the bot and nothing happens for 5-10 minutes.
+Or at all. If I leave it then sit for 10 minutes and restart it without closing
+the app, when I press Start it finally instantly resumes trading."
+
+Smoking gun: app is in foreground, screen on → this is NOT Doze. The previous
+bot-loop coroutine is HUNG (suspended on a network call — Jupiter swap, RPC
+fallback chain, DexScreener hydrate, scoring deadlock — that hasn't timed out
+yet). `loopJob?.isActive` returns TRUE because suspended ≠ dead. The
+onStartCommand ACTION_START branch at line 1139 evaluated `loopJob?.isActive
+!= true` as false → fell through to the "Bot already running, just reschedule
+keep-alive" branch → did nothing. User saw the START button do literally
+nothing for 5-10 minutes until the hung suspend point finally timed out.
+THEN the next press worked instantly because loopJob was finally inactive.
+
+Two surgical fixes:
+
+1. **STUCK-LOOP RESCUE (BotService.kt:1140-1175)**.
+   New branch in onStartCommand: when `userRequested == true && !status.running
+   && loopJob?.isActive == true`, the bot is in a stuck state — the loop is
+   alive (suspended) but `status.running` is already false (bot is supposed
+   to be stopped, or the loop is hung after a self-stop). Cancel the zombie
+   loopJob with kotlinx.coroutines.CancellationException, wait at most 3s via
+   withTimeoutOrNull for it to honour cancellation (never block longer — the
+   same network call that hung the old loop would hang the join too), then
+   force a fresh startBot(). Emits ForensicLogger.lifecycle("STUCK_LOOP_RESCUE",
+   ...) so operator can see exactly when this rescue path fires.
+   Pre-existing "bot already running" branch preserved for genuine
+   double-tap-on-start situations.
+
+2. **Doze-bypass dual-alarm restart (BotService.kt:1234-1278)**.
+   The V5.9.673 onDestroy 5s restart used setExactAndAllowWhileIdle, which
+   is rate-limited to ~9 MINUTES in Doze for non-priv apps (operator saw
+   exactly that: bot died, restart deferred ~10 minutes). Mirror
+   onTaskRemoved's two-layer pattern:
+     • request code 2 — 1s setExactAndAllowWhileIdle (best-effort fast path
+       when not in Doze)
+     • request code 5 — 5s setAlarmClock (Doze-bypass guarantee; treated
+       as a user-facing alarm so OS does NOT rate-limit it)
+   If the fast-path fires first, the backup lands on an already-running
+   service and is handled gracefully by the keep-alive branch.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.

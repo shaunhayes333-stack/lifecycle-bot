@@ -1139,6 +1139,43 @@ class BotService : Service() {
                 } else if (loopJob?.isActive != true) {
                     userStartQueuedDuringStop = false
                     scope.launch { startBot() }
+                } else if (userRequested && !status.running) {
+                    // V5.9.674 — STUCK-LOOP RESCUE. Operator observed: bot stops
+                    // itself (status.running=false) but the bot-loop coroutine
+                    // is still "active" — hung on a network call (Jupiter, RPC
+                    // chain, DexScreener) that hasn't timed out yet. Old code's
+                    // `loopJob?.isActive != true` branch evaluated false → fell
+                    // through to "Bot already running" → just rescheduled the
+                    // keep-alive alarm and did nothing. User sees the START
+                    // button do absolutely nothing for 5-10 minutes until the
+                    // hung suspend point finally times out. THEN pressing
+                    // START works instantly because loopJob is finally inactive.
+                    //
+                    // Fix: when the USER explicitly presses START (not a
+                    // keep-alive alarm, not a watchdog) AND status.running is
+                    // already false (= bot is supposed to be stopped or stuck),
+                    // CANCEL the zombie loopJob and force a fresh startBot().
+                    // Use a 3-second join with kotlinx cancellation so we don't
+                    // wait on the same network call that hung the old loop.
+                    ErrorLogger.warn("BotService", "🆘 STUCK-LOOP RESCUE: userRequested=true status.running=false but loopJob.isActive=true. Force-cancelling zombie loop and restarting.")
+                    addLog("🆘 Detected stuck bot loop — force-restarting")
+                    try {
+                        ForensicLogger.lifecycle(
+                            "STUCK_LOOP_RESCUE",
+                            "loopActive=true statusRunning=false action=cancel+restart"
+                        )
+                    } catch (_: Throwable) {}
+                    scope.launch {
+                        try {
+                            loopJob?.cancel(kotlinx.coroutines.CancellationException("stuck-loop rescue"))
+                            // Bounded wait — never block longer than 3s on a
+                            // job that is itself hung. The launch coroutine
+                            // doing startBot() will replace loopJob anyway.
+                            withTimeoutOrNull(3_000L) { loopJob?.join() }
+                        } catch (_: Throwable) {}
+                        userStartQueuedDuringStop = false
+                        startBot()
+                    }
                 } else {
                     // Bot already running - just reschedule keep-alive
                     scheduleKeepAliveAlarm()
@@ -1227,20 +1264,54 @@ class BotService : Service() {
             }
 
             // Schedule a restart
-            ErrorLogger.warn("BotService", "Bot was running - scheduling restart in 5 seconds")
+            // V5.9.674 — DUAL-ALARM restart to defeat Android Doze throttling.
+            // setExactAndAllowWhileIdle is rate-limited to ~9 MINUTES while
+            // the device is in Doze (operator observed exactly that: bot
+            // killed, restart deferred ~10 minutes). setAlarmClock bypasses
+            // Doze rate-limiting because it is treated as a user-facing alarm.
+            // Schedule BOTH:
+            //   • request code 2: 1s setExactAndAllowWhileIdle (best-effort
+            //     fast path when not in Doze)
+            //   • request code 5: 5s setAlarmClock (Doze-bypass guarantee)
+            // This matches onTaskRemoved's two-layer pattern.
+            ErrorLogger.warn("BotService", "Bot was running - scheduling DUAL restart alarms (1s + 5s AlarmClock backup)")
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
             }
-            val pi = android.app.PendingIntent.getService(
+            val am = getSystemService(android.app.AlarmManager::class.java)
+
+            // Fast-path: 1s setExactAndAllowWhileIdle (works when not Doze)
+            val piFast = android.app.PendingIntent.getService(
                 this, 2, restartIntent,
                 android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
-            val am = getSystemService(android.app.AlarmManager::class.java)
             am?.setExactAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + 5_000,  // Restart in 5 seconds
-                pi
+                System.currentTimeMillis() + 1_000,
+                piFast
             )
+
+            // Doze-bypass backup: 5s setAlarmClock — fires within seconds
+            // even during deep Doze. The fast-path's FLAG_ONE_SHOT means it
+            // self-clears once delivered, so if it fires before this backup
+            // the backup will land on an already-running service (handled
+            // gracefully by the keep-alive branch in onStartCommand at L1142).
+            try {
+                val piBackup = android.app.PendingIntent.getService(
+                    this, 5, restartIntent,
+                    android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                val showPi = android.app.PendingIntent.getActivity(
+                    this, 6, Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                am?.setAlarmClock(
+                    android.app.AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 5_000, showPi),
+                    piBackup
+                )
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "onDestroy: AlarmClock backup failed: ${e.message}")
+            }
         }
         
         // Save EdgeLearning thresholds before shutdown
