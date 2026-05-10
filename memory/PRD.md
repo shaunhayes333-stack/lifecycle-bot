@@ -291,7 +291,7 @@ Also added (StartupReconciler.kt:97-119):
     sweep and trace exactly where adoption is failing if it still doesn't
     register.
 
-### V5.9.674 — kill 5-10min START dead-zone: STUCK-LOOP RESCUE + Doze-bypass dual restart (May 11)
+### V5.9.674 — kill 5-10min START dead-zone + proactive STUCK-LOOP HEARTBEAT (May 11)
 Operator: "I can physically be sitting in the app and the bot just stops.
 The app remains open. I restart the bot and nothing happens for 5-10 minutes.
 Or at all. If I leave it then sit for 10 minutes and restart it without closing

@@ -359,6 +359,10 @@ class BotService : Service() {
     lateinit var autoMode: AutoModeEngine
     lateinit var copyTradeEngine: CopyTradeEngine
     private var loopJob: Job? = null
+    // V5.9.674 — separate watchdog coroutine that pings the bot loop every
+    // 30s and force-restarts it if it has not produced a BOT_LOOP_TICK in
+    // >180s. Cancelled in stopBot() / startBot crash paths.
+    private var loopHeartbeatJob: Job? = null
     private var notifIdCounter = 100
 
     override fun onCreate() {
@@ -2391,6 +2395,56 @@ class BotService : Service() {
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
 
+        // V5.9.674 — STUCK-LOOP HEARTBEAT WATCHDOG. Operator reported the
+        // loop coroutine going silent while still "active" (suspended on
+        // a network call that has no timeout — Jupiter / RPC fallback chain
+        // / DexScreener hydrate). Symptom: bot stops trading but loopJob.isActive
+        // remains true, so the START button does nothing for 5-10 minutes
+        // until the hung suspend point finally times out. V5.9.674 already
+        // added a USER-triggered rescue path. This is the PROACTIVE side:
+        // wake every 30s, compare lastBotLoopTickMs to wall clock. If the
+        // loop has not ticked in >180s AND status.running is true (bot is
+        // supposed to be alive), force-cancel the zombie loopJob with a
+        // CancellationException and relaunch botLoop(). Bounded 3s join so
+        // we never block on the same suspend point that hung the original.
+        // Watchdog stops itself the moment status.running goes false (user
+        // pressed Stop / startBot crashed).
+        loopHeartbeatJob?.cancel()
+        loopHeartbeatJob = scope.launch {
+            try {
+                while (status.running) {
+                    kotlinx.coroutines.delay(30_000L)
+                    val sinceLastTickMs = System.currentTimeMillis() - lastBotLoopTickMs
+                    val lj = loopJob
+                    if (status.running && sinceLastTickMs > 180_000L && lj?.isActive == true) {
+                        ErrorLogger.warn(
+                            "BotService",
+                            "🩺 LOOP_HEARTBEAT: no BOT_LOOP_TICK in ${sinceLastTickMs / 1000}s — force-restarting zombie botLoop()"
+                        )
+                        addLog("🩺 Stuck loop detected (${sinceLastTickMs / 1000}s silent) — auto-restarting")
+                        try {
+                            ForensicLogger.lifecycle(
+                                "LOOP_HEARTBEAT_RESCUE",
+                                "silentSec=${sinceLastTickMs / 1000} loopActive=true statusRunning=true"
+                            )
+                        } catch (_: Throwable) {}
+                        try {
+                            lj.cancel(kotlinx.coroutines.CancellationException("loop-heartbeat rescue"))
+                            withTimeoutOrNull(3_000L) { lj.join() }
+                        } catch (_: Throwable) {}
+                        // Reset heartbeat timestamp so the new loop has a
+                        // fresh 180s budget before we'd consider it stuck.
+                        lastBotLoopTickMs = System.currentTimeMillis()
+                        loopJob = scope.launch { botLoop() }
+                    }
+                }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                /* expected when stopBot cancels scope */
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "loopHeartbeatJob crashed: ${e.message}", e)
+            }
+        }
+
         // V5.9.357 — start macro pollers (Binance funding 5m, Gemini sentiment
         // 15m, CoinGecko stables 60m). These feed FundingRateAwarenessAI,
         // NewsShockAI and StablecoinFlowAI which were previously voting 0
@@ -3488,6 +3542,10 @@ class BotService : Service() {
             } catch (_: Exception) {}
             try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
             try { cancelKeepAliveAlarm() } catch (_: Exception) {}
+            // V5.9.674 — cancel heartbeat watchdog so a crashed startBot
+            // does not leave the watchdog ticking against a dead loopJob.
+            try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
+            loopHeartbeatJob = null
             try {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } catch (_: Exception) {}
@@ -3591,6 +3649,12 @@ class BotService : Service() {
             } catch (_: Exception) {}
         cancelAllRestartAlarms()
         try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+        // V5.9.674 — stop the proactive loop heartbeat watchdog before the
+        // loopJob it watches is cancelled; otherwise the watchdog could
+        // observe sinceLastTickMs > 180s mid-shutdown and relaunch botLoop
+        // exactly when we are trying to stop.
+        try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
+        loopHeartbeatJob = null
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
