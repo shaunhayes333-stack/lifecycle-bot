@@ -34,6 +34,12 @@ adb devices
 echo "::endgroup::"
 
 echo "::group::Install APK + grant runtime perms"
+# V5.9.657 — cached AVD may already have a com.lifecyclebot.aate
+# install signed by a different debug keystore (previous CI run from
+# a different runner image). adb install -r refuses to update across
+# signature mismatches, so uninstall first. -k preserves data; we
+# don't want that here (we want a clean slate every run anyway).
+adb uninstall com.lifecyclebot.aate || true
 adb install -r -t "$APK"
 adb shell pm grant com.lifecyclebot.aate android.permission.POST_NOTIFICATIONS || true
 adb shell pm grant com.lifecyclebot.aate android.permission.READ_EXTERNAL_STORAGE || true
