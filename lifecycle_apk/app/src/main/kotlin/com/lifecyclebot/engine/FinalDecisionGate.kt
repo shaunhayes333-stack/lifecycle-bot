@@ -1289,6 +1289,17 @@ object FinalDecisionGate {
         val rugcheckTimeoutPenalty = ts.safety.rugcheckTimeoutPenalty
 
         val rugcheckBlock = when {
+            // V5.9.689 — score=1 is the RC_PENDING sentinel value returned by the
+            // rugcheck API before verification completes. SafetyChecker sets
+            // rugcheckStatus="CONFIRMED" when the API responds (even score=1),
+            // so FDG was treating it as a confirmed low score and hard-blocking.
+            // Paper mode: pass with RC_PENDING tag (same as ShitCoin TradeAuth bypass).
+            // Live mode: block score=1 same as score=0..2 (unknown = risky with real SOL).
+            rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 && config.paperMode -> {
+                tags.add("rc_pending_paper_pass")
+                false
+            }
+            rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 && !config.paperMode -> true
             rugcheckStatus == "CONFIRMED" && rugcheckScore <= rugcheckThreshold -> true
             rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             rugcheckStatus == "TIMEOUT" && config.paperMode -> {

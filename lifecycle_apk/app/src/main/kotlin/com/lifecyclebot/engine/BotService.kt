@@ -9151,7 +9151,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "🏦 [TREASURY] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (treasuryFdg != null && !treasuryFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for TREASURY path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=TREASURY can=${treasuryFdg?.canExecute() ?: true} reason=${treasuryFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = treasuryFdg?.canExecute() ?: true,
+                    reason = treasuryFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (treasuryFdg != null && !treasuryFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on TREASURY: ${ts.symbol} | ${treasuryFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("TREASURY_FDG", treasuryFdg.blockReason ?: "fdg_block")
                             } else {
@@ -9375,7 +9383,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "⭐ [QUALITY] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (qualityFdg != null && !qualityFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for QUALITY path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=QUALITY can=${qualityFdg?.canExecute() ?: true} reason=${qualityFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = qualityFdg?.canExecute() ?: true,
+                    reason = qualityFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (qualityFdg != null && !qualityFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on QUALITY: ${ts.symbol} | ${qualityFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("QUALITY_FDG", qualityFdg.blockReason ?: "fdg_block")
                             } else {
@@ -9511,7 +9527,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "🔵 [BLUECHIP] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (blueChipFdg != null && !blueChipFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for BLUECHIP path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=BLUECHIP can=${blueChipFdg?.canExecute() ?: true} reason=${blueChipFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = blueChipFdg?.canExecute() ?: true,
+                    reason = blueChipFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (blueChipFdg != null && !blueChipFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on BLUECHIP: ${ts.symbol} | ${blueChipFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("BLUECHIP_FDG", blueChipFdg.blockReason ?: "fdg_block")
                             } else {
@@ -10208,7 +10232,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "💩 [SHITCOIN] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for SHITCOIN path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=SHITCOIN can=${shitCoinFdg?.canExecute() ?: true} reason=${shitCoinFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = shitCoinFdg?.canExecute() ?: true,
+                    reason = shitCoinFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on SHITCOIN: ${ts.symbol} | ${shitCoinFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("SHITCOIN_FDG", shitCoinFdg.blockReason ?: "fdg_block")
                             } else {
@@ -10423,7 +10455,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             ErrorLogger.warn("BotService", "🎭 [MANIP] FDG error: ${fdgEx.message} — proceeding fail-open")
                             null
                         }
-                        if (manipFdg != null && !manipFdg.canExecute()) {
+                        // V5.9.689 — bump FDG forensic counter for MANIP path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=MANIP can=${manipFdg?.canExecute() ?: true} reason=${manipFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = manipFdg?.canExecute() ?: true,
+                    reason = manipFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (manipFdg != null && !manipFdg.canExecute()) {
                             ErrorLogger.info("BotService", "🚫 FDG VETO on MANIP: ${ts.symbol} | ${manipFdg.blockReason ?: "fdg_block"}")
                             RejectionTelemetry.record("MANIP_FDG", manipFdg.blockReason ?: "fdg_block")
                         } else {
@@ -10599,7 +10639,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "🚂 [EXPRESS] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (expressFdg != null && !expressFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for EXPRESS path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=EXPRESS can=${expressFdg?.canExecute() ?: true} reason=${expressFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = expressFdg?.canExecute() ?: true,
+                    reason = expressFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (expressFdg != null && !expressFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("EXPRESS_FDG", expressFdg.blockReason ?: "fdg_block")
                             } else {
@@ -10808,7 +10856,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ErrorLogger.warn("BotService", "📉 [DIPHUNTER] FDG error: ${fdgEx.message} — proceeding fail-open")
                                 null
                             }
-                            if (dipFdg != null && !dipFdg.canExecute()) {
+                            // V5.9.689 — bump FDG forensic counter for DIPHUNTER path
+            try {
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
+                    "path=DIPHUNTER can=${dipFdg?.canExecute() ?: true} reason=${dipFdg?.blockReason ?: "n/a"}")
+                ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
+                    allow = dipFdg?.canExecute() ?: true,
+                    reason = dipFdg?.blockReason ?: "ok")
+            } catch (_: Throwable) {}
+            if (dipFdg != null && !dipFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on DIPHUNTER: ${ts.symbol} | ${dipFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("DIPHUNTER_FDG", dipFdg.blockReason ?: "fdg_block")
                             } else {

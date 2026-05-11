@@ -105,9 +105,18 @@ class FatalRiskChecker(
                               !candidate.extraBoolean("pureSellPressure") &&
                               !candidate.extraBoolean("liquidityDraining") &&
                               !candidate.extraBoolean("unsellableSignal")
-        if (rawRugcheckScore in 0..2) {
-            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
+        // V5.9.689 — score=1 is RC_PENDING sentinel (API not yet resolved),
+        // NOT a confirmed bad score. Treat it the same as ShitCoin's
+        // PAPER_LEARNING bypass: paper mode passes with RC_PENDING flag,
+        // live mode still blocks (unknown RC on real money = too risky).
+        // score=0 = confirmed rugged/honeypot → unconditional hard block.
+        if (rawRugcheckScore == 0) {
+            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=0_CONFIRMED_RUG")
         }
+        if (rawRugcheckScore == 1 && !isPaperLearningRC) {
+            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE")
+        }
+        // score=1 + paper: fall through to 3..5 band check below
         if (!wideOpen && !(isPaperLearningRC && rugFlagsCleanRC) &&
             rawRugcheckScore in 0..5) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
