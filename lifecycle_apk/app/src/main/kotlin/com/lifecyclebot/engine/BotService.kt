@@ -13101,7 +13101,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val _pnl = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
             try {
                 ForensicLogger.phase(
-                    ForensicLogger.PHASE.EXIT,
+                    ForensicLogger.PHASE.EXIT_GATE,
                     ts.symbol,
                     "pnl=${_pnl.toInt()}% mode=${ts.position.tradingMode.takeIf { it.isNotBlank() } ?: "NONE"} sc=${com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint)} ms=${com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)}"
                 )
