@@ -54,9 +54,13 @@ object FluidLearningAI {
             return
         }
         isInitialized = true
+        // V5.9.695 — snap lifetime sells as session baseline
+        sessionLifetimeBaseline = try {
+            TradeHistoryStore.getLifetimeStats().totalSells
+        } catch (_: Exception) { 0 }
         ErrorLogger.info(TAG, "🧠 FluidLearningAI initialized (ONE-TIME) | " +
             "bootstrap=0-$BOOTSTRAP_PHASE_END | mature=$BOOTSTRAP_PHASE_END-$MATURE_PHASE_END | continuous=$MATURE_PHASE_END+ | " +
-            "currentProgress=${(getLearningProgress() * 100).toInt()}%")
+            "sessionBaseline=$sessionLifetimeBaseline currentProgress=${(getLearningProgress() * 100).toInt()}%")
     }
 
     /**
@@ -92,6 +96,12 @@ object FluidLearningAI {
     // MEME MODE counters (used by BotService, Executor, FDG, Scanners)
     private val sessionTrades = AtomicInteger(0)
     private val sessionWins = AtomicInteger(0)
+    // V5.9.695 — snapshot of TradeHistoryStore.lifetimeSells at session start.
+    // Prevents getTotalTradeCount() from double-counting in-session: lifetimeSells
+    // bumps immediately on every close (bumpLifetimeFor) AND sessionTrades increments
+    // simultaneously → old formula counted each session close twice.
+    // Fix: lock lifetime anchor at session start; only add session delta on top.
+    @Volatile private var sessionLifetimeBaseline: Int = 0
     private val lastProgressUpdate = AtomicLong(0)
     private var cachedProgress = 0.0
     
@@ -195,10 +205,11 @@ object FluidLearningAI {
      * user can decluter the journal without wiping learned progress.
      */
     fun getTotalTradeCount(): Int {
-        val lifetime = try {
-            TradeHistoryStore.getLifetimeStats().totalSells
-        } catch (_: Exception) { 0 }
-        return lifetime + sessionTrades.get()
+        // V5.9.695 — use (baseline + session delta) not (lifetimeSells + sessionTrades).
+        // lifetimeSells grows in-session as trades close (bumpLifetimeFor fires immediately),
+        // so the old formula counted every session close twice. Correct total =
+        // sessionLifetimeBaseline (snapped at boot) + sessionTrades (delta only).
+        return sessionLifetimeBaseline + sessionTrades.get()
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

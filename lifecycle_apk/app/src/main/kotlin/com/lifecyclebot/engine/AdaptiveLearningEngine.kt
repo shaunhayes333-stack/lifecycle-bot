@@ -546,10 +546,12 @@ object AdaptiveLearningEngine {
     private val aleSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun learnFromTrade(features: TradeFeatures) {
-        // Dedup: skip if same mint+entryPhase combo was seen in last 60s
-        val dedupKey = "${features.mint}_${features.entryPhase}_${(System.currentTimeMillis() / 60_000L)}"
+        // V5.9.694/695 — dedup guard using available TradeFeatures fields.
+        // Bucket by mcap+holdTime+pnlPct rounded to 1 decimal + minute bucket.
+        // Prevents double-feed when multiple Executor close paths fire for the same trade.
+        val dedupKey = "${"%.1f".format(features.entryMcapUsd)}_${"%.1f".format(features.holdTimeMins)}_${"%.1f".format(features.pnlPct)}_${(System.currentTimeMillis() / 60_000L)}"
         if (aleSeenKeys.putIfAbsent(dedupKey, System.currentTimeMillis()) != null) {
-            ErrorLogger.debug("AdaptiveLearning", "⚡ DEDUP skip: ${features.mint.take(8)} (already learned this close)")
+            ErrorLogger.debug("AdaptiveLearning", "⚡ DEDUP skip pnl=${features.pnlPct.toInt()}% (already learned this close)")
             return
         }
         // Trim cache to avoid unbounded growth
