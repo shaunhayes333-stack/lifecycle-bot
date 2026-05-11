@@ -477,6 +477,50 @@ debugging round and one real silent drop killing every meme buy:
 
 CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
 
+### V5.9.679 — Paper-position stop-clear hardening (May 11)
+Operator screenshot: 6 paper positions persisted on the UI after pressing Stop.
+Root cause: the previous single try-catch wrapped SEVEN lane-trader clears +
+LiveWalletReconciler pass + TWO tracker clears in ONE block. If ANY lane trader
+threw a defensive exception (CashGen/BlueChip/ShitCoin/etc.), the SHARED catch
+at the bottom silently skipped the trackers — and the UI's open-counter does
+maxOf(tokens, hostTracker, lifecycleTracker), so the tracker leak alone kept
+the badge non-zero.
+
+Fix:
+- Each `clearAllPositions()` on the 7 lane traders gets its OWN try/catch
+  with a `stop-clear <Layer>` ErrorLogger.warn so any single failure is
+  isolated and observable.
+- TokenLifecycleTracker.clearAll() + HostWalletTokenTracker.clearAll() moved
+  to a DEDICATED final guard block outside the lane-trader try, so they
+  ALWAYS run regardless of upstream failures.
+- New forensic events: STOP_TRACKERS_CLEARED, STOP_TOKENS_CLEARED,
+  STOP_PERSIST_CLEARED, STOP_COMPLETE — next dump shows exactly which
+  step of the chain ran end-to-end.
+
+### V5.9.680 — 30-frame rolling pre-freeze main-thread sample buffer (May 11)
+P1 ANR diagnostic improvement. Previously the watchdog sampled the
+mainThread stack only at the moment a freeze was detected — useful but
+gave zero history of what main was doing in the seconds leading up to
+the hang.
+
+Implementation (PipelineHealthCollector.kt):
+- New `StackSample(tsMs, sinceLastAckMs, topFrame)` data class +
+  thread-safe ring buffer capped at 30 entries.
+- Every 250ms watchdog tick now captures a sample whether main is
+  responsive or not. 30 samples × 250ms = ~7.5s of pre-freeze history.
+- Freeze branch reuses the just-captured tick sample (no double walk
+  of the stack) and embeds the full 30-sample ring in the ANR_HINT
+  event payload.
+- New "Pre-freeze rolling main-thread sample" section in dumpText()
+  for clipboard export at any time.
+
+### V5.9.680b — CI compile fix (May 11)
+TokenLifecycleTracker exposes `openCount()` (no `get` prefix); the V5.9.679
+STOP_COMPLETE block called the non-existent `getOpenCount()`. One-line
+surgical rename. CI now green.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on bfe3ea95d.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.
