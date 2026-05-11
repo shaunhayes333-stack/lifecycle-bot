@@ -395,6 +395,55 @@ Three surgical fixes:
 
 CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
 
+### V5.9.676 — bulletproof rescue + CE rethrow + cycle breadcrumbs (Feb 2026) ⭐ root-cause #2
+
+Operator V5.9.675 dump revealed why the heartbeat rescue silently failed
+across 9 rescue attempts — `sinceLastTickSec` grew monotonically 208 →
+688 while `LIFECYCLE/BOTLOOP_STARTED` counter stayed at 1.
+
+ROOT CAUSE: `catch (e: Exception)` in botLoop swallowed
+`CancellationException`. The previous while-loop catch was
+`catch (e: Exception)` — and CancellationException IS an Exception. So
+when the heartbeat rescue called `lj.cancel(CE)`, the CE propagated up
+through the suspended `delay()`, got caught by the outer Exception handler,
+logged as "Loop error", then entered another `delay(5000)` — which threw
+CE again — which was also swallowed. Infinite resurrection: the old loop
+caught its own death and the rescue's `lj.join()` timed out every time.
+
+Four surgical fixes:
+
+1. `CancellationException` now explicitly caught + RETHROWN (BotService.kt
+   ~line 7124). `BOTLOOP_CANCELLED` forensic emitted on each clean cancel.
+   This is the actual root cause — guarantees `lj.cancel()` terminates
+   the coroutine instead of being absorbed as a transient error.
+
+2. Heartbeat rescue is now bulletproof (BotService.kt ACTION_LOOP_HEARTBEAT):
+   - Step-by-step forensic events: `RESCUE_CANCEL_SENT`,
+     `RESCUE_JOIN_OK`/`RESCUE_JOIN_TIMEOUT`, `RESCUE_RELAUNCHED`,
+     `RESCUE_FAILED:<exception>`.
+   - `loopJob = null` happens UP FRONT so the next heartbeat can't keep
+     trying to kill the same dead reference.
+   - `lastBotLoopTickMs` reset BEFORE the rescue work AND post-join to
+     prevent cascading re-rescues if relaunch hangs.
+   - Rescue body runs on `Dispatchers.IO` so a saturated Default
+     dispatcher (where the dead loop is wedged) cannot starve it.
+   - Removed the `active` gate from rescue trigger — even if `isActive`
+     reports false on the old job, the new heartbeat still relaunches.
+
+3. `CYCLE_PHASE` breadcrumbs at ENTER, PRE_SUPERVISOR, CYCLE_EXIT
+   (BotService.kt botLoop). Couldn't safely wrap the cycle body in
+   `withTimeoutOrNull` (JVM 64KB method cap on botLoop). Breadcrumbs
+   let the next stall dump pinpoint exactly which phase wedged.
+
+4. `mode_maxhold` sell reason now carries `held=Xm max=Ym utc=Zh` so we
+   can see WHY the bot dumped 10 positions on V5.9.675 session start
+   with reason `mode_maxhold_paused` (Executor.kt:3395 + 3850, both
+   gates). Local 15:24 NZST = UTC ~03 — NOT in the default UTC 04-06
+   pause window — so something else triggered PAUSED mode. The new
+   forensic surfaces enough state to diagnose it next session.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.
