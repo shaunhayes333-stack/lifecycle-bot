@@ -8679,9 +8679,9 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val familyConflict = try {
                 status.tokens.values.any { other ->
                     other.position.isOpen &&
-                    other.identity.mint != identity.mint &&
+                    other.mint != identity.mint &&
                     run {
-                        val otherRoot = other.identity.symbol.uppercase()
+                        val otherRoot = other.symbol.uppercase()
                             .replace(Regex("[^A-Z0-9]"), "").take(4)
                         otherRoot.length >= 3 && otherRoot == thisRoot
                     }
