@@ -145,7 +145,15 @@ object V3Adapter {
             bundledPct = bundledPct,
             hasIdentitySignals = ts.name.isNotBlank() && ts.name != ts.symbol,
             isSellable = !safety.isBlocked,
-            rawRiskScore = safety.entryScorePenalty,
+            // V5.9.685 — was safety.entryScorePenalty (0 = clean token, not rugcheck score).
+            // FatalRiskChecker.check() uses rawRiskScore as the RUGCHECK score (0..100)
+            // and blocks unconditionally on score 0..2. Passing entryScorePenalty=0
+            // (meaning "no penalty, safe token") caused every clean token to hit
+            // EXTREME_RUG_CRITICAL_score=0 — which is why bot had 50+ positions
+            // before the update and only 3 after. Fix: pass the actual rugcheck score.
+            // rugcheckScore=-1 means timeout/unavailable; FatalRiskChecker defaults
+            // rawRiskScore ?: 100, so -1 → 100 which is safe (doesn't trigger 0..5 block).
+            rawRiskScore = safety.rugcheckScore.takeIf { it >= 0 },
             extra = buildExtraMap(ts),
         )
     }
