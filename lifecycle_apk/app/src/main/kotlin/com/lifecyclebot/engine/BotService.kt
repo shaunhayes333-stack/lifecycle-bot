@@ -12666,6 +12666,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             if (!com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint) && scHasRealPosition) {
                 val recTp = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit()
                 val recSl = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss()
+                // V5.9.697 — Restore peak/HW/trailingStop so all profit locks re-arm after restart.
+                // Without this, a ShitCoin position that peaked +300% would re-register
+                // with peak=0.0 and ALL protection disarmed — same root cause as Moonshot fix.
+                val scRecoveredPeak = ts.position.peakGainPct.takeIf { it > 0.0 } ?: 0.0
+                val scRecoveredHW   = ts.position.highestPrice.takeIf { it > ts.position.entryPrice }
+                    ?: ts.position.entryPrice
+                val scRecoveredTrail = if (scRecoveredHW > ts.position.entryPrice) {
+                    val dynamicTrail = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(scRecoveredPeak)
+                    scRecoveredHW * (1.0 - dynamicTrail / 100.0)
+                } else {
+                    ts.position.entryPrice * (1.0 - kotlin.math.abs(recSl) / 100.0)
+                }
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
                         mint = ts.mint,
@@ -12679,11 +12691,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         takeProfitPct = recTp,
                         stopLossPct = recSl,
                         launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN,
+                        peakPnlPct = scRecoveredPeak,
+                        highWaterMark = scRecoveredHW,
+                        trailingStop = scRecoveredTrail,
                     )
                 )
                 ErrorLogger.warn("BotService",
-                    "💩 [SHITCOIN RECOVERY] ${ts.symbol} | Re-registered in ShitCoinTraderAI | " +
-                    "entry=${ts.position.entryPrice} tp=${recTp.toInt()}% sl=${recSl.toInt()}%")
+                    "💩 [SHITCOIN RECOVERY] ${ts.symbol} | Re-registered | " +
+                    "entry=${ts.position.entryPrice} tp=${recTp.toInt()}% sl=${recSl.toInt()}% peak=+${scRecoveredPeak.toInt()}%")
             }
             val exitSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.170 — firehose learning feedback.
@@ -12880,6 +12895,21 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.valueOf(
                         rawMode.removePrefix("MOONSHOT_"))
                 } catch (_: Exception) { com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.ORBITAL }
+                // V5.9.697 — Restore peak and high-water so PeakDrawdownLock and
+                // trailingStop are correctly re-armed after restart. Previously these
+                // defaulted to 0.0/entryPrice, disarming ALL profit protection for
+                // recovered positions. A token that peaked +1034% and was re-registered
+                // at peak=0% would dump all the way to 0% with no lock firing.
+                val recoveredPeak = ts.position.peakGainPct.takeIf { it > 0.0 } ?: 0.0
+                val recoveredHW   = ts.position.highestPrice.takeIf { it > ts.position.entryPrice }
+                    ?: ts.position.entryPrice
+                val slPct = spaceMode.baseSL.let { if (it >= 0) -15.0 else it.coerceAtLeast(-15.0) }
+                val recoveredTrail = if (recoveredHW > ts.position.entryPrice) {
+                    val dynamicTrail = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(recoveredPeak)
+                    recoveredHW * (1.0 - dynamicTrail / 100.0)
+                } else {
+                    ts.position.entryPrice * (1.0 - kotlin.math.abs(slPct) / 100.0)
+                }
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.addPosition(
                     com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
                         mint = ts.mint, symbol = ts.symbol,
@@ -12890,12 +12920,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0 } ?: 5_000.0,
                         entryScore = 50.0,
                         takeProfitPct = spaceMode.baseTP,
-                        stopLossPct = spaceMode.baseSL,
+                        stopLossPct = slPct,
                         spaceMode = spaceMode,
                         isPaperMode = cfg.paperMode,
+                        peakPnlPct = recoveredPeak,
+                        highWaterMark = recoveredHW,
+                        trailingStop = recoveredTrail,
                     )
                 )
-                addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice}", ts.mint)
+                addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice} peak=+${recoveredPeak.toInt()}% HW=${recoveredHW.fmtPrice()}", ts.mint)
             }
             val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.362 — Moonshot stale-price exit: same fix as Quality. Without

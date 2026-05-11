@@ -572,8 +572,22 @@ object ShitCoinExpress {
         val pnlPct = (currentPrice - ride.entryPrice) / ride.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - ride.entryTime) / 60_000
 
+        // V5.9.696 — Unconditional hard floor (Express). Flash rugs can hit before
+        // the loop fires; -15% absolute stop regardless of any other gate.
+        if (pnlPct <= -15.0) {
+            ErrorLogger.warn(TAG, "💩🛑 EXPRESS HARD_FLOOR: ${ride.symbol} | ${pnlPct.fmt(1)}% — unconditional exit")
+            return ExitSignal.STOP_LOSS
+        }
+
         // Update high water mark + peak
         if (pnlPct > ride.peakPnlPct) ride.peakPnlPct = pnlPct
+
+        // V5.9.696 — PeakDrawdownLock (was missing from Express).
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(ride.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "💩🔒🛑 EXPRESS PEAK-DRAWDOWN LOCK: ${ride.symbol} | " +
+                "peak +${ride.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}%")
+            return ExitSignal.TRAILING_STOP
+        }
         if (currentPrice > ride.highWaterMark) {
             ride.highWaterMark = currentPrice
             // V5.9.169 — continuous fluid trail (shared engine).
