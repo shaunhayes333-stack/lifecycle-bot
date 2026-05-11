@@ -8701,17 +8701,34 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // unchanged.
     if (_v3PosOpen || !_v3CfgEnabled || !_v3MgrReady) {
         try {
+            // V5.9.683 — split position_open exits from true V3 blocks.
+            // Previously ALL three conditions were V3_SKIPPED, making the
+            // operator think ~2995 tokens were blocked when those were actually
+            // open-position exit-management passes (correct, expected behavior).
+            // Splitting to EXIT_MANAGED keeps the gate logic unchanged — additive display only.
             val reason = buildString {
                 if (_v3PosOpen) append("position_open ")
                 if (!_v3CfgEnabled) append("v3_disabled ")
                 if (!_v3MgrReady) append("v3_not_ready ")
             }.trim()
-            ForensicLogger.gate(
-                ForensicLogger.PHASE.V3,
-                ts.symbol,
-                allow = false,
-                reason = "V3_SKIPPED $reason | src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()}"
-            )
+            if (_v3PosOpen) {
+                // Normal exit-management pass — label it so operator can see exits vs real blocks
+                try {
+                    ForensicLogger.gate(
+                        ForensicLogger.PHASE.EXIT,
+                        ts.symbol,
+                        allow = true,
+                        reason = "EXIT_MANAGED src=${ts.source}"
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                ForensicLogger.gate(
+                    ForensicLogger.PHASE.V3,
+                    ts.symbol,
+                    allow = false,
+                    reason = "V3_SKIPPED $reason | src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()}"
+                )
+            }
         } catch (_: Throwable) {}
     }
 
@@ -11676,6 +11693,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val pauseBlocks = !cfg.paperMode && cbState.isPaused
             if (!cbState.isHalted && !pauseBlocks) {
                 ErrorLogger.info("BotService", "🧬 MEME_SPINE EXECUTOR_ROUTE ${identity.symbol} | paper=${cfg.paperMode} | v3=$useV3Decision | size=${actualInitialSize.fmt(4)} | wallet=${effectiveBalance.fmt(4)} | auto=${cfg.autoTrade}")
+                // V5.9.683 — wire EXEC forensic counter so PipelineHealth EXEC tile is non-zero.
+                // Was always 0 because ForensicLogger.exec() existed but was never called.
+                try {
+                    ForensicLogger.exec(
+                        action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",
+                        symbol = identity.symbol,
+                        fields = "size=${actualInitialSize.fmt(4)} v3=$useV3Decision conf=${if (useV3Decision) 0 else fdgDecision.confidence.toInt()}"
+                    )
+                } catch (_: Throwable) {}
                 executor.maybeActWithDecision(
                     ts                 = ts,
                     decision           = decision,
