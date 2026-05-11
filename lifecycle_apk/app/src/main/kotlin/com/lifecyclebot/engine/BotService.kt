@@ -9079,9 +9079,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered
                         // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
                         // V5.9: All terminal V3 decisions block Treasury — Rejected, BlockFatal, AND Blocked.
-                        // Previously only Rejected was checked, so BLOCK_FATAL (e.g. EXTREME_RUG_RISK) slipped through.
+                        // V5.9.690: In paper/bootstrap mode, BlockFatal from EXTREME_RUG_RISK is too
+                        // aggressive — it blocks all 5 sub-traders even on tokens that SafetyChecker
+                        // passed (RC_PENDING + paper bypass). Only genuine structural fatals (liquidity
+                        // collapse, pair invalid, unsellable, confirmed rug score=0) should hard-block.
+                        // EXTREME_RUG_RISK in paper mode: let sub-traders make their own decision.
+                        val v3IsPaperMode = cfg.paperMode
+                        val v3BlockFatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
+                        val v3BlockFatalIsRug = v3BlockFatalReason.contains("EXTREME_RUG", ignoreCase = true)
                         val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
+                            || (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperMode && v3BlockFatalIsRug))
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
                         val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         // V5.9.156 — CrossTalk dump veto is volume-killing on
@@ -9193,10 +9200,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = treasuryFdg?.canExecute() ?: true,
                     reason = treasuryFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (treasuryFdg != null && !treasuryFdg.canExecute()) {
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on TREASURY: ${ts.symbol} | ${treasuryFdg.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("TREASURY_FDG", treasuryFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
+                            val trsFdgStructural = treasuryFdg != null && !treasuryFdg.canExecute() &&
+                                treasuryFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val trsFdgProbe = treasuryFdg != null && !treasuryFdg.canExecute() && !trsFdgStructural
+                            if (trsFdgStructural) {
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on TREASURY: ${ts.symbol} | ${treasuryFdg?.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("TREASURY_FDG", treasuryFdg?.blockReason ?: "fdg_block")
                             } else {
+                            if (trsFdgProbe) {
+                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on TREASURY: ${ts.symbol} | ${treasuryFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                                RejectionTelemetry.record("TREASURY_FDG_PROBE", treasuryFdg?.blockReason ?: "fdg_caution")
+                            }
 
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -9425,10 +9440,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = qualityFdg?.canExecute() ?: true,
                     reason = qualityFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (qualityFdg != null && !qualityFdg.canExecute()) {
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on QUALITY: ${ts.symbol} | ${qualityFdg.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("QUALITY_FDG", qualityFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
+                            val qualityFdgStructural = qualityFdg != null && !qualityFdg.canExecute() &&
+                                qualityFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val qualityFdgProbe = qualityFdg != null && !qualityFdg.canExecute() && !qualityFdgStructural
+                            if (qualityFdgStructural) {
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("QUALITY_FDG", qualityFdg?.blockReason ?: "fdg_block")
                             } else {
+                            if (qualityFdgProbe) {
+                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                                RejectionTelemetry.record("QUALITY_FDG_PROBE", qualityFdg?.blockReason ?: "fdg_caution")
+                            }
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -9569,10 +9592,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = blueChipFdg?.canExecute() ?: true,
                     reason = blueChipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (blueChipFdg != null && !blueChipFdg.canExecute()) {
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on BLUECHIP: ${ts.symbol} | ${blueChipFdg.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("BLUECHIP_FDG", blueChipFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
+                            val bcFdgStructural = blueChipFdg != null && !blueChipFdg.canExecute() &&
+                                blueChipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val bcFdgProbe = blueChipFdg != null && !blueChipFdg.canExecute() && !bcFdgStructural
+                            if (bcFdgStructural) {
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("BLUECHIP_FDG", blueChipFdg?.blockReason ?: "fdg_block")
                             } else {
+                            if (bcFdgProbe) {
+                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                                RejectionTelemetry.record("BLUECHIP_FDG_PROBE", blueChipFdg?.blockReason ?: "fdg_caution")
+                            }
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -9823,9 +9854,26 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     null // null = no veto, proceed
                                 }
 
-                                if (moonshotFdgDecision != null && !moonshotFdgDecision.canExecute()) {
-                                    ErrorLogger.info("BotService", "🚫 FDG VETO on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision.blockReason ?: "no reason"} | conf=${moonshotFdgDecision.confidence.toInt()}%")
-                                    RejectionTelemetry.record("MOONSHOT_FDG", moonshotFdgDecision.blockReason ?: "fdg_block")
+                                // V5.9.691 — FDG is MODULATOR not KILLER for sub-traders.
+                                // Perpetual-learning architecture: FDG adjusts size when it disagrees,
+                                // but never hard-vetoes a qualified Moonshot signal. Only structural
+                                // hard blocks (liquidity collapse, confirmed rug=100, copy-trade) stop
+                                // the trade. Everything else → probe size so the AI learns.
+                                val fdgIsStructuralBlock = moonshotFdgDecision != null &&
+                                    !moonshotFdgDecision.canExecute() &&
+                                    moonshotFdgDecision.blockReason?.let {
+                                        it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") ||
+                                        it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP")
+                                    } == true
+                                val fdgReducedSize = if (moonshotFdgDecision != null && !moonshotFdgDecision.canExecute() && !fdgIsStructuralBlock) {
+                                    // FDG disagrees but not structural — halve the size for learning
+                                    ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision.blockReason ?: "fdg_caution"} | trading probe size")
+                                    RejectionTelemetry.record("MOONSHOT_FDG_PROBE", moonshotFdgDecision.blockReason ?: "fdg_caution")
+                                    true
+                                } else false
+                                if (fdgIsStructuralBlock) {
+                                    ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision?.blockReason ?: "no reason"}")
+                                    RejectionTelemetry.record("MOONSHOT_FDG", moonshotFdgDecision?.blockReason ?: "fdg_block")
                                 } else {
 
                                 // V5.2: Authorize through TradeAuthorizer
@@ -9845,16 +9893,21 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
                                     // Acquire final execution permit
+                                    // V5.9.691 — apply FDG probe reduction if FDG disagreed
+                                    val msEffectiveSize = if (fdgReducedSize)
+                                        (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
+                                    else moonshotScore.suggestedSizeSol
                                     if (FinalExecutionPermit.tryAcquireExecution(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         layer = "MOONSHOT",
-                                        sizeSol = moonshotScore.suggestedSizeSol,
+                                        sizeSol = msEffectiveSize,
                                     )) {
                                         try {
                                             val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
+                                            val probeLbl = if (fdgReducedSize) " [FDG_PROBE]" else ""
                                             
-                                            ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ENTRY$collectiveLabel | " +
+                                            ErrorLogger.info("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ENTRY$collectiveLabel$probeLbl | " +
                                                 "${moonshotScore.spaceMode.emoji} ${moonshotScore.spaceMode.displayName} | " +
                                                 "score=${moonshotScore.score} conf=${moonshotScore.confidence.toInt()}% | " +
                                                 "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
@@ -9863,7 +9916,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                             // Execute moonshot entry — live mode runs real on-chain swap
                                             executor.moonshotBuy(
                                                 ts = ts,
-                                                sizeSol = moonshotScore.suggestedSizeSol,
+                                                sizeSol = msEffectiveSize,
                                                 walletSol = effectiveBalance,
                                                 wallet = wallet,
                                                 isPaper = cfg.paperMode,
@@ -10196,9 +10249,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         // V5.9.182: V3 returns Rejected("SHITCOIN_CANDIDATE") by design — routing only.
                         val v3RejReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.Rejected)?.reason ?: ""
                         val isRoutingReject = v3RejReason.contains("SHITCOIN_CANDIDATE") || v3RejReason.contains("MCAP_TOO_LOW")
+                        // V5.9.690: paper mode — EXTREME_RUG BlockFatal should not veto ShitCoin
+                        val scBlockFatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
+                        val scBlockFatalIsRug = scBlockFatalReason.contains("EXTREME_RUG", ignoreCase = true)
                         val shitCoinV3HardReject = !isRoutingReject && (
                             v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal
+                            || (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(cfg.paperMode && scBlockFatalIsRug))
                             || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)  // V5.9.187
                         // V5.9.187: removed duplicate checks that were outside &&-group (was always-true on BlockFatal)
                         @Suppress("UNUSED_EXPRESSION")
@@ -10274,10 +10330,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = shitCoinFdg?.canExecute() ?: true,
                     reason = shitCoinFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on SHITCOIN: ${ts.symbol} | ${shitCoinFdg.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("SHITCOIN_FDG", shitCoinFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, ShitCoin signals
+                            val scFdgStructural = shitCoinFdg != null && !shitCoinFdg.canExecute() &&
+                                shitCoinFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val scFdgProbe = shitCoinFdg != null && !shitCoinFdg.canExecute() && !scFdgStructural
+                            if (scFdgStructural) {
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on SHITCOIN: ${ts.symbol} | ${shitCoinFdg?.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("SHITCOIN_FDG", shitCoinFdg?.blockReason ?: "fdg_block")
                             } else {
+                            if (scFdgProbe) {
+                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on SHITCOIN: ${ts.symbol} | ${shitCoinFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                                RejectionTelemetry.record("SHITCOIN_FDG_PROBE", shitCoinFdg?.blockReason ?: "fdg_caution")
+                            }
 
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -10497,10 +10561,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = manipFdg?.canExecute() ?: true,
                     reason = manipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (manipFdg != null && !manipFdg.canExecute()) {
-                            ErrorLogger.info("BotService", "🚫 FDG VETO on MANIP: ${ts.symbol} | ${manipFdg.blockReason ?: "fdg_block"}")
-                            RejectionTelemetry.record("MANIP_FDG", manipFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
+                        val manipFdgStructural = manipFdg != null && !manipFdg.canExecute() &&
+                            manipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                        val manipFdgProbe = manipFdg != null && !manipFdg.canExecute() && !manipFdgStructural
+                        if (manipFdgStructural) {
+                            ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on MANIP: ${ts.symbol} | ${manipFdg?.blockReason ?: "fdg_block"}")
+                            RejectionTelemetry.record("MANIP_FDG", manipFdg?.blockReason ?: "fdg_block")
                         } else {
+                        if (manipFdgProbe) {
+                            ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on MANIP: ${ts.symbol} | ${manipFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                            RejectionTelemetry.record("MANIP_FDG_PROBE", manipFdg?.blockReason ?: "fdg_caution")
+                        }
                         val manipAuthResult = TradeAuthorizer.authorize(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -10898,10 +10970,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     allow = dipFdg?.canExecute() ?: true,
                     reason = dipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            if (dipFdg != null && !dipFdg.canExecute()) {
-                                ErrorLogger.info("BotService", "🚫 FDG VETO on DIPHUNTER: ${ts.symbol} | ${dipFdg.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("DIPHUNTER_FDG", dipFdg.blockReason ?: "fdg_block")
+            // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
+                            val dipFdgStructural = dipFdg != null && !dipFdg.canExecute() &&
+                                dipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
+                            val dipFdgProbe = dipFdg != null && !dipFdg.canExecute() && !dipFdgStructural
+                            if (dipFdgStructural) {
+                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on DIPHUNTER: ${ts.symbol} | ${dipFdg?.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("DIPHUNTER_FDG", dipFdg?.blockReason ?: "fdg_block")
                             } else {
+                            if (dipFdgProbe) {
+                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on DIPHUNTER: ${ts.symbol} | ${dipFdg?.blockReason ?: "fdg_caution"} | probe trade")
+                                RejectionTelemetry.record("DIPHUNTER_FDG_PROBE", dipFdg?.blockReason ?: "fdg_caution")
+                            }
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
