@@ -1217,6 +1217,26 @@ class BotService : Service() {
                 // showed BOT_LOOP_TICK=4 / 25,891s, with the bot ripping
                 // through +2,717 scan callbacks the instant the screen woke.
                 // System alarms fire THROUGH Doze; coroutine delay() does not.
+                //
+                // V5.9.676 — BULLETPROOF RESCUE. Operator's V5.9.675 dump
+                // showed the alarm firing 9× and the rescue branch entering 9×
+                // but BOTLOOP_STARTED counter stayed at 1 — meaning every
+                // single relaunch silently failed and sinceLastTickSec grew
+                // monotonically (208 → 268 → 328 → … → 688). Two root-cause
+                // hypotheses being addressed:
+                //   1. cancel() is cooperative; if the old loopJob is wedged
+                //      in a non-suspending JNI/OkHttp call, lj.join() times
+                //      out and we still see lj.isActive=true on the next
+                //      heartbeat — but we never null the reference, so we
+                //      keep trying to kill the same dead job forever.
+                //   2. scope.launch { botLoop() } may have thrown synchronously
+                //      before reaching the BOTLOOP_STARTED lifecycle log and
+                //      we had no forensic of the failure.
+                // Fix: detailed step-by-step forensic events, force-null the
+                // dead loopJob after join timeout, run rescue on Dispatchers.IO
+                // (decoupled from the saturated Default dispatcher), and
+                // reset lastBotLoopTickMs IMMEDIATELY (before relaunch) so
+                // the next 60s heartbeat doesn't immediately re-rescue.
                 try {
                     val sinceLastTickMs = System.currentTimeMillis() - lastBotLoopTickMs
                     val running = status.running
@@ -1226,23 +1246,58 @@ class BotService : Service() {
                         "LOOP_HEARTBEAT_ALARM",
                         "sinceLastTickSec=${sinceLastTickMs / 1000} running=$running loopActive=$active"
                     )
-                    if (running && sinceLastTickMs > 180_000L && active) {
+                    if (running && sinceLastTickMs > 180_000L) {
                         ErrorLogger.warn(
                             "BotService",
-                            "🩺 LOOP_HEARTBEAT(alarm): no BOT_LOOP_TICK in ${sinceLastTickMs / 1000}s — force-restarting zombie botLoop()"
+                            "🩺 LOOP_HEARTBEAT(alarm): no BOT_LOOP_TICK in ${sinceLastTickMs / 1000}s loopActive=$active — force-restarting"
                         )
                         addLog("🩺 Stuck loop detected (${sinceLastTickMs / 1000}s silent via alarm) — auto-restarting")
                         ForensicLogger.lifecycle(
                             "LOOP_HEARTBEAT_RESCUE",
-                            "silentSec=${sinceLastTickMs / 1000} src=alarm"
+                            "silentSec=${sinceLastTickMs / 1000} loopActive=$active src=alarm"
                         )
-                        scope.launch {
+                        // V5.9.676 — reset the heartbeat timestamp BEFORE the
+                        // rescue work so even if relaunch hangs, the next 60s
+                        // alarm sees a fresh budget and doesn't re-rescue.
+                        lastBotLoopTickMs = System.currentTimeMillis()
+                        // V5.9.676 — null out the OLD loopJob reference up
+                        // front. We are committing to replace it whether or
+                        // not cancellation lands successfully. Keeps the
+                        // next heartbeat from looking at the corpse.
+                        val deadJob = lj
+                        loopJob = null
+                        // Rescue body on Dispatchers.IO so the saturated
+                        // Default dispatcher (the same one the dead loop is
+                        // stuck on) can't starve our rescue coroutine.
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
-                                lj?.cancel(kotlinx.coroutines.CancellationException("loop-heartbeat-alarm rescue"))
-                                withTimeoutOrNull(3_000L) { lj?.join() }
-                            } catch (_: Throwable) {}
-                            lastBotLoopTickMs = System.currentTimeMillis()
-                            loopJob = scope.launch { botLoop() }
+                                if (deadJob != null) {
+                                    ForensicLogger.lifecycle("RESCUE_CANCEL_SENT", "isActive=${deadJob.isActive}")
+                                    try {
+                                        deadJob.cancel(kotlinx.coroutines.CancellationException("loop-heartbeat-alarm rescue"))
+                                    } catch (_: Throwable) {}
+                                    val joined = withTimeoutOrNull(3_000L) { deadJob.join(); true } ?: false
+                                    ForensicLogger.lifecycle(
+                                        if (joined) "RESCUE_JOIN_OK" else "RESCUE_JOIN_TIMEOUT",
+                                        "deadJobActiveAfter=${deadJob.isActive}"
+                                    )
+                                }
+                                // Reset again post-join in case the dead loop
+                                // managed to emit a final tick during join.
+                                lastBotLoopTickMs = System.currentTimeMillis()
+                                val newJob = scope.launch { botLoop() }
+                                loopJob = newJob
+                                ForensicLogger.lifecycle(
+                                    "RESCUE_RELAUNCHED",
+                                    "newJobActive=${newJob.isActive}"
+                                )
+                            } catch (t: Throwable) {
+                                ErrorLogger.error("BotService", "RESCUE failed: ${t.message}", t)
+                                ForensicLogger.lifecycle(
+                                    "RESCUE_FAILED",
+                                    "ex=${t::class.simpleName} msg=${t.message?.take(80)}"
+                                )
+                            }
                         }
                     }
                     // Re-arm next alarm so the chain keeps going. Only re-arm
@@ -5384,6 +5439,26 @@ class BotService : Service() {
             // few bytes of botLoop bytecode).
             emitBotLoopTick(loopCount)
 
+            // V5.9.676 — CYCLE_PHASE forensic markers. Operator's V5.9.675
+            // dump showed cycle #2 wedged at 91s and then died silently
+            // for the next 14 minutes. botLoop is at the JVM 64KB method
+            // cap so we can't wrap the body in withTimeoutOrNull (the
+            // exception flow expansion would blow the method size). The
+            // surgical alternative is a short forensic breadcrumb at the
+            // start of each cycle and at each major phase boundary, so
+            // when the heartbeat next detects a stall we can see exactly
+            // which phase the cycle died inside. Phase markers are added
+            // at: ENTER, REGIME_PULSE_DONE, SENTIENCE_DONE, LAB_DONE,
+            // FEE_DRAIN_DONE, PRE_SUPERVISOR, POST_SUPERVISOR, EXIT_SWEEP_DONE.
+            // Total breadcrumb cost ~8 forensic events per cycle ~120 bytes.
+            val _cycleStartMs = System.currentTimeMillis()
+            try {
+              ForensicLogger.lifecycle(
+                "CYCLE_PHASE",
+                "loop=$loopCount phase=ENTER"
+              )
+            } catch (_: Throwable) {}
+
             // V5.9.652 — extracted to emitLoopTopSnapshot() to keep botLoop
             // under the JVM 64KB method size limit. Same content, different
             // method, no behavior change.
@@ -6871,6 +6946,17 @@ val batchDeadline = System.currentTimeMillis() + maxBatchMillis
 var processedCount = 0
 var deferredCount = 0
 
+// V5.9.676 — phase breadcrumb before the parallel-supervisor scope. If
+// the loop wedges INSIDE the supervisorScope, the heartbeat will see
+// the last lifecycle event as PRE_SUPERVISOR and we know it's a
+// per-token/network problem, not a regime/sentience/lab issue.
+try {
+  ForensicLogger.lifecycle(
+    "CYCLE_PHASE",
+    "loop=$loopCount phase=PRE_SUPERVISOR mints=${orderedMints.size}"
+  )
+} catch (_: Throwable) {}
+
 supervisorScope {
     orderedMints.chunked(maxParallel).forEach { chunk ->
         if (!status.running) return@supervisorScope
@@ -7032,7 +7118,36 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 }
             }
 
+            // V5.9.676 — final phase breadcrumb. If the loop wedges
+            // here we'll see the last lifecycle event was CYCLE_EXIT,
+            // proving the cycle body itself completed but delay() got
+            // suspended (Doze or scope cancellation).
+            try {
+              val _cycleElapsedMs = System.currentTimeMillis() - _cycleStartMs
+              ForensicLogger.lifecycle(
+                "CYCLE_PHASE",
+                "loop=$loopCount phase=CYCLE_EXIT elapsedMs=$_cycleElapsedMs"
+              )
+            } catch (_: Throwable) {}
+
             delay(cfg.pollSeconds * 1000L)
+          } catch (ce: kotlinx.coroutines.CancellationException) {
+            // V5.9.676 — DO NOT swallow CancellationException. The previous
+            // catch (e: Exception) caught it (CE extends Exception in older
+            // Kotlin) and re-entered delay(5000) — which threw another CE
+            // — which the catch swallowed → infinite resurrection loop.
+            // That was a major contributor to the V5.9.675 rescue failing:
+            // our cancel(CE) was caught by the old `catch (e: Exception)`,
+            // logged as "Loop error", and the loop kept resurrecting itself.
+            // Now we explicitly rethrow CE so the heartbeat's cancel() can
+            // actually kill the coroutine and the rescue's relaunch succeeds.
+            try {
+              ForensicLogger.lifecycle(
+                "BOTLOOP_CANCELLED",
+                "loop=$loopCount msg=${ce.message?.take(80)}"
+              )
+            } catch (_: Throwable) {}
+            throw ce
           } catch (e: Exception) {
             // Catch any crash in the main loop and log it
             addLog("❌ Loop error: ${e.message}")
