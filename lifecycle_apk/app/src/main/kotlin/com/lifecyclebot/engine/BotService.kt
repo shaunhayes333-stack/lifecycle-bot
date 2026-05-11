@@ -12958,7 +12958,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         trailingStop = recoveredTrail,
                     )
                 )
-                addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice} peak=+${recoveredPeak.toInt()}% HW=${recoveredHW.fmtPrice()}", ts.mint)
+                addLog("🌙 [MOONSHOT RECOVERY] ${ts.symbol} | mode=$rawMode entry=${ts.position.entryPrice} peak=+${recoveredPeak.toInt()}% HW=${"%.8f".format(recoveredHW)}", ts.mint)
             }
             val exitSignal = com.lifecyclebot.v3.scoring.MoonshotTraderAI.checkExit(ts.mint, currentPrice)
             // V5.9.362 — Moonshot stale-price exit: same fix as Quality. Without
