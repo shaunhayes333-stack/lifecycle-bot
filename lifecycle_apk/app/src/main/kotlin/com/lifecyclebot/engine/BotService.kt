@@ -10263,9 +10263,10 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // V5.9.409 — V3 is now the meme authority. Same V3-ready gate
             // as Moonshot — the Manipulated signal still feeds V3 upstream
             // but V3+FDG own execution when enabled.
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled() &&
-                !(cfg.v3EngineEnabled && try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false })
-            ) {
+            // V5.9.686 — Manipulated runs ALONGSIDE V3, not as a V3 fallback.
+            // The old gate !(v3Enabled && V3Ready) meant ManipulatedTraderAI never
+            // ran because V3 is always ready, silencing the entire trader.
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
                 try {
                     val manipTokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
@@ -10383,9 +10384,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     val momentum = ts.momentum ?: 0.0
                     val expressLearning = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
                     val expressMinMom = (1.0 + expressLearning * 2.0).coerceIn(1.0, 3.0)
-                    val expressMinBuyP = (45.0 + expressLearning * 5.0).coerceIn(45.0, 50.0)
-                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 65.0) {
-                        (ts.lastBuyPressurePct - 60.0).coerceAtLeast(expressMinMom)
+                    // V5.9.686 — lower floor 45→40 so tokens with 45-50% buy pressure
+                    // (the pump.fun WS default band) pass the pre-filter and reach evaluate().
+                    val expressMinBuyP = (40.0 + expressLearning * 10.0).coerceIn(40.0, 50.0)
+                    // V5.9.686 — Lower proxy threshold 65→55%.
+                    // Pump.fun WS tokens arrive with no candle history so momentum=null
+                    // and lastBuyPressurePct stays at the constructor default (50.0).
+                    // The old 65% floor meant every PumpPortal token got effectiveMom=0
+                    // and hit the EXPRESS SKIP gate. 55% lets the majority of fresh
+                    // launches synthesise a minimal momentum read from buy pressure.
+                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 55.0) {
+                        (ts.lastBuyPressurePct - 50.0).coerceAtLeast(expressMinMom)
                     } else momentum
                     // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
                     // fresh pump.fun tokens arrive with lastMcap==0 before the

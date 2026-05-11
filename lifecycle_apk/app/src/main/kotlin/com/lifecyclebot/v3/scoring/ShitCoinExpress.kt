@@ -52,7 +52,9 @@ object ShitCoinExpress {
 
     // V5.6.8: Lowered momentum requirements to actually trigger during bootstrap
     private const val MIN_MOMENTUM_PCT = 3.0          // V5.9.343: walk-back to pre-V5.9.194
-    private const val MIN_BUY_PRESSURE_PCT = 50.0     // V5.9.343: walk-back to pre-V5.9.194
+    // V5.9.686 — lowered 50→45 to match BotService pre-filter; tokens with ~50%
+    // buy pressure from PumpPortal now pass the internal gate as well.
+    private const val MIN_BUY_PRESSURE_PCT = 45.0     // V5.9.686: lowered from 50.0
     
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.05        // Tiny base
@@ -304,8 +306,12 @@ object ShitCoinExpress {
         val fluidMinBuyPressure = (45.0 + learningProgress * 5.0).coerceIn(45.0, MIN_BUY_PRESSURE_PCT)
         // If fresh launch with no usable momentum history yet, let strong buys
         // stand in for momentum (buyPressure >= 65% is itself a pump signal).
-        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 65.0) {
-            (buyPressurePct - 60.0).coerceAtLeast(fluidMinMomentum)
+        // V5.9.686 — lower proxy from 65→55% to match BotService pre-filter fix.
+        // Tokens from PumpPortal WS arrive with no candle history → momentum=0
+        // and buyPressure=50 (default). Old 65% floor silenced Express entirely
+        // for fresh launches. 55% gives them a synthetic momentum read.
+        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 55.0) {
+            (buyPressurePct - 50.0).coerceAtLeast(fluidMinMomentum)
         } else momentum
 
         // CRITICAL: Must already be pumping (fluid gate)
