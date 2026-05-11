@@ -292,7 +292,6 @@ Also added (StartupReconciler.kt:97-119):
     register.
 
 ### V5.9.674 — kill 5-10min START dead-zone + proactive STUCK-LOOP HEARTBEAT (May 11)
-Operator: "I can physically be sitting in the app and the bot just stops.
 The app remains open. I restart the bot and nothing happens for 5-10 minutes.
 Or at all. If I leave it then sit for 10 minutes and restart it without closing
 the app, when I press Start it finally instantly resumes trading."
@@ -333,6 +332,68 @@ Two surgical fixes:
        as a user-facing alarm so OS does NOT rate-limit it)
    If the fast-path fires first, the backup lands on an already-running
    service and is handled gracefully by the keep-alive branch.
+
+### V5.9.675 — DOZE-PROOF heartbeat + battery-opt banner + SoundManager off main (Feb 2026) ⭐ root cause
+
+Operator's 7h Pipeline Health dump (uptime 25,891s) revealed the REAL root
+cause hidden by two screens of stale truncation:
+  - BOT_LOOP_TICK = **4** across 7 hours of uptime
+  - +2,717 scan callbacks in the 60s between screenshots once screen woke
+  - Watchdog samples taken: 13,389 (should have been ~103k @ 250ms cadence)
+  - SoundManager only accounted for 85 / 13,389 samples (0.6%)
+
+The handoff's SoundManager theory was a symptom, not the cause. The actual
+problem is **Doze suspending the entire bot process** — PARTIAL_WAKE_LOCK
+is ignored by Doze for non-priv apps, foreground service alone is not
+enough, and the V5.9.674b coroutine heartbeat hibernated along with the
+loop it was supposed to watch.
+
+Three surgical fixes:
+
+1. **AlarmManager-driven loop heartbeat** (BotService.kt onStartCommand
+   ACTION_LOOP_HEARTBEAT, scheduleLoopHeartbeatAlarm, cancelLoopHeartbeatAlarm).
+   Replaced the V5.9.674b `scope.launch { delay(30s); ... }` heartbeat with
+   the proven V5.9.674 onTaskRemoved dual-fire pattern:
+     • request code 6 — 60s setExactAndAllowWhileIdle (fast path)
+     • request code 7 — 65s setAlarmClock (Doze-bypass guarantee — OS treats
+       it as a user alarm so it fires THROUGH Doze regardless of state)
+   On every alarm fire, the handler checks lastBotLoopTickMs vs wall clock;
+   if stale > 180s and loopJob.isActive, cancels the zombie with
+   CancellationException + 3s join + relaunches botLoop(). Self-re-arms
+   each fire while running == true; explicit cancelLoopHeartbeatAlarm()
+   called from both stopBot teardown paths so a system-killed bot does not
+   leave the alarm chain re-arming forever.
+
+2. **Battery-optimisation whitelist prompt + persistent banner**
+   (BotService.checkAndPromptBatteryOptimisation,
+   MainActivity.refreshBatteryOptBanner).
+   Even with foreground service + PARTIAL_WAKE_LOCK, Doze suspends the
+   process unless the user has explicitly whitelisted the app under
+   Settings → Apps → Battery → Unrestricted. On every startBot() we now:
+     • Check PowerManager.isIgnoringBatteryOptimizations(packageName).
+     • Persist the result to RUNTIME_PREFS["battery_opt_whitelisted"].
+     • Emit ForensicLogger.lifecycle("BATTERY_OPT_CHECK", ...).
+     • Fire ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS once per process
+       if not whitelisted (the system exemption dialog, one-tap fix).
+   MainActivity.onResume calls refreshBatteryOptBanner() which prepends
+   an amber tap-to-fix TextView above topBarContainer when not whitelisted
+   (and removes it once fixed). Banner click re-launches the system
+   exemption dialog as a fallback.
+
+3. **SoundManager off main thread + 1s throttle** (SoundManager.kt full
+   rewrite, public API identical).
+   - Replaced the main-thread `mainHandler` with a dedicated background
+     `HandlerThread("AATE-Sound", THREAD_PRIORITY_BACKGROUND)`.
+   - Cached single `ToneGenerator` instance (was rebuilt per call — each
+     allocation is an AudioFlinger Binder IPC that was visible in the
+     ANR top blocking-call-site dump 62× as makeTone).
+   - Throttled `playNewToken()` to 1/sec via Volatile lastNewTokenSoundMs.
+     Pump.fun fires several intakes per second; queueing thousands of
+     synchronous beeps was the visible UI-freeze symptom when the screen
+     woke and the bot ripped through the backlog. Other sounds remain
+     un-throttled but still run off-main.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
 
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
