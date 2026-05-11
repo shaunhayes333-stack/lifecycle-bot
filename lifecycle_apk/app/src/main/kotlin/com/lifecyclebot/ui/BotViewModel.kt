@@ -186,59 +186,55 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun saveConfig(cfg: BotConfig) {
-        // Only save and restart if IMPORTANT settings changed (not watchlist)
-        val currentCfg = kotlinx.coroutines.runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) } }
-        
-        // Compare settings that REQUIRE a restart (use trim to avoid whitespace issues)
-        // Only restart for settings that affect the bot's core operation
-        val settingsChanged = cfg.paperMode != currentCfg.paperMode ||
-            cfg.autoTrade != currentCfg.autoTrade ||
-            // Compare with tolerance for floating point
-            kotlin.math.abs(cfg.smallBuySol - currentCfg.smallBuySol) > 0.0001 ||
-            kotlin.math.abs(cfg.largeBuySol - currentCfg.largeBuySol) > 0.0001 ||
-            // Trim strings to avoid whitespace false positives
-            cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim() ||
-            cfg.birdeyeApiKey.trim() != currentCfg.birdeyeApiKey.trim() ||
-            cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim() ||
-            // V5.9.77: pasting a new Gemini key now restarts so
-            // GeminiCopilot.init() picks it up. Previously the new key sat
-            // in config but the LLM kept using the previous one until the
-            // user manually stopped and started the bot.
-            cfg.geminiApiKey.trim() != currentCfg.geminiApiKey.trim()
-            // NOTE: Telegram settings and sound do NOT require a restart
-            // They can be picked up on next use
-        
-        // Always save the config (to persist watchlist changes etc)
-        ConfigStore.save(ctx, cfg)
-        
-        // Only restart if important settings changed (not just watchlist)
-        if (settingsChanged && _ui.value.running) {
-            com.lifecyclebot.engine.ErrorLogger.info("BotViewModel",
-                "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
-                "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
-                "helius=${cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim()}")
-            // V5.9.66: Previously this fired stopBot() and startBot() back-
-            // to-back. onStartCommand dispatches each intent to the scope
-            // and returns immediately, so the START intent arrived while
-            // status.running was still true → onStartCommand saw
-            // "already running" and only rescheduled keep-alive. The
-            // subsequent async STOP then flipped running=false and left
-            // the bot permanently idle until the user toggled again.
-            // Sequence them on a coroutine and wait for status.running to
-            // become false before re-starting.
-            viewModelScope.launch {
-                stopBot()
-                // Wait up to 6 seconds for status.running to flip false.
-                // Scanner loops poll every 1.5s so this almost always
-                // resolves within 2–3s. After the timeout we issue
-                // startBot() anyway — onStartCommand will either bring
-                // us up or confirm we're still running.
-                val deadline = System.currentTimeMillis() + 6_000L
-                while (com.lifecyclebot.engine.BotService.status.running &&
-                       System.currentTimeMillis() < deadline) {
-                    delay(150)
+        // V5.9.702 — ANR FIX: saveConfig was called from MainActivity.onPause/onStop
+        // (main thread). The previous body did runBlocking { withContext(IO) { load() } }
+        // which parked the main thread for the full disk-read duration — observed up to
+        // 12 seconds of stall in ANR traces (106 consecutive samples at BotViewModel.saveConfig).
+        // ConfigStore.save() is also synchronous disk I/O on the main thread.
+        //
+        // Fix: move ALL blocking work (load + save + restart decision) onto a
+        // viewModelScope coroutine dispatched to IO. The caller (onPause/onStop) returns
+        // immediately. The BotService runs independently in a foreground service and
+        // outlives the Activity, so the async write + conditional restart is safe to
+        // fire-and-forget from a lifecycle callback.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                // Load previous config on IO thread — no longer blocks main thread.
+                val currentCfg = ConfigStore.load(ctx)
+
+                // Compare settings that REQUIRE a restart (use trim to avoid whitespace issues)
+                val settingsChanged = cfg.paperMode != currentCfg.paperMode ||
+                    cfg.autoTrade != currentCfg.autoTrade ||
+                    kotlin.math.abs(cfg.smallBuySol - currentCfg.smallBuySol) > 0.0001 ||
+                    kotlin.math.abs(cfg.largeBuySol - currentCfg.largeBuySol) > 0.0001 ||
+                    cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim() ||
+                    cfg.birdeyeApiKey.trim() != currentCfg.birdeyeApiKey.trim() ||
+                    cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim() ||
+                    // V5.9.77: Gemini key change restarts so GeminiCopilot.init() picks it up.
+                    cfg.geminiApiKey.trim() != currentCfg.geminiApiKey.trim()
+                    // NOTE: Telegram settings and sound do NOT require a restart.
+
+                // Always save the config on IO thread (no longer blocks main thread).
+                ConfigStore.save(ctx, cfg)
+
+                // Only restart if important settings changed (not just watchlist).
+                if (settingsChanged && _ui.value.running) {
+                    com.lifecyclebot.engine.ErrorLogger.info("BotViewModel",
+                        "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
+                        "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
+                        "helius=${cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim()}")
+                    // V5.9.66 sequencing preserved: wait for status.running to flip false
+                    // before issuing startBot() so the service doesn't see a double-start.
+                    stopBot()
+                    val deadline = System.currentTimeMillis() + 6_000L
+                    while (com.lifecyclebot.engine.BotService.status.running &&
+                           System.currentTimeMillis() < deadline) {
+                        delay(150)
+                    }
+                    startBot()
                 }
-                startBot()
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "saveConfig async failed: ${e.message}", e)
             }
         }
     }
@@ -292,9 +288,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             // Use singleton wallet manager
             com.lifecyclebot.engine.WalletManager.getInstance(ctx).disconnect()
         } catch (_: Exception) {}
-        // Clear private key from config
-        val cfg = kotlinx.coroutines.runBlocking { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) } }
-        saveConfig(cfg.copy(privateKeyB58 = ""))
+        // V5.9.702 — Clear private key async; saveConfig is now fully async so
+        // this naturally dispatches off the main thread too.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val cfg = ConfigStore.load(ctx)
+                // saveConfig is already async (viewModelScope.launch) — call directly.
+                // We pass the cfg here; saveConfig will re-load inside its own launch,
+                // so just fire a direct save of the scrubbed config to avoid a double-load.
+                ConfigStore.save(ctx, cfg.copy(privateKeyB58 = ""))
+            } catch (_: Exception) {}
+        }
     }
 
     fun manualBuy() {

@@ -156,7 +156,8 @@ class BrainNetworkView @JvmOverloads constructor(
     private var brainPulsePhase = 0f
     
     private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-        duration = 50  // ~20fps
+        duration = 200  // V5.9.702 — 5fps (was 20fps/50ms). Brain view is decorative;
+                        // 20fps at ~230ms/draw = 4600ms CPU/s → constant ANR stalls.
         repeatCount = ValueAnimator.INFINITE
         interpolator = LinearInterpolator()
         addUpdateListener {
@@ -284,6 +285,19 @@ class BrainNetworkView @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         animator.cancel()
         super.onDetachedFromWindow()
+    }
+
+    // V5.9.702 — Pause animator when window is not visible (Activity onPause/onStop/background).
+    // Previously the animator kept firing invalidate() every 200ms even while invisible,
+    // burning CPU on software-rendered Canvas redraws that no one sees.
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == VISIBLE) {
+            if (animator.isPaused) animator.resume()
+            else if (!animator.isRunning) animator.start()
+        } else {
+            if (animator.isRunning) animator.pause()
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
