@@ -444,6 +444,39 @@ Four surgical fixes:
 
 CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
 
+### V5.9.677 — version stamp + pinned lifecycle counters + LANE_EVAL forensics (Feb 2026)
+
+Operator's V5.9.676 dump exposed two diagnostics gaps that wasted a
+debugging round and one real silent drop killing every meme buy:
+
+1. **No build version in dump header.** Agent spent the round arguing
+   about whether V5.9.675/676 was on device because we had to infer it
+   from lifecycle counter presence. Fix: first line of every Pipeline
+   Health dump now prints `Build: <BuildConfig.VERSION_NAME>  |  Tag:
+   V5.9.677`. The BUILD_TAG const is bumped each release. End of debate.
+
+2. **LIFECYCLE/* counters fell off the bottom-40 cap.** A 15-min session
+   with 1,000+ SCAN_CB events buried singleton lifecycle counters
+   (BATTERY_OPT_CHECK=1, CYCLE_PHASE=63) below the labelled-counters
+   take(40) cut. Fix: pin all `LIFECYCLE/*` and `SNAP/*` entries FIRST
+   (sorted by count desc among themselves), then fill remaining slots
+   with the highest-count non-pinned counters. Lifecycle visibility now
+   guaranteed regardless of event volume.
+
+3. **LANE_EVAL → FDG silent drop surfaced.** V5.9.676 dump showed 14
+   LANE_EVAL passes / 0 FDG evaluations — the bot was rejecting every
+   meme buy at the FinalExecutionPermit stage, but the rejection only
+   hit `ErrorLogger.debug` (off in release). Added
+   `ForensicLogger.gate(PHASE.LANE_EVAL, allow=false, reason=...)` at
+   the three silent-return points:
+     • SHITCOIN lane permit deny → `PERMIT_DENY:<reason> lane=SHITCOIN`
+     • MOONSHOT lane permit deny → `PERMIT_DENY:<reason> lane=MOONSHOT`
+     • SHITCOIN authorizer race  → `AUTHZ_RACE another-lane lane=SHITCOIN`
+   Next dump's funnel allow/block tally will show exactly why each
+   LANE_EVAL pass failed to reach the FinalDecisionGate.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN.
+
 ## Critical Operator Mandates
 - NO LOCAL COMPILER. All changes via Git → GitHub Actions CI.
 - Brace counting before push (grep -c '{' vs '}') is mandatory.
