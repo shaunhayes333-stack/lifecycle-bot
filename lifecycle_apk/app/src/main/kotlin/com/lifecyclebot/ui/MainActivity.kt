@@ -713,6 +713,73 @@ class MainActivity : AppCompatActivity() {
         updateCurrencySelectorText()
         // V5.9.666 — start Pipeline tile badge refresher (every 3s).
         try { pipelineTileHandler.post(pipelineTileRefresh) } catch (_: Throwable) {}
+        // V5.9.675 — show / hide the battery-optimisation banner depending
+        // on current whitelist state. Cheap PowerManager check + at most
+        // one TextView attach. See refreshBatteryOptBanner() below for the
+        // root-cause explainer.
+        try { refreshBatteryOptBanner() } catch (e: Throwable) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "batteryOptBanner refresh err: ${e.message}")
+        }
+    }
+
+    // ── V5.9.675 — BATTERY OPTIMISATION BANNER ───────────────────────
+    //
+    // Operator's 7h Pipeline Health dump showed BOT_LOOP_TICK = 4 across
+    // 25,891s of uptime — the bot loop was hibernating under Doze whenever
+    // the screen was off, then ripping through +2,717 scan callbacks the
+    // instant the screen woke. PARTIAL_WAKE_LOCK is ignored by Doze for
+    // non-priv apps; the only fix is the user adding the app to the
+    // battery-optimisation whitelist. This banner makes that one tap.
+    private fun refreshBatteryOptBanner() {
+        val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager ?: return
+        val whitelisted = try {
+            pm.isIgnoringBatteryOptimizations(packageName)
+        } catch (_: Throwable) { true } // fail-open: don't pester if check fails
+        val existing = findViewById<android.widget.TextView>(BATTERY_OPT_BANNER_VIEW_ID)
+        if (whitelisted) {
+            if (existing != null) (existing.parent as? android.view.ViewGroup)?.removeView(existing)
+            return
+        }
+        if (existing != null) return // already attached
+        // Anchor: the outer LinearLayout that is the direct child of the
+        // NestedScrollView (above topBarContainer). Locate it via topBar.
+        val topBar = findViewById<android.view.View>(R.id.topBarContainer) ?: return
+        val outer = topBar.parent as? android.widget.LinearLayout ?: return
+        val tv = android.widget.TextView(this).apply {
+            id = BATTERY_OPT_BANNER_VIEW_ID
+            text = "⚠ Battery optimisation is ON — bot will freeze when screen turns off. Tap to fix."
+            setTextColor(0xFF0A0A0F.toInt())
+            setBackgroundColor(0xFFF59E0B.toInt())
+            setPadding(40, 28, 40, 28)
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                try {
+                    @android.annotation.SuppressLint("BatteryLife")
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    ).setData(android.net.Uri.parse("package:$packageName"))
+                    startActivity(intent)
+                } catch (_: Throwable) {
+                    try {
+                        startActivity(
+                            android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+        val lp = android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        outer.addView(tv, 0, lp)
+    }
+
+    companion object {
+        private const val BATTERY_OPT_BANNER_VIEW_ID = 0x7F990001
     }
 
     // V5.9.666 — Pipeline tile badge live updater. Reads

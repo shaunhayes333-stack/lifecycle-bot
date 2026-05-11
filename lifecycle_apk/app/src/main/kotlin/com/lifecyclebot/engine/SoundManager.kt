@@ -3,40 +3,50 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.MediaPlayer
 import android.media.SoundPool
 import android.media.ToneGenerator
+import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
+import android.os.Process
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.os.Build
 
 /**
  * SoundManager
  *
- * Plays synthesised sounds for trading events using Android's ToneGenerator
- * and SoundPool. Also supports custom audio clips for fun reactions!
+ * Plays synthesised sounds for trading events. ALL audio + haptic work
+ * runs on a dedicated background HandlerThread — never the main thread.
  *
- * PROFIT SELL  → Classic cash register: ascending ding sequence
- * LOSS/STOP    → Warning siren: descending wail
- * MILESTONE    → Escalating tones at 50%, 100%, 200% gain while holding
- * NEW TOKEN    → Short alert ping (Pump.fun WebSocket new token detected)
- * SAFETY BLOCK → Low buzzer (token blocked by safety checker)
- * 
- * CUSTOM SOUNDS (add your own MP3s to res/raw/):
- * BUY TOKEN    → Homer Simpson "Woohoo!" (res/raw/woohoo.mp3)
- * BLOCK TOKEN  → "Awesome!" (res/raw/awesome.mp3)
+ * V5.9.675 — DOZE-WAKE BACKLOG FIX. Pipeline-Health dump showed 85 main-
+ * thread samples spent inside SoundManager.makeTone / vibratePattern /
+ * playNewToken$lambda when the screen woke and the bot ripped through
+ * the queued PumpPortal backlog. ToneGenerator's native_setup is a heavy
+ * AudioFlinger Binder IPC; instantiating a fresh one per intake on the
+ * UI thread is what stalled the looper. Three fixes:
  *
- * All sounds respect the device's volume and Do Not Disturb settings.
- * Can be muted from settings.
+ *   1. Dedicated background HandlerThread for ALL playback + vibration.
+ *   2. Cached single ToneGenerator instance, lazy-built once per process.
+ *   3. 1-second throttle on playNewToken() — meme intake fires several
+ *      per second and the audible cue is only useful at human-rate.
+ *
+ * All other sounds (buy/sell/milestone/siren) are rare and meaningful;
+ * they remain un-throttled but still run off-main.
  */
 class SoundManager(private val ctx: Context) {
 
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var enabled = true
-    
+    // V5.9.675 — dedicated background thread for ALL sound work. Lower
+    // priority than the main thread so a flood of intake events can never
+    // starve the UI even on contended schedulers.
+    private val soundThread: HandlerThread = HandlerThread(
+        "AATE-Sound",
+        Process.THREAD_PRIORITY_BACKGROUND
+    ).also { it.start() }
+    private val soundHandler: Handler = Handler(soundThread.looper)
+
+    @Volatile private var enabled = true
+
     // SoundPool for custom audio clips
     private val soundPool: SoundPool by lazy {
         SoundPool.Builder()
@@ -49,22 +59,41 @@ class SoundManager(private val ctx: Context) {
             )
             .build()
     }
-    
+
+    // V5.9.675 — cached ToneGenerator instance. ToneGenerator.native_setup()
+    // is a Binder IPC into AudioFlinger; allocating a fresh one per call
+    // was the actual main-thread stall fingerprint in the 7h dump.
+    @Volatile private var cachedTone: ToneGenerator? = null
+    private val toneLock = Any()
+
+    private fun tone(): ToneGenerator? {
+        val existing = cachedTone
+        if (existing != null) return existing
+        synchronized(toneLock) {
+            val again = cachedTone
+            if (again != null) return again
+            return try {
+                ToneGenerator(AudioManager.STREAM_NOTIFICATION, 85).also { cachedTone = it }
+            } catch (_: Exception) { null }
+        }
+    }
+
+    // V5.9.675 — throttle for high-frequency playNewToken (1 per second max).
+    @Volatile private var lastNewTokenSoundMs: Long = 0L
+    private val newTokenThrottleMs: Long = 1_000L
+
     // Sound IDs for custom clips (loaded lazily)
     private var woohooSoundId: Int = -1
     private var awesomeSoundId: Int = -1
     private var aplusAlertSoundId: Int = -1
     private var soundsLoaded = false
-    
+
     init {
-        // Try to load custom sounds if they exist
         loadCustomSounds()
+        latestInstance = this
     }
 
-    /** V5.9.359 — Public hot-reload for the Persona Studio MP3 swap.
-     *  Unloads previously-loaded slot IDs before reloading so we don't
-     *  leak SoundPool entries on every swap. Safe to call from the UI
-     *  thread; no-op if soundPool is unavailable. */
+    /** V5.9.359 — Public hot-reload for the Persona Studio MP3 swap. */
     fun reloadCustomSounds() {
         try {
             if (woohooSoundId > 0) soundPool.unload(woohooSoundId)
@@ -77,20 +106,10 @@ class SoundManager(private val ctx: Context) {
         loadCustomSounds()
     }
 
-    init {
-        // V5.9.359 — track the active instance so non-service callers
-        // (e.g. PersonaStudioActivity) can trigger a hot-reload without
-        // having to bind to BotService.
-        latestInstance = this
-    }
-
     companion object {
         @Volatile
         private var latestInstance: SoundManager? = null
 
-        /** V5.9.359 — Static convenience to reload custom sounds from
-         *  any Activity context. No-op if no SoundManager has been
-         *  constructed yet (e.g. bot service not started). */
         fun reloadActiveCustomSounds() {
             try { latestInstance?.reloadCustomSounds() } catch (_: Exception) {}
         }
@@ -98,9 +117,6 @@ class SoundManager(private val ctx: Context) {
 
     private fun loadCustomSounds() {
         try {
-            // V5.9.350: Persona Studio can swap built-in sounds for user-picked
-            // MP3s stored at filesDir/custom_sounds/<slot>.mp3. We check for a
-            // valid user file FIRST; fall back to res/raw/<slot> if absent.
             val customDir = java.io.File(ctx.filesDir, "custom_sounds")
 
             fun tryLoadSlot(slot: String): Int {
@@ -129,16 +145,10 @@ class SoundManager(private val ctx: Context) {
                 ErrorLogger.info("SoundManager", "Custom sounds loaded! 🎵 Woohoo!")
             }
         } catch (e: Exception) {
-            // Sounds not found - will use default tones
             soundsLoaded = false
             ErrorLogger.debug("SoundManager", "Custom sounds not available, using default tones")
         }
     }
-
-    // ToneGenerator for simple synthesised tones
-    private fun makeTone(): ToneGenerator? = try {
-        ToneGenerator(AudioManager.STREAM_NOTIFICATION, 85)
-    } catch (_: Exception) { null }
 
     // Vibrator for haptic feedback
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -150,16 +160,15 @@ class SoundManager(private val ctx: Context) {
     }
 
     fun setEnabled(v: Boolean) { enabled = v }
-    
+
     // ── BUY TOKEN - Homer's "Woohoo!" ──────────────────────────────────
     fun playBuySound() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             if (soundsLoaded && woohooSoundId > 0) {
                 soundPool.play(woohooSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
                 vibratePattern(longArrayOf(0, 50, 30, 100))
             } else {
-                // Fallback: happy ascending tones
                 playSequence(listOf(
                     Pair(ToneGenerator.TONE_PROP_BEEP, 80),
                     Pair(ToneGenerator.TONE_PROP_BEEP2, 100),
@@ -169,16 +178,15 @@ class SoundManager(private val ctx: Context) {
             }
         }
     }
-    
+
     // ── BLOCK TOKEN - "Awesome!" ──────────────────────────────────────
     fun playBlockSound() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             if (soundsLoaded && awesomeSoundId > 0) {
                 soundPool.play(awesomeSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
                 vibratePattern(longArrayOf(0, 100, 50, 100, 50, 100))
             } else {
-                // Fallback: descending "nope" tones
                 playSequence(listOf(
                     Pair(ToneGenerator.TONE_SUP_ERROR, 150),
                     Pair(ToneGenerator.TONE_PROP_NACK, 150),
@@ -190,10 +198,9 @@ class SoundManager(private val ctx: Context) {
     }
 
     // ── Cash register (profitable sell) ──────────────────────────────
-    // Classic "cha-ching" — ascending notes then a long ring
     fun playCashRegister() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             playSequence(listOf(
                 Pair(ToneGenerator.TONE_PROP_BEEP,  80),
                 Pair(ToneGenerator.TONE_PROP_BEEP2, 80),
@@ -206,10 +213,9 @@ class SoundManager(private val ctx: Context) {
     // Big win bonus sounds — escalating with profit size
     fun playMilestone(gainPct: Double) {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             when {
                 gainPct >= 200 -> {
-                    // 200%+ — triple ding sequence
                     playSequence(listOf(
                         Pair(ToneGenerator.TONE_PROP_BEEP,  100),
                         Pair(ToneGenerator.TONE_PROP_BEEP2, 100),
@@ -219,7 +225,6 @@ class SoundManager(private val ctx: Context) {
                     vibratePattern(longArrayOf(0, 80, 40, 80, 40, 200))
                 }
                 gainPct >= 100 -> {
-                    // 100%+ — double ding
                     playSequence(listOf(
                         Pair(ToneGenerator.TONE_PROP_BEEP2, 120),
                         Pair(ToneGenerator.TONE_PROP_ACK,   180),
@@ -227,8 +232,7 @@ class SoundManager(private val ctx: Context) {
                     vibratePattern(longArrayOf(0, 60, 40, 120))
                 }
                 gainPct >= 50 -> {
-                    // 50%+ — single high ding
-                    makeTone()?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
+                    tone()?.startTone(ToneGenerator.TONE_PROP_ACK, 150)
                     vibratePattern(longArrayOf(0, 80))
                 }
             }
@@ -236,10 +240,9 @@ class SoundManager(private val ctx: Context) {
     }
 
     // ── Warning siren (loss / stop loss triggered) ────────────────────
-    // Descending wail — two falling notes
     fun playWarningSiren() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             playSequence(listOf(
                 Pair(ToneGenerator.TONE_SUP_ERROR,      200),
                 Pair(ToneGenerator.TONE_PROP_NACK,      200),
@@ -250,10 +253,16 @@ class SoundManager(private val ctx: Context) {
     }
 
     // ── New token alert (Pump.fun launch detected) ────────────────────
+    // V5.9.675 — throttled to ≤1/sec. Pump.fun fires several intakes per
+    // second; queueing thousands of beeps was the visible UI-freeze symptom
+    // when the screen woke after Doze. Drops are silent and intentional.
     fun playNewToken() {
         if (!enabled) return
-        mainHandler.post {
-            makeTone()?.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+        val now = System.currentTimeMillis()
+        if (now - lastNewTokenSoundMs < newTokenThrottleMs) return
+        lastNewTokenSoundMs = now
+        soundHandler.post {
+            tone()?.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
             vibratePattern(longArrayOf(0, 40, 20, 40))
         }
     }
@@ -261,12 +270,10 @@ class SoundManager(private val ctx: Context) {
     // ── Safety block alert - "Awesome!" ────────────────────────────────
     fun playSafetyBlock() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             if (soundsLoaded && awesomeSoundId > 0) {
-                // 🎵 "Awesome!"
                 soundPool.play(awesomeSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
             } else {
-                // Fallback tones
                 playSequence(listOf(
                     Pair(ToneGenerator.TONE_PROP_NACK, 150),
                     Pair(ToneGenerator.TONE_PROP_NACK, 150),
@@ -279,7 +286,7 @@ class SoundManager(private val ctx: Context) {
     // ── A+ SETUP ALERT ────────────────────────────────────────────────
     fun playAplusAlert() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             if (soundsLoaded && aplusAlertSoundId > 0) {
                 soundPool.play(aplusAlertSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
             } else if (soundsLoaded && woohooSoundId > 0) {
@@ -298,7 +305,7 @@ class SoundManager(private val ctx: Context) {
     // ── Circuit breaker triggered ─────────────────────────────────────
     fun playCircuitBreaker() {
         if (!enabled) return
-        mainHandler.post {
+        soundHandler.post {
             playSequence(listOf(
                 Pair(ToneGenerator.TONE_SUP_ERROR,  300),
                 Pair(ToneGenerator.TONE_PROP_NACK,  300),
@@ -308,12 +315,14 @@ class SoundManager(private val ctx: Context) {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
+    // V5.9.675 — both helpers now run inside the soundHandler.post block,
+    // i.e. on the AATE-Sound thread. They no longer touch the main looper.
 
     private fun playSequence(tones: List<Pair<Int, Int>>, delayMs: Long) {
         var offset = 0L
-        tones.forEach { (tone, duration) ->
-            mainHandler.postDelayed({
-                makeTone()?.startTone(tone, duration)
+        tones.forEach { (toneId, duration) ->
+            soundHandler.postDelayed({
+                tone()?.startTone(toneId, duration)
             }, offset)
             offset += duration + delayMs
         }

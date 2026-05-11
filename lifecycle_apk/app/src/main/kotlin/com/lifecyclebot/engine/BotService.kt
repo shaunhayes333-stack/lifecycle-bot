@@ -38,6 +38,11 @@ class BotService : Service() {
             set(value) { _instance = if (value != null) java.lang.ref.WeakReference(value) else null }
         const val ACTION_START  = "com.lifecyclebot.START"
         const val ACTION_STOP   = "com.lifecyclebot.STOP"
+        // V5.9.675 — Doze-proof loop heartbeat. Fired by AlarmManager every
+        // 60s via setAlarmClock + setExactAndAllowWhileIdle dual pattern.
+        // The handler in onStartCommand checks lastBotLoopTickMs and force-
+        // restarts the loop coroutine if it has gone silent for >180s.
+        const val ACTION_LOOP_HEARTBEAT = "com.lifecyclebot.LOOP_HEARTBEAT"
         const val EXTRA_USER_REQUESTED = "com.lifecyclebot.USER_REQUESTED"
         const val RUNTIME_PREFS = "bot_runtime"
         const val KEY_WAS_RUNNING_BEFORE_SHUTDOWN = "was_running_before_shutdown"
@@ -1202,6 +1207,52 @@ class BotService : Service() {
                 cancelAllRestartAlarms()
                 try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
                 scope.launch { stopBot() }
+            }
+            ACTION_LOOP_HEARTBEAT -> {
+                // V5.9.675 — DOZE-PROOF HEARTBEAT. AlarmManager wakes us every
+                // 60s (setAlarmClock + setExactAndAllowWhileIdle dual fire,
+                // identical pattern to V5.9.674 onTaskRemoved). The previous
+                // scope.launch { delay(30_000) } heartbeat was suspended along
+                // with the bot loop itself during Doze — operator's 7h dump
+                // showed BOT_LOOP_TICK=4 / 25,891s, with the bot ripping
+                // through +2,717 scan callbacks the instant the screen woke.
+                // System alarms fire THROUGH Doze; coroutine delay() does not.
+                try {
+                    val sinceLastTickMs = System.currentTimeMillis() - lastBotLoopTickMs
+                    val running = status.running
+                    val lj = loopJob
+                    val active = lj?.isActive == true
+                    ForensicLogger.lifecycle(
+                        "LOOP_HEARTBEAT_ALARM",
+                        "sinceLastTickSec=${sinceLastTickMs / 1000} running=$running loopActive=$active"
+                    )
+                    if (running && sinceLastTickMs > 180_000L && active) {
+                        ErrorLogger.warn(
+                            "BotService",
+                            "🩺 LOOP_HEARTBEAT(alarm): no BOT_LOOP_TICK in ${sinceLastTickMs / 1000}s — force-restarting zombie botLoop()"
+                        )
+                        addLog("🩺 Stuck loop detected (${sinceLastTickMs / 1000}s silent via alarm) — auto-restarting")
+                        ForensicLogger.lifecycle(
+                            "LOOP_HEARTBEAT_RESCUE",
+                            "silentSec=${sinceLastTickMs / 1000} src=alarm"
+                        )
+                        scope.launch {
+                            try {
+                                lj?.cancel(kotlinx.coroutines.CancellationException("loop-heartbeat-alarm rescue"))
+                                withTimeoutOrNull(3_000L) { lj?.join() }
+                            } catch (_: Throwable) {}
+                            lastBotLoopTickMs = System.currentTimeMillis()
+                            loopJob = scope.launch { botLoop() }
+                        }
+                    }
+                    // Re-arm next alarm so the chain keeps going. Only re-arm
+                    // while the bot is supposed to be running — otherwise the
+                    // alarm cancels itself naturally on user Stop via
+                    // cancelLoopHeartbeatAlarm().
+                    if (running) scheduleLoopHeartbeatAlarm()
+                } catch (e: Throwable) {
+                    ErrorLogger.warn("BotService", "LOOP_HEARTBEAT alarm handler crashed: ${e.message}")
+                }
             }
         }
         // V5.9.330 RANDOM-START FIX: Changed from START_STICKY to START_NOT_STICKY.
@@ -2409,41 +2460,30 @@ class BotService : Service() {
         // we never block on the same suspend point that hung the original.
         // Watchdog stops itself the moment status.running goes false (user
         // pressed Stop / startBot crashed).
-        loopHeartbeatJob?.cancel()
-        loopHeartbeatJob = scope.launch {
-            try {
-                while (status.running) {
-                    kotlinx.coroutines.delay(30_000L)
-                    val sinceLastTickMs = System.currentTimeMillis() - lastBotLoopTickMs
-                    val lj = loopJob
-                    if (status.running && sinceLastTickMs > 180_000L && lj?.isActive == true) {
-                        ErrorLogger.warn(
-                            "BotService",
-                            "🩺 LOOP_HEARTBEAT: no BOT_LOOP_TICK in ${sinceLastTickMs / 1000}s — force-restarting zombie botLoop()"
-                        )
-                        addLog("🩺 Stuck loop detected (${sinceLastTickMs / 1000}s silent) — auto-restarting")
-                        try {
-                            ForensicLogger.lifecycle(
-                                "LOOP_HEARTBEAT_RESCUE",
-                                "silentSec=${sinceLastTickMs / 1000} loopActive=true statusRunning=true"
-                            )
-                        } catch (_: Throwable) {}
-                        try {
-                            lj.cancel(kotlinx.coroutines.CancellationException("loop-heartbeat rescue"))
-                            withTimeoutOrNull(3_000L) { lj.join() }
-                        } catch (_: Throwable) {}
-                        // Reset heartbeat timestamp so the new loop has a
-                        // fresh 180s budget before we'd consider it stuck.
-                        lastBotLoopTickMs = System.currentTimeMillis()
-                        loopJob = scope.launch { botLoop() }
-                    }
-                }
-            } catch (_: kotlinx.coroutines.CancellationException) {
-                /* expected when stopBot cancels scope */
-            } catch (e: Exception) {
-                ErrorLogger.error("BotService", "loopHeartbeatJob crashed: ${e.message}", e)
-            }
+        // V5.9.675 — DOZE-PROOF heartbeat replacement. The V5.9.674b coroutine
+        // heartbeat (scope.launch { delay(30s); ... }) was suspended along
+        // with the bot loop itself during Doze; operator's 7h pipeline dump
+        // showed only 4 BOT_LOOP_TICKs across 25,891s of uptime (then +2,717
+        // scan callbacks in 60s the moment the screen woke). Coroutine
+        // delay() does not fire through Doze; AlarmManager.setAlarmClock
+        // does. We schedule a real system alarm every 60s; when it fires
+        // it broadcasts ACTION_LOOP_HEARTBEAT to ourselves, the alarm
+        // handler in onStartCommand checks lastBotLoopTickMs vs wall clock,
+        // and force-cancels + relaunches the loop coroutine if stale.
+        try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
+        loopHeartbeatJob = null
+        scheduleLoopHeartbeatAlarm()
+
+        // V5.9.675 — battery-optimisation gate. Even with a foreground
+        // service + PARTIAL_WAKE_LOCK, Doze suspends the process unless
+        // the user has explicitly whitelisted the app. Check on every
+        // start and broadcast the result so MainActivity can surface
+        // a banner. On the first start where the app is NOT whitelisted,
+        // we also kick the system dialog so the user can fix it in one tap.
+        try { checkAndPromptBatteryOptimisation() } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "battery-opt check failed: ${e.message}")
         }
+
 
         // V5.9.357 — start macro pollers (Binance funding 5m, Gemini sentiment
         // 15m, CoinGecko stables 60m). These feed FundingRateAwarenessAI,
@@ -3542,8 +3582,11 @@ class BotService : Service() {
             } catch (_: Exception) {}
             try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
             try { cancelKeepAliveAlarm() } catch (_: Exception) {}
-            // V5.9.674 — cancel heartbeat watchdog so a crashed startBot
-            // does not leave the watchdog ticking against a dead loopJob.
+            // V5.9.675 — cancel Doze-proof loop heartbeat alarm. The
+            // V5.9.674b coroutine job is also nulled below for any code
+            // path that may still reference it (e.g. an in-flight start
+            // that crashed mid-launch before the alarm was scheduled).
+            try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
             try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
             loopHeartbeatJob = null
             try {
@@ -3653,6 +3696,13 @@ class BotService : Service() {
         // loopJob it watches is cancelled; otherwise the watchdog could
         // observe sinceLastTickMs > 180s mid-shutdown and relaunch botLoop
         // exactly when we are trying to stop.
+        // V5.9.675 — also cancel the AlarmManager-driven Doze-proof
+        // heartbeat alarm; otherwise it would fire ACTION_LOOP_HEARTBEAT
+        // post-stop, the handler would see status.running=false and skip
+        // the rescue, but the alarm would keep re-arming itself (it only
+        // self-cancels when running == true; absent that, we cancel it
+        // explicitly here).
+        try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
         try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
         loopHeartbeatJob = null
         addLog("Stopping bot...")
@@ -4234,6 +4284,133 @@ class BotService : Service() {
     private fun cancelKeepAliveAlarm() {
         cancelAllRestartAlarms()
         ErrorLogger.info("BotService", "Keep-alive alarms cancelled")
+    }
+
+    // ── V5.9.675 — DOZE-PROOF LOOP HEARTBEAT ALARM ───────────────────
+    //
+    // The V5.9.674b coroutine heartbeat hibernated alongside the bot loop
+    // it was supposed to watch (operator's 7h dump: only 4 BOT_LOOP_TICKs
+    // / 25,891s, +2,717 scan callbacks the instant the screen woke). The
+    // fix is to use AlarmManager.setAlarmClock — Android treats those as
+    // user-facing alarms and fires them THROUGH Doze, regardless of
+    // foreground-service / wake-lock state.
+    //
+    // Same dual-fire pattern as V5.9.674 onTaskRemoved restart:
+    //   • request code 6 — 60s setExactAndAllowWhileIdle (fast path, may
+    //     be deferred up to ~9min in deep Doze for non-priv apps).
+    //   • request code 7 — 65s setAlarmClock (Doze-bypass guarantee;
+    //     never rate-limited because OS treats it as a user alarm).
+    private fun scheduleLoopHeartbeatAlarm() {
+        val hbIntent = Intent(applicationContext, BotService::class.java).apply {
+            action = ACTION_LOOP_HEARTBEAT
+        }
+        val fastPi = android.app.PendingIntent.getService(
+            this, 6, hbIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val backupPi = android.app.PendingIntent.getService(
+            this, 7, hbIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val am = getSystemService(android.app.AlarmManager::class.java) ?: return
+        try {
+            am.setExactAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 60_000L,
+                fastPi
+            )
+        } catch (_: Throwable) {}
+        try {
+            // setAlarmClock requires a "show" intent for the system clock
+            // icon. We point at MainActivity (same as keep-alive alarm).
+            val showIntent = Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java)
+            val showPi = android.app.PendingIntent.getActivity(
+                this, 8, showIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setAlarmClock(
+                android.app.AlarmManager.AlarmClockInfo(
+                    System.currentTimeMillis() + 65_000L, showPi
+                ),
+                backupPi
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.debug("BotService", "setAlarmClock for loop heartbeat backup failed: ${e.message}")
+        }
+    }
+
+    private fun cancelLoopHeartbeatAlarm() {
+        val hbIntent = Intent(applicationContext, BotService::class.java).apply {
+            action = ACTION_LOOP_HEARTBEAT
+        }
+        val am = getSystemService(android.app.AlarmManager::class.java) ?: return
+        for (rc in intArrayOf(6, 7)) {
+            try {
+                val pi = android.app.PendingIntent.getService(
+                    this, rc, hbIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                am.cancel(pi)
+                pi.cancel()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    // ── V5.9.675 — BATTERY OPTIMISATION WHITELIST ────────────────────
+    //
+    // Even with a foreground service + PARTIAL_WAKE_LOCK, Doze suspends
+    // the entire process (and our coroutines) unless the user has
+    // whitelisted the app under Settings → Apps → Battery → Unrestricted.
+    // We check on every bot start, log the result, and the first time we
+    // find we're NOT whitelisted, we kick the system dialog so the user
+    // can fix it in one tap. MainActivity also surfaces a banner via the
+    // sticky RUNTIME_PREFS flag.
+    private fun checkAndPromptBatteryOptimisation() {
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        val whitelisted = pm.isIgnoringBatteryOptimizations(packageName)
+        try {
+            getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("battery_opt_whitelisted", whitelisted)
+                .apply()
+        } catch (_: Throwable) {}
+        ForensicLogger.lifecycle(
+            "BATTERY_OPT_CHECK",
+            "whitelisted=$whitelisted pkg=$packageName"
+        )
+        if (whitelisted) {
+            ErrorLogger.info("BotService", "✅ Battery optimisation: app is WHITELISTED (Doze cannot suspend bot loop)")
+            return
+        }
+        ErrorLogger.warn(
+            "BotService",
+            "⚠️ Battery optimisation NOT whitelisted — Doze will suspend bot loop on screen-off. Prompting user."
+        )
+        addLog("⚠️ Battery optimisation must be disabled for 24/7 trading. Tap the banner to fix.")
+        // Fire the system dialog at most once per process start. The dialog
+        // launches the per-app exemption screen; on Samsung this is a
+        // confirmation popup with "Allow" / "Cancel".
+        val prefs = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+        val alreadyPromptedThisSession = prefs.getBoolean("battery_opt_prompted_session", false)
+        if (alreadyPromptedThisSession) return
+        try {
+            @android.annotation.SuppressLint("BatteryLife")
+            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                .setData(android.net.Uri.parse("package:$packageName"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            prefs.edit().putBoolean("battery_opt_prompted_session", true).apply()
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "Battery-opt prompt failed: ${e.message}")
+        }
+    }
+
+    /** V5.9.675 — read-only accessor used by MainActivity for the banner. */
+    fun isBatteryOptWhitelisted(): Boolean {
+        return try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.isIgnoringBatteryOptimizations(packageName) ?: false
+        } catch (_: Throwable) { false }
     }
 
     // ── V5.9.484 — external push-data streams + LLM ───────────────────
