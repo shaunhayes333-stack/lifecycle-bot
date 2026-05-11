@@ -4286,7 +4286,7 @@ class BotService : Service() {
                 com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().size
             } catch (_: Throwable) { -1 }
             val _finalLifeOpen = try {
-                com.lifecyclebot.engine.TokenLifecycleTracker.getOpenCount()
+                com.lifecyclebot.engine.TokenLifecycleTracker.openCount()
             } catch (_: Throwable) { -1 }
             ForensicLogger.lifecycle(
                 "STOP_COMPLETE",
