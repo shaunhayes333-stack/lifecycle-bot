@@ -7130,6 +7130,23 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
               )
             } catch (_: Throwable) {}
 
+            // V5.9.678 — UNIVERSAL SL SAFETY-NET SWEEP (P0 bug fix).
+            // Operator screenshot showed paper positions at -98% / -90% /
+            // -71% / -33% — all 50-80 percentage points past the configured
+            // -20% SL. Root cause: the SHITCOIN exit branch requires
+            // tradingMode=="SHITCOIN" and the MOONSHOT exit branch requires
+            // tradingMode.startsWith("MOONSHOT"); positions whose mode tag
+            // is null/empty (orphans loaded from disk, paper positions
+            // hydrated without a tag, mode flipped to "" during SC→MS
+            // promotion) hit NEITHER branch and sit forever at -98%. The
+            // existing runFallbackSafetyExit() does exactly the right
+            // delegation (lane checkExit if registered, -20% hard floor for
+            // orphans) but was only invoked when DexScreener was down.
+            // The sweep below runs once per cycle on ALL open positions
+            // regardless of feed state. Kept OUT of processTokenCycle to
+            // avoid blowing that function's JVM 64KB method-size cap.
+            runUniversalSlSafetyNetSweep(cfg, wallet)
+
             delay(cfg.pollSeconds * 1000L)
           } catch (ce: kotlinx.coroutines.CancellationException) {
             // V5.9.676 — DO NOT swallow CancellationException. The previous
@@ -7641,51 +7658,6 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     reason = "cycle_${mint.take(6)}",
                 )
             } catch (_: Throwable) { /* never break the cycle */ }
-
-            // V5.9.678 — UNIVERSAL SL SAFETY NET (P0 bug fix).
-            //
-            // Operator screenshot of paper positions showed 5+ tokens sitting at
-            // -98% / -90% / -91% / -71% / -33% — all 50-80 percentage points
-            // PAST the configured -20% stop loss. Root cause:
-            //
-            //   1. SHITCOIN exit branch (line ~11931) requires
-            //        position.isShitCoinPosition || tradingMode == "SHITCOIN"
-            //   2. MOONSHOT exit branch (line ~12193) requires
-            //        MoonshotTraderAI.hasPosition() || tradingMode.startsWith("MOONSHOT")
-            //   3. runFallbackSafetyExit() only ran when DexScreener was DOWN
-            //
-            // Positions whose tradingMode field is null/empty (orphans loaded
-            // from disk, positions whose mode tag was flipped to "" during a
-            // SHITCOIN → MOONSHOT promotion, paper-mode positions hydrated
-            // without a tag) hit NONE of the three exit paths. They sit
-            // forever at -98% because price ticks update the UI display but
-            // never reach an exit-check.
-            //
-            // The fix is to run runFallbackSafetyExit() on EVERY cycle for
-            // open positions, regardless of feed state. The function is
-            // idempotent (delegates to lane checkExit() if registered,
-            // falls back to -20% hard floor for orphans, returns silently
-            // for HOLD signals) so calling it ahead of the lane-specific
-            // branches just means tagged positions get an early dispatch
-            // by exactly the same code that would run later, and untagged
-            // positions finally get evaluated at all.
-            //
-            // Safety: position.isOpen flips to false synchronously inside
-            // executor.requestSell (the engine treats the position as
-            // closed even before the on-chain confirmation), so the lane
-            // branches downstream will skip the position correctly.
-            try {
-                val ts = status.tokens[mint]
-                if (ts != null && ts.position.isOpen && ts.position.qtyToken > 0.0
-                    && ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0) {
-                    runFallbackSafetyExit(ts, cfg, wallet)
-                    // If the safety net actually fired a sell, isOpen is now
-                    // false — continue the cycle so price/state updates and
-                    // forensics still flow, but the lane branches will skip.
-                }
-            } catch (e: Throwable) {
-                ErrorLogger.debug("BotService", "universal SL safety-net err: ${e.message}")
-            }
 
             // Primary price source: Dexscreener
             // V5.9.615 — when DexScreener has no pair (pre-graduation pump.fun
@@ -13065,6 +13037,56 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // processTokenCycle would otherwise return early. Covers ShitCoinTraderAI
     // and MoonshotTraderAI (the meme lanes). A final hard-floor fallback runs
     // if neither sub-trader has the position registered (orphaned ts.position).
+    /**
+     * V5.9.678 — Universal SL safety-net sweep.
+     *
+     * Runs once per botLoop tick across ALL open positions, invoking
+     * runFallbackSafetyExit() for each. The delegate function is already
+     * idempotent (tries lane checkExit if the token is registered with
+     * ShitCoinTraderAI/MoonshotTraderAI, falls back to a -20% hard floor
+     * for orphans whose tradingMode tag is null/empty). The sweep exists
+     * specifically to rescue positions that the lane-specific exit branches
+     * in processTokenCycle (which both require a populated tradingMode
+     * field) silently skip — operator screenshot in V5.9.677 showed five
+     * paper positions sitting 50-80 percentage points past the configured
+     * -20% SL because of this gap.
+     *
+     * Kept as a separate top-level method (not inlined into botLoop) so
+     * the bytecode lives in its own slot and never threatens botLoop's
+     * JVM 64KB method-size budget. Returns immediately if the bot is
+     * not running.
+     */
+    private fun runUniversalSlSafetyNetSweep(cfg: BotConfig, wallet: SolanaWallet?) {
+        if (!status.running) return
+        try {
+            // Snapshot the token map so we never iterate while it mutates
+            // under us (executor.requestSell sets isOpen=false in place).
+            val openSnapshot = try {
+                status.tokens.values.filter {
+                    it.position.isOpen &&
+                        it.position.qtyToken > 0.0 &&
+                        it.position.entryPrice > 0.0 &&
+                        it.lastPrice > 0.0
+                }
+            } catch (_: Throwable) { emptyList() }
+
+            if (openSnapshot.isEmpty()) return
+
+            for (ts in openSnapshot) {
+                try {
+                    runFallbackSafetyExit(ts, cfg, wallet)
+                } catch (e: Throwable) {
+                    ErrorLogger.debug(
+                        "BotService",
+                        "universal SL sweep err ${ts.symbol}: ${e.message}"
+                    )
+                }
+            }
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "universal SL sweep top-level: ${e.message}")
+        }
+    }
+
     private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
             val price = ts.lastPrice
