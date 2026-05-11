@@ -9136,6 +9136,26 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             // Treasury has its own scoring criteria - use those instead
                             // ═══════════════════════════════════════════════════════════════════
                             val treasuryScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence)  // Use better of two
+
+                            // V5.9.688 — FDG gate for Treasury path
+                            val treasuryFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = treasurySignal.sizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "🏦 [TREASURY] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (treasuryFdg != null && !treasuryFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on TREASURY: ${ts.symbol} | ${treasuryFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("TREASURY_FDG", treasuryFdg.blockReason ?: "fdg_block")
+                            } else {
+
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -9256,6 +9276,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             } // end authResult.isExecutable()
                         }
                     }
+                } // close FDG-required else (TREASURY V5.9.688)
                 } catch (treasuryEx: Exception) {
                     ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)  // Release on error
@@ -9340,6 +9361,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         }
                         
                         if (qualitySignal.shouldEnter) {
+                            // V5.9.688 — FDG gate for Quality path
+                            val qualityFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = qualitySignal.positionSizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("QUALITY") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "⭐ [QUALITY] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (qualityFdg != null && !qualityFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on QUALITY: ${ts.symbol} | ${qualityFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("QUALITY_FDG", qualityFdg.blockReason ?: "fdg_block")
+                            } else {
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -9410,6 +9449,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 addLog("⭐ QUALITY: ${ts.symbol} | \$${(ts.lastMcap/1000).toInt()}K mcap", ts.mint)
                             }
+                            } // close FDG-required else (QUALITY V5.9.688)
                         }
                     }
                     
@@ -9457,6 +9497,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         }
                         
                         if (blueChipSignal.shouldEnter) {
+                            // V5.9.688 — FDG gate for BlueChip path
+                            val blueChipFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = blueChipSignal.positionSizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("BLUE_CHIP") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "🔵 [BLUECHIP] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (blueChipFdg != null && !blueChipFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on BLUECHIP: ${ts.symbol} | ${blueChipFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("BLUECHIP_FDG", blueChipFdg.blockReason ?: "fdg_block")
+                            } else {
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
@@ -9530,6 +9588,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             }
                         }
                     }
+                } // close FDG-required else (BLUECHIP V5.9.688)
                 } catch (bcEx: Exception) {
                     ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ERROR | ${bcEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
@@ -10135,6 +10194,25 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
                             // Prevents post-execution gating drift
                             // ═══════════════════════════════════════════════════════════════════
+                            // V5.9.688 — FDG gate for ShitCoin path
+                            val shitCoinFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = shitCoinSignal.sizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("SHIT_COIN") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "💩 [SHITCOIN] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on SHITCOIN: ${ts.symbol} | ${shitCoinFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("SHITCOIN_FDG", shitCoinFdg.blockReason ?: "fdg_block")
+                            } else {
+
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -10283,6 +10361,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     }
                     } // V5.9.103: close else of liqCollapseDetected guard
                     }
+                } // close FDG-required else (SHITCOIN V5.9.688)
                 } catch (scEx: Exception) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
@@ -10330,6 +10409,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     )
 
                     if (manipSignal.shouldEnter) {
+                        // V5.9.688 — FDG gate for Manip path
+                        val manipFdg = try {
+                            FinalDecisionGate.evaluate(
+                                ts = ts,
+                                candidate = decision,
+                                config = cfg,
+                                proposedSizeSol = manipSignal.suggestedSizeSol,
+                                brain = executor.brain,
+                                tradingModeTag = try { ModeSpecificGates.fromTradingMode("MANIPULATED") } catch (_: Exception) { null },
+                            )
+                        } catch (fdgEx: Exception) {
+                            ErrorLogger.warn("BotService", "🎭 [MANIP] FDG error: ${fdgEx.message} — proceeding fail-open")
+                            null
+                        }
+                        if (manipFdg != null && !manipFdg.canExecute()) {
+                            ErrorLogger.info("BotService", "🚫 FDG VETO on MANIP: ${ts.symbol} | ${manipFdg.blockReason ?: "fdg_block"}")
+                            RejectionTelemetry.record("MANIP_FDG", manipFdg.blockReason ?: "fdg_block")
+                        } else {
                         val manipAuthResult = TradeAuthorizer.authorize(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -10395,6 +10492,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                         }
                     }
+                } // close FDG-required else (MANIP V5.9.688)
                 } catch (manipEx: Exception) {
                     ErrorLogger.debug("BotService", "☠️ [MANIP] ${ts.symbol} | ERROR | ${manipEx.message}")
                 }
@@ -10487,6 +10585,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, expressSignal.reason)
                         }
                         if (expressSignal.shouldRide) {
+                            // V5.9.688 — FDG gate for Express path
+                            val expressFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = expressSignal.sizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("EXPRESS") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "🚂 [EXPRESS] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (expressFdg != null && !expressFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("EXPRESS_FDG", expressFdg.blockReason ?: "fdg_block")
+                            } else {
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -10539,6 +10655,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             }
                         }
                     }
+                } // close FDG-required else (EXPRESS V5.9.688)
                 } catch (expEx: Exception) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
@@ -10677,6 +10794,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         )
                         
                         if (dipSignal.shouldBuy) {
+                            // V5.9.688 — FDG gate for DipHunter path
+                            val dipFdg = try {
+                                FinalDecisionGate.evaluate(
+                                    ts = ts,
+                                    candidate = decision,
+                                    config = cfg,
+                                    proposedSizeSol = dipSignal.sizeSol,
+                                    brain = executor.brain,
+                                    tradingModeTag = try { ModeSpecificGates.fromTradingMode("DIP_HUNTER") } catch (_: Exception) { null },
+                                )
+                            } catch (fdgEx: Exception) {
+                                ErrorLogger.warn("BotService", "📉 [DIPHUNTER] FDG error: ${fdgEx.message} — proceeding fail-open")
+                                null
+                            }
+                            if (dipFdg != null && !dipFdg.canExecute()) {
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on DIPHUNTER: ${ts.symbol} | ${dipFdg.blockReason ?: "fdg_block"}")
+                                RejectionTelemetry.record("DIPHUNTER_FDG", dipFdg.blockReason ?: "fdg_block")
+                            } else {
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -10738,6 +10873,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             }
                         }
                     }
+                } // close FDG-required else (DIPHUNTER V5.9.688)
                 } catch (dipEx: Exception) {
                     ErrorLogger.debug("BotService", "📉🎯 [DIP] ${ts.symbol} | ERROR | ${dipEx.message}")
                 }
