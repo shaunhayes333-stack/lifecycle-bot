@@ -37,10 +37,15 @@ object FreeRangeMode {
     private const val TAG = "FreeRangeMode"
 
     // ── Thresholds ──────────────────────────────────────────────────
-    private const val WIDE_OPEN_FLOOR_TRADES = 3000    // always wide-open below this
-    private const val WIDE_OPEN_CEIL_TRADES  = 5000    // force-off at/above this
-    private const val GRADUATE_WIN_RATE_PCT  = 50.0    // needed to graduate between 3000-5000
-    private const val GRADUATE_MIN_PNL_SOL   = 5.0     // "super profitable" bar
+    // V5.9.693 — Perpetual learning doctrine.
+    // The bot learns forever — there is no trade count at which FreeRange
+    // is forced off. WIDE_OPEN_CEIL is effectively infinite (Long.MAX_VALUE
+    // expressed as Int.MAX / 2 to avoid overflow). GRADUATE thresholds are
+    // kept for reference but the graduation window (3000..∞) never ends.
+    private const val WIDE_OPEN_FLOOR_TRADES = 1000    // always wide-open below this
+    private const val WIDE_OPEN_CEIL_TRADES  = Int.MAX_VALUE / 2  // never force-off
+    private const val GRADUATE_WIN_RATE_PCT  = 50.0    // floor to stay wide-open above 1000 trades
+    private const val GRADUATE_MIN_PNL_SOL   = 0.0     // PnL bar removed — learning never stops
     private const val TUNER_RAMP_START       = 50      // adjustments begin here
     private const val TUNER_RAMP_END         = 3000    // adjustments reach full strength here
 
@@ -87,7 +92,12 @@ object FreeRangeMode {
             val trades = snap.totalSells
             when {
                 trades < WIDE_OPEN_FLOOR_TRADES -> true
-                trades < WIDE_OPEN_CEIL_TRADES  -> !(snap.winRate >= GRADUATE_WIN_RATE_PCT && snap.realizedPnlSol >= GRADUATE_MIN_PNL_SOL)
+                // V5.9.693 — Perpetual learning: above the floor, stay wide-open
+                // as long as the bot has NOT proven itself with >50% WR.
+                // Once WR drops below 50% (bot is losing), keep wide-open so it
+                // can recover. Only switch to DISCIPLINED when WR is consistently
+                // strong — and even then, operatorForceOn can override.
+                trades < WIDE_OPEN_CEIL_TRADES  -> !(snap.winRate >= GRADUATE_WIN_RATE_PCT)
                 else                            -> false
             }
         } catch (_: Throwable) { true }

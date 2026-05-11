@@ -1077,12 +1077,22 @@ class SolanaMarketScanner(
                 // candidates the bot actually trades). Once the loop
                 // drains via TTL/churn below the threshold, full
                 // 13-source scanning auto-resumes — no manual reset.
-                val saturationThreshold = 200
+                // V5.9.693 — Remove scanner backpressure gate.
+                // Threshold was 200 but the protected intake pool operates at
+                // 500-3000 tokens; watchlist routinely sits at 700-800 which
+                // caused EVERY cycle to skip DEX_TRENDING, DEX_BOOSTED, BirdEye,
+                // CoinGecko etc., starving BlueChip / Quality / Moonshot of the
+                // $75K+ mcap tokens they need. The 250-token per-tick processing
+                // cap in BotService already throttles the main loop — the scanner
+                // running all sources does NOT increase main-thread pressure, it
+                // only adds tokens to the registry that the loop picks up across
+                // multiple ticks. Disable backpressure completely; rely on the
+                // per-tick cap and natural TTL churn to self-regulate.
                 val watchlistNow = GlobalTradeRegistry.size()
-                val backpressure  = watchlistNow >= saturationThreshold
-                if (backpressure) {
-                    onLog("⏸ BACKPRESSURE: watchlist=$watchlistNow ≥ $saturationThreshold — running priority sources only this cycle")
-                    ErrorLogger.info("Scanner", "BACKPRESSURE active: watchlist=$watchlistNow → skipping deep-scan sources")
+                val backpressure = false  // V5.9.693: disabled — see comment above
+                if (watchlistNow > 2000) {
+                    // Log only as informational; never skip sources
+                    ErrorLogger.info("Scanner", "REGISTRY_SIZE: watchlist=$watchlistNow (no action — backpressure gate removed)")
                 }
 
                 onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")

@@ -962,24 +962,37 @@ object FinalDecisionGate {
         // bot trades from first start per user directive. Modern keeps 8.0.
         val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0
         if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
+            // V5.9.693 — Paper-mode bypass. In paper mode the bot MUST trade
+            // to accumulate learning volume. A sub-1% confidence on a paper
+            // entry is a nuisance filter, not a safety gate — real safety
+            // (rug detection, liquidity collapse, ML rug probability) fires
+            // downstream. Blocking here in paper mode starved Moonshot /
+            // Manip / Express of entries while FDG allow=0 showed in the
+            // funnel. LIVE mode keeps the hard floor.
+            if (isPaperMode) {
+                ErrorLogger.debug("FDG", "ℹ️ BOOTSTRAP_FLOOR_PAPER_BYPASS: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% → paper learn")
+                tags.add("bootstrap_floor_paper_bypass")
+                // fall through to normal scoring
+            } else {
+                ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
 
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "BOOTSTRAP_MIN_CONFIDENCE_3%",
-                blockLevel = BlockLevel.CONFIDENCE,
-                sizeSol = 0.0,
-                tags = listOf("bootstrap_floor_3", "too_low_to_learn"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 3% (even learning has standards)",
-                gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 3% is garbage even for learning"))
-            )
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = confidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "BOOTSTRAP_MIN_CONFIDENCE_3%",
+                    blockLevel = BlockLevel.CONFIDENCE,
+                    sizeSol = 0.0,
+                    tags = listOf("bootstrap_floor_3", "too_low_to_learn"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 3% (even learning has standards)",
+                    gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 3% is garbage even for learning"))
+                )
+            }
         }
 
         if (canBypassConfidenceFloors && confidence < 22.0) {
