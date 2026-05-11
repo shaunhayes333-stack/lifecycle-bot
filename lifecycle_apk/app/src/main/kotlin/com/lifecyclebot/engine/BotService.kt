@@ -7642,6 +7642,51 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 )
             } catch (_: Throwable) { /* never break the cycle */ }
 
+            // V5.9.678 — UNIVERSAL SL SAFETY NET (P0 bug fix).
+            //
+            // Operator screenshot of paper positions showed 5+ tokens sitting at
+            // -98% / -90% / -91% / -71% / -33% — all 50-80 percentage points
+            // PAST the configured -20% stop loss. Root cause:
+            //
+            //   1. SHITCOIN exit branch (line ~11931) requires
+            //        position.isShitCoinPosition || tradingMode == "SHITCOIN"
+            //   2. MOONSHOT exit branch (line ~12193) requires
+            //        MoonshotTraderAI.hasPosition() || tradingMode.startsWith("MOONSHOT")
+            //   3. runFallbackSafetyExit() only ran when DexScreener was DOWN
+            //
+            // Positions whose tradingMode field is null/empty (orphans loaded
+            // from disk, positions whose mode tag was flipped to "" during a
+            // SHITCOIN → MOONSHOT promotion, paper-mode positions hydrated
+            // without a tag) hit NONE of the three exit paths. They sit
+            // forever at -98% because price ticks update the UI display but
+            // never reach an exit-check.
+            //
+            // The fix is to run runFallbackSafetyExit() on EVERY cycle for
+            // open positions, regardless of feed state. The function is
+            // idempotent (delegates to lane checkExit() if registered,
+            // falls back to -20% hard floor for orphans, returns silently
+            // for HOLD signals) so calling it ahead of the lane-specific
+            // branches just means tagged positions get an early dispatch
+            // by exactly the same code that would run later, and untagged
+            // positions finally get evaluated at all.
+            //
+            // Safety: position.isOpen flips to false synchronously inside
+            // executor.requestSell (the engine treats the position as
+            // closed even before the on-chain confirmation), so the lane
+            // branches downstream will skip the position correctly.
+            try {
+                val ts = status.tokens[mint]
+                if (ts != null && ts.position.isOpen && ts.position.qtyToken > 0.0
+                    && ts.position.entryPrice > 0.0 && ts.lastPrice > 0.0) {
+                    runFallbackSafetyExit(ts, cfg, wallet)
+                    // If the safety net actually fired a sell, isOpen is now
+                    // false — continue the cycle so price/state updates and
+                    // forensics still flow, but the lane branches will skip.
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.debug("BotService", "universal SL safety-net err: ${e.message}")
+            }
+
             // Primary price source: Dexscreener
             // V5.9.615 — when DexScreener has no pair (pre-graduation pump.fun
             // tokens), try the fallback price providers (pump.fun API / Birdeye).
@@ -13025,6 +13070,20 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val price = ts.lastPrice
             if (price <= 0.0 || ts.position.entryPrice <= 0.0) return
             val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
+
+            // V5.9.678 — emit PHASE.EXIT forensic so the funnel counter
+            // EXIT in the Pipeline Health dump finally reflects reality.
+            // Prior to this, no code path anywhere in the bot emitted
+            // PHASE.EXIT so operator dumps perpetually showed EXIT=0
+            // even when many positions were being evaluated for exit.
+            val _pnl = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            try {
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.EXIT,
+                    ts.symbol,
+                    "pnl=${_pnl.toInt()}% mode=${ts.position.tradingMode.takeIf { it.isNotBlank() } ?: "NONE"} sc=${com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint)} ms=${com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(ts.mint)}"
+                )
+            } catch (_: Throwable) {}
 
             // ── ShitCoinTraderAI delegation ─────────────────────────────
             if (com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(ts.mint)) {
