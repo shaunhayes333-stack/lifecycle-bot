@@ -2336,31 +2336,53 @@ class BotService : Service() {
             // mid-stop), any positions still in storage are by definition
             // ghosts from an unclean teardown. Wipe the persistence BEFORE
             // restorePositions so we boot from a clean slate.
-            // Crash/kill paths (KEY_MANUAL_STOP_REQUESTED == false) still
-            // restore as before — that is the V5.6.9 use-case.
+            //
+            // V5.9.682 — MASS-GHOST FALLBACK.
+            // Operator screenshot V5.9.681 showed 23 V3_SKIPPED position_open
+            // events even though only 3 positions were really open. Root
+            // cause: previous V5.9.680 session froze without a clean stop,
+            // KEY_MANUAL_STOP_REQUESTED stayed false (force-killed process),
+            // and the V5.9.681 reaper gated itself off. The unbroken V5.6.9
+            // contract said "restore everything if not a manual stop", but
+            // 20+ paper positions on a cold boot is by definition a ghost
+            // backlog from a stuck previous session — never a legitimate
+            // recovery. Now: in paper mode, if persistedCount > MASS_GHOST_THRESHOLD
+            // (20) we wipe regardless of the manual-stop flag. Live mode
+            // still honors the existing V5.6.9 path (legitimate on-chain
+            // positions might be valuable and shouldn't auto-wipe).
+            // Crash/kill paths with < 20 persisted rows still restore.
             // ═══════════════════════════════════════════════════════════════════
             try {
                 val prevWasManualStop = getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
                     .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
-                if (prevWasManualStop) {
-                    val persistedBefore = try { PositionPersistence.getPersistedCount() } catch (_: Throwable) { -1 }
-                    if (persistedBefore > 0) {
-                        try {
-                            PositionPersistence.clear()
-                            ForensicLogger.lifecycle(
-                                "START_GHOST_REAP",
-                                "prevManualStop=true persistedBefore=$persistedBefore wiped=true"
-                            )
-                            addLog("🧹 Ghost reaper: wiped $persistedBefore stale position(s) — previous stop was unclean")
-                        } catch (e: Throwable) {
-                            ErrorLogger.warn("BotService", "ghost reap wipe failed: ${e.message}")
+                val persistedBefore = try { PositionPersistence.getPersistedCount() } catch (_: Throwable) { -1 }
+                val MASS_GHOST_THRESHOLD = 20
+                val cfgForReap = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                val isPaperReap = cfgForReap?.paperMode ?: true
+                val massGhost = isPaperReap && persistedBefore > MASS_GHOST_THRESHOLD
+                val shouldReap = (prevWasManualStop && persistedBefore > 0) || massGhost
+                if (shouldReap) {
+                    try {
+                        PositionPersistence.clear()
+                        val reason = when {
+                            massGhost -> "mass_ghost_paper"
+                            else      -> "manual_stop_unclean"
                         }
-                    } else {
                         ForensicLogger.lifecycle(
                             "START_GHOST_REAP",
-                            "prevManualStop=true persistedBefore=0 wiped=false"
+                            "reason=$reason prevManualStop=$prevWasManualStop persistedBefore=$persistedBefore wiped=true paper=$isPaperReap"
                         )
+                        addLog("🧹 Ghost reaper ($reason): wiped $persistedBefore stale position(s)")
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "ghost reap wipe failed: ${e.message}")
                     }
+                } else if (persistedBefore > 0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "START_GHOST_REAP",
+                            "reason=skipped persistedBefore=$persistedBefore prevManualStop=$prevWasManualStop paper=$isPaperReap"
+                        )
+                    } catch (_: Throwable) {}
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug("BotService", "ghost reap pre-check error: ${e.message}")
@@ -2681,8 +2703,23 @@ class BotService : Service() {
         try {
             val restoredMemeMints = com.lifecyclebot.engine.MemeMintRegistry.getAll()
             var hydrated = 0
-            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(500)
-            for (m in restoredMemeMints.sortedByDescending { it.lastSeenMs }.take(hydrateCap)) {
+            // V5.9.682 — was: hydrateCap = maxWatchlistSize.coerceAtLeast(500).
+            // That forced AT LEAST 500 regardless of config. With 500 historical
+            // mints restored, cycle 2 wedged at 33s processing ghost tokens with
+            // liq=$0 mcap=$0 (operator dump V5.9.681). Cap is now bounded BY the
+            // user's maxWatchlistSize AND a hard ceiling of 80. We also drop
+            // tokens with no activity in the last 60 minutes — those are
+            // stale registry rows that should NOT clog the cold-start watchlist.
+            val nowMs = System.currentTimeMillis()
+            val recentCutoffMs = 60 * 60 * 1000L  // 1 hour
+            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(30).coerceAtMost(80)
+            val recent = restoredMemeMints
+                .asSequence()
+                .filter { (nowMs - it.lastSeenMs) < recentCutoffMs }
+                .sortedByDescending { it.lastSeenMs }
+                .take(hydrateCap)
+                .toList()
+            for (m in recent) {
                 if (m.mint.isBlank()) continue
                 val ok = admitProtectedMemeIntake(
                     mint = m.mint,
@@ -2700,8 +2737,15 @@ class BotService : Service() {
                 if (ok || status.tokens.containsKey(m.mint)) hydrated++
             }
             if (restoredMemeMints.isNotEmpty()) {
-                addLog("🪙 Meme restore: hydrated $hydrated/${restoredMemeMints.size} persisted mints")
-                ErrorLogger.info("BotService", "🪙 Meme restore hydrated $hydrated/${restoredMemeMints.size} persisted mints into runtime")
+                val dropped = restoredMemeMints.size - recent.size
+                addLog("🪙 Meme restore: hydrated $hydrated/${recent.size} recent mints (dropped $dropped stale, cap=$hydrateCap)")
+                ErrorLogger.info("BotService", "🪙 Meme restore hydrated $hydrated/${recent.size} recent / ${restoredMemeMints.size} total (dropped $dropped stale > 60min)")
+                try {
+                    ForensicLogger.lifecycle(
+                        "MEME_RESTORE_TRIMMED",
+                        "hydrated=$hydrated recent=${recent.size} stale=$dropped total=${restoredMemeMints.size} cap=$hydrateCap"
+                    )
+                } catch (_: Throwable) {}
             }
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "Meme restore hydrate failed: ${e.message}")
@@ -7157,6 +7201,19 @@ if (deferredCount > 0) {
         "Watchlist processing deferred $deferredCount token(s); processed=$processedCount total=${orderedMints.size}"
     )
 }
+
+// V5.9.682 — POST_SUPERVISOR breadcrumb. Operator dump V5.9.681 showed
+// cycle 2 took 33s and cycle 3 wedged. With only PRE_SUPERVISOR and
+// CYCLE_EXIT we cannot tell whether the freeze is inside the
+// supervisorScope (per-token network) or in the EXIT_SWEEP /
+// reconciler / mode-switch / persistence saves afterwards. This
+// breadcrumb separates the two halves.
+try {
+    ForensicLogger.lifecycle(
+        "CYCLE_PHASE",
+        "loop=$loopCount phase=POST_SUPERVISOR processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
+    )
+} catch (_: Throwable) {}
 
 // V5.9.494 — UNIVERSAL EXIT SWEEP (every loop, last-resort safety).
 // Runs AFTER per-token cycles. Catches Treasury / sub-trader exits that
