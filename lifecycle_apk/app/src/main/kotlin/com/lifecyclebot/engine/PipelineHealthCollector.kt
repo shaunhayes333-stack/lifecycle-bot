@@ -115,6 +115,26 @@ object PipelineHealthCollector {
     /** V5.9.670 — count of sample attempts where main thread was blocked. */
     private val anrSamplesTaken = AtomicLong(0L)
 
+    /** V5.9.680 — Pre-freeze rolling main-thread sample ring.
+     *  Every watchdog tick (250ms) we capture (ts, sinceLastAckMs, topFrame)
+     *  whether or not main thread is responsive. When a freeze fires, the
+     *  dump now shows the last 30 samples = ~7.5s of pre-freeze history,
+     *  letting the operator see what main was doing in the seconds
+     *  leading up to the hang — not just its stack at the moment the
+     *  watchdog noticed. Capped at STACK_RING_CAP. */
+    data class StackSample(val tsMs: Long, val sinceLastAckMs: Long, val topFrame: String)
+    private val stackRing = java.util.concurrent.ConcurrentLinkedDeque<StackSample>()
+    private val stackRingSize = AtomicInteger(0)
+    private const val STACK_RING_CAP = 30
+
+    private fun pushStackSample(sample: StackSample) {
+        stackRing.addLast(sample)
+        if (stackRingSize.incrementAndGet() > STACK_RING_CAP) {
+            stackRing.pollFirst()
+            stackRingSize.decrementAndGet()
+        }
+    }
+
     /** Started-at epoch ms (for uptime in dump). */
     private val startedAtMs = AtomicLong(0L)
 
@@ -127,7 +147,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.679"
+    private const val BUILD_TAG = "V5.9.680"
 
     data class Event(
         val tsMs: Long,
@@ -337,15 +357,25 @@ object PipelineHealthCollector {
                 try {
                     val now = SystemClock.elapsedRealtime()
                     val gap = now - ackTs.get()
+
+                    // V5.9.680 — sample main-thread top frame EVERY tick (not just
+                    // on freeze) and push to the rolling ring. Cheap (~1ms),
+                    // gives us 7.5s of pre-freeze history when a hang fires.
+                    val tickTrace = try {
+                        captureMainThreadStack(mainThread)
+                    } catch (_: Throwable) { "" }
+                    val tickTop = tickTrace.lineSequence()
+                        .firstOrNull { it.contains("com.lifecyclebot") }?.trim()
+                        ?: tickTrace.lineSequence().firstOrNull()?.trim()
+                        ?: "(idle)"
+                    pushStackSample(StackSample(System.currentTimeMillis(), gap, tickTop.take(160)))
+
                     if (gap > LONG_FRAME_THRESHOLD_MS) {
-                        // Main thread hasn't acked in > 700ms — sample its stack
-                        // RIGHT NOW while it's still blocked.
-                        val trace = try {
-                            captureMainThreadStack(mainThread)
-                        } catch (_: Throwable) { "(stack capture failed)" }
-                        val topFrame = trace.lineSequence().firstOrNull { it.contains("com.lifecyclebot") }?.trim()
-                            ?: trace.lineSequence().firstOrNull()?.trim()
-                            ?: "(no frame)"
+                        // Main thread hasn't acked in > 700ms — reuse the tick
+                        // sample we just captured rather than re-walking the
+                        // stack a second time.
+                        val trace = tickTrace.ifBlank { "(stack capture failed)" }
+                        val topFrame = tickTop
                         bump(anrStackCounts, topFrame.take(120))
                         anrSamplesTaken.incrementAndGet()
 
@@ -357,11 +387,22 @@ object PipelineHealthCollector {
                         if (emitNow) {
                             lastReportedKey = topFrame
                             lastReportedAtMs = System.currentTimeMillis()
+                            // V5.9.680 — include the 30-frame pre-freeze ring
+                            // so the operator sees what main was doing in the
+                            // ~7.5s leading up to the hang, not just at the
+                            // moment of detection.
+                            val preRingSb = StringBuilder()
+                            preRingSb.append("\n--- pre-freeze rolling main-thread sample (last 30) ---\n")
+                            val ringSnapshot = stackRing.toList()
+                            for (smp in ringSnapshot.asReversed()) {
+                                preRingSb.append("  +").append(smp.sinceLastAckMs.toString().padStart(5))
+                                    .append("ms  ").append(smp.topFrame).append('\n')
+                            }
                             appendEvent(Event(
                                 System.currentTimeMillis(),
                                 "ANR_HINT",
                                 "",
-                                "main thread blocked for ${gap}ms — top frame: $topFrame\n$trace",
+                                "main thread blocked for ${gap}ms — top frame: $topFrame\n$trace$preRingSb",
                             ))
                         }
                     } else {
@@ -433,6 +474,7 @@ object PipelineHealthCollector {
         val cycleCount: Long,
         val maxCycleMs: Long,
         val recentEvents: List<Event>,
+        val stackRing: List<StackSample>,
     )
 
     fun snapshot(): Snapshot {
@@ -460,6 +502,7 @@ object PipelineHealthCollector {
             cycleCount             = cycleCount.get(),
             maxCycleMs             = maxCycleMs.get(),
             recentEvents           = events,
+            stackRing              = stackRing.toList(),
         )
     }
 
@@ -635,6 +678,20 @@ object PipelineHealthCollector {
             sb.append("===== ANR top blocking call sites (most frequent first) =====\n")
             s.anrStackCounts.entries.sortedByDescending { it.value }.take(20).forEach { (frame, count) ->
                 sb.append("  [$count]  $frame\n")
+            }
+            sb.append('\n')
+        }
+
+        // ── V5.9.680 — Pre-freeze rolling main-thread sample ────────
+        // Captured every watchdog tick (250ms). Newest first. When a
+        // freeze fires, this shows the ~7.5s leading up to it — far
+        // more useful than the single stack sampled at detection time.
+        if (s.stackRing.isNotEmpty()) {
+            sb.append("===== Pre-freeze rolling main-thread sample (last ${s.stackRing.size}, newest first) =====\n")
+            for (smp in s.stackRing.asReversed()) {
+                sb.append("  ").append(df.format(Date(smp.tsMs)))
+                    .append("  gap=").append(smp.sinceLastAckMs.toString().padStart(5)).append("ms  ")
+                    .append(smp.topFrame).append('\n')
             }
             sb.append('\n')
         }
