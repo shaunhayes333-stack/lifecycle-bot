@@ -4948,10 +4948,18 @@ class BotService : Service() {
                                 )
                                 TradeStateMachine.startCooldown(ts.mint)
                             }
-                            pnlPct <= -HARD_FLOOR_STOP_PCT && neverWinner -> {
-                                // Never had a meaningful peak AND hit -15%. Cut losses.
-                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}%")
-                                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT (never-winner)")
+                            pnlPct <= -HARD_FLOOR_STOP_PCT -> {
+                                // V5.9.687 — removed neverWinner gate.
+                                // Previously -15% hard floor only fired when peak < 20%.
+                                // A token that briefly touched +1% then collapsed to -24.9%
+                                // bypassed BOTH hard-floor (neverWinner=false) AND catastrophe
+                                // (-25% threshold) — no exit fired in the -15% to -25% range.
+                                // This dead zone caused -23%, -27%, -28% stop-loss executions
+                                // in the main loop because the rapid monitor never caught them.
+                                // Now: any position hitting -15% exits unconditionally. Drawdown
+                                // from peak (requires peak >= 20%) is a separate earlier tier.
+                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
+                                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
                                 executor.requestSell(
                                     ts = ts, reason = "RAPID_HARD_FLOOR_STOP",
                                     wallet = wallet, walletSol = effectiveBalance
@@ -9674,6 +9682,35 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 // V5.9.235: fallback floor raised to -15% (matches HARD_FLOOR_STOP); clamp also applied
                                 val moonshotEffectiveSlPct = (if (moonshotScore.stopLossPct >= 0.0) -15.0 else moonshotScore.stopLossPct).coerceAtLeast(-15.0)
                                 
+                                // V5.9.687 — Run FDG BEFORE TradeAuthorizer on Moonshot.
+                                // Moonshot was skipping FDG entirely, entering on tokens
+                                // that FDG's edge-veto and regime checks would have blocked.
+                                // Half of Moonshot's winners were actually FDG-flagged entries
+                                // that happened to work despite bad conditions — the ones that
+                                // didn't became deep stop losses.
+                                val moonshotFdgDecision = try {
+                                    val moonshotModeTag = try {
+                                        ModeSpecificGates.fromTradingMode(ts.position.tradingMode)
+                                            ?: ModeSpecificGates.fromTradingMode("MOONSHOT")
+                                    } catch (_: Exception) { null }
+                                    FinalDecisionGate.evaluate(
+                                        ts = ts,
+                                        candidate = decision,
+                                        config = cfg,
+                                        proposedSizeSol = moonshotScore.suggestedSizeSol,
+                                        brain = executor.brain,
+                                        tradingModeTag = moonshotModeTag,
+                                    )
+                                } catch (fdgEx: Exception) {
+                                    ErrorLogger.warn("BotService", "🚀 [MOONSHOT] FDG error: ${fdgEx.message} — proceeding without FDG veto")
+                                    null // null = no veto, proceed
+                                }
+
+                                if (moonshotFdgDecision != null && !moonshotFdgDecision.canExecute()) {
+                                    ErrorLogger.info("BotService", "🚫 FDG VETO on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision.blockReason ?: "no reason"} | conf=${moonshotFdgDecision.confidence.toInt()}%")
+                                    RejectionTelemetry.record("MOONSHOT_FDG", moonshotFdgDecision.blockReason ?: "fdg_block")
+                                } else {
+
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(
                                     mint = ts.mint,
@@ -9778,6 +9815,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             }
                         }
                     }
+                } // close FDG-required else block (Moonshot V5.9.687)
                 } catch (moonEx: Exception) {
                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | ERROR | ${moonEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)
@@ -11498,13 +11536,34 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             fdgWouldExecute = fdgDecision.canExecute()
                         )
                         
-                        // V3 CONTROLS EXECUTION
+                        // V5.9.687 — FDG is a HARD VETO on V3 EXECUTE.
+                        // Previously V3 EXECUTE was unconditional — FDG result
+                        // was logged as a tag but never blocked the trade.
+                        // Half of all winners on Moonshot + ShitCoin were killed
+                        // by V3 WATCH/REJECT overrides while FDG was green, or
+                        // entered when FDG was red and immediately hit stop loss.
+                        // Now: V3 EXECUTE only proceeds when FDG also approves.
+                        // V3 WATCH / REJECT still block regardless (V3 owns downside).
                         if (v3ControlsExecution) {
-                            useV3Decision = true
-                            v3SizeSol = result.sizeSol
-                            v3Thesis = "V3 score=${result.score} band=${result.band}"
-                            addLog("⚡ V3: ${identity.symbol} | ${result.band} | " +
-                                "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
+                            if (!fdgDecision.canExecute()) {
+                                // FDG veto — log clearly so operator can see it
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on V3-EXECUTE: ${identity.symbol} | ${fdgDecision.blockReason ?: "no reason"} | conf=${fdgDecision.confidence.toInt()}%")
+                                addLog("🚫 FDG VETO: ${identity.symbol} | ${fdgDecision.blockReason ?: "fdg_block"}", mint)
+                                try {
+                                    ForensicLogger.gate(
+                                        ForensicLogger.PHASE.FDG, identity.symbol,
+                                        allow = false,
+                                        reason = "FDG_VETO_V3_EXECUTE: ${fdgDecision.blockReason ?: "no reason"}"
+                                    )
+                                } catch (_: Throwable) {}
+                                // useV3Decision stays false — no trade
+                            } else {
+                                useV3Decision = true
+                                v3SizeSol = result.sizeSol
+                                v3Thesis = "V3 score=${result.score} band=${result.band}"
+                                addLog("⚡ V3+FDG: ${identity.symbol} | ${result.band} | " +
+                                    "${v3SizeSol.fmt(4)} SOL | conf=${result.confidence.toInt()}%", mint)
+                            }
                         } else {
                             // Shadow mode - log only
                             addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +
@@ -11564,21 +11623,23 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             try {
                                 val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)
                                 if (verdict.shouldEnter) {
+                                    // V5.9.687 — Bridge also requires FDG approval.
+                                    // Bridge was overriding both V3 AND FDG,
+                                    // entering on rugged / edge-vetoed tokens.
+                                    if (!fdgDecision.canExecute()) {
+                                        ErrorLogger.info("BotService", "🌉 BRIDGE FDG VETO: ${identity.symbol} | ${fdgDecision.blockReason ?: "fdg_block"}")
+                                    } else {
                                     // Tiny bridge size — bridge entries are
                                     // bootstrap learning trades; the meme
                                     // trader's adaptive sizing kicks in once
                                     // the layer-accuracy data accumulates.
-                                    // V5.9.642: available in paper AND
-                                    // pre-5000/proven-edge live so V3_REJECT
-                                    // cannot totally starve the learning
-                                    // firehose. Final TradeAuthorizer +
-                                    // Executor still enforce wallet/live safety.
                                     val bridgeSize = if (cfg.paperMode) 0.05 else 0.01
                                     useV3Decision = true
                                     v3SizeSol = bridgeSize
                                     v3Thesis  = "MemeBridge tech=${verdict.techScore} v3=${verdict.v3Score} blend=${verdict.blendedScore} mult=${"%.2f".format(verdict.trustMultiplier)} mode=${if (cfg.paperMode) "paper" else "live-learning"}"
                                     ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")
                                     addLog("🌉 Bridge BUY: ${identity.symbol} | tech=${verdict.techScore} blend=${verdict.blendedScore} | ${bridgeSize} SOL", mint)
+                                    }
                                 } else {
                                     ErrorLogger.debug("BotService", "🌉 Bridge declined ${identity.symbol}: ${verdict.rejectReason}")
                                 }
