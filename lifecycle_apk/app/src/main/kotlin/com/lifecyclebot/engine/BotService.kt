@@ -4859,12 +4859,21 @@ class BotService : Service() {
                         val rawPrice = ts.lastPrice.takeIf { it > 0 }
                             ?: ts.history.lastOrNull()?.priceUsd
                         if (rawPrice == null || rawPrice <= 0.0) {
-                            // No live price — check if this is a stale rug
+                            // V5.9.698 — Tightened stale-price-rug-escape: 5 min → 90s.
+                            // Flash rugs complete in <90s and immediately go price-dark.
+                            // The previous 5-min threshold meant the rapid monitor couldn't
+                            // fire (price stale = pnl ≈ 0%), and by the time the main
+                            // polling cycle got a real price the loss was already -54%/-77%.
+                            // 90s is safe: a legitimately trading token will always have at
+                            // least one WS tick (PumpPortal fires every trade) inside 90s.
                             val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
-                            if (posAgeMs > 5 * 60_000L && ts.position.isOpen && ts.position.entryPrice > 0) {
+                            val lastPriceAgeMs = if (ts.lastPriceUpdate > 0)
+                                System.currentTimeMillis() - ts.lastPriceUpdate else posAgeMs
+                            val staleThresholdMs = if (posAgeMs > 60_000L) 90_000L else 120_000L
+                            if (lastPriceAgeMs > staleThresholdMs && ts.position.isOpen && ts.position.entryPrice > 0) {
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no live price for ${posAgeMs/60000}min, force-exit")
-                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${posAgeMs/60000}min — assume rug", ts.mint)
+                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), force-exit")
+                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
                                 TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
@@ -4872,7 +4881,28 @@ class BotService : Service() {
                             continue  // can't do pnl math without price
                         }
                         val currentPrice = rawPrice
-                        
+
+                        // V5.9.698 — STALE LIVE PRICE GUARD: rawPrice is non-null but may be
+                        // a cached value that hasn't moved since before the rug. If lastPriceUpdate
+                        // is >90s old (position >60s) treat it the same as null-price rug escape.
+                        // This catches -54%/-77% RAPID_CATASTROPHE_STOP cases where the WS died
+                        // before the dump, ts.lastPrice stayed at entry, pnl showed 0%, and the
+                        // rapid monitor held until the polling cycle fetched the real rug price.
+                        if (ts.lastPriceUpdate > 0) {
+                            val livePriceAgeMs = System.currentTimeMillis() - ts.lastPriceUpdate
+                            val posAgeForStale = System.currentTimeMillis() - ts.position.entryTime
+                            val staleLivePriceThreshMs = if (posAgeForStale > 60_000L) 90_000L else 120_000L
+                            if (livePriceAgeMs > staleLivePriceThreshMs && ts.position.isOpen) {
+                                ErrorLogger.warn("BotService",
+                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s, force-exit")
+                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s — assume rug", ts.mint)
+                                executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
+                                    wallet = wallet, walletSol = effectiveBalance)
+                                TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                continue
+                            }
+                        }
+
                         val entryPrice = ts.position.entryPrice
                         if (entryPrice <= 0) continue
                         
