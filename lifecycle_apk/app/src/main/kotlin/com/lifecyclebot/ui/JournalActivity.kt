@@ -392,7 +392,9 @@ class JournalActivity : AppCompatActivity() {
         // trades. "Load More" button below list bumps currentPage by 1.
         // Building 5000+ Views on the main thread every 2s caused OOM crashes.
         cachedSellEntries = sellEntries
-        val pagedEntries = sellEntries.takeLast(PAGE_SIZE * currentPage)
+        // V5.9.701 — takeLast was showing OLDEST trades (tail of descending list). 
+        // Fix: take() shows newest PAGE_SIZE from the head of the descending list.
+        val pagedEntries = sellEntries.take(PAGE_SIZE * currentPage)
 
         pagedEntries.forEach { entry ->
             val outcome = classifyOutcome(entry.pnlPct)
