@@ -9287,6 +9287,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         
                         if (!moonshotPermit.allowed) {
                             ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | BLOCKED | ${moonshotPermit.reason}")
+                            // V5.9.677 — surface the silent LANE_EVAL → FDG
+                            // drop on the Moonshot path (same root cause as
+                            // the SHITCOIN lane fix below).
+                            try {
+                                ForensicLogger.gate(
+                                    ForensicLogger.PHASE.LANE_EVAL,
+                                    ts.symbol,
+                                    allow = false,
+                                    reason = "PERMIT_DENY:${moonshotPermit.reason} lane=MOONSHOT"
+                                )
+                            } catch (_: Throwable) {}
                         } else {
                             // Calculate volume score from recent data (use lastV3Score as proxy)
                             val volScore = ts.lastV3Score ?: 20
@@ -9550,6 +9561,23 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     
                     if (!permitResult.allowed) {
                         ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | BLOCKED | ${permitResult.reason}")
+                        // V5.9.677 — surface the silent LANE_EVAL → FDG drop.
+                        // Operator's V5.9.676 dump showed 14 LANE_EVAL passes
+                        // and 0 FDG evaluations — meaning every token was
+                        // silently rejected somewhere between lane entry and
+                        // the FinalDecisionGate call. The FinalExecutionPermit
+                        // was a prime suspect because its rejections only hit
+                        // ErrorLogger.debug (off in release builds), so the
+                        // operator never saw the reason. Now we emit a real
+                        // forensic gate event with the permit reason verbatim.
+                        try {
+                            ForensicLogger.gate(
+                                ForensicLogger.PHASE.LANE_EVAL,
+                                ts.symbol,
+                                allow = false,
+                                reason = "PERMIT_DENY:${permitResult.reason} lane=SHITCOIN"
+                            )
+                        } catch (_: Throwable) {}
                     } else {
                         // Calculate token age
                         val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
@@ -9913,6 +9941,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
+                                // V5.9.677 — final silent-drop point on the
+                                // SHITCOIN lane (the authorizer rejection
+                                // race). Surfaces "another layer is buying
+                                // this same mint" so operators can see slot
+                                // contention without grep-ing debug logs.
+                                try {
+                                    ForensicLogger.gate(
+                                        ForensicLogger.PHASE.LANE_EVAL,
+                                        ts.symbol,
+                                        allow = false,
+                                        reason = "AUTHZ_RACE another-lane lane=SHITCOIN"
+                                    )
+                                } catch (_: Throwable) {}
                                 // Release authorizer lock since we didn't execute
                                 TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                             }

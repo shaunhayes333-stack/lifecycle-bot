@@ -124,6 +124,11 @@ object PipelineHealthCollector {
 
     private const val RING_CAP = 300  // V5.9.670 — increased from 200 for deeper history
 
+    // V5.9.677 — bumped each release. Printed verbatim at top of every
+    // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
+    // operator and agent never argue about which APK is on the device.
+    private const val BUILD_TAG = "V5.9.677"
+
     data class Event(
         val tsMs: Long,
         val tag: String,
@@ -490,6 +495,15 @@ object PipelineHealthCollector {
 
         val sb = StringBuilder(16 * 1024)
         sb.append("===== AATE Pipeline Health Snapshot =====\n")
+        // V5.9.677 — version stamp at top so we never debate which build
+        // is on the device. Tag is a hardcoded const bumped per release;
+        // appVer comes from BuildConfig.VERSION_NAME (set by gradle to
+        // "5.0.<ciBuildNumber>"). When the operator pastes a dump we can
+        // immediately confirm the fixes in this dump actually exist.
+        val _appVer = try {
+            com.lifecyclebot.BuildConfig.VERSION_NAME
+        } catch (_: Throwable) { "unknown" }
+        sb.append("  Build:                 ${_appVer}  |  Tag: ${BUILD_TAG}\n")
         sb.append("  Captured at:           ${df.format(Date(s.nowMs))}\n")
         sb.append("  Uptime since start:    ${uptimeSec}s\n")
         sb.append("  Forensic logging:      ${if (ForensicLogger.enabled) "ON" else "OFF"}\n")
@@ -626,9 +640,34 @@ object PipelineHealthCollector {
         }
 
         // ── Labelled counters ───────────────────────────────────────
+        // V5.9.677 — LIFECYCLE/* and SNAP/* entries are pinned BEFORE the
+        // top-40 by-count slice. The previous frequency-sorted-take(40)
+        // pushed singleton lifecycle counters (BATTERY_OPT_CHECK=1,
+        // LOOP_HEARTBEAT_ALARM=15, CYCLE_PHASE=63 etc.) below the cut
+        // whenever a few hundred SCAN_CB / GATE_BLOCK entries flooded
+        // labelCounts, so the dump never proved whether the latest
+        // version's lifecycle hooks were actually firing on device.
+        // Now all LIFECYCLE/* and SNAP/* counters are emitted FIRST in
+        // sorted order, then the remaining counters fill up to 40 slots.
         if (s.labelCounts.isNotEmpty()) {
             sb.append("===== Labelled counters (lane / error / lock / etc.) =====\n")
-            s.labelCounts.entries.sortedByDescending { it.value }.take(40)
+            val all = s.labelCounts.entries.toList()
+            val lifecycle = all.filter { it.key.startsWith("LIFECYCLE/") }
+                .sortedByDescending { it.value }
+            val snaps = all.filter { it.key.startsWith("SNAP/") }
+                .sortedByDescending { it.value }
+            val pinnedKeys = (lifecycle + snaps).map { it.key }.toSet()
+            // Render pinned (lifecycle then snap) regardless of count rank.
+            for (e in lifecycle) sb.append(line("${e.key}:", e.value)).append('\n')
+            for (e in snaps) sb.append(line("${e.key}:", e.value)).append('\n')
+            // Fill remaining slots up to 40 with the highest-count NON-pinned
+            // entries so high-volume tags (TRADEJRNL_REC, BOT_LOOP_TICK, gate
+            // tags) still appear when they out-rank lifecycle singletons.
+            val remainingSlots = (40 - lifecycle.size - snaps.size).coerceAtLeast(0)
+            all.asSequence()
+                .filter { it.key !in pinnedKeys }
+                .sortedByDescending { it.value }
+                .take(remainingSlots)
                 .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
             sb.append('\n')
         }
