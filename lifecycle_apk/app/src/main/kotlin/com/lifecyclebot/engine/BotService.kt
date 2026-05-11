@@ -9143,7 +9143,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ts = ts,
                                     candidate = decision,
                                     config = cfg,
-                                    proposedSizeSol = treasurySignal.sizeSol,
+                                    proposedSizeSol = treasurySignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
                                 )
@@ -10200,7 +10200,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ts = ts,
                                     candidate = decision,
                                     config = cfg,
-                                    proposedSizeSol = shitCoinSignal.sizeSol,
+                                    proposedSizeSol = shitCoinSignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("SHIT_COIN") } catch (_: Exception) { null },
                                 )
@@ -10415,7 +10415,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 ts = ts,
                                 candidate = decision,
                                 config = cfg,
-                                proposedSizeSol = manipSignal.suggestedSizeSol,
+                                proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
                                 tradingModeTag = try { ModeSpecificGates.fromTradingMode("MANIPULATED") } catch (_: Exception) { null },
                             )
@@ -10591,7 +10591,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ts = ts,
                                     candidate = decision,
                                     config = cfg,
-                                    proposedSizeSol = expressSignal.sizeSol,
+                                    proposedSizeSol = expressSignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("EXPRESS") } catch (_: Exception) { null },
                                 )
@@ -10800,7 +10800,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                     ts = ts,
                                     candidate = decision,
                                     config = cfg,
-                                    proposedSizeSol = dipSignal.sizeSol,
+                                    proposedSizeSol = dipSignal.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("DIP_HUNTER") } catch (_: Exception) { null },
                                 )
