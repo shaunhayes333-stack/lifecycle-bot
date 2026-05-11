@@ -4854,26 +4854,24 @@ class BotService : Service() {
                 for (ts in openPositions) {
                     try {
                         // Get current price - use the most recent available
-                        val currentPrice = ts.lastPrice.takeIf { it > 0 }
+                        // V5.9.684 — STALE-PRICE RUG ESCAPE: restructured to avoid
+                        // continue inside run{} lambda (Kotlin experimental feature).
+                        val rawPrice = ts.lastPrice.takeIf { it > 0 }
                             ?: ts.history.lastOrNull()?.priceUsd
-                            ?: run {
-                                // V5.9.684 — STALE-PRICE RUG ESCAPE.
-                                // No live price at all. If the position is >5 min old
-                                // this almost always means the LP was pulled and
-                                // DexScreener dropped the pair. Fire emergency exit
-                                // using entry price as proxy (exit at ~0% rather
-                                // than letting the position bleed to -100% silently).
-                                val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
-                                if (posAgeMs > 5 * 60_000L && ts.position.isOpen && ts.position.entryPrice > 0) {
-                                    ErrorLogger.warn("BotService",
-                                        "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no live price for ${posAgeMs/60000}min, force-exit")
-                                    addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${posAgeMs/60000}min — assume rug", ts.mint)
-                                    executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
-                                        wallet = wallet, walletSol = effectiveBalance)
-                                    TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
-                                }
-                                continue  // can't do pnl math without price
+                        if (rawPrice == null || rawPrice <= 0.0) {
+                            // No live price — check if this is a stale rug
+                            val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
+                            if (posAgeMs > 5 * 60_000L && ts.position.isOpen && ts.position.entryPrice > 0) {
+                                ErrorLogger.warn("BotService",
+                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no live price for ${posAgeMs/60000}min, force-exit")
+                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${posAgeMs/60000}min — assume rug", ts.mint)
+                                executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
+                                    wallet = wallet, walletSol = effectiveBalance)
+                                TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
                             }
+                            continue  // can't do pnl math without price
+                        }
+                        val currentPrice = rawPrice
                         
                         val entryPrice = ts.position.entryPrice
                         if (entryPrice <= 0) continue
