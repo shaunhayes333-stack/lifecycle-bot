@@ -63,7 +63,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
             // Only reconnect if not already connected
             if (wm.state.value.connectionState != com.lifecyclebot.engine.WalletConnectionState.CONNECTED) {
-                val cfg = ConfigStore.load(ctx)
+                val val cfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
                 if (cfg.privateKeyB58.isNotBlank()) {
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Auto-reconnecting wallet...")
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -78,7 +78,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun pollLoop() {
         while (true) {
-            val cfg    = ConfigStore.load(ctx)
+            // V5.9.696 — ConfigStore.load is a disk read; move it off the main/UI thread.
+            val cfg    = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
             val status = BotService.status
             
             // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
@@ -186,7 +187,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun saveConfig(cfg: BotConfig) {
         // Only save and restart if IMPORTANT settings changed (not watchlist)
-        val currentCfg = ConfigStore.load(ctx)
+        val val currentCfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
         
         // Compare settings that REQUIRE a restart (use trim to avoid whitespace issues)
         // Only restart for settings that affect the bot's core operation
@@ -258,7 +259,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel", "Wallet connected successfully!")
                     
                     // SAVE credentials to config for auto-reconnect
-                    val cfg = ConfigStore.load(ctx)
+                    val val cfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
                     ConfigStore.save(ctx, cfg.copy(
                         privateKeyB58 = privateKeyB58,
                         rpcUrl = rpcUrl,
@@ -292,13 +293,13 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             com.lifecyclebot.engine.WalletManager.getInstance(ctx).disconnect()
         } catch (_: Exception) {}
         // Clear private key from config
-        val cfg = ConfigStore.load(ctx)
+        val val cfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
         saveConfig(cfg.copy(privateKeyB58 = ""))
     }
 
     fun manualBuy() {
         viewModelScope.launch {
-            val cfg   = ConfigStore.load(ctx)
+            val val cfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
             val ts    = BotService.status.tokens[cfg.activeToken] ?: return@launch
             BotService.instance?.let { svc ->
                 // Access executor via the service
@@ -323,7 +324,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 val svc      = BotService.instance
                 val executor = svc?.executor
                 val wallet   = try { BotService.walletManager.getWallet() } catch (_: Exception) { null }
-                val cfg      = ConfigStore.load(ctx)
+                val val cfg = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
                 val solPx    = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                 // V5.9.495g — withdraw uses LIVE-capped treasury so user
                 // never tries to withdraw SOL the wallet doesn't hold.

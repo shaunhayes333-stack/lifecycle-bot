@@ -1101,6 +1101,15 @@ object MoonshotTraderAI {
         val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
 
+        // V5.9.696 — UNCONDITIONAL HARD FLOOR (first gate, no exceptions).
+        // Flash rugs can move -94% before the 14s botloop fires the early-death check.
+        // Guard: if we're past the absolute hard floor stop, always exit immediately.
+        // This is the same principle as the global -15% rule (memory entry #24).
+        if (pnlPct <= HARD_FLOOR_STOP) {
+            ErrorLogger.warn(TAG, "🚀🛑 HARD_FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(HARD_FLOOR_STOP)}% — unconditional exit")
+            return ExitSignal.STOP_LOSS
+        }
+
         // V5.9.443 — EARLY-DEATH STOP.
         // V5.9.444 — fluid cutoff from HoldDurationTracker 0-1min bucket.
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000

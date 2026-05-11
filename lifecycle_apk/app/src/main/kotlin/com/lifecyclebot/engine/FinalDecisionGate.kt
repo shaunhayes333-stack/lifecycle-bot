@@ -1120,7 +1120,25 @@ object FinalDecisionGate {
         }
 
         val WATCHLIST_FLOOR = FluidLearningAI.getWatchlistFloor()
-        val EXECUTION_FLOOR = FluidLearningAI.getExecutionFloor()
+        // V5.9.696 — Per-trader execution floor override.
+        // FluidLearningAI.getExecutionFloor() lerps $800→$10000 as learning progresses.
+        // At ~35% learning it reaches ~$4480, which hard-blocks 94% of fresh pump.fun/
+        // Raydium tokens (typical liq $2000-$4400) on EVERY trader — ShitCoin, Moonshot,
+        // Treasury, all of them. This is catastrophic: EXEC=0, no new trades at all.
+        //
+        // Root cause: the lerp floor was designed for "mature" filtering but applies
+        // identically to early-stage meme traders whose own scorers ALREADY gate on liq.
+        // ShitCoin (V5.9.615) gates at $300 liq. Moonshot gates at $2000 (bootstrap).
+        // FDG double-gating at $4480 above their own floors makes the whole system sterile.
+        //
+        // Fix: SHITCOIN and MOONSHOT traders use a fixed low floor ($1500) that lets
+        // their own scorer + safety checks do the real filtering. All other traders
+        // (Treasury, Quality, BlueChip — trading proven tokens) keep the lerp floor.
+        val EXECUTION_FLOOR = when (tradingModeTag) {
+            ModeSpecificGates.TradingModeTag.SHITCOIN,
+            ModeSpecificGates.TradingModeTag.MOONSHOT -> 1_500.0  // Fixed — own scorer handles real gating
+            else -> FluidLearningAI.getExecutionFloor()           // Lerp floor for proven-token traders
+        }
 
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")

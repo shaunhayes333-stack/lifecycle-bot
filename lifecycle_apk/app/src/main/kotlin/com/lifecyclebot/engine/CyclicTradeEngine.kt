@@ -43,6 +43,8 @@ object CyclicTradeEngine {
     private const val LOSS_STREAK_BREAK_COUNT    = 3
     private const val LOSS_STREAK_BREAK_PAUSE_MS = 5 * 60 * 1000L
     @Volatile private var consecutiveLosses: Int = 0
+    // V5.9.696 — Dynamic stop: track high-water pnl per position so profits get locked.
+    @Volatile private var positionHighWaterPnlPct: Double = 0.0
     @Volatile private var pauseUntilMs: Long = 0L
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -143,12 +145,30 @@ object CyclicTradeEngine {
             val hitTP    = pnlPct >= tpPct
             val hitSL    = pnlPct <= -slPct
 
-            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | TP${tpPct.toInt()}/SL${slPct.toInt()} | ${if (isLiveMode) "LIVE" else "PAPER"}"
+            // V5.9.696 — Dynamic profit lock (ratchet).
+            // Once a position reaches a profit threshold, lock in a floor so
+            // gains can't fully evaporate. High-water tracking + ratchet tiers.
+            if (pnlPct > positionHighWaterPnlPct) positionHighWaterPnlPct = pnlPct
+            val profitLockTriggered = when {
+                // Reached 10%+ profit: lock floor at +3% (don't give it all back)
+                positionHighWaterPnlPct >= 10.0 && pnlPct < 3.0  -> true
+                // Reached 6%+ profit: lock floor at breakeven
+                positionHighWaterPnlPct >= 6.0  && pnlPct < 0.0  -> true
+                // Reached 4%+ profit: lock at -1% (minor givebacks ok, but not full SL)
+                positionHighWaterPnlPct >= 4.0  && pnlPct < -1.0 -> true
+                else -> false
+            }
+            val dynamicSlReason = when {
+                profitLockTriggered -> "PROFIT_LOCK_${positionHighWaterPnlPct.toInt()}PCT_HW"
+                pnlPct <= -slPct    -> "SL"
+                else                -> null
+            }
+            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | HW:+${positionHighWaterPnlPct.toInt()}% | TP${tpPct.toInt()}/SL${slPct.toInt()} | ${if (isLiveMode) "LIVE" else "PAPER"}"
 
             when {
-                hitTP -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TP", solPrice)
-                hitSL -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "SL", solPrice)
-                timedOut -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TIMEOUT", solPrice)
+                hitTP                -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TP", solPrice)
+                dynamicSlReason != null -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, dynamicSlReason, solPrice)
+                timedOut             -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TIMEOUT", solPrice)
             }
             return
         }
@@ -253,6 +273,7 @@ object CyclicTradeEngine {
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
             statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
+            positionHighWaterPnlPct = 0.0  // V5.9.696: reset high water on new entry
             ErrorLogger.info(TAG, "Cycle #${cycleCount + 1} entered: ${best.symbol} | $sizeSol SOL | live=$isLiveMode | score=${best.lastV3Score ?: 0} | TP=${tpPctEntry.toInt()}% SL=${slPctEntry.toInt()}%")
             // V5.9.451 — journal BUY via V3JournalRecorder so the cycle
             // shows in the user's Journal alongside main-bot trades and
