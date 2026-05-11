@@ -2327,7 +2327,45 @@ class BotService : Service() {
             // 
             // This recovers positions that were lost when the app was killed.
             // CRITICAL: Must happen BEFORE botLoop() starts to avoid duplicate entries.
+            //
+            // V5.9.681 — GHOST REAPER ON START.
+            // If KEY_MANUAL_STOP_REQUESTED == true on the runtime-prefs, the
+            // previous shutdown was an explicit user-pressed Stop. In that case
+            // stopBot() should have already cleared PositionPersistence — if
+            // it did not (slow paper-sell loop, frozen bot loop, process kill
+            // mid-stop), any positions still in storage are by definition
+            // ghosts from an unclean teardown. Wipe the persistence BEFORE
+            // restorePositions so we boot from a clean slate.
+            // Crash/kill paths (KEY_MANUAL_STOP_REQUESTED == false) still
+            // restore as before — that is the V5.6.9 use-case.
             // ═══════════════════════════════════════════════════════════════════
+            try {
+                val prevWasManualStop = getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+                    .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                if (prevWasManualStop) {
+                    val persistedBefore = try { PositionPersistence.getPersistedCount() } catch (_: Throwable) { -1 }
+                    if (persistedBefore > 0) {
+                        try {
+                            PositionPersistence.clear()
+                            ForensicLogger.lifecycle(
+                                "START_GHOST_REAP",
+                                "prevManualStop=true persistedBefore=$persistedBefore wiped=true"
+                            )
+                            addLog("🧹 Ghost reaper: wiped $persistedBefore stale position(s) — previous stop was unclean")
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "ghost reap wipe failed: ${e.message}")
+                        }
+                    } else {
+                        ForensicLogger.lifecycle(
+                            "START_GHOST_REAP",
+                            "prevManualStop=true persistedBefore=0 wiped=false"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "ghost reap pre-check error: ${e.message}")
+            }
+
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMutableMap() }
                 val restoredCount = PositionPersistence.restorePositions(tokensCopy)
@@ -3858,7 +3896,51 @@ class BotService : Service() {
                 val tokensCopy = synchronized(status.tokens) {
                     status.tokens.toMap()
                 }
-                
+
+                // V5.9.681 — AGGRESSIVE EARLY UI CLEAR (operator regression fix).
+                //
+                // Previous flow ran closeAllPositions() FIRST (which does
+                // per-position paperSell() + heavy learning code, ~500ms each),
+                // then 7 lane-trader clears, then trackers, THEN finally
+                // status.tokens.clear() + PositionPersistence.clear().
+                //
+                // Operator screenshot V5.9.680: 10+ paper positions still on UI
+                // after pressing Stop. Root cause: with 10 open positions, the
+                // per-token paperSell learning loop takes 5+ seconds. The bot
+                // loop may also be frozen mid-cycle (cycle 3 wedged at 170s+),
+                // holding monitors that block stopBot's downstream work. So
+                // status.tokens never reaches the late clear() call within the
+                // window the user looks at the screen.
+                //
+                // Fix: clear status.tokens AND PositionPersistence RIGHT NOW,
+                // before any heavy work. The tokensCopy snapshot already holds
+                // the live TokenState references so closeAllPositions() and the
+                // sub-trader close loops downstream still operate on real data
+                // for learning purposes. UI sees a clean state immediately, and
+                // even if the process is killed during the slow paperSell loop,
+                // persistence is already wiped so the next start can't restore
+                // ghosts.
+                run {
+                    try {
+                        synchronized(status.tokens) {
+                            status.tokens.clear()
+                        }
+                        try { GlobalTradeRegistry.reset() } catch (_: Throwable) {}
+                        ForensicLogger.lifecycle(
+                            "STOP_EARLY_TOKENS_CLEARED",
+                            "snapshotSize=${tokensCopy.size}"
+                        )
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "early tokens clear: ${e.message}")
+                    }
+                    try {
+                        PositionPersistence.clear()
+                        ForensicLogger.lifecycle("STOP_EARLY_PERSIST_CLEARED", "ok=true")
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "early persist clear: ${e.message}")
+                    }
+                }
+
                 val closedCount = executor.closeAllPositions(
                     tokens = tokensCopy,
                     wallet = wallet,

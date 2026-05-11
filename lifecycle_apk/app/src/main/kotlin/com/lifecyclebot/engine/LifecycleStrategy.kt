@@ -1697,7 +1697,11 @@ class LifecycleStrategy(
     ): Pair<String, StrategyMeta> {
         val sz      = prices.size
         val current = prices.last()
-        val prev    = prices[sz - 2]
+        // V5.9.681 — guard sz<2 (SPANCER crash 20:20:37: only 1 candle → -1 index).
+        // detectLaunchPhase can be invoked on a freshly-intaked token with a
+        // single price tick; the rest of the function tolerates a flat `prev`
+        // since move4/move8/ema8 all gate on their own `size >= 2`.
+        val prev    = if (sz >= 2) prices[sz - 2] else current
 
         val w4    = prices.takeLast(4)
         val w8    = prices.takeLast(8)
