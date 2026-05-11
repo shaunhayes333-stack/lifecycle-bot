@@ -2661,10 +2661,46 @@ class Executor(
             val pnlPct = if (ts.position.entryPrice > 0)
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             else 0.0
+
+            // V5.9.684 — SWEEP TAKE-PROFIT.
+            // checkProfitLock handles partial milestone locks but never fires a
+            // full-position TP exit. Sub-trader TP fields (shitCoinTakeProfit,
+            // blueChipTakeProfit, treasuryTakeProfit) are stored on the position
+            // but only checked inside processTokenCycle when the token has a
+            // fresh scanner tick. If the scanner skips the mint (deferred,
+            // cooldown, no fresh pair) the TP fires here instead.
+            // Falls back to cfg.exitScoreThreshold-driven default TP (20%) if
+            // no sub-trader TP was ever stored.
+            if (currentPrice > 0.0) {
+                val tpPct = when {
+                    ts.position.isShitCoinPosition && ts.position.shitCoinTakeProfit > 0.0 ->
+                        ts.position.shitCoinTakeProfit
+                    ts.position.isBlueChipPosition && ts.position.blueChipTakeProfit > 0.0 ->
+                        ts.position.blueChipTakeProfit
+                    ts.position.isTreasuryPosition && ts.position.treasuryTakeProfit > 0.0 ->
+                        ts.position.treasuryTakeProfit
+                    else -> {
+                        // Generic meme: use fluid TP — lerps from 15% bootstrap to
+                        // cfg default as learning matures.
+                        try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI
+                                .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                        } catch (_: Throwable) { 20.0 }
+                    }
+                }
+                if (pnlPct >= tpPct) {
+                    onLog("🎯 SWEEP_TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}%", ts.mint)
+                    doSell(ts, "SWEEP_TAKE_PROFIT_${tpPct.toInt()}", wallet, walletSol)
+                    return
+                }
+            }
+
+            // Fluid stop floor — already wired but make the log more visible
             val floor = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
             } catch (_: Throwable) { -25.0 }
             if (pnlPct <= floor && currentPrice > 0.0) {
+                onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)
                 doSell(ts, "SWEEP_FLUID_FLOOR_${floor.toInt()}", wallet, walletSol)
             }
         }

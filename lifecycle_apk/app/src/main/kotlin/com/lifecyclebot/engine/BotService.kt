@@ -4856,7 +4856,24 @@ class BotService : Service() {
                         // Get current price - use the most recent available
                         val currentPrice = ts.lastPrice.takeIf { it > 0 }
                             ?: ts.history.lastOrNull()?.priceUsd
-                            ?: continue  // Can't check without price
+                            ?: run {
+                                // V5.9.684 — STALE-PRICE RUG ESCAPE.
+                                // No live price at all. If the position is >5 min old
+                                // this almost always means the LP was pulled and
+                                // DexScreener dropped the pair. Fire emergency exit
+                                // using entry price as proxy (exit at ~0% rather
+                                // than letting the position bleed to -100% silently).
+                                val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
+                                if (posAgeMs > 5 * 60_000L && ts.position.isOpen && ts.position.entryPrice > 0) {
+                                    ErrorLogger.warn("BotService",
+                                        "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no live price for ${posAgeMs/60000}min, force-exit")
+                                    addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${posAgeMs/60000}min — assume rug", ts.mint)
+                                    executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
+                                        wallet = wallet, walletSol = effectiveBalance)
+                                    TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                }
+                                continue  // can't do pnl math without price
+                            }
                         
                         val entryPrice = ts.position.entryPrice
                         if (entryPrice <= 0) continue
@@ -4995,6 +5012,37 @@ class BotService : Service() {
                             )
                             
                             TradeStateMachine.startCooldown(ts.mint)
+                        }
+
+                        // V5.9.684 — RAPID TAKE-PROFIT.
+                        // Monitor runs every 500ms so it can catch pumps the
+                        // main loop (10s cycle) misses. Resolve TP target from
+                        // sub-trader fields; fall back to fluid TP.
+                        if (ts.position.isOpen) {
+                            val tpPct = when {
+                                ts.position.isShitCoinPosition && ts.position.shitCoinTakeProfit > 0.0 ->
+                                    ts.position.shitCoinTakeProfit
+                                ts.position.isBlueChipPosition && ts.position.blueChipTakeProfit > 0.0 ->
+                                    ts.position.blueChipTakeProfit
+                                ts.position.isTreasuryPosition && ts.position.treasuryTakeProfit > 0.0 ->
+                                    ts.position.treasuryTakeProfit
+                                else -> try {
+                                    com.lifecyclebot.v3.scoring.FluidLearningAI
+                                        .getFluidTakeProfit(cfg.exitScoreThreshold.coerceAtLeast(20.0))
+                                } catch (_: Throwable) { 20.0 }
+                            }
+                            if (pnlPct >= tpPct) {
+                                ErrorLogger.info("BotService",
+                                    "🎯 RAPID TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}%")
+                                addLog("🎯 RAPID TP HIT: ${ts.symbol} +${pnlPct.toInt()}% (target +${tpPct.toInt()}%)")
+                                executor.requestSell(
+                                    ts = ts,
+                                    reason = "RAPID_TAKE_PROFIT_${tpPct.toInt()}",
+                                    wallet = wallet,
+                                    walletSol = effectiveBalance
+                                )
+                                TradeStateMachine.startCooldown(ts.mint)
+                            }
                         }
                         
                     } catch (e: Exception) {
@@ -8715,7 +8763,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 // Normal exit-management pass — label it so operator can see exits vs real blocks
                 try {
                     ForensicLogger.gate(
-                        ForensicLogger.PHASE.EXIT,
+                        ForensicLogger.PHASE.EXIT_GATE,
                         ts.symbol,
                         allow = true,
                         reason = "EXIT_MANAGED src=${ts.source}"
