@@ -4060,14 +4060,37 @@ class BotService : Service() {
         
         // V5.2 FIX: ALWAYS clear all layer positions when bot stops, regardless of closePositionsOnStop setting
         // This ensures the UI doesn't show stale positions after a bot stop/crash
+        //
+        // V5.9.679 — DEFENSIVE per-step clears (P0 bug fix).
+        //
+        // Operator screenshot: 6 paper positions persisted on the UI after
+        // pressing Stop. Root cause: the previous single try-catch wrapped
+        // SEVEN lane-trader clears + a LiveWalletReconciler pass + TWO
+        // tracker clears in one block. If ANY of the lane traders threw
+        // (a defensive throw inside CashGen/BlueChip/ShitCoin/etc), the
+        // SHARED catch at the bottom skipped the trackers — and the UI's
+        // open-counter does maxOf(tokens, hostTracker, lifecycleTracker)
+        // so the tracker leak alone keeps the badge non-zero.
+        //
+        // Fix: each clear gets its own try-catch. Trackers ALWAYS run in a
+        // dedicated final try regardless of upstream failures. Also emit
+        // STOP_CLEAR_STEP forensic events so the next dump shows EXACTLY
+        // which step failed if this regression ever recurs.
         try {
-            com.lifecyclebot.v3.scoring.CashGenerationAI.clearAllPositions()
-            com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions()
-            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions()
-            com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides()
-            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll()
-            com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions()
-            com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions()
+            try { com.lifecyclebot.v3.scoring.CashGenerationAI.clearAllPositions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear CashGen: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.clearAllPositions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear BlueChip: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.clearAllPositions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ShitCoin: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.ShitCoinExpress.clearAllRides() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear ShitCoinExpress: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.clearAll() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Manipulated: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.QualityTraderAI.clearAllPositions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Quality: ${e.message}") }
+            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.clearAllPositions() }
+                catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear Moonshot: ${e.message}") }
             // V5.9.665 — operator regression fix.
             // Before wiping HostWalletTokenTracker / TokenLifecycleTracker,
             // give LiveWalletReconciler one synchronous pass so any swap
@@ -4083,17 +4106,28 @@ class BotService : Service() {
             } catch (rcEx: Throwable) {
                 ErrorLogger.debug("BotService", "pre-clear reconcile soft-failed: ${rcEx.message}")
             }
-            // V5.9.661c — also wipe the lifecycle + host-wallet trackers
-            // so the main UI "Open" counter (uses maxOf of all sources)
-            // actually drops to 0. Operator: 'still showed 11 as per
-            // screen shot with the bot off'. Root cause was these two
-            // trackers retaining their counts past stop.
-            com.lifecyclebot.engine.TokenLifecycleTracker.clearAll()
-            com.lifecyclebot.engine.HostWalletTokenTracker.clearAll()
-            addLog("✅ Cleared all layer position tracking + lifecycle/host trackers")
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing layer positions: ${clearEx.message}", clearEx)
         }
+        // V5.9.679 — trackers ALWAYS clear, even if every lane trader
+        // above threw. This is the dedicated final guard for the UI
+        // open-counter maxOf computation.
+        // V5.9.661c — also wipe the lifecycle + host-wallet trackers
+        // so the main UI "Open" counter (uses maxOf of all sources)
+        // actually drops to 0. Operator: 'still showed 11 as per
+        // screen shot with the bot off'. Root cause was these two
+        // trackers retaining their counts past stop.
+        try { com.lifecyclebot.engine.TokenLifecycleTracker.clearAll() }
+            catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear LifecycleTracker: ${e.message}") }
+        try { com.lifecyclebot.engine.HostWalletTokenTracker.clearAll() }
+            catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear HostWalletTracker: ${e.message}") }
+        try {
+            ForensicLogger.lifecycle(
+                "STOP_TRACKERS_CLEARED",
+                "lifecycleCleared=true hostCleared=true"
+            )
+        } catch (_: Throwable) {}
+        addLog("✅ Cleared all layer position tracking + lifecycle/host trackers")
         
         // V5.2.12 FIX: Also clear position.isOpen flags in status.tokens
         // This is what the UI reads - critical to prevent stale position display
@@ -4115,22 +4149,35 @@ class BotService : Service() {
         // V5.6: Clear the watchlist so UI shows clean state after stop
         // Learning data is persisted in trade DB — status.tokens is just the live runtime cache
         try {
+            val _preClearCount = status.tokens.values.count { it.position.isOpen }
             synchronized(status.tokens) {
                 status.tokens.clear()
             }
             GlobalTradeRegistry.reset()
+            try {
+                ForensicLogger.lifecycle(
+                    "STOP_TOKENS_CLEARED",
+                    "preClearOpen=$_preClearCount mapSize=${status.tokens.size}"
+                )
+            } catch (_: Throwable) {}
             addLog("✅ Cleared watchlist — UI reset to clean state")
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
         }
-        
+
         // V5.6.10 FIX: Also clear PositionPersistence so positions don't restore on restart
         // Without this, positions reappear after bot stop → start cycle
         try {
             PositionPersistence.clear()
+            try {
+                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=true")
+            } catch (_: Throwable) {}
             addLog("✅ Cleared position persistence — positions won't restore on restart")
         } catch (persistEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing position persistence: ${persistEx.message}", persistEx)
+            try {
+                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=false err=${persistEx.message?.take(60)}")
+            } catch (_: Throwable) {}
         }
 
         status.running = false
@@ -4229,6 +4276,23 @@ class BotService : Service() {
         // - Bot is stopped
         // - App is minimized
         // - App crashes and restarts
+        // V5.9.679 — emit STOP_COMPLETE BEFORE stopForeground/stopSelf so
+        // the next dump shows the full clearing chain ran end-to-end.
+        // Counters captured here let the operator verify in one look:
+        // status.tokens.size MUST be 0, host/lifecycle trackers MUST be 0.
+        try {
+            val _finalTokens = status.tokens.size
+            val _finalHostOpen = try {
+                com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().size
+            } catch (_: Throwable) { -1 }
+            val _finalLifeOpen = try {
+                com.lifecyclebot.engine.TokenLifecycleTracker.getOpenCount()
+            } catch (_: Throwable) { -1 }
+            ForensicLogger.lifecycle(
+                "STOP_COMPLETE",
+                "tokens=$_finalTokens host=$_finalHostOpen life=$_finalLifeOpen"
+            )
+        } catch (_: Throwable) {}
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         wakeLock?.let { if (it.isHeld) it.release() }
