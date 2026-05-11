@@ -4866,9 +4866,15 @@ class BotService : Service() {
                             // polling cycle got a real price the loss was already -54%/-77%.
                             // 90s is safe: a legitimately trading token will always have at
                             // least one WS tick (PumpPortal fires every trade) inside 90s.
+                            // V5.9.703 — same entry-anchor fix: use max(lastPriceUpdate, entryTime)
+                            // so a position that opened before the most recent price tick is never
+                            // immediately considered stale. posAgeMs anchors correctly already but
+                            // lastPriceAgeMs was using lastPriceUpdate which pre-dates the buy.
                             val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
-                            val lastPriceAgeMs = if (ts.lastPriceUpdate > 0)
-                                System.currentTimeMillis() - ts.lastPriceUpdate else posAgeMs
+                            val priceRefMs = if (ts.lastPriceUpdate > 0)
+                                maxOf(ts.lastPriceUpdate, ts.position.entryTime)
+                                else ts.position.entryTime
+                            val lastPriceAgeMs = System.currentTimeMillis() - priceRefMs
                             val staleThresholdMs = if (posAgeMs > 60_000L) 90_000L else 120_000L
                             if (lastPriceAgeMs > staleThresholdMs && ts.position.isOpen && ts.position.entryPrice > 0) {
                                 ErrorLogger.warn("BotService",
@@ -4888,13 +4894,26 @@ class BotService : Service() {
                         // This catches -54%/-77% RAPID_CATASTROPHE_STOP cases where the WS died
                         // before the dump, ts.lastPrice stayed at entry, pnl showed 0%, and the
                         // rapid monitor held until the polling cycle fetched the real rug price.
+                        // V5.9.703 — FIX: stale-live-price guard now anchors to
+                        // max(ts.lastPriceUpdate, ts.position.entryTime) so a freshly
+                        // opened position always has ≥90s from entry before the guard
+                        // can fire. The V5.9.698 bug: ts.lastPriceUpdate was set at
+                        // SCAN time (not buy time), so a token scanned 2+ min before
+                        // its paper buy looked "stale" the moment the position opened —
+                        // causing 100% of paper trades to exit STALE_LIVE_PRICE_RUG_ESCAPE
+                        // at 0min hold time, collapsing WR to 8%.
+                        //
+                        // Correct semantics: "has a LIVE price tick arrived since entry?"
+                        // Use max so that if a new price arrives after entry it still works,
+                        // and if no post-entry tick has arrived, entryTime is the baseline.
                         if (ts.lastPriceUpdate > 0) {
-                            val livePriceAgeMs = System.currentTimeMillis() - ts.lastPriceUpdate
+                            val priceRefMs = maxOf(ts.lastPriceUpdate, ts.position.entryTime)
+                            val livePriceAgeMs = System.currentTimeMillis() - priceRefMs
                             val posAgeForStale = System.currentTimeMillis() - ts.position.entryTime
                             val staleLivePriceThreshMs = if (posAgeForStale > 60_000L) 90_000L else 120_000L
                             if (livePriceAgeMs > staleLivePriceThreshMs && ts.position.isOpen) {
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s, force-exit")
+                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), force-exit")
                                 addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s — assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
