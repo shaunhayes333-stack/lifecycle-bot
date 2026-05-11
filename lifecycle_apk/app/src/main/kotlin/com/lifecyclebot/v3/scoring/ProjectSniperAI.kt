@@ -57,7 +57,7 @@ object ProjectSniperAI {
     // Position sizing
     private const val BASE_POSITION_SOL = 0.08         // Base snipe size
     private const val MAX_POSITION_SOL = 0.25          // Max per snipe
-    private const val MAX_CONCURRENT_MISSIONS = 80      // V5.9.613: remove mission choke for 500/day throughput
+    private const val MAX_CONCURRENT_MISSIONS = 8       // V5.9.692: hard cap — 80 caused 73 ghost missions with no price feed
     
     // Exit parameters - TIGHT for launch plays
     private const val STOP_LOSS_PCT = -12.0            // Abort if down 12%
@@ -612,6 +612,26 @@ object ProjectSniperAI {
         val majors: Int,
     )
     
+    /**
+     * V5.9.692 — Auto-purge missions that have been open past their max hold time
+     * with no resolvable price feed. Called from BotService inner loop + startBot.
+     */
+    fun sweepStaleMissions(maxHoldSecs: Long = 300L) {
+        val now = System.currentTimeMillis()
+        val stale = activeMissions.entries.filter { (_, m) ->
+            (now - m.entryTime) / 1000 > maxHoldSecs
+        }
+        if (stale.isEmpty()) return
+        stale.forEach { (mint, mission) ->
+            activeMissions.remove(mint)
+            dailyKIA.incrementAndGet()
+            ErrorLogger.info(TAG, "🎯 [SNIPER] STALE_PURGE: ${mission.symbol} | " +
+                "age=${((now - mission.entryTime)/1000).toInt()}s | auto-KIA")
+        }
+        ErrorLogger.info(TAG, "🎯 sweepStaleMissions: purged ${stale.size} ghost missions | active=${activeMissions.size}")
+        save(force = true)
+    }
+
     fun clearAllMissions() {
         activeMissions.clear()
         ErrorLogger.info(TAG, "🎯 All missions cleared")

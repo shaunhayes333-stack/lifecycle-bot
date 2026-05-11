@@ -6184,6 +6184,11 @@ class BotService : Service() {
             // market scanner from scratch. Always logs loudly so the
             // operator sees the recovery action.
             // ═══════════════════════════════════════════════════════════════════
+            // V5.9.692 — purge Sniper ghost missions every ~30s (loopCount % 6 = every 5*6=30s)
+            if (loopCount % 6 == 0) {
+                try { com.lifecyclebot.v3.scoring.ProjectSniperAI.sweepStaleMissions(300L) } catch (_: Throwable) {}
+            }
+
             if (loopCount % 12 == 0) {  // ~60s cadence
                 try {
                     val now = System.currentTimeMillis()
