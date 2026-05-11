@@ -538,7 +538,25 @@ object AdaptiveLearningEngine {
             .apply()
     }
 
+    // V5.9.694 — deduplication guard. Multiple Executor close paths
+    // (paperSell, liveSell, fallback exits) all called learnFromTrade
+    // independently, causing tradeCount to grow 2-3x faster than the
+    // canonical pipeline count. Guard by mint+entryTime — same position
+    // close can never feed ALE more than once.
+    private val aleSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     fun learnFromTrade(features: TradeFeatures) {
+        // Dedup: skip if same mint+entryPhase combo was seen in last 60s
+        val dedupKey = "${features.mint}_${features.entryPhase}_${(System.currentTimeMillis() / 60_000L)}"
+        if (aleSeenKeys.putIfAbsent(dedupKey, System.currentTimeMillis()) != null) {
+            ErrorLogger.debug("AdaptiveLearning", "⚡ DEDUP skip: ${features.mint.take(8)} (already learned this close)")
+            return
+        }
+        // Trim cache to avoid unbounded growth
+        if (aleSeenKeys.size > 2000) {
+            val cutoff = System.currentTimeMillis() - 120_000L
+            aleSeenKeys.entries.removeIf { it.value < cutoff }
+        }
         tradeCount += 1
         adjustWeights(features)
 

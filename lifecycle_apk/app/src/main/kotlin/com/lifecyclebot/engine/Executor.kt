@@ -1053,13 +1053,14 @@ class Executor(
                     // EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers).
                     // Skip if the mint was flagged as a partial-bridge /
                     // output-mismatch event by the execution pipeline.
-                    if (com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(ts.mint)) {
-                        if (isPaper) {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.recordPaperTrade(isWin)
-                        } else {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.recordLiveTrade(isWin)
-                        }
-                    }
+                    // V5.9.694 — REMOVED direct FluidLearningAI call here.
+                    // FluidLearningAI is now fed exclusively through CanonicalOutcomeBus
+                    // → CanonicalSubscribers, which has a per-tradeId recordOnce() guard.
+                    // Having both paths active caused sessionTrades to grow 2x per close,
+                    // inflating FluidLearning from ~95 canonical trades to 3266+.
+                    // CanonicalSubscribers handles both PAPER and LIVE environments.
+                    // (shouldTrainStrategy gate is also applied in CanonicalSubscribers)
+                    if (false) { /* decommissioned — bus is sole source of truth */ }
                 }
 
                 // Record to BehaviorAI for behavior pattern analysis.

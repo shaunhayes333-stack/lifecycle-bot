@@ -730,7 +730,23 @@ object FluidLearningAI {
      * 1000 paper trades = 100% maturity contribution from paper.
      * Real decisions, simulated consequences - valuable for learning patterns.
      */
-    fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0) {
+    // V5.9.694 — dedup guard keyed by canonical tradeId (or mint+minute bucket).
+    // Prevents the bus subscriber and any legacy direct caller from both
+    // incrementing sessionTrades for the same close event.
+    private val fluidSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun recordPaperTrade(isWin: Boolean, pnlPct: Double = 0.0, dedupKey: String = "") {
+        // If a dedup key is supplied, enforce once-only semantics.
+        if (dedupKey.isNotBlank()) {
+            if (fluidSeenKeys.putIfAbsent(dedupKey, System.currentTimeMillis()) != null) {
+                ErrorLogger.debug(TAG, "⚡ FluidLearning DEDUP skip (paper): $dedupKey")
+                return
+            }
+            if (fluidSeenKeys.size > 3000) {
+                val cutoff = System.currentTimeMillis() - 120_000L
+                fluidSeenKeys.entries.removeIf { it.value < cutoff }
+            }
+        }
         // V5.9.187: PAPER_WEIGHT=1.0 exactly. 1 trade = 1 count.
         sessionTrades.incrementAndGet()
         if (isWin) sessionWins.incrementAndGet()

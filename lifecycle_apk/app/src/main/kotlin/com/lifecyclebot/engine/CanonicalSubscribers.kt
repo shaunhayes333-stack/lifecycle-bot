@@ -89,9 +89,14 @@ object CanonicalSubscribers {
                 }
                 val isWin = outcome.result == TradeResult.WIN
                 try {
+                    // V5.9.694 — pass tradeId as dedupKey so FluidLearning's
+                    // internal guard can enforce once-only semantics even if
+                    // some legacy code path manages to call recordPaperTrade
+                    // directly for the same close event.
+                    val fluidDedupKey = "bus_${outcome.tradeId}"
                     when (outcome.environment) {
                         TradeEnvironment.LIVE -> FluidLearningAI.recordLiveTrade(isWin, outcome.realizedPnlPct ?: 0.0)
-                        TradeEnvironment.PAPER -> FluidLearningAI.recordTrade(isWin)
+                        TradeEnvironment.PAPER -> FluidLearningAI.recordPaperTrade(isWin, dedupKey = fluidDedupKey)
                         TradeEnvironment.SHADOW -> { /* shadow doesn't affect Fluid trust */ }
                     }
                     LayerReadinessRegistry.recordEducation(
