@@ -8656,6 +8656,40 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         return
     }
     
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.690 — SYMBOL FAMILY DEDUP GUARD
+    // Blocks entry when a same-name-family token is already open.
+    // Pump.fun deployers carpet-launch 5-20 near-identical tokens
+    // (Maya / MAYA / MAYAS / maya) all at the same micro-price —
+    // the bot was entering all of them simultaneously, creating a
+    // correlated loss cluster that shows as a wall of -2.9% positions.
+    //
+    // Rule: if ANY open position shares a case-insensitive normalised
+    // root (first 4+ chars stripped of special chars) with this token,
+    // skip it UNLESS we have no open position at all for this mint.
+    // ═══════════════════════════════════════════════════════════════════
+    if (!ts.position.isOpen) {
+        val thisRoot = identity.symbol.uppercase().replace(Regex("[^A-Z0-9]"), "").take(4)
+        if (thisRoot.length >= 3) {
+            val familyConflict = try {
+                status.tokens.values.any { other ->
+                    other.position.isOpen &&
+                    other.identity.mint != identity.mint &&
+                    run {
+                        val otherRoot = other.identity.symbol.uppercase()
+                            .replace(Regex("[^A-Z0-9]"), "").take(4)
+                        otherRoot.length >= 3 && otherRoot == thisRoot
+                    }
+                }
+            } catch (_: Throwable) { false }
+            if (familyConflict) {
+                ErrorLogger.debug("BotService",
+                    "⏭️ SYMBOL_FAMILY_DEDUP: ${identity.symbol} | root=$thisRoot | same-family already open → skip")
+                return
+            }
+        }
+    }
+
     // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks
     val isFatalSuppression = DistributionFadeAvoider.isFatalSuppression(identity.mint)
     if (isFatalSuppression && !ts.position.isOpen) {

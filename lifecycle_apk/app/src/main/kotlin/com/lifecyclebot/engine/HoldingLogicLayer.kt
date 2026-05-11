@@ -102,7 +102,7 @@ object HoldingLogicLayer {
         "CYCLIC" to ModeHoldParams("CYCLIC", 25.0, -12.0, 6.0, 60 * 60 * 1000L, true, listOf(15.0, 25.0)),
         "SLEEPER" to ModeHoldParams("SLEEPER", 300.0, -35.0, 20.0, 48 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 400.0)),
         "NICHE" to ModeHoldParams("NICHE", 150.0, -25.0, 12.0, 8 * 60 * 60 * 1000L, true, listOf(75.0, 150.0)),
-        "PRESALE_SNIPE" to ModeHoldParams("PRESALE_SNIPE", 100.0, -30.0, 15.0, 10 * 60 * 1000L, true, listOf(50.0, 100.0)),
+        "PRESALE_SNIPE" to ModeHoldParams("PRESALE_SNIPE", 100.0, -7.0, 15.0, 10 * 60 * 1000L, true, listOf(50.0, 100.0)),  // V5.9.690: SL -7% matches ShitCoin — the -2% bootstrap early-exit fires first
         "ARBITRAGE" to ModeHoldParams("ARBITRAGE", 5.0, -2.0, 1.0, 5 * 60 * 1000L, false, listOf(3.0, 5.0)),
         "MOMENTUM_SWING" to ModeHoldParams("MOMENTUM_SWING", 60.0, -18.0, 10.0, 3 * 60 * 60 * 1000L, true, listOf(30.0, 60.0, 100.0)),
         "MICRO_CAP" to ModeHoldParams("MICRO_CAP", 300.0, -40.0, 25.0, 12 * 60 * 60 * 1000L, true, listOf(100.0, 200.0, 500.0)),
