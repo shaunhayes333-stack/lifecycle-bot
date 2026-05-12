@@ -95,15 +95,41 @@ class BotService : Service() {
         fun reapplyMarketsTraderSwitches(ctx: android.content.Context) {
             val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
             val kill = MARKET_TRADER_KILL_SWITCH
-            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(!kill && cfg.perpsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(!kill && cfg.stocksEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(!kill && cfg.commoditiesEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(!kill && cfg.metalsEnabled) } catch (_: Exception) {}
-            try { com.lifecyclebot.perps.ForexTrader.setEnabled(!kill && cfg.forexEnabled) } catch (_: Exception) {}
+            // V5.9.708 FIX: honour the marketsTraderEnabled master toggle.
+            // If the master Markets toggle is off (or kill switch active), disable all
+            // Markets sub-traders AND stop PerpsExecutionEngine immediately so the user
+            // doesn't have to restart the bot manually.
+            val marketsOn = !kill && isMarketsLaneEnabled(cfg)
+            try { com.lifecyclebot.perps.PerpsTraderAI.setEnabled(marketsOn && cfg.perpsEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.TokenizedStockTrader.setEnabled(marketsOn && cfg.stocksEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsOn && cfg.commoditiesEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsOn && cfg.metalsEnabled) } catch (_: Exception) {}
+            try { com.lifecyclebot.perps.ForexTrader.setEnabled(marketsOn && cfg.forexEnabled) } catch (_: Exception) {}
+            // Stop PerpsExecutionEngine immediately when Markets master toggle is turned off
+            if (!marketsOn) {
+                try {
+                    if (com.lifecyclebot.perps.PerpsExecutionEngine.isRunning()) {
+                        com.lifecyclebot.perps.PerpsExecutionEngine.stop()
+                        ErrorLogger.info("BotService", "📴 reapply: Markets OFF — PerpsExecutionEngine stopped")
+                        instance?.addLog("📴 Markets Trader toggled OFF — engine stopped")
+                    }
+                } catch (_: Exception) {}
+            }
+            // V5.9.708: CryptoAlt: honour toggle by stopping the trader immediately if disabled
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cfg.cryptoAltsEnabled) } catch (_: Exception) {}
+            if (!cfg.cryptoAltsEnabled) {
+                try {
+                    if (com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
+                        com.lifecyclebot.perps.CryptoAltTrader.stop()
+                        ErrorLogger.info("BotService", "📴 reapply: CryptoAlts OFF — CryptoAltTrader stopped")
+                        instance?.addLog("📴 Crypto Alts Trader toggled OFF — stopped")
+                    }
+                } catch (_: Exception) {}
+            }
             ErrorLogger.info("BotService", "🎚️ Markets switches re-applied: " +
-                "perps=${cfg.perpsEnabled} stocks=${cfg.stocksEnabled} comm=${cfg.commoditiesEnabled} " +
-                "metals=${cfg.metalsEnabled} forex=${cfg.forexEnabled} alts=${cfg.cryptoAltsEnabled}")
+                "marketsOn=$marketsOn perps=${cfg.perpsEnabled} stocks=${cfg.stocksEnabled} " +
+                "comm=${cfg.commoditiesEnabled} metals=${cfg.metalsEnabled} " +
+                "forex=${cfg.forexEnabled} alts=${cfg.cryptoAltsEnabled}")
         }
 
         /**
@@ -6002,19 +6028,24 @@ class BotService : Service() {
             // V5.9.631 — Meme lane must not silently disappear while the bot is running.
             // Operator forensic log: CryptoAlt/Markets/Commodities/Metals/Forex all ran
             // for an hour, but Meme showed no scanner/search/display/trades. Root cause:
-            // this branch treated config drift (memeTraderEnabled=false and mode not
-            // Meme/Both) as permission to `continue` forever, effectively making the
-            // Meme Trader invisible while every other desk stayed alive. Protected intake
-            // is infrastructure, not an optional execution gate; keep it awake whenever
-            // the bot is running or any global trading/discovery switch is active.
-            val memeEnabled = cfg.memeTraderEnabled ||
-                cfg.tradingMode == 0 ||
-                cfg.tradingMode == 2 ||
-                cfg.fullMarketScanEnabled ||
-                cfg.v3EngineEnabled ||
-                cfg.autoTrade ||
-                cfg.autoAddNewTokens ||
-                status.running
+            // V5.9.708 FIX — The Meme Trader toggle must be authoritative.
+            // Previous formula included `status.running` (always true) which made
+            // memeTraderEnabled=false completely ineffective. Also, tradingMode=2
+            // (BOTH) was in the OR chain, overriding the sub-toggle.
+            //
+            // Correct semantics:
+            //   - tradingMode 0 (MEME_ONLY): meme runs regardless of sub-toggle
+            //   - tradingMode 1 (MARKETS_ONLY): meme never runs
+            //   - tradingMode 2 (BOTH): meme runs ONLY IF memeTraderEnabled=true
+            //
+            // Scanner intake (admitProtectedMemeIntake) is infrastructure and
+            // remains always-on while the bot is running — that is separate from
+            // this execution gate.
+            val memeEnabled = when (cfg.tradingMode) {
+                0 -> true                      // MEME_ONLY: always run meme
+                1 -> false                     // MARKETS_ONLY: never run meme
+                else -> cfg.memeTraderEnabled  // BOTH: respect the toggle
+            }
             if (!memeEnabled) {
                 // Meme trader disabled — still run markets watchdog before sleeping
                 try {
