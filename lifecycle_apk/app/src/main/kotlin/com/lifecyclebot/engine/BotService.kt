@@ -12671,28 +12671,20 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     walletSol = effectiveBalance
                 )
                 
-                if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
-                    // Close treasury position tracking ONLY on confirmed sell
-                    com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
-                        ts.mint, currentPrice, exitSignal
-                    )
-                    recentlyClosedMs[ts.mint] = System.currentTimeMillis()
-                    
-                    // V5.6.8 FIX: Release exposure slot so new tokens can enter
-                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-
-                    addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
-                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | Capital returned to wallet! | result=$sellResult", ts.mint)
-                    
-                    // V5.6.7: After selling, mark token for potential re-entry by other layers
-                    // Other layers can pick it up on next scan if it still qualifies
-                    if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
-                        ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
-                            "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
-                    }
-                } else {
-                    addLog("⚠️ TREASURY SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
+                // V5.9.706 FIX: if rapid monitor already closed ts.position, requestSell
+                // returns ALREADY_CLOSED — still clean up sub-trader state so UI ghosts clear.
+                // Only bail on FAILED_RETRYABLE (will retry next tick with fresh price/balance).
+                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
+                    ts.mint, currentPrice, exitSignal
+                )
+                recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("💰 TREASURY SELL: ${ts.symbol} | ${exitSignal.name} | +${pnlPct.toInt()}% | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
+                if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {
+                    ErrorLogger.info("BotService", "💰 [TREASURY SOLD] ${ts.symbol} | " +
+                        "+${pnlPct.toInt()}% | Capital returned | Token available for other layers to re-enter")
                 }
                 
                 return  // Exit processed
@@ -12843,22 +12835,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     walletSol = effectiveBalance
                 )
 
-                // Only clear strategy state if sell was successful
-                if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
-                        ts.mint, currentPrice, exitSignal
-                    )
-                    
-                    // V5.6.8 FIX: Release exposure slot
-                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-
-                    addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
-                } else {
-                    // Sell failed - do NOT close position, will retry next tick
-                    addLog("⚠️ SHITCOIN SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
-                }
+                // V5.9.706 FIX: ALREADY_CLOSED means rapid monitor already exited this position.
+                // Still clean up ShitCoinTraderAI state so the UI tile disappears.
+                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                    ts.mint, currentPrice, exitSignal
+                )
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("$exitEmoji SHITCOIN SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
 
                 return  // Exit processed
             }
@@ -12918,18 +12903,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     walletSol = effectiveBalance
                 )
                 
-                if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
-                    com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
-                    
-                    // V5.6.8 FIX: Release exposure slot
-                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-                    
-                    addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
-                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
-                } else {
-                    addLog("⚠️ EXPRESS SELL PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
-                }
+                // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
+                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
 
                 return
             }
@@ -12968,16 +12947,12 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     walletSol = effectiveBalance
                 )
                 
-                if (sellResult == Executor.SellResult.CONFIRMED || 
-                    sellResult == Executor.SellResult.PAPER_CONFIRMED) {
-                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                    // V5.6.8 FIX: Release exposure slot
-                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
-                    addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
-                        "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
-                } else {
-                    addLog("⚠️ MANIP EXIT PENDING: ${ts.symbol} | ${exitSignal.name} | result=$sellResult", ts.mint)
-                }
+                // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
+                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
+                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
+                    "${if (cfg.paperMode) "PAPER" else "LIVE"} | result=$sellResult", ts.mint)
                 return
             }
         }
@@ -13928,11 +13903,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
-                        executor.requestSell(
+                        val fbScResult = executor.requestSell(
                             ts = ts,
                             reason = "FALLBACK_SHITCOIN_${sig.name}",
                             wallet = wallet, walletSol = effectiveBalance,
                         )
+                        // V5.9.706 FIX: clean up sub-trader state unless retryable
+                        if (fbScResult != Executor.SellResult.FAILED_RETRYABLE) {
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, sig)
+                            com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                        }
                     }
                     return
                 }
@@ -13954,11 +13934,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
                         com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
-                        executor.requestSell(
+                        val fbMsResult = executor.requestSell(
                             ts = ts,
                             reason = "FALLBACK_MOONSHOT_${sig.name}",
                             wallet = wallet, walletSol = effectiveBalance,
                         )
+                        // V5.9.706 FIX: clean up sub-trader state unless retryable
+                        if (fbMsResult != Executor.SellResult.FAILED_RETRYABLE) {
+                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, sig)
+                            com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                        }
                     }
                     return
                 }
