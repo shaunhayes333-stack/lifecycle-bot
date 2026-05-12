@@ -744,26 +744,138 @@ object PipelineHealthCollector {
         val execBuy  = (labelCounts["EXEC/PAPER_BUY"]?.get() ?: 0L) + (labelCounts["EXEC/LIVE_BUY"]?.get() ?: 0L)
         val execSell = labelCounts["EXEC_SELL"]?.get() ?: 0L
         val stall    = if (uptimeSec > 0) (s.totalFrameStallMs * 100L / (uptimeSec * 1000L)) else 0L
+        val avgCycleMs = if (s.cycleCount > 0L) s.totalCycleMs / s.cycleCount else 0L
+        // ── live counters for cheat-sheet ──────────────────────────────
+        val loopTick    = labelCounts["BOT_LOOP_TICK"]?.get() ?: 0L
+        val scanCb      = s.phaseCounts["SCAN_CB"] ?: 0L
+        val intake      = s.phaseCounts["INTAKE"]  ?: 0L
+        val safety      = s.phaseCounts["SAFETY"]  ?: 0L
+        val v3          = s.phaseCounts["V3"]       ?: 0L
+        val laneEval    = s.phaseCounts["LANE_EVAL"]?: 0L
+        val fdgTotal    = s.phaseCounts["FDG"]      ?: 0L
+        val fdgBlock    = s.phaseBlock["FDG"]       ?: 0L
+        val fdgAllow    = s.phaseAllow["FDG"]       ?: 0L
+        val intakeBlock = s.phaseBlock["INTAKE"]    ?: 0L
+        val exitAllow   = s.phaseAllow["EXIT"]      ?: 0L
+        val exitBlock   = s.phaseBlock["EXIT"]      ?: 0L
+        val noPairCnt   = s.blockReasonCounts.filter { it.key.startsWith("INTAKE/NO_PAIR") }.values.sumOf { it }
+        val safetyBlock = s.phaseBlock["SAFETY"]    ?: 0L
+        val safetyAllow = s.phaseAllow["SAFETY"]    ?: 0L
+
         sb.append("===== Interpretation cheat-sheet =====\n")
-        sb.append("  BOT_LOOP_TICK=0           -> botLoop never iterated; check service start.\n")
-        sb.append("  SCAN_CB=0 LOOP>0          -> watchlist empty; scanner intake is starving.\n")
-        sb.append("  SAFETY=0 SCAN_CB>0        -> tokens rejected before SAFETY (intake gate).\n")
-        sb.append("  LANE_EVAL=0 V3>0          -> V3 short-circuiting; check V3EngineEnabled.\n")
-        sb.append("  EXEC=0 LANE_EVAL>0        -> Executor not invoked — check FDG block rate and cbState.isPaused.\n")
-        sb.append("                               Note: EXEC_BUY/SELL in labelled counters is the true execution signal.\n")
-        sb.append("  EXEC_BUY=${execBuy} EXEC_SELL=${execSell}         -> actual buy/sell executions this session.\n")
-        sb.append("  TRADEJRNL_REC=0 EXEC>0    -> Executor running but journal not writing.\n")
-        sb.append("  INTAKE allow=0            -> all intake blocked; top reason shown in block tally above.\n")
-        sb.append("  NO_PAIR_NO_FALLBACK high  -> tokens have no DEX pair/price yet (pump.fun bonding curve only).\n")
-        sb.append("                               Normal for new tokens — they clear once Raydium pair is created.\n")
-        sb.append("  FDG block=N EXEC=0        -> FDG vetoing all candidates; check CONFIDENCE_FLOOR or DANGER_ZONE.\n")
-        sb.append("  ANR_HINTS>0               -> main thread blocked; inspect 'ANR top blocking call sites'.\n")
-        sb.append("  Stall%>50%%               -> UI render is blocking main thread. Stall=${stall}%% this session.\n")
-        sb.append("                               Fix: reduce renderOpenPositions/buildTokenCard frequency.\n")
-        sb.append("  GATE_BLOCK/SAFETY high    -> safety checks rejecting most tokens; check rug-score thresholds.\n")
-        sb.append("  GATE_BLOCK/FDG high       -> FDG vetoing; check edge vetoes / brain state / conf floor.\n")
-        sb.append("  Max cycle >30s            -> watchlist or scanner overload. Check 'Bot-loop cycle timing'.\n")
-        sb.append("  V3_SKIPPED high           -> V3 engine disabled or in learning phase (normal early-run).\n")
+
+        // ── Funnel health ───────────────────────────────────────────────
+        sb.append("\n  [FUNNEL]\n")
+        sb.append("  BOT_LOOP_TICK=$loopTick")
+        if (loopTick == 0L)  sb.append(" ⚠ botLoop never iterated — service may not have started")
+        else if (avgCycleMs > 30_000) sb.append(" ⚠ avg cycle ${avgCycleMs}ms — watchlist may be overloaded")
+        else sb.append(" ✅")
+        sb.append("\n")
+
+        sb.append("  SCAN_CB=$scanCb  INTAKE=$intake  SAFETY=$safety  V3=$v3  LANE_EVAL=$laneEval  FDG=$fdgTotal  EXEC=$execBuy  EXIT=$exitAllow\n")
+        if (scanCb > 0 && intake == 0L)
+            sb.append("  ⚠ SCAN_CB>0 but INTAKE=0 — scanner discoveries not reaching intake gate.\n")
+        if (intake > 0 && safety == 0L && intakeBlock < intake)
+            sb.append("  ⚠ INTAKE>0 but SAFETY=0 — tokens may be lost between intake and safety check.\n")
+        if (safety > 0 && v3 == 0L)
+            sb.append("  ⚠ SAFETY>0 but V3=0 — V3 engine not receiving scored tokens; check V3EngineEnabled or liquid bucket routing.\n")
+        if (v3 > 0 && laneEval == 0L)
+            sb.append("  ⚠ V3>0 but LANE_EVAL=0 — V3 short-circuiting before lane routing; check V3EngineEnabled flag.\n")
+        if (laneEval > 0 && execBuy == 0L)
+            sb.append("  ⚠ LANE_EVAL>0 but EXEC_BUY=0 — executor not firing; FDG may be blocking all (see below) or cbState.isPaused.\n")
+
+        // ── INTAKE gate ─────────────────────────────────────────────────
+        sb.append("\n  [INTAKE GATE]  block=$intakeBlock\n")
+        sb.append("  Note: INTAKE allow counter is always 0 — passing tokens are not separately tallied.\n")
+        sb.append("        Use SAFETY>0 as the downstream confirmation that intake is passing tokens.\n")
+        if (noPairCnt > 0) {
+            sb.append("  NO_PAIR_NO_FALLBACK=$noPairCnt — these pump.fun tokens have no Raydium pair yet.\n")
+            sb.append("        Normal during bonding-curve phase; clears once token graduates to Raydium.\n")
+            sb.append("        High count is expected on fresh boot — not a problem unless SAFETY=0 too.\n")
+        }
+
+        // ── FDG gate ────────────────────────────────────────────────────
+        sb.append("\n  [FDG GATE]  allow=$fdgAllow  block=$fdgBlock\n")
+        if (fdgBlock > 0 && fdgAllow == 0L) {
+            sb.append("  ⚠ FDG blocking 100% — system likely in bootstrap (no confidence yet).\n")
+            sb.append("    CONFIDENCE_FLOOR means live-WR data too sparse for LIVE trades.\n")
+            sb.append("    Normal in first 1000 paper trades. Paper trades still execute.\n")
+            sb.append("    Action: let paper trades accumulate; FDG relaxes as WR data builds.\n")
+        }
+        else if (fdgBlock > fdgAllow * 2)
+            sb.append("  ⚠ FDG blocking majority — check DANGER_ZONE, edge veto rate, or brain state.\n")
+        else if (fdgAllow > 0)
+            sb.append("  ✅ FDG passing $fdgAllow / ${fdgTotal} evaluations.\n")
+
+        // ── SAFETY gate ─────────────────────────────────────────────────
+        sb.append("\n  [SAFETY GATE]  allow=$safetyAllow  block=$safetyBlock\n")
+        if (safetyBlock > safetyAllow * 3)
+            sb.append("  ⚠ SAFETY rejecting most tokens — check rug-score thresholds / rcScore floor.\n")
+        else if (safetyAllow > 0)
+            sb.append("  ✅ Safety passing $safetyAllow tokens downstream.\n")
+
+        // ── EXIT gate ───────────────────────────────────────────────────
+        sb.append("\n  [EXIT GATE]  allow=$exitAllow  block=$exitBlock\n")
+        if (exitAllow > 0 && exitBlock == 0L)
+            sb.append("  ✅ Exit gate healthy — all $exitAllow exit evaluations passed.\n")
+        else if (exitBlock > 0)
+            sb.append("  Note: $exitBlock exits were blocked (unusual — check EXIT gate logic).\n")
+
+        // ── Execution counters ──────────────────────────────────────────
+        sb.append("\n  [EXECUTION COUNTERS]\n")
+        sb.append("  EXEC_BUY=$execBuy  EXEC_SELL=$execSell  (from TradeHistoryStore journal writes)\n")
+        val execFunnelCount = s.phaseCounts["EXEC"] ?: 0L
+        sb.append("  Note: EXEC funnel counter (=$execFunnelCount) counts executor invocations,\n")
+        sb.append("        not completed trades. EXEC_BUY/SELL are the definitive execution counts.\n")
+        val jrnlRec = labelCounts["TRADEJRNL_REC"]?.get() ?: 0L
+        sb.append("  TRADEJRNL_REC=$jrnlRec — journal records written this session.\n")
+        if (execBuy > 0 && jrnlRec == 0L)
+            sb.append("  ⚠ EXEC_BUY>0 but TRADEJRNL_REC=0 — executor firing but journal not writing.\n")
+
+        // ── Lane coverage ───────────────────────────────────────────────
+        sb.append("\n  [LANE COVERAGE]\n")
+        if (s.laneEvalCounts.isEmpty())
+            sb.append("  No lane evaluations yet.\n")
+        else {
+            val totalLaneEvals = s.laneEvalCounts.values.sumOf { it }
+            s.laneEvalCounts.entries.sortedByDescending { it.value }.forEach { (lane, cnt) ->
+                val pct = if (totalLaneEvals > 0) cnt * 100 / totalLaneEvals else 0L
+                sb.append("  $lane: $cnt evals ($pct%)\n")
+            }
+            if (s.laneEvalCounts.size == 1) {
+                sb.append("  Note: Only one lane active — other lanes require higher confidence/score thresholds.\n")
+                sb.append("        This is normal during bootstrap. More lanes activate as AI scores improve.\n")
+            }
+        }
+
+        // ── Cycle timing ────────────────────────────────────────────────
+        sb.append("\n  [BOT-LOOP TIMING]\n")
+        sb.append("  Avg=${avgCycleMs}ms  Max=${s.maxCycleMs}ms\n")
+        if (s.maxCycleMs > 30_000 && avgCycleMs <= 30_000) {
+            sb.append("  ⚠ Max spike >30s but avg is normal — isolated stall. Check for GC pause or main-thread lock.\n")
+        } else if (avgCycleMs > 30_000) {
+            sb.append("  ⚠ Avg cycle >30s — watchlist or scanner overload. May need to reduce watchlist size.\n")
+        } else if (s.maxCycleMs <= 30_000) {
+            sb.append("  ✅ All cycles within 30s.\n")
+        }
+
+        // ── ANR / stall ─────────────────────────────────────────────────
+        sb.append("\n  [ANR / MAIN THREAD]\n")
+        val anrHints = labelCounts["ANR_HINTS"]?.get() ?: 0L
+        sb.append("  ANR_HINTS=$anrHints  Stall=${stall}%% of uptime\n")
+        if (anrHints > 0) {
+            sb.append("  ⚠ Main thread blocked >700ms — inspect 'ANR top blocking call sites' above.\n")
+        } else if (stall > 50) {
+            sb.append("  ⚠ Stall >50%% — UI render is blocking main thread.\n")
+            sb.append("    Fix: reduce renderOpenPositions/buildTokenCard frequency.\n")
+        } else {
+            sb.append("  ✅ No ANR events. Stall=${stall}%%.\n")
+        }
+
+        // ── V3 / skip rate ──────────────────────────────────────────────
+        val v3Skipped = s.phaseBlock["V3"] ?: 0L
+        if (v3Skipped > 0)
+            sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
 
         return sb.toString()
     }
