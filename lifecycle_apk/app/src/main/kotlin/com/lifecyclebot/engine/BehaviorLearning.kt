@@ -717,12 +717,12 @@ object BehaviorLearning {
      * rather than only direct-call-site counts which miss shadow/recovery paths.
      * No double-counting: CanonicalSubscribers uses LRU dedup per (tradeId, layer).
      */
-    fun onCanonicalSettlement(isWin: Boolean) {
-        if (isWin) {
-            totalGoodRecorded.incrementAndGet()
-        } else {
-            totalBadRecorded.incrementAndGet()
-        }
+    fun onCanonicalSettlement(isWin: Boolean, mint: String = "") {
+        // V5.9.717 — NO-OP for counters.
+        // Executor.kt calls recordTrade() for every closed trade, which already
+        // increments totalGoodRecorded / totalBadRecorded. Incrementing here too
+        // caused every trade to be counted TWICE (Δ=+40 observed in LearningCounterActivity).
+        // This method is kept for API compatibility; do not increment counters here.
     }
 
     fun clear() {

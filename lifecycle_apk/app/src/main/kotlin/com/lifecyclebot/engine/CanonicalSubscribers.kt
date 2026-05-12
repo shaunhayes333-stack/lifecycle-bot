@@ -141,17 +141,17 @@ object CanonicalSubscribers {
                     // their outcomes are invisible to MetaCognition. Wire a lightweight
                     // canonical bump so the counter advances with real settled trades
                     // and the WalletDigest stops showing Δ=-48 shrinkage.
+                    // V5.9.717 — pass mint for dedup: if recordTradeOutcome/recordTrade
+                    // already counted this trade via the direct Executor path, the
+                    // onCanonicalSettlement impl will skip the increment to avoid double-count.
                     if (layer == "MetaCognitionAI") {
                         try {
-                            com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalSettlement(isWin)
+                            com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalSettlement(isWin, outcome.mint)
                         } catch (_: Throwable) {}
                     }
-                    // V5.9.683-FIX: BehaviorLearning.totalGoodRecorded / totalBadRecorded
-                    // also needs canonical bus signal so it doesn't rely solely on
-                    // direct call sites that may miss shadow/recovery paths.
                     if (layer == "BehaviorLearning") {
                         try {
-                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin)
+                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
                         } catch (_: Throwable) {}
                     }
                 }

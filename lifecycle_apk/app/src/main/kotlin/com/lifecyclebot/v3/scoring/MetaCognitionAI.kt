@@ -1105,10 +1105,14 @@ object MetaCognitionAI {
      * been exposed to, even for non-V3 paths (ShitCoin, Treasury, etc.).
      * No double-counting: CanonicalSubscribers uses LRU dedup per (tradeId, layer).
      */
-    fun onCanonicalSettlement(isWin: Boolean) {
-        // V5.9.683-FIX: advance counter for trades that never hit V3 Execute
-        // (i.e. no pendingPredictions entry). This keeps totalTradesAnalyzed
-        // in sync with actual settled volume so readiness gates reflect reality.
+    fun onCanonicalSettlement(isWin: Boolean, mint: String = "") {
+        // V5.9.717 — dedup against recentlyCountedMints.
+        // recordTradeOutcome() already incremented totalTradesAnalyzed for any trade
+        // that had pendingPredictions. If we see that mint in recentlyCountedMints,
+        // the direct path already ran — skip the increment to avoid double-counting.
+        // If mint is blank or not in the set, this is a trade that never reached V3 Execute
+        // (e.g. ShitCoin, Treasury short-circuit paths) — count it here as originally intended.
+        if (mint.isNotBlank() && recentlyCountedMints.contains(mint)) return
         totalTradesAnalyzed++
         // Apply a very gentle EWMA nudge to metaAccuracy so calibration tracking
         // drifts toward the actual win rate of canonical settled trades over time.
@@ -1123,6 +1127,7 @@ object MetaCognitionAI {
     fun reset() {
         layerPerformance.clear()
         pendingPredictions.clear()
+        recentlyCountedMints.clear()
         recentOutcomes.clear()
         winningPatterns.clear()
         losingPatterns.clear()
