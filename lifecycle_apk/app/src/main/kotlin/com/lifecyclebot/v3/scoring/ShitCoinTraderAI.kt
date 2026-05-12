@@ -433,6 +433,29 @@ object ShitCoinTraderAI {
     }
 
     /**
+     * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.
+     * Reduces the sub-trader's tracked entrySol so rehydratePositionFromSubTraders
+     * restores the correct remaining size (not the original full size), and so
+     * subsequent closePosition P&L accounting is correct.
+     */
+    fun onPartialSell(mint: String, soldFraction: Double) {
+        val frac = soldFraction.coerceIn(0.0, 1.0)
+        if (frac <= 0.0) return
+        // Update whichever map actually holds this mint
+        val active  = synchronized(activePositions) { activePositions[mint] }
+        val otherMap = if (isPaperMode) livePositions else paperPositions
+        val other   = synchronized(otherMap) { otherMap[mint] }
+        val pos = active ?: other ?: return
+        val newEntrySol = pos.entrySol * (1.0 - frac)
+        // ShitCoinPosition uses var for mutable fields; entrySol is val, so we replace the entry
+        val updated = pos.copy(entrySol = newEntrySol)
+        if (active != null)  synchronized(activePositions) { activePositions[mint] = updated }
+        if (other  != null)  synchronized(otherMap)        { otherMap[mint]        = updated }
+        ErrorLogger.debug(TAG, "💩🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol.fmt(4)} → ${newEntrySol.fmt(4)} (sold ${(frac*100).toInt()}%)")
+    }
+
+
+    /**
      * V5.2: Force clear all positions on bot stop
      * This ensures UI updates correctly even if individual closes fail
      */

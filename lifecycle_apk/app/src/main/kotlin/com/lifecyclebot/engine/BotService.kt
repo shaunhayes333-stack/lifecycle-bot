@@ -12784,6 +12784,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         walletBalance = effectiveBalance,
                     )
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 SHITCOIN PARTIAL: ${ts.symbol} | sold 25%, riding 75%", ts.mint)
                     return
                 }
@@ -12858,6 +12860,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("$exitEmoji EXPRESS PARTIAL: ${ts.symbol} | ${exitSignal.name} | sold 20%, riding 80%", ts.mint)
                     return
                 }
@@ -12906,6 +12910,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                  // V5.9.705
                     addLog("💰 MANIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
                 }
@@ -13037,16 +13043,20 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         walletBalance = effectiveBalance,
                     )
                     // firstTakeDone flag is already set inside MoonshotTraderAI.checkExit()
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     addLog("💰 MOONSHOT PARTIAL: ${ts.symbol} | sold ${(partialPct*100).toInt()}%, riding rest", ts.mint)
                     return
                 }
 
-                executor.requestSell(
+                // V5.9.705 FIX: only close sub-trader position if sell confirmed
+                val moonshotSellResult = executor.requestSell(
                     ts = ts,
                     reason = "MOONSHOT_${exitSignal.name}",
                     wallet = wallet,
                     walletSol = effectiveBalance
                 )
+                if (moonshotSellResult == Executor.SellResult.FAILED_RETRYABLE) return
 
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 
@@ -13143,6 +13153,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)              // V5.9.705
                     addLog("💰 QUALITY PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
                 }
@@ -13262,6 +13274,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         wallet = wallet,
                         walletBalance = effectiveBalance,
                     )
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.onPartialSell(ts.mint, 0.20) // V5.9.705
+                    com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     addLog("💰 BLUECHIP PARTIAL: ${ts.symbol} | sold 20%, riding 80%", ts.mint)
                     return
                 }
@@ -13867,6 +13881,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.markFirstTakeDone(ts.mint)
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.onPartialSell(ts.mint, 0.25) // V5.9.705
+                        com.lifecyclebot.engine.PositionPersistence.savePosition(ts)               // V5.9.705
                     } else {
                         executor.requestSell(
                             ts = ts,
@@ -13891,6 +13907,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             reason = "FALLBACK_MOONSHOT_PARTIAL_TAKE_${(partialPct * 100).toInt()}PCT",
                             wallet = wallet, walletBalance = effectiveBalance,
                         )
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.onPartialSell(ts.mint, partialPct) // V5.9.705
+                        com.lifecyclebot.engine.PositionPersistence.savePosition(ts)                    // V5.9.705
                     } else {
                         executor.requestSell(
                             ts = ts,

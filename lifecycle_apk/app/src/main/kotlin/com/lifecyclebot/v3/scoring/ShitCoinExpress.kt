@@ -788,6 +788,18 @@ object ShitCoinExpress {
     fun hasRide(mint: String): Boolean = activeRides.containsKey(mint)
     
     /**
+     * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
+     */
+    fun onPartialSell(mint: String, soldFraction: Double) {
+        val frac = soldFraction.coerceIn(0.0, 1.0)
+        if (frac <= 0.0) return
+        val ride = synchronized(activeRides) { activeRides[mint] } ?: return
+        val updated = ride.copy(entrySol = ride.entrySol * (1.0 - frac))
+        synchronized(activeRides) { activeRides[mint] = updated }
+        ErrorLogger.debug(TAG, "🚀🔪 onPartialSell ${ride.symbol}: entrySol ${ride.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
+    }
+
+    /**
      * V5.2: Force clear all rides on bot stop
      */
     fun clearAllRides() {

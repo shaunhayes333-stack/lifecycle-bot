@@ -798,6 +798,22 @@ object MoonshotTraderAI {
         val pos = synchronized(activePositions) { activePositions[mint] }
         return if (pos != null && pos.partialSellPct > 0) pos.partialSellPct else 0.50
     }
+
+    /**
+     * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.
+     * Reduces the sub-trader's tracked entrySol so rehydratePositionFromSubTraders
+     * restores the correct remaining size, not the original full size.
+     */
+    fun onPartialSell(mint: String, soldFraction: Double) {
+        val frac = soldFraction.coerceIn(0.0, 1.0)
+        if (frac <= 0.0) return
+        val pos = synchronized(activePositions) { activePositions[mint] } ?: return
+        val newEntrySol = pos.entrySol * (1.0 - frac)
+        val updated = pos.copy(entrySol = newEntrySol)
+        synchronized(activePositions) { activePositions[mint] = updated }
+        ErrorLogger.debug(TAG, "🌙🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${newEntrySol} (sold ${(frac*100).toInt()}%)")
+    }
+
     
     fun getActivePositions(): List<MoonshotPosition> {
         return synchronized(activePositions) {

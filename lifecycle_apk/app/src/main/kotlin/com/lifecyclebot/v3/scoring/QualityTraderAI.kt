@@ -664,6 +664,20 @@ object QualityTraderAI {
     fun getActivePositionsForMode(isPaper: Boolean): List<QualityPosition> {
         return if (isPaper) paperPositions.values.toList() else livePositions.values.toList()
     }
+
+    /**
+     * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
+     */
+    fun onPartialSell(mint: String, soldFraction: Double) {
+        val frac = soldFraction.coerceIn(0.0, 1.0)
+        if (frac <= 0.0) return
+        val pos = activePositions[mint] ?: return
+        val updated = pos.copy(entrySol = pos.entrySol * (1.0 - frac))
+        activePositions[mint] = updated
+        ErrorLogger.debug(TAG, "🔷🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
+    }
+
+
     
     fun hasPosition(mint: String): Boolean =
         // V5.9.457 — mode-orphan fix: check BOTH maps.
