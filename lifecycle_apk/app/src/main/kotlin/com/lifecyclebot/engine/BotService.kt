@@ -1101,7 +1101,26 @@ class BotService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        // V5.9.707 — START_STICKY resurrection handler.
+        // When Android kills the process (OOM, aggressive OEM battery manager) and
+        // restarts it via START_STICKY, the intent is null. Check wasRunning/manualStop
+        // and relaunch the bot if the user had it running before the kill.
+        if (intent == null) {
+            val rp = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+            val wasRunning = rp.getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop = rp.getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+            ErrorLogger.warn("BotService", "onStartCommand null intent (START_STICKY resurrection) wasRunning=$wasRunning manualStop=$manualStop")
+            if (wasRunning && !manualStop && !status.running) {
+                try {
+                    addLog("🔄 AUTO-RESURRECT: Bot restarted by OS after unexpected kill")
+                    scope.launch { startBot() }
+                } catch (e: Exception) {
+                    ErrorLogger.error("BotService", "Resurrection startBot failed: ${e.message}", e)
+                }
+            }
+            return START_STICKY
+        }
+        when (intent.action) {
             ACTION_START -> {
                 val userRequested = intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)
                 val manualStop = isManualStopRequested(applicationContext)
@@ -1188,6 +1207,8 @@ class BotService : Service() {
                 } else {
                     // Bot already running - just reschedule keep-alive
                     scheduleKeepAliveAlarm()
+                    // V5.9.707 — also renew the 5-min watchdog alarm chain
+                    try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Exception) {}
                 }
             }
             ACTION_STOP  -> {
@@ -1310,22 +1331,19 @@ class BotService : Service() {
                 }
             }
         }
-        // V5.9.330 RANDOM-START FIX: Changed from START_STICKY to START_NOT_STICKY.
+        // V5.9.707 — Reverted START_NOT_STICKY back to START_STICKY now that the
+        // manual-stop latch (KEY_MANUAL_STOP_REQUESTED) guards against random restarts.
         //
-        // START_STICKY causes Android to auto-restart the service with a null intent
-        // whenever the process is killed (OOM, crash, system memory pressure).
-        // The Journal OOM crash was killing the process → Android restarted it →
-        // bot appeared to "randomly start on its own".
+        // The V5.9.330 rationale was: Journal OOM killed process → START_STICKY
+        // restarted bot even when user had stopped it. That is now safe because:
+        //   a) The manual-stop latch blocks any non-user-requested start.
+        //   b) The null-intent branch below checks wasRunning && !manualStop before
+        //      calling startBot() — so a system-kill resurrection only fires when
+        //      the user genuinely had the bot running.
         //
-        // START_NOT_STICKY: Android does NOT auto-restart on process death.
-        // Intentional restart paths are preserved:
-        //   - BootReceiver fires on reboot/update (checks was_running_before_shutdown)
-        //   - ServiceWatchdog (WorkManager every 15min) also checks that flag
-        //   - BotViewModel.startBot() calls startForegroundService() explicitly
-        //
-        // Effect: bot only restarts when the USER had it running AND it naturally
-        // crashed/died, NOT when an unrelated screen (Journal) OOM-killed the process.
-        return START_NOT_STICKY
+        // START_STICKY: OS auto-restarts service with null intent after system kill.
+        // The null-intent handler below uses the same wasRunning/manualStop guards.
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -3636,6 +3654,8 @@ class BotService : Service() {
         
         // Schedule WorkManager watchdog (more reliable than AlarmManager on newer Android)
         ServiceWatchdog.schedule(applicationContext)
+        // V5.9.707 — 5-min AlarmManager keep-alive (backup for OEMs that defer WorkManager)
+        ServiceWatchdog.scheduleAlarm(applicationContext)
         
         // ═══════════════════════════════════════════════════════════════════
         // V3.2 SHADOW LEARNING: Start BOTH shadow learning engines

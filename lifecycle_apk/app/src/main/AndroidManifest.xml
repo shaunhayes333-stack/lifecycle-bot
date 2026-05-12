@@ -109,9 +109,14 @@
             android:windowSoftInputMode="adjustResize"/>
 
         <!-- Bot runs as a foreground service so Android doesn't kill it -->
+        <!-- android:stopWithTask="false": service survives when user swipes the app away.
+             Without this, some OEMs stop the foreground service on swipe even though
+             the Android docs say foreground services are exempt. Being explicit wins.
+             V5.9.707 -->
         <service
             android:name=".engine.BotService"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="dataSync"/>
 
         <!--

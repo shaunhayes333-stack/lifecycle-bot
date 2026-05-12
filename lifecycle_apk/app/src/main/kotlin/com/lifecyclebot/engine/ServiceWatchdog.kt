@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -25,6 +27,9 @@ object ServiceWatchdog {
     private const val KEY_RESTART_COUNT = "restart_count"
     private const val KEY_LAST_RESTART_TIME = "last_restart_time"
     private const val KEY_LAST_HEALTH_CHECK = "last_health_check"
+    // V5.9.707 — 5-min AlarmManager keep-alive (backup to 15-min WorkManager)
+    private const val ALARM_REQUEST_CODE = 9901
+    private const val ALARM_INTERVAL_MS = 5 * 60 * 1_000L  // 5 minutes
     
     /**
      * Schedule the watchdog worker to run periodically.
@@ -64,7 +69,61 @@ object ServiceWatchdog {
      */
     fun cancel(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(WORK_TAG)
-        ErrorLogger.info("ServiceWatchdog", "Watchdog cancelled")
+        cancelAlarm(context)
+        ErrorLogger.info("ServiceWatchdog", "Watchdog cancelled (WorkManager + AlarmManager)")
+    }
+
+    /**
+     * V5.9.707 — Schedule a 5-minute repeating AlarmManager keep-alive.
+     * Fires even when WorkManager is deferred by the OS (common on Samsung/Xiaomi/OnePlus).
+     * Uses setAlarmClock so it bypasses Doze mode rate-limiting.
+     * Call this alongside schedule() when the bot starts.
+     */
+    fun scheduleAlarm(context: Context) {
+        try {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, BotService::class.java).apply {
+                action = BotService.ACTION_START
+            }
+            val pi = PendingIntent.getService(
+                context, ALARM_REQUEST_CODE, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            // setAlarmClock: highest-priority alarm, bypasses Doze, shows in status bar.
+            // We chain: each alarm fires → bot's onStartCommand reschedules the NEXT one.
+            val showIntent = PendingIntent.getActivity(
+                context, ALARM_REQUEST_CODE + 1,
+                Intent(context, com.lifecyclebot.ui.MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setAlarmClock(
+                AlarmManager.AlarmClockInfo(System.currentTimeMillis() + ALARM_INTERVAL_MS, showIntent),
+                pi
+            )
+            ErrorLogger.info("ServiceWatchdog", "5-min AlarmManager keep-alive scheduled")
+        } catch (e: Exception) {
+            ErrorLogger.warn("ServiceWatchdog", "scheduleAlarm failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Cancel the 5-minute AlarmManager keep-alive.
+     */
+    fun cancelAlarm(context: Context) {
+        try {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val intent = Intent(context, BotService::class.java).apply {
+                action = BotService.ACTION_START
+            }
+            val pi = PendingIntent.getService(
+                context, ALARM_REQUEST_CODE, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.cancel(pi)
+            ErrorLogger.info("ServiceWatchdog", "5-min AlarmManager keep-alive cancelled")
+        } catch (e: Exception) {
+            ErrorLogger.warn("ServiceWatchdog", "cancelAlarm failed: ${e.message}")
+        }
     }
     
     /**
