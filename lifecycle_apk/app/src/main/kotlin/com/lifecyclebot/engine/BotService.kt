@@ -1061,7 +1061,7 @@ class BotService : Service() {
         // fixing is exactly that startBot never set status.running=true.
         scope.launch {
             try {
-                kotlinx.coroutines.delay(15_000)  // let onCreate wiring settle
+                kotlinx.coroutines.delay(3_000)  // V5.9.706: reduced from 15s → 3s for faster cold-start heal
                 while (true) {
                     try {
                         val cfg = ConfigStore.load(applicationContext)
@@ -2177,6 +2177,25 @@ class BotService : Service() {
                 FinalDecisionGate.clearAllEdgeVetoes()
                 FinalDecisionGate.resetLearningState()  // V5.9.182: reset stale block counts
                 addLog("🔄 Paper mode start: reentry locks + edge vetoes cleared")
+                // V5.9.706 — FLUID LEARNING BALANCE SYNC.
+                // SmartSizer routes ALL paper sizing through FluidLearning.getSimulatedBalance()
+                // when fluidLearningEnabled=true. status.paperWalletSol and FluidLearning are
+                // TWO SEPARATE balances. If FluidLearning drained to near-zero (blown paper run),
+                // SmartSizer returns size=0 for every trade — bot appears fully idle even with
+                // 400+ tokens in watchlist. The status.paperWalletSol reset above doesn't fix it.
+                // Fix: sync FluidLearning balance to match the paper wallet on every startBot().
+                try {
+                    val fluidBal = FluidLearning.getSimulatedBalance()
+                    val paperBal = status.paperWalletSol
+                    val reserveSol = cfg.walletReserveSol.coerceAtLeast(0.05)
+                    if (fluidBal < reserveSol * 1.5) {
+                        FluidLearning.forceSetBalance(paperBal)
+                        addLog("🔄 FluidLearning balance synced to paper wallet: ${"%.4f".format(paperBal)} SOL (was ${"%.4f".format(fluidBal)} SOL)")
+                        ErrorLogger.warn("BotService", "V5.9.706 FLUID_SYNC: FluidLearning was $fluidBal SOL (below trade floor) — synced to $paperBal SOL")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.warn("BotService", "FluidLearning sync failed (non-fatal): ${e.message}")
+                }
             }
 
             // Persist current mode so next start can detect a mode switch
@@ -3041,6 +3060,28 @@ class BotService : Service() {
                 marketScanner?.start()
                 addLog("🌐 Full Solana market scanner active — ${scanCfg.maxWatchlistSize} token watchlist")
                 ErrorLogger.info("BotService", "Market scanner started!")
+                // V5.9.706 — INSTANT COLD-START SEED.
+                // On fresh install or after restart, MemeMintRegistry may have 0 recent tokens
+                // (all >60min stale) so pre-hydration produces WL=0. PumpPortal WS takes 10-30s
+                // to connect. The user sees "0 tokens" for 30s+ on cold start.
+                // Fix: immediately trigger seedImmediateTokens() in the scanner's background
+                // coroutine if it exposes that path, else schedule a 2s bootMemeScanner heal
+                // so tokens appear within 5s of pressing START.
+                scope.launch {
+                    try {
+                        delay(2_000)  // let scanner coroutine initialize its scope
+                        if (status.running) {
+                            val sc = marketScanner
+                            if (sc != null && sc.isAlive()) {
+                                ErrorLogger.info("BotService", "🌱 INSTANT_SEED: scanner alive at 2s — no action needed")
+                            } else {
+                                ErrorLogger.warn("BotService", "🌱 INSTANT_SEED: scanner not alive at 2s — triggering early heal")
+                                addLog("🌱 Cold-start: scanner not ready at 2s — healing...")
+                                bootMemeScanner(reason = "INSTANT_SEED_2S")
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                }
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "Market scanner error: ${e.message}", e)
                 addLog("⚠️ Market scanner error: ${e.message}")
@@ -3055,11 +3096,11 @@ class BotService : Service() {
         // hung, callback closure threw), we still get a scanner alive.
         scope.launch {
             try {
-                delay(30_000)
+                delay(10_000)  // V5.9.706: reduced from 30s → 10s for faster cold-start detection
                 if (status.running) {
                     val sc = marketScanner
                     val alive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
-                    ErrorLogger.info("BotService", "🩺 STARTUP_CHECK_30S: marketScanner=${if (sc==null) "NULL" else "OK"} alive=$alive running=${status.running}")
+                    ErrorLogger.info("BotService", "🩺 STARTUP_CHECK_10S: marketScanner=${if (sc==null) "NULL" else "OK"} alive=$alive running=${status.running}")
                     if (sc == null || !alive) {
                         addLog("🩹 Startup check (30s): scanner ${if (sc==null) "NULL" else "not alive"} — booting via self-heal")
                         bootMemeScanner(reason = "STARTUP_30S")
