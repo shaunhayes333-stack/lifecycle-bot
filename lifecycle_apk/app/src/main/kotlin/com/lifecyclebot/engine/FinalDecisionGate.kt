@@ -872,6 +872,8 @@ object FinalDecisionGate {
             totalTradesForBypass < 1000 ||
             antiChokeRelaxing ||
             adaptiveRelaxationActive
+        // V5.9.683-FIX: surface bypass state so operator can audit 22%-floor trips
+        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/1000 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check

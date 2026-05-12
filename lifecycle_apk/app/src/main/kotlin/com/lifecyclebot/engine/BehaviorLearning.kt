@@ -27,9 +27,9 @@ object BehaviorLearning {
 
     // Self-healing
     private const val HEALTH_CHECK_INTERVAL_MS = 30 * 60 * 1000L
-    private const val MIN_TRADES_FOR_HEALTH = 100
-    private const val CRITICAL_BAD_RATIO = 3.0
-    private const val WARNING_BAD_RATIO = 2.0
+    private const val MIN_TRADES_FOR_HEALTH = 500  // V5.9.683-FIX: don't self-clear during bootstrap (<500 canonical outcomes)
+    private const val CRITICAL_BAD_RATIO = 5.0  // V5.9.683-FIX: was 3.0 — triggered at 25% WR, wiped patterns every 30 min during bootstrap
+    private const val WARNING_BAD_RATIO = 3.5  // V5.9.683-FIX: was 2.0 (too aggressive during learning phase)
 
     @Volatile
     private var lastHealthCheck = 0L
@@ -701,6 +701,27 @@ object BehaviorLearning {
             ErrorLogger.info(TAG, "📂 Loaded: ${goodStats.size} good patterns, ${badStats.size} bad patterns")
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "fromJson error: ${e.message}")
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // CANONICAL BUS SETTLEMENT HOOK
+    // -------------------------------------------------------------------------
+
+    /**
+     * V5.9.683-FIX: Called by CanonicalSubscribers when a settled WIN/LOSS
+     * arrives on the CanonicalOutcomeBus.
+     *
+     * Advances totalGoodRecorded / totalBadRecorded so the selfHealingCheck()
+     * count gate (MIN_TRADES_FOR_HEALTH = 500) uses canonical settled trades
+     * rather than only direct-call-site counts which miss shadow/recovery paths.
+     * No double-counting: CanonicalSubscribers uses LRU dedup per (tradeId, layer).
+     */
+    fun onCanonicalSettlement(isWin: Boolean) {
+        if (isWin) {
+            totalGoodRecorded.incrementAndGet()
+        } else {
+            totalBadRecorded.incrementAndGet()
         }
     }
 

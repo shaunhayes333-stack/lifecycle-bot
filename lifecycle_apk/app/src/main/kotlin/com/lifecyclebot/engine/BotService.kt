@@ -6799,8 +6799,24 @@ class BotService : Service() {
                     val persistedTradeCount = try {
                         FluidLearning.getTradeCount()
                     } catch (_: Exception) { sessionTradeCount }
-                    
-                    // Use the HIGHER of the two counts - this ensures FDG progresses correctly
+
+                    // V5.9.683-FIX: Raw persisted count (FluidLearning) can be 10-70x
+                    // inflated vs real canonical settled trades (e.g. 4956 vs 71).
+                    // This made FDG treat the bot as expert-phase: learningProgress ~0.99
+                    // → isBootstrapPhase=false → canBypassConfidenceFloors=false
+                    // → 22% hard floor always active → most candidates hard-blocked.
+                    // Fix: fdgBypassCount = min(legacy, canonical*10) so the bypass
+                    // stays active until ~100 real canonical settled trades accumulate.
+                    val canonicalSettled = try {
+                        (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+                         com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
+                    } catch (_: Exception) { 0 }
+                    val fdgBypassCount = if (canonicalSettled > 0) {
+                        minOf(maxOf(sessionTradeCount, persistedTradeCount), canonicalSettled * 10)
+                    } else {
+                        maxOf(sessionTradeCount, persistedTradeCount)
+                    }
+                    // effectiveTradeCount unchanged — drives sizing and all non-FDG callers
                     val effectiveTradeCount = maxOf(sessionTradeCount, persistedTradeCount)
                     
                     val perfContext = SmartSizer.getPerformanceContext(
@@ -6831,7 +6847,7 @@ class BotService : Service() {
                         recentWinRate = perfContext.recentWinRate,
                         timeSinceLastLossMs = timeSinceLastLossMs,
                         sessionPnlPct = sessionPnlPct,
-                        totalSessionTrades = perfContext.totalTrades,
+                        totalSessionTrades = fdgBypassCount,  // V5.9.683-FIX: canonical-capped count so bypass gate uses real settled trades
                         // LEARNING LAYER DATA
                         entryAiWinRate = EntryIntelligence.getWinRate(),
                         exitAiAvgPnl = ExitIntelligence.getAveragePnl(),

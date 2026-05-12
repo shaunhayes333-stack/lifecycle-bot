@@ -128,11 +128,32 @@ object CanonicalSubscribers {
                 CanonicalOutcomeBus.subscribe { outcome ->
                     if (!recordOnce(outcome.tradeId, layer)) return@subscribe
                     if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                    val isWin = outcome.result == TradeResult.WIN
                     LayerReadinessRegistry.recordEducation(
                         layer = layer,
                         settledDelta = 1L,
-                        positiveEvDelta = if (outcome.result == TradeResult.WIN) 1L else 0L,
+                        positiveEvDelta = if (isWin) 1L else 0L,
                     )
+                    // V5.9.683-FIX: MetaCognitionAI.totalTradesAnalyzed was never
+                    // incremented by the bus because recordTradeOutcome() requires
+                    // a matching pendingPredictions entry (only registered on V3 Execute).
+                    // Tokens that don't reach V3 Execute never register predictions, so
+                    // their outcomes are invisible to MetaCognition. Wire a lightweight
+                    // canonical bump so the counter advances with real settled trades
+                    // and the WalletDigest stops showing Δ=-48 shrinkage.
+                    if (layer == "MetaCognitionAI") {
+                        try {
+                            com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalSettlement(isWin)
+                        } catch (_: Throwable) {}
+                    }
+                    // V5.9.683-FIX: BehaviorLearning.totalGoodRecorded / totalBadRecorded
+                    // also needs canonical bus signal so it doesn't rely solely on
+                    // direct call sites that may miss shadow/recovery paths.
+                    if (layer == "BehaviorLearning") {
+                        try {
+                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin)
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
 

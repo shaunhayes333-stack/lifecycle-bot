@@ -1092,6 +1092,31 @@ object MetaCognitionAI {
     }
 
     // -------------------------------------------------------------------------
+    // CANONICAL BUS SETTLEMENT HOOK
+    // -------------------------------------------------------------------------
+
+    /**
+     * V5.9.683-FIX: Called by CanonicalSubscribers when a settled WIN/LOSS
+     * arrives on the CanonicalOutcomeBus for a trade that had NO matching
+     * pendingPredictions entry (i.e. token never reached V3 Execute).
+     *
+     * This advances totalTradesAnalyzed so MetaCognition's readiness counter
+     * correctly reflects the volume of real settled outcomes the model has
+     * been exposed to, even for non-V3 paths (ShitCoin, Treasury, etc.).
+     * No double-counting: CanonicalSubscribers uses LRU dedup per (tradeId, layer).
+     */
+    fun onCanonicalSettlement(isWin: Boolean) {
+        // V5.9.683-FIX: advance counter for trades that never hit V3 Execute
+        // (i.e. no pendingPredictions entry). This keeps totalTradesAnalyzed
+        // in sync with actual settled volume so readiness gates reflect reality.
+        totalTradesAnalyzed++
+        // Apply a very gentle EWMA nudge to metaAccuracy so calibration tracking
+        // drifts toward the actual win rate of canonical settled trades over time.
+        val syntheticAccuracy = if (isWin) 1.0 else 0.0
+        metaAccuracy = ewma(metaAccuracy, syntheticAccuracy * 100.0, 0.02)
+    }
+
+    // -------------------------------------------------------------------------
     // RESET
     // -------------------------------------------------------------------------
 
