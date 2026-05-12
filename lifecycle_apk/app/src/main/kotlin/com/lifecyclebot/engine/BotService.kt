@@ -342,6 +342,10 @@ class BotService : Service() {
         // pendingVerify force-clear knows if the watchdog has run this session.
         @Volatile
         var botStartTimeMs: Long = 0L
+        // Promoted from botLoop() local var — needed by manageExits() for
+        // pendingVerify force-clear gate (V5.9.714).
+        @Volatile
+        var lastPendingVerifyWatchdogAt: Long = 0L
 
         fun isManualStopRequested(ctx: Context): Boolean = try {
             ctx.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
@@ -5817,7 +5821,7 @@ class BotService : Service() {
         // pendingVerify for > 120s and force-clears it so exit management can fire.
         // This is an additional proactive layer on top of the per-tick check in the
         // exit management block. Belt AND suspenders.
-        var lastPendingVerifyWatchdogAt = 0L
+        // lastPendingVerifyWatchdogAt now a companion @Volatile (V5.9.714) — removed local var
         val pendingVerifyWatchdogIntervalMs = 60_000L
 
         // V5.9.362 — REGIME PULSE
