@@ -37,25 +37,30 @@ object FreeRangeMode {
     private const val TAG = "FreeRangeMode"
 
     // ── Thresholds ──────────────────────────────────────────────────
-    // V5.9.693 — Perpetual learning doctrine.
-    // The bot learns forever — there is no trade count at which FreeRange
-    // is forced off. WIDE_OPEN_CEIL is effectively infinite (Long.MAX_VALUE
-    // expressed as Int.MAX / 2 to avoid overflow). GRADUATE thresholds are
-    // kept for reference but the graduation window (3000..∞) never ends.
-    private const val WIDE_OPEN_FLOOR_TRADES = 1000    // always wide-open below this
-    private const val WIDE_OPEN_CEIL_TRADES  = Int.MAX_VALUE / 2  // never force-off
-    private const val GRADUATE_WIN_RATE_PCT  = 50.0    // floor to stay wide-open above 1000 trades
-    private const val GRADUATE_MIN_PNL_SOL   = 0.0     // PnL bar removed — learning never stops
-    private const val TUNER_RAMP_START       = 50      // adjustments begin here
-    private const val TUNER_RAMP_END         = 3000    // adjustments reach full strength here
+    // V5.9.704 — GRADUATED AIR CONTROL (replaces perpetual wide-open)
+    //
+    // Operator intent: "soft air adjustments after 500 trades pushing to
+    // full air control after 5000+ trades 50% WR or better targeting 80%"
+    //
+    // guardLevel() returns 0–5. Each level activates additional guards:
+    //   0  (  0– 500): pure wide-open, zero guards, bot sees everything
+    //   1  (500–1000): MemeLossStreakGuard + loss-streak cooldowns active
+    //   2  (1000–3000): + ReentryGuard cooldowns + volume floor rises
+    //   3  (3000–5000): + HardRugPreFilter active even in paper mode
+    //   4  (5000+, WR<50%): all guards active, stays in learning stance
+    //   5  (5000+, WR≥50%): full air control, all guards, tightest thresholds
+    //
+    // isWideOpen() = guardLevel() == 0  (unchanged semantics for callers
+    // that need a binary gate check — they still compile and work).
+    private const val GUARD_L1_TRADES    = 500    // loss-streak brakes begin
+    private const val GUARD_L2_TRADES    = 1000   // reentry cooldowns + volume floor
+    private const val GUARD_L3_TRADES    = 3000   // rug filter in paper
+    private const val GUARD_L4_TRADES    = 5000   // full air control
+    private const val FULL_CTRL_WIN_RATE = 50.0   // WR target to reach full air control
+    private const val TUNER_RAMP_START   = 50     // LLM adjustments begin here
+    private const val TUNER_RAMP_END     = 3000   // LLM adjustments reach full strength
 
-    // V5.9.421 — EMERGENCY-GRADUATE thresholds.
-    // User approved: the 3000-trade floor was causing meme-lane to bleed at
-    // 10% WR / 668L / 715S for 1462 trades straight. If the bot is clearly
-    // drowning (≥500 trades AND WR <15%), force free-range OFF so the
-    // normal guards, rug filter, and loss-streak brakes come back online
-    // BEFORE we hit 3000 trades. This preserves the original operator
-    // intent ("wide open for learning") while bounding the downside.
+    // Emergency-graduate kept for backwards compat callers.
     private const val EMERGENCY_MIN_TRADES   = 500
     private const val EMERGENCY_MAX_WR_PCT   = 15.0
 
@@ -73,34 +78,39 @@ object FreeRangeMode {
      * Main gate. True = every guard is bypassed and the bot takes every
      * signal it can legally open.
      */
-    fun isWideOpen(): Boolean {
-        if (operatorForceOn)  return true
-        if (operatorForceOff) return false
-        // V5.9.612: if throughput is choking, temporarily restore free-range
-        // soft-gate behavior. Hard rug/drain safety lives outside this helper.
-        if (AntiChokeManager.isSoftening()) return true
-        // V5.9.606 — restore the original operator contract documented above.
-        // V5.9.422 accidentally tied free-range directly to QualityLadder.tier(),
-        // so at ~3000 trades with WR below target the bot entered Tier 3
-        // PROFITABILITY_LOCKED and re-enabled cooldown/volume/loss guards.
-        // Result: paper mode still found hundreds of candidates but barely
-        // traded. QualityLadder may reduce size / surface readiness, but it
-        // must not shut off the learning firehose before 5000 unless the bot
-        // is actually healthy enough to graduate.
+    /**
+     * V5.9.704 — Graduated guard level 0–5.
+     * Callers use this to progressively activate guards matching the
+     * 500/1000/3000/5000-trade air-control doctrine.
+     *
+     * Fail-open: returns 0 (wide-open) on any error so a corrupt
+     * history cannot accidentally clamp the bot.
+     */
+    fun guardLevel(): Int {
+        if (operatorForceOn)  return 0
+        if (operatorForceOff) return 5
+        // AntiChoke starvation: drop back to level 0 so every guard relaxes.
+        if (AntiChokeManager.isSoftening()) return 0
         return try {
-            val snap = TradeHistoryStore.getLifetimeStats()
+            val snap  = TradeHistoryStore.getLifetimeStats()
             val trades = snap.totalSells
+            val wr     = snap.winRate
             when {
-                trades < WIDE_OPEN_FLOOR_TRADES -> true
-                // V5.9.693 — Perpetual learning: above the floor, stay wide-open
-                // as long as the bot has NOT proven itself with >50% WR.
-                // Once WR drops below 50% (bot is losing), keep wide-open so it
-                // can recover. Only switch to DISCIPLINED when WR is consistently
-                // strong — and even then, operatorForceOn can override.
-                trades < WIDE_OPEN_CEIL_TRADES  -> !(snap.winRate >= GRADUATE_WIN_RATE_PCT)
-                else                            -> false
+                trades < GUARD_L1_TRADES -> 0   // pure exploration
+                trades < GUARD_L2_TRADES -> 1   // soft: loss-streak brakes only
+                trades < GUARD_L3_TRADES -> 2   // + reentry cooldowns, vol floor rises
+                trades < GUARD_L4_TRADES -> 3   // + rug filter in paper
+                wr >= FULL_CTRL_WIN_RATE -> 5   // full air control earned
+                else                    -> 4   // 5000+ but still learning
             }
-        } catch (_: Throwable) { true }
+        } catch (_: Throwable) { 0 }
+    }
+
+    fun isWideOpen(): Boolean {
+        // V5.9.704 — isWideOpen() = "no guards whatsoever" = guardLevel 0.
+        // Callers that only need a binary check still work correctly.
+        // AntiChoke softening and operator overrides are handled inside guardLevel().
+        return guardLevel() == 0
     }
 
     /**

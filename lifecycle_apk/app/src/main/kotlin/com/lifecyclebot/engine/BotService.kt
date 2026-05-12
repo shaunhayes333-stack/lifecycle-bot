@@ -8758,22 +8758,24 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     //   2. Volume gate        — don't buy dead tokens with no activity
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen) {
-        // V5.9.408 — free-range mode bypass: skip every cooldown / streak /
-        // volume gate below so the bot takes every shot it can get for the
-        // first 3000 trades of learning exposure.
-        val wideOpen = FreeRangeMode.isWideOpen()
+        // V5.9.704 — graduated air control: guards activate progressively
+        // per the 500/1000/3000/5000-trade schedule.
+        val guardLvl = FreeRangeMode.guardLevel()
+        val wideOpen = guardLvl == 0  // kept for vol-gate branch below
 
-        // 1. RE-ENTRY COOLDOWN — 5 min for all layers, not just Treasury
+        // 1. RE-ENTRY COOLDOWN — active at guardLevel >= 2 (1000+ trades)
         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-        if (!wideOpen && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+        if (guardLvl >= 2 && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
             ErrorLogger.debug("BotService", "⏳ [COOLDOWN] ${identity.symbol} | SKIP | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
             return
         }
 
         // V5.9.353: 1b. LOSS-STREAK BLOCK — refuse re-entry on a mint whose
         // last 3 closes were all losses (block elapses after 1 hour).
+        // MemeLossStreakGuard activates at guardLevel >= 1 internally, but the
+        // BotService check here also guards via guardLvl so the log is consistent.
         val lossBlockUntil = MemeLossStreakGuard.blockedUntilMs(ts.mint)
-        if (!wideOpen && lossBlockUntil > 0L) {
+        if (guardLvl >= 1 && lossBlockUntil > 0L) {
             val remainingMin = (lossBlockUntil - System.currentTimeMillis()) / 60_000L
             ErrorLogger.debug("BotService", "🛑 [LOSS_STREAK] ${identity.symbol} | SKIP | 3-loss streak — blocked ${remainingMin}min more")
             // V5.9.672 — surface the silent drop in the pipeline funnel so the
@@ -8792,11 +8794,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         // 2. VOLUME GATE — no volume = dead token, don't buy
         val lastVolumeH1 = ts.history.lastOrNull()?.volumeH1 ?: 0.0
         val learningPct  = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
-        // V5.9.408: relaxed floor in wide-open mode so thin-volume meme
-        // tokens still flow to the traders for exposure.
+        // V5.9.704 — volume floor graduated with guard level:
+        //   Level 0 (0-500 trades):   $100  — almost anything (exploration)
+        //   Level 1 (500-1000):       $500  — soft filter starts
+        //   Level 2 (1000-3000):     $1000  — growing selectivity
+        //   Level 3+ (3000+):        $2000  — experienced bot, high bar
         val minVolumeH1  = when {
-            wideOpen            -> 100.0
-            learningPct < 0.40  -> 500.0
+            guardLvl == 0       -> 100.0
+            guardLvl == 1       -> 500.0
+            guardLvl == 2       -> 1_000.0
             else                -> 2_000.0
         }
         if (lastVolumeH1 < minVolumeH1) {
@@ -8808,7 +8814,10 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // end-to-end 4 days ago — this was the regression. Drop the
             // paperMode-only guard; downstream V3 + scoring still decide
             // whether the token is buy-worthy.
-            val unknownVolumeButTradable = wideOpen && lastVolumeH1 <= 0.0 &&
+            // unknownVolumeButTradable: bypass vol gate for fresh listings (vol=0 but liq/mcap ok).
+            // Keep this bypass for all guard levels — a token with no vol history but
+            // solid liquidity is a legitimate fresh launch, not a dead token.
+            val unknownVolumeButTradable = lastVolumeH1 <= 0.0 &&
                 (ts.lastLiquidityUsd >= 2_000.0 || ts.lastMcap >= 10_000.0)
             if (!unknownVolumeButTradable) {
                 ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")

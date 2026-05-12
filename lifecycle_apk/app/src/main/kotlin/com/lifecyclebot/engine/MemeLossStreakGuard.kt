@@ -51,9 +51,10 @@ object MemeLossStreakGuard {
 
     /** Returns blocked-until timestamp (0 if not blocked). */
     fun blockedUntilMs(mint: String): Long {
-        // V5.9.408 — free-range mode bypasses meme-loss-streak blocks so
-        // the bot keeps feeding the Treasury during maximum-learning window.
-        if (FreeRangeMode.isWideOpen()) return 0L
+        // V5.9.704 — graduated air control: loss-streak guard activates at
+        // guardLevel >= 1 (500+ lifetime sells). Below 500 trades the bot is
+        // in pure exploration mode and must not be gated by streak brakes.
+        if (FreeRangeMode.guardLevel() < 1) return 0L
         // V5.9.495z12 — operator mandate: gates must be soft early so the
         // bot can learn freely. In paper mode (which IS the learning lab)
         // a 60-min per-mint freeze starves the very dataset Adaptive,
@@ -80,7 +81,7 @@ object MemeLossStreakGuard {
 
     /** V5.9.453: number of mints currently blocked by a 3-loss streak. */
     fun activeBlockCount(): Int {
-        if (FreeRangeMode.isWideOpen()) return 0
+        if (FreeRangeMode.guardLevel() < 1) return 0
         val now = System.currentTimeMillis()
         var n = 0
         for (e in state.values) {
