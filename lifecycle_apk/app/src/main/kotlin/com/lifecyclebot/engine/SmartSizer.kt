@@ -111,6 +111,7 @@ object SmartSizer {
         source: String = "unknown",
         brain: BotBrain? = null,
         setupQuality: String = "C",       // A+ / B / C from strategy
+        laneMode: String = "",            // V5.9.718 — trading lane for phase-aware size scaling
     ): SizeResult {
 
         val isPaperMode = cfg.paperMode
@@ -588,6 +589,25 @@ object SmartSizer {
         size = (size * 10000).toLong() / 10000.0
         ErrorLogger.info("SmartSizer", "✅ SIZE OK: $size SOL | tier=$tier | paper=$isPaperMode")
 
+        // ── V5.9.718 PHASE-AWARE LANE SIZE MULTIPLIER ────────────────────
+        // During Phase 1+ (> 500 trades) underperforming lanes get gradually
+        // smaller positions (floor 0.50×). Performing lanes stay at 1.0×.
+        // This is the ONLY place laneSizeMultiplier() is applied so there is
+        // one source of truth for the WR-sensitive size sift.
+        val lanePhaseMult = if (laneMode.isNotBlank()) {
+            try {
+                val laneWr = TradeHistoryStore.getLaneWinRate(laneMode, minTrades = 10)
+                FreeRangeMode.laneSizeMultiplier(laneWr)
+            } catch (_: Throwable) { 1.0 }
+        } else 1.0
+        if (lanePhaseMult < 1.0) {
+            size *= lanePhaseMult
+            // Re-apply dust floor after reduction
+            val dustFloor2 = if (isPaperMode) 0.001 else 0.01
+            if (size < dustFloor2) size = dustFloor2
+            ErrorLogger.info("SmartSizer", "📉 Lane phase mult: $laneMode → ${lanePhaseMult.fmt1}x (size now ${size.fmt(4)} SOL)")
+        }
+
         val explanation = buildString {
             append("AI conf=${aiConfidence.toInt()} ")
             append("base=${(basePct*100).toInt()}% ")
@@ -598,6 +618,7 @@ object SmartSizer {
             if (houseMoneyBonus != 1.0) append("×house=${houseMoneyBonus.fmt1} ")
             if (perfMult != 1.0) append("×perf=${perfMult.fmt1} ")
             if (drawdownMult != 1.0) append("×dd=${drawdownMult.fmt1} ")
+            if (lanePhaseMult != 1.0) append("×lane=${lanePhaseMult.fmt1}[$laneMode] ")
             append("→${size.fmt()}◎")
             if (cappedBy != "none") append(" [cap:$cappedBy]")
         }

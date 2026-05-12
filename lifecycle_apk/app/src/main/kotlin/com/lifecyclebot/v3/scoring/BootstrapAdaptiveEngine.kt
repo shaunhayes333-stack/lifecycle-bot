@@ -131,6 +131,14 @@ object BootstrapAdaptiveEngine {
      *   1. Bootstrap ramp (global — scales down ALL layers early on)
      *   2. Layer multiplier (per-layer — boosts/dampens based on recent accuracy)
      */
+    // V5.9.718 — Core safety layers are never ramped down during bootstrap.
+    // Rug signals, bad liquidity, dev sells MUST fire at full strength from trade 1.
+    // Only "learning" (non-safety) layers get the 15% ramp on their negative scores.
+    private val CORE_SAFETY_LAYERS = setOf(
+        "liquidity", "volume", "rug", "mcap", "insider_tracker",
+        "mevdetectionai", "drawdowncircuitai", "suppression"
+    )
+
     fun applyBootstrapScale(layerName: String, score: Int): Int {
         if (!isBootstrapActive()) return score
         if (score == 0) return 0
@@ -138,12 +146,16 @@ object BootstrapAdaptiveEngine {
         val ramp = getBootstrapRamp()
         val mult = getMultiplier(layerName)
 
-        // Apply ramp to NEGATIVE scores only (don't let early bad data kill entries)
-        // Apply multiplier to both directions (reward/penalise consistently)
-        val ramped = if (score < 0) {
-            (score * ramp).toInt()
-        } else {
-            score  // positive scores pass through at full strength during bootstrap
+        val key = layerName.lowercase().trim()
+        val isSafetyLayer = CORE_SAFETY_LAYERS.any { key.contains(it) }
+
+        // V5.9.718: Core safety layers always fire at FULL negative strength (no ramp).
+        // Learning layers: ramp negative scores so early noise doesn't permanently block entries.
+        // Positive scores pass through at full strength for all layers (encourage entries).
+        val ramped = when {
+            score > 0 -> score                        // positive: full strength always
+            isSafetyLayer -> score                    // safety negative: full strength (no ramp)
+            else -> (score * ramp).toInt()            // learning negative: ramped
         }
         return (ramped * mult).toInt()
     }

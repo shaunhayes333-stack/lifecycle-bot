@@ -1282,8 +1282,12 @@ object FinalDecisionGate {
         // first wave of buyers arrives. The fluid size multiplier + FDG
         // confidence floor handle weak setups downstream, so this gate no
         // longer needs to be the hard cliff.
+        // V5.9.718 — floor raised from 10.0 → 30.0 in lenient/paper mode.
+        // Previously, bootstrap paper trades could enter on 10% buy pressure (90% sell).
+        // That's a token in free-fall. 30% is the minimum signal of actual buying interest.
+        // This is the clearest single predictor of meme trade outcome: is anyone buying?
         val buyPressureThreshold = if (lenient) {
-            (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(10.0)
+            (adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier * 0.8).coerceAtLeast(30.0)
         } else {
             adjusted.buyPressureMin * modeMultipliers.entryScoreMultiplier
         }

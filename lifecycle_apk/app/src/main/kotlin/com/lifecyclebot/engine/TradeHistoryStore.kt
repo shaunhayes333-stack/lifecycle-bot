@@ -600,6 +600,19 @@ object TradeHistoryStore {
             .maxByOrNull { it.value.size }?.key
     }
 
+    /**
+     * V5.9.716 — Per-lane win rate for FreeRangeMode.laneSizeMultiplier().
+     * Returns WR in 0-100 range, or -1.0 if fewer than minTrades sells exist
+     * for this mode (caller should treat no-data as neutral).
+     */
+    fun getLaneWinRate(mode: String, minTrades: Int = 10): Double {
+        val t = synchronized(lock) { trades.toList() }
+        val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && it.side.equals("SELL", ignoreCase = true) }
+        if (modeTrades.size < minTrades) return -1.0
+        val wins = modeTrades.count { it.pnlPct > 0.0 }
+        return wins * 100.0 / modeTrades.size
+    }
+
     // ── SQLite persistence ───────────────────────────────────────────
 
     /** Insert a single trade row asynchronously (off main thread). */

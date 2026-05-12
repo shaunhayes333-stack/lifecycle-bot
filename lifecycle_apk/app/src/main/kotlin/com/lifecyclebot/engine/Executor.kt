@@ -822,6 +822,7 @@ class Executor(
         brain: BotBrain? = null,
         setupQuality: String = "C",    // A+ / B / C from strategy
         ts: TokenState? = null,        // V5.9.69: optional — enables PatternClassifier boost
+        laneMode: String = "",         // V5.9.718 — trading lane for phase-aware size scaling
     ): Double {
         val isPaperMode = cfg().paperMode
 
@@ -862,6 +863,7 @@ class Executor(
             source               = source,
             brain                = brain,
             setupQuality         = setupQuality,
+            laneMode             = laneMode,
         )
 
         if (result.solAmount <= 0.0) {
@@ -3670,6 +3672,8 @@ class Executor(
             }
             
             ErrorLogger.info("Executor", "📊 ${ts.symbol} SIZING: wallet=$walletSol | liq=${ts.lastLiquidityUsd} | mcap=${ts.lastFdv} | conf=$aiConfidence | entry=$entryScore | quality=$setupQuality | redFlags=$redFlagCount")
+            // V5.9.718 — derive lane for phase-aware size multiplier
+            val _laneMode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { ts.source }
             var size = buySizeSol(
                 entryScore = entryScore, 
                 walletSol = walletSol, 
@@ -3684,6 +3688,7 @@ class Executor(
                 brain = brain,
                 setupQuality = setupQuality,
                 ts = ts,  // V5.9.69: enable PatternClassifier
+                laneMode = _laneMode,
             )
             
             if (qualityPenalty < 1.0) {
