@@ -286,6 +286,17 @@ object BlueChipTraderAI {
         val staleThresholdMs = MAX_HOLD_MINUTES * 2 * 60_000L
         synchronized(activePositions) {
             val stale = activePositions.values.filter { (now - it.entryTime) > staleThresholdMs }
+            if (stale.isNotEmpty()) {
+                stale.forEach { pos ->
+                    activePositions.remove(pos.mint)
+                    ErrorLogger.warn(TAG, "🔵🧹 ZOMBIE PURGE: ${pos.symbol} | held ${(now - pos.entryTime)/60000}min, no monitor")
+                }
+            }
+        }
+        return synchronized(activePositions) {
+            activePositions.values.toList()
+        }
+    }
 
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
@@ -299,18 +310,6 @@ object BlueChipTraderAI {
         ErrorLogger.debug(TAG, "💎🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
 
-
-            if (stale.isNotEmpty()) {
-                stale.forEach { pos ->
-                    activePositions.remove(pos.mint)
-                    ErrorLogger.warn(TAG, "🔵🧹 ZOMBIE PURGE: ${pos.symbol} | held ${(now - pos.entryTime)/60000}min, no monitor")
-                }
-            }
-        }
-        return synchronized(activePositions) {
-            activePositions.values.toList()
-        }
-    }
     
     /**
      * V5.2: Force clear all positions on bot stop

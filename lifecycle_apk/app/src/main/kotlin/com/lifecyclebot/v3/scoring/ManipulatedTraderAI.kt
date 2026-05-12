@@ -308,6 +308,7 @@ object ManipulatedTraderAI {
         return synchronized(activePositions) {
             activePositions.values.toList()
         }
+    }
 
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
@@ -321,8 +322,6 @@ object ManipulatedTraderAI {
         ErrorLogger.debug(TAG, "🎭🔪 onPartialSell ${pos.symbol}: entrySol ${pos.entrySol} → ${updated.entrySol} (sold ${(frac*100).toInt()}%)")
     }
 
-
-    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // EXIT CHECK — called every tick for open positions
