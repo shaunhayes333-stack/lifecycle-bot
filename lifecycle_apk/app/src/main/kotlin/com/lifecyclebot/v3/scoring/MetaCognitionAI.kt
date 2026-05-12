@@ -301,6 +301,11 @@ object MetaCognitionAI {
 
     private val layerPerformance = ConcurrentHashMap<AILayer, LayerPerformance>()
     private val pendingPredictions = ConcurrentHashMap<String, List<Prediction>>()
+    // V5.9.717 — dedup set: mints already counted by recordTradeOutcome() so
+    // onCanonicalSettlement() can skip the duplicate totalTradesAnalyzed increment.
+    private val recentlyCountedMints = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    )
 
     private val recentOutcomes = CopyOnWriteArrayList<TradeOutcome>()
     private val winningPatterns = ConcurrentHashMap<String, ConsensusPattern>()
@@ -407,6 +412,9 @@ object MetaCognitionAI {
         exitReason: String,
     ) {
         val preds = pendingPredictions.remove(mint) ?: return
+        // V5.9.717 — mark mint so onCanonicalSettlement() skips the duplicate increment
+        recentlyCountedMints.add(mint)
+        if (recentlyCountedMints.size > 2000) recentlyCountedMints.clear()
 
         val outcome = TradeOutcome(
             mint = mint,
