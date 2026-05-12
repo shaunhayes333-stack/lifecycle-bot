@@ -1186,12 +1186,15 @@ class BotService : Service() {
                     addLog("⏳ Stop in progress — restart queued (will auto-start when clean)")
                     ErrorLogger.warn("BotService", "Start requested while stopInProgress — queued")
                     scope.launch {
-                        val deadline = System.currentTimeMillis() + 60_000L
+                        // V5.9.720: increased from 60s to 30s — shutdown is now near-instant
+                        // (bot_shutdown sells skip heavy AI learning via the fast path).
+                        // 30s is plenty of headroom; if it still hangs, something else is wrong.
+                        val deadline = System.currentTimeMillis() + 30_000L
                         while (stopInProgress && System.currentTimeMillis() < deadline) {
                             kotlinx.coroutines.delay(200)
                         }
                         if (stopInProgress) {
-                            ErrorLogger.error("BotService", "stopBot() did not complete in 60s — force-clearing flag")
+                            ErrorLogger.error("BotService", "stopBot() did not complete in 30s — force-clearing flag")
                             stopInProgress = false
                         }
                         if (loopJob?.isActive != true && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {

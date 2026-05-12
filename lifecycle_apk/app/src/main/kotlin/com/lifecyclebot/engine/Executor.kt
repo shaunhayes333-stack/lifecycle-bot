@@ -137,6 +137,11 @@ class Executor(
         fun releasePaperSellLock(mint: String) {
             paperSellLocks.remove(mint)
         }
+        /** V5.9.720: force-clear ALL paper sell locks — called on bot stop so shutdown
+         *  close can never be blocked by a stale lock from a crashed sell path. */
+        fun clearAllPaperSellLocks() {
+            paperSellLocks.clear()
+        }
         // V5.7.3: Dual wallet fee system
         private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
@@ -6637,6 +6642,10 @@ class Executor(
             ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
             return SellResult.ALREADY_CLOSED
         }
+        // V5.9.720: try/finally ensures lock is ALWAYS released — even on exception.
+        // Without this, a crash mid-sell leaves the lock set forever, causing
+        // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
+        try {
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
         val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
@@ -6812,6 +6821,28 @@ class Executor(
             (pos.entryTime - ts.addedToWatchlistAt) / 60_000.0
         } else 0.0
         
+        // V5.9.720: BOT-SHUTDOWN FAST PATH.
+        // For bot_shutdown sells, skip all 44-layer AI learning — it's a forced
+        // exit, not a real signal. The position is closed and wallet is credited
+        // above; learning from a shutdown sell is pure noise and takes 2-4s/position.
+        // With 17+ open positions this was causing the 60-90s freeze on restart.
+        if (reason == "bot_shutdown") {
+            val shutdownCostSol = pos.costSol  // capture BEFORE position reset
+            tradeId.closed(price, pnlP, pnl, reason)
+            try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
+            try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
+            ts.position      = Position()
+            ts.lastExitTs    = System.currentTimeMillis()
+            ts.lastExitPrice = price
+            ts.lastExitPnlPct = pnlP
+            ts.lastExitWasWin = pnlP >= 1.0
+            try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+            try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
+            try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
+            onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
+            return SellResult.PAPER_CONFIRMED
+        }
+
         // V5.9.363 — SYMMETRIC SCRATCH ZONE.
         // Old: WIN ≥ +2.0%, LOSS ≤ -3.0%. The asymmetric -3% loss threshold
         // meant winners that retraced from +50% back to +1% got hidden as
@@ -7608,9 +7639,11 @@ class Executor(
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
 
-        // V5.9.719: release paper sell lock — position is fully settled now
-        releasePaperSellLock(ts.mint)
         return SellResult.PAPER_CONFIRMED
+        } finally {
+            // V5.9.720: release under ALL exit paths (normal + exception + shutdown)
+            releasePaperSellLock(ts.mint)
+        }
     }
 
     private fun liveSell(ts: TokenState, reason: String,
@@ -9530,6 +9563,12 @@ class Executor(
         var closedCount = 0
         val openPositions = tokens.values.filter { it.position.isOpen }
         
+        // V5.9.720: clear any stale paper sell locks BEFORE iterating positions.
+        // A lock left over from a crashed mid-sell (exception before finally block fires,
+        // or from a session started before the try/finally fix) would cause paperSell()
+        // to return ALREADY_CLOSED for every position → wallet never refunded on stop.
+        clearAllPaperSellLocks()
+
         if (openPositions.isEmpty()) {
             onLog("🛑 Bot stopping — no open positions to close", "shutdown")
             return 0

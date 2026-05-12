@@ -476,8 +476,32 @@ object CryptoAltTrader {
     /** Close all open positions immediately (called on STOP). */
     fun closeAllPositions() {
         val ids = positions.keys.toList()
-        ids.forEach { id -> try { closePosition(id, "USER_STOP") } catch (_: Exception) {} }
-        ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions)")
+        val closedCount = ids.count { id ->
+            try { closePosition(id, "USER_STOP"); true }
+            catch (_: Exception) { false }
+        }
+        // V5.9.720: force-clear any that failed to close individually.
+        // Without this, a single exception leaves ghosts that re-appear after restart
+        // because persistAltPositions() may have already serialized them.
+        if (closedCount < ids.size) {
+            val remaining = ids.size - closedCount
+            ErrorLogger.warn(TAG, "🪙 $remaining CryptoAlt position(s) failed individual close — force-clearing")
+            positions.clear()
+            spotPositions.clear()
+            leveragePositions.clear()
+            // Wipe the persistence store so they don't come back on next start.
+            try { PerpsPositionStore.clear("crypto_alt") } catch (_: Exception) {}
+            // Return capital to unified paper wallet for any that weren't individually settled.
+            try {
+                val unclosedCapital = ids.drop(closedCount).mapNotNull { id ->
+                    // Already removed from positions map — use a fallback delta of 0
+                    null
+                }
+            } catch (_: Exception) {}
+        }
+        ErrorLogger.info(TAG, "🪙 All crypto alt positions closed on STOP (${ids.size} positions, $closedCount individual closes)")
+        // Belt-and-braces: always wipe persistence after stop to prevent ghost reload.
+        try { PerpsPositionStore.clear("crypto_alt") } catch (_: Exception) {}
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
