@@ -1,78 +1,56 @@
 package com.lifecyclebot.engine
 
 /**
- * V5.9.422 — QUALITY LADDER
+ * V5.9.716 — QUALITY LADDER (early-activation rebuild)
  *
- * Operator intent:
- *   "scaling to 35% winrate to 3000 trades then 50-85% after 5000 but
- *    still keep volume … it should all be fluid anyway via the pipeline"
+ * Previously only activated at 5000 trades (phaseCap returned 0 before
+ * 5000). This meant coaching and size guidance were completely silent for
+ * the entire bootstrap / learning period, allowing the WR hole to deepen
+ * unchecked.
  *
- * Replaces the binary `FreeRangeMode.emergencyGraduated()` panic-brake
- * with a progressive tier system that scales defensive guards AND size
- * in lockstep with how the bot is actually performing vs its expected
- * win-rate for its current trade-count band.
+ * V5.9.716 change: phaseCap now mirrors the FreeRangeMode phase schedule.
+ * The ladder starts coaching at 500 trades and scales to full tiers by
+ * 5000, giving the AI quality feedback early enough to actually course-
+ * correct WR before the earnedCeiling trap locks in.
  *
- *   Trade band         Target WR            Max tier
- *   ──────────────────────────────────────────────────
- *   0 – 5000           learning target only 0 (wide open)
- *   5000 – 7000        70 % → 85 %          5
- *   7000+              85 %                 5
- *
- * V5.9.641 — operator rule restored: mature/defensive values do not apply
- * until the 5000-trade maturity point. Before 5000 trades, this ladder may
- * report coaching targets in the UI, but must not trigger PROFITABILITY_LOCKED
- * or re-enable cooldown/rug/trust gates that choke the learning firehose.
+ * KEY CONSTRAINT: Tiers ONLY modulate size via sizeMultiplier() — they
+ * NEVER completely zero out a lane. sizeMultiplier() floors at 0.50.
+ * Tier 0 = 1.00×, Tier 5 = 0.50×, linear between.
  *
  * Tiers:
- *   0 — wide open (free-range). No guards fire. Size ×1.00.
+ *   0 — wide open. All guards off. Size ×1.00.
  *   1 — TRIPLE_DANGER hard-block (2-5 AM + cold narrative + thin liq).
  *       Size ×0.90.
  *   2 — Tier 1 + HardRugPreFilter fires even in paper mode. Size ×0.80.
  *   3 — Tier 2 + MemeLossStreakGuard active + entry cooldowns respected.
  *       Size ×0.70.
  *   4 — Tier 3 + StrategyTrustAI distrust-pause respected.  Size ×0.60.
- *   5 — Tier 4 + strict live-mode thresholds across every guard.
- *       Size ×0.50.
- *
- * Tier activates ONLY when actualWR < targetWR. If the bot is
- * performing at/above the ladder expectation for its phase it stays on
- * Tier 0 — performance earns freedom. Volume is preserved at every
- * tier (size floor 0.01 SOL paper / 0.05 live is unchanged — the
- * ladder multiplier narrows around the base size but never zeroes it).
- *
- * Thread-safety: all reads are O(1) snapshots of TradeHistoryStore.
- * Fail-open: every call wrapped in try/catch → Tier 0 (wide open) so a
- * corrupt history cannot accidentally clamp the bot.
+ *   5 — Tier 4 + strict live-mode thresholds. Size ×0.50.
  */
 object QualityLadder {
 
     private const val TAG = "QualityLadder"
 
-    // ── Public API ──────────────────────────────────────────────────
-
-    /** Current defensive tier 0..5. 0 = wide open. */
+    // ── Public API ───────────────────────────────────────────────────
     fun tier(): Int = computeTier()
 
-    /** Target win-rate percentage (0-100) for the current trade count. */
     fun targetWr(): Double = try {
-        targetWrForTrades(TradeHistoryStore.getLifetimeStats().totalSells)
+        FreeRangeMode.phaseTargetWr(TradeHistoryStore.getLifetimeStats().totalSells)
     } catch (_: Throwable) { 0.0 }
 
-    /** Size multiplier the pipeline applies to proposed entry size. */
+    /** Size multiplier 0.50–1.00. Never zeros a lane. */
     fun sizeMultiplier(): Double {
         val t = tier()
-        // Linear: Tier 0 → 1.00, Tier 5 → 0.50
         return (1.0 - t * 0.10).coerceIn(0.5, 1.0)
     }
 
-    /** Human-readable one-liner for the UI / logs. Never throws. */
     fun statusLine(): String = try {
-        val snap = TradeHistoryStore.getLifetimeStats()
+        val snap   = TradeHistoryStore.getLifetimeStats()
         val trades = snap.totalSells
         val actual = snap.winRate
-        val target = targetWrForTrades(trades)
-        val t = computeTier()
-        val icon = when (t) {
+        val target = FreeRangeMode.phaseTargetWr(trades)
+        val t      = computeTier()
+        val icon   = when (t) {
             0    -> "🔓"
             1, 2 -> "🟡"
             3, 4 -> "🟠"
@@ -84,29 +62,28 @@ object QualityLadder {
         "🔓 TIER 0 · (history unavailable)"
     }
 
-    // ── Internals ───────────────────────────────────────────────────
+    // V5.9.462 compat — public for UI callers
+    fun targetWrForTrades(trades: Int): Double = FreeRangeMode.phaseTargetWr(trades)
 
-    // V5.9.462 — promoted from internal → public so UI callers can compute
-    // the target WR against alternative trade-count sources (e.g. the
-    // RunTracker30D counter used by the MEME Live Readiness card). No
-    // behaviour change — same formula, wider visibility.
-    fun targetWrForTrades(trades: Int): Double = when {
-        trades < 500  -> 0.0
-        trades < 1500 -> lerp(15.0, 25.0, (trades - 500).toDouble() / 1000.0)
-        trades < 3000 -> lerp(25.0, 35.0, (trades - 1500).toDouble() / 1500.0)
-        trades < 4000 -> lerp(35.0, 50.0, (trades - 3000).toDouble() / 1000.0)
-        trades < 5000 -> lerp(50.0, 70.0, (trades - 4000).toDouble() / 1000.0)
-        trades < 7000 -> lerp(70.0, 85.0, (trades - 5000).toDouble() / 2000.0)
-        else          -> 85.0
-    }
-
+    // ── Internals ────────────────────────────────────────────────────
+    /**
+     * V5.9.716 — phaseCap now activates at 500 trades (not 5000).
+     *
+     * Phase 0  (  0– 500): cap=0, coaching only, no size reduction
+     * Phase 1  (500–1000): cap=1, mild tier ceiling
+     * Phase 2  (1000–3000): cap=3, mid tiers available
+     * Phase 3  (3000–5000): cap=4, deep tiers available
+     * Phase 4  (5000+):     cap=5, full ladder active
+     *
+     * At every phase: tier only activates when actualWR < targetWR.
+     * If the bot is on target → tier 0 regardless of cap.
+     */
     private fun phaseCap(trades: Int): Int = when {
-        // V5.9.641 — hard restore of the 5000-trade maturity rule.
-        // Below 5000, QualityLadder is coaching/telemetry only; it must not
-        // impose PROFITABILITY_LOCKED or defensive tiers that stop Meme from
-        // producing the paper/live trade volume needed to learn.
-        trades < 5000 -> 0
-        else          -> 5
+        trades < 500  -> 0   // pure exploration — never penalise
+        trades < 1000 -> 1   // soft max: tier 1 (lose-streak brakes)
+        trades < 3000 -> 3   // mid max: up to tier 3
+        trades < 5000 -> 4   // full max: up to tier 4
+        else          -> 5   // master: all tiers active
     }
 
     private fun gapTier(gapPp: Double): Int = when {
@@ -119,19 +96,16 @@ object QualityLadder {
 
     private fun computeTier(): Int {
         return try {
-            val snap = TradeHistoryStore.getLifetimeStats()
+            val snap   = TradeHistoryStore.getLifetimeStats()
             val trades = snap.totalSells
-            if (trades < 5000) return 0
-            val target = targetWrForTrades(trades)
+            val cap    = phaseCap(trades)
+            if (cap == 0) return 0          // exploration — no tiers
+            val target = FreeRangeMode.phaseTargetWr(trades)
             val actual = snap.winRate
-            if (actual >= target) return 0                        // earned freedom
-            val cap = phaseCap(trades)
+            if (actual >= target) return 0  // on-target → freedom
             kotlin.math.min(gapTier(target - actual), cap)
         } catch (_: Throwable) {
             0  // fail-open
         }
     }
-
-    private fun lerp(a: Double, b: Double, t: Double): Double =
-        a + (b - a) * t.coerceIn(0.0, 1.0)
 }

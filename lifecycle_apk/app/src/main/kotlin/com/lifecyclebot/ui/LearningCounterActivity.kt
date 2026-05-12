@@ -113,14 +113,19 @@ class LearningCounterActivity : Activity() {
         // ── Section 3: Legacy consumer counts (drift detection) ───────
         addHeader("📈 Legacy Consumer Counts (drift = fragmentation)")
         val canonicalTotal = snap["canonicalOutcomesTotal"] ?: 0L
+        // V5.9.719: compare SESSION counts only (exclude Turso historical baseline).
+        // getTotalTradeCount() includes the persisted Turso baseline which makes Δ look
+        // enormous even when both paths agree on session trades.
+        val fluidSession = try { FluidLearningAI.getSessionTradeCount().toLong() } catch (_: Throwable) { -1L }
+        val fluidBaseline = try { FluidLearningAI.getHistoricalBaseline().toLong() } catch (_: Throwable) { 0L }
         addKvDrift(
-            "FluidLearningAI.totalTradeCount",
-            try { FluidLearningAI.getTotalTradeCount().toLong() } catch (_: Throwable) { -1L },
+            "FluidLearningAI.sessionTrades (baseline+$fluidBaseline)",
+            fluidSession,
             canonicalTotal,
         )
         addKvDrift(
-            "AdaptiveLearningEngine.tradeCount",
-            try { AdaptiveLearningEngine.getTradeCount().toLong() } catch (_: Throwable) { -1L },
+            "AdaptiveLearningEngine.sessionTrades",
+            try { AdaptiveLearningEngine.getSessionTradeCount().toLong() } catch (_: Throwable) { -1L },
             canonicalTotal,
         )
         addKvDrift(

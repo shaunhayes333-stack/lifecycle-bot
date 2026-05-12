@@ -382,6 +382,7 @@ object AdaptiveLearningEngine {
     // Persisted to SharedPreferences on every trade so it survives bot restarts.
     private val featureBuffer = mutableListOf<TradeFeatures>()
     private var tradeCount = 0
+    @Volatile private var sessionTradeBaseline = 0  // V5.9.719: snapped at init
     private var learningRate = 0.1
 
     // V5.9.301: TradeFeatures ↔ JSON for the rolling buffer.
@@ -454,6 +455,7 @@ object AdaptiveLearningEngine {
         val p = prefs ?: return
 
         tradeCount = p.getInt(KEY_TRADE_COUNT, 0).coerceAtLeast(0)
+        sessionTradeBaseline = tradeCount  // V5.9.719: snap baseline so session delta is measurable
         learningRate = p.getFloat(KEY_LEARNING_RATE, 0.1f).toDouble().coerceIn(0.001, 1.0)
 
         try {
@@ -1075,6 +1077,8 @@ object AdaptiveLearningEngine {
     }
 
     fun getTradeCount(): Int = tradeCount
+    /** V5.9.719 — trades recorded THIS session only (excludes persisted historical count). */
+    fun getSessionTradeCount(): Int = (tradeCount - sessionTradeBaseline).coerceAtLeast(0)
 
     fun getStatus(): String {
         // V5.9.301: Richer status — surface every learned signal at a glance.

@@ -211,6 +211,15 @@ object FluidLearningAI {
         // sessionLifetimeBaseline (snapped at boot) + sessionTrades (delta only).
         return sessionLifetimeBaseline + sessionTrades.get()
     }
+
+    /** V5.9.719 — session-only trade count (excludes Turso historical baseline).
+     *  Use this for drift comparison against the canonical bus (which also counts
+     *  only session outcomes). getTotalTradeCount() includes the Turso baseline
+     *  which makes the Δ display look like massive fragmentation when it's just history. */
+    fun getSessionTradeCount(): Int = sessionTrades.get()
+
+    /** V5.9.719 — the Turso history baseline loaded at boot. */
+    fun getHistoricalBaseline(): Int = sessionLifetimeBaseline
     
     // ═══════════════════════════════════════════════════════════════════════════
     // BEHAVIOR MODIFIER (From BehaviorAI)

@@ -127,6 +127,16 @@ class Executor(
     private val sounds: SoundManager? = null,
 ) {
     companion object {
+        // V5.9.719: Paper sell lock — prevents double-exit race condition where
+        // CASHGEN_STOP_LOSS and STALE_LIVE_PRICE_RUG_ESCAPE fire simultaneously
+        // for the same paper position. Both see isOpen=true before either closes it.
+        private val paperSellLocks = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()
+        fun acquirePaperSellLock(mint: String): Boolean =
+            paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }
+                .compareAndSet(false, true)
+        fun releasePaperSellLock(mint: String) {
+            paperSellLocks.remove(mint)
+        }
         // V5.7.3: Dual wallet fee system
         private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
@@ -6621,7 +6631,12 @@ class Executor(
         val pos   = ts.position
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
-        
+        // V5.9.719: acquire paper sell lock to prevent double-exit race.
+        // If another sell request is already in-flight for this mint, reject this one.
+        if (!acquirePaperSellLock(ts.mint)) {
+            ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
+            return SellResult.ALREADY_CLOSED
+        }
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
         val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
@@ -7593,6 +7608,8 @@ class Executor(
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
 
+        // V5.9.719: release paper sell lock — position is fully settled now
+        releasePaperSellLock(ts.mint)
         return SellResult.PAPER_CONFIRMED
     }
 
