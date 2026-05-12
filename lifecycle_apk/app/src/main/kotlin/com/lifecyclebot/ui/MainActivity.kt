@@ -3618,7 +3618,7 @@ for legal compliance.
     // V4.0: Render Blue Chip positions
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         // V5.9.709 — skip re-render if blue chip list unchanged
-        val bcHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        val bcHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.isPaper}" }.hashCode()
         if (bcHash == lastBlueChipHash) return 0.0
         lastBlueChipHash = bcHash
         llBlueChipPositions.removeAllViews()
@@ -3729,7 +3729,7 @@ for legal compliance.
     // Render Quality positions ($100K-$1M mcap)
     private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>): Double {
         // V5.9.709 — skip re-render if quality list unchanged
-        val qpHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        val qpHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.entryScore}" }.hashCode()
         if (qpHash == lastQualityHash) return 0.0
         lastQualityHash = qpHash
         llQualityPositions.removeAllViews()
@@ -4202,7 +4202,7 @@ for legal compliance.
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
         // V5.9.709 — skip render if moonshot positions unchanged
-        val moonHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        val moonHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.isPaperMode}" }.hashCode()
         if (moonHash == lastMoonshotHash) return
         lastMoonshotHash = moonHash
         llMoonshotPositions.removeAllViews()
@@ -6299,7 +6299,7 @@ This cannot be undone!
 
     private fun updateDecisionLog(ts: TokenState) {
         // V5.9.709 — skip if decision log content unchanged
-        val dlHash = (ts.mint + ts.lastV3Score + ts.logs.size + ts.position.isOpen.hashCode()).hashCode()
+        val dlHash = (ts.mint + ts.lastV3Score + ts.trades.size + ts.position.isOpen.hashCode()).hashCode()
         if (dlHash == lastDecisionLogHash) return
         lastDecisionLogHash = dlHash
         val meta   = ts.meta
