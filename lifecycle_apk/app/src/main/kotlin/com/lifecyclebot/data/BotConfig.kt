@@ -270,7 +270,22 @@ object ConfigStore {
     private const val FILE = "bot_config"
     private const val KEY_FILE = "bot_secrets"
 
+    // V5.9.706 — Cache full BotConfig to avoid repeated AES-GCM decryption on main thread.
+    // EncryptedSharedPreferences decrypts each getString() via Binder IPC + AES-GCM on every call.
+    // With 16 call sites per 2.5s UI tick this stalled the main thread for 600-2000ms per frame.
+    // 2s TTL: safe because BotViewModel polls config on IO thread every 2500ms;
+    // settings changes call save() which calls invalidateCache() to flush immediately.
+    @Volatile private var cachedConfig: BotConfig? = null
+    @Volatile private var cachedConfigMs: Long = 0L
+    private const val CONFIG_CACHE_MS = 2_000L
+
+    fun invalidateCache() {
+        cachedConfig = null
+        cachedConfigMs = 0L
+    }
+
     fun save(ctx: Context, cfg: BotConfig) {
+        invalidateCache() // V5.9.706 — flush stale cache on write
         // V5.9.495z31 — publish authoritative paperMode/autoTrade to
         // the RuntimeModeAuthority so every reader sees the same mode.
         com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(
@@ -435,6 +450,9 @@ object ConfigStore {
     }
 
     fun load(ctx: Context): BotConfig {
+        // V5.9.706 — serve from cache if fresh (avoids repeated AES-GCM decryption on main thread)
+        val now = System.currentTimeMillis()
+        cachedConfig?.let { if (now - cachedConfigMs < CONFIG_CACHE_MS) return it }
         val p = prefs(ctx)
         val s = secrets(ctx)
         return BotConfig(
@@ -604,6 +622,9 @@ object ConfigStore {
                 paperMode = it.paperMode,
                 autoTrade = it.autoTrade,
             )
+            // V5.9.706 — cache for 2s to avoid repeated AES-GCM decryption on main thread
+            cachedConfig = it
+            cachedConfigMs = System.currentTimeMillis()
         }
     }
 

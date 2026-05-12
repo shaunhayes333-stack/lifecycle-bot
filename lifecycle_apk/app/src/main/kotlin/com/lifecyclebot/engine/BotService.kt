@@ -4984,6 +4984,7 @@ class BotService : Service() {
                                     wallet = wallet, walletSol = effectiveBalance
                                 )
                                 TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+                                continue // V5.9.706 — skip dynamic stop (position already closed)
                             }
                             giveBackTrigger -> {
                                 // Peaked +20% or higher and gave back ≥25 points.
@@ -4996,6 +4997,7 @@ class BotService : Service() {
                                     wallet = wallet, walletSol = effectiveBalance
                                 )
                                 TradeStateMachine.startCooldown(ts.mint)
+                                continue // V5.9.706 — skip dynamic stop (position already closed)
                             }
                             pnlPct <= -HARD_FLOOR_STOP_PCT -> {
                                 // V5.9.687 — removed neverWinner gate.
@@ -5014,6 +5016,7 @@ class BotService : Service() {
                                     wallet = wallet, walletSol = effectiveBalance
                                 )
                                 TradeStateMachine.startCooldown(ts.mint)
+                                continue // V5.9.706 — skip dynamic stop (position already closed)
                             }
                             else -> { /* let dynamic/trailing stop below handle it */ }
                         }

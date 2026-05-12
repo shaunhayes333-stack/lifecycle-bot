@@ -78,6 +78,25 @@ object TradeHistoryStore {
     @Volatile private var lastStatsCacheMs:      Long    = 0L
     private const val STATS_CACHE_MS = 30_000L
 
+    // V5.9.706 — cache full StatsSnapshot to avoid O(N) list iterations on the main thread every 2.5s
+    @Volatile private var cachedStatsSnapshot: StatsSnapshot? = null
+    @Volatile private var cachedStatsSnapshotMs: Long = 0L
+    private const val STATS_SNAPSHOT_CACHE_MS = 3_000L
+
+    fun getStatsCached(): StatsSnapshot {
+        val now = System.currentTimeMillis()
+        cachedStatsSnapshot?.let { if (now - cachedStatsSnapshotMs < STATS_SNAPSHOT_CACHE_MS) return it }
+        val fresh = getStats()
+        cachedStatsSnapshot = fresh
+        cachedStatsSnapshotMs = now
+        return fresh
+    }
+
+    fun invalidateStatsCache() {
+        cachedStatsSnapshot = null
+        cachedStatsSnapshotMs = 0L
+    }
+
     // SQLite
     private var db:        SQLiteDatabase? = null
     private var ioThread:  HandlerThread?  = null

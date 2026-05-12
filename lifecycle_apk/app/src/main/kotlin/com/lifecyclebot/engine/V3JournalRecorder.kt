@@ -41,6 +41,13 @@ import com.lifecyclebot.data.Trade
  */
 object V3JournalRecorder {
 
+    // V5.9.706 — dedup guard: prevents double-journal when BotService rapid-monitor
+    // AND a sub-trader both fire closePosition on the same mint within 5 seconds.
+    // The first close wins; subsequent closes within the window are silently dropped.
+    private val recentCloseDedup = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val CLOSE_DEDUP_MS = 5_000L
+
+
     /**
      * V5.9.447 — record a BUY (entry) row in the Journal for sub-traders
      * whose entry path bypasses the main Executor. Use recordClose() for
@@ -136,6 +143,16 @@ object V3JournalRecorder {
         entryScore: Int = 0,
         holdMinutes: Long = 0L,
     ) {
+        // V5.9.706 — dedup: drop duplicate journal entry for same mint within 5s
+        val _dedupNow = System.currentTimeMillis()
+        val _lastClose = recentCloseDedup[mint]
+        if (_lastClose != null && _dedupNow - _lastClose < CLOSE_DEDUP_MS) {
+            com.lifecyclebot.engine.ErrorLogger.debug("V3JournalRecorder",
+                "DEDUP_SKIP $symbol ${layer}_${exitReason}: closed ${_dedupNow - _lastClose}ms ago")
+            return
+        }
+        recentCloseDedup[mint] = _dedupNow
+
         // 1. Persist to the on-device SQLite Journal so the user UI sees it.
         var wrote = false
         try {

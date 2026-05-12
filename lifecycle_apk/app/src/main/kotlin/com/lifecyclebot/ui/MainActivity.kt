@@ -1711,7 +1711,7 @@ for legal compliance.
         }
 
         // ── hero balance — BotService.status is the single source of truth ──
-        val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+        val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
         val balSol = if (config.paperMode) {
             val livePaper = com.lifecyclebot.engine.BotService.status.paperWalletSol
@@ -2201,7 +2201,7 @@ for legal compliance.
             // Stats are calculated from ALL stored trades, not just 24h.
             // Data persists across app restarts and is never auto-cleared.
             // ═══════════════════════════════════════════════════════════════════
-            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
             // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
             // tile matches the 30-Day Proof card byte-for-byte. User report:
             // "the meme coin 30 day is at 26% the livereadiness is drawing
@@ -2427,7 +2427,7 @@ for legal compliance.
             // toggled back to live after a previous session left stale
             // livePositions in the map, hide the card so they don't see
             // phantom positions they can't actually sell (0 SOL = can't pay gas).
-            val cfgNow = com.lifecyclebot.data.ConfigStore.load(this@MainActivity)
+            val cfgNow = state.config // V5.9.706 — avoid AES-GCM decrypt on main thread
             val liveSol = try {
                 com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
             } catch (_: Throwable) { 0.0 }
@@ -2566,7 +2566,7 @@ for legal compliance.
     fun updateCyclicPanel() {  // V5.9.225: removed 'private' — local functions can't use access modifiers
         try {
             val engine = com.lifecyclebot.engine.CyclicTradeEngine
-            val cfg = com.lifecyclebot.data.ConfigStore.load(this)
+            val cfg = com.lifecyclebot.data.ConfigStore.load(this) // V5.9.706: served from 2s cache
             val isRunning = cfg.cyclicTradeEnabled && engine.isRunning
 
             // Find or build the container — it lives in the same scroll as moonshotPositions
@@ -5515,7 +5515,7 @@ This cannot be undone!
             // be addressed properly when 30-Day Proof Run itself is
             // asset-segregated (so the proof card shows MEME-only too).
             val rt = com.lifecyclebot.engine.RunTracker30D
-            val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val stats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
             // V5.9.371b — read EXACTLY from RunTracker30D so the numbers
             // shown here match the 30-Day Proof Run card byte-for-byte.
             // Removed the .coerceAtLeast(stats.totalStoredTrades) because
@@ -5961,7 +5961,7 @@ This cannot be undone!
         try {
             val tv = tvTradersSummary ?: return
             // Meme
-            val memeStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val memeStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
             val memeWins   = memeStats.totalWins
             val memeLosses = memeStats.totalLosses
             val memeTrades = memeWins + memeLosses
