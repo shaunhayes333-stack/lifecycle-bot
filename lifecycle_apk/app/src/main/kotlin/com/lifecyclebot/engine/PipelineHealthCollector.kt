@@ -741,8 +741,8 @@ object PipelineHealthCollector {
 
         // ── Cheat-sheet ─────────────────────────────────────────────
         // V5.9.709 — expanded cheat-sheet with actionable context
-        val execBuy  = (labelCounts["EXEC/PAPER_BUY"] ?: 0L) + (labelCounts["EXEC/LIVE_BUY"] ?: 0L)
-        val execSell = labelCounts["EXEC_SELL"] ?: 0L
+        val execBuy  = (labelCounts["EXEC/PAPER_BUY"]?.get() ?: 0L) + (labelCounts["EXEC/LIVE_BUY"]?.get() ?: 0L)
+        val execSell = labelCounts["EXEC_SELL"]?.get() ?: 0L
         val stall    = if (uptimeSec > 0) (s.totalFrameStallMs * 100L / (uptimeSec * 1000L)) else 0L
         sb.append("===== Interpretation cheat-sheet =====\n")
         sb.append("  BOT_LOOP_TICK=0           -> botLoop never iterated; check service start.\n")
