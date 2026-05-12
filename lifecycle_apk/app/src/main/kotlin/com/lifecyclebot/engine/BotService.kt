@@ -5001,7 +5001,11 @@ class BotService : Service() {
                                 addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
-                                TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                // V5.9.715-FIX: stale-price exits in paper mode are price-feed
+                                // noise, not real rugs. Catastrophe cooldown punished the same
+                                // mint for 30min, starving V3 via the loss_streak guard and
+                                // collapsing trading to near-zero. Only fire in live mode.
+                                if (!cfg.paperMode) TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
                             }
                             continue  // can't do pnl math without price
                         }
@@ -5036,7 +5040,10 @@ class BotService : Service() {
                                 addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s — assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
-                                TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                // V5.9.715-FIX: same as STALE_PRICE_RUG_ESCAPE — paper mode
+                                // stale prices are feed noise, not rugs. 30min lockout was
+                                // starving V3 via loss_streak guard → ZERO trading.
+                                if (!cfg.paperMode) TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
                                 continue
                             }
                         }

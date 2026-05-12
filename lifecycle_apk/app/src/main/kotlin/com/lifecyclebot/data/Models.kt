@@ -262,7 +262,17 @@ data class BotStatus(
     var paperWalletInitialized: Boolean = false,  // Track if we've synced with real wallet
     var paperWalletLastRefreshMs: Long = 0L,      // Timestamp of last 12-hour top-up
     val logs: ArrayDeque<String> = ArrayDeque(600),
-    val tokens: MutableMap<String, TokenState> = mutableMapOf(),
+    // V5.9.715 — Changed from mutableMapOf() (LinkedHashMap) to ConcurrentHashMap.
+    // BotViewModel.pollLoop() iterates tokens.values (via openPositions getter)
+    // on the UI thread while BotService mutates the map on its coroutine thread.
+    // LinkedHashMap iterators throw ConcurrentModificationException on concurrent
+    // structural modifications — this was the CRASH at BotStatus.getOpenPositions.
+    // ConcurrentHashMap iterators are weakly consistent: they never throw CME and
+    // always reflect at least the state at iterator creation time. All existing
+    // synchronized(status.tokens) call-sites in BotService remain valid (they now
+    // act as optional extra guards; ConcurrentHashMap's own internal locking is
+    // sufficient for single-operation atomicity).
+    val tokens: MutableMap<String, TokenState> = java.util.concurrent.ConcurrentHashMap(),
 ) {
     /** All tokens currently holding a position */
     val openPositions: List<TokenState>
