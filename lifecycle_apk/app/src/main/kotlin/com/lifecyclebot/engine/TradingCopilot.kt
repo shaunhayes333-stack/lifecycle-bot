@@ -249,8 +249,14 @@ object TradingCopilot {
             val bootstrapProg = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
             val isBootstrap = bootstrapProg < 0.70
 
-            val emergencySteakThresh = if (isBootstrap) 12 else 7
-            val protectStreakThresh  = if (isBootstrap) 8  else 4
+            // V5.9.716 — bootstrap thresholds dramatically relaxed.
+            // At 2% WR the 30-trade window is nearly all losses → streak always >= 12 → permanent brake.
+            // Paper bootstrap MUST keep trading; the brake is LIVE-money protection, not learning protection.
+            // LifecycleStrategy now passes copilotBrake through only for !isPaperMode || !copilotBootstrap,
+            // so this threshold is effectively a LIVE-only guard during bootstrap anyway.
+            // We raise it high enough that even a bad LIVE bootstrap session keeps some entry volume.
+            val emergencySteakThresh = if (isBootstrap) 40 else 7
+            val protectStreakThresh  = if (isBootstrap) 20 else 4
             val protectWrThresh      = if (isBootstrap) 12.0 else 25.0   // bootstrap: only brake on truly disastrous WR
             val protectWrMinTrades   = if (isBootstrap) 30 else 8         // bootstrap: need more trades before WR gate fires
 
@@ -319,7 +325,7 @@ object TradingCopilot {
 
             // ─── 9. HUMAN-READABLE ADVICE ─────────────────────────────────
             val advice = buildAdvice(mood, learningHealth, regime, wrPct, lossStreak, winStreak,
-                avgAccuracy, biggestWin, biggestLoss, tradesObserved)
+                avgAccuracy, biggestWin, biggestLoss, tradesObserved, isBootstrap, recMinConf)
 
             val directive = Directive(
                 mood = mood,
@@ -420,11 +426,13 @@ object TradingCopilot {
         mood: TradeMood, lh: LearningHealth, regime: String,
         wr: Double, lossStreak: Int, winStreak: Int,
         acc: Double, bigWin: Double, bigLoss: Double, n: Int,
+        isBootstrap: Boolean = false, recMinConf: Double = 25.0,
     ): String {
         if (n < 5) return "Gathering data ($n/5 trades) — running baseline."
         return when (mood) {
             TradeMood.EMERGENCY_BRAKE ->
-                "🛑 Emergency brake: $lossStreak-loss streak, deepest=${bigLoss.toInt()}%. Sizing×0.25, conf≥25% only — let the storm pass."
+                // V5.9.716: Actual sizing in bootstrap is 0.5x (not 0.25x); live mature is 0.25x
+                "🛑 Emergency brake: $lossStreak-loss streak, deepest=${bigLoss.toInt()}%. Sizing×${if (isBootstrap) "0.50" else "0.25"}, conf≥${recMinConf.toInt()}% only — let the storm pass."
             TradeMood.PROTECT ->
                 "🟠 Protect: WR=${wr.toInt()}% over $n trades. Tightening to conf≥15%, size×0.5. Wait for clean A-quality setups."
             TradeMood.AGGRESSIVE_HUNT ->

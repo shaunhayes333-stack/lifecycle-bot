@@ -1183,8 +1183,12 @@ class LifecycleStrategy(
         val belowCopilotFloor = isPaperMode && edgeConfidence < copilotConfFloor && !copilotBootstrap
 
         val shouldTradeBase = when {
-            // V5.9.318: Copilot emergency brake — bot is in catastrophic state, halt new entries
-            copilotBrake -> false
+            // V5.9.716: Copilot emergency brake — hard-blocks LIVE entries OR paper entries once
+            // past bootstrap (progress >= 0.70). During paper bootstrap, the brake must NOT halt
+            // entries — we need trading volume to learn out of the loss streak. Sizing is still
+            // cut to 0.5x via the sizingMultiplier path; only the hard-halt is lifted for paper.
+            // Matches the same logic already applied to belowCopilotFloor (V5.9.337).
+            copilotBrake && (!isPaperMode || !copilotBootstrap) -> false
 
             // HARD BLOCK: Zero confidence in LIVE mode only (paper still learns)
             isZeroConfidence && !isPaperMode -> false
