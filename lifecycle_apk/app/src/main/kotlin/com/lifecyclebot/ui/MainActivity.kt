@@ -460,7 +460,25 @@ class MainActivity : AppCompatActivity() {
 
     // colours
     private val purple  = 0xFF9945FF.toInt()
-    private val green   = 0xFF10B981.toInt()
+    // ═══════════════════════════════════════════════════════════════
+    // V5.9.709 — Render deduplication guards.
+    // Heavy render methods (removeAllViews + inflate per token) were
+    // firing every 2500ms poll tick regardless of whether the underlying
+    // data had changed. With 48 loop ticks/s and position lists, this
+    // caused 65%+ main-thread stall time (ANR watchdog confirmed).
+    // Each guard stores a lightweight hash of the last rendered data.
+    // If the hash is unchanged, the render is skipped entirely.
+    // ═══════════════════════════════════════════════════════════════
+    private var lastOpenPosHash: Int = -1
+    private var lastMoonshotHash: Int = -1
+    private var lastNetworkSigRenderMs: Long = 0L
+    private var lastDecisionLogHash: Int = -1
+    private var lastTradesRenderHash: Int = -1
+    private var lastWatchlistRenderHash: Int = -1
+    private var lastBlueChipHash: Int = -1
+    private var lastQualityHash: Int = -1
+
+        private val green   = 0xFF10B981.toInt()
     private val red     = 0xFFEF4444.toInt()
     private val amber   = 0xFFF59E0B.toInt()
     private val muted   = 0xFF6B7280.toInt()
@@ -3164,6 +3182,10 @@ for legal compliance.
     }
 
     private fun renderOpenPositions(positions: List<TokenState>) {
+        // V5.9.709 — skip render if positions haven't changed (hash check)
+        val openHash = positions.map { "${it.mint}${it.ref}${it.position.costSol}" }.hashCode()
+        if (openHash == lastOpenPosHash) return
+        lastOpenPosHash = openHash
         llOpenPositions.removeAllViews()
         // V5.9.495z37 — operator-reported confusion: tSpaceX / TCLAW /
         // TripleT / GMAR / MAGA / ROAF appear in lane cards (Blue Chip
@@ -3595,6 +3617,10 @@ for legal compliance.
     
     // V4.0: Render Blue Chip positions
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
+        // V5.9.709 — skip re-render if blue chip list unchanged
+        val bcHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        if (bcHash == lastBlueChipHash) return 0.0
+        lastBlueChipHash = bcHash
         llBlueChipPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         // V5.9.420 — accumulate children unrealized PnL for header parity.
@@ -3702,6 +3728,10 @@ for legal compliance.
     
     // Render Quality positions ($100K-$1M mcap)
     private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>): Double {
+        // V5.9.709 — skip re-render if quality list unchanged
+        val qpHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        if (qpHash == lastQualityHash) return 0.0
+        lastQualityHash = qpHash
         llQualityPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         // V5.9.420 — accumulate children unrealized PnL for header parity.
@@ -4171,6 +4201,10 @@ for legal compliance.
 
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
+        // V5.9.709 — skip render if moonshot positions unchanged
+        val moonHash = positions.map { "${it.mint}${it.currentPriceSol}${it.status}" }.hashCode()
+        if (moonHash == lastMoonshotHash) return
+        lastMoonshotHash = moonHash
         llMoonshotPositions.removeAllViews()
         
         for (pos in positions) {
@@ -4267,6 +4301,10 @@ for legal compliance.
     
     // V5.6.29d: Render Network Signals from Collective Intelligence
     private fun renderNetworkSignals() {
+        // V5.9.709 — network signal panel doesn't change faster than 3s; skip if too soon
+        val now = System.currentTimeMillis()
+        if (now - lastNetworkSigRenderMs < 3_000L) return
+        lastNetworkSigRenderMs = now
         try {
             val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
             
@@ -6027,6 +6065,10 @@ This cannot be undone!
     }
 
     private fun renderTrades(trades: List<Trade>) {
+        // V5.9.709 — skip if trade list unchanged
+        val rtHash = (trades.size.toString() + trades.lastOrNull()?.let { it.mint + it.side } ?: "").hashCode()
+        if (rtHash == lastTradesRenderHash) return
+        lastTradesRenderHash = rtHash
         llTradeList.removeAllViews()
         val sdf = SimpleDateFormat("HH:mm:ss", Locale.US)
         val tradeTextSp = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
@@ -6256,6 +6298,10 @@ This cannot be undone!
     }
 
     private fun updateDecisionLog(ts: TokenState) {
+        // V5.9.709 — skip if decision log content unchanged
+        val dlHash = (ts.mint + ts.lastV3Score + ts.logs.size + ts.position.isOpen.hashCode()).hashCode()
+        if (dlHash == lastDecisionLogHash) return
+        lastDecisionLogHash = dlHash
         val meta   = ts.meta
         val signal = ts.signal
         val phase  = ts.phase
@@ -6407,6 +6453,11 @@ This cannot be undone!
     }
 
     private fun renderWatchlist(state: UiState) {
+        // V5.9.709 — skip watchlist re-render if content unchanged
+        val tokens = state.tokens.values.toList()
+        val wlHash = (tokens.size.toString() + tokens.take(5).joinToString { it.symbol + it.lastPrice.toInt() }).hashCode()
+        if (wlHash == lastWatchlistRenderHash) return
+        lastWatchlistRenderHash = wlHash
         llTokenList.removeAllViews()
         llProbationList.removeAllViews()
         llIdleList.removeAllViews()

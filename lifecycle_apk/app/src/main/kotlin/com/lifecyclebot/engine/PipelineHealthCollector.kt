@@ -740,17 +740,30 @@ object PipelineHealthCollector {
         sb.append('\n')
 
         // ── Cheat-sheet ─────────────────────────────────────────────
+        // V5.9.709 — expanded cheat-sheet with actionable context
+        val execBuy  = labelCounts["EXEC/PAPER_BUY"]?.plus(labelCounts["EXEC/LIVE_BUY"] ?: 0) ?: 0L
+        val execSell = labelCounts["EXEC_SELL"] ?: 0L
+        val stall    = if (uptimeSec > 0) (s.totalFrameStallMs * 100L / (uptimeSec * 1000L)) else 0L
         sb.append("===== Interpretation cheat-sheet =====\n")
         sb.append("  BOT_LOOP_TICK=0           -> botLoop never iterated; check service start.\n")
         sb.append("  SCAN_CB=0 LOOP>0          -> watchlist empty; scanner intake is starving.\n")
         sb.append("  SAFETY=0 SCAN_CB>0        -> tokens rejected before SAFETY (intake gate).\n")
         sb.append("  LANE_EVAL=0 V3>0          -> V3 short-circuiting; check V3EngineEnabled.\n")
-        sb.append("  EXEC=0 LANE_EVAL>0        -> all gates pass but Executor not invoked.\n")
+        sb.append("  EXEC=0 LANE_EVAL>0        -> Executor not invoked — check FDG block rate and cbState.isPaused.\n")
+        sb.append("                               Note: EXEC_BUY/SELL in labelled counters is the true execution signal.\n")
+        sb.append("  EXEC_BUY=${execBuy} EXEC_SELL=${execSell}         -> actual buy/sell executions this session.\n")
         sb.append("  TRADEJRNL_REC=0 EXEC>0    -> Executor running but journal not writing.\n")
+        sb.append("  INTAKE allow=0            -> all intake blocked; top reason shown in block tally above.\n")
+        sb.append("  NO_PAIR_NO_FALLBACK high  -> tokens have no DEX pair/price yet (pump.fun bonding curve only).\n")
+        sb.append("                               Normal for new tokens — they clear once Raydium pair is created.\n")
+        sb.append("  FDG block=N EXEC=0        -> FDG vetoing all candidates; check CONFIDENCE_FLOOR or DANGER_ZONE.\n")
         sb.append("  ANR_HINTS>0               -> main thread blocked; inspect 'ANR top blocking call sites'.\n")
-        sb.append("  GATE_BLOCK/SAFETY high    -> safety checks rejecting most tokens.\n")
-        sb.append("  GATE_BLOCK/FDG high       -> FDG vetoing; check edge vetoes / brain state.\n")
-        sb.append("  Max cycle >30s            -> watchlist too big OR scanner overload. Check 'Bot-loop cycle timing'.\n")
+        sb.append("  Stall%>50%%               -> UI render is blocking main thread. Stall=${stall}%% this session.\n")
+        sb.append("                               Fix: reduce renderOpenPositions/buildTokenCard frequency.\n")
+        sb.append("  GATE_BLOCK/SAFETY high    -> safety checks rejecting most tokens; check rug-score thresholds.\n")
+        sb.append("  GATE_BLOCK/FDG high       -> FDG vetoing; check edge vetoes / brain state / conf floor.\n")
+        sb.append("  Max cycle >30s            -> watchlist or scanner overload. Check 'Bot-loop cycle timing'.\n")
+        sb.append("  V3_SKIPPED high           -> V3 engine disabled or in learning phase (normal early-run).\n")
 
         return sb.toString()
     }

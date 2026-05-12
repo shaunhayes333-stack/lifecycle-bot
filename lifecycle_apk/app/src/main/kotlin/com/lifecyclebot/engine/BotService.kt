@@ -10621,6 +10621,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 com.lifecyclebot.v3.scoring.FluidLearningAI.recordTradeStart()
                                 
                                 val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                // V5.9.709 — wire EXEC forensic counter for ShitCoin lane
+                                // (was only wired in MEME_SPINE path, leaving EXEC=0 when ShitCoin ran)
+                                try {
+                                    ForensicLogger.exec(
+                                        action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",
+                                        symbol = ts.symbol,
+                                        fields = "lane=SHITCOIN size=${adjustedSize.fmt(3)}$bootstrapLabel"
+                                    )
+                                } catch (_: Throwable) {}
                                 addLog("💩 SHITCOIN BUY$bootstrapLabel: ${ts.symbol} | " +
                                     "${shitCoinSignal.launchPlatform.emoji} | " +
                                     "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
