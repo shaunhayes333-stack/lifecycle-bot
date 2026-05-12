@@ -44,9 +44,12 @@ import kotlin.random.Random
 class SplashActivity : AppCompatActivity() {
 
     companion object {
-        private const val SPLASH_DURATION = 5000L
-        private const val SCALE_DURATION = 2000L
-        private const val PARTICLE_COUNT = 30
+        private const val SPLASH_DURATION      = 5000L
+        private const val SPLASH_DURATION_FAST = 1500L  // V5.9.713: re-auth fast path (process was killed, not first open)
+        private const val SCALE_DURATION       = 2000L
+        private const val PARTICLE_COUNT       = 30
+        /** Set by SecurityActivity when returning from a background kill re-auth. */
+        const val EXTRA_FAST_MODE = "extra_fast_mode"
     }
     
     private val particles = mutableListOf<View>()
@@ -123,12 +126,15 @@ class SplashActivity : AppCompatActivity() {
         }, 2000L)
 
         // Navigate to MainActivity after splash duration
+        // V5.9.713: use fast duration when coming back from a kill/re-auth cycle
+        val isFastMode = intent.getBooleanExtra(EXTRA_FAST_MODE, false)
+        val splashMs   = if (isFastMode) SPLASH_DURATION_FAST else SPLASH_DURATION
         Handler(Looper.getMainLooper()).postDelayed({
             stopParticleAnimation()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             finish()
-        }, SPLASH_DURATION)
+        }, splashMs)
     }
     
     /**

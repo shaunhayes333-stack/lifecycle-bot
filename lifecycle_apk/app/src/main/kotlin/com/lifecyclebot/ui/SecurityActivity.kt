@@ -56,6 +56,7 @@ class SecurityActivity : AppCompatActivity() {
     private lateinit var executor: Executor
     private var failedAttempts = 0
     private var isSettingUp = false
+    private var biometricInProgress = false  // V5.9.713: guard against onPause killing app during biometric overlay
 
     // UI elements
     private lateinit var tvTitle: TextView
@@ -247,6 +248,7 @@ class SecurityActivity : AppCompatActivity() {
     }
 
     private fun showBiometricPrompt() {
+        biometricInProgress = true  // V5.9.713: don't kill on onPause while prompt is showing
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Unlock AATE")
             .setSubtitle("Use your fingerprint to access your wallet")
@@ -260,13 +262,14 @@ class SecurityActivity : AppCompatActivity() {
         val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 super.onAuthenticationSucceeded(result)
-                // Biometric auth successful
+                biometricInProgress = false  // V5.9.713
                 failedAttempts = 0
                 proceedToApp()
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 super.onAuthenticationError(errorCode, errString)
+                biometricInProgress = false  // V5.9.713
                 when (errorCode) {
                     BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
                         // User clicked "Use PIN instead"
@@ -295,6 +298,7 @@ class SecurityActivity : AppCompatActivity() {
 
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
+                // biometricInProgress stays true — prompt still visible, will try again
                 failedAttempts++
                 val remaining = MAX_ATTEMPTS - failedAttempts
 
@@ -331,8 +335,37 @@ class SecurityActivity : AppCompatActivity() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(etPin.windowToken, 0)
 
-        // Go to splash screen
-        startActivity(Intent(this, SplashActivity::class.java))
+        // V5.9.713 — Kick BotService immediately after auth success if it was running
+        // before the process was killed. Normally AATEApp schedules a 3s restart alarm,
+        // but that alarm fires AFTER SplashActivity's 5s delay, meaning the user sees
+        // "bot stopped" for up to 8+ seconds after unlocking. Starting here (pre-splash)
+        // means the service is connecting to PumpPortal while the user watches the splash.
+        try {
+            val rp = getSharedPreferences(
+                com.lifecyclebot.engine.BotService.RUNTIME_PREFS,
+                android.content.Context.MODE_PRIVATE
+            )
+            val wasRunning  = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop  = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
+            val alreadyUp   = try { com.lifecyclebot.engine.BotService.status.running } catch (_: Throwable) { false }
+            if (wasRunning && !manualStop && !alreadyUp) {
+                val svcIntent = android.content.Intent(this, com.lifecyclebot.engine.BotService::class.java).apply {
+                    action = com.lifecyclebot.engine.BotService.ACTION_START
+                    // NOT user-requested — don't clear the manual-stop latch
+                    putExtra(com.lifecyclebot.engine.BotService.EXTRA_USER_REQUESTED, false)
+                }
+                startForegroundService(svcIntent)
+                android.util.Log.i("SecurityActivity", "V5.9.713: BotService kicked pre-splash (wasRunning=$wasRunning)")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SecurityActivity", "V5.9.713: BotService pre-kick failed: ${e.message}")
+        }
+
+        // Go to splash screen — pass FAST_MODE so splash skips long animation on re-auth
+        val splashIntent = Intent(this, SplashActivity::class.java).apply {
+            putExtra(SplashActivity.EXTRA_FAST_MODE, true)
+        }
+        startActivity(splashIntent)
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
         finish()
     }
@@ -345,8 +378,14 @@ class SecurityActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // If user leaves during auth, close app for security
-        if (!isFinishing) {
+        // V5.9.713 — Do NOT kill the app while the biometric overlay is showing.
+        // The system-drawn fingerprint/face prompt causes onPause() to fire on this
+        // activity even though the user hasn't left. Calling finishAndRemoveTask()
+        // here was killing the app on every biometric attempt (user saw the prompt
+        // flash then the app closed). We now guard with biometricInProgress.
+        // We also skip kill if the activity is already finishing or if the keyboard
+        // or any other owned overlay is responsible for the pause.
+        if (!isFinishing && !biometricInProgress) {
             finishAndRemoveTask()
         }
     }

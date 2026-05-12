@@ -550,6 +550,42 @@ class MainActivity : AppCompatActivity() {
             requestNotifPermission()
             requestStoragePermission()
             checkBatteryOptimisation()
+
+            // V5.9.713 — AUTO-RESTART on cold-open after process kill.
+            // When Android kills the process (OEM battery saver, Doze, OOM) and
+            // the user re-authenticates via SecurityActivity + Splash, MainActivity
+            // is cold-created. The bot may not be running yet even though
+            // SecurityActivity already kicked ACTION_START, because BotService
+            // can take a few seconds to become running=true. We schedule a short
+            // delayed check: if the user had the bot running before the kill
+            // AND they haven't manually stopped it AND the bot still isn't up
+            // after 4 seconds, we press START BOT on their behalf.
+            lifecycleScope.launch {
+                try {
+                    val rp = getSharedPreferences(
+                        com.lifecyclebot.engine.BotService.RUNTIME_PREFS,
+                        android.content.Context.MODE_PRIVATE
+                    )
+                    val wasRunning = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+                    val manualStop = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
+                    if (wasRunning && !manualStop) {
+                        // Grace period: give SecurityActivity's pre-kick time to take effect
+                        kotlinx.coroutines.delay(4_000)
+                        val isRunning = com.lifecyclebot.engine.BotService.status.running
+                        if (!isRunning) {
+                            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",
+                                "V5.9.713: bot still stopped 4s after cold-open (wasRunning=true, manualStop=false) — auto-restarting")
+                            vm.startBot()
+                        } else {
+                            com.lifecyclebot.engine.ErrorLogger.info("MainActivity",
+                                "V5.9.713: cold-open check — bot already running, no action needed")
+                        }
+                    }
+                } catch (e: Exception) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",
+                        "V5.9.713: auto-restart check failed: ${'$'}{e.message}")
+                }
+            }
             
             // V5.9.262: floating "Live Trade Forensics" tile — opens the
             // end-to-end live-trade timeline UI. Implemented programmatically
