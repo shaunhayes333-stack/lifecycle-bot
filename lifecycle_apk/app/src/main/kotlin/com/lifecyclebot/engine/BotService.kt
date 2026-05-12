@@ -338,6 +338,11 @@ class BotService : Service() {
         @Volatile
         var inertWatchdogFiredOnce: Boolean = false
 
+        // V5.9.714-FIX: set at the top of every startBot() call so the
+        // pendingVerify force-clear knows if the watchdog has run this session.
+        @Volatile
+        var botStartTimeMs: Long = 0L
+
         fun isManualStopRequested(ctx: Context): Boolean = try {
             ctx.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
@@ -2620,6 +2625,8 @@ class BotService : Service() {
         // V5.9.621 — arm the inert-loop watchdog at start.
         lastScannerDiscoveryMs = System.currentTimeMillis()
         inertWatchdogFiredOnce = false
+        // V5.9.714-FIX: mark session start so pendingVerify gate knows watchdog hasn't fired yet.
+        botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch { botLoop() }
@@ -4537,54 +4544,75 @@ class BotService : Service() {
     
     // Keep-alive alarm to ensure service restarts if killed
     private fun scheduleKeepAliveAlarm() {
+        // V5.9.714 — Keep-alive alarm redesign.
+        //
+        // Previous design used setAlarmClock() as the primary, which:
+        //   (a) Shows a clock icon in the status bar on every device — intrusive.
+        //   (b) Requires SCHEDULE_EXACT_ALARM (Android 12+) which some OEMs
+        //       silently deny without a user-visible prompt, causing the whole
+        //       chain to fail with a SecurityException swallowed in the catch block.
+        //
+        // New design:
+        //   • PRIMARY  (rc=999): setExactAndAllowWhileIdle — no status-bar icon,
+        //     no extra permission required, fires within ~10s when not in deep Doze.
+        //   • BACKUP   (rc=997): setExactAndAllowWhileIdle at +120s — belt-and-
+        //     suspenders in case the 60s primary is briefly deferred.
+        //   • DOZE-BYPASS (rc=998): setAlarmClock at +70s — only scheduled if the
+        //     device is confirmed to be in Doze (pm.isDeviceIdleMode()). Fires
+        //     through Doze unconditionally but we only use it when we actually
+        //     need it so the clock icon doesn't appear during normal operation.
+        //
+        // The ACTION_START handler in onStartCommand already reschedules the next
+        // alarm on every keep-alive delivery, so this forms a self-healing chain.
         val restartIntent = Intent(applicationContext, BotService::class.java).apply {
             action = ACTION_START
         }
-        val pi = android.app.PendingIntent.getService(
-            this, 999, restartIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val am = getSystemService(android.app.AlarmManager::class.java)
-        
-        // V5.6.8: Use setAlarmClock for MAXIMUM priority - this is treated as user-facing
-        // and survives aggressive OEM battery optimizations (Samsung, Xiaomi, etc.)
-        val triggerTime = System.currentTimeMillis() + 90_000  // 1.5 minutes
+        val am = getSystemService(android.app.AlarmManager::class.java) ?: return
+        val now = System.currentTimeMillis()
+
+        // Primary: 60s
         try {
-            // Create a show intent that opens MainActivity when alarm fires
-            val showIntent = Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java)
-            val showPi = android.app.PendingIntent.getActivity(
-                this, 998, showIntent,
+            val pi = android.app.PendingIntent.getService(
+                this, 999, restartIntent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
-            
-            // setAlarmClock is the HIGHEST priority - almost never deferred
-            am?.setAlarmClock(
-                android.app.AlarmManager.AlarmClockInfo(triggerTime, showPi),
-                pi
-            )
-            ErrorLogger.info("BotService", "Keep-alive AlarmClock scheduled for 90 seconds (HIGH PRIORITY)")
+            am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, now + 60_000L, pi)
+            ErrorLogger.info("BotService", "Keep-alive alarm set (60s primary)")
         } catch (e: Exception) {
-            // Fallback to setExactAndAllowWhileIdle if setAlarmClock fails
-            ErrorLogger.warn("BotService", "setAlarmClock failed, using fallback: ${e.message}")
-            am?.setExactAndAllowWhileIdle(
-                android.app.AlarmManager.RTC_WAKEUP,
-                triggerTime,
-                pi
-            )
-            ErrorLogger.info("BotService", "Keep-alive alarm scheduled for 90 seconds (fallback)")
+            ErrorLogger.warn("BotService", "Keep-alive primary alarm failed: ${e.message}")
         }
-        
-        // Also schedule a backup alarm at 3 minutes using setExactAndAllowWhileIdle
-        val backupPi = android.app.PendingIntent.getService(
-            this, 997, restartIntent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        am?.setExactAndAllowWhileIdle(
-            android.app.AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 180_000,  // 3 minutes backup
-            backupPi
-        )
-        
+
+        // Backup: 120s
+        try {
+            val backupPi = android.app.PendingIntent.getService(
+                this, 997, restartIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, now + 120_000L, backupPi)
+        } catch (_: Exception) {}
+
+        // Doze-bypass: only when device is actually idle (no status-bar spam during normal use)
+        try {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            val inDoze = pm?.isDeviceIdleMode ?: false
+            if (inDoze) {
+                val showPi = android.app.PendingIntent.getActivity(
+                    this, 996,
+                    Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                val dozePi = android.app.PendingIntent.getService(
+                    this, 998, restartIntent,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                )
+                am.setAlarmClock(
+                    android.app.AlarmManager.AlarmClockInfo(now + 70_000L, showPi),
+                    dozePi
+                )
+                ErrorLogger.info("BotService", "Doze-bypass AlarmClock armed (device in Doze)")
+            }
+        } catch (_: Exception) {}
+
         // Start self-healing diagnostics (runs every 3 hours)
         try {
             SelfHealingDiagnostics.start(scope)
@@ -4598,7 +4626,7 @@ class BotService : Service() {
             action = ACTION_START
         }
         val am = getSystemService(android.app.AlarmManager::class.java)
-        for (requestCode in intArrayOf(1, 2, 3, 997, 999)) {
+        for (requestCode in intArrayOf(1, 2, 3, 996, 997, 998, 999)) { // V5.9.714: added 996,998 (Doze-bypass PIs)
             try {
                 val pi = android.app.PendingIntent.getService(
                     this,
@@ -12419,11 +12447,37 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     "⏳ [PENDING_VERIFY] ${ts.symbol} | ${pendingAgeMs / 1000}s old — verify window active, skip exit tick")
                 return
             }
-            // 120s elapsed — verify coroutine is definitely done (it runs for ≤30s).
-            // Force-clear pendingVerify so isOpen becomes true and exits work.
+            // 120s elapsed — verify window is over.
+            // V5.9.714-FIX: If this is a position restored from persistence (entryTime
+            // is from a PREVIOUS session), the PendingVerify watchdog must do an on-chain
+            // RPC check before we assume the position is real. Blindly force-clearing here
+            // would turn an un-confirmed ghost (buy tx may have failed before the kill) into
+            // a fully "open" position that exit logic tries to sell.
+            //
+            // Gate: only force-clear if the watchdog has already fired at least once this
+            // session (lastPendingVerifyWatchdogAt > botStartTimeMs). If the watchdog hasn't
+            // run yet, skip this tick — it will fire within 60s and resolve correctly.
+            val watchdogFiredThisSession = lastPendingVerifyWatchdogAt > botStartTimeMs
+            if (!watchdogFiredThisSession) {
+                ErrorLogger.debug("BotService",
+                    "⏳ [PENDING_VERIFY_RESTORED] ${ts.symbol} | ${pendingAgeMs / 1000}s — awaiting watchdog RPC check (not yet fired this session)")
+                return
+            }
+            // Watchdog already ran and didn't resolve this position — means either:
+            // 1. RPC failed last tick (watchdog left it for retry), OR
+            // 2. The position was verified as real but pendingVerify wasn't cleared (bug).
+            // In case 1: leave it, watchdog retries. In case 2: safe to force-clear now.
+            // Discriminate: if watchdog ran > 90s ago without clearing this, assume case 2.
+            val watchdogAge = System.currentTimeMillis() - lastPendingVerifyWatchdogAt
+            if (watchdogAge < 90_000L) {
+                // Watchdog just fired but RPC may have failed — give it another cycle
+                ErrorLogger.debug("BotService",
+                    "⏳ [PENDING_VERIFY_WAIT_WD] ${ts.symbol} | watchdog ran ${watchdogAge/1000}s ago — waiting for retry")
+                return
+            }
             ErrorLogger.warn("BotService",
-                "⚠️ [PENDING_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify. " +
-                "Verify coroutine should have resolved within 30s. Position now actively managed.")
+                "⚠️ [PENDING_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — watchdog ran ${watchdogAge/1000}s ago and left pendingVerify=true. " +
+                "Force-clearing (watchdog RPC must have confirmed real tokens).")
             synchronized(ts) {
                 ts.position = ts.position.copy(pendingVerify = false)
             }

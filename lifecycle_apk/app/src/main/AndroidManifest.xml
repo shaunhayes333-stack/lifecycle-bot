@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- V5.9.714 — specialUse type required on Android 14+ when OEM battery manager
+         kills dataSync foreground services during screen-off. Combined with
+         dataSync so the service survives both Doze AND OEM power-saving modes. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- Biometric authentication for secure wallet access -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
@@ -117,7 +121,7 @@
             android:name=".engine.BotService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="dataSync|specialUse"/>
 
         <!--
           V5.9.661 — debug-only smoke test entry-point.

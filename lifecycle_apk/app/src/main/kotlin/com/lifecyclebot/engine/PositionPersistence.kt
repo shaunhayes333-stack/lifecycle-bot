@@ -123,6 +123,11 @@ object PositionPersistence {
         val lastKnownLiquidity: Double,
         val lastKnownMcap: Double,
         val savedAt: Long,
+        // V5.9.684-FIX: preserve buy-in-flight state across process death.
+        // Without this, a position killed mid-confirmation restored as
+        // isOpen=true (qtyToken>0) but pendingVerify=false, causing traders
+        // to run close logic on a phantom that hasn't landed on-chain yet.
+        val pendingVerify: Boolean = false,
     )
     
     /**
@@ -287,6 +292,10 @@ object PositionPersistence {
                 partialSoldPct = saved.partialSoldPct,
                 buildPhase = saved.buildPhase,
                 targetBuildSol = saved.targetBuildSol,
+                // V5.9.684-FIX: restore pendingVerify so in-flight buys come back
+                // as pendingVerify=true — the watchdog will do an on-chain RPC check
+                // before treating them as open, preventing ghost exit logic.
+                pendingVerify = saved.pendingVerify,
             )
             
             if (existing != null) {
@@ -414,6 +423,7 @@ object PositionPersistence {
             lastKnownLiquidity = ts.lastLiquidityUsd,
             lastKnownMcap = ts.lastMcap,
             savedAt = System.currentTimeMillis(),
+            pendingVerify = ts.position.pendingVerify, // V5.9.684-FIX
         )
     }
     
@@ -461,6 +471,7 @@ object PositionPersistence {
                 put("lastKnownLiquidity", pos.lastKnownLiquidity)
                 put("lastKnownMcap", pos.lastKnownMcap)
                 put("savedAt", pos.savedAt)
+                put("pendingVerify", pos.pendingVerify) // V5.9.684-FIX
             }
             jsonArray.put(json)
         }
@@ -521,6 +532,7 @@ object PositionPersistence {
                     lastKnownLiquidity = obj.optDouble("lastKnownLiquidity", 0.0),
                     lastKnownMcap = obj.optDouble("lastKnownMcap", 0.0),
                     savedAt = obj.optLong("savedAt", 0L),
+                    pendingVerify = obj.optBoolean("pendingVerify", false), // V5.9.684-FIX
                 )
                 result[pos.mint] = pos
             }

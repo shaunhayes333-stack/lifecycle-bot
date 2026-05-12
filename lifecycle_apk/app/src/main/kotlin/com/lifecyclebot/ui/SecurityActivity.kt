@@ -57,6 +57,7 @@ class SecurityActivity : AppCompatActivity() {
     private var failedAttempts = 0
     private var isSettingUp = false
     private var biometricInProgress = false  // V5.9.713: guard against onPause killing app during biometric overlay
+    private var authSucceeded = false        // V5.9.714: set true in proceedToApp() — prevents onPause killing after successful auth
 
     // UI elements
     private lateinit var tvTitle: TextView
@@ -331,6 +332,7 @@ class SecurityActivity : AppCompatActivity() {
     }
 
     private fun proceedToApp() {
+        authSucceeded = true  // V5.9.714: prevent onPause from killing app after auth
         // Hide keyboard
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(etPin.windowToken, 0)
@@ -378,14 +380,27 @@ class SecurityActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // V5.9.713 — Do NOT kill the app while the biometric overlay is showing.
-        // The system-drawn fingerprint/face prompt causes onPause() to fire on this
-        // activity even though the user hasn't left. Calling finishAndRemoveTask()
-        // here was killing the app on every biometric attempt (user saw the prompt
-        // flash then the app closed). We now guard with biometricInProgress.
-        // We also skip kill if the activity is already finishing or if the keyboard
-        // or any other owned overlay is responsible for the pause.
-        if (!isFinishing && !biometricInProgress) {
+        // V5.9.714 — Multi-layer guard against premature app kill on onPause.
+        //
+        // onPause fires in many non-user-left scenarios:
+        //   • Biometric overlay appears (V5.9.713 fix: biometricInProgress guard)
+        //   • Notification shade pulls down
+        //   • Phone screen locks (lock screen appears over the activity)
+        //   • Multitasking / recent apps gesture
+        //   • Any system overlay (permission dialogs, etc.)
+        //
+        // If we call finishAndRemoveTask() on any of these, the user gets locked
+        // out mid-use and the bot task is nuked from the recent apps list.
+        //
+        // New rule: ONLY kill the task on onPause if:
+        //   (a) authentication hasn't succeeded yet this session, AND
+        //   (b) biometric prompt is not showing, AND
+        //   (c) we're not already finishing.
+        //
+        // Once the user has authenticated (authSucceeded=true), SecurityActivity
+        // is already done — it finished itself in proceedToApp(). If it somehow
+        // gets paused again after that (back-stack resurrection), just let it go.
+        if (!isFinishing && !biometricInProgress && !authSucceeded) {
             finishAndRemoveTask()
         }
     }
