@@ -492,9 +492,12 @@ object QuantMetrics {
     private fun calculateWinRateStatsLocked(periodDays: Int): WinRateStats {
         val trades = tradesForPeriodLocked(periodDays).sortedBy { it.timestamp }
 
-        val wins = trades.filter { it.pnlPct > 0.0 }
-        val losses = trades.filter { it.pnlPct < 0.0 }
-        val scratches = trades.filter { it.pnlPct == 0.0 }
+        // V5.9.729 — asymmetric scratch band (matches RunTracker30D,
+        // TradeJournal, TradeHistoryStore). Anything in (-2.0, +0.5) is
+        // a fee/slippage scratch, not a real win or loss.
+        val wins = trades.filter { it.pnlPct >= 0.5 }
+        val losses = trades.filter { it.pnlPct <= -2.0 }
+        val scratches = trades.filter { it.pnlPct > -2.0 && it.pnlPct < 0.5 }
 
         val total = trades.size.coerceAtLeast(1)
 
@@ -521,13 +524,14 @@ object QuantMetrics {
 
         for (trade in trades) {
             when {
-                trade.pnlPct > 0.0 -> {
+                // V5.9.729 — asymmetric bands for streak counts too
+                trade.pnlPct >= 0.5 -> {
                     currentWins++
                     currentLosses = 0
                     maxWins = maxOf(maxWins, currentWins)
                     currentStreak = if (currentStreak >= 0) currentStreak + 1 else 1
                 }
-                trade.pnlPct < 0.0 -> {
+                trade.pnlPct <= -2.0 -> {
                     currentLosses++
                     currentWins = 0
                     maxLosses = maxOf(maxLosses, currentLosses)

@@ -231,12 +231,21 @@ object RunTracker30D {
      */
     fun classifyTrade(pnlPct: Double): String {
         return when {
-            // V5.9.421 — tighten meme/global scratch band ±1.0% → ±0.1%
-            // (matches V5.9.419 Alts change). 715 of 1462 meme trades were
-            // being bucketed as scratches at ±1%, which hid a real win/loss
-            // signal and produced a grotesque 49%-scratch UI.
-            pnlPct >= 0.1 -> "WIN"
-            pnlPct <= -0.1 -> "LOSS"
+            // V5.9.729 — align with TradeJournal/TradeHistoryStore asymmetric
+            // bands. Previous ±0.1% over-corrected from the 1% scratch flood
+            // by going so narrow that every fee-drag exit (-1.9% from
+            // STALE_LIVE_PRICE_RUG_ESCAPE, -0.2% from CASHGEN flat closes,
+            // -0.5% from BLUECHIP_STOP_LOSS hair-trigger) was bucketed as a
+            // real loss. Operator screenshot: 30-Day Proof Run showing
+            // W/L/S = 2 / 20 / 0 — zero scratches across 22 trades is
+            // impossible for a paper bot running through volatile memes.
+            //
+            // Asymmetric bands matching every other classifier in the codebase:
+            //   WIN     >= +0.5%   (meaningful gain after fees + slippage)
+            //   LOSS    <= -2.0%   (meaningful drawdown beyond round-trip cost)
+            //   SCRATCH everything in between
+            pnlPct >= 0.5 -> "WIN"
+            pnlPct <= -2.0 -> "LOSS"
             else -> "SCRATCH"
         }
     }

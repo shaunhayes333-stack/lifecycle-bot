@@ -151,10 +151,16 @@ object KillSwitch {
         tradesThisHour++
         
         // Track consecutive losses
-        if (pnlPct < 0) {
-            consecutiveLosses++
-        } else {
-            consecutiveLosses = 0
+        // V5.9.729 — asymmetric scratch band: only real losses count.
+        // Fee-drag scratches (-2% < pnl < +0.5%) don't bump the streak,
+        // wins reset it to zero. Previously every -0.04 SOL stale-price
+        // rug-escape was incrementing the "20 consec losses" badge,
+        // freaking the operator out and (more importantly) tripping
+        // the consec-loss kill switch on what was actually fee noise.
+        when {
+            pnlPct <= -2.0 -> consecutiveLosses++
+            pnlPct >= 0.5  -> consecutiveLosses = 0
+            else           -> { /* scratch — streak unchanged */ }
         }
         
         // Reset daily if new day
