@@ -1145,13 +1145,24 @@ object FinalDecisionGate {
         // ShitCoin (V5.9.615) gates at $300 liq. Moonshot gates at $2000 (bootstrap).
         // FDG double-gating at $4480 above their own floors makes the whole system sterile.
         //
-        // Fix: SHITCOIN and MOONSHOT traders use a fixed low floor ($1500) that lets
-        // their own scorer + safety checks do the real filtering. All other traders
-        // (Treasury, Quality, BlueChip — trading proven tokens) keep the lerp floor.
+        // V5.9.722: Tighten FDG liquidity floor for meme traders.
+        // Previous $1,500 flat floor was below the ShitCoin own-scorer's $2,000 mature floor,
+        // meaning FDG never actually filtered anything above the baseline and let in
+        // pump.fun bonding-curve tokens ($2,267-$3,086 liq) with zero real exit depth.
+        //
+        // ShitCoin: lerp $2,000 (bootstrap) → $5,000 (mature, 3000+ trades).
+        //   Own scorer already gates $300→$2,000 — FDG sits ABOVE it as a quality gate.
+        //   At 0 trades: FDG = $2,000 (same as ShitCoin's own mature floor, no regression).
+        //   At 3000 trades: FDG = $5,000 (forces post-bonding-curve quality setups).
+        // Moonshot: $3,000 flat.
+        //   Own scorer gates $2,000 (bootstrap) / $15,000 (mature).
+        //   FDG at $3,000 adds a middle-tier quality bar without sterility.
         val EXECUTION_FLOOR = when (tradingModeTag) {
-            ModeSpecificGates.TradingModeTag.SHITCOIN,
-            ModeSpecificGates.TradingModeTag.MOONSHOT -> 1_500.0  // Fixed — own scorer handles real gating
-            else -> FluidLearningAI.getExecutionFloor()           // Lerp floor for proven-token traders
+            ModeSpecificGates.TradingModeTag.SHITCOIN ->
+                lerp(2_000.0, 5_000.0, learningProgress)   // above own scorer; tightens with maturity
+            ModeSpecificGates.TradingModeTag.MOONSHOT ->
+                3_000.0                                      // own scorer already gates $2k/$15k; add middle bar
+            else -> FluidLearningAI.getExecutionFloor()     // Lerp floor for proven-token traders
         }
 
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
