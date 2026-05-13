@@ -177,7 +177,7 @@ class UnifiedScorer(
                 // anti-correlated, not just "everything is losing right now."
                 val systemWr = try {
                     val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-                    if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 0.0
+                    if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 0.0
                 } catch (_: Throwable) { 0.0 }
                 val anticorrelated = systemWr >= 0.30 &&
                     maturity.trades >= 30 &&

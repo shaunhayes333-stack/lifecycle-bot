@@ -875,7 +875,7 @@ object FinalDecisionGate {
         // the WR problem worse (less volume = slower learning recovery).
         val systemWrForBypass = try {
             val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-            if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 1.0
+            if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 1.0
         } catch (_: Throwable) { 1.0 }
         val lowWrBypass = systemWrForBypass < 0.30
 

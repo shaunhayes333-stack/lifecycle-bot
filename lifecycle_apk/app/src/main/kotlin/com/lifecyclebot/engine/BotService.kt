@@ -2267,7 +2267,7 @@ class BotService : Service() {
             // giving the bot a clean tilt slate so it can trade its way out of the hole.
             try {
                 val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-                val systemWr = if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 1.0
+                val systemWr = if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 1.0
                 if (systemWr < 0.30 && ls.totalSells >= 50) {  // Only fire if we have real data
                     com.lifecyclebot.v3.scoring.BehaviorAI.softStreakReset()
                     // V5.9.721: Also clear contaminated layer expectancy so the polarity-flip gate
