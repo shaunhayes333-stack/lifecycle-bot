@@ -34,6 +34,7 @@ import com.lifecyclebot.engine.WalletManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.conflate
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -735,8 +736,24 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // V5.9.731 — UI THROTTLE.
+            // Operator dump showed 86.8% main-thread stall with
+            // renderOpenPositions / buildTokenCard / renderWatchlist as the
+            // top blockers — each emission of vm.ui fires a synchronous
+            // re-render of every position card and watchlist row, and the
+            // ViewModel was emitting faster than the UI could paint.
+            // Coalesce emissions with a 500ms throttle so we render at most
+            // 2 frames per second, which is still 2x the operator's "ticks
+            // every second" requirement and gives the main thread room to
+            // breathe. Always render the latest state (conflate), never
+            // queue stale emissions.
             lifecycleScope.launch {
-                vm.ui.collect { state -> updateUi(state) }
+                vm.ui
+                    .conflate()
+                    .collect { state ->
+                        updateUi(state)
+                        kotlinx.coroutines.delay(500)
+                    }
             }
             
             com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate completed successfully")

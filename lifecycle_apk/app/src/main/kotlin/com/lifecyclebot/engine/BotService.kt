@@ -2226,10 +2226,31 @@ class BotService : Service() {
                 // starting balance — live wallet balance (often near-empty) must not leak in.
                 // Also clear live-session reentry lockouts and edge vetoes so they don't
                 // throttle paper trades on restart.
+                // V5.9.731 — PAPER WALLET SANITY CEILING.
+                // Operator dump showed paperWalletSol compounded to ~230k SOL
+                // ($46M) due to oversized trades feeding fantasy PnL back into
+                // the sizer. Even with the new SmartSizer caps in place, any
+                // session that already inflated the balance will keep sizing
+                // off that inflated number until reset. So: on every boot,
+                // if the persisted balance exceeds 100x the starting balance
+                // it's pathological — snap it back to a sane 10x cap. Below
+                // 100x is treated as legitimate growth and preserved.
+                val SANITY_CEILING_MULT = 100.0
+                val sanityCeiling = cfg.paperSimulatedBalance * SANITY_CEILING_MULT
+                val sanityResetTarget = cfg.paperSimulatedBalance * 10.0  // 10x = realistic "good run" cap
                 if (modeChangedLiveToPaper || savedBalance < 0.01) {
                     status.paperWalletSol = cfg.paperSimulatedBalance
                     addLog("🔄 ${if (modeChangedLiveToPaper) "LIVE→PAPER switch" else "Fresh start"}: paper wallet reset to ${cfg.paperSimulatedBalance} SOL")
                     botPrefs.edit().putFloat("paper_wallet_sol", cfg.paperSimulatedBalance.toFloat()).apply()
+                } else if (savedBalance > sanityCeiling) {
+                    ErrorLogger.warn("BotService",
+                        "🚨 PAPER_SANITY_RESET: persisted=${savedBalance.fmt(2)} SOL > ${sanityCeiling.fmt(0)} SOL ceiling " +
+                        "(${(savedBalance/cfg.paperSimulatedBalance).toInt()}x starting). Sizer fantasy-feedback loop detected. " +
+                        "Snapping to ${sanityResetTarget.fmt(2)} SOL to break the loop.")
+                    status.paperWalletSol = sanityResetTarget
+                    addLog("🚨 Paper sanity reset: ${savedBalance.fmt(0)} SOL → ${sanityResetTarget.fmt(2)} SOL (inflated feedback loop broken)")
+                    botPrefs.edit().putFloat("paper_wallet_sol", sanityResetTarget.toFloat()).apply()
+                    try { FluidLearning.reset(sanityResetTarget) } catch (_: Throwable) {}
                 } else {
                     status.paperWalletSol = savedBalance
                     addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")

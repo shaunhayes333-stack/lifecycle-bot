@@ -523,6 +523,57 @@ object SmartSizer {
             }
         }
 
+        // V5.9.731 — ABSOLUTE SOL CAP + MCAP-RELATIVE CAP (paper-safe).
+        // Operator dump showed paper balance had compounded to $46M with 50k
+        // SOL trades on $3.4k-mcap tokens — impossible in reality, and the
+        // resulting fantasy PnL fed back into the sizer, exponentially
+        // inflating the next trade. Three new caps, applied BEFORE the
+        // existing 20%-of-tradeable cap:
+        //
+        //   1. Absolute paper hard ceiling — never size a single paper buy
+        //      above 5 SOL (~$1k) regardless of "balance". Paper exists to
+        //      simulate reality. A position bigger than a normal user's
+        //      total wallet teaches the bot nothing useful.
+        //   2. Paper mcap-relative cap — never deploy more than 3% of the
+        //      token's market cap into one position. Buying $5M of a $3k
+        //      pool is a buy-side rug on yourself.
+        //   3. Liquidity-relative cap (paper) — same 4% ownership cap that
+        //      live mode applies, mirrored into paper so the learner sees
+        //      realistic slippage limits. Previously paper skipped this.
+        //
+        // Live mode kept untouched — its existing cascade already enforces
+        // ownership caps, rent reserve, wallet checks, etc.
+        if (isPaperMode) {
+            val PAPER_ABS_CAP_SOL = 5.0
+            if (size > PAPER_ABS_CAP_SOL) {
+                ErrorLogger.warn("SmartSizer",
+                    "📏 PAPER_ABS_CAP: size=${size.fmt(3)} → ${PAPER_ABS_CAP_SOL} SOL " +
+                    "(tradeable=${tradeable.fmt(2)} appears inflated — capping to learning-safe ceiling)")
+                size = PAPER_ABS_CAP_SOL
+                cappedBy = "paper_abs_5sol"
+            }
+            if (mcapUsd > 0.0 && solPriceUsd > 0.0) {
+                val maxMcapSol = (mcapUsd * 0.03) / solPriceUsd
+                if (size > maxMcapSol) {
+                    ErrorLogger.info("SmartSizer",
+                        "📏 PAPER_MCAP_CAP: size=${size.fmt(3)} → ${maxMcapSol.fmt(3)} SOL " +
+                        "(3% of mcap=$${mcapUsd.toInt()})")
+                    size = maxMcapSol
+                    cappedBy = "paper_mcap_3pct"
+                }
+            }
+            if (liquidityUsd > 0.0 && solPriceUsd > 0.0) {
+                val maxLiqSol = (liquidityUsd * 0.04) / solPriceUsd
+                if (size > maxLiqSol) {
+                    ErrorLogger.info("SmartSizer",
+                        "📏 PAPER_LIQ_CAP: size=${size.fmt(3)} → ${maxLiqSol.fmt(3)} SOL " +
+                        "(4% of liq=$${liquidityUsd.toInt()})")
+                    size = maxLiqSol
+                    cappedBy = "paper_liq_4pct"
+                }
+            }
+        }
+
         // Max per-trade: 20% of tradeable (same for paper and live)
         val maxPerTrade = tradeable * 0.20
         if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }
