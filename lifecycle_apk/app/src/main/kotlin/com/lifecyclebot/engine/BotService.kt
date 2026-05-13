@@ -5379,6 +5379,129 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STOPPED")
     }
 
+    /**
+     * V5.9.730 — OPEN-POSITION 1Hz PRICE TICK LOOP.
+     *
+     * Operator demand: "live paper and live position price ticks should be
+     * every second!" Previously the only path that refreshed ts.lastPrice
+     * for an open position was the main bot loop (pollSeconds=8s default)
+     * + tryFallbackPriceData calls fired ad-hoc by the scanner. That meant
+     * a paper position could go 8+ seconds without a fresh tick, causing
+     * three operator-visible symptoms:
+     *   1. UI %PnL frozen between cycles → looked like the bot was idle
+     *   2. STALE_LIVE_PRICE_RUG_ESCAPE firing on healthy pools every time
+     *      pump.fun WS dropped or DS pair-cache went cold (90s threshold
+     *      hit easily when the scanner skipped the mint for two cycles)
+     *   3. Rapid-stop monitor (500ms) reading the same stale lastPrice
+     *      over and over → its tight cadence was wasted
+     *
+     * Architecture:
+     *   - Runs only while >=1 position is open (idle-sleep otherwise)
+     *   - Pulls all open-position mints in a single DS batch call (up to
+     *     30 mints; we never have >25 open positions in practice)
+     *   - Bypasses the 45s pair cache because the whole point is freshness
+     *   - Tick cadence 1000ms — matches operator spec, well within DS limits
+     *     (RateLimiter holds dexscreener at 1-2 req/sec which is fine since
+     *     we batch up to 30 mints per request)
+     *   - On rate-limit denial: keep lastPrice as-is, do NOT bump
+     *     lastPriceUpdate (so a true stale feed still triggers rug-escape)
+     *   - On success: update ts.lastPrice + ts.lastPriceUpdate, append a
+     *     synthetic candle so trailing-stop / pattern detectors see motion
+     */
+    private suspend fun openPositionTickLoop() {
+        ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
+        val TICK_MS = 1_000L
+        val IDLE_MS = 5_000L
+        var consecutiveEmpty = 0
+
+        while (status.running) {
+            try {
+                val openMints = synchronized(status.tokens) {
+                    status.tokens.values
+                        .filter { it.position.isOpen && it.mint.isNotBlank() }
+                        .map { it.mint }
+                }
+
+                if (openMints.isEmpty()) {
+                    kotlinx.coroutines.delay(IDLE_MS)
+                    consecutiveEmpty = 0
+                    continue
+                }
+
+                // DS batch endpoint caps at 30 mints; split if we ever exceed it
+                val chunks = openMints.chunked(30)
+                val priceMap = HashMap<String, Double>(openMints.size)
+                for (chunk in chunks) {
+                    val part = try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() }
+                    priceMap.putAll(part)
+                }
+
+                if (priceMap.isEmpty()) {
+                    // Rate-limited or DS down. Don't bump lastPriceUpdate.
+                    // After ~30s of empty results, log once for forensics.
+                    consecutiveEmpty++
+                    if (consecutiveEmpty == 30) {
+                        ErrorLogger.warn("BotService",
+                            "📡 OpenPositionTick: 30 consecutive empty batches (${openMints.size} mints) — DS rate-limited or feed-dark")
+                    }
+                    kotlinx.coroutines.delay(TICK_MS)
+                    continue
+                }
+                consecutiveEmpty = 0
+
+                val now = System.currentTimeMillis()
+                var updated = 0
+                for ((mint, priceUsd) in priceMap) {
+                    val ts = status.tokens[mint] ?: continue
+                    if (!ts.position.isOpen) continue
+                    if (priceUsd <= 0.0) continue
+                    synchronized(ts) {
+                        ts.lastPrice = priceUsd
+                        ts.lastPriceUpdate = now
+                        // Append a tick candle so trailing-stop + pattern AIs see motion.
+                        // Keep history bounded — same 300-candle cap used elsewhere.
+                        val candle = com.lifecyclebot.data.Candle(
+                            ts = now,
+                            priceUsd = priceUsd,
+                            marketCap = ts.lastMcap,
+                            volumeH1 = 0.0,
+                            volume24h = 0.0,
+                            buysH1 = 0,
+                            sellsH1 = 0,
+                            highUsd = priceUsd,
+                            lowUsd = priceUsd,
+                            openUsd = priceUsd,
+                        )
+                        synchronized(ts.history) {
+                            ts.history.addLast(candle)
+                            if (ts.history.size > 300) ts.history.removeFirst()
+                        }
+                    }
+                    updated++
+                }
+
+                // Forensic counter so the operator can verify the loop is alive.
+                // Routed through onLifecycle so it shows up in the labelled
+                // counters block of the Pipeline Health Snapshot dump as
+                // LIFECYCLE/OPEN_POS_TICK with the updated/total ratio.
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.onLifecycle(
+                        "OPEN_POS_TICK", "updated=$updated/${openMints.size}"
+                    )
+                } catch (_: Throwable) {}
+
+                kotlinx.coroutines.delay(TICK_MS)
+
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "OpenPositionTickLoop error: ${e.message}")
+                kotlinx.coroutines.delay(2_000L)
+            }
+        }
+        ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STOPPED")
+    }
+
     // V5.9.495z54c — extracted from botLoop() to fit JVM 64KB method limit.
     /**
      * V5.9.626 — CANONICAL PROTECTED MEME INTAKE.
@@ -5945,6 +6068,14 @@ class BotService : Service() {
         // START RAPID STOP-LOSS MONITOR IN PARALLEL
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             rapidStopLossMonitor()
+        }
+
+        // V5.9.730 — START OPEN-POSITION 1Hz PRICE TICK LOOP IN PARALLEL.
+        // Operator demand: paper+live positions must tick every second so
+        // UI %PnL, trailing-stop, and rug-escape see fresh prices instead of
+        // 8-second-stale snapshots from the main bot loop.
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            openPositionTickLoop()
         }
 
         // V5.9.251: PERIODIC WALLET RECONCILIATION

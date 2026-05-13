@@ -154,6 +154,52 @@ class DexscreenerApi {
         )
     }
 
+    /**
+     * V5.9.730 — Batch price fetch for open-position 1Hz tick loop.
+     *
+     * DexScreener supports comma-separated mint lists at /tokens/v1/solana/<a>,<b>,<c>
+     * with up to 30 mints per call. Returns a map of mint → priceUsd for every
+     * pair found; mints with no pair are simply absent from the map.
+     *
+     * Bypasses the 45s pair cache because the whole point of this call is a
+     * fresh tick. Respects the rate-limiter so we cannot hammer DS into a 429.
+     * If the rate-limit denies us, returns an empty map (the position monitor
+     * will just keep its existing prices for one more cycle — no rug-escape
+     * because lastPriceUpdate is not bumped on empty result).
+     *
+     * Used by BotService.openPositionTickLoop. Do NOT use this for scanner
+     * intake — that path has its own caching and scoring needs.
+     */
+    fun batchPriceFetch(mints: List<String>): Map<String, Double> {
+        if (mints.isEmpty()) return emptyMap()
+        if (!RateLimiter.allowRequest("dexscreener")) return emptyMap()
+
+        // DS hard limit: 30 mints per request. Trim defensively.
+        val take = mints.take(30).joinToString(",")
+        val url  = "https://api.dexscreener.com/tokens/v1/solana/$take"
+        val body = get(url) ?: return emptyMap()
+
+        val out = HashMap<String, Double>(mints.size)
+        try {
+            val arr = JSONArray(body)
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                val base = p.optJSONObject("baseToken") ?: continue
+                val mint = base.optString("address", "") ?: continue
+                if (mint.isBlank()) continue
+                val priceUsd = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
+                if (priceUsd <= 0.0) continue
+                // If multiple pairs returned for the same mint, keep the
+                // best-liquidity one (higher = more trustworthy mid-price).
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val existing = out[mint]
+                if (existing == null || liq > 0.0) out[mint] = priceUsd
+            }
+        } catch (_: Exception) { /* return whatever we have */ }
+
+        return out
+    }
+
     private fun get(url: String): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0").build()
