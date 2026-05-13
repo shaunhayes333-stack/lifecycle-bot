@@ -269,7 +269,13 @@ object TradingCopilot {
                 // 'meme trader has 2 positions on ffs … completely choked'.
                 // Fix: the deep-loss brake must co-occur with an active loss
                 // streak ≥3 so winning trades can release the brake.
-                lossStreak >= emergencySteakThresh || (biggestLoss <= -60.0 && lossStreak >= 3) -> TradeMood.EMERGENCY_BRAKE
+                lossStreak >= emergencySteakThresh ||
+                    // V5.9.730: Bootstrap rugs (e.g. -93% in 12s) must NOT lock
+                    // the entire system. Fast meme rugs are unfilterable at poll
+                    // cadence — don't punish with an EMERGENCY_BRAKE that needs
+                    // a 10-win streak to unwind. During bootstrap require a
+                    // deeper loss AND a longer active streak. Mature: unchanged.
+                    (biggestLoss <= (if (isBootstrap) -80.0 else -60.0) && lossStreak >= (if (isBootstrap) 10 else 3)) -> TradeMood.EMERGENCY_BRAKE
                 lossStreak >= protectStreakThresh || (wrPct < protectWrThresh && tradesObserved >= protectWrMinTrades) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL
@@ -475,6 +481,32 @@ object TradingCopilot {
 
     /** True iff Copilot wants the bot to slam the brakes on new entries. */
     fun isEmergencyBrake(): Boolean = lastDirective.mood == TradeMood.EMERGENCY_BRAKE
+
+    /**
+     * V5.9.730: Clear the rolling PnL window of stale loss entries.
+     * Called from BotService startBot when a low-WR recovery is detected.
+     * Removes all losing entries from the front of the window so the
+     * Copilot can re-evaluate without the contaminated streak data.
+     * Wins and the most recent few trades are preserved for continuity.
+     */
+    fun clearLossWindow() {
+        synchronized(recentPnlPcts) {
+            // Remove leading losses (oldest entries that are negative)
+            // Keep all wins + the most recent 5 trades regardless of sign
+            val keepFrom = (recentPnlPcts.size - 5).coerceAtLeast(0)
+            var i = 0
+            while (i < recentPnlPcts.size && i < keepFrom) {
+                if (recentPnlPcts[i] < 0.0) {
+                    recentPnlPcts.removeAt(i)
+                    // don't increment i — next element slides into this slot
+                } else {
+                    i++
+                }
+            }
+        }
+        com.lifecyclebot.engine.ErrorLogger.warn("TradingCopilot",
+            "V5.9.730 LOSS_WINDOW_CLEAR: stale loss entries removed from rolling window")
+    }
 
     /** True iff Copilot wants the bot to press its edge harder. */
     fun isAggressiveHunt(): Boolean = lastDirective.mood == TradeMood.AGGRESSIVE_HUNT

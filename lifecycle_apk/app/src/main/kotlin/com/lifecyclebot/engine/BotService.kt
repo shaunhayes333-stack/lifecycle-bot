@@ -2270,16 +2270,34 @@ class BotService : Service() {
                 val systemWr = if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 1.0
                 if (systemWr < 0.30 && ls.totalSells >= 50) {  // Only fire if we have real data
                     com.lifecyclebot.v3.scoring.BehaviorAI.softStreakReset()
+                    // V5.9.730: Force-persist the cleared streak so it survives restart.
+                    // Without this, restore() reloads the old loss count from SharedPrefs
+                    // on the very next app launch, re-triggering EMERGENCY_BRAKE.
+                    try {
+                        com.lifecyclebot.v3.scoring.BehaviorAI.save(force = true)
+                        addLog("🔄 V5.9.730: BehaviorAI streak persisted — won't restore on restart")
+                    } catch (e2: Exception) {
+                        ErrorLogger.debug("BotService", "BehaviorAI.save non-fatal: ${e2.message}")
+                    }
+                    // V5.9.730: Also clear Copilot's rolling PnL window so the live
+                    // streak counter resets — BehaviorAI and Copilot use separate streak
+                    // counters; softStreakReset only fixes BehaviorAI.
+                    try {
+                        com.lifecyclebot.engine.TradingCopilot.clearLossWindow()
+                        addLog("🔄 V5.9.730: Copilot loss window cleared — live streak brake released")
+                    } catch (e3: Exception) {
+                        ErrorLogger.debug("BotService", "clearLossWindow non-fatal: ${e3.message}")
+                    }
                     // V5.9.721: Also clear contaminated layer expectancy so the polarity-flip gate
                     // doesn't re-engage immediately on WR recovery using stale loss-run data.
                     try {
                         com.lifecyclebot.v3.scoring.EducationSubLayerAI.resetExpectancy()
                         addLog("🔄 V5.9.721: Layer expectancy cleared (WR=${(systemWr*100).toInt()}%) — polarity flip slate reset")
-                    } catch (e2: Exception) {
-                        ErrorLogger.debug("BotService", "resetExpectancy non-fatal: ${e2.message}")
+                    } catch (e4: Exception) {
+                        ErrorLogger.debug("BotService", "resetExpectancy non-fatal: ${e4.message}")
                     }
-                    addLog("🔄 V5.9.721: Low-WR streak reset (WR=${(systemWr*100).toInt()}%) — Copilot brake released")
-                    ErrorLogger.warn("BotService", "V5.9.721 LOW_WR_STREAK_RESET: WR=${(systemWr*100).toInt()}% trades=${ls.totalSells} — BehaviorAI softStreakReset + resetExpectancy called")
+                    addLog("🔄 V5.9.730: Full brake release (WR=${(systemWr*100).toInt()}%) — BehaviorAI + Copilot window + expectancy cleared")
+                    ErrorLogger.warn("BotService", "V5.9.730 FULL_BRAKE_RELEASE: WR=${(systemWr*100).toInt()}% trades=${ls.totalSells} — all streak counters cleared + persisted")
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug("BotService", "Low-WR streak reset check failed (non-fatal): ${e.message}")

@@ -475,6 +475,9 @@ class MainActivity : AppCompatActivity() {
     private var lastDecisionLogHash: Int = -1
     private var lastTradesRenderHash: Int = -1
     private var lastWatchlistRenderHash: Int = -1
+    private var lastTreasuryRenderMs: Long = 0L   // V5.9.730 ANR debounce
+    private var lastTreasuryMints: String = ""      // V5.9.730 dirty-check
+    private var lastCryptoAltsRenderMs: Long = 0L  // V5.9.730 ANR debounce
     private var lastBlueChipHash: Int = -1
     private var lastQualityHash: Int = -1
 
@@ -2499,9 +2502,18 @@ for legal compliance.
                 // rows showed open unrealized → parent and children disagreed
                 // (e.g. header -0.1700◎ while all 3 rows said +0.0000◎). Now we
                 // sum the children's unrealized PnL during render and use that.
-                val treasuryUnrealized = renderTreasuryPositions(treasuryPositions)
-                tvTreasuryPnl.text = "%+.4f◎".format(treasuryUnrealized)
-                tvTreasuryPnl.setTextColor(if (treasuryUnrealized >= 0) green else red)
+                // V5.9.730 ANR FIX: Treasury render is the #1 main-thread stall
+                // (renderTreasuryPositions appears in >15% of ANR samples, stall=74%).
+                // It does removeAllViews + full view inflation per position on every
+                // 2500ms UI tick. Debounce to 6s max — Treasury positions are long-hold
+                // so 6s visual lag is imperceptible while halving main-thread pressure.
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastTreasuryRenderMs >= 6_000L) {
+                    lastTreasuryRenderMs = nowMs
+                    val treasuryUnrealized = renderTreasuryPositions(treasuryPositions)
+                    tvTreasuryPnl.text = "%+.4f◎".format(treasuryUnrealized)
+                    tvTreasuryPnl.setTextColor(if (treasuryUnrealized >= 0) green else red)
+                }
             }
         } catch (_: Exception) {}
         
@@ -3512,8 +3524,15 @@ for legal compliance.
     
     // V4.0: Render Treasury Mode positions
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
-        llTreasuryPositions.removeAllViews()
+        // V5.9.730 ANR FIX: skip full re-inflate if position list is unchanged.
+        // Computing PnL still happens (cheap) but view inflation (expensive) is skipped.
+        val mintKey = positions.joinToString(",") { "${it.mint}:${it.entrySol}" }
+        val samePositions = mintKey == lastTreasuryMints
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        if (!samePositions) {
+            lastTreasuryMints = mintKey
+            llTreasuryPositions.removeAllViews()
+        }
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         // V5.9.420 — accumulate children unrealized PnL so the card header
         // matches the visible rows below (was showing daily realized PnL).
@@ -3645,7 +3664,7 @@ for legal compliance.
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
                 setBackgroundColor(0xFF1F2937.toInt())
             }
-            llTreasuryPositions.addView(row)
+            if (!samePositions) llTreasuryPositions.addView(row)  // V5.9.730 dirty-skip
             llTreasuryPositions.addView(div)
         }
         return childrenUnrealizedSum
@@ -9081,6 +9100,10 @@ Trading outside hours may have wider spreads.
     // V1.0: CRYPTO ALTS CARD — mirrors updateTokenizedStocksCard pattern
     // ═══════════════════════════════════════════════════════════════════════
     private fun updateCryptoAltsCard() {
+        // V5.9.730 ANR FIX: 3s debounce — appeared in 4% of ANR stack samples.
+        val nowCa = System.currentTimeMillis()
+        if (nowCa - lastCryptoAltsRenderMs < 3_000L) return
+        lastCryptoAltsRenderMs = nowCa
         try {
             val altTrader = com.lifecyclebot.perps.CryptoAltTrader
             if (!altTrader.isRunning()) {
