@@ -28,7 +28,7 @@ object TimeOptimizationAI {
     private const val WIN_THRESHOLD_PCT = 0.5
     private const val LOSS_THRESHOLD_PCT = -2.0
 
-    private const val MIN_TRADES_FOR_CONFIDENCE = 10
+    private const val MIN_TRADES_FOR_CONFIDENCE = 15  // V5.9.721: raised from 10; more reliable slot stats
 
     private const val GOLDEN_WIN_RATE = 55.0
     private const val GOLDEN_AVG_PNL = 15.0
@@ -194,8 +194,15 @@ object TimeOptimizationAI {
             winRate >= GOLDEN_WIN_RATE &&
             avgPnl >= GOLDEN_AVG_PNL
 
+        // V5.9.721-FIX: isDanger previously used OR — meaning a slot was flagged
+        // DANGER if EITHER WR < 40% OR avgPnl < -10%. At 22% system WR, the WR
+        // condition fired for every hour slot with >= 10 trades, self-poisoning the
+        // time-AI and hard-blocking 14 entries per session. Changed to AND: both
+        // conditions must hold simultaneously. Low WR with neutral/positive avgPnl
+        // is normal learning variance, not a danger signal worth blocking.
+        // Also raised MIN_TRADES_FOR_CONFIDENCE to 15 (was 10) for more reliable stats.
         val isDanger = hasEnoughData &&
-            (winRate <= DANGER_WIN_RATE || avgPnl <= DANGER_AVG_PNL)
+            winRate <= DANGER_WIN_RATE && avgPnl <= DANGER_AVG_PNL
 
         val adjustment = when {
             !hasEnoughData -> 0.0

@@ -1628,12 +1628,23 @@ object FinalDecisionGate {
             }
         }
 
+        // V5.9.721-FIX: DANGER_ZONE penalty-only extended through LEARNING phase.
+        // isBootstrapPhase = progress < 0.25 — this is too narrow. At progress=0.47
+        // (1780 trades, 22% WR) the bot is well inside LEARNING phase but past bootstrap,
+        // so DANGER_ZONE_TIME was hard-blocking instead of penalising. With a self-poisoning
+        // loop (22% WR → every hour flagged danger → no entries → slower learning recovery),
+        // the hard block is counterproductive. Extend penalty-only behavior until
+        // expert phase (>3000 settled trades AND progress >= 0.60) so the bot can
+        // still enter, at reduced size, during hours the time-AI thinks are bad —
+        // letting it either disprove the heuristic or learn to avoid them naturally.
+        val isEarlyLearningPhase = isBootstrapPhase || learningProgress < 0.60 || totalTradesForBypass < 3000
+
         var dangerZonePenalty = 0
         if (blockReason == null) {
             try {
                 val isDanger = TimeOptimizationAI.isDangerZone()
                 if (isDanger) {
-                    if (isBootstrapPhase) {
+                    if (isEarlyLearningPhase) {
                         // V5.6.9 FIX: Increased DANGER ZONE penalty during bootstrap
                         // Old value (5 pts) was too weak — bot was still making bad trades
                         // during historically losing time periods.

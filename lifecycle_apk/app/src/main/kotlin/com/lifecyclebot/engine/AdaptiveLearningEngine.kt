@@ -26,7 +26,7 @@ object AdaptiveLearningEngine {
 
     // V5.9.301: Lowered from 50 → 25 so patterns get extracted earlier in bootstrap.
     private const val MIN_TRADES_FOR_PATTERN_EXTRACTION = 25
-    private const val PATTERN_RETRAIN_INTERVAL = 25
+    private const val PATTERN_RETRAIN_INTERVAL = 15  // V5.9.721: reduced from 25 — faster pattern adaptation during WR recovery
 
     private var prefs: SharedPreferences? = null
 
@@ -599,11 +599,18 @@ object AdaptiveLearningEngine {
         if (featureBuffer.size >= MIN_TRADES_FOR_PATTERN_EXTRACTION &&
             tradeCount % PATTERN_RETRAIN_INTERVAL == 0
         ) {
+            // V5.9.721-FIX: Use most-recent 150 trades for pattern extraction (not full 300).
+            // During a loss streak, the full 300-trade buffer is dominated by BAD labels —
+            // extracting patterns from it produces near-zero goodPatterns, biasing
+            // future scoring against every candidate. The most recent 150 trades represent
+            // the current market regime and minimise stale-streak contamination.
+            // If buffer < 150 trades, use the full buffer (normal behavior during ramp-up).
+            val extractWindow = if (featureBuffer.size > 150) featureBuffer.takeLast(150) else featureBuffer.toList()
             ErrorLogger.info(
                 "AdaptiveLearning",
-                "🧠 Auto-extracting patterns from ${featureBuffer.size} buffered trades (retrain #${tradeCount / PATTERN_RETRAIN_INTERVAL})"
+                "🧠 Auto-extracting patterns from ${extractWindow.size}/${featureBuffer.size} buffered trades (retrain #${tradeCount / PATTERN_RETRAIN_INTERVAL}, recency-window)"
             )
-            extractPatterns(featureBuffer.toList())
+            extractPatterns(extractWindow)
         }
 
         saveState()
