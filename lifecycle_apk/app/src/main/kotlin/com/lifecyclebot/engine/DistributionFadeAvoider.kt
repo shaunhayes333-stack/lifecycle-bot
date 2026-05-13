@@ -35,6 +35,7 @@ object DistributionFadeAvoider {
         var lastHit: Long = System.currentTimeMillis(),
         var lastBuyRatio: Double = 0.5,
         var peakPrice: Double = 0.0,
+        var peakLiquidity: Double = 0.0,  // V5.9.725 — track peak liq for relative drain detection
         var stopLossTime: Long = 0L,
     )
     
@@ -168,12 +169,34 @@ object DistributionFadeAvoider {
         
         // ─────────────────────────────────────────────────────────────────
         // CHECK 5: Liquidity draining during bounce attempt
+        // V5.9.725 — was: absolute floor of < $3000, which fired on EVERY
+        // fresh pump.fun bonding-curve token (they start at ~$2200-2700 liq).
+        // The log was full of `BOUNCE_ON_DRAINING_LIQ: $2207` spam, vetoing
+        // legit fresh launches in their first cycle.
+        // Now: relative drop from observed peak liq, AND a minimum absolute
+        // floor so we still catch genuinely tiny-and-dying pools. We also
+        // require multiple hits + observation time, not just hitCount>0.
         // ─────────────────────────────────────────────────────────────────
         val currentLiq = ts.lastLiquidityUsd
-        if (tracker.hitCount > 0 && currentLiq < 3000) {
+        if (currentLiq > tracker.peakLiquidity) {
+            tracker.peakLiquidity = currentLiq
+        }
+        val liqDropPct = if (tracker.peakLiquidity > 0)
+            ((tracker.peakLiquidity - currentLiq) / tracker.peakLiquidity) * 100.0
+        else 0.0
+        val ageMs = now - tracker.firstSeen
+        val ABSOLUTE_DEAD_FLOOR = 800.0   // truly dead-pool floor (was 3000 → blanket-blocked fresh tokens)
+        val DRAIN_PCT_THRESHOLD = 40.0    // ≥40% drop from peak observed liq = real drain
+        val MIN_AGE_MS = 60_000L          // need 60s of observation before we can call it draining
+        val MIN_HITS_FOR_DRAIN_VETO = 2   // single hit no longer enough — that was the spam source
+        val genuinelyDraining = liqDropPct >= DRAIN_PCT_THRESHOLD && ageMs >= MIN_AGE_MS
+        val tinyDeadPool = currentLiq < ABSOLUTE_DEAD_FLOOR
+        if (tracker.hitCount >= MIN_HITS_FOR_DRAIN_VETO && (genuinelyDraining || tinyDeadPool)) {
+            val why = if (tinyDeadPool) "tinyPool=\$${currentLiq.toInt()}"
+                      else "drop=${liqDropPct.toInt()}%(peak=\$${tracker.peakLiquidity.toInt()}→now=\$${currentLiq.toInt()})"
             return FadeResult(
                 shouldBlock = true,
-                reason = "BOUNCE_ON_DRAINING_LIQ: $${currentLiq.toInt()}",
+                reason = "BOUNCE_ON_DRAINING_LIQ: $why",
                 scoreMultiplier = 0.0,
                 cooldownRemainingMs = 120_000L,
             )
