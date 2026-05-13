@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -118,14 +120,25 @@ class ErrorLogActivity : AppCompatActivity() {
     }
 
     private fun loadLogs() {
-        val logs = ErrorLogger.getRecentLogs(200, currentFilter)
-        adapter.updateLogs(logs)
-        
-        val stats = ErrorLogger.getStats()
-        statsText.text = "Total: ${stats["total"]} | Errors: ${stats["errors"]} | Crashes: ${stats["crashes"]} | Session: ${stats["sessionId"]}"
-        
-        emptyText.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
-        recyclerView.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
+        // V5.9.724 — was synchronous SQLite cursor on main thread (43% uptime stall in V5.9.722 dump).
+        // Now: query runs on a background thread; results posted back to the UI thread.
+        statsText.text = "Loading…"
+        Thread {
+            val logs = try {
+                ErrorLogger.getRecentLogs(200, currentFilter)
+            } catch (t: Throwable) {
+                android.util.Log.e("ErrorLogActivity", "loadLogs failed: ${t.message}")
+                emptyList()
+            }
+            val stats = try { ErrorLogger.getStats() } catch (_: Throwable) { emptyMap<String, Any>() }
+            Handler(Looper.getMainLooper()).post {
+                if (isFinishing || isDestroyed) return@post
+                adapter.updateLogs(logs)
+                statsText.text = "Total: ${stats["total"]} | Errors: ${stats["errors"]} | Crashes: ${stats["crashes"]} | Session: ${stats["sessionId"]}"
+                emptyText.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
+                recyclerView.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
+            }
+        }.start()
     }
 
     private fun showLogDetail(log: ErrorLogger.LogEntry) {
