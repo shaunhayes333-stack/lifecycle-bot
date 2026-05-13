@@ -1159,7 +1159,13 @@ object FinalDecisionGate {
         //   FDG at $3,000 adds a middle-tier quality bar without sterility.
         val EXECUTION_FLOOR = when (tradingModeTag) {
             ModeSpecificGates.TradingModeTag.SHITCOIN ->
-                lerp(2_000.0, 5_000.0, learningProgress)   // above own scorer; tightens with maturity
+                // V5.9.727 — was lerp(2000,5000). At ~24% progress (1206/5000)
+                // that put the floor at $2720, blocking the entire $2100-2700
+                // fresh pump.fun protected-intake stream — operator dump
+                // showed Officer/¥1/DADDYTROLL all bouncing here. Tighter
+                // lerp keeps the rug-defence intent but lets the learning-band
+                // intake actually take samples.
+                lerp(1_500.0, 4_000.0, learningProgress)
             ModeSpecificGates.TradingModeTag.MOONSHOT ->
                 3_000.0                                      // own scorer already gates $2k/$15k; add middle bar
             else -> FluidLearningAI.getExecutionFloor()     // Lerp floor for proven-token traders

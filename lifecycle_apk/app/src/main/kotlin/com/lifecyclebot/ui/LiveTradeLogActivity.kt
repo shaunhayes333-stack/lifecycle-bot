@@ -46,8 +46,8 @@ class LiveTradeLogActivity : Activity() {
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (refreshing) {
-                renderTimeline()
-                handler.postDelayed(this, 2_000L)
+                renderTimelineAsync()
+                handler.postDelayed(this, 5_000L)  // V5.9.727 — was 2s, raised to 5s
             }
         }
     }
@@ -150,9 +150,20 @@ class LiveTradeLogActivity : Activity() {
         handler.removeCallbacks(refreshRunnable)
     }
 
-    private fun renderTimeline() {
-        val groups = LiveTradeLogStore.groupedByTrade()
+    // V5.9.727 — async wrapper: query off main thread, render on main thread.
+    private fun renderTimelineAsync() {
+        Thread {
+            val groups = try { LiveTradeLogStore.groupedByTrade() } catch (_: Throwable) { emptyList() }
+            handler.post {
+                if (isFinishing || isDestroyed) return@post
+                renderTimelineWithGroups(groups)
+            }
+        }.start()
+    }
 
+    private fun renderTimeline() = renderTimelineAsync()
+
+    private fun renderTimelineWithGroups(groups: List<LiveTradeLogStore.Group>) {
         val now = System.currentTimeMillis()
         val live = groups.count { it.isAlive() }
         val total = groups.size
