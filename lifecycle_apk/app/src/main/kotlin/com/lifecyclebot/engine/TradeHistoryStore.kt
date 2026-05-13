@@ -50,14 +50,29 @@ object TradeHistoryStore {
     // V5.9.408: bumped whenever win/loss thresholds change so legacy persisted
     // counters get back-filled from the raw SELL rows instead of shown stale.
     private const val KEY_THRESHOLD_VER   = "threshold_version"
-    private const val CURRENT_THRESHOLD_VER = 408
+    private const val CURRENT_THRESHOLD_VER = 728  // V5.9.728 — asymmetric scratch band
 
-    // V5.9.408 — restored pre-V5.9.218 semantics. The "unified 1% threshold"
-    // was silently converting every scratch (0-1% PnL) into a loss on the UI,
-    // which is what produced the 13% displayed WR after ~1000 trades. Any
-    // strictly positive PnL is a win; any strictly negative is a loss.
-    private const val WIN_THRESHOLD_PCT   = 0.0
-    private const val LOSS_THRESHOLD_PCT  = 0.0
+    // V5.9.728 — align lifetime stats thresholds with TradeJournal so scratches
+    // don't poison the displayed WR.
+    //
+    // Previously WIN=>0.0 / LOSS=<0.0 meant any fractionally negative trade
+    // (e.g. -0.04 SOL from a -1.7% STALE_LIVE_PRICE_RUG_ESCAPE, or a
+    // -0.0% CASHGEN_STOP_LOSS that rounds to zero) was bucketed as a full
+    // loss. Operator's journal rows clearly tag those as SCRATCH, but the
+    // 30-day Proof Run + Live Readiness panel pull from THIS store and were
+    // showing W/L/S = 29 / 173 / 0 — i.e. every scratch counted as a loss.
+    //
+    // Asymmetric bands match TradeJournal.kt (the row classifier):
+    //   WIN     >= +0.5%   (meaningful gain after fees + slippage)
+    //   LOSS    <= -2.0%   (meaningful drawdown beyond round-trip cost)
+    //   SCRATCH anything in between (fee-drag noise, ignored in WR math)
+    //
+    // The pre-V5.9.218 'unified 1% threshold' bug was symmetric: any small
+    // win got swallowed too. This asymmetric band fixes the original
+    // operator complaint while also matching every other classifier in the
+    // codebase (Executor, BehaviorLearning, RunTracker30D, PatternClassifier).
+    private const val WIN_THRESHOLD_PCT   = 0.5
+    private const val LOSS_THRESHOLD_PCT  = -2.0
 
     // In-memory cache — loaded once at init, mutated synchronously under `lock`
     private val lock   = Any()
@@ -804,8 +819,8 @@ object TradeHistoryStore {
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private fun isWin(trade: Trade): Boolean  = trade.pnlPct > WIN_THRESHOLD_PCT
-    private fun isLoss(trade: Trade): Boolean = trade.pnlPct < LOSS_THRESHOLD_PCT
+    private fun isWin(trade: Trade): Boolean  = trade.pnlPct >= WIN_THRESHOLD_PCT
+    private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT
 
     private fun midnightTs(): Long {
         val cal = java.util.Calendar.getInstance()
