@@ -170,7 +170,7 @@ class BotService : Service() {
         // When a strategy is provably bleeding, freeze it for 10 min so
         // newer (less-poisoned) strategies get the trade flow.
         // ═══════════════════════════════════════════════════════════════
-        const val STRATEGY_DISTRUST_PAUSE_MS = 10L * 60_000L  // 10 minutes
+        const val STRATEGY_DISTRUST_PAUSE_MS = 2L * 60_000L  // V5.9.726 — was 10min, dropped to 2min: 10min lockouts on the only-active SHITCOIN lane were starving the executor (5132 LANE_EVAL, 0 EXEC_BUY in V5.9.725 dump)
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {

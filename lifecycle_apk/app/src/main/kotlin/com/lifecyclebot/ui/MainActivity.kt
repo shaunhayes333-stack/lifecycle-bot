@@ -2989,7 +2989,7 @@ for legal compliance.
         val activeMintWl = state.config.activeToken
         val structuralChange = openCountWl != lastWatchlistOpenCount ||
             activeMintWl != lastWatchlistActiveMint
-        val timeElapsed = (nowWl - lastWatchlistRenderMs) >= 6_000L
+        val timeElapsed = (nowWl - lastWatchlistRenderMs) >= 12_000L  // V5.9.726 — was 6s, doubled to halve buildTokenCard burden
         if (structuralChange || timeElapsed || lastWatchlistRenderMs == 0L) {
             renderWatchlist(state)
             lastWatchlistRenderMs = nowWl
@@ -4358,7 +4358,7 @@ for legal compliance.
     private fun renderNetworkSignals() {
         // V5.9.709 — network signal panel doesn't change faster than 3s; skip if too soon
         val now = System.currentTimeMillis()
-        if (now - lastNetworkSigRenderMs < 3_000L) return
+        if (now - lastNetworkSigRenderMs < 8_000L) return  // V5.9.726 — was 3s, raised to 8s
         lastNetworkSigRenderMs = now
         try {
             val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
