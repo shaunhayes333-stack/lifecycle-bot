@@ -196,6 +196,14 @@ object TradingCopilot {
             val winStreak = if (streakSign == 1) streakLen else 0
             val biggestLoss = window.minOrNull() ?: 0.0
             val biggestWin = window.maxOrNull() ?: 0.0
+            // V5.9.723 — for the deep-loss emergency-brake arm, only look at
+            // losses within the CURRENT active streak, not the full 30-trade window.
+            // A -97% rug from 25 trades ago should not combine with a fresh
+            // 10-loss streak to lock the entire system. The emergencySteak
+            // threshold already guards pure-streak braking independently.
+            val streakWindowLoss = if (lossStreak > 0) {
+                window.takeLast(lossStreak).minOrNull() ?: 0.0
+            } else 0.0
 
             // ─── 2. LAYER LEARNING HEALTH ─────────────────────────────────
             val maturity = try { EducationSubLayerAI.getAllLayerMaturity().values } catch (_: Exception) { emptyList() }
@@ -275,7 +283,7 @@ object TradingCopilot {
                     // cadence — don't punish with an EMERGENCY_BRAKE that needs
                     // a 10-win streak to unwind. During bootstrap require a
                     // deeper loss AND a longer active streak. Mature: unchanged.
-                    (biggestLoss <= (if (isBootstrap) -80.0 else -60.0) && lossStreak >= (if (isBootstrap) 10 else 3)) -> TradeMood.EMERGENCY_BRAKE
+                    (streakWindowLoss <= (if (isBootstrap) -80.0 else -60.0) && lossStreak >= (if (isBootstrap) 10 else 3)) -> TradeMood.EMERGENCY_BRAKE
                 lossStreak >= protectStreakThresh || (wrPct < protectWrThresh && tradesObserved >= protectWrMinTrades) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL
@@ -330,8 +338,10 @@ object TradingCopilot {
             }
 
             // ─── 9. HUMAN-READABLE ADVICE ─────────────────────────────────
+            // V5.9.723: show streak-window worst loss in emergency message (more accurate than full-window)
+            val bigLossForAdvice = if (mood == TradeMood.EMERGENCY_BRAKE && streakWindowLoss < 0.0) streakWindowLoss else biggestLoss
             val advice = buildAdvice(mood, learningHealth, regime, wrPct, lossStreak, winStreak,
-                avgAccuracy, biggestWin, biggestLoss, tradesObserved, isBootstrap, recMinConf)
+                avgAccuracy, biggestWin, bigLossForAdvice, tradesObserved, isBootstrap, recMinConf)
 
             val directive = Directive(
                 mood = mood,

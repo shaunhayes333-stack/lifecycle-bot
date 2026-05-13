@@ -548,6 +548,14 @@ object AdaptiveLearningEngine {
     private val aleSeenKeys = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun learnFromTrade(features: TradeFeatures) {
+        // V5.9.723 — skip DEAD_TOKEN_NO_PRICE_EXIT. These are unpriced pump.fun
+        // bonding-curve tokens that never produced a live tick; their pnl=0 / peak=0
+        // is a data artifact, not a market signal. Feeding them into ALE would
+        // pollute the FLAT_CHOP cohort and bias pattern learning toward "do nothing".
+        if (features.exitReason == "DEAD_TOKEN_NO_PRICE_EXIT") {
+            ErrorLogger.debug("AdaptiveLearning", "🪦 SKIP DEAD_TOKEN exit (no price feed) — not learning")
+            return
+        }
         // V5.9.694/695 — dedup guard using available TradeFeatures fields.
         // Bucket by mcap+holdTime+pnlPct rounded to 1 decimal + minute bucket.
         // Prevents double-feed when multiple Executor close paths fire for the same trade.

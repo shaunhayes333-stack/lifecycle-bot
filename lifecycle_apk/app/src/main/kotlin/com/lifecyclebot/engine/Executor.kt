@@ -1170,7 +1170,11 @@ class Executor(
                 // Copilot with their own asset class (see each sub-trader's
                 // closePosition), so we only fire here for MEME base to avoid
                 // double-counting sub-trader trades.
-                if (_behAsset == "MEME") {
+                if (_behAsset == "MEME" && trade.reason != "DEAD_TOKEN_NO_PRICE_EXIT") {
+                    // V5.9.723 — DEAD_TOKEN_NO_PRICE_EXIT closes are unpriced
+                    // bonding-curve ghosts (pnl=0 always). Feeding them to the
+                    // Copilot window inflates the trade count without signal,
+                    // can mask real losing streaks, and dilutes regime detection.
                     try {
                         com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(
                             pnlPct = pnl,
@@ -2736,6 +2740,36 @@ class Executor(
         val SETTLE_IN_MS = 45_000L
         if (posAgeMs < SETTLE_IN_MS) {
             return  // silent grace for fluid path — strict SL already ran
+        }
+
+        // V5.9.723 — DEAD_TOKEN_EARLY_EXIT
+        // Pump.fun bonding-curve tokens with no live price feed fall back to entryPrice
+        // every tick → pnl stays at exactly 0%, peak stays at 0%, position never exits.
+        // These ghost positions hold for 60min then exit as MID_FLAT_CHOP, burning
+        // the position slot and contributing nothing to learning.
+        //
+        // Trigger: position open >= 15min AND highest price never exceeded entry + 0.5%
+        // (i.e. getActualPrice always resolved to entryPrice via fallback).
+        // Exempt: any position that ever moved (highestPrice > entryPrice * 1.005).
+        // Exit: force sell via requestSell as DEAD_TOKEN_NO_PRICE_EXIT.
+        val pos = ts.position
+        if (posAgeMs >= 15 * 60_000L) {
+            val entryPx = pos.entryPrice
+            val peakPx  = pos.highestPrice
+            val isDeadNoFeed = entryPx > 0.0 &&
+                currentPrice > 0.0 &&
+                currentPrice == entryPx &&           // still at entry — fallback path
+                peakPx <= entryPx * 1.005            // never moved more than 0.5%
+            if (isDeadNoFeed) {
+                ErrorLogger.info("Executor", "🪦 DEAD_TOKEN_NO_PRICE_EXIT: ${ts.symbol} | held=${posAgeMs/60_000}min | peak=${((peakPx/entryPx-1)*100).toInt()}% | freeing slot")
+                requestSell(
+                    ts       = ts,
+                    reason   = "DEAD_TOKEN_NO_PRICE_EXIT",
+                    wallet   = wallet,
+                    walletSol = walletSol,
+                )
+                return
+            }
         }
 
         if (checkProfitLock(ts, wallet, walletSol)) return
