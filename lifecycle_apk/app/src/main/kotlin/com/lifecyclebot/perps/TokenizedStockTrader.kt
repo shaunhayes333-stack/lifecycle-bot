@@ -1284,6 +1284,20 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // returned to the unified wallet at the bottom of this function).
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
 
+        // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
+        if (com.lifecyclebot.engine.BotService.isShuttingDown) {
+            val fastPnl = position.getUnrealizedPnlSol()
+            if (isPaperMode.get()) {
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, fastPnl) } catch (_: Exception) {}
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = position.sizeSol + fastPnl,
+                    source = "Stocks.close.fast[${position.market.symbol}]"
+                )
+            }
+            ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
+            return
+        }
+
         // V5.9.130: close V3 learning loop → drives real accuracy update on
         // every one of the 41 AI layers based on how this stock trade resolved
         // vs what each layer predicted.

@@ -868,12 +868,24 @@ object FinalDecisionGate {
         val antiChokeRelaxing = try {
             com.lifecyclebot.engine.AntiChokeManager.isSoftening()
         } catch (_: Throwable) { false }
+        // V5.9.721-FIX: Low-WR bypass — when system WR < 30% the confidence floors
+        // are counterproductive. The bot must be allowed to trade through bad streaks
+        // to collect data and escape the death spiral. Hard floors at 22% add extra
+        // blocking on top of already-bad scoring, reducing volume and making
+        // the WR problem worse (less volume = slower learning recovery).
+        val systemWrForBypass = try {
+            val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+            if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 1.0
+        } catch (_: Throwable) { 1.0 }
+        val lowWrBypass = systemWrForBypass < 0.30
+
         val canBypassConfidenceFloors = isBootstrapPhase ||
-            totalTradesForBypass < 1000 ||
+            totalTradesForBypass < 3000 ||  // V5.9.721: raised from 1000 → 3000 (operator target is 5000)
             antiChokeRelaxing ||
-            adaptiveRelaxationActive
-        // V5.9.683-FIX: surface bypass state so operator can audit 22%-floor trips
-        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/1000 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive")
+            adaptiveRelaxationActive ||
+            lowWrBypass  // V5.9.721: bypass floors when WR < 30% to prevent death spiral
+        // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
+        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/3000 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=$lowWrBypass(${(systemWrForBypass*100).toInt()}%)")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check

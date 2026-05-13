@@ -167,10 +167,23 @@ class UnifiedScorer(
             // following this layer's vote MAKES OR LOSES money.
             val (flippedValue, flipTag) = try {
                 val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
-                val anticorrelated = maturity.trades >= 30 &&
-                    maturity.expectancyPct < -0.3   // V5.9.363: any meaningful negative expectancy now flips
+                // V5.9.721-FIX: Gate polarity flip behind system-WR >= 30%.
+                // When system WR < 30%, ALL layers have negative expectancy simultaneously
+                // (bad market / bad entries, not individual layer anti-correlation).
+                // Flipping every layer in that state inverts correctly-signed signals
+                // and creates a self-reinforcing death spiral: more flips → more rugs
+                // → worse WR → more flips. Only allow when the system is at least
+                // marginally profitable so a layer's negative expectancy is genuinely
+                // anti-correlated, not just "everything is losing right now."
+                val systemWr = try {
+                    val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+                    if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 0.0
+                } catch (_: Throwable) { 0.0 }
+                val anticorrelated = systemWr >= 0.30 &&
+                    maturity.trades >= 30 &&
+                    maturity.expectancyPct < -0.3   // V5.9.363 (WR-gated per V5.9.721)
                 if (anticorrelated && comp.value != 0) {
-                    -comp.value to " [FLIP exp=${"%.1f".format(maturity.expectancyPct)}%]"
+                    -comp.value to " [FLIP exp=${"%.1f".format(maturity.expectancyPct)}% sysWR=${(systemWr*100).toInt()}%]"
                 } else comp.value to ""
             } catch (_: Exception) { comp.value to "" }
 

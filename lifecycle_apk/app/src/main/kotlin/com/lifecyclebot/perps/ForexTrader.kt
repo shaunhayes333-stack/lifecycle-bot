@@ -806,6 +806,19 @@ object ForexTrader {
         val pnlPct = position.getPnlPercent() - (totalFeeSol / position.size * 100)
         val isWin = pnl >= 0
 
+        // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
+        if (com.lifecyclebot.engine.BotService.isShuttingDown) {
+            if (isPaperMode.get()) {
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = position.size + pnl,
+                    source = "Forex.close.fast[${position.market.symbol}]"
+                )
+            }
+            ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
+            return
+        }
+
         // V5.9.171 — clear local orphan record (paper capital being returned).
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(position.id) } catch (_: Exception) {}
 

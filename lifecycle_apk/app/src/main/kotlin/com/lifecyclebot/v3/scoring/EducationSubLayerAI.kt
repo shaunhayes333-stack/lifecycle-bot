@@ -2220,6 +2220,30 @@ object EducationSubLayerAI {
         saveForced()  // Bypass debounce on explicit reset
         ErrorLogger.info(TAG, "🧹 EducationSubLayerAI reset")
     }
+
+    /**
+     * V5.9.721 — EXPECTANCY RESET only.
+     * Clears the pnlSumPct (used for the polarity-flip gate) and resets
+     * totalOutcomesRecorded so contaminated expectancy from a bad run doesn't
+     * cause all layers to flip when WR recovers above 30%.
+     * Directional accuracy (successfulPredictions) is preserved — we keep
+     * the learning about which direction each layer tends to vote, just
+     * reset the financial magnitude that drives the flip gate.
+     */
+    fun resetExpectancy() {
+        var count = 0
+        layerPerformance.keys.forEach { layerName ->
+            layerPerformance[layerName]?.let { m ->
+                layerPerformance[layerName] = m.copy(
+                    pnlSumPct = 0.0,
+                    totalOutcomesRecorded = 0,
+                )
+                count++
+            }
+        }
+        saveForced()
+        ErrorLogger.info(TAG, "🧹 V5.9.721 resetExpectancy: cleared pnlSumPct for $count layers (accuracy preserved)")
+    }
     
     /**
      * V5.7: Dispatch trade outcome to education layer for cross-layer learning

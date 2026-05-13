@@ -700,8 +700,15 @@ object PerpsExecutionEngine {
         
         for (position in positions) {
             try {
-                val marketData = PerpsMarketDataFetcher.getMarketData(position.market)
-                PerpsTraderAI.closePosition(position.id, marketData.price, PerpsExitSignal.AI_EXIT)
+                // V5.9.721-FIX: Use cached price first (no RPC round-trip on shutdown).
+                // PerpsMarketDataFetcher.getMarketData() makes a live network call when
+                // cache is stale (3s TTL). On shutdown with multiple positions this causes
+                // a blocking 90s+ freeze. Use getCachedPrice() and fall back to entry
+                // price as a last resort — the exact close price doesn't matter for
+                // paper accounting, and on live the on-chain close happens separately.
+                val price = PerpsMarketDataFetcher.getCachedPrice(position.market)?.price
+                    ?: position.entryPrice  // last resort: close at entry (0% PnL) rather than block
+                PerpsTraderAI.closePosition(position.id, price, PerpsExitSignal.AI_EXIT)
             } catch (e: Exception) {
                 ErrorLogger.error(TAG, "Failed to close ${position.market.symbol}: ${e.message}")
             }

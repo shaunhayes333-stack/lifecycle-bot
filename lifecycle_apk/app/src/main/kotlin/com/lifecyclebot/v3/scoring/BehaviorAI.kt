@@ -984,6 +984,22 @@ object BehaviorAI {
         save()
     }
     
+    /**
+     * V5.9.721 — SOFT STREAK RESET for low-WR recovery.
+     * Clears consecutive-loss streak and tilt protection so Copilot Emergency
+     * Brake releases, without wiping historical milestones or trade counters.
+     * Called automatically when system WR < 30% to break the tilt death-spiral
+     * (consecutive losses inflate tilt → copilot blocks entries → WR worsens).
+     */
+    fun softStreakReset() {
+        consecutiveLosses.set(0)
+        consecutiveWins.set(0)
+        currentStreak.set(0)
+        tiltLevel.set(0)
+        tiltProtectionUntil = 0L
+        ErrorLogger.warn(TAG, "🔄 V5.9.721 SOFT_STREAK_RESET: consecutive-loss tilt cleared (low-WR recovery)")
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.6.28e: PERSISTENCE - Save/Restore behavior state across app restarts
     // ═══════════════════════════════════════════════════════════════════════════

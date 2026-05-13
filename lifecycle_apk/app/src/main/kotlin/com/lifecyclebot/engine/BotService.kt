@@ -52,6 +52,11 @@ class BotService : Service() {
         const val CHANNEL_TRADE_SILENT = "trade_signals_silent"
         const val NOTIF_ID      = 1
 
+        // V5.9.721 — global shutdown flag so all traders can skip heavy AI
+        // learning in their closePosition() fast paths during bot stop.
+        // Set to true at the START of stopBot(), cleared on startBot().
+        @Volatile var isShuttingDown: Boolean = false
+
         // ═══════════════════════════════════════════════════════════════
         // PIPELINE DEBUG HELPERS - trace exactly why tokens don't buy
         // ═══════════════════════════════════════════════════════════════
@@ -1344,7 +1349,7 @@ class BotService : Service() {
                                 // Reset again post-join in case the dead loop
                                 // managed to emit a final tick during join.
                                 lastBotLoopTickMs = System.currentTimeMillis()
-                                val newJob = scope.launch { botLoop() }
+                                val newJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher
                                 loopJob = newJob
                                 ForensicLogger.lifecycle(
                                     "RESCUE_RELAUNCHED",
@@ -2137,6 +2142,7 @@ class BotService : Service() {
     }
 
     fun startBot() {
+        isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
         // V5.9.651 — forensic lifecycle marker
         ForensicLogger.lifecycle("BOT_START_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}")
         // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
@@ -2252,6 +2258,31 @@ class BotService : Service() {
                 } catch (e: Exception) {
                     ErrorLogger.warn("BotService", "FluidLearning sync failed (non-fatal): ${e.message}")
                 }
+            }
+
+            // V5.9.721 — LOW-WR STREAK RESET on startBot.
+            // If system lifetime WR < 30%, the consecutive-loss tilt counter is likely
+            // elevated from a bad run, keeping Copilot in EMERGENCY BRAKE and blocking
+            // entries. A soft reset clears the streak/tilt WITHOUT wiping milestones,
+            // giving the bot a clean tilt slate so it can trade its way out of the hole.
+            try {
+                val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+                val systemWr = if (ls.totalSells > 0) ls.wins.toDouble() / ls.totalSells else 1.0
+                if (systemWr < 0.30 && ls.totalSells >= 50) {  // Only fire if we have real data
+                    com.lifecyclebot.v3.scoring.BehaviorAI.softStreakReset()
+                    // V5.9.721: Also clear contaminated layer expectancy so the polarity-flip gate
+                    // doesn't re-engage immediately on WR recovery using stale loss-run data.
+                    try {
+                        com.lifecyclebot.v3.scoring.EducationSubLayerAI.resetExpectancy()
+                        addLog("🔄 V5.9.721: Layer expectancy cleared (WR=${(systemWr*100).toInt()}%) — polarity flip slate reset")
+                    } catch (e2: Exception) {
+                        ErrorLogger.debug("BotService", "resetExpectancy non-fatal: ${e2.message}")
+                    }
+                    addLog("🔄 V5.9.721: Low-WR streak reset (WR=${(systemWr*100).toInt()}%) — Copilot brake released")
+                    ErrorLogger.warn("BotService", "V5.9.721 LOW_WR_STREAK_RESET: WR=${(systemWr*100).toInt()}% trades=${ls.totalSells} — BehaviorAI softStreakReset + resetExpectancy called")
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "Low-WR streak reset check failed (non-fatal): ${e.message}")
             }
 
             // Persist current mode so next start can detect a mode switch
@@ -2636,7 +2667,7 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
-        loopJob = scope.launch { botLoop() }
+        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines
 
         // V5.9.674 — STUCK-LOOP HEARTBEAT WATCHDOG. Operator reported the
         // loop coroutine going silent while still "active" (suspended on
@@ -3914,6 +3945,7 @@ class BotService : Service() {
     }
 
     fun stopBot() {
+        isShuttingDown = true  // V5.9.721: signal all traders to use fast-close path
         // V5.9.651 — forensic stop marker
         ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
@@ -5238,6 +5270,86 @@ class BotService : Service() {
                     }
                 }
                 
+                // V5.9.721 — SUB-TRADER EMERGENCY SL SWEEP.
+                // ShitCoin / Moonshot / Quality / BlueChip positions live in their
+                // own private maps — NOT in status.tokens. When botLoop is dead
+                // (rescue / relaunch cycle) these positions receive zero exit checks.
+                // This sweep catches the -97% positions the rapid monitor previously missed.
+                // Runs every other tick (~1s cadence) to limit overhead.
+                if (System.currentTimeMillis() % 1000L < 550L) {
+                    try {
+                        val subFloor = -15.0  // unconditional -15% hard floor
+                        // List of (mint, entryPrice, closeFn) triples built from each sub-trader
+                        val subPositions = mutableListOf<Triple<String, Double, (Double) -> Unit>>()
+
+                        try {
+                            com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().forEach { p ->
+                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
+                                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
+                                        p.mint, price,
+                                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.STOP_LOSS)
+                                })
+                            }
+                        } catch (_: Throwable) {}
+
+                        try {
+                            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { p ->
+                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
+                                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(
+                                        p.mint, price,
+                                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS)
+                                })
+                            }
+                        } catch (_: Throwable) {}
+
+                        try {
+                            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().forEach { p ->
+                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
+                                    com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(
+                                        p.mint, price, com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS)
+                                })
+                            }
+                        } catch (_: Throwable) {}
+
+                        try {
+                            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().forEach { p ->
+                                subPositions.add(Triple(p.mint, p.entryPrice) { price ->
+                                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(
+                                        p.mint, price, com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS)
+                                })
+                            }
+                        } catch (_: Throwable) {}
+
+                        for ((mint, entryPrice, closeFn) in subPositions) {
+                            if (entryPrice <= 0.0) continue
+                            // Cheapest price source: status.tokens (no RPC hit)
+                            val ts = synchronized(status.tokens) { status.tokens[mint] }
+                            val currentPrice = ts?.lastPrice?.takeIf { it > 0.0 } ?: continue
+                            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
+                            if (pnlPct <= subFloor) {
+                                ErrorLogger.warn("BotService",
+                                    "🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")
+                                addLog("🛑 SUB-TRADER RAPID STOP: $mint ${pnlPct.toInt()}%")
+                                try { closeFn(currentPrice) } catch (e2: Exception) {
+                                    ErrorLogger.warn("BotService", "Sub-trader closeFn failed $mint: ${e2.message}")
+                                }
+                                // Belt-and-suspenders: also fire executor path if we have a TokenState
+                                if (ts != null) {
+                                    try {
+                                        executor.requestSell(
+                                            ts = ts,
+                                            reason = "RAPID_SUB_TRADER_HARD_FLOOR",
+                                            wallet = wallet,
+                                            walletSol = effectiveBalance)
+                                    } catch (_: Throwable) {}
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "Sub-trader rapid SL sweep error: ${e.message}")
+                    }
+                }
+
                 kotlinx.coroutines.delay(CHECK_INTERVAL_MS)
                 
             } catch (e: Exception) {

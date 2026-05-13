@@ -2098,6 +2098,31 @@ object CryptoAltTrader {
         try { com.lifecyclebot.collective.LocalOrphanStore.clear(positionId) } catch (_: Exception) {}
         com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol)
 
+        // V5.9.721-FIX: FAST SHUTDOWN PATH — skip all heavy AI learning on bot stop.
+        // CryptoAltTrader.closeAllPositions() passes "USER_STOP". Running 44-layer
+        // PerpsUnifiedScorerBridge + personality + Turso writes per position with
+        // 10+ open positions causes the same 60-90s freeze as the main Executor did.
+        // On bot stop: close fast, credit wallet, done. Learning runs on real closes.
+        if (reason == "USER_STOP" || reason == "bot_shutdown" || com.lifecyclebot.engine.BotService.isShuttingDown) {
+            val pnlSolFast = pos.getPnlSol()
+            totalPnlSol += pnlSolFast
+            if (isPaperMode.get()) {
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.market.symbol, pos.sizeSol, pnlSolFast) } catch (_: Exception) {}
+                paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
+                com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
+                    delta = pos.sizeSol + pnlSolFast,
+                    source = "CryptoAlt.close.fast[${pos.market.symbol}]"
+                )
+            }
+            // Async Turso orphan delete (non-blocking)
+            scope.launch {
+                try { com.lifecyclebot.collective.CollectiveLearning.getClient()?.deleteMarketsPosition(pos.id) } catch (_: Exception) {}
+            }
+            ErrorLogger.info(TAG, "🪙 FAST_CLOSE [${pos.market.symbol}] pnl=${"%.4f".format(pnlSolFast)} reason=$reason — AI learning skipped on shutdown")
+            persistAltPositions()
+            return
+        }
+
         // V5.9.134 — delete the OPEN row from Turso so it doesn't linger
         // as an orphan that wipes paper balance on the next app update.
         scope.launch {
