@@ -25,6 +25,71 @@ import java.util.concurrent.ConcurrentHashMap
  * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
  * Persists across restarts. No rebuy after -33% loss.
  */
+/**
+ * V5.9.722 — WR-Recovery Partial Sell Manager
+ *
+ * When current session WR is meaningfully below the phase target, the first
+ * partial-sell milestone is lowered so the bot locks a win sooner.  The rest
+ * of the position still rides with normal trail/SL logic — this is purely
+ * an earlier first-lock, not a choke on runners.
+ *
+ * Recovery mode activates when:
+ *   currentWR < phaseTargetWR * WR_RECOVERY_THRESHOLD  (default 0.85)
+ *   AND partialLevel == 0 (first sell only — don't interfere with later rungs)
+ *   AND gainPct >= MIN_PARTIAL_GAIN_PCT (never micro-lock at noise levels)
+ *   AND position is NOT already profit-locked (already safe — let it ride)
+ *
+ * The override trigger is clamped to:
+ *   max(MIN_PARTIAL_GAIN_PCT, normalTrigger * RECOVERY_TRIGGER_SCALE)
+ * e.g. normal trigger = 15% → recovery trigger = max(5%, 15%*0.60) = 9%
+ */
+object WrRecoveryPartial {
+    private const val WR_RECOVERY_THRESHOLD  = 0.85   // fire below 85% of phase target
+    private const val RECOVERY_TRIGGER_SCALE = 0.60   // lower first trigger to 60% of normal
+    private const val MIN_PARTIAL_GAIN_PCT   = 5.0    // never lock below 5% gain
+
+    /**
+     * Returns the effective first-partial trigger pct.
+     * Returns [normalTrigger] unchanged when recovery mode is not active.
+     */
+    fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
+        if (partialLevel != 0) return normalTrigger          // only override first rung
+        if (profitLockTriggered) return normalTrigger        // already locked — let it ride
+        if (gainPct < MIN_PARTIAL_GAIN_PCT) return normalTrigger  // noise gate
+
+        val wins   = CanonicalLearningCounters.settledWins.get().toDouble()
+        val losses = CanonicalLearningCounters.settledLosses.get().toDouble()
+        val total  = wins + losses
+        if (total < 50.0) return normalTrigger              // too few trades for reliable WR signal
+
+        val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
+        val targetWR  = try {
+            val trades = (wins + losses).toInt()
+            com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(trades)
+        } catch (_: Exception) { 30.0 }
+
+        if (targetWR <= 0.0) return normalTrigger           // phase has no WR target yet
+        if (currentWR >= targetWR * WR_RECOVERY_THRESHOLD) return normalTrigger  // on-target → no override
+
+        // Below target → lower the trigger
+        val recoveryTrigger = (normalTrigger * RECOVERY_TRIGGER_SCALE).coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
+        ErrorLogger.info("WrRecovery", "📉 WR RECOVERY PARTIAL: WR=${currentWR.toInt()}% < target=${targetWR.toInt()}%×0.85 → trigger lowered ${normalTrigger.toInt()}%→${recoveryTrigger.toInt()}%")
+        return recoveryTrigger
+    }
+
+    /** Human-readable status for logs */
+    fun statusTag(): String {
+        val wins   = CanonicalLearningCounters.settledWins.get().toDouble()
+        val losses = CanonicalLearningCounters.settledLosses.get().toDouble()
+        val total  = wins + losses
+        if (total < 50) return "WR_RECOVERY:insufficient_data"
+        val wr     = (wins / total) * 100.0
+        val target = try { com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt()) } catch (_: Exception) { 30.0 }
+        val active = wr < target * WR_RECOVERY_THRESHOLD
+        return if (active) "WR_RECOVERY:ACTIVE(wr=${wr.toInt()}%,target=${target.toInt()}%)" else "WR_RECOVERY:off"
+    }
+}
+
 object RuggedContracts {
     private const val PREFS_NAME = "rugged_contracts"
     private var ctx: Context? = null
@@ -2736,8 +2801,16 @@ class Executor(
 
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
         
+        // V5.9.722 — WR-recovery partial: lower the first milestone when WR is below phase target.
+        // Second/third milestones are unchanged — runners are never capped by recovery mode.
+        val firstTrigger = WrRecoveryPartial.effectiveTrigger(
+            normalTrigger      = c.partialSellTriggerPct,
+            gainPct            = gainPct,
+            partialLevel       = partialLevel,
+            profitLockTriggered = pos.profitLocked,
+        )
         val milestones = listOf(
-            c.partialSellTriggerPct,
+            firstTrigger,
             c.partialSellSecondTriggerPct,
             c.partialSellThirdTriggerPct,
             10000.0,
@@ -2821,7 +2894,8 @@ class Executor(
             else -> "${partialLevel + 1}th partial"
         }
 
-        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% " +
+        val wrRecovTag = if (partialLevel == 0) " [${WrRecoveryPartial.statusTag()}]" else ""
+        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}%$wrRecovTag " +
               "(trigger: +${triggerPct.toInt()}%) | ~${sellSol.fmt(4)} SOL", ts.mint)
         onNotify("💰 $milestoneLabel",
                  "${ts.symbol}  +${gainPct.toInt()}%  selling ${(sellFraction*100).toInt()}%",
