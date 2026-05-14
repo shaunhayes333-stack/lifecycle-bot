@@ -356,24 +356,27 @@ class Executor(
         // Primary: DexScreener price (most reliable, real-time)
         val dexPrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
         
-        // V5.7.8: Cross-validate against entry price to catch decimal errors
-        // If price differs from entry by > 10,000x, it's almost certainly bad data
+        // V5.9.734 — REAL DATA ONLY policy.
+        // Previous logic substituted candle price or entry price when the
+        // live tick looked wrong — that's simulated data feeding the exit
+        // engine and exactly what the operator is removing. New behaviour:
+        // if the tick is obviously glitched (>100x off entry, the same
+        // threshold used by the BotService ingest tick-filter), return 0
+        // so the CALLER skips this evaluation cycle. No substitution, no
+        // synthesized fallback. The position simply waits for a real
+        // tick. RAPID_TAKE_PROFIT and STOP_LOSS engines all check for
+        // <= 0 and bail, so a skipped cycle is safe — we just don't
+        // make a decision on bad data.
         if (dexPrice != null && ts.position.entryPrice > 0) {
             val ratio = dexPrice / ts.position.entryPrice
-            if (ratio > 10_000 || ratio < 0.0001) {
-                val candlePrice = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 && it.isFinite() }
-                if (candlePrice != null) {
-                    val candleRatio = candlePrice / ts.position.entryPrice
-                    if (candleRatio < 10_000 && candleRatio > 0.0001) {
-                        ErrorLogger.warn("Executor", "PRICE FIX: ${ts.symbol} dexPrice=$dexPrice vs entry=${ts.position.entryPrice} (${ratio.toLong()}x) — using candle=$candlePrice instead")
-                        return candlePrice
-                    }
-                }
-                ErrorLogger.warn("Executor", "PRICE GUARD: ${ts.symbol} ALL prices ${ratio.toLong()}x vs entry=${ts.position.entryPrice} — using entry as fallback")
-                return ts.position.entryPrice
+            if (ratio > 100.0 || ratio < 0.01) {
+                ErrorLogger.warn("Executor",
+                    "🚫 PRICE_REJECT ${ts.symbol}: dex=$dexPrice vs entry=${ts.position.entryPrice} " +
+                    "(${"%.1f".format(ratio)}x) — feed glitch, skipping eval until clean tick arrives")
+                return 0.0
             }
         }
-        
+
         if (dexPrice != null) return dexPrice
         
         // Fallback 1: Latest candle price

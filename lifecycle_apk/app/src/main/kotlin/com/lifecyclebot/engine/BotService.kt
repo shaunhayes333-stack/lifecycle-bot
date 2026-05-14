@@ -5476,6 +5476,35 @@ class BotService : Service() {
                     val ts = status.tokens[mint] ?: continue
                     if (!ts.position.isOpen) continue
                     if (priceUsd <= 0.0) continue
+
+                    // V5.9.734 — WS TICK-FILTER for OPEN positions.
+                    // The pair-poll ingest path at line ~8500 already
+                    // applies a 100x tick-filter (decimal-shift artifact
+                    // rejection) before persisting. The WebSocket open-
+                    // position update path had no such guard — any glitch
+                    // quote on a thin Pump.fun pool wrote straight to
+                    // ts.lastPrice AND appended a fake candle, which then
+                    // tripped trailing-stop / RAPID_TAKE_PROFIT_30 on a
+                    // ghost move. Result: the +9,398% / +12,675% wins in
+                    // the operator's journal — all real-Executor exits
+                    // firing on bad ticks, not the Lab.
+                    //
+                    // Per operator policy (V5.9.734): NO PRICE SIMULATION,
+                    // NO PnL CAPS. The right answer is to REJECT the bad
+                    // tick at ingest and keep the last real price. If the
+                    // move is genuine the next clean quote will confirm
+                    // it. If it was a feed glitch we never acted on it.
+                    val prev = ts.lastPrice
+                    if (prev > 0.0) {
+                        val jumpMult = priceUsd / prev
+                        if (jumpMult > 100.0 || jumpMult < 0.01) {
+                            ErrorLogger.warn("BotService",
+                                "🚫 WS_TICK_FILTER rejected ${ts.symbol} OPEN: prev=$prev → new=$priceUsd " +
+                                "(jump=${"%.1f".format(jumpMult)}x) — feed glitch, position holds at last real price")
+                            continue
+                        }
+                    }
+
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = now
