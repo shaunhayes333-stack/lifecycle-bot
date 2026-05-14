@@ -251,7 +251,14 @@ object TokenizedStockTrader {
         val aiScore: Int = 50,
         val aiConfidence: Int = 50,
         val reasons: List<String> = emptyList(),
-        var peakPnlPct: Double = 0.0    // V5.9.9: Track peak PnL for symbolic reasoning
+        var peakPnlPct: Double = 0.0,    // V5.9.9: Track peak PnL for symbolic reasoning
+        // V5.9.742 — stamp open-mode for correct close routing. See ForexTrader
+        // V5.9.740. Unlike Forex/Commodities/Metals, some stocks (NVDAx etc.)
+        // have real Solana tokenized mints via Backed Finance xStocks, so the
+        // close path's live branch is not a dead call — paper-stamped positions
+        // would actually attempt a real swap-sell on tokens that don't exist
+        // in the wallet, returning failure and stranding the position.
+        val isPaper: Boolean = true
     ) {
         // V5.7.6: isSpot property for UI compatibility
         val isSpot: Boolean get() = leverage == 1.0
@@ -377,6 +384,7 @@ object TokenizedStockTrader {
             .put("entryTime", p.entryTime).put("aiScore", p.aiScore)
             .put("aiConfidence", p.aiConfidence).put("reasons", org.json.JSONArray(p.reasons))
             .put("peakPnlPct", p.peakPnlPct)
+            .put("isPaper", p.isPaper)  // V5.9.742
         p.takeProfitPrice?.let { j.put("takeProfitPrice", it) }
         p.stopLossPrice?.let { j.put("stopLossPrice", it) }
         return j
@@ -395,6 +403,8 @@ object TokenizedStockTrader {
             stopLossPrice   = if (j.has("stopLossPrice"))   j.getDouble("stopLossPrice")   else null,
             aiScore = j.optInt("aiScore", 50), aiConfidence = j.optInt("aiConfidence", 50),
             reasons = reasons, peakPnlPct = j.optDouble("peakPnlPct", 0.0),
+            // V5.9.742 — legacy entries default to PAPER (safe).
+            isPaper = j.optBoolean("isPaper", true),
         )
     }
 
@@ -1121,7 +1131,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             stopLossPrice = sl,
             aiScore = signal.score,
             aiConfidence = signal.confidence,
-            reasons = signal.reasons
+            reasons = signal.reasons,
+            // V5.9.742 — stamp open-mode for correct close routing.
+            isPaper = isPaperMode.get(),
         )
         
         // V5.7.6b: Add to appropriate map
@@ -1287,7 +1299,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
         if (com.lifecyclebot.engine.BotService.isShuttingDown) {
             val fastPnl = position.getUnrealizedPnlSol()
-            if (isPaperMode.get()) {
+            // V5.9.742 — route on position.isPaper, not global isPaperMode.
+            if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, fastPnl) } catch (_: Exception) {}
                 com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                     delta = position.sizeSol + fastPnl,
@@ -1330,8 +1343,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         if (isWin) winningTrades.incrementAndGet() else losingTrades.incrementAndGet()
         totalPnlSol += netPnlSol
         
-        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
-        if (!isPaperMode.get()) {
+        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result.
+        // V5.9.742 — route on position.isPaper, not the global flag. See
+        // ForexTrader V5.9.740 for diagnosis. NOTE: in Stocks the position
+        // has ALREADY been removed from the three position maps at the top
+        // of this function, so 'position kept open' here is misleading —
+        // the position is in fact lost. Future work: revisit the early-
+        // removal pattern.
+        if (!position.isPaper) {
             var closeSuccess = false
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -1358,6 +1377,9 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         } else {
             // V5.9.7: balance update handled by FluidLearning.recordPaperSell below
             // V5.9.48: Unified paper wallet — credit capital + PnL back to main dashboard.
+            // V5.9.742: routing is implicit — the else-branch is reached only
+            // when position.isPaper is true (the if condition above checks
+            // !position.isPaper now), so this credit is always for paper.
             com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                 delta = position.sizeSol + netPnlSol,
                 source = "TokenizedStocks.close[${position.market.symbol}]"
@@ -1366,12 +1388,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         
         // Record to FluidLearningAI
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
+        // V5.9.742: route on position.isPaper.
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, netPnlPct)
+            if (position.isPaper) FluidLearningAI.recordMarketsPaperTrade(isWin, netPnlPct)
             else FluidLearningAI.recordMarketsLiveTrade(isWin, netPnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) try {
+        // V5.9.742: route on position.isPaper.
+        if (position.isPaper) try {
             com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                 mint = position.market.symbol,
                 originalSol = position.sizeSol,
@@ -1785,6 +1809,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     /** Switch to LIVE mode - REAL MONEY TRADING */
     fun setLiveMode(live: Boolean) {
+        val wasLive = !isPaperMode.get()
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "📈 TokenizedStockTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
@@ -1794,6 +1819,30 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 if (balance > 0) updateLiveBalance(balance)
                 ErrorLogger.info(TAG, "📈 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
             } catch (_: Exception) {}
+
+            // V5.9.742 — retire stale paper positions on paper→live flip.
+            // Mirror of ForexTrader V5.9.740 / Commodities & Metals V5.9.742.
+            // Stocks use a `positions` master map; closePosition handles the
+            // spotPositions/leveragePositions mirror cleanup internally.
+            if (!wasLive) {
+                val stalePaper = positions.values.filter { it.isPaper }.toList()
+                if (stalePaper.isNotEmpty()) {
+                    ErrorLogger.warn(TAG,
+                        "📈 PAPER→LIVE flip: retiring ${stalePaper.size} stale paper position(s) " +
+                        "(no on-chain backing, would mislead operator if kept visible).")
+                    stalePaper.forEach { pos ->
+                        try { closePosition(pos.id, "PAPER_RETIRED_ON_LIVE_FLIP") }
+                        catch (e: Exception) {
+                            ErrorLogger.warn(TAG,
+                                "📈 retire-paper close failed for ${pos.market.symbol}: ${e.message}")
+                            positions.remove(pos.id)
+                            spotPositions.remove(pos.id)
+                            leveragePositions.remove(pos.id)
+                        }
+                    }
+                    persistStockPositions()
+                }
+            }
         }
     }
     

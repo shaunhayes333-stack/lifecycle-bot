@@ -88,7 +88,9 @@ object MetalsTrader {
         var realizedPnl: Double? = null,
         val reasons: List<String> = emptyList(),
         val aiConfidence: Int = 50,
-        var peakPnlPct: Double = 0.0
+        var peakPnlPct: Double = 0.0,
+        // V5.9.742 — stamp open-mode. See ForexTrader V5.9.740.
+        val isPaper: Boolean = true
     ) {
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
@@ -158,6 +160,7 @@ object MetalsTrader {
             .put("reasons",      org.json.JSONArray(p.reasons))
             .put("aiConfidence", p.aiConfidence)
             .put("peakPnlPct",   p.peakPnlPct)
+            .put("isPaper",      p.isPaper)  // V5.9.742
 
     private fun metalPositionFromJson(j: org.json.JSONObject): MetalPosition {
         val rArr = j.optJSONArray("reasons")
@@ -175,6 +178,8 @@ object MetalsTrader {
             openTime     = j.optLong("openTime", System.currentTimeMillis()),
             reasons      = reasons,
             aiConfidence = j.optInt("aiConfidence", 50),
+            // V5.9.742 — legacy entries default to PAPER (safe).
+            isPaper      = j.optBoolean("isPaper", true),
         ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
     }
 
@@ -626,7 +631,9 @@ object MetalsTrader {
             leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
-            reasons = signal.reasons
+            reasons = signal.reasons,
+            // V5.9.742 — stamp open-mode for close routing.
+            isPaper = isPaperMode.get(),
         )
         
         positionMap[position.id] = position
@@ -789,7 +796,8 @@ object MetalsTrader {
 
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
         if (com.lifecyclebot.engine.BotService.isShuttingDown) {
-            if (isPaperMode.get()) {
+            // V5.9.742 — route on position.isPaper, not global isPaperMode.
+            if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
                 com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                     delta = position.size + pnl,
@@ -815,8 +823,10 @@ object MetalsTrader {
             )
         } catch (_: Exception) {}
 
-        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
-        if (!isPaperMode.get()) {
+        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result.
+        // V5.9.742 — route on position.isPaper, not the global flag. See
+        // ForexTrader V5.9.740 for the full diagnosis.
+        if (!position.isPaper) {
             var closeSuccess = false
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -857,12 +867,16 @@ object MetalsTrader {
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
+        // V5.9.742: route on position.isPaper so retired paper trades don't
+        // contaminate live WR during a paper→live flip.
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            if (position.isPaper) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
             else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) {
+        // V5.9.742: route on position.isPaper so paper capital correctly
+        // returns to the paper wallet during paper→live retirement.
+        if (position.isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                     mint = position.market.symbol,
@@ -1123,6 +1137,7 @@ object MetalsTrader {
     fun isPaperMode(): Boolean = isPaperMode.get()
     
     fun setLiveMode(live: Boolean) {
+        val wasLive = !isPaperMode.get()
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🥇 MetalsTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
@@ -1132,6 +1147,29 @@ object MetalsTrader {
                 if (balance > 0) updateLiveBalance(balance)
                 ErrorLogger.info(TAG, "🥇 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
             } catch (_: Exception) {}
+
+            // V5.9.742 — retire stale paper positions on paper→live flip.
+            // Mirror of ForexTrader V5.9.740.
+            if (!wasLive) {
+                val stalePaper = (spotPositions.values + leveragePositions.values)
+                    .filter { it.isPaper }
+                    .toList()
+                if (stalePaper.isNotEmpty()) {
+                    ErrorLogger.warn(TAG,
+                        "🥇 PAPER→LIVE flip: retiring ${stalePaper.size} stale paper position(s) " +
+                        "(no on-chain backing, would mislead operator if kept visible).")
+                    stalePaper.forEach { pos ->
+                        val map = if (pos.leverage <= 1.0) spotPositions else leveragePositions
+                        try { closePosition(pos, map, "PAPER_RETIRED_ON_LIVE_FLIP") }
+                        catch (e: Exception) {
+                            ErrorLogger.warn(TAG,
+                                "🥇 retire-paper close failed for ${pos.market.symbol}: ${e.message}")
+                            map.remove(pos.id)
+                        }
+                    }
+                    persistMetalPositions()
+                }
+            }
         }
     }
 

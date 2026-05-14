@@ -95,7 +95,11 @@ object CommoditiesTrader {
         var realizedPnl: Double? = null,
         val reasons: List<String> = emptyList(),
         val aiConfidence: Int = 50,
-        var peakPnlPct: Double = 0.0
+        var peakPnlPct: Double = 0.0,
+        // V5.9.742 — stamp open-mode so close path routes correctly even if
+        // the operator flips paperMode mid-position. Default true is the safe
+        // assumption for legacy rehydrated positions. See ForexTrader V5.9.740.
+        val isPaper: Boolean = true
     ) {
         val leverage: Double get() = tradeType.leverage
         val isSpot: Boolean get() = tradeType == TradeType.SPOT
@@ -166,6 +170,7 @@ object CommoditiesTrader {
             .put("takeProfit", p.takeProfit).put("stopLoss", p.stopLoss)
             .put("openTime", p.openTime).put("aiConfidence", p.aiConfidence)
             .put("reasons", org.json.JSONArray(p.reasons)).put("peakPnlPct", p.peakPnlPct)
+            .put("isPaper", p.isPaper)  // V5.9.742
 
     private fun commodityPositionFromJson(j: org.json.JSONObject): CommodityPosition {
         val rArr = j.optJSONArray("reasons")
@@ -179,6 +184,8 @@ object CommoditiesTrader {
             stopLoss = j.getDouble("stopLoss"),
             openTime = j.optLong("openTime", System.currentTimeMillis()),
             reasons = reasons, aiConfidence = j.optInt("aiConfidence", 50),
+            // V5.9.742 — legacy positions default to PAPER (safe).
+            isPaper = j.optBoolean("isPaper", true),
         ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
     }
 
@@ -625,7 +632,9 @@ object CommoditiesTrader {
             size = positionSizeSol,
             takeProfit = tp,
             stopLoss = sl,
-            reasons = signal.reasons
+            reasons = signal.reasons,
+            // V5.9.742 — stamp open-mode for correct close routing later.
+            isPaper = isPaperMode.get(),
         )
         
         // Add to appropriate map
@@ -794,7 +803,8 @@ object CommoditiesTrader {
 
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
         if (com.lifecyclebot.engine.BotService.isShuttingDown) {
-            if (isPaperMode.get()) {
+            // V5.9.742 — route on position.isPaper, not global isPaperMode.
+            if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
                 com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                     delta = position.size + pnl,
@@ -820,8 +830,12 @@ object CommoditiesTrader {
             )
         } catch (_: Exception) {}
 
-        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
-        if (!isPaperMode.get()) {
+        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result.
+        // V5.9.742 — route on position.isPaper, NOT global isPaperMode flag.
+        // A paper-opened position must always close via paper accounting even
+        // if the operator flipped to live after it opened. See ForexTrader
+        // V5.9.740 for the full diagnosis.
+        if (!position.isPaper) {
             var closeSuccess = false
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -862,12 +876,16 @@ object CommoditiesTrader {
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
+        // V5.9.742: route on position.isPaper so paper trades retired during
+        // a paper→live flip don't contaminate live WR.
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            if (position.isPaper) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
             else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) {
+        // V5.9.742: route on position.isPaper so paper capital correctly returns
+        // to paper wallet during paper→live retirement.
+        if (position.isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                     mint = position.market.symbol,
@@ -1130,6 +1148,7 @@ object CommoditiesTrader {
     fun isPaperMode(): Boolean = isPaperMode.get()
     
     fun setLiveMode(live: Boolean) {
+        val wasLive = !isPaperMode.get()
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🛢️ CommoditiesTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
@@ -1139,6 +1158,31 @@ object CommoditiesTrader {
                 if (balance > 0) updateLiveBalance(balance)
                 ErrorLogger.info(TAG, "🛢️ Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
             } catch (_: Exception) {}
+
+            // V5.9.742 — retire stale paper positions on paper→live flip.
+            // Mirror of ForexTrader V5.9.740. Paper-opened positions must not
+            // remain visible in the LIVE panel where they'd mislead the
+            // operator (no on-chain backing).
+            if (!wasLive) {
+                val stalePaper = (spotPositions.values + leveragePositions.values)
+                    .filter { it.isPaper }
+                    .toList()
+                if (stalePaper.isNotEmpty()) {
+                    ErrorLogger.warn(TAG,
+                        "🛢️ PAPER→LIVE flip: retiring ${stalePaper.size} stale paper position(s) " +
+                        "(no on-chain backing, would mislead operator if kept visible).")
+                    stalePaper.forEach { pos ->
+                        val map = if (pos.isSpot) spotPositions else leveragePositions
+                        try { closePosition(pos, map, "PAPER_RETIRED_ON_LIVE_FLIP") }
+                        catch (e: Exception) {
+                            ErrorLogger.warn(TAG,
+                                "🛢️ retire-paper close failed for ${pos.market.symbol}: ${e.message}")
+                            map.remove(pos.id)
+                        }
+                    }
+                    persistCommodityPositions()
+                }
+            }
         }
     }
 
