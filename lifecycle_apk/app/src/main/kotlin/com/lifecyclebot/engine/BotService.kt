@@ -2483,7 +2483,7 @@ class BotService : Service() {
                             // First tick delayed slightly so bot_start has
                             // already taken the throttle slot.
                             kotlinx.coroutines.delay(11_000L)
-                            while (kotlinx.coroutines.isActive && status.running) {
+                            while (kotlinx.coroutines.currentCoroutineContext().isActive && status.running) {
                                 try {
                                     val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
                                     val openLive = try {
