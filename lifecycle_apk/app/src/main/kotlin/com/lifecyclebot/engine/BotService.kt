@@ -6317,8 +6317,15 @@ class BotService : Service() {
                                         // Try a per-mint retry as a last resort before giving up
                                         // this tick — the per-mint path uses a different RPC
                                         // method that sometimes works when the bulk one doesn't.
+                                        // V5.9.741 — null-safe call. SolanaWallet? was
+                                        // already guarded by `isLive && w != null` at the top of
+                                        // the watchdog, but Kotlin's smart-cast doesn't carry
+                                        // through this many levels of nesting, so the compiler
+                                        // rightfully rejects the direct call. Safe call collapses
+                                        // to 0.0 if w were somehow null here, which leaves the
+                                        // position pendingVerify (correct behaviour).
                                         val perMintQty: Double = try {
-                                            w.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                                            w?.getTokenAccountsWithDecimals()?.get(ts.mint)?.first ?: 0.0
                                         } catch (_: Exception) { 0.0 }
                                         if (perMintQty > 0.0) {
                                             ErrorLogger.warn("BotService",
