@@ -3098,16 +3098,15 @@ class Executor(
             // this else branch keeps its previous unchanged code (V5.9.495 etc).
             @Suppress("NAME_SHADOWING")
             val wallet: SolanaWallet = wallet!!
-            if (ts.mint in partialSellInFlight) {
+            if (!acquirePartialSellLock(ts.mint)) {
                 onLog("⏳ Partial sell already in-flight for ${ts.symbol} — skipping duplicate", ts.mint)
                 return true
             }
             try {
-                partialSellInFlight.add(ts.mint)
                 if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                         c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
                     onLog("🛑 Keypair check failed — aborting partial sell", ts.mint)
-                    partialSellInFlight.remove(ts.mint)
+                    releasePartialSellLock(ts.mint)
                     return true
                 }
                 val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
@@ -3216,7 +3215,7 @@ class Executor(
                         FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt3 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_w2")
                     }
                 }
-                partialSellInFlight.remove(ts.mint)
+                releasePartialSellLock(ts.mint)
                 // V5.9.495z47 — operator P0 (forensics 0508_143519):
                 // Verify post-sell wallet drop ≤ expected. If actual > expected
                 // by >5%, lock the mint via SellAmountAuditor (executor.liveSell
@@ -3264,7 +3263,7 @@ class Executor(
                     }
                 }
             } catch (e: Exception) {
-                partialSellInFlight.remove(ts.mint)
+                releasePartialSellLock(ts.mint)
                 onLog("Live partial sell FAILED: ${security.sanitiseForLog(e.message?:"err")} " +
                       "— position NOT updated", ts.mint)
             }
@@ -3273,7 +3272,28 @@ class Executor(
     }
 
     private val milestonesHit      = mutableMapOf<String, MutableSet<Int>>()
-    private val partialSellInFlight = mutableSetOf<String>()
+    // V5.9.753 — Emergent ticket item #5: sell-lock TTL. Previously a stuck
+    // pendingVerify sell could hold the in-flight lock forever, spamming
+    // SELL_BLOCKED_ALREADY_IN_PROGRESS every monitor tick. Now backed by a
+    // timestamped map; cleared automatically after PARTIAL_SELL_LOCK_TTL_MS.
+    private val PARTIAL_SELL_LOCK_TTL_MS = 90_000L
+    private val partialSellInFlight = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun acquirePartialSellLock(mint: String): Boolean {
+        val now = System.currentTimeMillis()
+        val existing = partialSellInFlight[mint]
+        if (existing != null && (now - existing) < PARTIAL_SELL_LOCK_TTL_MS) {
+            return false
+        }
+        if (existing != null) {
+            ErrorLogger.warn("Executor",
+                "🔓 PARTIAL_SELL_LOCK_EXPIRED mint=${mint.take(10)}… ageMs=${now - existing} — releasing stale lock")
+        }
+        partialSellInFlight[mint] = now
+        return true
+    }
+    private fun releasePartialSellLock(mint: String) {
+        partialSellInFlight.remove(mint)
+    }
     // Guard against concurrent exit triggers (e.g. RAPID_HARD_FLOOR + SELL_OPT) both
     // executing a sell on the same position before the first one clears it.
     private val sellInProgress = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
@@ -5633,6 +5653,44 @@ class Executor(
             return
         }
         
+        // V5.9.753 — Emergent ticket item #6: hard LIVE risk gate before quote/build/broadcast.
+        // Operator forensics on America250 buy showed the executor proceeded
+        // despite the safety report flagging HARD_BLOCK reasons (top10 holders >
+        // threshold, low liquidity, low LP providers, unverified). TokenSafetyChecker
+        // was already running during scan and stamping ts.safety, but the executor
+        // never re-asked at the broadcast boundary. Live mode must hard-block here.
+        run {
+            val safety = ts.safety
+            val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
+            val SAFETY_STALE_MS = 120_000L  // 2 min — beyond this safety data is too old to trust for a live buy
+            val safetyMissing = ts.lastSafetyCheck == 0L
+            val safetyStale = safetyAgeMs > SAFETY_STALE_MS
+            val safetyHardBlock = safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK
+            if (safetyHardBlock || safetyMissing || safetyStale) {
+                val reason = when {
+                    safetyHardBlock -> "SAFETY_HARD_BLOCK: ${safety.hardBlockReasons.firstOrNull() ?: safety.summary.take(80)}"
+                    safetyMissing   -> "SAFETY_DATA_MISSING: no safety report has run for this mint"
+                    else            -> "SAFETY_DATA_STALE: lastCheck=${safetyAgeMs/1000}s ago (> ${SAFETY_STALE_MS/1000}s)"
+                }
+                ErrorLogger.warn("Executor",
+                    "[EXECUTION/LIVE_BUY_BLOCKED_RISK] ${ts.symbol} mint=${ts.mint.take(12)}… reason=$reason")
+                try {
+                    val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_FAILED,
+                        "LIVE_BUY_BLOCKED_RISK — $reason",
+                        traderTag = "MEME",
+                    )
+                } catch (_: Throwable) {}
+                onLog("🛡 LIVE BUY BLOCKED [${ts.symbol}]: $reason", ts.mint)
+                onNotify("🛡 Live buy blocked", "${ts.symbol} — ${reason.take(80)}",
+                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
+                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_BUY_BLOCKED_RISK")
+                return
+            }
+        }
+
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
         
         if (walletSol <= 0) {
@@ -5828,16 +5886,25 @@ class Executor(
             val simErr = jupiter.simulateSwap(txResultLocal.txBase64, wallet.rpcUrl)
             if (simErr != null) {
                 if (simErr.startsWith("RPC error:") || simErr.startsWith("Simulate failed: null")) {
-                    // RPC connectivity issue (rate-limit, timeout, unavailable) — NOT a swap failure.
-                    // Log and proceed: the actual on-chain send will reject with a clear error if invalid.
-                    onLog("⚠️ Simulation RPC unavailable: $simErr — proceeding without preflight", ts.mint)
-                    ErrorLogger.warn("Executor", "⚠️ Sim RPC skipped for ${ts.symbol}: $simErr")
+                    // V5.9.753 — Emergent ticket item #2. PREVIOUSLY this branch
+                    // proceeded with the broadcast on RPC simulation failure (the
+                    // "Sim RPC unavailable — proceeding" path). Operator forensics
+                    // showed real funds being committed on the back of a missing
+                    // preflight. Live mode must NEVER skip simulation — abort.
+                    onLog("🛑 LIVE BUY ABORTED [${ts.symbol}]: simulation RPC unavailable ($simErr)", ts.mint)
+                    ErrorLogger.warn("Executor",
+                        "[EXECUTION/LIVE_BUY_BLOCKED_SIM_UNAVAILABLE] ${ts.symbol}: $simErr — refusing to broadcast without preflight")
                     LiveTradeLogStore.log(
                         tradeKey, ts.mint, ts.symbol, "BUY",
                         LiveTradeLogStore.Phase.BUY_SIM_FAIL,
-                        "Sim RPC unavailable: ${simErr.take(80)} — proceeding",
+                        "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE — ${simErr.take(80)}",
                         traderTag = "MEME",
                     )
+                    onNotify("🛑 Live buy aborted",
+                        "${ts.symbol} — simulation RPC unavailable",
+                        com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                    PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE")
+                    throw Exception("LIVE_BUY_BLOCKED_SIM_UNAVAILABLE: $simErr")
                 } else {
                     // Actual swap simulation failure (bad accounts, insufficient funds, etc.)
                     onLog("Swap simulation failed: $simErr", ts.mint)
