@@ -2945,6 +2945,28 @@ class Executor(
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                               paperPnlSol, pct(pos.costSol * sellFraction, sellQty * actualPrice))
             recordTrade(ts, trade); security.recordTrade(trade)
+            // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
+            // sell ladder. Previously only the manual requestPartialSell entry
+            // point siphoned (V5.9.428 wired that one). checkPartialSell fires
+            // at +200%/+500%/+2000% milestones every monitor tick and is the
+            // PRIMARY meme partial path — leaving it un-wired meant Treasury
+            // saw 0% of the realised profit on every TP rung until the
+            // position fully closed. Operator spec: 'treasury accumulates 30%
+            // of all memetrader profit'.
+            // Treasury-tagged positions deposit 100% (cash-gen scalp pattern).
+            if (paperPnlSol > 0.0) {
+                try {
+                    if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                        com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
+                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                    } else {
+                        com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Treasury split error (checkPartial paper): ${e.message}")
+                }
+            }
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
         } else {
@@ -3093,6 +3115,26 @@ class Executor(
                 onNotify("💰 Live Partial Sell",
                     "${ts.symbol}  +${gainPct.toInt()}%  sold ${(sellFraction*100).toInt()}%",
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                // V5.9.743 — wire 70/30 treasury siphon onto LIVE autonomous
+                // partial-sell ladder. Use netPnl (post-fee) — same figure
+                // liveSell uses. Treasury-tagged positions deposit 100%.
+                // Bookkeeping only in live mode (the SOL has already returned
+                // from Jupiter at full face value); a separate on-chain
+                // trading→treasury transfer is fired by
+                // TreasuryManager.triggerOnChainTransferIfLive.
+                if (netPnl > 0.0) {
+                    try {
+                        if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                            com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
+                                netPnl, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                        } else {
+                            com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                                netPnl, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("Executor", "Treasury split error (checkPartial live): ${e.message}")
+                    }
+                }
             } catch (e: Exception) {
                 partialSellInFlight.remove(ts.mint)
                 onLog("Live partial sell FAILED: ${security.sanitiseForLog(e.message?:"err")} " +
@@ -6643,7 +6685,27 @@ class Executor(
                         traderTag = "MEME",
                     )
                     com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
-                    
+
+                    // V5.9.743 — wire 70/30 treasury siphon onto the LIVE branch
+                    // of the manual requestPartialSell entry point. The PAPER
+                    // branch of this same function already siphons (V5.9.428);
+                    // the LIVE branch was missing the call, so any external
+                    // partial-close request (UI button / API) deposited 0%
+                    // to Treasury in live mode. Use netPnl (post-fee).
+                    if (netPnl > 0.0) {
+                        try {
+                            if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                                com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
+                                    netPnl, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            } else {
+                                com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
+                                    netPnl, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("Executor", "Treasury split error (reqPartial live): ${e.message}")
+                        }
+                    }
+
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)
                     
