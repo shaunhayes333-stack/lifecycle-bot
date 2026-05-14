@@ -387,7 +387,20 @@ class Executor(
         //   (b) the position is open with a real entryPrice,
         //   (c) the source at entry differs from current source, AND
         //   (d) we haven't already rebased once.
+        // V5.9.747 — LIVE POSITIONS NEVER REBASE.
+        // Operator report: 'live buys have gone weird. very messy.'
+        // Root cause: V5.9.744 rebase fires on ANY position when the price
+        // source changes from entry source. But LIVE positions have a real
+        // on-chain entry price from the Jupiter swap (SOL paid / tokens
+        // received) — that's ground truth. Rebasing that based on off-chain
+        // mcap pivots produces a fictional entry price, which then breaks
+        // displayed PnL, SL/TP triggers, partial-sell levels, and exit gates
+        // for the entire life of the live position. The rebase was designed
+        // for PAPER positions where the entry was a synthesized quote (and
+        // therefore vulnerable to basis switches at graduation). Gate the
+        // rebase block on isPaperPosition so live entries stay sacred.
         if (livePrice != null && pos.isOpen && pos.entryPrice > 0 &&
+            pos.isPaperPosition &&  // V5.9.747 — live positions never rebase
             !pos.priceBasisRescaled &&
             pos.entryPriceSource.isNotBlank() &&
             ts.lastPriceSource.isNotBlank() &&
