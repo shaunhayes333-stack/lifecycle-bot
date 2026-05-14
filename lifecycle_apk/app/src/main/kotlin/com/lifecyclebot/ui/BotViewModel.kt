@@ -407,10 +407,13 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                         .requestWithdrawalAmount(amountSol, solPx)
                     if (!wResult.approved) {
                         wResult.message
-                    } else if (cfg.paperMode || wallet == null) {
+                    } else if (cfg.paperMode) {
                         com.lifecyclebot.engine.TreasuryManager
                             .executeWithdrawal(wResult.approvedSol, solPx, dest)
                         "PAPER: ${wResult.approvedSol.fmtSol()}◎ withdrawn"
+                    } else if (wallet == null) {
+                        // V5.9.751b — refuse paper fallback in live mode.
+                        "BLOCKED: wallet disconnected — refusing paper-fallback withdrawal"
                     } else {
                         try {
                             val sig = wallet.sendSol(dest, wResult.approvedSol)

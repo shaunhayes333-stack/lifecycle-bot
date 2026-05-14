@@ -1989,7 +1989,18 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             sounds?.playMilestone(gainPct)
             
-            if (c.paperMode || wallet == null) {
+            // V5.9.751b — route on POSITION isPaper, not config. Previously
+            // a live position with a transient wallet=null silently booked a
+            // PAPER capital-recovery sell, leaving the real tokens on-chain
+            // while the position numbers updated as if they were sold. The
+            // wallet=null branch now defers (returns false) so the engine
+            // retries on the next monitor tick once the wallet reconnects.
+            if (!pos.isPaperPosition && wallet == null) {
+                ErrorLogger.warn("Executor",
+                    "🚫 CAPITAL_RECOVERY_DEFERRED: ${ts.symbol} — live position but wallet=null. Will retry next tick.")
+                return false
+            }
+            if (pos.isPaperPosition) {
                 val newQty = pos.qtyToken - sellQty
                 val newCost = pos.costSol * (1.0 - sellFraction)
                 val pnlSol = sellSol - pos.costSol * sellFraction
@@ -2025,7 +2036,9 @@ class Executor(
                 
                 onLog("📄 PAPER CAPITAL LOCK: Sold ${sellSol.fmt(4)} SOL @ +${gainPct.toInt()}% — now playing with house money!", ts.mint)
             } else {
-                executeProfitLockSell(ts, wallet, sellFraction, "capital_recovery_${gainMultiple.fmt(1)}x", walletSol)
+                // V5.9.751b — wallet is guaranteed non-null here by the
+                // CAPITAL_RECOVERY_DEFERRED guard above; assert for smart cast.
+                executeProfitLockSell(ts, wallet!!, sellFraction, "capital_recovery_${gainMultiple.fmt(1)}x", walletSol)
             }
             return true
         }
@@ -2041,7 +2054,14 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             sounds?.playMilestone(gainPct)
             
-            if (c.paperMode || wallet == null) {
+            // V5.9.751b — see B1 note. Route on position isPaper, defer if
+            // live-position + wallet=null.
+            if (!pos.isPaperPosition && wallet == null) {
+                ErrorLogger.warn("Executor",
+                    "🚫 PROFIT_LOCK_DEFERRED: ${ts.symbol} — live position but wallet=null. Will retry next tick.")
+                return false
+            }
+            if (pos.isPaperPosition) {
                 val newQty = pos.qtyToken - sellQty
                 val newCost = pos.costSol * (1.0 - sellFraction)
                 val pnlSol = sellSol - pos.costSol * sellFraction
@@ -2076,7 +2096,8 @@ class Executor(
                 
                 onLog("📄 PAPER PROFIT LOCK: Sold ${sellSol.fmt(4)} SOL @ ${gainMultiple.fmt(1)}x — letting rest ride free!", ts.mint)
             } else {
-                executeProfitLockSell(ts, wallet, sellFraction, "profit_lock_${gainMultiple.fmt(1)}x", walletSol)
+                // V5.9.751b — wallet guaranteed non-null by PROFIT_LOCK_DEFERRED guard.
+                executeProfitLockSell(ts, wallet!!, sellFraction, "profit_lock_${gainMultiple.fmt(1)}x", walletSol)
             }
             return true
         }
@@ -3032,7 +3053,16 @@ class Executor(
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         sounds?.playMilestone(gainPct)
 
-        if (c.paperMode || wallet == null) {
+        // V5.9.751b — route on position isPaper, not config. Previously a
+        // live position with transient wallet=null silently booked a PAPER
+        // partial sell here while the real tokens stayed on-chain. Defer
+        // and retry next tick when wallet is null on a live position.
+        if (!pos.isPaperPosition && wallet == null) {
+            ErrorLogger.warn("Executor",
+                "🚫 PARTIAL_SELL_DEFERRED: ${ts.symbol} — live position but wallet=null. Will retry next tick.")
+            return false
+        }
+        if (pos.isPaperPosition) {
             ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
             val trade   = Trade("SELL", "paper", sellSol, actualPrice,
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
@@ -3063,6 +3093,11 @@ class Executor(
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
         } else {
+            // V5.9.751b — wallet guaranteed non-null by PARTIAL_SELL_DEFERRED guard above.
+            // Shadow the nullable param with a non-null binding so the rest of
+            // this else branch keeps its previous unchanged code (V5.9.495 etc).
+            @Suppress("NAME_SHADOWING")
+            val wallet: SolanaWallet = wallet!!
             if (ts.mint in partialSellInFlight) {
                 onLog("⏳ Partial sell already in-flight for ${ts.symbol} — skipping duplicate", ts.mint)
                 return true
@@ -4373,8 +4408,14 @@ class Executor(
               "+${gainPct.toInt()}% gain | adding ${size.fmt(4)} SOL " +
               "(total will be ${(pos.costSol + size).fmt(4)} SOL)", ts.mint)
 
-        if (c.paperMode || wallet == null) {
+        // V5.9.751b — refuse paper fallback when config is live (see A1 note).
+        if (c.paperMode) {
             paperTopUp(ts, size)
+        } else if (wallet == null) {
+            ErrorLogger.error("Executor",
+                "🚫 LIVE_TOPUP_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing paperTopUp fallback.")
+            onLog("🚫 Live top-up blocked: ${ts.symbol} — wallet disconnected.", ts.mint)
+            return
         } else {
             val guard = security.checkBuy(
                 mint         = ts.mint,
@@ -4630,10 +4671,28 @@ class Executor(
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).
-        val spineRoute = if (cfg().paperMode || wallet == null) "PAPER" else "LIVE_PRECHECK"
-        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | cfgPaper=${cfg().paperMode} | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
-        if (cfg().paperMode || wallet == null) {
+        // V5.9.751b — Hard rule: if config is LIVE, never silently fall through
+        // to paperBuy when the wallet is missing. Operator forensics showed
+        // paper trades being booked during live runs because a transient
+        // wallet=null at this call site silently flipped the route.
+        // Mirror the V5.9.738 dipHunterBuy pattern: refuse cleanly.
+        val isPaperMode = cfg().paperMode
+        val spineRoute = when {
+            isPaperMode -> "PAPER"
+            wallet == null -> "LIVE_REFUSED_NO_WALLET"
+            else -> "LIVE_PRECHECK"
+        }
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | cfgPaper=$isPaperMode | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
+        if (isPaperMode) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
+        } else if (wallet == null) {
+            ErrorLogger.error("Executor",
+                "🚫 MEME_SPINE LIVE_BUY_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing to fall back to paperBuy.")
+            onLog("🚫 Live buy blocked: ${ts.symbol} — wallet disconnected. Reconnect to resume live trading.", tradeId.mint)
+            onNotify("🚫 Wallet Disconnected",
+                "Cannot execute live buy on ${ts.symbol} — wallet is not connected. Paper-trade fallback refused.",
+                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            return
         } else {
             // V5.9.643 — capture non-null wallet here so Kotlin smart-cast
             // survives through the when(guard) branches without losing nullability
@@ -10120,13 +10179,29 @@ class Executor(
                 
                 onLog("🔴 EMERGENCY CLOSE: ${ts.symbol} @ ${gainPct.toInt()}% gain | reason=bot_shutdown", ts.mint)
                 
-                if (paperMode || wallet == null) {
-                    paperSell(ts, "bot_shutdown")
-                } else {
-                    liveSell(ts, "bot_shutdown", wallet, walletSol)
+                // V5.9.751b — route on POSITION isPaper, not config. Previously
+                // a live position with wallet=null during shutdown silently
+                // booked a paperSell (phantom close: position numbers updated
+                // but tokens stayed on-chain). Now: paper positions paperSell,
+                // live positions liveSell. If a live position has no wallet,
+                // skip the close so the next session reconciler can adopt it.
+                val isPaperPos = pos.isPaperPosition
+                when {
+                    isPaperPos -> {
+                        paperSell(ts, "bot_shutdown")
+                        closedCount++
+                    }
+                    wallet != null -> {
+                        liveSell(ts, "bot_shutdown", wallet, walletSol)
+                        closedCount++
+                    }
+                    else -> {
+                        ErrorLogger.warn("Executor",
+                            "🚫 SHUTDOWN_CLOSE_DEFERRED: ${ts.symbol} — live position with no wallet. " +
+                            "Position left OPEN for next-session reconciler to adopt.")
+                        onLog("⏸ Live ${ts.symbol} left open — wallet disconnected at shutdown.", ts.mint)
+                    }
                 }
-                
-                closedCount++
                 
             } catch (e: Exception) {
                 onLog("Failed to close ${ts.symbol}: ${e.message}", ts.mint)
@@ -10443,10 +10518,17 @@ class Executor(
         val approved = result.approvedSol
         onLog("🏦 Treasury withdrawal: ${approved.fmt(4)}◎ → ${destinationAddress.take(16)}…", "treasury")
 
-        if (cfg().paperMode || wallet == null) {
+        // V5.9.751b — refuse paper fallback on treasury withdrawal when live.
+        if (cfg().paperMode) {
             TreasuryManager.executeWithdrawal(approved, solPx, destinationAddress)
             onLog("PAPER TREASURY WITHDRAWAL: ${approved.fmt(4)}◎", "treasury")
             return "OK_PAPER"
+        }
+        if (wallet == null) {
+            ErrorLogger.error("Executor",
+                "🚫 LIVE_TREASURY_WITHDRAWAL_REFUSED: wallet is NULL. Refusing paper-fallback withdrawal.")
+            onLog("🚫 Treasury withdrawal blocked: wallet disconnected. Reconnect to continue.", "treasury")
+            return "BLOCKED: wallet_disconnected"
         }
 
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
