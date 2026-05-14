@@ -2011,8 +2011,24 @@ for legal compliance.
                 val amountViolations = try {
                     com.lifecyclebot.engine.sell.SellAmountAuditor.lockedCount()
                 } catch (_: Throwable) { 0 }
+                // V5.9.755 — surface WR-Recovery state on the readiness card.
+                // Operator screenshot 2026-05-15 02:58 — WR=29% (below phase
+                // target × 0.85) but no visible indicator that the recovery
+                // partial trigger had dropped to drive WR back up. Pull the
+                // canonical status tag from WrRecoveryPartial.statusTag().
+                val wrRecoveryTag = try {
+                    val tag = com.lifecyclebot.engine.WrRecoveryPartial.statusTag()
+                    when {
+                        tag.contains("ACTIVE") -> {
+                            // e.g. "WR_RECOVERY:ACTIVE(wr=29%,target=38%)" → "🚑 WR recovery @9%"
+                            "🚑 WR recovery @9%"
+                        }
+                        else -> ""
+                    }
+                } catch (_: Throwable) { "" }
+
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
-                    recoveryLocks == 0 && amountViolations == 0) {
+                    recoveryLocks == 0 && amountViolations == 0 && wrRecoveryTag.isEmpty()) {
                     gs.text = "🛡 Guards: clear" + appendDeferTile()
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
@@ -2022,6 +2038,7 @@ for legal compliance.
                     if (coachingCount > 0) parts += "$coachingCount coaching"
                     if (recoveryLocks > 0) parts += "🔒 $recoveryLocks recovery-lock${if (recoveryLocks == 1) "" else "s"}"
                     if (amountViolations > 0) parts += "🚨 $amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
+                    if (wrRecoveryTag.isNotEmpty()) parts += wrRecoveryTag
                     gs.text = "🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile()
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }

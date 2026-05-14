@@ -45,8 +45,18 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object WrRecoveryPartial {
     private const val WR_RECOVERY_THRESHOLD  = 0.85   // fire below 85% of phase target
-    private const val RECOVERY_TRIGGER_SCALE = 0.60   // lower first trigger to 60% of normal
     private const val MIN_PARTIAL_GAIN_PCT   = 5.0    // never lock below 5% gain
+    // V5.9.755 — recovery is ABSOLUTE not relative. When V5.9.722 shipped,
+    // partialSellTriggerPct defaulted to 15% and `normal * 0.60 = 9%` made sense.
+    // Today the tuner can drive partialSellTriggerPct anywhere from 50%–500%,
+    // so a relative scale gives recovery triggers of 30%–300% — far too high
+    // to ever fire on the kind of stop-loss-heavy ladder a recovering bot sees.
+    // Operator screenshot 2026-05-15 02:58: WR=29% with 0 partials firing because
+    // tokens died at -12% / -21% / -37% long before reaching the +120% trigger.
+    // V5.9.755 uses a fixed 9% first-partial trigger when recovery is active —
+    // matches the spec example in WR-Recovery rule (Memory #31) and ensures
+    // the lock-in actually fires on the bot's typical trade trajectory.
+    private const val ABSOLUTE_RECOVERY_TRIGGER = 9.0  // hard recovery trigger %
 
     /**
      * Returns the effective first-partial trigger pct.
@@ -55,7 +65,6 @@ object WrRecoveryPartial {
     fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
         if (partialLevel != 0) return normalTrigger          // only override first rung
         if (profitLockTriggered) return normalTrigger        // already locked — let it ride
-        if (gainPct < MIN_PARTIAL_GAIN_PCT) return normalTrigger  // noise gate
 
         val wins   = CanonicalLearningCounters.settledWins.get().toDouble()
         val losses = CanonicalLearningCounters.settledLosses.get().toDouble()
@@ -71,9 +80,15 @@ object WrRecoveryPartial {
         if (targetWR <= 0.0) return normalTrigger           // phase has no WR target yet
         if (currentWR >= targetWR * WR_RECOVERY_THRESHOLD) return normalTrigger  // on-target → no override
 
-        // Below target → lower the trigger
-        val recoveryTrigger = (normalTrigger * RECOVERY_TRIGGER_SCALE).coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
-        ErrorLogger.info("WrRecovery", "📉 WR RECOVERY PARTIAL: WR=${currentWR.toInt()}% < target=${targetWR.toInt()}%×0.85 → trigger lowered ${normalTrigger.toInt()}%→${recoveryTrigger.toInt()}%")
+        // Below target → use the absolute recovery trigger.
+        // Clamp to at most the normal trigger so we never RAISE it.
+        val recoveryTrigger = ABSOLUTE_RECOVERY_TRIGGER
+            .coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
+            .coerceAtMost(normalTrigger)
+        // Only log when we're actually going to act (token has reached the new trigger)
+        if (gainPct >= recoveryTrigger) {
+            ErrorLogger.info("WrRecovery", "📉 WR RECOVERY PARTIAL FIRING: WR=${"%.1f".format(currentWR)}% < target=${targetWR.toInt()}%×0.85 → ${normalTrigger.toInt()}%→${recoveryTrigger.toInt()}% (gain=${gainPct.toInt()}%)")
+        }
         return recoveryTrigger
     }
 
