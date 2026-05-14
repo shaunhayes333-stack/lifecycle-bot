@@ -39,6 +39,14 @@ object BehaviorLearning {
 
     private val totalGoodRecorded = AtomicInteger(0)
     private val totalBadRecorded = AtomicInteger(0)
+    // V5.9.745 — scratch counter. Scratch trades (PnL in [-2%, +1%]) used to
+    // early-return from recordTrade(), leaving BehaviorLearning.tradeCount
+    // stuck ~67% below the canonical bus (operator audit: canonical=600 vs
+    // behavior=198, Δ=-402). Scratches DON'T go into good/bad pattern memory
+    // (they aren't signal), but they DO count toward total-trades-seen so
+    // WalletTruthDigest reflects reality and self-healing thresholds
+    // (MIN_TRADES_FOR_HEALTH etc) fire on the correct sample-size.
+    private val totalScratchRecorded = AtomicInteger(0)
 
     data class BehaviorPattern(
         val patternId: String,
@@ -175,7 +183,14 @@ object BehaviorLearning {
             val isWin = isWin(pnlPct)
             val isLoss = isLoss(pnlPct)
 
+            // V5.9.745 — count scratch trades, don't silently drop them.
+            // Previously this early-returned on any trade with PnL in
+            // [-2%, +1%], dropping ~67% of meme trades from the counter.
+            // Scratches aren't signal for good/bad pattern memory but they
+            // ARE settled trades and must increment total-seen so self-
+            // healing operates on real sample size.
             if (!isWin && !isLoss) {
+                totalScratchRecorded.incrementAndGet()
                 return
             }
 
@@ -515,11 +530,17 @@ object BehaviorLearning {
         }
     }
 
-    fun getTradeCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get()
+    // V5.9.745 — tradeCount now includes scratch settlements so the operator
+    // dashboard's WalletTruthDigest reflects every settled trade. WR remains
+    // calculated only over graded (win/loss) trades — scratches are excluded
+    // from the denominator because they would artificially deflate the WR.
+    fun getTradeCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get() + totalScratchRecorded.get()
+    fun getWinLossCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get()
+    fun getScratchCount(): Int = totalScratchRecorded.get()
 
     fun getWinRate(): Double {
-        val total = getTradeCount()
-        return if (total > 0) totalGoodRecorded.get().toDouble() / total * 100.0 else 0.0
+        val winLoss = getWinLossCount()  // exclude scratches from WR denominator
+        return if (winLoss > 0) totalGoodRecorded.get().toDouble() / winLoss * 100.0 else 0.0
     }
 
     fun selfHealingCheck(): Boolean {
@@ -617,6 +638,7 @@ object BehaviorLearning {
             JSONObject().apply {
                 put("totalGood", totalGoodRecorded.get())
                 put("totalBad", totalBadRecorded.get())
+                put("totalScratch", totalScratchRecorded.get())  // V5.9.745
 
                 val goodArray = JSONArray()
                 goodStats.values.filter { it.isReliable }.forEach { stat ->
@@ -661,6 +683,7 @@ object BehaviorLearning {
 
             totalGoodRecorded.set(json.optInt("totalGood", 0))
             totalBadRecorded.set(json.optInt("totalBad", 0))
+            totalScratchRecorded.set(json.optInt("totalScratch", 0))  // V5.9.745
 
             json.optJSONArray("goodStats")?.let { arr ->
                 for (i in 0 until arr.length()) {
@@ -732,6 +755,7 @@ object BehaviorLearning {
         badStats.clear()
         totalGoodRecorded.set(0)
         totalBadRecorded.set(0)
+        totalScratchRecorded.set(0)  // V5.9.745
         lastHealthCheck = 0L
         consecutiveBadPeriods = 0
         ErrorLogger.warn(TAG, "🧹 Behavior learning cleared")
