@@ -6276,6 +6276,21 @@ class BotService : Service() {
                             null
                         }
                     } else null
+                    // V5.9.739 — operator screenshot 2026-05-14 18:43 showed
+                    // 4 live positions sitting on-chain (BULLISH, MEMEART,
+                    // MTFR, NVDAx) that never appeared in the bot UI. Root
+                    // cause: a single empty-map RPC response was being
+                    // treated as "all tokens absent" and wiping every stuck
+                    // position as a ghost. An empty map almost never means
+                    // an empty wallet — it means the indexer hadn't caught
+                    // up. Treat it as RPC failure, not a clean zero.
+                    val mapLooksEmpty = isLive && onChainBalances != null && onChainBalances.isEmpty()
+                    if (mapLooksEmpty) {
+                        ErrorLogger.warn(
+                            "BotService",
+                            "🔧 [VERIFY_WATCHDOG] RPC returned EMPTY map — treating as inconclusive (not wiping)."
+                        )
+                    }
                     status.tokens.values.forEach { ts ->
                         val pos = ts.position
                         if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
@@ -6296,10 +6311,32 @@ class BotService : Service() {
                                         }
                                         try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                                         clearedCount++
+                                    } else if (mapLooksEmpty) {
+                                        // V5.9.739 — bulk RPC returned empty map. Do NOT wipe.
+                                        // The indexer is lagging or the RPC is having a moment.
+                                        // Try a per-mint retry as a last resort before giving up
+                                        // this tick — the per-mint path uses a different RPC
+                                        // method that sometimes works when the bulk one doesn't.
+                                        val perMintQty: Double = try {
+                                            w.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                                        } catch (_: Exception) { 0.0 }
+                                        if (perMintQty > 0.0) {
+                                            ErrorLogger.warn("BotService",
+                                                "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED via per-mint RETRY (qty=$perMintQty) after empty bulk map. Promoting.")
+                                            synchronized(ts) {
+                                                ts.position = pos.copy(qtyToken = perMintQty, pendingVerify = false)
+                                            }
+                                            try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                            clearedCount++
+                                        } else {
+                                            ErrorLogger.warn("BotService",
+                                                "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — empty bulk + per-mint retry inconclusive. Keeping pendingVerify; will retry next tick.")
+                                        }
                                     } else {
-                                        // RPC succeeded, no tokens → confirmed phantom. Wipe.
+                                        // RPC succeeded with a non-empty map and this specific
+                                        // mint is genuinely absent → real phantom. Wipe.
                                         ErrorLogger.warn("BotService",
-                                            "👻 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — GHOST POSITION confirmed (0 tokens on-chain). Wiping.")
+                                            "👻 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — GHOST POSITION confirmed (non-empty wallet map, mint absent). Wiping.")
                                         synchronized(ts) {
                                             ts.position = com.lifecyclebot.data.Position()
                                             ts.lastExitTs = now

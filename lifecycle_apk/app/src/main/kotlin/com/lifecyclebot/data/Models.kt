@@ -274,9 +274,38 @@ data class BotStatus(
     // sufficient for single-operation atomicity).
     val tokens: MutableMap<String, TokenState> = java.util.concurrent.ConcurrentHashMap(),
 ) {
-    /** All tokens currently holding a position */
+    /** All tokens currently holding a position.
+     *
+     *  V5.9.739 — extended to include `pendingVerify` positions older than
+     *  120s whose tokens still need on-chain confirmation. Operator (Bernard
+     *  Griffin, messenger 2026-05-14 18:43) screenshot showed BULLISH /
+     *  MEMEART / MTFR / NVDAx sitting in the Phantom wallet but completely
+     *  invisible in the bot UI. Cause: the per-token verifier failed to
+     *  confirm within its 30s window (Jupiter Ultra indexing lag), so the
+     *  positions stayed `pendingVerify=true`. `position.isOpen` filters
+     *  those out → operator sees nothing.
+     *
+     *  This list is consumed by UI rendering and PnL display. Exit /
+     *  management logic continues to use `position.isOpen` directly
+     *  (BotService.kt:8217 etc.), so we never trade tokens that haven't
+     *  been confirmed on-chain. The visibility relaxation is purely
+     *  cosmetic — but it's the difference between "the bot lost my
+     *  positions" and "the bot is showing me the position and waiting
+     *  for on-chain confirmation". */
     val openPositions: List<TokenState>
-        get() = tokens.values.filter { it.position.isOpen }
+        get() = tokens.values.filter { ts ->
+            val pos = ts.position
+            if (pos.isOpen) return@filter true
+            // V5.9.739 — include stale pendingVerify (>120s) with non-zero
+            // qty as "open for viewing". Watchdog will resolve them in
+            // ≤60s; until then, operator sees the position so they know
+            // capital is deployed.
+            if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
+                val ageMs = System.currentTimeMillis() - pos.entryTime
+                return@filter ageMs >= 120_000L
+            }
+            false
+        }
 
     /** Total SOL currently at risk across all positions */
     val totalExposureSol: Double
