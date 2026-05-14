@@ -351,42 +351,122 @@ class Executor(
     fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
     
     private fun getActualPrice(ts: TokenState): Double {
-        // V5.7.7 SIMPLIFIED: Use lastPrice directly - it's updated by DexScreener WebSocket
-        
-        // Primary: DexScreener price (most reliable, real-time)
-        val dexPrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
-        
-        // V5.9.734 — REAL DATA ONLY policy.
-        // Previous logic substituted candle price or entry price when the
-        // live tick looked wrong — that's simulated data feeding the exit
-        // engine and exactly what the operator is removing. New behaviour:
-        // if the tick is obviously glitched (>100x off entry, the same
-        // threshold used by the BotService ingest tick-filter), return 0
-        // so the CALLER skips this evaluation cycle. No substitution, no
-        // synthesized fallback. The position simply waits for a real
-        // tick. RAPID_TAKE_PROFIT and STOP_LOSS engines all check for
-        // <= 0 and bail, so a skipped cycle is safe — we just don't
-        // make a decision on bad data.
-        if (dexPrice != null && ts.position.entryPrice > 0) {
-            val ratio = dexPrice / ts.position.entryPrice
-            if (ratio > 100.0 || ratio < 0.01) {
-                ErrorLogger.warn("Executor",
-                    "🚫 PRICE_REJECT ${ts.symbol}: dex=$dexPrice vs entry=${ts.position.entryPrice} " +
-                    "(${"%.1f".format(ratio)}x) — feed glitch, skipping eval until clean tick arrives")
-                return 0.0
+        // V5.9.744 — POOL/SOURCE-AWARE PRICE RESOLVER.
+        // ═══════════════════════════════════════════════════════════════
+        // The pre-744 implementation returned `ts.lastPrice` as-is, with
+        // a >100x rejection for what looked like feed glitches. But the
+        // "glitch" was often NOT a glitch — it was a REAL price on a
+        // DIFFERENT BASIS. A Pump.Fun BC token priced via mcap/1B at
+        // entry, then graduated to Raydium and DexScreener WS quoted the
+        // REAL pool price (different per-token basis), would look like
+        // a 38x jump and either get rejected (V5.9.734 reject path) or
+        // logged as phantom +3960% PnL on the journal (pre-734 substitute
+        // path). Same mint, same wallet state — two prices on two
+        // incompatible synthesizer bases.
+        //
+        // The operator-mandated fix: at buy-time we stamped the entry
+        // pricing source / pool / DEX into Position. Here we:
+        //   1. Read the current ts.lastPrice + ts.lastPriceSource.
+        //   2. If we have an open position and the source has CHANGED
+        //      from what was stamped at entry, REBASE entryPrice once
+        //      using the candle history pivot — this makes the entry
+        //      and current quote comparable on the new source's basis.
+        //   3. After that single rebase, return ts.lastPrice unmodified.
+        //   4. No rejections. No clamping. No simulation. Real data only.
+        //
+        // The rebase only ever fires ONCE per position (gated by
+        // pos.priceBasisRescaled). After it fires, all future ticks on
+        // the new source feed normally into PnL.
+
+        val livePrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
+        val pos = ts.position
+
+        // Detect source-basis switch on an open position.
+        // Three conditions must ALL hold:
+        //   (a) we have a live price,
+        //   (b) the position is open with a real entryPrice,
+        //   (c) the source at entry differs from current source, AND
+        //   (d) we haven't already rebased once.
+        if (livePrice != null && pos.isOpen && pos.entryPrice > 0 &&
+            !pos.priceBasisRescaled &&
+            pos.entryPriceSource.isNotBlank() &&
+            ts.lastPriceSource.isNotBlank() &&
+            pos.entryPriceSource != ts.lastPriceSource) {
+
+            // The ratio between the entry's basis price and the new source's
+            // price ON THE SAME MOMENT (we approximate with the first cross-
+            // source tick we see) is the multiplicative rescale factor.
+            // Concretely: if entry was on PUMP_FUN_BC at $0.000003 (mcap/1B)
+            // and DexScreener WS just reported $0.00012 for the same token at
+            // graduation moment, the BC-basis equivalent of the new price
+            // is what we want entryPrice scaled INTO so PnL = livePrice/scaled-
+            // entryPrice reflects real percent change post-graduation.
+            //
+            // Without a synchronized cross-source quote (which we don't have),
+            // the most honest default is to NOT rescale on the very first
+            // post-switch tick and instead use ts.history's most recent
+            // candle on the NEW source as the rescale pivot. Pump.Fun
+            // graduation always produces a fresh Raydium pool price; that
+            // first new-source candle is the pivot.
+            val newSourceCandle = ts.history.lastOrNull { c ->
+                c.priceUsd > 0 && c.priceUsd.isFinite()
+            }
+            if (newSourceCandle != null && newSourceCandle.priceUsd > 0) {
+                // Rescale factor: how much did the basis itself change?
+                // Best proxy available: the ratio of MCAP at entry to MCAP now,
+                // which is invariant across supply-assumption changes (mcap is
+                // dollar-denominated, not per-token).
+                val entryMcap = pos.entryMcap.takeIf { it > 0 }
+                val currentMcap = ts.lastMcap.takeIf { it > 0 } ?: newSourceCandle.marketCap.takeIf { it > 0 }
+                if (entryMcap != null && currentMcap != null && currentMcap > 0) {
+                    // Equivalent entry price on the NEW basis is whatever
+                    // entryPrice would have been if we had measured it via
+                    // the new source's per-token price at the same mcap level.
+                    // = livePrice * (entryMcap / currentMcap)
+                    val rebasedEntry = livePrice * (entryMcap / currentMcap)
+                    if (rebasedEntry > 0 && rebasedEntry.isFinite()) {
+                        val factor = rebasedEntry / pos.entryPrice
+                        if (factor.isFinite() && factor > 0 && factor < 1e9) {
+                            ErrorLogger.warn("Executor",
+                                "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
+                                "| entry ${pos.entryPrice}→${rebasedEntry} (×${"%.4g".format(factor)}) " +
+                                "| mcap ${entryMcap}→${currentMcap} | live ${livePrice}")
+                            ts.position = pos.copy(
+                                entryPrice = rebasedEntry,
+                                highestPrice = pos.highestPrice * factor,
+                                lowestPrice = if (pos.lowestPrice > 0) pos.lowestPrice * factor else 0.0,
+                                lastTopUpPrice = if (pos.lastTopUpPrice > 0) pos.lastTopUpPrice * factor else 0.0,
+                                priceBasisRescaled = true,
+                                priceBasisRescaleFactor = factor,
+                            )
+                        }
+                    }
+                } else {
+                    // No mcap data → mark rescaled anyway so we don't loop
+                    // every tick logging the same warning. The position will
+                    // measure PnL on the new source's raw scale; any drift
+                    // is bounded by the position's own size-cap from sizer.
+                    ErrorLogger.warn("Executor",
+                        "🔄 PRICE_BASIS_REBASE ${ts.symbol}: source ${pos.entryPriceSource}→${ts.lastPriceSource} " +
+                        "| no mcap pivot available, accepting new-source price as-is (PnL may show one-time step)")
+                    ts.position = pos.copy(priceBasisRescaled = true)
+                }
             }
         }
 
-        if (dexPrice != null) return dexPrice
-        
-        // Fallback 1: Latest candle price
+        // After (possibly) rebasing, return the live price directly.
+        if (livePrice != null) return livePrice
+
+        // Fallback 1: latest candle price.
         val candlePrice = ts.history.lastOrNull()?.priceUsd?.takeIf { it > 0 && it.isFinite() }
         if (candlePrice != null) return candlePrice
-        
-        // Fallback 2: Entry price (if position is open and no live price available)
+
+        // Fallback 2: entry price (so callers see SOMETHING non-zero rather
+        // than treating the eval as failed). Exit gates handle stale price
+        // via their own time-since-update checks.
         val entryPrice = ts.position.entryPrice.takeIf { it > 0 && it.isFinite() }
         if (entryPrice != null) return entryPrice
-        
+
         return 0.0
     }
 
@@ -5799,6 +5879,19 @@ class Executor(
                 // A submitted/confirmed signature alone is not enough; Solana
                 // txs can confirm with no desired token delta or index late.
                 pendingVerify = true,
+                // V5.9.744 — pricing-context snapshot. See paperBuy for the
+                // full diagnosis. For LIVE buys this matters even more: a
+                // position opened against a PUMP_FUN_BC_SYNTHETIC quote then
+                // measured against a DEXSCREENER_WS pool quote at exit time
+                // produces real-money phantom-PnL prints. Snapshot + rebase
+                // logic in getActualPrice keeps PnL honest across the BC→pool
+                // graduation jump.
+                entryPriceSource = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+                entryPoolAddress = ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                entryDex         = ts.lastPriceDex.ifBlank { "UNKNOWN" },
+                entrySupplyAssumed = if (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" ||
+                                          ts.lastPriceSource == "PUMP_FUN_FRONTEND_API")
+                    1_000_000_000.0 else 0.0,
             )
             val trade = Trade(
                 side = "BUY", 

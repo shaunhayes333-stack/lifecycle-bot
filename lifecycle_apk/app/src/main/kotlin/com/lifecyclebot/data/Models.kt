@@ -57,6 +57,23 @@ data class Position(
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
     val entryMcap: Double = 0.0,          // V4.20: market cap at entry for graduation detection
     // ═══════════════════════════════════════════════════════════════════
+    // V5.9.744 — POOL/SOURCE PRICING CONTEXT (operator-mandated surgical fix)
+    // ═══════════════════════════════════════════════════════════════════
+    // At buy-time, snapshot exactly WHERE the price came from so the sell
+    // path can resolve the SAME pool. This eliminates the phantom-PnL bug
+    // where entry was stamped against Pump.Fun BC synthetic price
+    // (mcap/1B) and exit was measured against a real DexScreener pool
+    // quote — same mint, completely incompatible per-token price bases.
+    // No blocks/limits/rejects in the resolver — we just rescale entry-
+    // Price ONCE at the moment of source switch using the candle that
+    // first arrived on the new source as the rebase pivot.
+    val entryPriceSource: String = "",    // DEXSCREENER_WS / PUMP_FUN_BC / BIRDEYE / etc.
+    val entryPoolAddress: String = "",    // Raydium/Bonk/PumpFun/Meteora pool id at entry
+    val entryDex: String = "",            // RAYDIUM / BONK / PUMP_FUN / METEORA / ORCA / UNKNOWN
+    val entrySupplyAssumed: Double = 0.0, // supply used for synthetic price (1B for PumpFun BC); 0 if real on-chain quote
+    var priceBasisRescaled: Boolean = false,  // true after one-time rebase fires
+    var priceBasisRescaleFactor: Double = 1.0, // multiplicative factor applied to entryPrice/highestPrice
+    // ═══════════════════════════════════════════════════════════════════
     // V5.6.8 FIX: Track if position was opened in PAPER or LIVE mode
     // This is CRITICAL - if user switches modes, we must sell in the mode
     // the position was OPENED in (can't paper-sell a live position!)
@@ -216,6 +233,19 @@ data class TokenState(
     var candleTimeframeMinutes: Int = 1,  // timeframe of history[] candles (1=1M, 60=1H, 240=4H, 1440=1D)
     var lastPrice: Double = 0.0,
     var lastPriceUpdate: Long = 0L,    // V5.9.362 — wallclock of most recent lastPrice mutation; used to detect stale-feed positions stuck at 0% PnL
+    // V5.9.744 — pricing source tracking. Every ts.lastPrice = X write
+    // stamps a tag here (DEXSCREENER_WS / DEXSCREENER_POLL / PUMP_FUN_BC /
+    // PUMP_PORTAL_WS / BIRDEYE / PAIR_FALLBACK / etc). getActualPrice uses
+    // this to detect mid-position pricing source switches (the BC→Raydium
+    // graduation jump) and rescale entryPrice instead of returning a price
+    // measured against a different supply assumption. This was the root
+    // cause of phantom +3960% / -73% prints — Pump.Fun BC priced tokens
+    // at mcap/1B then DexScreener overwrote with a real pool price on a
+    // different basis, and the position's stored entryPrice was already
+    // baked against the old basis.
+    var lastPriceSource: String = "",  // pricing source of most recent ts.lastPrice write
+    var lastPricePoolAddr: String = "",  // pool address backing the current quote (Raydium/Bonk/PumpFun pool id)
+    var lastPriceDex: String = "",       // DEX label (RAYDIUM/BONK/PUMP_FUN/METEORA/ORCA/UNKNOWN)
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk
     var lastFdv: Double = 0.0,             // fully diluted valuation

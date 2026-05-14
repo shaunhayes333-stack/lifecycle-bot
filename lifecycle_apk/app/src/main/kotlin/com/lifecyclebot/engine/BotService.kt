@@ -5508,6 +5508,7 @@ class BotService : Service() {
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = now
+                        ts.lastPriceSource = "DEXSCREENER_WS"  // V5.9.744
                         // Append a tick candle so trailing-stop + pattern AIs see motion.
                         // Keep history bounded — same 300-candle cap used elsewhere.
                         val candle = com.lifecyclebot.data.Candle(
@@ -5652,6 +5653,14 @@ class BotService : Service() {
                 if (marketCapUsd > 0.0 && ts.lastPrice <= 0.0) {
                     ts.lastPrice = marketCapUsd / 1_000_000_000.0
                     ts.lastPriceUpdate = System.currentTimeMillis()
+                    // V5.9.744 — tag synthetic source. Pump.Fun protocol guarantees
+                    // 1B fixed supply on BC, so mcap/1B is the exact per-token price
+                    // ON THAT SCALE. But when the token graduates to Raydium/Bonk,
+                    // DexScreener WS will overwrite this with the REAL pool quote
+                    // on a different basis. getActualPrice detects the basis switch
+                    // and rescales entryPrice once so PnL stays honest.
+                    ts.lastPriceSource = "PUMP_FUN_BC_SYNTHETIC"
+                    ts.lastPriceDex = "PUMP_FUN"
                 }
                 if (confidence > 0 && ts.entryScore <= 0.0) {
                     ts.entryScore = confidence.toDouble()
@@ -8260,6 +8269,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             isPaperPosition    = pos.isPaper,
         )
         ts.lastPrice = if (pos.currentPrice > 0) pos.currentPrice else pos.entryPrice
+        ts.lastPriceSource = "POSITION_REHYDRATE"  // V5.9.744
         synchronized(status.tokens) {
             if (!status.tokens.containsKey(mint)) {
                 status.tokens[mint] = ts
@@ -8642,6 +8652,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val validatedPrice = incomingPrice
             
             ts.lastPrice        = validatedPrice
+            ts.lastPriceSource  = "DEXSCREENER_PAIR_POLL"  // V5.9.744
+            ts.lastPricePoolAddr = pair.pairAddress
+            ts.lastPriceDex     = when {  // V5.9.744 — derive DEX from pair URL (PairInfo has no dexId field)
+                pair.url.contains("raydium", ignoreCase = true) -> "RAYDIUM"
+                pair.url.contains("pump.fun", ignoreCase = true) -> "PUMP_FUN"
+                pair.url.contains("bonk", ignoreCase = true) -> "BONK"
+                pair.url.contains("meteora", ignoreCase = true) -> "METEORA"
+                pair.url.contains("orca", ignoreCase = true) -> "ORCA"
+                else -> "UNKNOWN"
+            }
             ts.lastMcap         = pair.candle.marketCap
             ts.lastLiquidityUsd = pair.liquidity
             ts.lastFdv          = pair.fdv
@@ -12949,7 +12969,10 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 addLog("🚨 RUG SAFETY ($triggerKind): ${ts.symbol} ${if (isPaper) "(paper -25% cap)" else "price≈0"} — forcing exit", ts.mint)
                 // Push the capped price into ts so downstream close-recorders use it
                 if (isPaper) {
-                    try { ts.lastPrice = effectiveExitPrice } catch (_: Exception) {}
+                    try {
+                        ts.lastPrice = effectiveExitPrice
+                        ts.lastPriceSource = "RUG_SAFETY_CAPPED_EXIT"  // V5.9.744
+                    } catch (_: Exception) {}
                 }
                 try {
                     executor.requestSell(
@@ -14559,6 +14582,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 synchronized(ts) {
                     ts.lastPrice = ov.priceUsd
                     ts.lastPriceUpdate = System.currentTimeMillis()
+                    ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
                     ts.lastLiquidityUsd = ov.liquidity
                     ts.lastMcap = ov.marketCap
                     ts.lastFdv = ov.marketCap
@@ -14592,6 +14616,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
                     }
                     broadcastFallbackPrice(mint, priceUsd)
                     addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
@@ -14612,6 +14637,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = System.currentTimeMillis()
+                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
                     }
                     broadcastFallbackPrice(mint, priceUsd)
                     addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
@@ -14648,6 +14674,8 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             synchronized(ts) {
                                 ts.lastPrice = priceUsd
                                 ts.lastPriceUpdate = System.currentTimeMillis()
+                                ts.lastPriceSource = "PUMP_FUN_FRONTEND_API"  // V5.9.744
+                                ts.lastPriceDex = "PUMP_FUN"
                                 ts.lastMcap = mcap
                                 ts.lastFdv = mcap
                                 ts.lastLiquidityUsd = mcap * 0.1
