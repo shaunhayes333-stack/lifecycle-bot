@@ -2378,6 +2378,71 @@ for legal compliance.
                     })
                     sub.contentDescription =
                         "Pure WR ${"%.1f".format(rawWr)}% • Effective ${"%.1f".format(effectiveWr)}% (incl scratches)"
+
+                    // ═══════════════════════════════════════════════════════════
+                    // V5.9.746 — operator readability fix. The bare "32% WR"
+                    // pill is hard to map to action: how far am I from 50%?
+                    // and am I actually losing money or is my avg win covering
+                    // the loss frequency? Two extra grey sublines below the
+                    // W/L/S row solve this:
+                    //   • Line 2: "need +N W → 50%"   (concrete distance gap)
+                    //   • Line 3: "EV +X% / trade"    (true profitability)
+                    // EV = (winRate * avgWin% + lossRate * avgLoss%) — the
+                    // expected return per trade given your current win/loss
+                    // rates AND your current avg win/loss sizes. This is the
+                    // number that actually decides go-live, not bare WR.
+                    val gapTag = "wls_gap_subline"
+                    var gapSub = parent.findViewWithTag<TextView>(gapTag)
+                    if (gapSub == null) {
+                        gapSub = TextView(this).apply {
+                            this.tag = gapTag
+                            textSize = 8f
+                            setPadding(0, (1 * resources.displayMetrics.density).toInt(), 0, 0)
+                        }
+                        parent.addView(gapSub)
+                    }
+                    if (totalNonScratch > 0 && rawWr < 50.0) {
+                        // Solve for delta wins x such that (w+x)/(w+l+x) >= 0.50.
+                        // → x >= l - w  (when l > w). When w >= l, gap is 0.
+                        val winsNeeded = (l - w).coerceAtLeast(0)
+                        gapSub.text = if (winsNeeded > 0) "need +${winsNeeded}W → 50%" else "AT TARGET"
+                        gapSub.setTextColor(muted)
+                        gapSub.visibility = android.view.View.VISIBLE
+                    } else {
+                        gapSub.visibility = android.view.View.GONE
+                    }
+
+                    val evTag = "wls_ev_subline"
+                    var evSub = parent.findViewWithTag<TextView>(evTag)
+                    if (evSub == null) {
+                        evSub = TextView(this).apply {
+                            this.tag = evTag
+                            textSize = 8f
+                            setPadding(0, (1 * resources.displayMetrics.density).toInt(), 0, 0)
+                        }
+                        parent.addView(evSub)
+                    }
+                    // EV uses avgWin/avgLoss from persistedStats (TradeHistory
+                    // already computes them). Probabilities use rawWr / (1-rawWr)
+                    // so scratches don't dilute the signal — scratches contribute
+                    // ~0 to EV anyway since they're by definition flat.
+                    if (totalNonScratch >= 5) {
+                        val aw = persistedStats.avgWinPct
+                        val al = persistedStats.avgLossPct  // already negative
+                        val pWin = rawWr / 100.0
+                        val pLoss = 1.0 - pWin
+                        val evPct = pWin * aw + pLoss * al
+                        val sign = if (evPct >= 0) "+" else ""
+                        evSub.text = "EV ${sign}${"%.2f".format(evPct)}% / trade"
+                        evSub.setTextColor(when {
+                            evPct >= 5.0  -> green
+                            evPct >= 0.0  -> amber
+                            else          -> red
+                        })
+                        evSub.visibility = android.view.View.VISIBLE
+                    } else {
+                        evSub.visibility = android.view.View.GONE
+                    }
                 }
             } catch (_: Exception) { /* never crash on UI sub-injection */ }
             
