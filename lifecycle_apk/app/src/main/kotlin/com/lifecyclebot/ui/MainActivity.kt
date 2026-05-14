@@ -34,7 +34,6 @@ import com.lifecyclebot.engine.WalletManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.conflate
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -745,15 +744,16 @@ class MainActivity : AppCompatActivity() {
             // Coalesce emissions with a 500ms throttle so we render at most
             // 2 frames per second, which is still 2x the operator's "ticks
             // every second" requirement and gives the main thread room to
-            // breathe. Always render the latest state (conflate), never
-            // queue stale emissions.
+            // breathe. StateFlow is already conflated by construction
+            // (Kotlin actually errors on .conflate() over StateFlow), so the
+            // throttle is just a post-render delay — the next state we see
+            // after the delay will be the most recent one, never a queued
+            // backlog. That's exactly the behaviour we want.
             lifecycleScope.launch {
-                vm.ui
-                    .conflate()
-                    .collect { state ->
-                        updateUi(state)
-                        kotlinx.coroutines.delay(500)
-                    }
+                vm.ui.collect { state ->
+                    updateUi(state)
+                    kotlinx.coroutines.delay(500)
+                }
             }
             
             com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate completed successfully")
