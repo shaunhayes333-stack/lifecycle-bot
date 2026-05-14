@@ -223,14 +223,51 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                         "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
                         "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
                         "helius=${cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim()}")
-                    // V5.9.66 sequencing preserved: wait for status.running to flip false
-                    // before issuing startBot() so the service doesn't see a double-start.
+
+                    // V5.9.735 — RESTART SEQUENCING FIX.
+                    // Previous code:
+                    //   stopBot()  // sets BotService.status.running=false locally THEN fires ACTION_STOP
+                    //   while (status.running && deadline) { delay }
+                    //   startBot()
+                    //
+                    // The local mutation made the while-loop exit on the FIRST check (running already
+                    // false) so the wait was zero-duration. ACTION_START then beat ACTION_STOP to the
+                    // service. BotService.onStartCommand saw stopInProgress=false (stopBot() hadn't
+                    // been entered yet) and loopJob.isActive=true → fell into the "Bot already
+                    // running" branch → did nothing. Then ACTION_STOP arrived, latched
+                    // KEY_MANUAL_STOP_REQUESTED=true, ran the full teardown. No one restarted because
+                    // the START had already been "handled" as a no-op and the manual-stop latch was
+                    // now set. Operator symptom: "tried to go live, it just shuts down".
+                    //
+                    // Fix: drive the wait off the actual service-side latches (stopInProgress and the
+                    // loopJob), not the locally-mutated status flag. We send ACTION_STOP, then wait
+                    // for the service to ENTER stopInProgress=true (proves ACTION_STOP was received)
+                    // and then EXIT stopInProgress=false (proves teardown completed). Only then do we
+                    // fire startBot() so ACTION_START arrives into a clean state.
                     stopBot()
-                    val deadline = System.currentTimeMillis() + 6_000L
-                    while (com.lifecyclebot.engine.BotService.status.running &&
-                           System.currentTimeMillis() < deadline) {
+
+                    // Phase 1: wait up to 2s for the service to enter stopInProgress=true.
+                    // This proves ACTION_STOP was delivered and accepted.
+                    val enterDeadline = System.currentTimeMillis() + 2_000L
+                    while (!com.lifecyclebot.engine.BotService.stopInProgress &&
+                           System.currentTimeMillis() < enterDeadline) {
+                        delay(50)
+                    }
+
+                    // Phase 2: wait up to 30s for stopInProgress to clear (= teardown finished).
+                    // Matches the 30s window BotService itself uses internally (V5.9.720).
+                    val drainDeadline = System.currentTimeMillis() + 30_000L
+                    while (com.lifecyclebot.engine.BotService.stopInProgress &&
+                           System.currentTimeMillis() < drainDeadline) {
                         delay(150)
                     }
+
+                    if (com.lifecyclebot.engine.BotService.stopInProgress) {
+                        com.lifecyclebot.engine.ErrorLogger.warn("BotViewModel",
+                            "RESTART: stopBot() did not drain in 30s — starting anyway " +
+                            "(service-side guard will re-queue if needed)")
+                    }
+
                     startBot()
                 }
             } catch (e: Exception) {
