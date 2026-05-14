@@ -5023,6 +5023,82 @@ class Executor(
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.738 — PAPER-MODE LEAK FIX
+    //
+    // dipHunterBuy / sniperSell are public router helpers added to plug two
+    // historical bugs where the BotService call sites invoked paperBuy() /
+    // paperSell() UNCONDITIONALLY, ignoring cfg().paperMode entirely. In
+    // live mode this caused: (a) paper positions opened against live wallet,
+    // (b) operator log saying "LIVE" while the position was stamped
+    // isPaperPosition=true, (c) all subsequent sells running through the
+    // paper branch — operator wallet never moved.
+    //
+    // Operator report (Bernard Griffin, messenger 18:43): "its live but
+    // making paper trades. nothing should be trading paper if the bot is
+    // launched in live."
+    //
+    // These helpers enforce the same paper-vs-live routing v3Buy already
+    // does for the MEME_SPINE path. Single source of truth: cfg().paperMode.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    fun dipHunterBuy(
+        ts: TokenState,
+        sizeSol: Double,
+        score: Double,
+        wallet: SolanaWallet?,
+        walletSol: Double,
+        identity: TradeIdentity? = null,
+    ) {
+        val isPaper = cfg().paperMode
+        val id = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        ErrorLogger.info("Executor",
+            "📉🎯 DIP_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | " +
+            "cfgPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
+        if (isPaper) {
+            paperBuy(
+                ts = ts, sol = sizeSol, score = score, identity = id,
+                quality = "DIP_HUNTER", skipGraduated = true,
+                wallet = wallet, walletSol = walletSol,
+                layerTag = "DIP_HUNTER", layerTagEmoji = "📉",
+            )
+        } else {
+            if (wallet == null) {
+                ErrorLogger.error("Executor",
+                    "📉🎯 DIP ${ts.symbol} | LIVE_BUY_FAILED | no wallet — refusing to fall back to paperBuy")
+                return
+            }
+            liveBuy(
+                ts = ts, sol = sizeSol, score = score,
+                wallet = wallet, walletSol = walletSol,
+                identity = id, quality = "DIP_HUNTER", skipGraduated = true,
+                layerTag = "DIP_HUNTER", layerTagEmoji = "📉",
+            )
+        }
+    }
+
+    fun sniperSell(
+        ts: TokenState,
+        reason: String,
+        wallet: SolanaWallet?,
+        walletSol: Double,
+    ): SellResult {
+        val isPaper = cfg().paperMode
+        ErrorLogger.info("Executor",
+            "🎯 SNIPER_SELL_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | " +
+            "cfgPaper=$isPaper | reason=$reason")
+        return if (isPaper) {
+            paperSell(ts, reason)
+        } else {
+            // Live route: requestSell branches internally on isPaperPosition,
+            // so live-opened positions will correctly fire a Jupiter swap.
+            // If the position was somehow opened in paper (e.g. mode flipped
+            // mid-position), requestSell still routes via the paper branch
+            // honoring isPaperPosition — no spurious live swap on a paper bag.
+            requestSell(ts, reason, wallet, walletSol)
+        }
+    }
+
     fun treasuryBuy(
         ts: TokenState,
         sizeSol: Double,

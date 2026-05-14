@@ -147,7 +147,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.737"
+    private const val BUILD_TAG = "V5.9.738"
 
     data class Event(
         val tsMs: Long,

@@ -11397,8 +11397,15 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             // Execute the sell
                             val mission = com.lifecyclebot.v3.scoring.ProjectSniperAI.getMission(ts.mint)
                             if (mission != null) {
-                                // Sniper uses full exits for speed - no partial sells
-                                executor.paperSell(ts, "SNIPER_${exitSignal.rank.name}")
+                                // V5.9.738 — paper-mode leak fix.
+                                // Route through sniperSell so live mode fires
+                                // a Jupiter swap; paper mode still uses paperSell.
+                                executor.sniperSell(
+                                    ts = ts,
+                                    reason = "SNIPER_${exitSignal.rank.name}",
+                                    wallet = wallet,
+                                    walletSol = effectiveBalance,
+                                )
                                 com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(ts.mint, ts.ref, exitSignal)
                             }
                             
@@ -11580,16 +11587,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                                 // V5.6.8 FIX: Notify V3 exposure guards
                                 com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
-                                // Execute buy
-                                executor.paperBuy(
+                                // V5.9.738 — paper-mode leak fix.
+                                // Use the dipHunterBuy router so live mode
+                                // correctly fires a Jupiter swap instead of
+                                // silently routing through paperBuy().
+                                executor.dipHunterBuy(
                                     ts = ts,
-                                    sol = dipSignal.positionSizeSol,
+                                    sizeSol = dipSignal.positionSizeSol,
                                     score = dipSignal.confidence.toDouble(),
-                                    identity = identity,
-                                    quality = "DIP_HUNTER",
-                                    skipGraduated = true,
                                     wallet = wallet,
-                                    walletSol = effectiveBalance
+                                    walletSol = effectiveBalance,
+                                    identity = identity,
                                 )
                                 
                                 ts.position.tradingMode = "DIP_HUNTER"
