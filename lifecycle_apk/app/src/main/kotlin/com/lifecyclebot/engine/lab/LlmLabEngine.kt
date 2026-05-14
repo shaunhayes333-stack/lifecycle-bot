@@ -322,9 +322,18 @@ Reply with just the JSON object, nothing else.
         if (universe.isEmpty()) return
 
         // Update existing positions (TP/SL/timeout sweep).
+        // V5.9.733 — STRICT MINT MATCH. Operator journal showed COPIUM
+        // logging +53,936% with LAB_TAKE_PROFIT and PBTC +13,626% — both
+        // Pump.fun-style names where MULTIPLE distinct mints share the
+        // same ticker. Previous logic fell back to symbol match if the
+        // mint didn't appear in the universe, which silently swapped in
+        // a different token's price and produced phantom 500x prints.
+        // Mint is the only safe key — symbol fallback removed entirely.
+        // If the position's mint isn't in this universe tick batch, just
+        // skip; we'll catch it on the next cycle.
         val openPositions = LlmLabStore.allPositions()
         for (pos in openPositions) {
-            val tick = universe.firstOrNull { it.mint == pos.mint || it.symbol == pos.symbol }
+            val tick = universe.firstOrNull { it.mint == pos.mint }
             val live = tick?.price ?: continue
             LlmLabTrader.checkExit(pos, live)
         }

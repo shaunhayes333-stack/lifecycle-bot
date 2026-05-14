@@ -62,32 +62,92 @@ object LlmLabTrader {
 
     fun checkExit(pos: LabPosition, currentPrice: Double) {
         if (currentPrice <= 0) return
+        if (pos.entryPrice <= 0.0) {
+            // V5.9.733 — entryPrice corruption guard. Cannot compute pnl
+            // from a zero/negative entry. Close at entry with zero pnl so
+            // the position doesn't sit forever, and log loudly so we can
+            // trace where the bad entry came from.
+            ErrorLogger.warn(TAG, "🧪 LAB_BAD_ENTRY: ${pos.symbol} entryPrice=${pos.entryPrice} — closing at entry with 0 pnl")
+            closePosition(pos, pos.entryPrice.coerceAtLeast(1e-12), reason = "BAD_ENTRY_PRICE")
+            return
+        }
         val strategy = LlmLabStore.getStrategy(pos.strategyId) ?: run {
             // Strategy was archived under our feet — close defensively.
             closePosition(pos, currentPrice, reason = "ORPHAN")
             return
         }
 
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
-        val holdMin = (System.currentTimeMillis() - pos.entryTime) / 60_000L
-
-        // Track peak and update last-seen.
-        val peak = if (pnlPct > pos.peakPnlPct) pnlPct else pos.peakPnlPct
-        if (pnlPct > pos.peakPnlPct || currentPrice != pos.lastSeenPrice) {
-            LlmLabStore.updatePosition(pos.copy(lastSeenPrice = currentPrice, peakPnlPct = peak))
+        // V5.9.733 — PRICE SANITY CLAMP. A single Pump.fun pool quote can
+        // glitch 100x in one tick (thin liquidity + small order = huge
+        // displayed price). Reject any tick that moves the position more
+        // than 10x up or 20x down from entry — clamp to last-seen-valid
+        // and DO NOT trigger TP on the glitch. Real 10x+ moves happen
+        // gradually; if the gain is real, the next clean tick will
+        // confirm it. This is the difference between +53,936% and a
+        // believable +500%.
+        val priceRatio = currentPrice / pos.entryPrice
+        val sanePrice = if (priceRatio > 10.0 || priceRatio < 0.05) {
+            ErrorLogger.warn(TAG,
+                "🧪 LAB_PRICE_GLITCH: ${pos.symbol} entry=${"%.8f".format(pos.entryPrice)} " +
+                "tick=${"%.8f".format(currentPrice)} ratio=${"%.1f".format(priceRatio)}x " +
+                "— ignoring tick, holding last-seen=${"%.8f".format(pos.lastSeenPrice)}")
+            pos.lastSeenPrice.takeIf { it > 0.0 } ?: pos.entryPrice
+        } else {
+            currentPrice
         }
 
-        // Exit rules (in priority order).
+        val pnlPct = (sanePrice - pos.entryPrice) / pos.entryPrice * 100.0
+        val holdMin = (System.currentTimeMillis() - pos.entryTime) / 60_000L
+
+        // Track peak and update last-seen (using sanitized price).
+        val peak = if (pnlPct > pos.peakPnlPct) pnlPct else pos.peakPnlPct
+        if (pnlPct > pos.peakPnlPct || sanePrice != pos.lastSeenPrice) {
+            LlmLabStore.updatePosition(pos.copy(lastSeenPrice = sanePrice, peakPnlPct = peak))
+        }
+
+        // Exit rules (in priority order) — all exits use sanePrice so a
+        // glitch tick can never trigger TP at a fake price.
         when {
-            pnlPct <= strategy.stopLossPct      -> closePosition(pos, currentPrice, "STOP_LOSS")
-            pnlPct >= strategy.takeProfitPct    -> closePosition(pos, currentPrice, "TAKE_PROFIT")
-            holdMin >= strategy.maxHoldMins     -> closePosition(pos, currentPrice, "TIMEOUT")
+            pnlPct <= strategy.stopLossPct      -> closePosition(pos, sanePrice, "STOP_LOSS")
+            pnlPct >= strategy.takeProfitPct    -> closePosition(pos, sanePrice, "TAKE_PROFIT")
+            holdMin >= strategy.maxHoldMins     -> closePosition(pos, sanePrice, "TIMEOUT")
         }
     }
 
     fun closePosition(pos: LabPosition, exitPrice: Double, reason: String) {
         val strategy = LlmLabStore.getStrategy(pos.strategyId)
-        val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0
+        val rawPnlPct = if (pos.entryPrice > 0.0) {
+            (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0
+        } else 0.0
+
+        // V5.9.733 — HARD PnL CEILING. checkExit's sanity clamp should
+        // prevent glitch ticks from reaching here, but a forced close
+        // (ORPHAN, BAD_ENTRY_PRICE, external sweep) can still land with
+        // a wild exitPrice. Cap realised pnl at ±2000% so a single bad
+        // close can never inject >20x of fake money into the Lab
+        // bankroll or — more importantly — into the global Journal's
+        // TOTAL P&L (operator showed $1.33B total polluted by exactly
+        // this path: COPIUM +53,936%, PBTC +13,626%). Real 20x runs
+        // exist but they accumulate over minutes; a single TP firing at
+        // 500x is always a feed glitch.
+        val PNL_CEILING_PCT = 2000.0
+        val PNL_FLOOR_PCT = -95.0
+        val pnlPct = when {
+            rawPnlPct > PNL_CEILING_PCT -> {
+                ErrorLogger.warn(TAG,
+                    "🧪 LAB_PNL_CEILING: ${pos.symbol} raw=${"%.1f".format(rawPnlPct)}% " +
+                    "→ capped to ${PNL_CEILING_PCT}% (entry=${"%.8f".format(pos.entryPrice)} " +
+                    "exit=${"%.8f".format(exitPrice)} reason=$reason) — feed glitch suspected")
+                PNL_CEILING_PCT
+            }
+            rawPnlPct < PNL_FLOOR_PCT -> {
+                ErrorLogger.warn(TAG,
+                    "🧪 LAB_PNL_FLOOR: ${pos.symbol} raw=${"%.1f".format(rawPnlPct)}% " +
+                    "→ capped to ${PNL_FLOOR_PCT}%")
+                PNL_FLOOR_PCT
+            }
+            else -> rawPnlPct
+        }
         val pnlSol = pos.sizeSol * (pnlPct / 100.0)
         val isWin = pnlPct >= 1.0   // unified 1% threshold across AATE
 
