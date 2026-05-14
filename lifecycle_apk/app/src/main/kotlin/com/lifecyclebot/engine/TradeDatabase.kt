@@ -29,6 +29,37 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
         const val HARD_SUPPRESS_THRESHOLD = 25.0  // this bad = SUPPRESSED (hard block)
     }
 
+    // V5.9.754 — SQLITE_BUSY (code 5) crash fix.
+    // Symptom: SQLiteDatabaseLockedException from BotBrain.runStatisticalAnalysis
+    // → TradeDatabase.recordBadObservation on Dispatchers.Default-worker-56,
+    // while Executor sell paths concurrently called recordBadObservation /
+    // recordGoodObservation / insertTrade on Dispatchers.IO. Two writers,
+    // same SQLiteOpenHelper, no WAL, no write-side mutex → BUSY.
+    //
+    // Fix layers:
+    //  1) onConfigure: enable WAL — readers no longer block writers, and
+    //     concurrent reads + a single writer are well-supported.
+    //  2) writeLock: serialize all writers in-process so the OS never sees
+    //     two concurrent BEGIN IMMEDIATE attempts on the same connection.
+    //  3) Busy-timeout: last-line-of-defense if some path slips by — wait
+    //     up to 3s before giving up instead of throwing immediately.
+    //
+    // All public/private write methods below acquire `writeLock`. Read paths
+    // (rawQuery via readableDatabase) are unaffected and remain lock-free
+    // under WAL.
+    private val writeLock = Any()
+
+    override fun onConfigure(db: SQLiteDatabase) {
+        super.onConfigure(db)
+        // WAL: concurrent readers, single writer — exactly what we want.
+        try { db.enableWriteAheadLogging() } catch (_: Throwable) {}
+        // Busy timeout as a safety net for any code path we haven't wrapped.
+        try { db.execSQL("PRAGMA busy_timeout = 3000;") } catch (_: Throwable) {}
+        // Sync NORMAL is durable-enough for analytics data and ~2x faster
+        // under WAL than FULL.
+        try { db.execSQL("PRAGMA synchronous = NORMAL;") } catch (_: Throwable) {}
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         // ── Core trade log ────────────────────────────────────────────
         db.execSQL("""
@@ -203,17 +234,19 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
      * Called automatically after every insert.
      */
     private fun pruneOldTrades() {
-        try {
-            val cutoff = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000)
-            val db = writableDatabase
-            val count  = db.rawQuery("SELECT COUNT(*) FROM trades", null).use {
-                if (it.moveToFirst()) it.getLong(0) else 0L
-            }
-            if (count > 1000) {
-                db.execSQL("DELETE FROM trades WHERE ts_exit < $cutoff " +
-                           "AND id NOT IN (SELECT id FROM trades ORDER BY id DESC LIMIT 1000)")
-            }
-        } catch (_: Exception) {}
+        synchronized(writeLock) {
+            try {
+                val cutoff = System.currentTimeMillis() - (90L * 24 * 60 * 60 * 1000)
+                val db = writableDatabase
+                val count  = db.rawQuery("SELECT COUNT(*) FROM trades", null).use {
+                    if (it.moveToFirst()) it.getLong(0) else 0L
+                }
+                if (count > 1000) {
+                    db.execSQL("DELETE FROM trades WHERE ts_exit < $cutoff " +
+                               "AND id NOT IN (SELECT id FROM trades ORDER BY id DESC LIMIT 1000)")
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun insertTrade(t: TradeRecord): Long {
@@ -257,14 +290,18 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
             put("source",         t.source)
             put("extra_json",     t.extraJson)
         }
-        val id = writableDatabase.insertWithOnConflict(
-            "trades", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-        // Only update signal stats for non-scratch trades
+        val id = synchronized(writeLock) {
+            writableDatabase.insertWithOnConflict(
+                "trades", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+        }
+        // Only update signal stats for non-scratch trades.
+        // updateSignalStats + pruneOldTrades each acquire writeLock themselves —
+        // call them OUTSIDE the synchronized block above to avoid holding the
+        // lock across multiple discrete writes (keeps critical sections tight).
         if (!t.isScratch) {
             updateSignalStats(t)
         }
         pruneOldTrades()   // keep DB size bounded
-        pruneOldTrades()
         return id
     }
 
@@ -281,22 +318,24 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
             "ema_fan=${t.emaFan}+mtf_5m=${t.mtf5m}",
             "source=${t.source}",
         )
-        val db = writableDatabase
         // Handle nullable isWin - treat null (scratch) as false for signal stats
         val win = if (t.isWin == true) 1 else 0
         val now = System.currentTimeMillis()
-        keys.forEach { key ->
-            db.execSQL("""
-                INSERT INTO signal_stats (feature_key, trades, wins, total_pnl_pct, avg_pnl_pct, win_rate, last_updated)
-                VALUES (?, 1, ?, ?, ?, ?, ?)
-                ON CONFLICT(feature_key) DO UPDATE SET
-                    trades        = trades + 1,
-                    wins          = wins + excluded.wins,
-                    total_pnl_pct = total_pnl_pct + excluded.total_pnl_pct,
-                    avg_pnl_pct   = (total_pnl_pct + excluded.total_pnl_pct) / (trades + 1),
-                    win_rate      = CAST(wins + excluded.wins AS REAL) / (trades + 1) * 100,
-                    last_updated  = excluded.last_updated
-            """, arrayOf(key, win, t.pnlPct, t.pnlPct, if(t.isWin == true) 100.0 else 0.0, now))
+        synchronized(writeLock) {
+            val db = writableDatabase
+            keys.forEach { key ->
+                db.execSQL("""
+                    INSERT INTO signal_stats (feature_key, trades, wins, total_pnl_pct, avg_pnl_pct, win_rate, last_updated)
+                    VALUES (?, 1, ?, ?, ?, ?, ?)
+                    ON CONFLICT(feature_key) DO UPDATE SET
+                        trades        = trades + 1,
+                        wins          = wins + excluded.wins,
+                        total_pnl_pct = total_pnl_pct + excluded.total_pnl_pct,
+                        avg_pnl_pct   = (total_pnl_pct + excluded.total_pnl_pct) / (trades + 1),
+                        win_rate      = CAST(wins + excluded.wins AS REAL) / (trades + 1) * 100,
+                        last_updated  = excluded.last_updated
+                """, arrayOf(key, win, t.pnlPct, t.pnlPct, if(t.isWin == true) 100.0 else 0.0, now))
+            }
         }
     }
 
@@ -361,10 +400,12 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
 
     fun recordParamChange(name: String, old: Double, new: Double, reason: String,
                           sampleSize: Int, winRateBefore: Double) {
-        writableDatabase.execSQL("""
-            INSERT INTO param_history (ts, param_name, old_value, new_value, reason, trades_sample, win_rate_before)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, arrayOf(System.currentTimeMillis(), name, old, new, reason, sampleSize, winRateBefore))
+        synchronized(writeLock) {
+            writableDatabase.execSQL("""
+                INSERT INTO param_history (ts, param_name, old_value, new_value, reason, trades_sample, win_rate_before)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, arrayOf(System.currentTimeMillis(), name, old, new, reason, sampleSize, winRateBefore))
+        }
     }
 
     // ── Bad behaviour API ─────────────────────────────────────────────
@@ -373,26 +414,30 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
     fun recordBadObservation(featureKey: String, behaviourType: String,
                              description: String, lossPct: Double) {
         val now = System.currentTimeMillis()
-        writableDatabase.execSQL("""
-            INSERT INTO bad_behaviour
-                (ts_first_seen, feature_key, behaviour_type, description,
-                 trades_seen, loss_count, total_loss_pct, avg_loss_pct, worst_loss_pct, status)
-            VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, 'MONITORING')
-            ON CONFLICT(feature_key) DO UPDATE SET
-                trades_seen    = trades_seen + 1,
-                loss_count     = loss_count + 1,
-                total_loss_pct = total_loss_pct + excluded.total_loss_pct,
-                avg_loss_pct   = (total_loss_pct + excluded.total_loss_pct) / (trades_seen + 1),
-                worst_loss_pct = MIN(worst_loss_pct, excluded.worst_loss_pct)
-        """, arrayOf(now, featureKey, behaviourType, description, lossPct, lossPct, lossPct))
+        synchronized(writeLock) {
+            writableDatabase.execSQL("""
+                INSERT INTO bad_behaviour
+                    (ts_first_seen, feature_key, behaviour_type, description,
+                     trades_seen, loss_count, total_loss_pct, avg_loss_pct, worst_loss_pct, status)
+                VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, 'MONITORING')
+                ON CONFLICT(feature_key) DO UPDATE SET
+                    trades_seen    = trades_seen + 1,
+                    loss_count     = loss_count + 1,
+                    total_loss_pct = total_loss_pct + excluded.total_loss_pct,
+                    avg_loss_pct   = (total_loss_pct + excluded.total_loss_pct) / (trades_seen + 1),
+                    worst_loss_pct = MIN(worst_loss_pct, excluded.worst_loss_pct)
+            """, arrayOf(now, featureKey, behaviourType, description, lossPct, lossPct, lossPct))
+        }
     }
 
     /** Record a win observation — reduces suppression if pattern recovers */
     fun recordGoodObservation(featureKey: String) {
-        writableDatabase.execSQL("""
-            UPDATE bad_behaviour SET trades_seen = trades_seen + 1
-            WHERE feature_key = ?
-        """, arrayOf(featureKey))
+        synchronized(writeLock) {
+            writableDatabase.execSQL("""
+                UPDATE bad_behaviour SET trades_seen = trades_seen + 1
+                WHERE feature_key = ?
+            """, arrayOf(featureKey))
+        }
     }
 
     /** Promote patterns from MONITORING to CONFIRMED_BAD or SUPPRESSED based on evidence */
@@ -425,12 +470,14 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
                 if (newStatus != status || strength > 0) {
                     val notes = "WR=${winRate.toInt()}% over $seen trades | " +
                                 "avgLoss=${avgLoss.toInt()}% | worst=${worstLoss.toInt()}%"
-                    writableDatabase.execSQL("""
-                        UPDATE bad_behaviour SET
-                            status = ?, suppression_strength = ?,
-                            ts_confirmed = ?, notes = ?
-                        WHERE id = ?
-                    """, arrayOf(newStatus, strength, now, notes, id))
+                    synchronized(writeLock) {
+                        writableDatabase.execSQL("""
+                            UPDATE bad_behaviour SET
+                                status = ?, suppression_strength = ?,
+                                ts_confirmed = ?, notes = ?
+                            WHERE id = ?
+                        """, arrayOf(newStatus, strength, now, notes, id))
+                    }
 
                     if (newStatus in listOf("CONFIRMED_BAD","SUPPRESSED")) {
                         confirmed.add(BadBehaviourEntry(key, newStatus, strength, notes,
@@ -487,9 +534,11 @@ class TradeDatabase(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERS
 
     /** Manually clear a suppressed pattern (human override) */
     fun clearBadPattern(featureKey: String, reason: String) {
-        writableDatabase.execSQL(
-            "UPDATE bad_behaviour SET status = 'CLEARED', notes = ? WHERE feature_key = ?",
-            arrayOf("CLEARED by human: $reason", featureKey))
+        synchronized(writeLock) {
+            writableDatabase.execSQL(
+                "UPDATE bad_behaviour SET status = 'CLEARED', notes = ? WHERE feature_key = ?",
+                arrayOf("CLEARED by human: $reason", featureKey))
+        }
     }
 
     private fun cursorToRecord(c: android.database.Cursor) = TradeRecord(
