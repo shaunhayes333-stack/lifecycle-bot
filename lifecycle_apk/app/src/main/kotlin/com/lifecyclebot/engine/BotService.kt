@@ -408,6 +408,14 @@ class BotService : Service() {
     // 30s and force-restarts it if it has not produced a BOT_LOOP_TICK in
     // >180s. Cancelled in stopBot() / startBot crash paths.
     private var loopHeartbeatJob: Job? = null
+    /** V5.9.756 — Emergent CRITICAL ticket item #4: periodic live-wallet reconciler.
+     *  Forensics 2026-05-15: reconciler.totalChecked = 0 even with 3 live host
+     *  positions. The per-cycle reconcileNow was being throttled (30 s gap) +
+     *  the cycle was apparently not running at the time, so the host wallet
+     *  was never being read. This dedicated job ticks every 10 s WHEN
+     *  status.running == true AND live mode AND open live positions exist.
+     *  Cancelled by stopBot via reconcilerJob?.cancel(). */
+    private var reconcilerJob: Job? = null
     private var notifIdCounter = 100
 
     override fun onCreate() {
@@ -2462,6 +2470,48 @@ class BotService : Service() {
                     try {
                         com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "bot_start")
                     } catch (_: Throwable) { /* fail-soft */ }
+
+                    // V5.9.756 — Emergent ticket item #4: dedicated periodic
+                    // reconciler. Ticks every 10 s, but each tick is a no-op
+                    // unless live mode AND open live positions exist. This
+                    // GUARANTEES totalChecked > 0 whenever live positions
+                    // exist, regardless of whether the per-cycle reconcile
+                    // ran or got rate-limited. Cancelled in stopBot().
+                    reconcilerJob?.cancel()
+                    reconcilerJob = scope.launch {
+                        try {
+                            // First tick delayed slightly so bot_start has
+                            // already taken the throttle slot.
+                            kotlinx.coroutines.delay(11_000L)
+                            while (kotlinx.coroutines.isActive && status.running) {
+                                try {
+                                    val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
+                                    val openLive = try {
+                                        com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount()
+                                    } catch (_: Throwable) { 0 }
+                                    if (isLive && openLive > 0) {
+                                        // Bypass the 30 s throttle for this
+                                        // guaranteed-cadence loop by going
+                                        // direct to reconcileBlocking on IO.
+                                        // We are already on Dispatchers.IO.
+                                        try {
+                                            com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileBlocking(
+                                                w, "periodic_live_${openLive}open")
+                                        } catch (e: Throwable) {
+                                            ErrorLogger.warn("BotService",
+                                                "periodic reconcile failed: ${e.message}")
+                                        }
+                                    }
+                                } catch (_: Throwable) { /* never break the loop */ }
+                                kotlinx.coroutines.delay(10_000L)
+                            }
+                        } catch (_: kotlinx.coroutines.CancellationException) {
+                            // expected on stopBot
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "reconcilerJob crashed: ${e.message}")
+                        }
+                    }
+                    addLog("🔄 Periodic live-wallet reconciler armed (10 s cadence)")
                 }
             } catch (e: Exception) {
                 addLog("⚠️ Reconciler start failed: ${e.message}")
@@ -6279,7 +6329,7 @@ class BotService : Service() {
                     val now = System.currentTimeMillis()
                     var clearedCount = 0
                     var phantomCount = 0
-                    val isLive = !cfg.paperMode
+                    val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
                     val w = wallet
                     // For live mode, fetch on-chain balances once for all stuck positions.
                     val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {

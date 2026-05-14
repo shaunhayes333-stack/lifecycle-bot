@@ -5,7 +5,7 @@ import com.lifecyclebot.engine.NotificationHistory
 import com.lifecyclebot.engine.PipelineTracer
 import com.lifecyclebot.engine.SafetyTier
 import com.lifecyclebot.engine.SafetyReport
-import com.lifecyclebot.engine.TokenState
+import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.LiveTradeLogStore
 
 /**
