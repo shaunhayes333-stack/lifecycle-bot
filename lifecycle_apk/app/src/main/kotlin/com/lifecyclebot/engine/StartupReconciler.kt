@@ -97,7 +97,30 @@ class StartupReconciler(
         val adoptedMints = mutableListOf<String>()
         try {
             val tokenAccounts = wallet.getTokenAccounts()
-            val trackedMints = openPositions.map { it.mint }.toSet()
+            // V5.9.748 — adoption path: only TRULY open positions count as
+            // "tracked". V5.9.739 added stale-pendingVerify positions
+            // (>120s, qty>0) to openPositions so the UI could show them as
+            // "viewable" while waiting for on-chain confirmation. But that
+            // visibility relaxation accidentally fed the reconciler too:
+            // a stuck-pending position's mint landed in trackedMints, so
+            // when the wallet sweep saw the matching wallet token it
+            // SKIPPED adoption (mint already "tracked") → the position
+            // stayed pendingVerify forever → exits never fired → bot
+            // could not sell tokens that were physically in the wallet.
+            // Fix: exclude pendingVerify here so the wallet sweep promotes
+            // them into real open positions. The orphan-auto-sell sweep
+            // below still uses openPositions verbatim (we do NOT want to
+            // liquidate a freshly-bought stuck-pending position).
+            val trackedMints = openPositions
+                .filter { !it.position.pendingVerify }
+                .map { it.mint }
+                .toSet()
+            // Stuck-pending mints — we'll promote these from the wallet
+            // sweep instead of adopting as new orphan positions.
+            val pendingMints = openPositions
+                .filter { it.position.pendingVerify && it.position.qtyToken > 0.0 }
+                .map { it.mint }
+                .toSet()
 
             // V5.9.673 — forensic visibility of the wallet sweep. Operator
             // saw an on-chain RMG position (+353% gain, 436195 tokens) go
@@ -144,8 +167,38 @@ class StartupReconciler(
             }
             tokenAccounts.forEach { (mint, qty) ->
                 if (qty <= 0.0) return@forEach
-                if (mint in trackedMints) return@forEach
                 if (mint == "So11111111111111111111111111111111111111112") return@forEach
+                // V5.9.748 — promote stuck-pendingVerify positions whose
+                // tokens are confirmed on-chain. This is the actual recovery
+                // path for the "tokens arrive in host wallet, bot shows no
+                // open position" symptom (operator screenshot 22:38:47):
+                // PHANNY, COPIUM, Crack, YilongMa, chyna, WEN all landed in
+                // wallet but stayed pendingVerify because the verify polls
+                // and watchdog couldn't catch them, leaving the bot blind
+                // to its own holdings → could not exit → kept trying to
+                // re-buy → Insufficient funds.
+                if (mint in pendingMints) {
+                    val pendingTs = synchronized(status.tokens) { status.tokens[mint] }
+                    if (pendingTs != null) {
+                        synchronized(pendingTs) {
+                            pendingTs.position = pendingTs.position.copy(
+                                qtyToken = qty,
+                                pendingVerify = false,
+                            )
+                        }
+                        try { com.lifecyclebot.engine.PositionPersistence.savePosition(pendingTs) } catch (_: Exception) {}
+                        try { com.lifecyclebot.engine.WalletTokenMemory.recordBuy(pendingTs) } catch (_: Exception) {}
+                        try { com.lifecyclebot.engine.TokenLifecycleTracker.onTokenLanded(mint, qty) } catch (_: Throwable) {}
+                        onLog("🛟 RECONCILE-PROMOTE: ${pendingTs.symbol} | ${"%.4f".format(qty)} tokens on-chain — clearing pendingVerify, position now LIVE")
+                        ErrorLogger.warn(
+                            "StartupReconciler",
+                            "🛟 RECONCILE-PROMOTE: ${pendingTs.symbol} ($mint) — was pendingVerify, on-chain qty=$qty, promoting to open."
+                        )
+                        verified += mint
+                    }
+                    return@forEach
+                }
+                if (mint in trackedMints) return@forEach
                 // V5.9.253 FIX: was "?: return@forEach" — silently dropped tokens whose mint
                 // was never scanned into status.tokens (e.g. tokens from previous sessions, xStock
                 // tokens, or anything the scanner hadn't discovered this run). These would sit in
