@@ -404,30 +404,54 @@ object SmartSizer {
         ErrorLogger.info("SmartSizer", "📏 Mults: score=${aiScoreMult} brain=${brainMult.fmt1} mem=${memoryMult} liq=${liquidityMult} conf=${confidenceMult} treasury=${treasuryMult.fmt1} house=${houseMoneyBonus.fmt1}")
 
         // ── Performance multiplier ────────────────────────────────────
-        // FLUID PAPER: Learn streak mechanics using simulated trades
+        // V5.9.737 — paper-trained wisdom transfers to live. When live mode
+        // hasn't accumulated its own statistical mass (totalTrades < 10), read
+        // FluidLearning's paper-trained win rate so the bot doesn't act like
+        // a brand-new agent the moment the operator flips the switch. Once
+        // live has ≥10 trades of its own, the live perf context wins.
         val perfMult = if (isPaperMode && !cfg.fluidLearningEnabled) {
             1.0  // No streak penalty in legacy paper mode
         } else if (isPaperMode && cfg.fluidLearningEnabled) {
-            // Learn from paper trade streaks
+            // Paper path: learn from paper trade streaks
             val fluidWinRate = FluidLearning.getWinRate()
             val fluidTrades = FluidLearning.getTradeCount()
             when {
                 fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30  // hot streak
                 fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
-                fluidWinRate < 40 && fluidTrades >= 10  -> 0.70  // Learn to scale down on losses
+                fluidWinRate < 40 && fluidTrades >= 10  -> 0.70  // scale down on losses
                 fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
                 else -> 1.0
             }
         } else {
-            when {
-                perf.lossStreak >= 4                       -> 0.50  // bad streak — cut back hard
-                perf.lossStreak >= 3                       -> 0.70
-                perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.30  // hot streak - go bigger
-                perf.recentWinRate >= 60 && perf.totalTrades >= 5 -> 1.15
-                perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60
-                perf.recentWinRate < 50  && perf.totalTrades >= 5 -> 0.80
-                perf.winStreak >= 3                        -> 1.20  // win streak bonus
-                else                                       -> 1.0
+            // Live path. If we have ≥10 live trades, use live's own context.
+            // Otherwise fall back to FluidLearning paper-trained stats so the
+            // bot's hard-earned recognition transfers.
+            val useFluidFallback = cfg.fluidLearningEnabled && perf.totalTrades < 10 &&
+                                   FluidLearning.getTradeCount() >= 10
+            if (useFluidFallback) {
+                val fluidWinRate = FluidLearning.getWinRate()
+                val fluidTrades = FluidLearning.getTradeCount()
+                ErrorLogger.debug("SmartSizer",
+                    "🧬 LIVE perfMult using paper-trained fallback: liveTrades=${perf.totalTrades} " +
+                    "paperWR=${fluidWinRate.toInt()}% paperTrades=$fluidTrades")
+                when {
+                    fluidWinRate >= 70 && fluidTrades >= 10 -> 1.30
+                    fluidWinRate >= 60 && fluidTrades >= 10 -> 1.15
+                    fluidWinRate < 40 && fluidTrades >= 10  -> 0.70
+                    fluidWinRate < 50 && fluidTrades >= 10  -> 0.85
+                    else -> 1.0
+                }
+            } else {
+                when {
+                    perf.lossStreak >= 4                       -> 0.50
+                    perf.lossStreak >= 3                       -> 0.70
+                    perf.recentWinRate >= 70 && perf.totalTrades >= 5 -> 1.30
+                    perf.recentWinRate >= 60 && perf.totalTrades >= 5 -> 1.15
+                    perf.recentWinRate < 40  && perf.totalTrades >= 5 -> 0.60
+                    perf.recentWinRate < 50  && perf.totalTrades >= 5 -> 0.80
+                    perf.winStreak >= 3                        -> 1.20
+                    else                                       -> 1.0
+                }
             }
         }
         size *= perfMult
@@ -719,20 +743,47 @@ object SmartSizer {
     }
     
     /**
-     * Reset session stats when switching modes.
-     * This prevents paper trading drawdowns from blocking live trades.
+     * V5.9.737 — Paper→live transition. Operator doctrine (memory ID #20):
+     * "paper is training for live trading so everything should transfer
+     * fluidly." Previous behavior reset live performance trackers to zero
+     * on every paper→live flip, with the rationale "fresh start for real
+     * money". This caused the bot to feel like it "forgot" everything on
+     * mode switch — it literally did. Hours of paper-trained win-rate,
+     * streak data, and recent-outcome ring buffer were thrown away every
+     * time the operator went live.
+     *
+     * New behavior:
+     *   - Paper switch: paper session peak resets (intentional — peak is
+     *     session-bounded, not memory).
+     *   - Live switch: SEED live trackers from paper trackers instead of
+     *     clearing them. Live still maintains its own session peak (live
+     *     drawdown protection should not key off paper drawdowns), but
+     *     win-rate / streak / recent-trade memory carries over so SmartSizer
+     *     sees a "matured" performance state from trade one.
+     *
+     * Safety: paper-trained win rate is generic market wisdom. Sizing
+     * caps (paper SmartSizer caps, 5 SOL abs, 3% mcap, 4% liq) and the
+     * live circuit breaker (MIN_LIVE_SOL=0.10, -10% session drawdown halt)
+     * remain the actual risk-management layer for real money. This change
+     * only restores the trained pattern recognition.
      */
     private fun resetSessionForMode(isPaperMode: Boolean) {
         if (isPaperMode) {
-            // Switching TO paper - reset paper stats only
+            // Switching TO paper - reset paper session peak only
             _sessionPeakPaper = 0.0
         } else {
-            // Switching TO live - reset live stats (CRITICAL: fresh start for real money)
+            // Switching TO live - reset SESSION PEAK only (drawdown reference
+            // must be live-anchored). SEED win/streak trackers from paper so
+            // the bot doesn't forget what it learned.
             _sessionPeakLive = 0.0
-            // Also reset the performance trackers for live mode
-            winStreakLive = 0
-            lossStreakLive = 0
-            recentTradesLive.clear()
+            if (recentTradesLive.isEmpty() && recentTradesPaper.isNotEmpty()) {
+                recentTradesLive.addAll(recentTradesPaper)
+                winStreakLive = winStreakPaper
+                lossStreakLive = lossStreakPaper
+                ErrorLogger.info("SmartSizer",
+                    "🧬 PAPER→LIVE INHERITANCE: seeded recentTrades=${recentTradesLive.size} " +
+                    "winStreak=$winStreakLive lossStreak=$lossStreakLive (paper-trained memory carries over)")
+            }
         }
     }
     

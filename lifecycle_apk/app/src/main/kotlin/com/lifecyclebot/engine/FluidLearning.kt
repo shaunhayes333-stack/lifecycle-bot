@@ -326,8 +326,35 @@ object FluidLearning {
         }
     }
 
+    /**
+     * Should FluidLearning ACTIVELY TRACK new trades (write path)?
+     * Only true in paper mode — FluidLearning manages a simulated SOL wallet
+     * that legitimately doesn't exist in live (where the real wallet is the
+     * source of truth). Writing to simulated balance from live trades would
+     * corrupt the paper training ground.
+     */
     fun shouldEnableAllFeatures(cfg: BotConfig): Boolean {
         return cfg.fluidLearningEnabled && cfg.paperMode
+    }
+
+    /**
+     * V5.9.737 — Should FluidLearning's accumulated KNOWLEDGE (read path)
+     * be consulted by sizing / decision logic? True whenever FluidLearning
+     * is enabled at all, regardless of paper/live mode.
+     *
+     * Operator doctrine: paper IS training for live. The win rate, trade
+     * count, exit-tag win rates, and price-impact memory FluidLearning has
+     * accumulated during paper training represent generic market wisdom
+     * that should inform live sizing decisions — at least until live has
+     * accumulated its own statistical mass. SmartSizer uses this to fall
+     * back to paper-trained data when liveTrades < 10.
+     *
+     * Note: write methods (recordPaperBuy/Sell, simulated balance updates)
+     * still require shouldEnableAllFeatures()=true so live trades never
+     * pollute the paper training set.
+     */
+    fun isLearningAvailable(cfg: BotConfig): Boolean {
+        return cfg.fluidLearningEnabled
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

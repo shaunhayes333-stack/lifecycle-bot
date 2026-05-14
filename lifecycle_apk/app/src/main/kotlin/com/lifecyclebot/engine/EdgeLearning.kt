@@ -83,6 +83,11 @@ object EdgeLearning {
         var vetoedWouldLose: Int = 0,    // Vetoed and would have lost (correct)
         var approvedWon: Int = 0,         // Approved and won (correct)
         var approvedLost: Int = 0,        // Approved and lost (incorrect)
+        // V5.9.737 — track live-mode trade count separately so getters can
+        // tell whether the live thresholds have been adjusted by real
+        // experience or are still at defaults. When live is immature,
+        // getters inherit from paper-trained thresholds.
+        var liveTradesSeen: Int = 0,
     ) {
         val vetoAccuracy: Double get() = 
             if (vetoedWouldWin + vetoedWouldLose > 0) 
@@ -153,7 +158,8 @@ object EdgeLearning {
         }
         
         stats.totalTrades++
-        
+        if (!snapshot.isPaperMode) stats.liveTradesSeen++  // V5.9.737 inheritance gate
+
         if (snapshot.wasVetoed) {
             // Trade was vetoed by Edge
             if (isWin) {
@@ -330,6 +336,7 @@ object EdgeLearning {
             .putInt("edge_vetoed_would_lose", stats.vetoedWouldLose)
             .putInt("edge_approved_won", stats.approvedWon)
             .putInt("edge_approved_lost", stats.approvedLost)
+            .putInt("edge_live_trades_seen", stats.liveTradesSeen)  // V5.9.737
             .apply()
         
         // Also save to persistent external storage
@@ -384,6 +391,7 @@ object EdgeLearning {
             stats.vetoedWouldLose = prefs.getInt("edge_vetoed_would_lose", 0)
             stats.approvedWon = prefs.getInt("edge_approved_won", 0)
             stats.approvedLost = prefs.getInt("edge_approved_lost", 0)
+            stats.liveTradesSeen = prefs.getInt("edge_live_trades_seen", 0)  // V5.9.737
             
             ErrorLogger.info("EdgeLearning", 
                 "📂 Loaded thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +
@@ -397,9 +405,40 @@ object EdgeLearning {
     
     fun getPaperBuyPctMin(): Double = thresholds.paperBuyPctMin
     fun getPaperVolumeMin(): Double = thresholds.paperVolumeMin
-    fun getLiveBuyPctMin(): Double = thresholds.liveBuyPctMin
-    fun getLiveVolumeMin(): Double = thresholds.liveVolumeMin
+
+    /**
+     * V5.9.737 — PAPER→LIVE THRESHOLD INHERITANCE.
+     * If live mode hasn't accumulated enough trades to have meaningfully
+     * adjusted its own thresholds (≥50 live trades is the maturity bar,
+     * same as the `mature` flag in adjustThresholds), inherit from paper-
+     * trained thresholds plus a small caution margin so live doesn't run
+     * straight off paper's optimistic floor.
+     *
+     * Operator philosophy (memory ID #20, restated here in code):
+     *   "paper IS training for live — a mature paper bot must transfer
+     *   cleanly, not move the goal posts to another zip code."
+     *
+     * Margin: live inherits with +20% caution (so paper 5% buy → live 6%).
+     * Once live has seen 50 trades the live-specific threshold is trusted.
+     */
+    fun getLiveBuyPctMin(): Double {
+        return if (stats.liveTradesSeen < 50) {
+            // Inherit from paper + 20% caution margin, but never below the
+            // live-thresholds' own clamp floor.
+            (thresholds.paperBuyPctMin * 1.2).coerceAtLeast(3.0).coerceAtMost(35.0)
+        } else {
+            thresholds.liveBuyPctMin
+        }
+    }
+    fun getLiveVolumeMin(): Double {
+        return if (stats.liveTradesSeen < 50) {
+            (thresholds.paperVolumeMin * 1.2).coerceAtLeast(0.8).coerceAtMost(12.0)
+        } else {
+            thresholds.liveVolumeMin
+        }
+    }
     fun getVetoStickyMinutes(): Int = thresholds.vetoStickyMinutes
+    fun getLiveTradesSeen(): Int = stats.liveTradesSeen
     
     /**
      * Get veto accuracy for adaptive confidence integration.
@@ -435,6 +474,7 @@ object EdgeLearning {
         stats.vetoedWouldLose = 0
         stats.approvedWon = 0
         stats.approvedLost = 0
+        stats.liveTradesSeen = 0  // V5.9.737
         entrySnapshots.clear()
         ErrorLogger.info("EdgeLearning", "🔄 Reset to default thresholds")
     }
