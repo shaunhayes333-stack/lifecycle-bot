@@ -6382,13 +6382,51 @@ class BotService : Service() {
                 }
             }
 
-            // V5.9.103: periodic reconcile (live mode only)
-            if (!cfg.paperMode && System.currentTimeMillis() - lastReconcileAt > reconcileIntervalMs) {
-                lastReconcileAt = System.currentTimeMillis()
+            // V5.9.103: periodic reconcile (was live-mode-only)
+            //
+            // V5.9.750 — also fire in paper mode when:
+            //   (a) the live wallet is still connected via WalletManager
+            //       singleton (paper mode just nulls the local cfg-driven
+            //       wallet field — the singleton survives the flip), AND
+            //   (b) at least one pendingVerify position exists in
+            //       status.tokens (i.e. a prior live session left stuck
+            //       buys behind).
+            //
+            // Operator screenshot 23:36: Fartcoin / IO / MEMELON / Taylur
+            // all show BUY_CONFIRMED (tx mined on-chain) but no
+            // BUY_VERIFIED_LANDED. Then operator flipped to paper to
+            // inspect → cfg.paperMode=true → the existing live-mode-only
+            // gate locked out any further reconcile attempt → V5.9.748
+            // RECONCILE-PROMOTE never had a chance to fire → positions
+            // stayed pendingVerify forever and remained invisible in the
+            // Open Positions card even though tokens were sitting in the
+            // host wallet (+59% on CwhP — pure leaked alpha).
+            //
+            // This branch keeps the original live-mode behaviour intact
+            // and ADDS a paper-mode rescue branch that runs the same
+            // reconcile() (V5.9.748 promote-pending path handles it) but
+            // explicitly only when there's something to rescue.
+            val nowMs = System.currentTimeMillis()
+            val intervalElapsed = nowMs - lastReconcileAt > reconcileIntervalMs
+            val hasPendingVerify = try {
+                synchronized(status.tokens) {
+                    status.tokens.values.any { it.position.pendingVerify && it.position.costSol > 0 }
+                }
+            } catch (_: Throwable) { false }
+            val singletonWallet = try { WalletManager.getWallet() } catch (_: Throwable) { null }
+            val paperRescueEligible = cfg.paperMode && hasPendingVerify &&
+                singletonWallet != null && singletonWallet.publicKeyB58.isNotEmpty()
+            val liveTickEligible = !cfg.paperMode
+            if ((liveTickEligible || paperRescueEligible) && intervalElapsed) {
+                lastReconcileAt = nowMs
+                val rescueOnly = paperRescueEligible
                 kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val w = wallet
+                        val w = if (rescueOnly) singletonWallet else wallet
                         if (w != null && w.publicKeyB58.isNotEmpty()) {
+                            if (rescueOnly) {
+                                addLog("🛟 PAPER-MODE PENDING-VERIFY RESCUE — running reconcile against live wallet to promote stuck positions")
+                            }
                             val r = com.lifecyclebot.engine.StartupReconciler(
                                 wallet = w,
                                 status = status,
@@ -8480,6 +8518,13 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 "enter mint=${mint.take(8)} paper=${cfg.paperMode}",
             )
         } catch (_: Throwable) { /* never let logging stop the cycle */ }
+
+        // V5.9.750 — keep PipelineHealthCollector.modeSnapshot fresh so
+        // onGate/onExec can split per-mode counters. One @Volatile write
+        // per cycle; negligible cost. Truth source: cfg.paperMode.
+        try {
+            PipelineHealthCollector.modeSnapshot = if (cfg.paperMode) "PAPER" else "LIVE"
+        } catch (_: Throwable) { /* never break the cycle */ }
         try {
             // V5.9.495z42 P1 — opportunistic recovery-lock unlock attempt at
             // the top of every per-token cycle. Covers all V3 sub-trader

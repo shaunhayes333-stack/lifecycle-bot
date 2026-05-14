@@ -74,6 +74,38 @@ object PipelineHealthCollector {
     /** V5.9.670 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
 
+    // ════════════════════════════════════════════════════════════════
+    // V5.9.750 — Per-mode FDG / EXEC counters
+    //
+    // Base44 ticket asked for FDG_LIVE_ALLOW / FDG_LIVE_BLOCK /
+    // FDG_PAPER_ALLOW / FDG_PAPER_BLOCK and EXEC_LIVE_ATTEMPT /
+    // EXEC_LIVE_BUY_OK / EXEC_LIVE_BUY_FAIL / EXEC_PAPER_BUY_OK so that
+    // forensic snapshots can disambiguate "FDG allow=0 block=174" —
+    // is the bot in paper mode (expected), or is live actively being
+    // blocked (regression)?
+    //
+    // Implementation: don't touch the 7 FDG emit sites in BotService.
+    // Instead, snapshot the current paperMode flag on a @Volatile field
+    // (cheap, one write per cycle from BotService.processTokenCycle)
+    // and have onGate/onExec read it locally to bump the right counter.
+    // Zero behaviour change. Pure observability.
+    // ════════════════════════════════════════════════════════════════
+
+    @Volatile var modeSnapshot: String = "UNKNOWN"
+
+    private val fdgLiveAllow   = AtomicLong(0L)
+    private val fdgLiveBlock   = AtomicLong(0L)
+    private val fdgPaperAllow  = AtomicLong(0L)
+    private val fdgPaperBlock  = AtomicLong(0L)
+
+    private val execLiveAttempt  = AtomicLong(0L)
+    private val execLiveBuyOk    = AtomicLong(0L)
+    private val execLiveBuyFail  = AtomicLong(0L)
+    private val execLiveSellOk   = AtomicLong(0L)
+    private val execLiveSellFail = AtomicLong(0L)
+    private val execPaperBuyOk   = AtomicLong(0L)
+    private val execPaperSellOk  = AtomicLong(0L)
+
     /** V5.9.670 — per-symbol intake counter (top-10 surfaced in dump). */
     private val symbolIntakeCounts = ConcurrentHashMap<String, AtomicLong>()
 
@@ -147,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.749"
+    private const val BUILD_TAG = "V5.9.750"
 
     data class Event(
         val tsMs: Long,
@@ -202,6 +234,17 @@ object PipelineHealthCollector {
             val reasonKey = reason.substringBefore(' ').take(40).ifEmpty { "unspecified" }
             bump(blockReasonCounts, "$phaseTag/$reasonKey")
         }
+        // V5.9.750 — per-mode FDG counters. Other phases don't get this
+        // split because only FDG is the live-money gate; SAFETY/V3/EXIT
+        // run identically in paper and live so the unified counter is
+        // already correct for them.
+        if (phaseTag == "FDG") {
+            when (modeSnapshot) {
+                "LIVE"  -> if (allow) fdgLiveAllow.incrementAndGet()  else fdgLiveBlock.incrementAndGet()
+                "PAPER" -> if (allow) fdgPaperAllow.incrementAndGet() else fdgPaperBlock.incrementAndGet()
+                else    -> { /* mode unknown — only roll into the unified counters */ }
+            }
+        }
         appendEvent(Event(
             System.currentTimeMillis(),
             if (allow) "GATE_ALLOW/$phaseTag" else "GATE_BLOCK/$phaseTag",
@@ -226,6 +269,26 @@ object PipelineHealthCollector {
         if (!attached) return
         bump(phaseCounts, "EXEC")
         bump(labelCounts, "EXEC/$action")
+        // V5.9.750 — per-mode EXEC outcome counters. Action strings come
+        // from the existing ForensicLogger.exec call sites:
+        //   "PAPER_BUY", "PAPER_SELL", "LIVE_BUY_ATTEMPT",
+        //   "LIVE_BUY_OK", "LIVE_BUY_FAIL", "LIVE_SELL_OK",
+        //   "LIVE_SELL_FAIL" (and similar). We pattern-match the
+        //   prefix/suffix instead of an enum so new action labels added
+        //   in the future are automatically classified.
+        // ORDER MATTERS: longer / more specific prefixes first so a generic
+        // "LIVE_BUY" doesn't shadow "LIVE_BUY_OK" / "LIVE_BUY_FAIL" once
+        // those finer-grained actions are wired by callers.
+        when {
+            action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
+            action.startsWith("LIVE_BUY_FAIL")    -> execLiveBuyFail.incrementAndGet()
+            action.startsWith("LIVE_BUY_ATTEMPT") -> execLiveAttempt.incrementAndGet()
+            action.startsWith("LIVE_BUY")         -> execLiveAttempt.incrementAndGet()  // existing emit site fires this at attempt time
+            action.startsWith("LIVE_SELL_OK")     -> execLiveSellOk.incrementAndGet()
+            action.startsWith("LIVE_SELL_FAIL")   -> execLiveSellFail.incrementAndGet()
+            action.startsWith("PAPER_BUY")        -> execPaperBuyOk.incrementAndGet()
+            action.startsWith("PAPER_SELL")       -> execPaperSellOk.incrementAndGet()
+        }
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
     }
 
@@ -806,6 +869,26 @@ object PipelineHealthCollector {
             sb.append("  ⚠ FDG blocking majority — check DANGER_ZONE, edge veto rate, or brain state.\n")
         else if (fdgAllow > 0)
             sb.append("  ✅ FDG passing $fdgAllow / ${fdgTotal} evaluations.\n")
+
+        // V5.9.750 — per-mode FDG / EXEC breakdown so operator (and
+        // forensics consumers like Base44) can disambiguate at a glance
+        // whether live trading is actually happening.
+        sb.append("\n  [MODE]  current=${modeSnapshot}\n")
+        sb.append("  [FDG PER-MODE]\n")
+        sb.append("    FDG_LIVE_ALLOW=${fdgLiveAllow.get()}   FDG_LIVE_BLOCK=${fdgLiveBlock.get()}\n")
+        sb.append("    FDG_PAPER_ALLOW=${fdgPaperAllow.get()}  FDG_PAPER_BLOCK=${fdgPaperBlock.get()}\n")
+        sb.append("  [EXEC PER-MODE]\n")
+        sb.append("    EXEC_LIVE_ATTEMPT=${execLiveAttempt.get()}\n")
+        sb.append("    EXEC_LIVE_BUY_OK=${execLiveBuyOk.get()}   EXEC_LIVE_BUY_FAIL=${execLiveBuyFail.get()}\n")
+        sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}\n")
+        sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}\n")
+        if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
+            sb.append("  ⚠ LIVE mode but FDG_LIVE_ALLOW=0 — live trading is fully blocked.\n")
+            sb.append("    Check block-reason histogram below for the gate that\'s vetoing.\n")
+        }
+        if (modeSnapshot == "PAPER" && fdgLiveAllow.get() > 0) {
+            sb.append("  ⚠ Mode=PAPER but live FDG passes recorded — historical from a prior live session.\n")
+        }
 
         // ── SAFETY gate ─────────────────────────────────────────────────
         sb.append("\n  [SAFETY GATE]  allow=$safetyAllow  block=$safetyBlock\n")

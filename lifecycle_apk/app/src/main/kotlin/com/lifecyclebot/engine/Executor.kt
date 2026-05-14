@@ -6071,8 +6071,22 @@ class Executor(
                 var verifiedQty = 0.0
                 var anyRpcError = false
                 var sigParseConfirmedZero = false  // V5.9.265: only TRUE phantom if tx parse explicitly says 0
+                // V5.9.750 — extended verify window. Operator screenshots
+                // 23:36 show multiple live buys reaching BUY_CONFIRMED (tx
+                // mined on-chain) but never reaching BUY_VERIFIED_LANDED.
+                // Tokens DID arrive in the host wallet (Phantom screenshot
+                // confirms Fartcoin / 8hPe…pump / 8RT6…TdhL / CwhP…vWdN
+                // all present), so the failure mode is RPC indexer lag
+                // beyond the original 30s window (5 polls × 6s). pump.fun
+                // mints in particular hit indexer lag past 45s during hot
+                // scanner storms, AND Helius rate-limit responses cause
+                // tx-parse fallback to fail too. Extend to 10 polls × 6s
+                // = 60s. Still well under the 90s periodic reconciler so
+                // the safety net stays consistent. If verify still fails,
+                // the position stays pendingVerify and the V5.9.748
+                // RECONCILE-PROMOTE path picks it up at the next 90s tick.
                 val pollIntervalMs = 6_000L
-                val maxPolls = 5
+                val maxPolls = 10
                 for (pollNum in 1..maxPolls) {
                     try {
                         Thread.sleep(pollIntervalMs)
