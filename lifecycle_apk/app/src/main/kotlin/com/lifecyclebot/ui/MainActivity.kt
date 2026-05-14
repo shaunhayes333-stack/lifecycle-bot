@@ -470,6 +470,14 @@ class MainActivity : AppCompatActivity() {
     // If the hash is unchanged, the render is skipped entirely.
     // ═══════════════════════════════════════════════════════════════
     private var lastOpenPosHash: Int = -1
+    // V5.9.749 — split the open-positions render into structural-vs-price.
+    // The 92.8% main-thread stall was caused by ref-only price ticks (1Hz
+    // V5.9.730 loop) blowing the structural hash and forcing a full
+    // removeAllViews()/rebuild of every card. Now we use a STRUCTURAL hash
+    // (mint + cost + paper flag + qty) for the rebuild path and a
+    // minimum 2s interval throttle. Pure price drift no longer rebuilds.
+    private var lastOpenPosRenderMs: Long = 0L
+    private val OPEN_POS_MIN_RENDER_INTERVAL_MS: Long = 2_000L
     private var lastMoonshotHash: Int = -1
     private var lastNetworkSigRenderMs: Long = 0L
     private var lastDecisionLogHash: Int = -1
@@ -3312,10 +3320,25 @@ for legal compliance.
     }
 
     private fun renderOpenPositions(positions: List<TokenState>) {
-        // V5.9.709 — skip render if positions haven't changed (hash check)
-        val openHash = positions.map { "${it.mint}${it.ref}${it.position.costSol}" }.hashCode()
+        // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
+        // purpose: price drift from the 1Hz tick loop must NOT trigger a
+        // full card rebuild — that was the dominant ANR blocker (92.8%
+        // stall per pipeline snapshot). Structural rebuild only fires
+        // when a position is added/removed/resized or flips paper↔live.
+        val openHash = positions.map {
+            "${it.mint}|${it.position.costSol}|${it.position.qtyToken}|${it.position.isPaperPosition}|${it.position.pendingVerify}"
+        }.hashCode()
         if (openHash == lastOpenPosHash) return
+        // V5.9.749 — 2s minimum interval between full rebuilds even when
+        // structure changed. Bursts of new tokens during a hot scanner
+        // cycle can't ANR the UI; the next interval will pick them up.
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastOpenPosRenderMs < OPEN_POS_MIN_RENDER_INTERVAL_MS &&
+            lastOpenPosRenderMs > 0L) {
+            return
+        }
         lastOpenPosHash = openHash
+        lastOpenPosRenderMs = nowMs
         llOpenPositions.removeAllViews()
         // V5.9.495z37 — operator-reported confusion: tSpaceX / TCLAW /
         // TripleT / GMAR / MAGA / ROAF appear in lane cards (Blue Chip
