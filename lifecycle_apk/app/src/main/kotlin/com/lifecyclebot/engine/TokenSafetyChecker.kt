@@ -115,7 +115,50 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
     private val cache = ConcurrentHashMap<String, SafetyReport>()
 
+    // V5.9.736 — IN-FLIGHT DEDUP + RC_PENDING DEFER QUEUE.
+    //
+    // Operator live-mode dump showed the same mint (MMIC) hard-blocked
+    // 3× in a single second by three concurrent intake paths all racing
+    // through check() before the first one wrote its result to `cache`.
+    // ConcurrentHashMap protects writes, but does NOT deduplicate work-
+    // in-flight — each caller burned a Rugcheck HTTP retry chain and an
+    // RPC mint/freeze call for the same token. Real waste of API quota
+    // on a free-tier wallet that's already trying to be careful with
+    // every request.
+    //
+    // inFlight: mint → Object (lock). First caller for a mint installs
+    //   a lock object; subsequent callers wait on the same object until
+    //   the first finishes and populates `cache`, then they return the
+    //   cached result. Bounded wait so a hung HTTP call can't deadlock.
+    //
+    // deferred: mint → expiry-epoch-ms. When live-mode RC_PENDING fires
+    //   for a token that doesn't meet the high-score override, instead
+    //   of hard-blocking and walking away forever, we stamp the mint
+    //   with a short defer window. The scanner's next safety re-check
+    //   on this mint (which happens every cycle) will see the defer
+    //   stamp expired, invalidate the safety cache, and re-run the
+    //   check — by then RugCheck will usually have caught up and given
+    //   a real score. After RC_DEFER_TTL_MS without resolution we let
+    //   the hard-block stand permanently so genuinely-broken tokens
+    //   don't sit in the deferred set forever.
+    private val inFlight = ConcurrentHashMap<String, Any>()
+    private val deferred = ConcurrentHashMap<String, Long>()
+
     companion object {
+
+        // V5.9.736 — defer-queue tuning. RC_DEFER_TTL is the total wall-
+        // time a token can stay in the deferred pool before we accept
+        // the hard block. RC_DEFER_RECHECK is the per-attempt delay
+        // before the scanner is allowed to re-evaluate (avoids
+        // hammering RugCheck every 200ms while the API crawls).
+        private const val RC_DEFER_TTL_MS: Long = 90_000L      // 90s total window
+        private const val RC_DEFER_RECHECK_MS: Long = 30_000L  // re-check every 30s
+        // INFLIGHT_WAIT_MS bounds how long a concurrent caller waits
+        // for the first caller's check() to finish before giving up
+        // and running its own check. Rugcheck retries top out around
+        // 4-5s in the worst case so 6s is a safe ceiling.
+        private const val INFLIGHT_WAIT_MS: Long = 6_000L
+
         private const val TAG = "SafetyChecker"
 
         private const val LIQUIDITY_HISTORY_MAX_SIZE = 10
@@ -229,12 +272,60 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // If the caller now has healthy liquidity, re-run safety instead
             // of returning the stale HARD_BLOCK.
             val cachedLiquidityBlock = cached.hardBlockReasons.any { it.startsWith("Liquidity ", ignoreCase = true) }
-            if (!(cachedLiquidityBlock && currentLiquidityUsd >= 2_000.0)) {
+            // V5.9.736 — DEFER-AWARE INVALIDATION. If this mint is in the
+            // deferred queue and the recheck window has elapsed, drop the
+            // cached HARD_BLOCK so we re-evaluate. RC may now have a real
+            // score. After RC_DEFER_TTL_MS we stop bothering and let the
+            // hard block stand (token is genuinely unscoreable).
+            val deferUntil = deferred[mint]
+            val now = System.currentTimeMillis()
+            val cachedIsRcPendingBlock = cached.hardBlockReasons.any { it.startsWith("Rugcheck pending", ignoreCase = true) }
+            val deferRecheckDue = deferUntil != null && now >= deferUntil && cachedIsRcPendingBlock
+            if (deferRecheckDue) {
+                val deferAgeMs = now - (deferUntil!! - RC_DEFER_RECHECK_MS)
+                if (deferAgeMs >= RC_DEFER_TTL_MS) {
+                    // Past the total TTL — accept the hard block, stop deferring.
+                    deferred.remove(mint)
+                    return cached
+                }
+                ErrorLogger.info(TAG, "⏳ RC_DEFER_RECHECK: $symbol — re-evaluating after ${deferAgeMs / 1000}s")
+                cache.remove(mint)
+                // Re-stamp defer expiry so we don't busy-loop the recheck.
+                deferred[mint] = now + RC_DEFER_RECHECK_MS
+            } else if (!(cachedLiquidityBlock && currentLiquidityUsd >= 2_000.0)) {
                 return cached
+            } else {
+                ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=$${currentLiquidityUsd.toInt()}")
+                cache.remove(mint)
             }
-            ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=$${currentLiquidityUsd.toInt()}")
-            cache.remove(mint)
         }
+
+        // V5.9.736 — IN-FLIGHT DEDUP. If another caller is already running
+        // check() for this mint (intake races on fresh launches commonly fire
+        // 2-3 concurrent paths), wait on its lock object instead of running
+        // our own duplicate Rugcheck + RPC calls. Bounded by INFLIGHT_WAIT_MS
+        // so a hung HTTP request can't deadlock the whole pipeline.
+        val ourLock = Any()
+        val installed = inFlight.putIfAbsent(mint, ourLock)
+        if (installed != null) {
+            // Someone else is doing the work. Wait on THEIR lock object.
+            synchronized(installed) {
+                try {
+                    (installed as Object).wait(INFLIGHT_WAIT_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }
+            // First caller should have populated `cache`. If they did, return it.
+            val populated = cache[mint]
+            if (populated != null && !populated.isStale) return populated
+            // Otherwise fall through — first caller timed out or errored.
+            // Install our own lock and proceed; whoever wins putIfAbsent
+            // again runs the check, others wait on the new lock.
+            inFlight.putIfAbsent(mint, ourLock)
+        }
+
+        try {
 
         val isPaperMode = cfg().paperMode
 
@@ -393,7 +484,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     when (rcState) {
                         com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_BLOCKED -> {
                             hard.add("Rugcheck pending — live mode, no high-score override")
-                            ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override)")
+                            // V5.9.736 — push to defer queue so we re-evaluate
+                            // in RC_DEFER_RECHECK_MS instead of giving up forever
+                            // on this token. First-stamp only — subsequent
+                            // re-checks update the timestamp inside the deferred-
+                            // aware invalidation block above.
+                            val existingDefer = deferred[mint]
+                            if (existingDefer == null) {
+                                deferred[mint] = System.currentTimeMillis() + RC_DEFER_RECHECK_MS
+                                ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override) — deferring re-check ${RC_DEFER_RECHECK_MS / 1000}s")
+                            } else {
+                                ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override)")
+                            }
                         }
                         com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_ALLOWED_PAPER -> {
                             val p = pen ?: 5
@@ -763,6 +865,23 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             ForensicLogger.gate(ForensicLogger.PHASE.SAFETY, symbol, allow, reason)
         } catch (_: Throwable) {}
         return report
+
+        } finally {
+            // V5.9.736 — release the in-flight lock and wake any waiters so they
+            // can pick up the cached result we just wrote. Always runs even on
+            // exception so a thrown check() can never strand callers waiting.
+            // CRITICAL: only remove if `ourLock` is the lock currently registered
+            // for this mint. In the rare path where our first putIfAbsent saw an
+            // existing installer, we waited but didn't get a cached result, and
+            // then a second putIfAbsent ALSO saw an installer (yet a third caller
+            // beat us), we don't own any lock and must not remove someone else's.
+            val released = inFlight.remove(mint, ourLock)
+            if (released) {
+                synchronized(ourLock) {
+                    (ourLock as Object).notifyAll()
+                }
+            }
+        }
     }
 
     private fun fetchRugcheck(mint: String): JSONObject? {

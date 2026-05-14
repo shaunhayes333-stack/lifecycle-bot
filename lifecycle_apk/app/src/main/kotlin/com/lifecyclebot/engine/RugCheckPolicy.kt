@@ -21,8 +21,19 @@ object RugCheckPolicy {
     }
 
     /** Threshold above which a high-score override allows live entry
-     *  on a token that hasn't completed RugCheck yet. */
-    const val LIVE_OVERRIDE_SCORE_MIN: Int = 75
+     *  on a token that hasn't completed RugCheck yet.
+     *
+     *  V5.9.736 — lowered 75 → 70. Operator live-mode log showed strong
+     *  fresh-launch candidates (e.g. BULLISH conf=72, sources=2) being
+     *  hard-blocked by RC_PENDING with no override, despite the upstream
+     *  scanner already passing them on multi-source confidence. 75 was
+     *  picked for paper mode where we have no cost to rejecting; in live
+     *  the operator can't afford to reject 70-74 conf tokens at age=0min
+     *  because by the time RC scores them (10-30s), entry alpha is gone.
+     *  The override still applies the +15 entry penalty (downsizes the
+     *  trade) and the FDG still has final veto — this only widens the
+     *  band of "trust upstream confidence" by 5 points. */
+    const val LIVE_OVERRIDE_SCORE_MIN: Int = 70
 
     fun evaluate(
         rcConfirmedSafe: Boolean,

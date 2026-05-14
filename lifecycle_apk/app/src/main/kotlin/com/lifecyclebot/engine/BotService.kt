@@ -7375,7 +7375,29 @@ class BotService : Service() {
                         try { com.lifecyclebot.perps.TokenizedStockTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
                         try { com.lifecyclebot.perps.PerpsTraderAI.setLiveBalance(freshSol) } catch (_: Exception) {}
                         // V5.9.283: Auto-untrip STARTUP_FLOOR CB if wallet grew above minimum
-                        if (!cfg.paperMode) LiveSafetyCircuitBreaker.updateBalance(freshSol)
+                        if (!cfg.paperMode) {
+                            LiveSafetyCircuitBreaker.updateBalance(freshSol)
+
+                            // V5.9.736 — LOW-BALANCE EARLY WARNING.
+                            // LiveSafetyCircuitBreaker.MIN_LIVE_SOL is 0.10 — at that
+                            // point all live trades are already blocked. Operator
+                            // dump showed wallet at 0.1904 SOL trying to go live,
+                            // which is one Jupiter swap + slippage + priority fee
+                            // away from the breaker floor. Surface a warning in
+                            // logs + UI as soon as we drop under 2× the floor so
+                            // the operator sees it coming, not after the breaker
+                            // trips silently mid-session.
+                            val warnFloor = LiveSafetyCircuitBreaker.MIN_LIVE_SOL * 2.0  // 0.20 SOL
+                            if (freshSol < warnFloor && !LiveSafetyCircuitBreaker.isTripped()) {
+                                val solPx = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 0.0
+                                val usdNote = if (solPx > 0) " (~\$${(freshSol * solPx).toInt()})" else ""
+                                ErrorLogger.warn("BotService",
+                                    "⚠️ LIVE_BALANCE_LOW: wallet=${"%.4f".format(freshSol)} SOL$usdNote — " +
+                                    "approaching circuit-breaker floor ${LiveSafetyCircuitBreaker.MIN_LIVE_SOL} SOL. " +
+                                    "Top up to avoid mid-session trade halt.")
+                                addLog("⚠️ Live wallet low: ${"%.4f".format(freshSol)} SOL$usdNote — top up to avoid halt at ${LiveSafetyCircuitBreaker.MIN_LIVE_SOL}")
+                            }
+                        }
                     }
                     
 
