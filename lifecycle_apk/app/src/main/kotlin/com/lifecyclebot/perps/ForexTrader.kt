@@ -89,7 +89,19 @@ object ForexTrader {
         var realizedPnl: Double? = null,
         val reasons: List<String> = emptyList(),
         val aiConfidence: Int = 50,
-        var peakPnlPct: Double = 0.0
+        var peakPnlPct: Double = 0.0,
+        // V5.9.740 — stamp the open-mode of the position so the close path
+        // routes correctly regardless of how the global isPaperMode flag has
+        // moved between open and close. Default true is the safer assumption
+        // for rehydrated positions that pre-date this field — we will never
+        // try to fire a live Jupiter swap on a position that was actually
+        // opened in paper. Operator (Bernard Griffin messenger 2026-05-14
+        // 19:50): 'markets positions bought by the bot aren't appearing in
+        // the host wallet'. Root cause was that paper-opened positions
+        // survived a paper→live mode flip and were treated as live by every
+        // downstream consumer (UI, close, accounting). Tagging open mode at
+        // construction time is the structural fix.
+        val isPaper: Boolean = true
     ) {
         fun getPnlPercent(): Double {
             val priceDiff = currentPrice - entryPrice
@@ -148,6 +160,7 @@ object ForexTrader {
             .put("takeProfit", p.takeProfit).put("stopLoss", p.stopLoss)
             .put("openTime", p.openTime).put("aiConfidence", p.aiConfidence)
             .put("reasons", org.json.JSONArray(p.reasons)).put("peakPnlPct", p.peakPnlPct)
+            .put("isPaper", p.isPaper)  // V5.9.740
 
     private fun forexPositionFromJson(j: org.json.JSONObject): ForexPosition {
         val rArr = j.optJSONArray("reasons")
@@ -160,6 +173,11 @@ object ForexTrader {
             takeProfit = j.getDouble("takeProfit"), stopLoss = j.getDouble("stopLoss"),
             openTime = j.optLong("openTime", System.currentTimeMillis()),
             reasons = reasons, aiConfidence = j.optInt("aiConfidence", 50),
+            // V5.9.740 — default to PAPER for legacy entries with no isPaper
+            // field. Legacy persistent positions all pre-date the live-mode
+            // path so this is the safe assumption; we never want to acci-
+            // dentally treat a paper-opened position as live on close.
+            isPaper = j.optBoolean("isPaper", true),
         ).apply { peakPnlPct = j.optDouble("peakPnlPct", 0.0) }
     }
 
@@ -648,7 +666,10 @@ object ForexTrader {
             leverage = signal.leverage,
             takeProfit = tp,
             stopLoss = sl,
-            reasons = signal.reasons
+            reasons = signal.reasons,
+            // V5.9.740 — stamp the open-mode so the close path routes
+            // correctly even if the operator flips paperMode mid-position.
+            isPaper = isPaperMode.get(),
         )
         
         positionMap[position.id] = position
@@ -808,7 +829,8 @@ object ForexTrader {
 
         // V5.9.721-FIX: fast shutdown path — skip heavy AI learning on bot stop.
         if (com.lifecyclebot.engine.BotService.isShuttingDown) {
-            if (isPaperMode.get()) {
+            // V5.9.740: route on position.isPaper, not global isPaperMode.
+            if (position.isPaper) {
                 try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
                 com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                     delta = position.size + pnl,
@@ -834,8 +856,16 @@ object ForexTrader {
             )
         } catch (_: Exception) {}
 
-        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result
-        if (!isPaperMode.get()) {
+        // V5.7.7 FIX: Execute live on-chain close — MUST wait for result.
+        // V5.9.740 — route on position.isPaper, NOT the global isPaperMode
+        // flag. A paper-opened position must always close via paper
+        // accounting even if the operator flipped to live after it opened
+        // (and vice-versa for the rare reverse case). Without this guard
+        // paper positions get fed into MarketsLiveExecutor.closeLivePosition
+        // which tries to Jupiter-swap-out forex pairs that have no on-chain
+        // mint, returns failure, and the close path 'kept open' branch
+        // strands the position in the UI forever.
+        if (!position.isPaper) {
             var closeSuccess = false
             try {
                 closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -876,12 +906,18 @@ object ForexTrader {
         
         // Record to FluidLearningAI for unified learning
         // V5.7.6b: Use Markets-specific recording to avoid affecting Meme thresholds
+        // V5.9.740: route on position.isPaper so a paper-opened position
+        // retired during a paper→live flip records against paper stats, not
+        // live (would otherwise contaminate live win-rate from day one).
         try {
-            if (isPaperMode.get()) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
+            if (position.isPaper) FluidLearningAI.recordMarketsPaperTrade(isWin, pnlPct)
             else FluidLearningAI.recordMarketsLiveTrade(isWin, pnlPct)
         } catch (_: Exception) {}
         // V5.9.6: Sync closed P&L to shared FluidLearning pool so main bot balance updates
-        if (isPaperMode.get()) {
+        // V5.9.740: route on position.isPaper, not global isPaperMode flag.
+        // This ensures paper capital is correctly returned to the paper
+        // wallet when a paper position is retired during a paper→live flip.
+        if (position.isPaper) {
             try {
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                     mint = position.market.symbol,
@@ -1146,6 +1182,7 @@ object ForexTrader {
     fun isPaperMode(): Boolean = isPaperMode.get()
     
     fun setLiveMode(live: Boolean) {
+        val wasLive = !isPaperMode.get()
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "💱 ForexTrader mode: ${if (live) "🔴 LIVE" else "📄 PAPER"}")
         if (live) {
@@ -1155,6 +1192,39 @@ object ForexTrader {
                 if (balance > 0) updateLiveBalance(balance)
                 ErrorLogger.info(TAG, "💱 Live wallet balance: ${"%.4f".format(liveWalletBalance)} SOL")
             } catch (_: Exception) {}
+
+            // V5.9.740 — retire stale paper positions on paper→live flip.
+            // Operator Bernard (2026-05-14 19:50) reported 6 Forex positions
+            // (CHFJPY/GBPJPY/NZDJPY etc.) visible in the bot's "OPEN
+            // POSITIONS" panel for 4h+ that the wallet has no record of.
+            // Cause: positions were opened in paper mode, persisted across
+            // a paper→live flip, and appear in the UI identically to live
+            // positions while never being on-chain. From the operator's
+            // perspective: 'the bot opened positions that aren't in my
+            // wallet.' We close them silently to paper P&L so the open list
+            // reflects only positions that have real on-chain backing.
+            if (!wasLive) {
+                val stalePaper = (spotPositions.values + leveragePositions.values)
+                    .filter { it.isPaper }
+                    .toList()
+                if (stalePaper.isNotEmpty()) {
+                    ErrorLogger.warn(TAG,
+                        "💱 PAPER→LIVE flip: retiring ${stalePaper.size} stale paper position(s) " +
+                        "(no on-chain backing, would mislead operator if kept visible).")
+                    stalePaper.forEach { pos ->
+                        val map = if (pos.leverage <= 1.0) spotPositions else leveragePositions
+                        try { closePosition(pos, map, "PAPER_RETIRED_ON_LIVE_FLIP") }
+                        catch (e: Exception) {
+                            ErrorLogger.warn(TAG,
+                                "💱 retire-paper close failed for ${pos.market.symbol}: ${e.message}")
+                            // Hard fallback: remove from map so the UI doesn't
+                            // show a stale paper position labelled as live.
+                            map.remove(pos.id)
+                        }
+                    }
+                    persistForexPositions()
+                }
+            }
         }
     }
 
