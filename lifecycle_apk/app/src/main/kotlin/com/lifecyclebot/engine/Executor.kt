@@ -5548,6 +5548,27 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
             return
         }
+
+        // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
+        // must NEVER be entered as a meme-target buy. Forensic report
+        // showed mint=EPjFWdd5… (USDC) flowing into LIVE_BUY_START with
+        // traderTag=MEME. Hard abort BEFORE any tx work happens.
+        if (com.lifecyclebot.engine.execution.MintIntegrityGate.isSystemOrStablecoinMint(ts.mint)) {
+            ErrorLogger.warn("Executor",
+                "[EXECUTION/WRONG_TARGET_MINT] Live MEME buy blocked: ${ts.symbol} mint=${ts.mint.take(12)}… is a stablecoin/system mint")
+            try {
+                val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "WRONG_TARGET_MINT — ${ts.symbol} is a stablecoin/bridge/system mint, refusing buy",
+                    traderTag = "MEME",
+                )
+            } catch (_: Throwable) {}
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WRONG_TARGET_MINT")
+            return
+        }
+
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
             return
@@ -6185,7 +6206,38 @@ class Executor(
                         // Survives restarts/updates so bot can resume managing position
                         // even if the scanner hasn't re-discovered the token yet.
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
-                        try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
+                        // V5.9.751 — Base44 ticket item #4: assert host_tracker
+                        // actually opens a position. Previously this was a
+                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
+                        // but host_tracker.open_count=0 with no signal as to
+                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
+                        try {
+                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
+                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
+                            val afterOpen = HostWalletTokenTracker.getOpenCount()
+                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
+                            LiveTradeLogStore.log(
+                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
+                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
+                            )
+                            if (!opened) {
+                                ErrorLogger.warn("Executor",
+                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.error("Executor",
+                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
+                            try {
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
+                                    traderTag = "MEME",
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, verifiedQty) } catch (_: Throwable) {}
                         // V5.9.602 — capture entry metadata only after token
                         // arrival is verified. This keeps pool/price data from
@@ -6273,7 +6325,38 @@ class Executor(
                         )
                         try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                         try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
-                        try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
+                        // V5.9.751 — Base44 ticket item #4: assert host_tracker
+                        // actually opens a position. Previously this was a
+                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
+                        // but host_tracker.open_count=0 with no signal as to
+                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
+                        try {
+                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
+                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
+                            val afterOpen = HostWalletTokenTracker.getOpenCount()
+                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
+                            LiveTradeLogStore.log(
+                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
+                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
+                            )
+                            if (!opened) {
+                                ErrorLogger.warn("Executor",
+                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.error("Executor",
+                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
+                            try {
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
+                                    traderTag = "MEME",
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, lastChanceQty) } catch (_: Throwable) {}
                         return@launch
                     }
@@ -6310,7 +6393,38 @@ class Executor(
                                 )
                                 try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
                                 try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
-                                try { HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig) } catch (_: Exception) {}
+                                // V5.9.751 — Base44 ticket item #4: assert host_tracker
+                        // actually opens a position. Previously this was a
+                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
+                        // but host_tracker.open_count=0 with no signal as to
+                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
+                        try {
+                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
+                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
+                            val afterOpen = HostWalletTokenTracker.getOpenCount()
+                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
+                            LiveTradeLogStore.log(
+                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
+                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
+                            )
+                            if (!opened) {
+                                ErrorLogger.warn("Executor",
+                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.error("Executor",
+                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
+                            try {
+                                LiveTradeLogStore.log(
+                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
+                                    traderTag = "MEME",
+                                )
+                            } catch (_: Throwable) {}
+                        }
                                 return@launch
                             }
                             TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
@@ -8177,9 +8291,11 @@ class Executor(
 
         if (!skipOnChainCheck) try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
-            val onChainBalances = wallet.getTokenAccountsWithDecimals()
-            val tokenData = onChainBalances[ts.mint]
-            val mapEmpty = onChainBalances.isEmpty()
+            // V5.9.751 — `var` so the RPC-RECOVERY refresh below can rebind
+            // if the first read returned an empty map.
+            var onChainBalances = wallet.getTokenAccountsWithDecimals()
+            var tokenData = onChainBalances[ts.mint]
+            var mapEmpty = onChainBalances.isEmpty()
 
             // V5.9.467 — RPC-EMPTY RESCUE (operator-reported sell-kill bug).
             //
@@ -8207,17 +8323,62 @@ class Executor(
             // is absent — that's the real "externally sold/rugged" case.
             val rpcRescue = false
             if (mapEmpty) {
-                val retryCount = zeroBalanceRetries.merge(ts.mint + "_balance_unknown", 1) { old, _ -> old + 1 } ?: 1
-                onLog("🛑 SELL BLOCKED: ${ts.symbol} RPC-EMPTY-MAP → BALANCE_UNKNOWN (retry $retryCount) — refusing cached tokenUnits broadcast", tradeId.mint)
-                ErrorLogger.warn("Executor", "RPC_EMPTY_MAP_BALANCE_UNKNOWN: ${ts.symbol} — broadcast blocked")
-                LiveTradeLogStore.log(
-                    sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                    "RPC-EMPTY-MAP → BALANCE_UNKNOWN — broadcast blocked; caller tokenUnits/cache not authoritative",
-                    traderTag = "MEME",
-                )
-                return SellResult.FAILED_RETRYABLE
-            } else if (tokenData == null || tokenData.first <= 0.0) {
+                // V5.9.751 — Base44 ticket item #5. Previously we returned
+                // FAILED_RETRYABLE immediately and spammed SELL_BLOCKED to
+                // forensics on every tick — operator could not tell if the
+                // retry was actually queued. Now: do ONE explicit refresh,
+                // then emit SELL_RETRY_SCHEDULED at-most-once per stuck
+                // window. Still no broadcast against unknown state (the
+                // V5.9.467 invariant); just better signal/noise.
+                val retryCountKey = ts.mint + "_balance_unknown"
+                val retryCount = zeroBalanceRetries.merge(retryCountKey, 1) { old, _ -> old + 1 } ?: 1
+                var recovered = false
+                try {
+                    Thread.sleep(150)  // brief breathing room before re-poll
+                    val retryBalances = wallet.getTokenAccountsWithDecimals()
+                    if (retryBalances.isNotEmpty()) {
+                        // Rebind so the rest of this block sees the recovered map.
+                        onChainBalances = retryBalances
+                        tokenData = retryBalances[ts.mint]
+                        mapEmpty = false
+                        recovered = true
+                        onLog("♻ RPC-RECOVERY: ${ts.symbol} — refresh returned ${retryBalances.size} accounts (was empty)", tradeId.mint)
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                            "RPC-RECOVERY — refresh returned ${retryBalances.size} accounts; proceeding with sell evaluation",
+                            traderTag = "MEME",
+                        )
+                        zeroBalanceRetries.remove(retryCountKey)
+                    }
+                } catch (e: Throwable) {
+                    ErrorLogger.warn("Executor", "RPC refresh failed for ${ts.symbol}: ${e.message?.take(80)}")
+                }
+                if (!recovered) {
+                    // Refresh confirmed empty. Emit SELL_RETRY_SCHEDULED
+                    // exactly once per stuck window (first retry only).
+                    val firstTime = retryCount == 1
+                    if (firstTime) {
+                        onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty. Will retry on next sell tick.", tradeId.mint)
+                        ErrorLogger.warn("Executor",
+                            "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                            "SELL_RETRY_SCHEDULED — RPC empty after one refresh; will retry next sell tick (count=$retryCount)",
+                            traderTag = "MEME",
+                        )
+                    } else if (retryCount % 10 == 0) {
+                        // Heartbeat every 10 retries so the operator can see it
+                        // hasn't quietly died, but without the per-tick spam.
+                        onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty.", tradeId.mint)
+                    }
+                    return SellResult.FAILED_RETRYABLE
+                }
+                // Recovered — fall through to the normal tokenData checks
+                // below (which run against the refreshed map).
+            }
+            if (tokenData == null || tokenData.first <= 0.0) {
                 // V5.9.72 CRITICAL FIX: previous logic force-closed the position
                 // after 5 "zero balance" reads, calling tradeId.closed(...) and
                 // returning CONFIRMED even though NO swap was broadcast. If the
@@ -10825,6 +10986,34 @@ class Executor(
                 "📋 PRE-BUY: walletSol=${"%.4f".format(preWalletSol)} | preTokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
                 solAmount = solAmount, traderTag = traderTag,
             )
+
+            // V5.9.751 — Base44 ticket item #7: WALLET_BALANCE_UNKNOWN abort.
+            // -1.0 is the sentinel for "getSolBalance threw" — RPC unreachable
+            // or returned invalid API key. Building/broadcasting against an
+            // unknown wallet state is unsafe: we could oversize the buy and
+            // have it fail downstream, leaving phantom PUMP_DIRECT artifacts.
+            // Cleanly fall through (return null) so the outer caller falls
+            // back to Jupiter (which has its own balance gates).
+            if (preWalletSol < 0.0) {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "WALLET_BALANCE_UNKNOWN — RPC returned no SOL balance (-1.0 sentinel). Refusing to build PUMP_DIRECT tx against unknown state.",
+                    traderTag = traderTag,
+                )
+                ErrorLogger.warn("Executor",
+                    "[EXECUTION/WALLET_BALANCE_UNKNOWN] ${ts.symbol}: getSolBalance returned -1 sentinel, aborting PUMP-FIRST")
+                return null
+            }
+            if (preWalletSol < solAmount) {
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "INSUFFICIENT_SOL — need=${"%.4f".format(solAmount)}◎ have=${"%.4f".format(preWalletSol)}◎. Refusing PUMP_DIRECT build.",
+                    traderTag = traderTag,
+                )
+                return null
+            }
 
             onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(solAmount)}◎ @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(

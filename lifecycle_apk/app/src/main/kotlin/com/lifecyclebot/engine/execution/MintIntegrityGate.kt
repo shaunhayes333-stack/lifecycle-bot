@@ -29,6 +29,29 @@ object MintIntegrityGate {
     private const val USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     private const val USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
+    // V5.9.751 — Base44 ticket item #3 (USDC entering MEME target path).
+    // Any of these mints as a TRADE TARGET for meme/altcoin trading is
+    // categorically wrong — they're bridge/stable/system mints, not meme
+    // launches. Callers should reject with WRONG_TARGET_MINT before
+    // building/broadcasting. Distinct from USDC-routing-through (which
+    // Jupiter does internally — that's fine; this set blocks USDC as the
+    // final outputMint or as the original target.
+    val MEME_TARGET_BLOCKLIST: Set<String> = setOf(
+        SOL_MINT,                                                   // wSOL
+        "So11111111111111111111111111111111111111111",              // SOL native (legacy form)
+        USDC_MINT,                                                   // USDC
+        USDT_MINT,                                                   // USDT
+        "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",              // mSOL
+        "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",              // jitoSOL
+        "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",              // bSOL
+        "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",              // stSOL (deprecated but still issued)
+        "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm",              // INF
+    )
+
+    /** True if this mint must never be entered as a meme-target buy. */
+    fun isSystemOrStablecoinMint(mint: String?): Boolean =
+        mint != null && mint in MEME_TARGET_BLOCKLIST
+
     /** Base58 alphabet — Solana addresses are base58-encoded 32-byte pubkeys. */
     private val BASE58_RE = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
     private val PLACEHOLDERS = setOf("", "no-mint", "null", "unknown", "ticker", "symbol")
