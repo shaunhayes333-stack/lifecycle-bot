@@ -4014,6 +4014,9 @@ class BotService : Service() {
         try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
         try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
         loopHeartbeatJob = null
+        // V5.9.756 — Emergent ticket item #4: stop the periodic reconciler.
+        try { reconcilerJob?.cancel() } catch (_: Throwable) {}
+        reconcilerJob = null
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC

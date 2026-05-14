@@ -3309,9 +3309,48 @@ class Executor(
     private fun releasePartialSellLock(mint: String) {
         partialSellInFlight.remove(mint)
     }
-    // Guard against concurrent exit triggers (e.g. RAPID_HARD_FLOOR + SELL_OPT) both
-    // executing a sell on the same position before the first one clears it.
-    private val sellInProgress = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    // V5.9.756 — Emergent CRITICAL ticket item #3: sell-lock deadlock.
+    // Previously `sellInProgress` was `ConcurrentHashMap<String, Boolean>`
+    // with no timestamp. If a sell got stuck in pendingVerify or RPC empty-map,
+    // the lock held forever — every future sell triggered
+    // SELL_BLOCKED_ALREADY_IN_PROGRESS and the position became unsellable
+    // (SPARTA/Thucydides/CHING evidence). Now a timestamped map with a 20 s
+    // stale-watchdog and `acquire`/`release` helpers. Forensics fire
+    // SELL_LOCK_STALE_FORCE_RELEASED on auto-recovery.
+    //
+    // The full operator-spec state machine (IDLE / SELLING / VERIFYING /
+    // RETRY_SCHEDULED / CONFIRMED_SOLD / FAILED_RETRYABLE / FAILED_FINAL /
+    // MANUAL_ATTENTION) is the right long-term shape but a multi-day refactor.
+    // This patch closes the DEADLOCK symptom today.
+    private val SELL_LOCK_STALE_MS = 20_000L
+    private val sellInProgress = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun acquireSellLock(mint: String): Boolean {
+        val now = System.currentTimeMillis()
+        val existing = sellInProgress[mint]
+        if (existing != null && (now - existing) < SELL_LOCK_STALE_MS) {
+            return false
+        }
+        if (existing != null) {
+            ErrorLogger.warn("Executor",
+                "🔓 SELL_LOCK_STALE_FORCE_RELEASED mint=${mint.take(10)}… ageMs=${now - existing} — auto-recover, allowing new sell")
+            try {
+                val tradeKey = LiveTradeLogStore.keyFor(mint, now)
+                LiveTradeLogStore.log(
+                    tradeKey, mint, mint.take(6), "SELL",
+                    LiveTradeLogStore.Phase.INFO,
+                    "SELL_LOCK_STALE_FORCE_RELEASED ageMs=${now - existing}",
+                    traderTag = "MEME",
+                )
+            } catch (_: Throwable) {}
+        }
+        sellInProgress[mint] = now
+        return true
+    }
+    private fun releaseSellLock(mint: String) {
+        sellInProgress.remove(mint)
+    }
+    /** Operator/test diagnostic — number of currently held sell locks. */
+    fun sellLockHeldCount(): Int = sellInProgress.size
 
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         normalizePositionScaleIfNeeded(ts)
@@ -4510,6 +4549,26 @@ class Executor(
             onLog("🛑 Keypair integrity failure — top-up aborted", ts.mint)
             return
         }
+
+        // V5.9.756 — Emergent CRITICAL ticket. liveTopUp was the bypass route:
+        // SPARTA / Thucydides / CHING landed live via this path because it
+        // routes through tryPumpPortalBuy directly without a safety re-check.
+        // A top-up is a fresh live tx on the same mint — it MUST pass the
+        // same admission gate as a fresh buy. Same mint can degrade between
+        // entry and top-up (LP pulled, dev dumps, freeze authority enabled).
+        run {
+            val decision = com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.requireApprovedLiveBuy(
+                ts = ts,
+                callSite = "liveTopUp",
+                onLog = onLog,
+                onNotify = onNotify,
+            )
+            if (decision is com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.Decision.Blocked) {
+                onLog("🛡 LIVE TOP-UP BLOCKED [${ts.symbol}]: ${'$'}{decision.reasonCode}", ts.mint)
+                return
+            }
+        }
+
         val lamports = (sol * 1_000_000_000L).toLong()
         val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
         val pos = ts.position
@@ -5668,42 +5727,19 @@ class Executor(
             return
         }
         
-        // V5.9.753 — Emergent ticket item #6: hard LIVE risk gate before quote/build/broadcast.
-        // Operator forensics on America250 buy showed the executor proceeded
-        // despite the safety report flagging HARD_BLOCK reasons (top10 holders >
-        // threshold, low liquidity, low LP providers, unverified). TokenSafetyChecker
-        // was already running during scan and stamping ts.safety, but the executor
-        // never re-asked at the broadcast boundary. Live mode must hard-block here.
+        // V5.9.756 — extracted to LiveBuyAdmissionGate (Emergent CRITICAL ticket).
+        // The V5.9.753 inline gate was only wired into liveBuy. liveTopUp
+        // (which routes through tryPumpPortalBuy at line 4523) bypassed it,
+        // letting SPARTA / Thucydides / CHING land live without a safety
+        // re-check. All live-buy paths now share one admission gate.
         run {
-            val safety = ts.safety
-            val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
-            val SAFETY_STALE_MS = 120_000L  // 2 min — beyond this safety data is too old to trust for a live buy
-            val safetyMissing = ts.lastSafetyCheck == 0L
-            val safetyStale = safetyAgeMs > SAFETY_STALE_MS
-            val safetyHardBlock = safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK
-            if (safetyHardBlock || safetyMissing || safetyStale) {
-                val reason = when {
-                    safetyHardBlock -> "SAFETY_HARD_BLOCK: ${safety.hardBlockReasons.firstOrNull() ?: safety.summary.take(80)}"
-                    safetyMissing   -> "SAFETY_DATA_MISSING: no safety report has run for this mint"
-                    else            -> "SAFETY_DATA_STALE: lastCheck=${safetyAgeMs/1000}s ago (> ${SAFETY_STALE_MS/1000}s)"
-                }
-                ErrorLogger.warn("Executor",
-                    "[EXECUTION/LIVE_BUY_BLOCKED_RISK] ${ts.symbol} mint=${ts.mint.take(12)}… reason=$reason")
-                try {
-                    val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
-                    LiveTradeLogStore.log(
-                        tradeKey, ts.mint, ts.symbol, "BUY",
-                        LiveTradeLogStore.Phase.BUY_FAILED,
-                        "LIVE_BUY_BLOCKED_RISK — $reason",
-                        traderTag = "MEME",
-                    )
-                } catch (_: Throwable) {}
-                onLog("🛡 LIVE BUY BLOCKED [${ts.symbol}]: $reason", ts.mint)
-                onNotify("🛡 Live buy blocked", "${ts.symbol} — ${reason.take(80)}",
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
-                PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_BUY_BLOCKED_RISK")
-                return
-            }
+            val decision = com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.requireApprovedLiveBuy(
+                ts = ts,
+                callSite = "liveBuy.main",
+                onLog = onLog,
+                onNotify = onNotify,
+            )
+            if (decision is com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.Decision.Blocked) return
         }
 
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
@@ -7132,9 +7168,8 @@ class Executor(
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 
         // Atomic guard: only ONE sell can proceed per mint at a time.
-        // Prevents duplicate trades when concurrent exit triggers (e.g. RAPID_HARD_FLOOR_STOP
-        // and SELL_OPT Stop Loss) both fire before the first sell clears the position.
-        if (sellInProgress.putIfAbsent(ts.mint, true) != null) {
+        // V5.9.756 — TTL-backed acquire (20 s stale-release watchdog).
+        if (!acquireSellLock(ts.mint)) {
             onLog("⚠️ SELL SKIPPED: sell already in-progress for ${ts.symbol}", tradeId.mint)
             return SellResult.ALREADY_CLOSED
         }
@@ -7249,7 +7284,7 @@ class Executor(
 
         } finally {
             // Always release the sell guards after the sell/verify lifecycle returns.
-            sellInProgress.remove(ts.mint)
+            releaseSellLock(ts.mint)
             com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
         }
     }
