@@ -2,9 +2,9 @@ package com.lifecyclebot.engine.sell
 
 import com.lifecyclebot.engine.SafetyTier
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
-import kotlin.test.assertIs
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 
 /**
  * V5.9.756 — Emergent CRITICAL ticket smoke tests.
@@ -12,80 +12,99 @@ import kotlin.test.assertIs
  * Acceptance items 1, 2, 5 from the ticket:
  *   1. Live buy with missing safety report is blocked.
  *   2. Live buy with stale safety report is blocked.
- *   5. Live buy with safety pending is blocked.
+ *   5. Live buy with safety pending (no report yet) is blocked.
  *
- * These use [LiveBuyAdmissionGate.evaluateForTest] which mirrors the
+ * These use LiveBuyAdmissionGate.evaluateForTest which mirrors the
  * production decision logic without writing forensics. The real gate is
  * exercised in the Executor integration paths (liveBuy.main + liveTopUp).
  *
- * Items 3 (high ownership), 4 (unlocked liquidity), 6 (Pump Portal WS),
- * 7 (Moonshot override) are upstream of the gate — they are properties of
- * the [SafetyReport] producer (TokenSafetyChecker). The gate's contract is
- * "if tier == HARD_BLOCK, refuse" — which is what we test here.
+ * House style: JUnit 4 + org.junit.Assert.* — matches every other test
+ * in this repo (SellSafetyPolicyTest, LiveExecutionGateTest, etc).
  */
 class LiveBuyAdmissionGateTest {
 
     private val NOW = 1_700_000_000_000L  // arbitrary fixed clock for tests
 
-    @Test fun `safety missing blocks`() {
-        val d = LiveBuyAdmissionGate.evaluateForTest(
-            safetyTier = SafetyTier.SAFE,
-            lastSafetyCheckMs = 0L,        // never checked
-            nowMs = NOW,
-        )
-        assertIs<LiveBuyAdmissionGate.Decision.Blocked>(d)
-        assertEquals("SAFETY_DATA_MISSING", d.reasonCode)
+    private fun assertBlocked(
+        decision: LiveBuyAdmissionGate.Decision,
+        expectedReason: String,
+    ) {
+        if (decision !is LiveBuyAdmissionGate.Decision.Blocked) {
+            fail("Expected Blocked($expectedReason) but got $decision")
+            return
+        }
+        assertEquals(expectedReason, decision.reasonCode)
     }
 
-    @Test fun `safety stale blocks`() {
+    @Test
+    fun safety_missing_blocks() {
+        val d = LiveBuyAdmissionGate.evaluateForTest(
+            safetyTier = SafetyTier.SAFE,
+            lastSafetyCheckMs = 0L,
+            nowMs = NOW,
+        )
+        assertBlocked(d, "SAFETY_DATA_MISSING")
+    }
+
+    @Test
+    fun safety_stale_blocks() {
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.SAFE,
             lastSafetyCheckMs = NOW - (LiveBuyAdmissionGate.SAFETY_STALE_MS + 5_000L),
             nowMs = NOW,
         )
-        assertIs<LiveBuyAdmissionGate.Decision.Blocked>(d)
-        assertEquals("SAFETY_DATA_STALE", d.reasonCode)
+        assertBlocked(d, "SAFETY_DATA_STALE")
     }
 
-    @Test fun `safety hard block tier blocks`() {
+    @Test
+    fun safety_hard_block_tier_blocks() {
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.HARD_BLOCK,
-            lastSafetyCheckMs = NOW - 10_000L,  // fresh
+            lastSafetyCheckMs = NOW - 10_000L,
             nowMs = NOW,
         )
-        assertIs<LiveBuyAdmissionGate.Decision.Blocked>(d)
-        assertEquals("SAFETY_HARD_BLOCK", d.reasonCode)
+        assertBlocked(d, "SAFETY_HARD_BLOCK")
     }
 
-    @Test fun `fresh safe report is approved`() {
+    @Test
+    fun fresh_safe_report_is_approved() {
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.SAFE,
-            lastSafetyCheckMs = NOW - 30_000L,  // 30 s ago
+            lastSafetyCheckMs = NOW - 30_000L,
             nowMs = NOW,
         )
-        assertEquals(LiveBuyAdmissionGate.Decision.Approved, d)
+        assertTrue(
+            "Expected Approved but got $d",
+            d === LiveBuyAdmissionGate.Decision.Approved,
+        )
     }
 
-    @Test fun `caution tier is approved (only HARD_BLOCK rejects)`() {
-        // CAUTION downgrades sizing/scoring upstream (in scorer / FDG) — it is
-        // NOT a hard block at the executor admission boundary. If operator
-        // wants CAUTION to block live, that is a scorer/FDG policy change,
-        // not a gate change. This test pins the boundary.
+    @Test
+    fun caution_tier_is_approved_because_only_HARD_BLOCK_rejects() {
+        // CAUTION downgrades sizing/scoring upstream — NOT a hard block at
+        // the executor admission boundary. Pins the gate boundary.
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.CAUTION,
             lastSafetyCheckMs = NOW - 30_000L,
             nowMs = NOW,
         )
-        assertEquals(LiveBuyAdmissionGate.Decision.Approved, d)
+        assertTrue(
+            "Expected Approved for CAUTION but got $d",
+            d === LiveBuyAdmissionGate.Decision.Approved,
+        )
     }
 
-    @Test fun `safety check at exact boundary is fresh`() {
-        // age == SAFETY_STALE_MS → still fresh (strict > in production).
+    @Test
+    fun safety_check_at_exact_boundary_is_fresh() {
+        // age == SAFETY_STALE_MS → still fresh (production uses strict >).
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.SAFE,
             lastSafetyCheckMs = NOW - LiveBuyAdmissionGate.SAFETY_STALE_MS,
             nowMs = NOW,
         )
-        assertEquals(LiveBuyAdmissionGate.Decision.Approved, d)
+        assertTrue(
+            "Expected Approved at exact boundary but got $d",
+            d === LiveBuyAdmissionGate.Decision.Approved,
+        )
     }
 }
