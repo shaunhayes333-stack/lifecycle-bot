@@ -29,6 +29,46 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.767 — Executor migrated to SellJobRegistry.transitionTo() end-to-end (May 15)
+Completes the P1 task from V5.9.766's finish summary: observable
+state-machine for every live-sell broadcast.
+
+Background:
+  SellJobRegistry was created in V5.9.764 with a getOrCreate() at
+  Executor.kt line 8705, but the executor never invoked transitionTo()
+  during the broadcast → confirm → verify lifecycle. Jobs stayed in
+  IDLE in the registry snapshot. Operator dumps could see
+  SELL_JOB_CREATED but no progression; the reconciler tick was the
+  only thing that ever flipped status to LANDED.
+
+Fix (Executor.kt):
+  PATH 1 — main Jupiter live full sell (~line 8966-9351)
+    after SELL_TX_BUILT  → transitionTo(BUILDING)
+    after SELL_BROADCAST → transitionTo(BROADCASTING)
+    after SELL_CONFIRMED → transitionTo(CONFIRMING)
+    before TradeVerifier.verifySell → transitionTo(VERIFYING)
+    Outcome.LANDED       → markLanded(sig)
+    Outcome.FAILED_CONFIRMED → transitionTo(FAILED_FINAL)
+    legacy SELL_VERIFY_TOKEN_GONE success → markLanded(sig)
+
+  PATH 2 — tryPumpPortalSell (~line 11080-11112)
+    after SELL_TX_BUILT  → transitionTo(BUILDING)
+    after SELL_BROADCAST → transitionTo(BROADCASTING)
+    after SELL_CONFIRMED → transitionTo(CONFIRMING)
+    LANDED resolved by SellReconciler (already wired at line 219 to
+    markLanded when balance reaches zero).
+
+All transitions wrapped in try/catch — registry hiccups must not
+abort a live sell. Brace check: Executor.kt 2817/2817 balanced.
+
+Forensic dump deltas: LIFECYCLE/SELL_TX_BUILT, SELL_BROADCAST,
+SELL_SIG_CONFIRMED, SELL_VERIFY_STARTED, SELL_CLOSED_TRACKER and
+SELL_FAILED_FINAL counters now drive end-to-end. The 60s
+LOCK_TTL_MS stale-detection in isLockedAndFresh now sees real
+in-flight phases instead of permanent IDLE.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on ae6da3f58.
+
 ### V5.9.766 EMERGENT MEME — upstream SafetyReady gate in FDG (May 15)
 Completes the deferred ticket from V5.9.765 commit message
 ("Full upstream gate deferred to V5.9.766+ — needs FDG path audit").
