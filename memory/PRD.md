@@ -29,6 +29,79 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.776 — Live-mode wiring restoration (May 16, CI GREEN)
+Operator forensics V5.9.774 AATE 5.0.2705: zero live trades. FDG allow=0
+block=65, SAFETY_NOT_READY_MISSING=58. CryptoAltTrader emitted SIGNAL:
+HBAR/ICP/VET/FIL/RENDER/GRT/AAVE/MKR/SNX/CRV and MarketsTrader emitted
+SIGNAL: GOOGL/AMZN while their UI toggles were OFF.
+
+Triage agent RCA: two root causes, surgical one-push fix:
+
+ROOT CAUSE A — FDG-Safety async race + silent exception swallow
+File: engine/BotService.kt processTokenCycle()
+The first-ever safety check launched scope.launch{} asynchronously;
+the same cycle then continued to FDG which read ts.lastSafetyCheck==0L
+and hard-blocked SAFETY_NOT_READY_MISSING. The async job also swallowed
+ALL exceptions silently (empty catch on Exception), so when RugCheck
+502'd or network timed out, lastSafetyCheck NEVER got stamped and FDG
+blocked forever.
+
+Fixes:
+ 1) FIRST-EVER check (lastSafetyCheck == 0L) runs SYNCHRONOUSLY now.
+ 2) On ANY exception we stamp lastSafetyCheck = now and write a
+    HARD_BLOCK SafetyReport with reason SAFETY_RUN_FAILED; exception
+    logged loudly via ErrorLogger + ForensicLogger.
+ 3) STALE refresh (>10 min) stays async — fast hot loop preserved.
+ 4) Every successful write emits SAFETY_WRITE key=<canonicalMint>.
+ 5) FinalDecisionGate emits SAFETY_READ key=<canonicalMint> found=…
+    ageMs=… reader=FDG verdict=MISSING/STALE on every miss (existing
+    per-mint dedupe), closing the SAFETY_WRITE/SAFETY_READ audit loop.
+
+ROOT CAUSE B — Trader toggle bypass on initial scan
+Files: perps/CryptoAltTrader.kt, perps/TokenizedStockTrader.kt, BotService.kt
+Both traders' start() launched an UNCONDITIONAL initial runScanCycle()
+ignoring isEnabled. BotService called CryptoAltTrader.start()
+unconditionally regardless of cfg.cryptoAltsEnabled.
+
+Fixes:
+ 1) CryptoAltTrader.start() — initial scan gated by isEnabled.get().
+ 2) TokenizedStockTrader.start() — same gate.
+ 3) BotService — CryptoAltTrader.start() wrapped in
+    if (cfg.cryptoAltsEnabled), stale instance stopped in else.
+    Emits TRADER_GATE CRYPTO_ALT enabled=… line.
+ 4) BotService — TokenizedStockTrader gated branch emits TRADER_GATE
+    MARKETS/STOCKS enabled=… and stops stale instances.
+
+CLEARED (not root causes, per triage):
+ - Paper contamination: all buy/sell paths properly gated by cfg().paperMode
+ - Lane cap pollution: only live positions call WalletPositionLock.recordOpen()
+ - MEME_REGISTRY_RESTORE: re-admits to watchlist only, doesn't restore positions
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on sha=df1846d.
+
+### V5.9.775 — Surgical live-sell pipeline restoration (May 16, CI GREEN)
+Operator forensics_20260516_001259.json: HODL + GPT live positions
+stuck OPEN_TRACKING with wallet_uiAmount>0, last_sell_signature
+empty, but every sell attempt returned SELL_BLOCKED_ALREADY_IN_PROGRESS
+lock=true. No SELL_TX_BUILT, no SELL_BROADCAST, no SELL_CONFIRMED.
+
+Two root causes — one clean surgical fix:
+ 1) SellExecutionLocks had no TTL (pure AtomicBoolean). Replaced with
+    timestamped ConcurrentHashMap + 60 s TTL; tryAcquire() evicts stale
+    entries first, isLocked() lazy-evicts. ageMs()/forceRelease()
+    exposed; blockIfSellInFlight() logs ageMs alongside SELL_BLOCKED.
+ 2) Executor.liveSell() returned FAILED_RETRYABLE on RPC-EMPTY-MAP even
+    when HostWalletTokenTracker had wallet_uiAmount>0 with OPEN_TRACKING
+    status and last_sell_signature empty. Added HOST_TRACKER fallback:
+    synthesise tokenData from tracker uiAmount/decimals, continue into
+    PumpPortal-first → Jupiter ladder. New forensic line
+    SELL_QTY_SOURCE=HOST_TRACKER (and SELL_QTY_SOURCE=RPC on normal path).
+
+PumpPortal-first routing already in place at Executor.kt:8955 — sells
+now actually REACH it instead of returning early on RPC blip.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on sha=489841e.
+
 ### V5.9.774 — Live sell triage RCA (NOT a regression; visibility + 1 dust-bug) (May 15)
 Operator escalation against forensics_20260508_071749.json claiming
 6 unsafe-sell issues + "the triage agent and I had live buying and
