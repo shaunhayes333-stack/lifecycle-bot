@@ -174,9 +174,9 @@ object CanonicalFeaturesBuilder {
             val last = h.last()
             val prev = h.elementAt(h.size - 2)
             val pp = h.elementAt(h.size - 3)
-            val velLast = last.close - last.open
-            val velPrev = prev.close - prev.open
-            val velPP = pp.close - pp.open
+            val velLast = last.priceUsd - last.openUsd
+            val velPrev = prev.priceUsd - prev.openUsd
+            val velPP = pp.priceUsd - pp.openUsd
             when {
                 velLast > 0 && velPrev > 0 && velPP > 0 && velLast > velPrev -> "RISING_FAST"
                 velLast > 0 && velPrev > 0 -> "RISING_SLOW"
