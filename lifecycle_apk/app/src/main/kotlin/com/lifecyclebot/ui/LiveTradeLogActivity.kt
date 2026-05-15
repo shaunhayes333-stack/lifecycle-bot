@@ -401,6 +401,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.TOKEN_TRACKER_CLOSED,
         Phase.TOKEN_TRACKER_DUST_LEFT,
         Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+        Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
         Phase.POSITION_COUNT_RECONCILED -> Color.parseColor("#3B82F6")              // blue
     }
 

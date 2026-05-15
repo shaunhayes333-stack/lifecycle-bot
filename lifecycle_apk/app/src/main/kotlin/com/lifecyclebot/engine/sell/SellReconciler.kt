@@ -133,7 +133,7 @@ object SellReconciler {
         val priceMap: Map<String, Double> = try {
             if (openMints.isEmpty()) emptyMap()
             else withContext(Dispatchers.IO) {
-                com.lifecyclebot.network.DexscreenerApi.batchPriceFetch(openMints)
+                com.lifecyclebot.network.DexscreenerApi().batchPriceFetch(openMints)
             }
         } catch (_: Throwable) { emptyMap() }
 
