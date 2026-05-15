@@ -4576,7 +4576,11 @@ class BotService : Service() {
         // still uses clearAll() because there's no on-chain truth to
         // preserve. The lifecycle tracker keeps its existing clearAll
         // behaviour — it's an ephemeral state machine, not wallet truth.
-        val liveStop = !cfg.paperMode
+        val liveStop = try {
+            !ConfigStore.load(applicationContext).paperMode
+        } catch (_: Throwable) {
+            false  // safe default — if config read fails, behave like PAPER (full clear)
+        }
         try { com.lifecyclebot.engine.TokenLifecycleTracker.clearAll() }
             catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear LifecycleTracker: ${e.message}") }
         try {
