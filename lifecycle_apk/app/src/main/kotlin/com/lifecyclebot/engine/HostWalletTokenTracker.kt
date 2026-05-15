@@ -93,7 +93,7 @@ object HostWalletTokenTracker {
     }
 
     /** Statuses considered "open" for dashboard / exit-monitor / cleanup-protect. */
-    private val OPEN_STATUSES: Set<PositionStatus> = setOf(
+    internal val OPEN_STATUSES: Set<PositionStatus> = setOf(
         PositionStatus.BUY_CONFIRMED,
         PositionStatus.HELD_IN_WALLET,
         PositionStatus.OPEN_TRACKING,

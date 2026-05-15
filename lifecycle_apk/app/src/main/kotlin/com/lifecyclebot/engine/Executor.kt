@@ -5216,11 +5216,16 @@ class Executor(
             targetBuild = sol
         }
         
+        // V5.9.780 — EMERGENT MEME PAPER REALISM (entry side).
+        // Same correction as paperSell — live Jupiter slippage on meme
+        // dust is 5–15% on the entry side. Old curve was 0.4–3% which
+        // gave paper buys an artificial edge that live can't reproduce.
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5000 -> 3.0
-            ts.lastLiquidityUsd < 20000 -> 1.5
-            ts.lastLiquidityUsd < 50000 -> 0.8
-            else -> 0.4
+            ts.lastLiquidityUsd < 5_000.0   -> 12.0  // dust pump.fun bonding curve
+            ts.lastLiquidityUsd < 20_000.0  -> 6.0
+            ts.lastLiquidityUsd < 50_000.0  -> 3.5
+            ts.lastLiquidityUsd < 250_000.0 -> 1.5
+            else -> 0.8
         }
         val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
         val effectivePrice = price * slippageMultiplier
@@ -7557,6 +7562,47 @@ class Executor(
         }
     }
 
+    /**
+     * V5.9.780 — EMERGENT MEME PAPER REALISM helper.
+     * Parse the strategy's intended exit threshold from the sell reason
+     * label so paperSell can clamp the exit price to a realistic band.
+     * Returns (lowPct, highPct) relative to entryPrice, or (null, null)
+     * for unknown labels (no clamp applied).
+     */
+    private fun parsePaperExitClamp(reason: String): Pair<Double?, Double?> {
+        val r = reason.uppercase()
+        val strictSl = Regex("""STRICT_SL_(-?\d+(?:\.\d+)?)""").find(r)
+        if (strictSl != null) {
+            val pct = strictSl.groupValues[1].toDoubleOrNull()
+            if (pct != null) return Pair(pct - 5.0, pct)
+        }
+        val tp = Regex("""RAPID_TAKE_PROFIT_(\d+(?:\.\d+)?)""").find(r)
+        if (tp != null) {
+            val pct = tp.groupValues[1].toDoubleOrNull()
+            if (pct != null) return Pair(pct - 5.0, pct)
+        }
+        if (r.contains("RAPID_ENTRY_PROTECT_STOP")) return Pair(-13.0, -8.0)
+        if (r.contains("RAPID_HARD_FLOOR_STOP")) return Pair(-35.0, -25.0)
+        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-30.0, -15.0)
+        if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)
+        if (r.contains("FLAT_EXIT") || r.contains("SCRATCH")) return Pair(-3.0, +3.0)
+        if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)
+        return Pair(null, null)
+    }
+
+    /**
+     * V5.9.780 — EMERGENT MEME PAPER REALISM helper.
+     * Is this paper trade reason a zero-information SCRATCH/FLAT that
+     * should be excluded from learning counts? (RunTracker30D will use
+     * this to avoid counting flat exits toward the bootstrap milestone.)
+     */
+    internal fun isPaperScratchTrade(reason: String, pnlPct: Double): Boolean {
+        val r = reason.uppercase()
+        if (kotlin.math.abs(pnlPct) <= 1.5) return true
+        return r.contains("SCRATCH") || r.contains("FLAT_EXIT")
+    }
+
+
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
@@ -7579,20 +7625,79 @@ class Executor(
         val holdTimeMins = (System.currentTimeMillis() - entryTimeSafe) / 60_000.0
         val holdMinutes = holdTimeMins
         
+        // V5.9.780 — EMERGENT MEME PAPER REALISM.
+        // Operator forensics: STRICT_SL_-10 exits booked at -94%; +30% TP
+        // exits booked at +8234%. Paper sim was using getActualPrice(ts)
+        // verbatim with no clamp + only 0.5–4% slippage. Live execution
+        // CANNOT reproduce those returns — Jupiter slippage on meme dust
+        // is 8–25%. So paper has been LYING to the AI layers about edge,
+        // sending the bot into LIVE with a fantasy +37%/trade prior.
+        //
+        // Six corrections applied below:
+        //  (1) realistic slippage curve based on liquidity tier
+        //  (2) exit-price clamp around the strategy's stated threshold
+        //      so STRICT_SL_-10 books in [-10%, -15%], not -94%
+        //      and RAPID_TAKE_PROFIT_30 books in [+25%, +30%], not +8234%
+        //  (3) liquidity-aware return cap (single trade pnl bounded by
+        //      `liq / costSol * 0.5` — you can't extract +8000% from a
+        //      $4k pool with a $1 position because exit liquidity is
+        //      capped by the same pool)
+        //  (5) SCRATCH/FLAT exits flagged so RunTracker30D can exclude
+        //      them from learning counts (zero-information trades were
+        //      inflating the bootstrap milestone).
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5000 -> 4.0
-            ts.lastLiquidityUsd < 20000 -> 2.0
-            ts.lastLiquidityUsd < 50000 -> 1.0
-            else -> 0.5
+            ts.lastLiquidityUsd < 5_000.0   -> 18.0  // dust pump.fun bonding curve
+            ts.lastLiquidityUsd < 20_000.0  -> 10.0  // small post-grad pool
+            ts.lastLiquidityUsd < 50_000.0  -> 6.0
+            ts.lastLiquidityUsd < 250_000.0 -> 3.0
+            else -> 1.5
         }
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
-        val effectivePrice = price * slippageMultiplier
-        
+        var effectivePrice = price * slippageMultiplier
+
+        // (2) EXIT PRICE CLAMP — derive the strategy's intended exit band
+        // from the reason label. We honour the label rather than letting
+        // a stale price take us 100x past it.
+        val (clampLowPct, clampHighPct) = parsePaperExitClamp(reason)
+        if (pos.entryPrice > 0.0 && clampLowPct != null && clampHighPct != null) {
+            val low  = pos.entryPrice * (1.0 + clampLowPct / 100.0)
+            val high = pos.entryPrice * (1.0 + clampHighPct / 100.0)
+            val clamped = effectivePrice.coerceIn(minOf(low, high), maxOf(low, high))
+            if (clamped != effectivePrice) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_EXIT_PRICE_CLAMPED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason fromPrice=${"%.10f".format(effectivePrice)} toPrice=${"%.10f".format(clamped)} entry=${"%.10f".format(pos.entryPrice)} band=[${clampLowPct}%,${clampHighPct}%]",
+                    )
+                } catch (_: Throwable) {}
+                effectivePrice = clamped
+            }
+        }
+
         val simulatedFeePct = 0.5
-        
+
         val rawValue = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)
-        // V5.7.8: No artificial caps — fix bad data at source instead
-        val value = rawValue
+        // (3) Liquidity-aware return cap — a position can never realistically
+        // extract more than ~50% of the pool's USD liquidity converted to
+        // SOL. Cap the value at that bound so we don't book +8234% from a
+        // $4k pool. lastKnownSolPrice may be 0 during cold boot; if so we
+        // fall back to a conservative SOL multiple.
+        val cappedValue = run {
+            val solPriceUsd = WalletManager.lastKnownSolPrice
+            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd > 0.0) {
+                val maxValueSol = (ts.lastLiquidityUsd * 0.5) / solPriceUsd
+                if (rawValue > maxValueSol) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "PAPER_PNL_LIQUIDITY_CAPPED",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} rawValueSol=${"%.6f".format(rawValue)} capSol=${"%.6f".format(maxValueSol)} liqUsd=${"%.0f".format(ts.lastLiquidityUsd)}",
+                        )
+                    } catch (_: Throwable) {}
+                    maxValueSol
+                } else rawValue
+            } else rawValue
+        }
+        val value = cappedValue
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(
@@ -11481,7 +11586,7 @@ class Executor(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
                         "SELL_AMOUNT_AUTHORITY=HOST_TRACKER_TX_PARSE rawAmount=$tokenUnits uiAmount=${tracked!!.uiAmount} " +
-                            "decimals=${tracked.decimals} tokenAccount=${tracked.tokenAccount?.take(10) ?: "?"} " +
+                            "decimals=${tracked.decimals} status=${tracked.status.name} source=${tracked.source.name} " +
                             "— RPC empty BUT HostTracker TX_PARSE authoritative; proceeding with PumpPortal broadcast.",
                         traderTag = traderTag,
                     )
