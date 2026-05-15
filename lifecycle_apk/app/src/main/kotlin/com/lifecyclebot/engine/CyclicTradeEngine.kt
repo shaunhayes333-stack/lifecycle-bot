@@ -117,9 +117,36 @@ object CyclicTradeEngine {
         // Determine live vs paper
         val treasuryUsd = TreasuryManager.treasuryUsd
         val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
-        // Paper is always allowed; live requires explicit opt-in or $5K treasury
-        isLiveMode = (cfg.cyclicTradeEnabled && cfg.cyclicTradeLiveEnabled) ||
-                     (cfg.cyclicTradeEnabled && treasuryUsd >= 5_000.0)
+        // V5.9.772 EMERGENT MEME — treasury must respect the GLOBAL trade
+        // mode. Operator forensic 22:54 (V5.9.771) showed treasury firing
+        // PAPER buys while the bot was in LIVE mode, polluting live state
+        // ("treasury still continues to buy when the bot is in live mode
+        // making paper trades also polluting live trading with its
+        // balance"). Root cause: the prior `isLiveMode` formula only
+        // looked at the cyclic-specific flags + treasury threshold, never
+        // at `cfg.paperMode`. Now:
+        //   global PAPER   → cyclic MUST be paper (skip live entirely)
+        //   global LIVE    → cyclic MUST be live; if not opted-in, skip
+        //                    the cycle rather than firing a paper trade
+        //                    that bleeds into the live UI/risk.
+        val globalLive = !cfg.paperMode
+        val cyclicLiveOptedIn = (cfg.cyclicTradeEnabled && cfg.cyclicTradeLiveEnabled) ||
+                                (cfg.cyclicTradeEnabled && treasuryUsd >= 5_000.0)
+        if (globalLive && !cyclicLiveOptedIn) {
+            // Live mode but the operator hasn't opted into live cyclic
+            // (or treasury below threshold) → DO NOT fire a paper cycle.
+            // Skip the tick entirely so we never produce a paper position
+            // while the rest of the bot is live.
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "TREASURY_LIVE_NOT_OPTED_IN",
+                    "globalLive=true cyclicLiveEnabled=${cfg.cyclicTradeLiveEnabled} treasuryUsd=${treasuryUsd.toInt()} → cycle skipped (no paper bleed)",
+                )
+            } catch (_: Throwable) {}
+            statusMessage = "🚫 Live mode active — cyclic live not opted in (treasury \$${treasuryUsd.toInt()})"
+            return
+        }
+        isLiveMode = globalLive   // mirror global; paper-mode → paper cycle
 
         // Compute ring size in SOL
         if (ringBalanceSol <= 0.0) {
