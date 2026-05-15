@@ -29,6 +29,39 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.760 — Bot loop rescue resiliency (GlobalScope fallback + ACTION_START last resort) (May 15)
+Operator V5.9.759 dump diagnosed silent rescue failure: 104 LOOP_HEARTBEAT_RESCUE
+events emitted but BOTLOOP_STARTED stayed at 2 and ZERO RESCUE_CANCEL_SENT /
+RESCUE_JOIN_OK / RESCUE_RELAUNCHED events fired. The PipelineHealthCollector
+pins ALL LIFECYCLE/* counters (V5.9.677), so if RESCUE_RELAUNCHED had fired
+once it would appear in the dump. It didn't — meaning every scope.launch(IO)
+returned a Job whose body never executed. Most likely cause: BotService's
+class-level scope parent Job got cancelled (no scope.cancel() outside
+onDestroy, but symptom is identical). Once dead, scope.launch returns an
+already-cancelled Job — no exception, no forensic, just silent inactivity.
+Bot ran 584 cycles across 2 user-pressed starts then sat zombie for ~5h
+while the alarm fired uselessly every 60s and rescue branch entered every
+180s without effect. Last successful BUY was 4h48m before the dump.
+
+Fix (BotService.kt rescue path):
+- RESCUE_SCOPE_PROBE fires on the heartbeat thread BEFORE the launch — captures
+  scope.isActive / .isCancelled / .isCompleted so the next dump definitively
+  shows whether scope is dead.
+- RESCUE_BODY_ENTERED is the FIRST line of the rescue body — proves whether
+  the launch scheduled at all.
+- Rescue body migrated from scope.launch to GlobalScope.launch(Dispatchers.IO).
+  GlobalScope is process-wide and only dies with the JVM; can't be silently
+  cancelled by service code. Relaunched botLoop also runs via GlobalScope.
+- Final fallback: 500ms after relaunch, if newJob.isActive is still false
+  AND status.running is true, fire ACTION_START intent so Android's
+  onStartCommand path runs startBot() from scratch. Emits
+  RESCUE_FINAL_FALLBACK_INTENT.
+
+Purely additive — old rescue branch logic preserved verbatim inside the
+GlobalScope launch. No behavioural change when scope is healthy.
+
+BUILD_TAG bumped to V5.9.760. CI: Build AATE APK ✅ GREEN on d8f4304d0.
+
 ### V5.9.659 → V5.9.660b — JVM 64KB botLoop fix (May 10)
 Extracted Markets watchdog + Scanner heartbeat as helpers; fixed signature mismatch.
 
