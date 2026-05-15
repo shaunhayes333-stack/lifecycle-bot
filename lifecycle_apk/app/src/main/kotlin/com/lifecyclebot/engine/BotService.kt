@@ -5686,6 +5686,22 @@ class BotService : Service() {
      * and runtime token state. Entry quality is still enforced downstream by
      * FDG/safety/sub-trader execution gates.
      */
+    // V5.9.768 — INTAKE DEDUPE. Operator forensic dump @ V5.9.767 showed
+    // INTAKE=5478 events / 1688s uptime, with Ebola=191x, immunecoin=109x,
+    // COAR=79x. Root cause: line 3095 emits with src=SCANNER_DIRECT_<X>
+    // and line 3118 ALSO emits with src=<X> for the same mint when
+    // isWatching==true (MemeMintRegistry pre-hydration makes that always
+    // true after restart). Plus other call sites (TokenMergeQueue,
+    // PumpPortal WS, DataOrchestrator) hit the same mint repeatedly.
+    // This map gates the function entry on a per-mint TTL so the
+    // forensic dump (and the registry/state hydration work) is done at
+    // most once per mint per TTL_MS. Idempotent semantics preserved:
+    // GlobalTradeRegistry.addToWatchlist + status.tokens.getOrPut are
+    // already fail-open, so the dedupe gate is purely a noise filter.
+    private val intakeLastAcceptMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val intakeDedupTtlMs: Long = 30_000L
+
     private fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
@@ -5703,6 +5719,43 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "🛡 protected intake ignored invalid mint ${mint.take(8)} source=$source")
             ForensicLogger.gate(ForensicLogger.PHASE.INTAKE, symbol.ifBlank { mint.take(6) }, allow=false, reason="INVALID_MINT mint=${mint.take(8)} src=$source")
             return false
+        }
+
+        // V5.9.768 — per-mint intake dedupe (see field-doc above).
+        val nowMs = System.currentTimeMillis()
+        val prevAt = intakeLastAcceptMs[mint]
+        if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
+            val cnt = (intakeDedupCount[mint] ?: 0) + 1
+            intakeDedupCount[mint] = cnt
+            // Emit ONE dedupe forensic per mint per TTL window so the dump
+            // proves the drop happened without re-flooding (dedupe spam
+            // would defeat the point). Subsequent drops within the same
+            // window are silent — the counter is exposed via the
+            // ConcurrentHashMap for any future "top dedupe offenders" UI.
+            if (cnt == 1) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_DEDUPE_DROP",
+                        "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - prevAt}",
+                    )
+                } catch (_: Throwable) {}
+            }
+            return true   // semantically still admitted (already in registry)
+        }
+        intakeLastAcceptMs[mint] = nowMs
+        intakeDedupCount[mint] = 0
+        // Opportunistic prune so the maps cannot grow unbounded across
+        // long sessions. Cheap O(n) only when we cross the cap.
+        if (intakeLastAcceptMs.size > 1024) {
+            val cutoff = nowMs - intakeDedupTtlMs
+            val it = intakeLastAcceptMs.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                if (e.value < cutoff) {
+                    it.remove()
+                    intakeDedupCount.remove(e.key)
+                }
+            }
         }
 
         // V5.9.651 — forensic intake entry log
