@@ -151,6 +151,15 @@ object CanonicalSubscribers {
                     }
                     if (layer == "BehaviorLearning") {
                         try {
+                            // V5.9.782 — operator audit items A, C, D, J:
+                            // BehaviorLearning now consumes the FULL canonical outcome
+                            // (with rich CandidateFeatures payload) instead of only
+                            // a counter no-op. Strategy learning is skipped when
+                            // outcome.featuresIncomplete=true so feature-poor legacy
+                            // bridge samples never pollute the pattern table.
+                            com.lifecyclebot.engine.BehaviorLearning.onCanonicalOutcome(outcome)
+                            // Keep the legacy settlement no-op call for API surface
+                            // compatibility (it's still a no-op internally).
                             com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
                         } catch (_: Throwable) {}
                     }

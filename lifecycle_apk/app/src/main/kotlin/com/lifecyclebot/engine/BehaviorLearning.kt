@@ -748,6 +748,129 @@ object BehaviorLearning {
         // This method is kept for API compatibility; do not increment counters here.
     }
 
+    /**
+     * V5.9.782 — operator audit items C & D: feed BehaviorLearning from the
+     * canonical bus with FEATURE-RICH outcomes. Replaces the prior no-op
+     * onCanonicalSettlement so the canonical bus is the actual learning
+     * source (audit item A) rather than a counter-only router.
+     *
+     * Semantics:
+     *   • If outcome.featuresIncomplete == true → skip strategy learning
+     *     entirely (audit item J). The legacy bridge from
+     *     TradeHistoryStore.publishFromLegacyTrade emits with this flag
+     *     set so we don't pollute pattern memory with feature-poor samples.
+     *   • If outcome.candidate is null → skip. We require the structured
+     *     payload to construct a rich pattern signature.
+     *   • Otherwise → build a BehaviorPattern from outcome.candidate and
+     *     update goodStats/badStats with a rich, venue-aware signature.
+     *
+     * Dedupe: CanonicalSubscribers already gates onCanonicalOutcome via
+     * the (layer, tradeId) LRU so duplicate publishes are filtered. The
+     * legacy direct path BehaviorLearning.recordTrade() (called by Executor.kt
+     * on every settled trade) is the ONLY other path that writes pattern memory;
+     * the operator's spec wants the bus to be the eventual primary path so
+     * direct-recordTrade callers can be deprecated layer-by-layer without
+     * losing learning samples.
+     */
+    fun onCanonicalOutcome(outcome: CanonicalTradeOutcome) {
+        try {
+            if (outcome.featuresIncomplete) return            // audit item J: skip
+            if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return
+            val features = outcome.candidate ?: return
+            val pnlPct = outcome.realizedPnlPct ?: return
+            val isWin = isWin(pnlPct)
+            val isLoss = isLoss(pnlPct)
+            if (!isWin && !isLoss) {
+                totalScratchRecorded.incrementAndGet()
+                return
+            }
+            val outcomeCategory = when {
+                pnlPct >= 100.0 -> "BIG_WIN"
+                pnlPct >= 25.0 -> "SMALL_WIN"
+                pnlPct >= WIN_THRESHOLD_PCT -> "WIN"
+                pnlPct <= -15.0 -> "BIG_LOSS"
+                pnlPct <= LOSS_THRESHOLD_PCT -> "LOSS"
+                else -> "SCRATCH"
+            }
+            val holdMinutes = outcome.holdSeconds?.let { (it / 60).toInt() } ?: 0
+            val pattern = BehaviorPattern(
+                patternId = outcome.tradeId,
+                timestamp = outcome.exitTimeMs ?: System.currentTimeMillis(),
+                entryScore = 0,                                   // canonical doesn't carry raw FDG score yet
+                entryPhase = features.entryPattern,
+                setupQuality = features.fdgReasonFamily.ifBlank { "STANDARD" },
+                tradingMode = features.trader.ifBlank { outcome.mode.name },
+                marketSentiment = features.symbolicVerdict,
+                volatilityLevel = features.volVelocity,
+                volumeSignal = features.buyPressure,
+                liquidityBucket = features.liqBucket,
+                mcapBucket = features.mcapBucket,
+                holderConcentration = features.holderConcentration,
+                rugcheckScore = 0,
+                hourOfDay = 0,
+                dayOfWeek = 0,
+                holdTimeMinutes = holdMinutes,
+                pnlPct = pnlPct,
+                isWin = isWin,
+                outcomeCategory = outcomeCategory,
+            )
+            // V5.9.782 — RICH signature carries venue + route + safety + age so
+            // pump.fun bonding-curve setups stop colliding with raydium graduated
+            // setups in the pattern table (operator audit item C).
+            val richSig = richSignature(features)
+            val broadSig = broadSignature(features)
+            if (isWin) {
+                recordGoodPattern(pattern, richSig)
+                recordGoodPattern(pattern, broadSig)
+                totalGoodRecorded.incrementAndGet()
+            } else {
+                recordBadPattern(pattern, richSig)
+                recordBadPattern(pattern, broadSig)
+                totalBadRecorded.incrementAndGet()
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "onCanonicalOutcome error: ${e.message?.take(100)}")
+        }
+    }
+
+    /**
+     * V5.9.782 — operator audit item C: rich PatternKey signature.
+     * Old exact signature was `${setupQuality}_${tradingMode}_${liquidityBucket}`
+     * which is nowhere near enough for meme/pump trading — bonding-curve pumps,
+     * migrated PumpSwap, raydium-graduated, etc. all collided under one key.
+     */
+    private fun richSignature(f: CandidateFeatures): String {
+        return buildString {
+            append(f.assetClass.ifBlank { "?" }); append('|')
+            append(f.runtimeMode.ifBlank { "?" }); append('|')
+            append(f.trader.ifBlank { "?" }); append('|')
+            append(f.venue.ifBlank { "?" }); append('|')
+            append(f.route.ifBlank { "?" }); append('|')
+            append(if (f.bondingCurveActive) "BC1" else "BC0"); append('|')
+            append(if (f.migrated) "MIG1" else "MIG0"); append('|')
+            append(f.ageBucket.ifBlank { "?" }); append('|')
+            append(f.liqBucket.ifBlank { "?" }); append('|')
+            append(f.mcapBucket.ifBlank { "?" }); append('|')
+            append(f.volVelocity.ifBlank { "?" }); append('|')
+            append(f.holderConcentration.ifBlank { "?" }); append('|')
+            append(f.safetyTier.ifBlank { f.rugTier.ifBlank { "?" } }); append('|')
+            append(f.entryPattern.ifBlank { "?" })
+        }
+    }
+
+    /**
+     * Broad signature collapses the rich key to its anchor dimensions so we
+     * still learn when sample counts on the rich key are too thin.
+     */
+    private fun broadSignature(f: CandidateFeatures): String {
+        return buildString {
+            append(f.trader.ifBlank { "?" }); append('|')
+            append(f.venue.ifBlank { "?" }); append('|')
+            append(f.route.ifBlank { "?" }); append('|')
+            append(f.liqBucket.ifBlank { "?" })
+        }
+    }
+
     fun clear() {
         goodPatterns.clear()
         goodStats.clear()

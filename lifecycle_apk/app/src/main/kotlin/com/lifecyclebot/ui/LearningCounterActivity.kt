@@ -149,6 +149,11 @@ class LearningCounterActivity : Activity() {
         addKv("inconclusiveTrades", snap["inconclusiveTrades"]?.toString() ?: "?")
         addKv("recoveredTrades", snap["recoveredTrades"]?.toString() ?: "?")
         addKvHighlight("rejectedBadLabels", snap["rejectedBadLabels"]?.toString() ?: "?", "#EF4444")
+        // V5.9.782 — operator audit items A, C, D, J: rich vs incomplete-feature
+        // outcomes. Strategy learners only train on rich samples; incomplete ones
+        // still tick counters and educate execution layers.
+        addKvHighlight("richFeatureOutcomes", snap["richFeatureOutcomes"]?.toString() ?: "?", "#10B981")
+        addKvHighlight("incompleteFeatureOutcomes", snap["incompleteFeatureOutcomes"]?.toString() ?: "?", "#F59E0B")
         addKv("Bus subscribers", CanonicalOutcomeBus.subscriberCount().toString())
 
         // ── Section 3: Legacy consumer counts (drift detection) ───────

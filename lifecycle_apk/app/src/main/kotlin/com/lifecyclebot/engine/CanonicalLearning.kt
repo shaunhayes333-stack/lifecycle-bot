@@ -121,6 +121,58 @@ data class LayerVoteSnapshot(
     val veto: Boolean = false,
 )
 
+/**
+ * V5.9.782 — operator audit items C, D, J: structured, learner-ready
+ * features-at-entry payload. Carried inside CanonicalTradeOutcome so every
+ * subscriber (BehaviorLearning, AdaptiveLearningEngine, MetaCognitionAI,
+ * RunTracker30D, ShadowFDGLearning) can pattern-match on the SAME rich
+ * features without each layer reconstructing them locally.
+ *
+ * All fields are bucketed strings so they hash cleanly into pattern
+ * signatures. If a producer doesn't have a field at close time, it leaves
+ * the string empty AND sets CanonicalTradeOutcome.featuresIncomplete=true
+ * so strategy learners skip the sample (execution learners may still use
+ * route/slippage/broadcast data — operator spec acceptance test #3).
+ */
+data class CandidateFeatures(
+    // Identity / routing
+    val assetClass: String = "",                // MEME / BLUECHIP / STOCK / …
+    val runtimeMode: String = "",               // LIVE / PAPER / SHADOW
+    val trader: String = "",                    // SHITCOIN / MOONSHOT / EXPRESS / …
+    val venue: String = "",                     // PUMP_FUN_BONDING / PUMPSWAP / RAYDIUM / METEORA / ORCA / JUPITER
+    val route: String = "",                     // PUMP_NATIVE / PUMPPORTAL / JUPITER / METIS / MULTI
+    val bondingCurveActive: Boolean = false,
+    val migrated: Boolean = false,
+
+    // Token snapshot at entry (bucketed)
+    val ageBucket: String = "",                 // UNDER_2M / UNDER_10M / UNDER_1H / UNDER_24H / OLDER
+    val liqBucket: String = "",                 // LIQ_DUST / LIQ_TINY / LIQ_LOW / LIQ_MED / LIQ_GOOD / LIQ_DEEP
+    val mcapBucket: String = "",                // MCAP_MICRO / MCAP_TINY / MCAP_SMALL / MCAP_MED / MCAP_LARGE
+    val volVelocity: String = "",               // FALLING / FLAT / RISING_SLOW / RISING_FAST / VERTICAL
+    val buyPressure: String = "",               // WEAK / NEUTRAL / STRONG
+    val sellPressure: String = "",
+    val holderGrowth: String = "",              // SHRINKING / FLAT / GROWING / VIRAL
+    val holderConcentration: String = "",       // CONC_LOW / CONC_MED / CONC_HIGH / CONC_RUG
+    val rugTier: String = "",                   // SAFE / CAUTION / UNSAFE / DANGER
+    val safetyTier: String = "",                // identical to rugTier in producer convention
+    val mintAuthority: String = "",             // RENOUNCED / RETAINED / UNKNOWN
+    val freezeAuthority: String = "",           // RENOUNCED / RETAINED / UNKNOWN
+
+    // Entry shape
+    val slippageBucket: String = "",            // SLIP_LOW / SLIP_MED / SLIP_HIGH
+    val entryPattern: String = "",              // BREAKOUT / PULLBACK / VERTICAL_GREEN_THEN_PULLBACK / DIP / …
+    val bubbleClusterPattern: String = "",      // CLEAN / CLUSTERED / BUNDLED
+
+    // Decisions / FDG
+    val fdgReasonFamily: String = "",           // STRONG_BUY / NEUTRAL / SAFETY_BLOCK / LIQUIDITY_BLOCK / …
+    val symbolicVerdict: String = "",           // ALLOW / CAUTION / VETO — from CandidateSymbolicContext
+
+    // Exit summary (populated at close)
+    val exitReasonFamily: String = "",          // TAKE_PROFIT / STOP_LOSS / TRAILING / RAPID_CATASTROPHE / MANUAL / EXTERNAL_SWAP / …
+    val holdBucket: String = "",                // UNDER_30S / UNDER_2M / UNDER_10M / UNDER_1H / LONGER
+    val manualOrExternalClose: Boolean = false,
+)
+
 data class CanonicalTradeOutcome(
     val tradeId: String,
     val mint: String,
@@ -147,6 +199,16 @@ data class CanonicalTradeOutcome(
     val featuresAtExit: Map<String, Double> = emptyMap(),
     val layerVotesAtEntry: Map<String, LayerVoteSnapshot> = emptyMap(),
     val layerVotesAtExit: Map<String, LayerVoteSnapshot> = emptyMap(),
+    // V5.9.782 — structured candidate-features payload (audit items C, D, J).
+    // Producers fill this with bucketed strings learners pattern-match on.
+    val candidate: CandidateFeatures? = null,
+    // V5.9.782 — true when the producer did NOT supply enough features for
+    // strategy learning (e.g. legacy bridge path). Strategy learners
+    // (BehaviorLearning patterns, AdaptiveLearningEngine, MetaCognitionAI
+    // win/loss patterns) MUST skip these. Execution learners
+    // (RouteSelectorAI, SlippageGuard, FeeRetryQueue, …) may still
+    // learn from execution metadata. See operator acceptance test #3.
+    val featuresIncomplete: Boolean = true,
     val timestampMs: Long = System.currentTimeMillis(),
 )
 
@@ -251,6 +313,11 @@ object CanonicalLearningCounters {
     val inconclusiveTrades = AtomicLong(0)
     val recoveredTrades = AtomicLong(0)
     val rejectedBadLabels = AtomicLong(0)
+    // V5.9.782 — operator audit items C, D, J: outcomes that arrived without
+    // enough features for strategy learning. Tracked so the dashboard can
+    // surface what fraction of training samples were actually feature-rich.
+    val incompleteFeatureOutcomes = AtomicLong(0)
+    val richFeatureOutcomes = AtomicLong(0)
 
     fun snapshot(): Map<String, Long> = mapOf(
         "canonicalOutcomesTotal" to canonicalOutcomesTotal.get(),
@@ -265,6 +332,8 @@ object CanonicalLearningCounters {
         "inconclusiveTrades" to inconclusiveTrades.get(),
         "recoveredTrades" to recoveredTrades.get(),
         "rejectedBadLabels" to rejectedBadLabels.get(),
+        "incompleteFeatureOutcomes" to incompleteFeatureOutcomes.get(),
+        "richFeatureOutcomes" to richFeatureOutcomes.get(),
     )
 }
 
@@ -323,6 +392,14 @@ object CanonicalOutcomeBus {
 
     private fun bumpCounters(o: CanonicalTradeOutcome) {
         CanonicalLearningCounters.canonicalOutcomesTotal.incrementAndGet()
+        // V5.9.782 — split rich vs incomplete so dashboards/strategy learners
+        // can compute "real training samples" honestly. featuresIncomplete=true
+        // is the legacy bridge default.
+        if (o.featuresIncomplete) {
+            CanonicalLearningCounters.incompleteFeatureOutcomes.incrementAndGet()
+        } else {
+            CanonicalLearningCounters.richFeatureOutcomes.incrementAndGet()
+        }
         when (o.environment) {
             TradeEnvironment.LIVE -> CanonicalLearningCounters.liveOutcomesTotal.incrementAndGet()
             TradeEnvironment.PAPER -> CanonicalLearningCounters.paperOutcomesTotal.incrementAndGet()
