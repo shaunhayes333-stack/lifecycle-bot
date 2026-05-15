@@ -952,11 +952,20 @@ class Executor(
             )
             return true
         }
+        // V5.9.775 — EMERGENT MEME stale-lock auto-recovery.
+        // Previously isLocked returned true for any entry, including
+        // leaked locks that never released. Now SellExecutionLocks
+        // has a 60 s TTL and isLocked() lazy-evicts stale entries —
+        // so reaching this branch genuinely means a sell is in flight
+        // within the TTL window. Still emit the canonical
+        // SELL_BLOCKED_ALREADY_IN_PROGRESS line with the lock age so
+        // operator can spot churn.
         if (com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint)) {
+            val ageMs = com.lifecyclebot.engine.sell.SellExecutionLocks.ageMs(ts.mint) ?: 0L
             LiveTradeLogStore.log(
                 tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                 ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                "SELL_BLOCKED_ALREADY_IN_PROGRESS lock=true reason=$reason", traderTag = "MEME",
+                "SELL_BLOCKED_ALREADY_IN_PROGRESS lock=true ageMs=$ageMs reason=$reason", traderTag = "MEME",
             )
             return true
         }
@@ -8591,25 +8600,101 @@ class Executor(
                     ErrorLogger.warn("Executor", "RPC refresh failed for ${ts.symbol}: ${e.message?.take(80)}")
                 }
                 if (!recovered) {
-                    // Refresh confirmed empty. Emit SELL_RETRY_SCHEDULED
-                    // exactly once per stuck window (first retry only).
-                    val firstTime = retryCount == 1
-                    if (firstTime) {
-                        onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty. Will retry on next sell tick.", tradeId.mint)
-                        ErrorLogger.warn("Executor",
-                            "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
-                        LiveTradeLogStore.log(
-                            sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                            "SELL_RETRY_SCHEDULED — RPC empty after one refresh; will retry next sell tick (count=$retryCount)",
-                            traderTag = "MEME",
-                        )
-                    } else if (retryCount % 10 == 0) {
-                        // Heartbeat every 10 retries so the operator can see it
-                        // hasn't quietly died, but without the per-tick spam.
-                        onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty.", tradeId.mint)
+                    // V5.9.775 — EMERGENT MEME RPC-EMPTY → HOST_TRACKER FALLBACK.
+                    //
+                    // Operator forensics_20260516_001259.json showed HODL
+                    // and GPT permanently stuck because every sell attempt
+                    // hit `RPC empty → return FAILED_RETRYABLE` and the
+                    // sell never reached PumpPortal/Jupiter. Per operator
+                    // spec V5.9.775: if HostWalletTokenTracker has
+                    // wallet_uiAmount > 0 with status OPEN_TRACKING and
+                    // last_sell_signature empty (i.e. the tracker is the
+                    // authoritative TX_PARSE-verified source of truth),
+                    // an empty RPC read must NOT block selling. We adopt
+                    // the tracker quantity as authoritative and fall
+                    // through to the quote/build/broadcast pipeline. The
+                    // Jupiter / PumpPortal call will fail cleanly if the
+                    // tokens are genuinely missing, so we don't risk a
+                    // false sell.
+                    val tracked = HostWalletTokenTracker.getEntry(ts.mint)
+                    val trackerEligible = tracked != null &&
+                        tracked.uiAmount > 0.0 &&
+                        tracked.status in setOf(
+                            HostWalletTokenTracker.PositionStatus.BUY_CONFIRMED,
+                            HostWalletTokenTracker.PositionStatus.HELD_IN_WALLET,
+                            HostWalletTokenTracker.PositionStatus.OPEN_TRACKING,
+                            HostWalletTokenTracker.PositionStatus.EXIT_SIGNALLED,
+                        ) &&
+                        tracked.sellSignature.isNullOrBlank()
+                    if (trackerEligible) {
+                        val t = tracked!!
+                        val multiplier = 10.0.pow(t.decimals.toDouble())
+                        val trackerRaw = (t.uiAmount * multiplier).toLong()
+                        if (trackerRaw > 0L) {
+                            tokenUnits = trackerRaw
+                            zeroBalanceRetries.remove(retryCountKey)
+                            onLog(
+                                "🟢 SELL_QTY_SOURCE=HOST_TRACKER: ${ts.symbol} — RPC empty after refresh, " +
+                                    "using tracker uiAmount=${t.uiAmount} raw=$trackerRaw decimals=${t.decimals} " +
+                                    "(status=${t.status.name}, source=${t.source.name}, sellSig empty) — proceeding with sell.",
+                                tradeId.mint,
+                            )
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                                "SELL_QTY_SOURCE=HOST_TRACKER raw=$trackerRaw ui=${t.uiAmount} decimals=${t.decimals} " +
+                                    "status=${t.status.name} source=${t.source.name} — RPC-empty fallback, proceeding with sell.",
+                                tokenAmount = t.uiAmount, traderTag = "MEME",
+                            )
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "SELL_QTY_SOURCE_HOST_TRACKER",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} raw=$trackerRaw ui=${t.uiAmount}",
+                                )
+                            } catch (_: Throwable) {}
+                            // Fall through to the post-balance-check sell
+                            // pipeline. tokenData stays null/empty — the
+                            // `tokenData == null` branch below is now bypassed
+                            // because we set mapEmpty=false (and tokenData
+                            // remains null but tokenUnits is authoritative).
+                            // To bypass cleanly, set mapEmpty=false AND
+                            // synthesise a tokenData pair from tracker so
+                            // the downstream branch treats this as a
+                            // successful balance resolve.
+                            mapEmpty = false
+                            tokenData = Pair(t.uiAmount, t.decimals)
+                            onChainBalances = mapOf(ts.mint to tokenData!!)
+                        } else {
+                            // tracker says 0 raw — really nothing to sell.
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                                "SELL_RETRY_SCHEDULED — RPC empty AND tracker raw=0 (ui=${t.uiAmount} dust). count=$retryCount",
+                                traderTag = "MEME",
+                            )
+                            return SellResult.FAILED_RETRYABLE
+                        }
+                    } else {
+                        // Refresh confirmed empty AND tracker not authoritative.
+                        // Emit SELL_RETRY_SCHEDULED exactly once per stuck
+                        // window (first retry only).
+                        val firstTime = retryCount == 1
+                        if (firstTime) {
+                            onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty AND tracker not authoritative. Will retry on next sell tick.", tradeId.mint)
+                            ErrorLogger.warn("Executor",
+                                "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                                "SELL_RETRY_SCHEDULED — RPC empty after one refresh AND tracker not authoritative (entry=${tracked?.status?.name} ui=${tracked?.uiAmount} sellSig=${tracked?.sellSignature?.take(8)}); will retry next sell tick (count=$retryCount)",
+                                traderTag = "MEME",
+                            )
+                        } else if (retryCount % 10 == 0) {
+                            // Heartbeat every 10 retries.
+                            onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty AND tracker not authoritative.", tradeId.mint)
+                        }
+                        return SellResult.FAILED_RETRYABLE
                     }
-                    return SellResult.FAILED_RETRYABLE
                 }
                 // Recovered — fall through to the normal tokenData checks
                 // below (which run against the refreshed map).
@@ -8708,6 +8793,21 @@ class Executor(
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)
             onLog("📊 SELL DEBUG: Final tokenUnits to sell = $tokenUnits", tradeId.mint)
+            // V5.9.775 — EMERGENT MEME SELL_QTY_SOURCE forensic.
+            // Operator spec V5.9.775: every sell must log the
+            // authoritative source of `tokenUnits` so the operator can
+            // tell at a glance whether the bot used the on-chain RPC
+            // reading or the HOST_TRACKER fallback. The RPC fallback
+            // path above emits SELL_QTY_SOURCE=HOST_TRACKER; this is
+            // the normal RPC-resolved path.
+            try {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                    "SELL_QTY_SOURCE=RPC raw=$actualRawUnits ui=${"%.6f".format(actualBalanceUi)} decimals=$actualDecimals",
+                    tokenAmount = actualBalanceUi, traderTag = "MEME",
+                )
+            } catch (_: Throwable) {}
             // V5.9.774 — EMERGENT MEME: dust-broadcast guard.
             // Triage agent found: the `coerceAtLeast(1L)` could force a
             // broadcast of 1 raw unit when actualBalanceUi is so small
