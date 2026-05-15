@@ -29,6 +29,41 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.770 — pivot WR-Recovery counters from in-memory to persisted source (May 15)
+Operator screenshots 2026-05-15 21:14 — Main dashboard showed
+WR=27% (575W / 1499L / 907S = 2981 trades), Phase 4 target 44.9%.
+Guards strip showed "1 streak-block · 4 coaching" but NO
+"🚑 WR recovery @9%" tag despite WR being deep below target × 0.85.
+Operator question: "check why the winrate/winratio recovery isn't
+running to drive back up % ratio."
+
+Root cause:
+  WrRecoveryPartial.effectiveTrigger() and statusTag() pulled W/L
+  counts from CanonicalLearningCounters.settledWins / settledLosses
+  — declared as AtomicLong(0). These are in-memory only and reset
+  on every process death. Every UI surface (readiness tile, journal,
+  tuning) reads from TradeHistoryStore (SQLite-persisted) — so the
+  operator saw 2981 trades / 27% WR everywhere except inside the
+  recovery decision, which saw 0 / 0% and skipped on total < 50.
+
+Fix:
+  effectiveTrigger() and statusTag() now read from
+  TradeHistoryStore.getLifetimeStats().totalWins / totalLosses.
+  Wrapped in try/catch for cold-start safety. No trigger math change.
+
+Expected:
+  Guards strip immediately shows "🚑 WR recovery @9%" when WR
+  (persisted) < phase target × 0.85. Activation survives restarts /
+  OEM kills. First-partial trigger drops from normal (~15%) to 9%.
+
+Adjacent observations (NOT fixed — separate tickets):
+  - 94.9% main-thread stall, 882s accumulated in 930s uptime.
+  - 21,573 mints in watchlist, ANR top sites all MainActivity render
+    methods (renderOpenPositions, buildTokenCard, updateCryptoAltsCard).
+  - 41s avg cycle, 130s max. UI thread saturation, not bot logic.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on 963df4cbf.
+
 ### V5.9.769 — kill stale-liquidity FDG starvation (P1 #2 + V5.9.768 regression fix) (May 15)
 Operator dump @ V5.9.767 showed 824/839 (98%) FDG decisions blocked
 on LIQUIDITY_BELOW_EXECUTION_FLOOR, including SOLMAN whose intake
