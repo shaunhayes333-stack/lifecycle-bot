@@ -29,6 +29,45 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.761 — Meme sub-trader paper-mode leak (operator regression) (May 15)
+Operator report: "in the meme trader when running live there are still
+traders running in paper mode!! check all".
+
+Root cause audit of every v3/scoring/*.kt @Volatile isPaperMode field:
+
+  | Trader                | setTradingMode? | Synced per-loop? |
+  |-----------------------|-----------------|------------------|
+  | CashGenerationAI      | YES             | YES (line 6759)  |
+  | ShitCoinTraderAI      | YES             | YES (line 6763)  |
+  | BlueChipTraderAI      | YES             | YES (line 6764)  |
+  | MoonshotTraderAI      | YES             | YES (line 6765)  |
+  | QualityTraderAI       | YES             | YES (line 6766)  |
+  | ShitCoinExpress       | NO              | NO  ← LEAKING    |
+  | ManipulatedTraderAI   | NO              | NO  ← LEAKING    |
+  | DipHunterAI           | NO              | NO  ← LEAKING    |
+  | SolanaArbAI           | NO              | NO  ← LEAKING    |
+
+All four leaking traders have @Volatile isPaperMode set ONCE by their
+init() function, itself gated by an `initialized` flag with a
+'BLOCKED — already initialized' warning. When the user toggles Paper→Live
+in the UI, the main-loop per-tick sync block reaches the 5 properly-synced
+traders but never touches these four → they keep placing PAPER trades
+while ShitCoin/BlueChip/Moonshot/Quality have moved to LIVE. Exact
+operator symptom.
+
+Fix:
+- Added `fun setTradingMode(paperMode: Boolean)` to each of the four
+  leaking traders. Cheap @Volatile write, no heavy state rebuild.
+  Logs only on actual transition.
+- Wired all four helpers into the existing per-tick sync block at
+  BotService.kt:6755-6766 with a comment block pointing back at this
+  fix for future audits.
+
+No behaviour change when the user never toggles. When they do toggle,
+all 9 meme sub-trader layers now switch in lock-step within one loop tick.
+
+BUILD_TAG bumped to V5.9.761. CI: Build AATE APK ✅ GREEN on 48fc87650.
+
 ### V5.9.760 — Bot loop rescue resiliency (GlobalScope fallback + ACTION_START last resort) (May 15)
 Operator V5.9.759 dump diagnosed silent rescue failure: 104 LOOP_HEARTBEAT_RESCUE
 events emitted but BOTLOOP_STARTED stayed at 2 and ZERO RESCUE_CANCEL_SENT /
