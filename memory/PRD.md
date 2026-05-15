@@ -29,6 +29,63 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.777 / 777a — Live-mode containment surgical fix (May 16, CI GREEN)
+Operator forensics_20260516_014510.json on AATE 5.0.2706: 10-section
+regression report — zero EXEC counters despite landed live buys, live
+positions vanishing on stop/start, wallet truth reconciler dormant,
+sells stuck at BALANCE_UNKNOWN, perps auto-replay running with only
+Meme enabled.
+
+Triage agent RCA pinned 5 actionable root causes + 1 missing-feature:
+
+ROOT CAUSE A/G — EXEC_LIVE_ATTEMPT counter never wired
+File: engine/Executor.kt
+liveBuy() and liveTopUp() never called ForensicLogger.exec(), so the
+PipelineHealthCollector.onExec funnel showed EXEC=0 while 5 confirmed
+buys landed. Fix: emit LIVE_BUY_ATTEMPT + MEME_LIVE_EXEC_ENTRY on
+liveBuy/liveTopUp entry, LIVE_BUY_OK at BUY_VERIFIED_LANDED.
+
+ROOT CAUSE C — stopBot wiped live OPEN_TRACKING positions
+Files: engine/BotService.kt, engine/HostWalletTokenTracker.kt
+WC2026 / early / GOAT vanished after a stop/start cycle because
+clearAll() wiped live positions alongside paper. Fix: new
+clearPaperOnly() preserves OPEN_STATUSES + SELL_PENDING/VERIFYING.
+BotService.stopBot() now calls clearPaperOnly() in LIVE mode and
+selectively retains status.tokens entries with live open positions.
+
+ROOT CAUSE D — LiveWalletReconciler never ran a periodic tick
+File: engine/sell/LiveWalletReconciler.kt + BotService.kt
+Reconciler had only on-demand reconcileNow() (30 s throttled). Fix:
+added start(walletProvider) periodic tick (6 s in LIVE) on
+Dispatchers.IO; BotService.startBot() starts it when !cfg.paperMode,
+stopBot() stops it.
+
+ROOT CAUSE E — Partial / PumpPortal sells bailed on RPC-empty
+File: engine/Executor.kt resolveConfirmedSellAmountOrNull()
+V5.9.775 added HOST_TRACKER fallback inside liveSell() proper, but
+the partial-sell pre-resolver still returned null on empty RPC,
+downgrading RPD to the Jupiter slippage ladder. Fix: mirror the same
+authoritative-source rules — synthesise ConfirmedSellAmount from
+tracker uiAmount/decimals; emit SELL_QTY_SOURCE=HOST_TRACKER with
+site=resolveConfirmed.
+
+ROOT CAUSE J — PerpsAutoReplayLearner started unconditionally
+File: engine/BotService.kt
+Even with only Meme enabled, the perps auto-replay learner kept
+ticking. Fix: gated behind marketsLaneOn with TRADER_GATE
+PERPS_AUTO_REPLAY enabled/started forensic line.
+
+V5.9.777a hotfix: stopBot() had no local `cfg` — load ConfigStore
+inside stopBot() with a try/fallback to PAPER-like behaviour.
+
+NOT CHANGED (per triage):
+ - F (paper sells visible in LIVE UI): stale shutdown artefacts from
+   pre-V5.9.772 writes. Display filtering is a UX follow-up.
+ - H (ANR): UI refactor substantial; operator marked secondary.
+ - I (FDG bootstrap policy): feature request, not regression.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on sha=ebc1723.
+
 ### V5.9.776 — Live-mode wiring restoration (May 16, CI GREEN)
 Operator forensics V5.9.774 AATE 5.0.2705: zero live trades. FDG allow=0
 block=65, SAFETY_NOT_READY_MISSING=58. CryptoAltTrader emitted SIGNAL:
