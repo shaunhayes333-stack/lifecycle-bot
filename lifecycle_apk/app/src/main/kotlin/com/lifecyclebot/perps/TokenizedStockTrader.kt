@@ -552,9 +552,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             ErrorLogger.info(TAG, "📈 Scanning every ${SCAN_INTERVAL_MS/1000}s | enabled=${isEnabled.get()}")
             
             // V5.7.6: Run first scan immediately (no initial delay)
+            // V5.9.776 — EMERGENT MEME-ONLY toggle isolation.
+            // Operator reported MarketsTrader emitting SIGNAL: GOOGL/AMZN
+            // when its UI toggle was OFF. Root cause: the INITIAL scan
+            // ran unconditionally, ignoring isEnabled. Now gated.
             try {
-                ErrorLogger.info(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
-                runScanCycle()
+                if (isEnabled.get()) {
+                    ErrorLogger.info(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
+                    runScanCycle()
+                } else {
+                    ErrorLogger.info(TAG, "📈 INITIAL scan SKIPPED — isEnabled=false (TRADER_GATE MARKETS/STOCKS enabled=false)")
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

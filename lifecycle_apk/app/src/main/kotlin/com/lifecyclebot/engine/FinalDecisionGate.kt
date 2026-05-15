@@ -697,6 +697,21 @@ object FinalDecisionGate {
             val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
             val safetyMissing = ts.lastSafetyCheck == 0L
             val safetyStale = !safetyMissing && safetyAgeMs > LiveBuyAdmissionGate.SAFETY_STALE_MS
+            // V5.9.776 — SAFETY_READ canonical-key trace.
+            // Operator forensic spec V5.9.776 §1: every reader of the
+            // safety report must log canonical key + found + ageMs +
+            // reader so a key-mismatch regression is impossible to
+            // hide. Throttled by shouldEmitSafetyReadyBlock dedupe so
+            // we don't spam the forensic store at every tick.
+            if ((safetyMissing || safetyStale) && shouldEmitSafetyReadyBlock(ts.mint)) {
+                try {
+                    val canonicalKey = com.lifecyclebot.data.CanonicalMint.normalize(ts.mint)
+                    ForensicLogger.lifecycle(
+                        "SAFETY_READ",
+                        "key=${canonicalKey.take(10)} symbol=${ts.symbol} found=${!safetyMissing} ageMs=$safetyAgeMs reader=FDG verdict=${if (safetyMissing) "MISSING" else "STALE"}",
+                    )
+                } catch (_: Throwable) {}
+            }
             if (safetyMissing || safetyStale) {
                 val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
                 if (shouldEmitSafetyReadyBlock(ts.mint)) {

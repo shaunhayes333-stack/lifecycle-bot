@@ -427,9 +427,17 @@ object CryptoAltTrader {
             ErrorLogger.info(TAG, "🪙🪙🪙 CryptoAltTrader ENGINE STARTED 🪙🪙🪙")
             ErrorLogger.info(TAG, "🪙 Scanning every ${SCAN_INTERVAL_MS / 1000}s | enabled=${isEnabled.get()}")
 
+            // V5.9.776 — EMERGENT MEME-ONLY toggle isolation.
+            // Operator reported CryptoAltTrader emitting SIGNAL: HBAR/ICP/VET/...
+            // when its UI toggle was OFF. Root cause: the INITIAL scan
+            // ran unconditionally, ignoring isEnabled. Now gated.
             try {
-                ErrorLogger.info(TAG, "🪙🪙🪙 Running INITIAL alt scan NOW... 🪙🪙🪙")
-                runScanCycle()
+                if (isEnabled.get()) {
+                    ErrorLogger.info(TAG, "🪙🪙🪙 Running INITIAL alt scan NOW... 🪙🪙🪙")
+                    runScanCycle()
+                } else {
+                    ErrorLogger.info(TAG, "🪙 INITIAL scan SKIPPED — isEnabled=false (TRADER_GATE CRYPTO_ALT enabled=false)")
+                }
             } catch (e: CancellationException) { throw e }
               catch (e: Exception) { ErrorLogger.error(TAG, "🪙 Initial scan error: ${e.message}", e) }
 

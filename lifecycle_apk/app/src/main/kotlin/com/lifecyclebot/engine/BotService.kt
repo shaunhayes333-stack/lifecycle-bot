@@ -888,10 +888,15 @@ class BotService : Service() {
                 com.lifecyclebot.perps.TokenizedStockTrader.init()
                 com.lifecyclebot.perps.TokenizedStockTrader.setLiveMode(!cfg.paperMode)
                 com.lifecyclebot.perps.TokenizedStockTrader.start()
-                ErrorLogger.info("BotService", "📈 TokenizedStockTrader STARTED - Dedicated Stock Trading ACTIVE")
+                ErrorLogger.info("BotService", "📈 TRADER_GATE MARKETS/STOCKS enabled=true started=true")
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "TokenizedStockTrader start error: ${e.message}", e)
             }
+        } else {
+            // V5.9.776 — defence-in-depth: explicitly stop any stale instance
+            // and log the OFF state so operator can verify toggle isolation.
+            try { com.lifecyclebot.perps.TokenizedStockTrader.stop() } catch (_: Exception) {}
+            ErrorLogger.info("BotService", "📈 TRADER_GATE MARKETS/STOCKS enabled=false started=false (marketsLaneOn=$marketsLaneOn stocksEnabled=${marketsStartCfg.stocksEnabled})")
         }
 
         // V5.7.6: Start CommoditiesTrader - Energy & Agricultural commodities
@@ -946,12 +951,21 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "PerpsLearningInsightsPanel start error: ${e.message}")
         }
 
-        // V2.0: Start CryptoAltTrader — ALWAYS runs when bot is active (same as meme trader)
+        // V2.0: Start CryptoAltTrader — gated by cryptoAltsEnabled toggle.
+        // V5.9.776 — EMERGENT MEME-ONLY: previously called start() unconditionally
+        // even when the UI toggle was OFF, which leaked through to the engine's
+        // initial scan (now gated in CryptoAltTrader.start as well, defence-in-depth).
         try {
             com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
             com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
-            com.lifecyclebot.perps.CryptoAltTrader.start()
-            ErrorLogger.info("BotService", "🪙 CryptoAltTrader STARTED - Alt Crypto Trading ACTIVE")
+            if (cfg.cryptoAltsEnabled) {
+                com.lifecyclebot.perps.CryptoAltTrader.start()
+                ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=true started=true")
+            } else {
+                // Make sure any stale instance from a prior run is stopped.
+                try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
+                ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=false started=false (UI toggle OFF)")
+            }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
         }
@@ -9183,27 +9197,43 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         }
         
         // ── Safety check (cached 10 min) ──────────────────────
-    val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
-    if (safetyAge > 10 * 60_000L) {
-        scope.launch {
-            try {
+        // V5.9.776 — EMERGENT MEME-ONLY: CRITICAL FDG-SAFETY RACE FIX.
+        //
+        // Operator forensics: FDG allow=0 block=65, top reason
+        // SAFETY_NOT_READY_MISSING=58. Root cause: this block previously
+        // launched safetyChecker.check() asynchronously via scope.launch
+        // (correct optimisation for refreshes) but did the SAME for the
+        // very first check (lastSafetyCheck == 0L). The same cycle then
+        // continued to FDG, which read ts.lastSafetyCheck == 0L and
+        // blocked with SAFETY_NOT_READY_MISSING. The async job's
+        // exceptions were also being swallowed silently (empty catch on
+        // Exception) so when safety actually threw (RugCheck 502,
+        // network timeout, etc.) the timestamp NEVER got set and FDG
+        // blocked forever.
+        //
+        // Fix:
+        //  1) FIRST-EVER check (lastSafetyCheck == 0L) runs SYNCHRONOUSLY
+        //     so FDG immediately downstream sees a non-zero timestamp.
+        //     SafetyChecker has its own in-flight dedupe + 6s wait cap,
+        //     so concurrent intake doesn't burn quota.
+        //  2) On ANY exception we set lastSafetyCheck = now and write a
+        //     HARD_BLOCK SafetyReport with reason SAFETY_RUN_FAILED.
+        //     FDG hard-blocks this cycle (correct) and the stale-refresh
+        //     path retries 10 min later. The exception is now logged
+        //     loudly via ErrorLogger and ForensicLogger.
+        //  3) STALE refresh stays async (existing behaviour) — fast loop.
+        //  4) Adds SAFETY_WRITE forensic line on every successful write
+        //     so operator can trace canonical key flow end-to-end.
+        val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
+        val canonicalMint = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+        val needsFirstCheck = ts.lastSafetyCheck == 0L
+
+        // Resolve liquidity inputs once — used by both sync and async paths.
+        fun runSafetyCheck(): SafetyReport? {
+            return try {
                 val pairCreatedAt = pair.pairCreatedAtMs.takeIf { it > 0L } ?: pair.candle.ts
-                // V5.9.605 — LIVE MEME THROTTLE ROOT CAUSE:
-                // pair.liquidity can be 0 during first hydration/RPC races even
-                // when the scanner just admitted the same mint with real liquidity
-                // (operator log: CUCK scanner liq=$24k → safety LIQ HARD BLOCK $0).
-                // Resolve from best-known state before applying the live $2k floor.
-                val regEntry = try { GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
-                // V5.9.495z49 — operator log 17:03 evidence: PumpPortal fresh
-                // launches (mcap=27-31 SOL ≈ $2400-$2750 USD) were getting
-                // estimated at $240-$275 (× 0.10) and silently failing the
-                // live $2K hard floor → "🚫 LIQ HARD BLOCK SLIMEY $299" etc.
-                // The pump.fun bonding curve actually has liquidity ≈ mcap
-                // BEFORE graduation (the curve's SOL reserve dominates), so
-                // 0.10× wildly under-estimates pre-graduation tokens.
-                // Use 0.85× when source is PumpPortal (and pair.liquidity
-                // is still 0 — not yet on Raydium). For graduated/other
-                // sources, keep the original conservative 0.10 multiplier.
+                // V5.9.605 — LIVE MEME THROTTLE ROOT CAUSE liquidity fallback.
+                val regEntry = try { GlobalTradeRegistry.getEntry(canonicalMint) } catch (_: Throwable) { null }
                 val isPumpBondingCurve = (pair.liquidity <= 0.0) &&
                     (regEntry?.source?.contains("PUMP", ignoreCase = true) == true)
                 val registryLiqEstimate = (regEntry?.initialMcap ?: 0.0).let { mcap ->
@@ -9216,37 +9246,75 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     ts.lastLiquidityUsd,
                     registryLiqEstimate,
                 ).filter { it.isFinite() && it > 0.0 }.maxOrNull() ?: pair.liquidity
-
                 if (pair.liquidity <= 0.0 && resolvedLiquidityUsd > 0.0) {
                     ErrorLogger.info("BotService", "💧 Safety liquidity fallback: ${ts.symbol} pair=$${pair.liquidity.toInt()} ts=$${ts.lastLiquidityUsd.toInt()} regEst=$${registryLiqEstimate.toInt()} → using $${resolvedLiquidityUsd.toInt()}")
                 }
-
-                val report = safetyChecker.check(
-                    mint            = mint,
+                val r = safetyChecker.check(
+                    mint            = canonicalMint,
                     symbol          = ts.symbol,
                     name            = ts.name,
                     pairCreatedAtMs = pairCreatedAt,
-                    currentLiquidityUsd = resolvedLiquidityUsd,  // V5.9.605: best-known liq, not raw pair zero
-                    score = ts.entryScore.toInt().coerceIn(0, 100), // V5.9.605: allow RC_PENDING live override for strong candidates
+                    currentLiquidityUsd = resolvedLiquidityUsd,
+                    score = ts.entryScore.toInt().coerceIn(0, 100),
                 )
                 synchronized(ts) {
-                    ts.safety       = report
+                    ts.safety       = r
                     ts.lastSafetyCheck = System.currentTimeMillis()
                 }
+                try {
+                    ForensicLogger.lifecycle(
+                        "SAFETY_WRITE",
+                        "key=${canonicalMint.take(10)} symbol=${ts.symbol} tier=${r.tier.name} hardBlocks=${r.hardBlockReasons.size}",
+                    )
+                } catch (_: Throwable) {}
+                r
+            } catch (e: Exception) {
+                // V5.9.776 — never swallow safety failures.
+                ErrorLogger.warn(
+                    "BotService",
+                    "🚨 SAFETY_CHECK_THREW [${ts.symbol}] mint=${canonicalMint.take(10)} ${e.javaClass.simpleName}: ${e.message?.take(120)}",
+                )
+                try {
+                    ForensicLogger.lifecycle(
+                        "SAFETY_RUN_FAILED",
+                        "key=${canonicalMint.take(10)} symbol=${ts.symbol} err=${e.javaClass.simpleName}: ${e.message?.take(80)}",
+                    )
+                } catch (_: Throwable) {}
+                // Stamp a HARD_BLOCK report so FDG sees a *fresh* (non-zero)
+                // lastSafetyCheck and can hard-block this token with a real
+                // reason instead of spinning on SAFETY_NOT_READY_MISSING.
+                val failReport = SafetyReport(
+                    tier = SafetyTier.HARD_BLOCK,
+                    hardBlockReasons = listOf("SAFETY_RUN_FAILED: ${e.message?.take(60) ?: e.javaClass.simpleName}"),
+                    checkedAt = System.currentTimeMillis(),
+                )
+                synchronized(ts) {
+                    ts.safety       = failReport
+                    ts.lastSafetyCheck = System.currentTimeMillis()
+                }
+                null
+            }
+        }
+
+        if (needsFirstCheck) {
+            // SYNCHRONOUS first-ever safety check so the very next
+            // pipeline phase (FDG) sees a populated ts.lastSafetyCheck.
+            // SafetyChecker's per-mint in-flight dedupe keeps concurrent
+            // callers cheap (6s wait cap). The bot loop's per-token
+            // budget absorbs this 0–10s blocking call once per mint.
+            val report = runSafetyCheck()
+            if (report != null) {
                 when (report.tier) {
                     SafetyTier.HARD_BLOCK -> {
                         val reason = report.hardBlockReasons.firstOrNull() ?: "Safety check"
                         addLog("SAFETY BLOCK [${ts.symbol}]: $reason", mint)
                         sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
                             NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
-                        val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && resolvedLiquidityUsd <= 0.0
-                        if (isTransientLiquidityBlock) {
-                            ErrorLogger.warn("BotService", "⚠️ NOT blacklisting ${ts.symbol}: transient unresolved liquidity safety block ($reason)")
-                        } else {
+                        val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && pair.liquidity <= 0.0
+                        if (!isTransientLiquidityBlock) {
                             TokenBlacklist.block(mint, "Safety: $reason")
                         }
-                        // Permanent ban for rug/scam patterns
-                        if (reason.contains("rug", ignoreCase = true) || 
+                        if (reason.contains("rug", ignoreCase = true) ||
                             reason.contains("honeypot", ignoreCase = true) ||
                             reason.contains("scam", ignoreCase = true)) {
                             BannedTokens.ban(mint, "Safety: $reason")
@@ -9259,9 +9327,37 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     }
                     else -> {}
                 }
-            } catch (_: Exception) {}
+            }
+        } else if (safetyAge > 10 * 60_000L) {
+            // STALE refresh — keep async so the hot loop doesn't block
+            // on a network call when the report is already populated.
+            scope.launch {
+                val report = runSafetyCheck() ?: return@launch
+                when (report.tier) {
+                    SafetyTier.HARD_BLOCK -> {
+                        val reason = report.hardBlockReasons.firstOrNull() ?: "Safety check"
+                        addLog("SAFETY BLOCK [${ts.symbol}]: $reason", mint)
+                        sendTradeNotif("Token Blocked", "${ts.symbol}: ${report.summary}",
+                            NotificationHistory.NotifEntry.NotifType.SAFETY_BLOCK)
+                        val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && pair.liquidity <= 0.0
+                        if (!isTransientLiquidityBlock) {
+                            TokenBlacklist.block(mint, "Safety: $reason")
+                        }
+                        if (reason.contains("rug", ignoreCase = true) ||
+                            reason.contains("honeypot", ignoreCase = true) ||
+                            reason.contains("scam", ignoreCase = true)) {
+                            BannedTokens.ban(mint, "Safety: $reason")
+                            addLog("🚫 PERMANENTLY BANNED: ${ts.symbol} - $reason", mint)
+                        }
+                        soundManager.playSafetyBlock()
+                    }
+                    SafetyTier.CAUTION -> {
+                        addLog("SAFETY CAUTION [${ts.symbol}]: ${report.summary}", mint)
+                    }
+                    else -> {}
+                }
+            }
         }
-    }
 
     // Note: lastSuccessfulPollMs update is handled in botLoop
 
