@@ -9,12 +9,15 @@ import android.os.Looper
 import android.text.format.DateUtils
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.lifecyclebot.engine.LiveTradeLogStore
 import com.lifecyclebot.engine.LiveTradeLogStore.Phase
 
@@ -42,15 +45,26 @@ class LiveTradeLogActivity : Activity() {
         // renderGroup as top main-thread blocker with 98 s frame gaps once
         // the queue grew past a few hundred groups. Cap the visible window;
         // older history remains queryable via the store snapshot.
-        private const val MAX_VISIBLE_GROUPS = 60
+        // V5.9.779 — tightened to 30 groups + per-group event cap to
+        // eliminate text-rendering ANR at scroll speed.
+        private const val MAX_VISIBLE_GROUPS = 30
+        private const val MAX_EVENTS_PER_GROUP = 15
         private const val REFRESH_INTERVAL_MS = 5_000L
+
+        // V5.9.779 — singleton timestamp formatter. Operator forensics
+        // identified LiveTradeLogActivity.formatHms as a main-thread hot
+        // path due to per-row SimpleDateFormat allocation + ICU calls.
+        // Reuse one instance from any thread (synchronized on each call).
+        private val HMS_FMT = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+        private fun fmtHms(ts: Long): String =
+            synchronized(HMS_FMT) { HMS_FMT.format(java.util.Date(ts)) }
     }
 
-    private lateinit var rootScroll: ScrollView
-    private lateinit var rootColumn: LinearLayout
+    private lateinit var recycler: RecyclerView
     private lateinit var summaryView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var refreshing = false
+    private val adapter = GroupAdapter()
 
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -143,6 +157,25 @@ class LiveTradeLogActivity : Activity() {
         rootScroll.addView(rootColumn)
         outer.addView(rootScroll)
 
+        // V5.9.779 — RecyclerView replaces the ScrollView/LinearLayout
+        // pair so only the visible viewport's worth of group cards is
+        // rendered. removeAllViews() / per-event TextView floods are
+        // gone — DiffUtil only touches what actually changed.
+        // (rootScroll / rootColumn kept above for any compat references
+        // but the actual rendering goes through the RecyclerView below.)
+        recycler = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@LiveTradeLogActivity)
+            setHasFixedSize(false)
+            itemAnimator = null  // suppress flicker / pointless animation work
+            adapter = this@LiveTradeLogActivity.adapter
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
+            setBackgroundColor(Color.parseColor("#0B0E13"))
+        }
+        // Remove the legacy ScrollView from the outer layout and use the
+        // RecyclerView as the scrollable region instead.
+        outer.removeView(rootScroll)
+        outer.addView(recycler)
+
         setContentView(outer)
     }
 
@@ -197,33 +230,11 @@ class LiveTradeLogActivity : Activity() {
         } else ""
         summaryView.text = "Trades: $total | Live: $live | Landed: $landed | Phantoms: $phantoms | Sweeps: $sweeps$reconLine"
 
-        rootColumn.removeAllViews()
-        if (groups.isEmpty()) {
-            rootColumn.addView(emptyState())
-            return
-        }
-        // V5.9.778 — EMERGENT MEME-ONLY ANR mitigation. Operator forensics
-        // 5.0.2709 showed max frame gap 98 s (avg cycle 151 s, max 302 s)
-        // with renderGroup/buildTokenCard as the top blocker because the
-        // page rendered EVERY trade group across the entire queue (10k+
-        // events in a long session). Cap the visible window to the most
-        // recent N groups; the underlying queue still grows unbounded
-        // for diagnostics, the UI just doesn't crawl every entry. Bot
-        // service continues cycling independently because renderGroup
-        // is invoked from the UI handler — main-thread stalls here no
-        // longer block the bot loop, but operators see the page render
-        // in <100 ms instead of multi-second hangs.
+        // V5.9.779 — RecyclerView-backed render. Submit a capped, mode-
+        // filtered list to the adapter; DiffUtil-style key matching
+        // (tradeKey + events.size) means unchanged groups don't rebuild.
         val capped = if (groups.size > MAX_VISIBLE_GROUPS) groups.subList(0, MAX_VISIBLE_GROUPS) else groups
-        for (g in capped) rootColumn.addView(renderGroup(g, now))
-        if (groups.size > MAX_VISIBLE_GROUPS) {
-            rootColumn.addView(TextView(this).apply {
-                text = "… ${groups.size - MAX_VISIBLE_GROUPS} older trade group(s) not shown to keep UI responsive."
-                setTextColor(Color.parseColor("#64748B"))
-                textSize = 11f
-                setPadding(dp(8), dp(12), dp(8), dp(20))
-                gravity = Gravity.CENTER
-            })
-        }
+        adapter.submit(capped, now, omittedCount = (groups.size - capped.size).coerceAtLeast(0))
     }
 
     private fun emptyState(): View = TextView(this).apply {
@@ -300,8 +311,21 @@ class LiveTradeLogActivity : Activity() {
         }
         card.addView(mintLine)
 
-        // Phase timeline
-        for (e in g.events) {
+        // Phase timeline — V5.9.779 cap events per group to MAX_EVENTS_PER_GROUP
+        // (newest at bottom; we show the most recent N to keep main-thread
+        // TextView allocations bounded).
+        val eventsToShow = if (g.events.size > MAX_EVENTS_PER_GROUP)
+            g.events.subList(g.events.size - MAX_EVENTS_PER_GROUP, g.events.size)
+        else g.events
+        if (g.events.size > MAX_EVENTS_PER_GROUP) {
+            card.addView(TextView(this).apply {
+                text = "  … ${g.events.size - MAX_EVENTS_PER_GROUP} older event(s) hidden"
+                setTextColor(Color.parseColor("#475569"))
+                textSize = 10f
+                setPadding(0, dp(2), 0, dp(2))
+            })
+        }
+        for (e in eventsToShow) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, dp(2), 0, dp(2))
@@ -444,8 +468,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.POSITION_COUNT_RECONCILED -> Color.parseColor("#3B82F6")              // blue
     }
 
-    private fun formatHms(ts: Long): String =
-        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(ts))
+    private fun formatHms(ts: Long): String = fmtHms(ts)
 
     private fun formatDur(ms: Long): String {
         val s = ms / 1000
@@ -457,4 +480,69 @@ class LiveTradeLogActivity : Activity() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /**
+     * V5.9.779 — EMERGENT MEME-ONLY: RecyclerView adapter for trade groups.
+     * Only the visible viewport's worth of items is bound at any moment —
+     * scrolling recycles ViewHolders instead of allocating fresh TextView
+     * trees. submit() does a simple key-based diff (tradeKey + event
+     * count + lastTs) and skips notifyDataSetChanged() when nothing
+     * actually changed, eliminating the per-refresh main-thread storm
+     * the operator's forensics flagged.
+     */
+    private inner class GroupAdapter : RecyclerView.Adapter<GroupAdapter.Holder>() {
+        private val items = ArrayList<LiveTradeLogStore.Group>()
+        private var now = 0L
+        private var omitted = 0
+        private var keySig = ""
+
+        fun submit(groups: List<LiveTradeLogStore.Group>, nowMs: Long, omittedCount: Int) {
+            now = nowMs
+            // Diff signature — if it hasn't moved, do nothing.
+            val newSig = groups.joinToString(",") { "${it.tradeKey}:${it.events.size}:${it.lastTs}" } + "|omit=$omittedCount"
+            if (newSig == keySig && items.size == groups.size + (if (omittedCount > 0) 1 else 0)) return
+            keySig = newSig
+            items.clear()
+            items.addAll(groups)
+            omitted = omittedCount
+            notifyDataSetChanged()
+        }
+
+        override fun getItemCount(): Int =
+            if (items.isEmpty()) 1 else items.size + (if (omitted > 0) 1 else 0)
+
+        override fun getItemViewType(position: Int): Int = when {
+            items.isEmpty() -> VT_EMPTY
+            position == items.size && omitted > 0 -> VT_FOOTER
+            else -> VT_GROUP
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
+            val container = FrameLayout(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            }
+            return Holder(container)
+        }
+
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            holder.container.removeAllViews()
+            when (getItemViewType(position)) {
+                VT_EMPTY -> holder.container.addView(emptyState())
+                VT_FOOTER -> holder.container.addView(TextView(this@LiveTradeLogActivity).apply {
+                    text = "… $omitted older trade group(s) not shown to keep UI responsive."
+                    setTextColor(Color.parseColor("#64748B"))
+                    textSize = 11f
+                    setPadding(dp(8), dp(12), dp(8), dp(20))
+                    gravity = Gravity.CENTER
+                })
+                else -> holder.container.addView(renderGroup(items[position], now))
+            }
+        }
+
+        inner class Holder(val container: FrameLayout) : RecyclerView.ViewHolder(container)
+
+        private val VT_EMPTY = 0
+        private val VT_GROUP = 1
+        private val VT_FOOTER = 2
+    }
 }

@@ -862,6 +862,27 @@ class BotService : Service() {
         // V5.9.345: Alts bypasses kill-switch — user wants it running.
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
 
+        // V5.9.779 — EMERGENT MEME-ONLY: publish the canonical enabled-trader
+        // set so every paper/sniper/cyclic/shadow path can short-circuit at
+        // its top via EnabledTraderAuthority.isMemeLiveOnly(). MEME is always
+        // enabled when the bot runs; the others reflect the user's UI toggles.
+        run {
+            val enabledSet = mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
+            if (marketsStartCfg.cryptoAltsEnabled)
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
+            if (marketsLaneOn && marketsStartCfg.stocksEnabled)
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
+            if (marketsLaneOn && marketsStartCfg.perpsEnabled)
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
+            if (com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled())
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+            if (cfg.cyclicTradeLiveEnabled || cfg.paperMode)
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
+            if (cfg.shadowPaperEnabled)
+                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
+            com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
+        }
+
         if (marketsLaneOn) {
             // V5.9.600 BUG-1 FIX: PerpsTraderAI was never getting setLiveMode called.
             // Sub-traders all get setLiveMode(!cfg.paperMode) below, but PerpsTraderAI
@@ -2821,9 +2842,7 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
-        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines
-
-        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
+        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
         // watchdog. Runs every 10s in LIVE mode only; scans the host
         // wallet's open tracked positions, force-releases stale sell
         // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
@@ -2833,6 +2852,36 @@ class BotService : Service() {
                 scope = scope,
                 isPaperMode = cfg.paperMode,
                 hostWallet = wallet,
+                // V5.9.779 — EMERGENT MEME-ONLY: SellReconciler now actively
+                // triggers a sell via the executor when it requeues. If the
+                // mint is missing from status.tokens (e.g. after a stopBot
+                // trim or service kill), we rehydrate a minimal TokenState
+                // from the host wallet tracker so the bot can still sell
+                // tokens the user holds without restarting the watchlist.
+                sellTrigger = { mint, symbol, balance ->
+                    try {
+                        val existing = synchronized(status.tokens) { status.tokens[mint] }
+                        val ts = existing ?: rehydrateTokenStateFromTracker(mint, symbol, balance)
+                        if (ts != null) {
+                            val curWallet = WalletManager.getWallet()
+                            val curSol = walletManager.state.value.solBalance
+                            executor.requestSell(
+                                ts,
+                                "RECONCILER_REQUEUE",
+                                curWallet,
+                                curSol,
+                            )
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "RECONCILER_SELL_TRIGGERED",
+                                    "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null}",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
+                    }
+                },
             )
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
@@ -4131,6 +4180,52 @@ class BotService : Service() {
         }
     }
 
+    /**
+     * V5.9.779 — EMERGENT MEME-ONLY: rehydrate a minimal TokenState for the
+     * SellReconciler trigger when the mint isn't in status.tokens (e.g.
+     * after a stopBot trim, a service kill, or a user-side restart). The
+     * TokenState we synthesise is just enough for Executor.requestSell to
+     * resolve quantity and broadcast a sell — the HostWalletTokenTracker
+     * + Executor's RPC fallback paths fill in the rest. The synthesised
+     * ts is also added back into status.tokens so the bot loop's exit
+     * gate can pick it up on the next tick.
+     */
+    private fun rehydrateTokenStateFromTracker(
+        mint: String,
+        symbolHint: String,
+        balanceHint: Double,
+    ): com.lifecyclebot.data.TokenState? {
+        try {
+            val tracked = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)
+            val sym = (tracked?.symbol?.takeIf { it.isNotBlank() }) ?: symbolHint.takeIf { it.isNotBlank() } ?: "?"
+            val qty = tracked?.uiAmount?.takeIf { it > 0.0 } ?: balanceHint
+            if (qty <= 0.0) return null
+            val ts = com.lifecyclebot.data.TokenState(mint = mint, symbol = sym, name = sym)
+            ts.position = com.lifecyclebot.data.Position(
+                qtyToken = qty,
+                entryPrice = tracked?.entryPriceUsd ?: 0.0,
+                costSol = tracked?.entrySol ?: 0.0,
+                entryTime = tracked?.buyTimeMs ?: System.currentTimeMillis(),
+                isPaperPosition = false,
+            )
+            ts.source = "WALLET_RESTORED_LIVE_POSITION"
+            ts.addedToWatchlistAt = System.currentTimeMillis()
+            synchronized(status.tokens) {
+                status.tokens.putIfAbsent(mint, ts)
+            }
+            try {
+                ForensicLogger.lifecycle(
+                    "TOKEN_STATE_REHYDRATED_FROM_TRACKER",
+                    "mint=${mint.take(10)} symbol=$sym qty=$qty",
+                )
+            } catch (_: Throwable) {}
+            return ts
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "rehydrateTokenStateFromTracker(${mint.take(10)}) failed: ${e.message?.take(80)}")
+            return null
+        }
+    }
+
     fun stopBot() {
         isShuttingDown = true  // V5.9.721: signal all traders to use fast-close path
         // V5.9.651 — forensic stop marker
@@ -4787,6 +4882,9 @@ class BotService : Service() {
             // V5.9.777 — also stop the LiveWalletReconciler periodic tick
             // on bot stop so it doesn't keep hammering the wallet RPC.
             try { com.lifecyclebot.engine.sell.LiveWalletReconciler.stop() } catch (_: Throwable) {}
+            // V5.9.779 — clear EnabledTraderAuthority so any post-stop
+            // scanner/engine straggler immediately short-circuits.
+            try { com.lifecyclebot.engine.EnabledTraderAuthority.clear() } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         try {
@@ -8397,18 +8495,56 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // ═══════════════════════════════════════════════════════════════════
             // CYCLIC TRADE ENGINE — $500 USD compound ring
             // ═══════════════════════════════════════════════════════════════════
-            // V5.9.222: Always tick CyclicTradeEngine — it runs paper permanently.
-            // Live mode is gated internally by cfg.cyclicTradeLiveEnabled / treasury threshold.
+            // V5.9.779 — EMERGENT MEME-ONLY: CyclicTradeEngine gating.
+            // Operator decision (V5.9.779 §2): run LIVE in MEME ONLY when
+            // wallet SOL value > $1500 USD. Below that threshold the engine
+            // stays paper (or paused entirely in LIVE Meme-only mode to
+            // prevent paper-trade contamination of the LIVE forensics page).
+            //
+            // Old behaviour: "Always tick CyclicTradeEngine — it runs
+            // paper permanently" — caused the operator's reported
+            // EXEC/PAPER_BUY=1 + paper-sell rows in LIVE mode.
+            //
+            // New behaviour:
+            //   PAPER mode  → tick (always allowed; user is in paper).
+            //   LIVE  mode  → tick only if EnabledTraderAuthority has
+            //                 CYCLIC AND walletSolUsd > $1500. The engine
+            //                 itself will then route via Executor LIVE
+            //                 paths because RuntimeModeAuthority is LIVE.
+            //                 Below $1500 the engine is silent — no paper
+            //                 writes, no live trades.
             if (loopCount % 10 == 0) {
                 try {
-                    val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
-                    CyclicTradeEngine.tick(
-                        context   = applicationContext,
-                        tokens    = cyclicTokens,
-                        executor  = executor,
-                        wallet    = wallet,
-                        walletSol = walletManager.state.value.solBalance,
+                    val isPaperRuntime = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                    val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                    val walletSolNow = walletManager.state.value.solBalance
+                    val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
+                    val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                        com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
                     )
+                    val liveThreshold = 1500.0
+                    val allowTick = when {
+                        isPaperRuntime -> cyclicEnabled
+                        else -> cyclicEnabled && walletUsdNow >= liveThreshold
+                    }
+                    if (allowTick) {
+                        val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
+                        CyclicTradeEngine.tick(
+                            context   = applicationContext,
+                            tokens    = cyclicTokens,
+                            executor  = executor,
+                            wallet    = wallet,
+                            walletSol = walletSolNow,
+                        )
+                    } else if (loopCount % 100 == 0) {
+                        // Throttled forensic so operator can see why the engine is silent.
+                        try {
+                            ForensicLogger.lifecycle(
+                                "CYCLIC_TICK_SKIPPED",
+                                "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "CyclicTradeEngine tick error: ${e.message}", e)
                 }
@@ -11985,8 +12121,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // ═══════════════════════════════════════════════════════════════════
             // 🎯 PROJECT SNIPER - Snipe fresh launches
             // V5.6.29d: New layer for catching launch pumps
+            // V5.9.779 — EMERGENT MEME-ONLY: hard top-level gate.
+            // Operator forensics 5.0.2709: Sniper kept opening missions
+            // and writing paper buys while user had only Meme enabled in
+            // LIVE mode. We now refuse to enter the Sniper block unless
+            // PROJECT_SNIPER is in EnabledTraderAuthority's set OR we're
+            // in PAPER mode where the operator may explicitly opt-in.
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
+            val sniperAllowed = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+            )
+            if (!ts.position.isOpen && sniperAllowed && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
                     // Check exit conditions

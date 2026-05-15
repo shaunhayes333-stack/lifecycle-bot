@@ -46,6 +46,16 @@ object SellReconciler {
     @Volatile private var paperMode: Boolean = true
     @Volatile private var wallet: SolanaWallet? = null
 
+    // V5.9.779 — EMERGENT MEME-ONLY: optional callback to actually
+    // trigger a live sell when this watchdog requeues a position.
+    // Operator forensics 5.0.2709 verified that
+    // RECONCILER_EXIT_REQUEUED fired but no broadcast happened
+    // because the bot loop's exit path could not find the mint in
+    // status.tokens after a stop/start cycle. Callback is set by
+    // BotService.startBot() and rehydrates a TokenState from
+    // HostWalletTokenTracker when needed before invoking requestSell.
+    @Volatile private var sellTrigger: ((String, String, Double) -> Unit)? = null
+
     /** Total ticks executed since service start — surfaced for debugging. */
     @Volatile var totalTicks: Long = 0L
     /** Cumulative open positions inspected across all ticks. */
@@ -62,9 +72,15 @@ object SellReconciler {
 
     /** Idempotent start. Caller (BotService) re-invokes whenever mode or
      *  wallet changes; we restart cleanly. */
-    fun start(scope: CoroutineScope, isPaperMode: Boolean, hostWallet: SolanaWallet?) {
+    fun start(
+        scope: CoroutineScope,
+        isPaperMode: Boolean,
+        hostWallet: SolanaWallet?,
+        sellTrigger: ((mint: String, symbol: String, balance: Double) -> Unit)? = null,
+    ) {
         paperMode = isPaperMode
         wallet = hostWallet
+        this.sellTrigger = sellTrigger
         // Cancel any prior loop.
         jobRef.get()?.cancel()
         if (isPaperMode || hostWallet == null) {
@@ -244,5 +260,14 @@ object SellReconciler {
                 "mint=${pos.mint.take(10)} symbol=${pos.symbol} balance=$balance",
             )
         } catch (_: Throwable) {}
+        // V5.9.779 — also invoke the sellTrigger callback so the bot
+        // loop doesn't need to find the mint in status.tokens. BotService
+        // wires this to executor.requestSell with a TokenState rehydrated
+        // from HostWalletTokenTracker if needed.
+        try {
+            sellTrigger?.invoke(pos.mint, pos.symbol ?: "?", balance)
+        } catch (e: Throwable) {
+            ErrorLogger.warn("SellReconciler", "sellTrigger threw: ${e.message?.take(80)}")
+        }
     }
 }
