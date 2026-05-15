@@ -29,6 +29,88 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.766 EMERGENT MEME — upstream SafetyReady gate in FDG (May 15)
+Completes the deferred ticket from V5.9.765 commit message
+("Full upstream gate deferred to V5.9.766+ — needs FDG path audit").
+
+Problem:
+  V5.9.765 cut the visible spam (17 BUY_FAILED LIVE_BUY_BLOCKED_RISK
+  SAFETY_DATA_MISSING events in 1.28s) by adding a 60s per-mint
+  dedupe at the EXECUTOR (LiveBuyAdmissionGate). But the candidate
+  was still reaching the executor before being blocked — wasted CPU
+  and a periodic block-event emission every 60s.
+
+Fix (FinalDecisionGate.kt):
+  - New import: engine.sell.LiveBuyAdmissionGate (reuses
+    SAFETY_STALE_MS = 120s — single source of truth).
+  - New private dedupe map + shouldEmitSafetyReadyBlock(mint) helper
+    (60s cooldown, opportunistic prune above 256 entries).
+  - New early-return block in evaluate() right after mode is computed:
+    LIVE + (lastSafetyCheck == 0L OR age > SAFETY_STALE_MS) returns
+    BLOCKED(HARD, sizeSol=0, SAFETY_NOT_READY_MISSING|STALE) BEFORE
+    any symbolic / brain / FDG learning logic runs.
+  - PAPER mode intentionally exempt — paper trades treat safety as
+    scoring input, not a hard gate. Bot keeps learning when rugcheck
+    is slow/down.
+  - New forensic event: LIFECYCLE/FDG_BLOCKED_SAFETY_NOT_READY
+    (≤1 emit per mint per 60s).
+
+Expected dump deltas:
+  - LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING rows
+    drop to near-zero (executor never runs).
+  - LIVE_BUY_DEDUPE_DROP volume drops (no longer needed for this case).
+  - FDG_BLOCKED_SAFETY_NOT_READY surfaces upstream.
+  - RejectionTelemetry attributes the block to FDG.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on bd885b45f.
+
+### V5.9.765b — CI hotfix for V5.9.765 (May 15)
+Two compile errors in V5.9.765 slipped past pre-push checks because
+this codebase has no local compiler. Surgical hotfix only.
+
+1) SellReconciler.kt:136 — DexscreenerApi.batchPriceFetch() called as
+   companion-static, but the function is an instance member of
+   `class DexscreenerApi`. Fix: `DexscreenerApi().batchPriceFetch(...)`.
+   One allocation per 10s reconciler tick = negligible.
+
+2) LiveTradeLogActivity.kt:310 — V5.9.765 added a new Phase enum value
+   WATCHLIST_PROTECT_BLACKLISTED_TOKEN but the colorForPhase(...)
+   when-expression was not updated, breaking exhaustiveness. Added the
+   new value next to its HELD_TOKEN cousin in the blue branch.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on 04f0f9864.
+
+### V5.9.765 EMERGENT MEME — price hydration + dedupe + watchlist rename + forensic anomalies (May 15)
+Operator forensics_20260515_161017.json showed:
+  - 17 BUY_FAILED LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING
+    events in ~1.28s for a handful of mints.
+  - host_tracker had 2 OPEN_TRACKING positions (HIM, CABAL) with
+    currentPriceUsd = 0.0 — no maxGainPct, no exit lifecycle.
+  - reconciler.totalChecked = 0 (the V5.9.764 reconciler was being
+    throttled by a 30s startup cooldown).
+  - forensics_events = [] despite obvious anomalies.
+  - 276 WATCHLIST_PROTECT_HELD_TOKEN events for shadow-banned tokens
+    that were NOT actually wallet-held.
+
+Fixes (MEME path only — crypto universe untouched):
+  - SellReconciler now emits a one-shot RECONCILER_START forensic per
+    service lifecycle so dumps prove the loop is up.
+  - SellReconciler now batches DexScreener prices for every
+    OPEN_TRACKING mint per tick and pushes results into
+    HostWalletTokenTracker.recordPriceUpdate (which already maintains
+    currentPriceUsd / maxGainPct / maxDrawdownPct).
+  - Per-mint zero-price streak counter — after 2 consecutive ticks
+    of priceUsd=0 emits PRICE_STALE_LIVE_POSITION +
+    LIVE_POSITION_PRICE_ZERO. Single-tick rate-limit blips don't fire.
+  - LiveBuyAdmissionGate gained a 60s per-mint cooldown on block
+    emission (LIVE_BUY_DEDUPE_DROP forensic captures suppressed spam).
+  - LiveTradeLogStore.Phase split: HELD_TOKEN now reserved for genuine
+    wallet-held tokens; new BLACKLISTED_TOKEN value covers the shadow-
+    ban / intake-blacklist paths. Both BotService call sites updated.
+
+NOTE: Upstream FDG SafetyReady gate was deferred to V5.9.766 (shipped
+above) — see that entry for the completion.
+
 ### V5.9.764 EMERGENT CRITICAL — sell-job state machine + qty-guard + reconciler (May 15)
 Operator forensics_20260515_151634.json: HIM live full sell qty=122210.6058
 retried at qty=1331.4409 (1.1%); CABAL qty=7330.5470 retried at qty=88.5843
