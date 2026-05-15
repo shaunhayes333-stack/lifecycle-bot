@@ -29,6 +29,29 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.786 — CRITICAL HOTFIX: isPaperRT/isLiveRT infinite recursion (May 16, CI GREEN)
+Operator forensics on build 5.0.2724 reported **zero paper trades after 61min uptime**
+despite `FDG_PAPER_ALLOW=36` and `BOTLOOP_RESCUE_THREW=58/60` heartbeats failing.
+
+Root cause (caught by troubleshoot agent RCA): V5.9.780a's JVM 64KB method
+extraction helpers in `engine/Executor.kt:279-280` were shipped as
+`private fun isPaperRT(): Boolean = isPaperRT()` (self-recursion). Kotlin
+accepts a self-call, so CI compiled green — but every runtime invocation
+threw StackOverflowError immediately. Impact: `paperBuy()` mode check
+(Executor.kt:5185) silently swallowed every approved trade; bot loop mode
+checks crashed each heartbeat; rescue handler rethrew because the
+StackOverflow propagated.
+
+Fix: restore intended implementation (matches V5.9.780a commit message):
+```
+private fun isPaperRT(): Boolean = RuntimeModeAuthority.isPaper()
+private fun isLiveRT(): Boolean = RuntimeModeAuthority.isLive()
+```
+
+The V5.9.781..785a operator-audit waves were INNOCENT — they only made
+the regression more visible because the bot loop ran longer and hit the
+mode checks more often per cycle.
+
 ### V5.9.781..785a — Operator audit Wave 1-5 LANDED (May 16, all CI GREEN)
 Comprehensive deep audit response from operator: "Stop adding more 'AI layer'
 labels. Make every existing layer consume the same feature-rich canonical
