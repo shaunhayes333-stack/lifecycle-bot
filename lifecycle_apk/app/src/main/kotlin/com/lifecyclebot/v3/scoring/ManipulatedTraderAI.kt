@@ -157,6 +157,16 @@ object ManipulatedTraderAI {
             "size=${POSITION_SOL_BOOTSTRAP}->${POSITION_SOL_MATURE} SOL")
     }
 
+    /** V5.9.761 — Per-loop paper/live mode sync (operator regression fix).
+     *  init() is gated by `initialized`, so UI toggles never propagate.
+     *  Mirrors setTradingMode() in CashGen/ShitCoin/BlueChip/Moonshot/Quality. */
+    fun setTradingMode(isPaper: Boolean) {
+        if (isPaperMode != isPaper) {
+            isPaperMode = isPaper
+            ErrorLogger.info(TAG, "☠️ mode switched → ${if (isPaper) "PAPER" else "LIVE"}")
+        }
+    }
+
     fun isEnabled(): Boolean = true
 
     // ═══════════════════════════════════════════════════════════════════════════

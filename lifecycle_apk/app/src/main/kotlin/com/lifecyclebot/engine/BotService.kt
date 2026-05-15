@@ -6763,6 +6763,19 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.setTradingMode(cfg.paperMode)
             com.lifecyclebot.v3.scoring.MoonshotTraderAI.setTradingMode(cfg.paperMode)
             com.lifecyclebot.v3.scoring.QualityTraderAI.setTradingMode(cfg.paperMode)
+
+            // V5.9.761 — Sync the FOUR meme sub-traders that were silently
+            // stuck in their init-time paper mode. init() is one-shot
+            // (guarded by `initialized`), so toggling Paper↔Live in the UI
+            // never reached these layers — they kept placing paper trades
+            // while ShitCoin/BlueChip/Moonshot/Quality moved to live, which
+            // is exactly the operator regression ("meme trader running live,
+            // sub-traders still paper"). These setTradingMode() helpers were
+            // added in V5.9.761 and just write the volatile isPaperMode.
+            com.lifecyclebot.v3.scoring.ShitCoinExpress.setTradingMode(cfg.paperMode)
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.setTradingMode(cfg.paperMode)
+            com.lifecyclebot.v3.scoring.DipHunterAI.setTradingMode(cfg.paperMode)
+            com.lifecyclebot.v3.scoring.SolanaArbAI.setTradingMode(cfg.paperMode)
             
             // V5.6.6: Update Treasury with actual wallet balance for proper position sizing
             val walletBalanceForTreasury = if (cfg.paperMode) {

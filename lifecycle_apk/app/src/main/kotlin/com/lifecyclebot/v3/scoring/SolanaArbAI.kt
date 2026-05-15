@@ -193,6 +193,16 @@ object SolanaArbAI {
                 "treasury=\$${treasuryUsd.toInt()} < \$${MIN_TREASURY_USD.toInt()}")
         }
     }
+
+    /** V5.9.761 — Per-loop paper/live mode sync (operator regression fix).
+     *  init() is gated by `initialized`, so UI toggles never propagate.
+     *  Mirrors setTradingMode() in CashGen/ShitCoin/BlueChip/Moonshot/Quality. */
+    fun setTradingMode(paperMode: Boolean) {
+        if (isPaperMode != paperMode) {
+            isPaperMode = paperMode
+            ErrorLogger.info(TAG, "💰⚡ mode switched → ${if (paperMode) "PAPER" else "LIVE"}")
+        }
+    }
     
     fun resetDaily() {
         dailyPnlUsdBps.set(0)

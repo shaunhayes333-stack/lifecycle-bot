@@ -218,6 +218,21 @@ object ShitCoinExpress {
             "target=+${MIN_TAKE_PROFIT_PCT.toInt()}% | " +
             "maxHold=UNLIMITED")
     }
+
+    /** V5.9.761 — Per-loop paper/live mode sync.
+     *  The class-level @Volatile isPaperMode is set ONCE by init() which is
+     *  guarded by `initialized`. Without this updater, toggling paper↔live
+     *  from the UI never propagates to Express, and the trader keeps placing
+     *  paper trades while the rest of the universe goes live (operator
+     *  reported regression: "meme trader running live, sub-traders still
+     *  paper"). Mirrors setTradingMode() in CashGen/ShitCoin/BlueChip/
+     *  Moonshot/Quality. Cheap volatile write — safe to call every loop. */
+    fun setTradingMode(paperMode: Boolean) {
+        if (isPaperMode != paperMode) {
+            isPaperMode = paperMode
+            ErrorLogger.info(TAG, "💩🚂 mode switched → ${if (paperMode) "PAPER" else "LIVE"}")
+        }
+    }
     
     fun resetDaily() {
         dailyPnlSolBps.set(0)
