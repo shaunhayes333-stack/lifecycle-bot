@@ -269,6 +269,16 @@ class Executor(
     var onPaperBalanceChange: ((Double) -> Unit)? = null  // Callback to update paper wallet balance
     private val slippageGuard: SlippageGuard by lazy { SlippageGuard(jupiter) }
     private var lastNewTokenSoundMs = 0L
+
+    // V5.9.780 — short helpers so the 36 mode-decision call sites don't
+    // each carry the full FQN string. The bulk replacement of
+    // cfg().paperMode → isPaperRT()
+    // pushed one big method past the JVM 64 KB bytecode limit
+    // (Kotlin "Couldn't transform method node" failure on V5.9.779/780).
+    // These two collapse every call back to a single virtual dispatch.
+    private fun isPaperRT(): Boolean = isPaperRT()
+    private fun isLiveRT(): Boolean = isLiveRT()
+
     
     // ═══════════════════════════════════════════════════════════════════════════
     // SHADOW PAPER POSITIONS
@@ -839,10 +849,10 @@ class Executor(
             }
         } catch (_: Exception) {}
 
-        // Quality (no isPaper field — infer from com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())
+        // Quality (no isPaper field — infer from isPaperRT())
         try {
             val qp = com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().find { it.mint == mint }
-            if (qp != null && applyRehydrate(qp.entrySol, qp.entryPrice, qp.entryTime, com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(), "Quality")) {
+            if (qp != null && applyRehydrate(qp.entrySol, qp.entryPrice, qp.entryTime, isPaperRT(), "Quality")) {
                 return true
             }
         } catch (_: Exception) {}
@@ -1106,7 +1116,7 @@ class Executor(
         ts: TokenState? = null,        // V5.9.69: optional — enables PatternClassifier boost
         laneMode: String = "",         // V5.9.718 — trading lane for phase-aware size scaling
     ): Double {
-        val isPaperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaperMode = isPaperRT()
 
         // V5.9.69: PatternClassifier boost — additive on aiConfidence plus a
         // sizing multiplier. Paper-only gate enforced inside the classifier
@@ -1318,7 +1328,7 @@ class Executor(
             try {
                 val pnl = trade.pnlPct
                 val isWin = pnl >= 1.0  // V5.9.185: unified win threshold — must beat combined fees (0.5% buy + 0.5% sell)
-                val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                val isPaper = isPaperRT()
                 
                 // Record to FluidLearningAI with appropriate weight
                 // V5.9.388 — FluidLearning meme bucket gate: only pure meme
@@ -1511,7 +1521,7 @@ class Executor(
             try {
                 if (trade.side.equals("SELL", ignoreCase = true)) {
                     val tradeId = "${trade.mint}_${trade.ts}"
-                    val isPaperEnv = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                    val isPaperEnv = isPaperRT()
                     val pnl = trade.pnlPct
                     val resultEnum = when {
                         pnl >= 1.0 -> com.lifecyclebot.engine.TradeResult.WIN
@@ -3565,7 +3575,7 @@ class Executor(
             else -> {}
         }
 
-        if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && gainPct >= 15) {
+        if (!isPaperRT() && gainPct >= 15) {
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
                 val geminiAdvice = GeminiCopilot.getExitAdvice(
@@ -3980,7 +3990,7 @@ class Executor(
             }
         }
 
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && ts.position.isOpen && !ts.position.isFullyBuilt) {
+        if (isPaperRT() && ts.position.isOpen && !ts.position.isFullyBuilt) {
             val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), ts.meta.volScore)
             if (result != null) {
                 val (addSol, newPhase) = result
@@ -3988,10 +3998,10 @@ class Executor(
             }
         }
 
-        val shouldActOnBuy = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() || cfg().autoTrade
+        val shouldActOnBuy = isPaperRT() || cfg().autoTrade
         
         if (signal == "BUY") {
-            ErrorLogger.debug("Executor", "BUY CHECK: ${ts.symbol} | shouldAct=$shouldActOnBuy | posOpen=${ts.position.isOpen} | autoTrade=${cfg().autoTrade} | paper=${com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()}")
+            ErrorLogger.debug("Executor", "BUY CHECK: ${ts.symbol} | shouldAct=$shouldActOnBuy | posOpen=${ts.position.isOpen} | autoTrade=${cfg().autoTrade} | paper=${isPaperRT()}")
         }
         
         if (signal == "BUY" && !ts.position.isOpen) {
@@ -4002,7 +4012,7 @@ class Executor(
         }
         
         if (false && shouldActOnBuy && signal == "BUY" && !ts.position.isOpen) {
-            val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+            val isPaper = isPaperRT()
             ErrorLogger.info("Executor", "🔔 BUY signal for ${ts.symbol} | paper=$isPaper | wallet=${walletSol.fmt(4)} | autoTrade=${cfg().autoTrade}")
             
             val severeLossThreshold = -33.0
@@ -4021,7 +4031,7 @@ class Executor(
             }
             
             val tradeState = TradeStateMachine.getState(ts.mint)
-            val isPaperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+            val isPaperMode = isPaperRT()
             // V5.9.46: Proven-edge inheritance — once the user has demonstrated
             // paper performance, live mode drops the extra cooldown + pattern
             // strictness (which otherwise makes the live scanner look dead).
@@ -4267,7 +4277,7 @@ class Executor(
                         position = ts.position,
                         ts = ts,
                         currentPnlPct = currentPnlPct,
-                        isPaperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),
+                        isPaperMode = isPaperRT(),
                     )
                 }
                 
@@ -4402,7 +4412,7 @@ class Executor(
                 }
             }
             
-            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && !ts.position.isFullyBuilt) {
+            if (isPaperRT() && !ts.position.isFullyBuilt) {
                 val result = shouldGraduatedAdd(ts.position, getActualPrice(ts), decision.meta.volScore)
                 if (result != null) {
                     val (addSol, newPhase) = result
@@ -4413,7 +4423,7 @@ class Executor(
             return
         }
         
-        val shouldActOnBuy = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() || cfg().autoTrade
+        val shouldActOnBuy = isPaperRT() || cfg().autoTrade
         if (!shouldActOnBuy) {
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Buy skipped - autoTrade disabled")
             return
@@ -4464,7 +4474,7 @@ class Executor(
         // cfgPaper=true walletLoaded=false` pipeline line. Executor now
         // reads from RuntimeModeAuthority (atomic, no cache) — the same
         // authority ConfigStore.save() publishes on every config write.
-        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaper = isPaperRT()
         // Keep publishing the executor's chosen branch so detectDesync()
         // can still warn the operator if anyone reads a different value.
         com.lifecyclebot.engine.RuntimeModeAuthority.publishExecutorMode(isPaper)
@@ -4605,7 +4615,7 @@ class Executor(
         // V5.9.751b — refuse paper fallback when config is live (see A1 note).
         // V5.9.779 — read mode from RuntimeModeAuthority for the canonical
         // single source of truth (config c.paperMode can lag by 2 s).
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        if (isPaperRT()) {
             paperTopUp(ts, size)
         } else if (wallet == null) {
             ErrorLogger.error("Executor",
@@ -4634,7 +4644,7 @@ class Executor(
         // caller bypasses doTopUp's RuntimeModeAuthority check, paperTopUp
         // refuses to write paper Position mutations when authority=LIVE
         // and shadowPaperEnabled is off.
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
+        if (isLiveRT()) {
             val shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false }
             if (!shadowEnabled) {
                 try {
@@ -4901,7 +4911,7 @@ class Executor(
         }
         // Real-money guardrail: live mode + un-authorised promoted strategy
         // → queue an approval and bail. Paper mode is unrestricted.
-        if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && labNudge != null &&
+        if (!isPaperRT() && labNudge != null &&
             com.lifecyclebot.engine.lab.LabPromotedFeed.requireLiveApproval(labNudge.strategyId)) {
             try {
                 com.lifecyclebot.engine.lab.LlmLabEngine.requestSingleLiveTrade(
@@ -4925,9 +4935,9 @@ class Executor(
         // wallet=null at this call site silently flipped the route.
         // Mirror the V5.9.738 dipHunterBuy pattern: refuse cleanly.
         // V5.9.778 — EMERGENT MEME-ONLY: read mode from RuntimeModeAuthority
-        // (atomic, no cache), not com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(). See doExecuteBuy site
+        // (atomic, no cache), not isPaperRT(). See doExecuteBuy site
         // above for the full root-cause writeup.
-        val isPaperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaperMode = isPaperRT()
         val spineRoute = when {
             isPaperMode -> "PAPER"
             wallet == null -> "LIVE_REFUSED_NO_WALLET"
@@ -5002,7 +5012,7 @@ class Executor(
                              ts.lastLiquidityUsd >= 5000 &&
                              ts.meta.pressScore >= 70
             
-            if (isMoonshot && wallet != null && walletSol > 0 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            if (isMoonshot && wallet != null && walletSol > 0 && !isPaperRT()) {
                 // V5.9.779 — EMERGENT MEME-ONLY: shadow → live shortcut
                 // must still pass the canonical LIVE buy chain. We hand
                 // off to liveBuy() which now enforces:
@@ -5061,7 +5071,7 @@ class Executor(
     }
     
     fun checkShadowPositions(tokenStates: Map<String, TokenState>) {
-        if (!cfg().shadowPaperEnabled || com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) return
+        if (!cfg().shadowPaperEnabled || isPaperRT()) return
         
         val toRemove = mutableListOf<String>()
         val stopLossPct = cfg().stopLossPct
@@ -5149,7 +5159,7 @@ class Executor(
         // V5.9.771 — EMERGENT-MEME #4: hard guard against paper buys
         // in LIVE mode. Spec: "if (mode == LIVE && requestedExecutionMode
         // == PAPER && !shadowPaperEnabled) block PAPER_BUY_IN_LIVE_MODE".
-        // The existing comment ("only reached when com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()==true")
+        // The existing comment ("only reached when isPaperRT()==true")
         // is correct for the primary doBuy() path, but ~7 other call
         // sites in this file (lines 5279, 5387, 5448, 5542, 5632, etc.)
         // invoke paperBuy() directly from sub-trader fallback paths and
@@ -5160,8 +5170,8 @@ class Executor(
         //
         // V5.9.779 — EMERGENT MEME-ONLY: read from RuntimeModeAuthority
         // (atomic, no 2 s cache race) — same single source of truth used
-        // by the LIVE buy paths. com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() is config INPUT only.
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
+        // by the LIVE buy paths. isPaperRT() is config INPUT only.
+        if (isLiveRT()) {
             val shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false }
             if (!shadowEnabled) {
                 try {
@@ -5445,7 +5455,7 @@ class Executor(
         // in the operator's forensic was emitted from here while the
         // user was in LIVE mode (PAPER→LIVE flip + 2s ConfigStore cache
         // race). Now reads from RuntimeModeAuthority, single source.
-        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaper = isPaperRT()
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -5532,7 +5542,7 @@ class Executor(
     //
     // dipHunterBuy / sniperSell are public router helpers added to plug two
     // historical bugs where the BotService call sites invoked paperBuy() /
-    // paperSell() UNCONDITIONALLY, ignoring com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() entirely. In
+    // paperSell() UNCONDITIONALLY, ignoring isPaperRT() entirely. In
     // live mode this caused: (a) paper positions opened against live wallet,
     // (b) operator log saying "LIVE" while the position was stamped
     // isPaperPosition=true, (c) all subsequent sells running through the
@@ -5543,7 +5553,7 @@ class Executor(
     // launched in live."
     //
     // These helpers enforce the same paper-vs-live routing v3Buy already
-    // does for the MEME_SPINE path. Single source of truth: com.lifecyclebot.engine.RuntimeModeAuthority.isPaper().
+    // does for the MEME_SPINE path. Single source of truth: isPaperRT().
     // ═══════════════════════════════════════════════════════════════════════
 
     fun dipHunterBuy(
@@ -5554,7 +5564,7 @@ class Executor(
         walletSol: Double,
         identity: TradeIdentity? = null,
     ) {
-        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaper = isPaperRT()
         val id = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         ErrorLogger.info("Executor",
             "📉🎯 DIP_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | " +
@@ -5587,7 +5597,7 @@ class Executor(
         wallet: SolanaWallet?,
         walletSol: Double,
     ): SellResult {
-        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        val isPaper = isPaperRT()
         ErrorLogger.info("Executor",
             "🎯 SNIPER_SELL_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | " +
             "cfgPaper=$isPaper | reason=$reason")
@@ -7487,11 +7497,11 @@ class Executor(
             return SellResult.ALREADY_CLOSED
         }
         
-        val configMode = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live"
+        val configMode = if (isPaperRT()) "paper" else "live"
         val positionMode = if (isPaper) "paper" else "LIVE"
         onLog("📤 doSell: ${ts.symbol} | positionMode=$positionMode | configMode=$configMode | hasWallet=$hasWallet | reason=$reason", tradeId.mint)
         
-        if (!isPaper && com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        if (!isPaper && isPaperRT()) {
             ErrorLogger.warn("Executor", "⚠️ LIVE position sell while config is PAPER - executing LIVE sell anyway!")
             onLog("⚠️ LIVE position ${ts.symbol} must be sold LIVE even though config is paper", tradeId.mint)
         }
@@ -7954,7 +7964,7 @@ class Executor(
                 if (shouldBlacklist) {
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                    if (isPaperRT()) {
                         onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
                     } else {
                         onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
@@ -8248,7 +8258,7 @@ class Executor(
                             pnlPct = pnlP,
                             holdMins = holdMins.toDouble(),
                             isWin = shouldLearnAsWin,
-                            paperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                            paperMode = isPaperRT()
                         )
                         ErrorLogger.info("Executor", "🌐 [COLLECTIVE] uploadTrade SELL DONE for ${ts.symbol}")
                         
@@ -10289,7 +10299,7 @@ class Executor(
                 if (shouldBlacklist) {
                     TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
                     BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                    if (isPaperRT()) {
                         onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
                     } else {
                         onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
@@ -11192,7 +11202,7 @@ class Executor(
         onLog("🏦 Treasury withdrawal: ${approved.fmt(4)}◎ → ${destinationAddress.take(16)}…", "treasury")
 
         // V5.9.751b — refuse paper fallback on treasury withdrawal when live.
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        if (isPaperRT()) {
             TreasuryManager.executeWithdrawal(approved, solPx, destinationAddress)
             onLog("PAPER TREASURY WITHDRAWAL: ${approved.fmt(4)}◎", "treasury")
             return "OK_PAPER"
@@ -11227,7 +11237,7 @@ class Executor(
 
     fun sellOrphanedToken(mint: String, qty: Double, wallet: SolanaWallet): Boolean {
         // V5.9.779 — read mode from RuntimeModeAuthority (single source of truth).
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        if (isPaperRT()) {
             onLog("🧹 Orphan sell skipped (paper mode): $mint", mint)
             return false
         }
@@ -11327,7 +11337,7 @@ class Executor(
 
         // Safety: force paper mode if user hasn't opted into live but signal requested live
         // V5.9.779 — read mode from RuntimeModeAuthority for single source.
-        if (!isPaper && com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        if (!isPaper && isPaperRT()) {
             onLog("📡 Network signal buy rejected: paper mode only", mint)
             return false
         }
