@@ -926,6 +926,54 @@ SYSTEM
             else                                             -> "MEME"
         }
     }
+
+    // -------------------------------------------------------------------------
+    // V5.9.783b — CANONICAL BUS ADAPTER (operator audit item B)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Real adapter for CanonicalOutcomeBus. Subscribed via CanonicalSubscribers.
+     *
+     * Records every settled canonical outcome (rich OR incomplete) — RunTracker30D
+     * is a LEDGER, not a strategy learner. The 30-day proof run needs to see every
+     * settled trade regardless of feature richness so total realized PnL, WR, and
+     * asset-class buckets reflect the full execution truth. featuresIncomplete only
+     * blocks STRATEGY learners (BehaviorLearning patterns, AdaptiveLearningEngine).
+     *
+     * Dedup: recordTrade has no built-in dedup, so we use a small LRU here.
+     */
+    private val rt30CanonSeen = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun onCanonicalOutcome(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
+        try {
+            if (outcome.result != com.lifecyclebot.engine.TradeResult.WIN &&
+                outcome.result != com.lifecyclebot.engine.TradeResult.LOSS &&
+                outcome.result != com.lifecyclebot.engine.TradeResult.BREAKEVEN) return
+            if (rt30CanonSeen.putIfAbsent(outcome.tradeId, System.currentTimeMillis()) != null) return
+            if (rt30CanonSeen.size > 2_000) {
+                val cutoff = System.currentTimeMillis() - 300_000L
+                rt30CanonSeen.entries.removeIf { it.value < cutoff }
+            }
+            val pnlPct = outcome.realizedPnlPct ?: 0.0
+            val sizeSol = outcome.entrySol ?: 0.0
+            val holdSec = outcome.holdSeconds ?: 0L
+            val assetClass = outcome.candidate?.assetClass?.ifBlank { null } ?: outcome.assetClass.name
+            recordTrade(
+                symbol = outcome.symbol.ifBlank { outcome.mint.take(6) },
+                mint = outcome.mint,
+                entryPrice = outcome.entryPrice ?: 0.0,
+                exitPrice = outcome.exitPrice ?: 0.0,
+                sizeSol = sizeSol,
+                pnlPct = pnlPct,
+                holdTimeSec = holdSec,
+                mode = outcome.mode.name,
+                score = 0,
+                confidence = 0,
+                decision = outcome.executionResult.name,
+                assetClass = assetClass,
+            )
+        } catch (_: Throwable) {}
+    }
 }
 
 
@@ -995,54 +1043,5 @@ class IntelligenceMetrics {
         decisionAccuracy = 0.0
         correctDecisions = 0
         totalDecisions = 0
-    }
-
-    // -------------------------------------------------------------------------
-    // V5.9.783 — CANONICAL BUS ADAPTER (operator audit item B)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Real adapter for CanonicalOutcomeBus. Subscribed via CanonicalSubscribers.
-     *
-     * Records every settled canonical outcome (rich OR incomplete) — RunTracker30D
-     * is a LEDGER, not a strategy learner. The 30-day proof run needs to see every
-     * settled trade regardless of feature richness so total realized PnL, WR, and
-     * asset-class buckets reflect the full execution truth. featuresIncomplete only
-     * blocks STRATEGY learners (BehaviorLearning patterns, AdaptiveLearningEngine).
-     *
-     * Dedup: recordTrade has no built-in dedup, so we use a small LRU here.
-     */
-    private val rt30CanonSeen = java.util.concurrent.ConcurrentHashMap<String, Long>()
-
-    fun onCanonicalOutcome(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
-        try {
-            if (outcome.result != com.lifecyclebot.engine.TradeResult.WIN &&
-                outcome.result != com.lifecyclebot.engine.TradeResult.LOSS &&
-                outcome.result != com.lifecyclebot.engine.TradeResult.BREAKEVEN) return
-            // Dedup by tradeId.
-            if (rt30CanonSeen.putIfAbsent(outcome.tradeId, System.currentTimeMillis()) != null) return
-            if (rt30CanonSeen.size > 2_000) {
-                val cutoff = System.currentTimeMillis() - 300_000L
-                rt30CanonSeen.entries.removeIf { it.value < cutoff }
-            }
-            val pnlPct = outcome.realizedPnlPct ?: 0.0
-            val sizeSol = outcome.entrySol ?: 0.0
-            val holdSec = outcome.holdSeconds ?: 0L
-            val assetClass = outcome.candidate?.assetClass?.ifBlank { null } ?: outcome.assetClass.name
-            recordTrade(
-                symbol = outcome.symbol.ifBlank { outcome.mint.take(6) },
-                mint = outcome.mint,
-                entryPrice = outcome.entryPrice ?: 0.0,
-                exitPrice = outcome.exitPrice ?: 0.0,
-                sizeSol = sizeSol,
-                pnlPct = pnlPct,
-                holdTimeSec = holdSec,
-                mode = outcome.mode.name,
-                score = 0,
-                confidence = 0,
-                decision = outcome.executionResult.name,
-                assetClass = assetClass,
-            )
-        } catch (_: Throwable) {}
     }
 }
