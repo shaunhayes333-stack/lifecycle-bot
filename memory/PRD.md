@@ -29,6 +29,38 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.769 — kill stale-liquidity FDG starvation (P1 #2 + V5.9.768 regression fix) (May 15)
+Operator dump @ V5.9.767 showed 824/839 (98%) FDG decisions blocked
+on LIQUIDITY_BELOW_EXECUTION_FLOOR, including SOLMAN whose intake
+events reported liq=$23,579 (well above any FDG floor). Two bugs:
+
+ROOT CAUSE 1 — Stale-seed lock (BotService.kt:5803)
+  Original: `if (liquidityUsd > 0.0 && ts.lastLiquidityUsd <= 0.0)`
+  This wrote liquidity ONLY on a fresh-from-zero seed. After the
+  first PUMP_PORTAL_WS intake landed (typical $2,000-2,400 from
+  the bonding-curve quote), subsequent RAYDIUM_NEW_POOL intakes
+  with the real $15-25k pool liquidity were silently dropped.
+  FDG then evaluated against the stale low value and hard-blocked.
+  Same pattern for lastMcap.
+  Fix: max-take semantics — higher fresh value always wins.
+
+ROOT CAUSE 2 — V5.9.768 dedupe regression
+  My V5.9.768 dedupe early-returns BEFORE the state-hydrate block,
+  making the V5.9.769 max-take fix effectively dead code for the
+  most common case (same-mint double-emit that drove V5.9.768).
+  Fix: even on a dedupe hit, run a tiny `synchronized(status.tokens)`
+  block that does the max-take freshness write. Costs one map lookup
+  + two field writes — negligible vs the registry-add we skip.
+
+Expected dump deltas:
+  - FDG allow/block ratio should swing massively as fresh liquidity
+    actually reaches the gate.
+  - PHASE/FDG block reason histogram shifts from
+    LIQUIDITY_BELOW_EXECUTION_FLOOR dominance to a more diverse mix.
+  - INTAKE_DEDUPE_DROP volume unchanged.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on 385572c2b.
+
 ### V5.9.768 — INTAKE DEDUPE (P1 watchlist pollution / 7-point list) (May 15)
 Operator forensic dump @ V5.9.767 (1688 s uptime):
   - INTAKE = 5478 events ≈ 3.24/sec
