@@ -29,6 +29,78 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.781..785a — Operator audit Wave 1-5 LANDED (May 16, all CI GREEN)
+Comprehensive deep audit response from operator: "Stop adding more 'AI layer'
+labels. Make every existing layer consume the same feature-rich canonical
+outcome." Five surgical CI-green waves shipped:
+
+**Wave 1 — V5.9.781 truth-layer realignment (audit items G, H, I):**
+- engine/LearningCounterActivity.kt: Wallet Truth Digest now reads
+  HostWalletTokenTracker as PRIMARY (openCount + actuallyHeldCount), with
+  WalletReconciler.knownMints as secondary and a drift line so the
+  reconciler-lag bug ("0 mints" while host tracker has open positions) is
+  visible.
+- v3/scoring/UnifiedScorer.kt: companion modeLabel() exposes
+  "CLASSIC (20-layer build ~1920)" vs "MODERN (V5.9.325 outer-ring)" so the
+  UI never implies modern symbolic AI is active while classicMode silently
+  bypasses the outer ring.
+- engine/SentienceHooks.kt: llmStatus() + llmVote(symbol) accessors so the
+  dashboard can render "LLM_STATUS=UNAVAILABLE / DEGRADED / READY" and per-
+  symbol "ALLOW / VETO / NEUTRAL" instead of pretending the LLM reasoned.
+
+**Wave 2 — V5.9.782 rich canonical outcome (audit items A, C, D, J):**
+- engine/CanonicalLearning.kt: CandidateFeatures struct carrying venue,
+  route, bondingCurveActive, migrated, ageBucket, liqBucket, mcapBucket,
+  volVelocity, holderConcentration, safetyTier, mintAuthority,
+  freezeAuthority, slippageBucket, entryPattern, bubbleClusterPattern,
+  fdgReasonFamily, symbolicVerdict, exitReasonFamily, holdBucket,
+  manualOrExternalClose. featuresIncomplete flag on CanonicalTradeOutcome.
+  Counters: richFeatureOutcomes / incompleteFeatureOutcomes.
+- engine/BehaviorLearning.kt: onCanonicalOutcome(outcome) — real pattern
+  learning replaces no-op onCanonicalSettlement. richSignature() carries
+  venue+route+safety+age dimensions so pump.fun bonding-curve setups stop
+  colliding with raydium-graduated setups in the pattern table.
+- engine/CanonicalSubscribers.kt: wires BehaviorLearning.onCanonicalOutcome
+  before the (still-existing) settlement no-op.
+
+**Wave 3 — V5.9.783 / 783a real subscriber adapters (audit item B):**
+- engine/AdaptiveLearningEngine.onCanonicalOutcome(outcome): reconstructs
+  TradeFeatures from bucketed CandidateFeatures fields and calls existing
+  learnFromTrade(). Skips featuresIncomplete=true.
+- v3/scoring/MetaCognitionAI.onCanonicalOutcome(outcome): counter + EWMA
+  with dedupe via recentlyCountedMints.
+- engine/RunTracker30D.onCanonicalOutcome(outcome): ledger adapter ready.
+  Not yet auto-wired in CanonicalSubscribers to avoid double-counting; will
+  be wired atomically when direct Executor close call sites migrate.
+- CanonicalSubscribers wires AdaptiveLearningEngine to the bus.
+
+**Wave 4 — V5.9.784 CandidateSymbolicContext (audit items E, F):**
+- engine/CandidateSymbolicContext.kt (NEW file):
+  - SymbolicVote enum: ALLOW / CAUTION / VETO / NEUTRAL.
+  - SymbolicVerdict struct: vote, confidence, reasons[], affectedLayers[],
+    expectedFailureMode (RUG/DUMP/CHOP/DEAD_CAT/TIMEOUT/FREEZE/DUPLICATE).
+  - CandidateSymbolicContext: per-token snapshot of global mood slice +
+    safety + route + wallet truth + narrative/social signals + final
+    structured verdict. Replaces the global-only SymbolicContext for trade
+    decisions.
+  - CandidateSymbolicContextBuilder.buildFor(...) — pure deterministic, no
+    LLM async path so FDG can use it inside the hot loop.
+
+**Wave 5 — V5.9.785 / 785a producer sweep (Wave 5 item):**
+- engine/CanonicalFeaturesBuilder.kt (NEW file): single helper that
+  constructs feature-rich CandidateFeatures from TokenState + Trade +
+  mode/source. Maps lastPriceDex/lastPriceSource → venue+route+bondingCurve,
+  SafetyReport → tiers, candles → volVelocity, holders → concentration.
+  Returns (features, isIncomplete) so producers populate
+  featuresIncomplete=false ONLY when key fields filled.
+- engine/Executor.kt rich-canonical-publish path: now populates
+  candidate=CandidateFeatures + featuresIncomplete flag via the builder.
+  Strategy learners (BehaviorLearning, AdaptiveLearningEngine) will start
+  training on venue/route/safety-aware signatures the moment trades close
+  through this path. Remaining lanes (perps/MetalsTrader/ForexTrader/etc.)
+  continue using publishFromLegacyTrade with featuresIncomplete=true and
+  will be incrementally migrated in future waves.
+
 ### V5.9.780 / 780a / 780b — Paper realism + JVM 64 KB method fix (May 16, CI GREEN)
 Operator forensics on V5.9.774 build 5.0.2711 showed +\$7,218 paper P&L
 fantasy: 27% WR, avg-win +383.9%, STRICT_SL_-10 booking at -94%,
