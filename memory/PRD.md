@@ -29,6 +29,41 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.768 — INTAKE DEDUPE (P1 watchlist pollution / 7-point list) (May 15)
+Operator forensic dump @ V5.9.767 (1688 s uptime):
+  - INTAKE = 5478 events ≈ 3.24/sec
+  - Top: Ebola=191x, immunecoin=109x, COAR=79x, WORLDCUP=75x
+  - Same mints appearing twice at same millisecond
+    (src=RAYDIUM_NEW_POOL + src=SCANNER_DIRECT_RAYDIUM_NEW_POOL)
+  - Avg bot-loop cycle 62.4 s (target <30 s)
+
+Root cause (BotService.kt):
+  Line 3095 emits SCANNER_DIRECT_<source> for every scanner hit.
+  Line 3118 ALSO emits with raw <source> when
+  GlobalTradeRegistry.isWatching(mint)==true. MemeMintRegistry
+  pre-hydration makes every post-restart mint already-watching,
+  so the second call always fires. Plus 11 internal call sites
+  for TokenMergeQueue / PumpPortal WS / DataOrchestrator hammering
+  the same mint over and over.
+
+Fix (BotService.kt admitProtectedMemeIntake):
+  - New `intakeLastAcceptMs` + `intakeDedupCount` per-mint maps.
+  - 30 s TTL. After the mint-validity check, if (now - prev) < TTL
+    return true (idempotent semantics preserved — the function is
+    fail-open and downstream registry/state are getOrPut).
+  - One `LIFECYCLE/INTAKE_DEDUPE_DROP` forensic per mint per
+    window. Subsequent drops silent; counter exposed via the map
+    for any future "top dedupe offenders" UI.
+  - Opportunistic prune at 1024 entries.
+
+Expected dump deltas:
+  - PHASE/INTAKE drops ~10x (5478 → ~500-700).
+  - New LIFECYCLE/INTAKE_DEDUPE_DROP counter shows suppression
+    volume for operator visibility.
+  - BOT_LOOP_TICK avg cycle ms should drop noticeably.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on e18cae53c.
+
 ### V5.9.767 — Executor migrated to SellJobRegistry.transitionTo() end-to-end (May 15)
 Completes the P1 task from V5.9.766's finish summary: observable
 state-machine for every live-sell broadcast.
