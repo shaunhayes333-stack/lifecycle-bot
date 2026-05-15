@@ -2800,6 +2800,21 @@ class BotService : Service() {
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines
 
+        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
+        // watchdog. Runs every 10s in LIVE mode only; scans the host
+        // wallet's open tracked positions, force-releases stale sell
+        // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
+        // No-op if cfg.paperMode==true (the reconciler returns early).
+        try {
+            com.lifecyclebot.engine.sell.SellReconciler.start(
+                scope = scope,
+                isPaperMode = cfg.paperMode,
+                hostWallet = wallet,
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
+        }
+
         // V5.9.674 — STUCK-LOOP HEARTBEAT WATCHDOG. Operator reported the
         // loop coroutine going silent while still "active" (suspended on
         // a network call that has no timeout — Jupiter / RPC fallback chain
@@ -4673,6 +4688,13 @@ class BotService : Service() {
         // the next dump shows the full clearing chain ran end-to-end.
         // Counters captured here let the operator verify in one look:
         // status.tokens.size MUST be 0, host/lifecycle trackers MUST be 0.
+        try {
+            // V5.9.764 — EMERGENT item C: tear down the SellReconciler so
+            // it doesn't keep ticking after Stop and won't survive into
+            // the next paper-mode start.
+            com.lifecyclebot.engine.sell.SellReconciler.stop()
+        } catch (_: Throwable) {}
+
         try {
             val _finalTokens = status.tokens.size
             val _finalHostOpen = try {

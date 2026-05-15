@@ -3341,13 +3341,34 @@ class Executor(
                     "SELL_LOCK_STALE_FORCE_RELEASED ageMs=${now - existing}",
                     traderTag = "MEME",
                 )
+                // V5.9.764 — EMERGENT item D forensic counter.
+                ForensicLogger.lifecycle(
+                    "SELL_LOCK_STALE_FORCE_RELEASED",
+                    "mint=${mint.take(10)} ageMs=${now - existing}",
+                )
             } catch (_: Throwable) {}
         }
         sellInProgress[mint] = now
+        try {
+            // V5.9.764 — EMERGENT item D forensic counter.
+            ForensicLogger.lifecycle(
+                "SELL_LOCK_SET",
+                "mint=${mint.take(10)} ts=$now",
+            )
+        } catch (_: Throwable) {}
         return true
     }
     private fun releaseSellLock(mint: String) {
-        sellInProgress.remove(mint)
+        val removed = sellInProgress.remove(mint)
+        if (removed != null) {
+            try {
+                // V5.9.764 — EMERGENT item D forensic counter.
+                ForensicLogger.lifecycle(
+                    "SELL_LOCK_RELEASED",
+                    "mint=${mint.take(10)} heldMs=${System.currentTimeMillis() - removed}",
+                )
+            } catch (_: Throwable) {}
+        }
     }
     /** Operator/test diagnostic — number of currently held sell locks. */
     fun sellLockHeldCount(): Int = sellInProgress.size
@@ -8648,6 +8669,48 @@ class Executor(
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)
             onLog("📊 SELL DEBUG: Final tokenUnits to sell = $tokenUnits", tradeId.mint)
+            // V5.9.764 — EMERGENT CRITICAL item E: qty-shrink safety assertion.
+            // Operator forensics_20260515_151634.json showed HIM emergency
+            // retries using qty=1331 against a wallet balance of 122210 (1.1%),
+            // and CABAL retries at qty=88 against 7330 (1.2%). For any
+            // FULL_EXIT-class reason (RUG / HARD_STOP / STOP_LOSS / etc.) we
+            // refuse to broadcast a qty that's less than 90% of the
+            // authoritative on-chain balance, and rebuild with the full
+            // wallet balance instead. This blocks the exact 1-2% corruption
+            // pattern without breaking partial-take-profit sells.
+            val guardedUnits = com.lifecyclebot.engine.sell.SellQtyGuard.guard(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                reason = reason,
+                qtyToSell = tokenUnits,
+                authoritativeWalletQty = actualRawUnits,
+            )
+            if (guardedUnits != tokenUnits) {
+                onLog(
+                    "🛡 SELL QTY GUARD: ${ts.symbol} $reason qty rebuilt $tokenUnits → $guardedUnits (full wallet balance)",
+                    tradeId.mint,
+                )
+                tokenUnits = guardedUnits
+            }
+            // V5.9.764 — register / refresh the SellJob (item A state-machine)
+            // so the reconciler + lock TTL pipeline have authoritative state
+            // for this attempt. For FULL_EXIT reasons we anchor on the
+            // on-chain balance; partial sells (PARTIAL_TAKE_PROFIT / PROFIT_LOCK)
+            // pass through unchanged.
+            try {
+                val sjMode = if (com.lifecyclebot.engine.sell.SellQtyGuard.isFullExitReason(reason))
+                    com.lifecyclebot.engine.sell.SellJobMode.FULL_EXIT
+                else
+                    com.lifecyclebot.engine.sell.SellJobMode.PARTIAL_EXIT
+                com.lifecyclebot.engine.sell.SellJobRegistry.getOrCreate(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    reason = reason,
+                    requestedQty = tokenUnits,
+                    walletQtyAtStart = actualRawUnits,
+                    mode = sjMode,
+                )
+            } catch (_: Throwable) {}
             } // end else (tokenData non-null refinement branch) — V5.9.467
             
         } catch (e: Exception) {
