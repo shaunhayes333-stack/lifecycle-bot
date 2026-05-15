@@ -1338,11 +1338,40 @@ class BotService : Service() {
                         // next heartbeat from looking at the corpse.
                         val deadJob = lj
                         loopJob = null
-                        // Rescue body on Dispatchers.IO so the saturated
-                        // Default dispatcher (the same one the dead loop is
-                        // stuck on) can't starve our rescue coroutine.
-                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        // V5.9.760 — RESCUE RESILIENCY (operator V5.9.759 dump).
+                        // Symptom: 104 LOOP_HEARTBEAT_RESCUE events emitted but
+                        // BOTLOOP_STARTED stayed at 2 and ZERO RESCUE_CANCEL_SENT
+                        // / RESCUE_JOIN_* / RESCUE_RELAUNCHED events fired. That
+                        // means `scope.launch(IO) { ... }` returned a Job whose
+                        // body never executed — i.e. the BotService class-level
+                        // scope is silently dead/cancelled even though we never
+                        // call scope.cancel() outside onDestroy. With the rescue
+                        // body never executing, the bot ran 584 cycles across 2
+                        // user-pressed starts and then sat zombie for ~5h while
+                        // the alarm fired uselessly. The fix:
+                        //   (a) Emit RESCUE_BODY_ENTERED OUTSIDE the launch
+                        //       so the next dump tells us whether the launch
+                        //       even gets scheduled.
+                        //   (b) Probe scope health BEFORE launching and log it.
+                        //   (c) Run the rescue body AND the relaunch on
+                        //       GlobalScope (process-wide, can't be cancelled
+                        //       by our service code).
+                        //   (d) If the GlobalScope-launched newJob isn't active
+                        //       within 250ms, fire an ACTION_START intent so
+                        //       Android's service path restarts botLoop via
+                        //       the normal startBot route.
+                        val scopeJob = scope.coroutineContext[kotlinx.coroutines.Job]
+                        val scopeAlive = scopeJob?.isActive == true && scopeJob.isCancelled == false
+                        ForensicLogger.lifecycle(
+                            "RESCUE_SCOPE_PROBE",
+                            "scopeAlive=$scopeAlive scopeActive=${scopeJob?.isActive} scopeCancelled=${scopeJob?.isCancelled} scopeCompleted=${scopeJob?.isCompleted}"
+                        )
+                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
+                                ForensicLogger.lifecycle(
+                                    "RESCUE_BODY_ENTERED",
+                                    "deadJobNull=${deadJob == null} scopeAlive=$scopeAlive"
+                                )
                                 if (deadJob != null) {
                                     ForensicLogger.lifecycle("RESCUE_CANCEL_SENT", "isActive=${deadJob.isActive}")
                                     try {
@@ -1354,15 +1383,50 @@ class BotService : Service() {
                                         "deadJobActiveAfter=${deadJob.isActive}"
                                     )
                                 }
-                                // Reset again post-join in case the dead loop
-                                // managed to emit a final tick during join.
                                 lastBotLoopTickMs = System.currentTimeMillis()
-                                val newJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher
+                                // V5.9.760 — launch the new loop on GlobalScope
+                                // instead of `scope`. If our class-level scope
+                                // is dead (the operator dump suggests it was),
+                                // scope.launch{} returns an already-cancelled
+                                // Job whose body never runs. GlobalScope is
+                                // process-wide and only dies with the JVM.
+                                val newJob = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    try { botLoop() } catch (t: Throwable) {
+                                        ErrorLogger.error("BotService", "GlobalScope botLoop threw: ${t.message}", t)
+                                        ForensicLogger.lifecycle(
+                                            "BOTLOOP_GLOBAL_THREW",
+                                            "ex=${t::class.simpleName} msg=${t.message?.take(80)}"
+                                        )
+                                    }
+                                }
                                 loopJob = newJob
                                 ForensicLogger.lifecycle(
                                     "RESCUE_RELAUNCHED",
-                                    "newJobActive=${newJob.isActive}"
+                                    "newJobActive=${newJob.isActive} usedGlobalScope=true"
                                 )
+
+                                // V5.9.760 — last-resort safety net. If the
+                                // GlobalScope launch ALSO returns an inactive
+                                // Job (extremely unlikely but plausible if the
+                                // process is shutting down), kick the service
+                                // via an ACTION_START intent so Android's
+                                // service startup path tries again from
+                                // scratch.
+                                kotlinx.coroutines.delay(500L)
+                                if (!newJob.isActive && status.running) {
+                                    ForensicLogger.lifecycle(
+                                        "RESCUE_FINAL_FALLBACK_INTENT",
+                                        "newJobActive=false scheduled=true"
+                                    )
+                                    try {
+                                        val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+                                            action = ACTION_START
+                                        }
+                                        applicationContext.startService(restartIntent)
+                                    } catch (e: Exception) {
+                                        ErrorLogger.warn("BotService", "ACTION_START fallback failed: ${e.message}")
+                                    }
+                                }
                             } catch (t: Throwable) {
                                 ErrorLogger.error("BotService", "RESCUE failed: ${t.message}", t)
                                 ForensicLogger.lifecycle(
