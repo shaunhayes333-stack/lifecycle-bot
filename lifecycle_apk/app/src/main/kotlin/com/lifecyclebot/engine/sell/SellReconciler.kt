@@ -50,6 +50,10 @@ object SellReconciler {
     @Volatile var totalTicks: Long = 0L
     /** Cumulative open positions inspected across all ticks. */
     @Volatile var totalChecked: Long = 0L
+    /** V5.9.774 — wall-clock at last tick (0 = never). Surfaced in forensics. */
+    @Volatile var lastTickAtMs: Long = 0L
+    /** V5.9.774 — true once a live-mode tick loop is active. Surfaced in forensics. */
+    @Volatile var isStarted: Boolean = false
     /** V5.9.765 — count of consecutive ticks where a mint has price=0 so we
      *  can emit a PRICE_STALE_LIVE_POSITION anomaly after the second tick. */
     private val zeroPriceStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -64,10 +68,12 @@ object SellReconciler {
         // Cancel any prior loop.
         jobRef.get()?.cancel()
         if (isPaperMode || hostWallet == null) {
+            isStarted = false
             jobRef.set(null)
             return
         }
         val newJob = scope.launch(Dispatchers.IO) {
+            isStarted = true
             ErrorLogger.info("SellReconciler", "🩹 SellReconciler started (10s tick, LIVE mode)")
             // V5.9.765 — EMERGENT priority 1 + acceptance test D: one-shot
             // RECONCILER_START forensic event so operator dumps prove the
@@ -95,6 +101,7 @@ object SellReconciler {
     }
 
     fun stop() {
+        isStarted = false
         jobRef.getAndSet(null)?.cancel()
     }
 
@@ -105,6 +112,7 @@ object SellReconciler {
         val open = HostWalletTokenTracker.getOpenTrackedPositions()
         totalTicks++
         totalChecked += open.size.toLong()
+        lastTickAtMs = System.currentTimeMillis()
         try {
             ForensicLogger.lifecycle(
                 "RECONCILER_TICK",

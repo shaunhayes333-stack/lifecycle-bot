@@ -8708,6 +8708,29 @@ class Executor(
             
             tokenUnits = actualRawUnits.coerceAtLeast(1L)
             onLog("📊 SELL DEBUG: Final tokenUnits to sell = $tokenUnits", tradeId.mint)
+            // V5.9.774 — EMERGENT MEME: dust-broadcast guard.
+            // Triage agent found: the `coerceAtLeast(1L)` could force a
+            // broadcast of 1 raw unit when actualBalanceUi is so small
+            // it floor-divides to 0 raw units. Combined with the
+            // isDust && !isDeepLoss path falling through above, this
+            // produced a meaningless 1-raw-unit broadcast that Jupiter
+            // could not route and that wasted a slot in the sell-job
+            // registry. We now FAIL_RETRYABLE explicitly when the
+            // *real* raw amount is zero AND the position is still
+            // alive — same UX as the DUST+DEEP_LOSS path but for the
+            // "dust but profitable" edge case.
+            if (actualRawUnits <= 0L) {
+                onLog("🚨 DUST_BALANCE_NO_BROADCAST: ${ts.symbol} — actualBalanceUi=${actualBalanceUi}, decimals=${actualDecimals}, raw=$actualRawUnits ≤ 0. No broadcast.", tradeId.mint)
+                try {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "DUST_BALANCE_NO_BROADCAST — balance=${"%.6f".format(actualBalanceUi)} decimals=$actualDecimals raw=$actualRawUnits — position left open, no swap broadcast.",
+                        tokenAmount = actualBalanceUi, traderTag = "MEME",
+                    )
+                } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
             // V5.9.764 — EMERGENT CRITICAL item E: qty-shrink safety assertion.
             // Operator forensics_20260515_151634.json showed HIM emergency
             // retries using qty=1331 against a wallet balance of 122210 (1.1%),

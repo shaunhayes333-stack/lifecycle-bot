@@ -120,6 +120,27 @@ object ForensicReportExporter {
         }
         root.put("reconciler", reconJson)
 
+        // V5.9.774 — EMERGENT MEME: surface SellReconciler stats in the
+        // forensic export. Operator's last forensic dump showed
+        // `reconciler.totalChecked = 0` and concluded the reconciler
+        // wasn't running — but the triage agent traced
+        // `SellReconciler.tick()` to a 10 s coroutine loop launched
+        // from BotService that IS running. The above
+        // `PositionWalletReconciler` snapshot is a DIFFERENT (phantom-
+        // detection) reconciler and its totalChecked is correctly 0
+        // when no live positions exist. The sell-side reconciler stats
+        // were simply never exported. This adds a `sell_reconciler`
+        // section so the operator can verify totalTicks > 0,
+        // totalChecked > 0 and lastTickAtMs is recent on every dump.
+        val sellReconJson = JSONObject().apply {
+            put("totalTicks",   com.lifecyclebot.engine.sell.SellReconciler.totalTicks)
+            put("totalChecked", com.lifecyclebot.engine.sell.SellReconciler.totalChecked)
+            put("lastTickAtMs", com.lifecyclebot.engine.sell.SellReconciler.lastTickAtMs)
+            put("isStarted",    com.lifecyclebot.engine.sell.SellReconciler.isStarted)
+            put("activeJobs",   com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size)
+        }
+        root.put("sell_reconciler", sellReconJson)
+
         // HostWalletTokenTracker section
         val trackerArr = JSONArray()
         try {
