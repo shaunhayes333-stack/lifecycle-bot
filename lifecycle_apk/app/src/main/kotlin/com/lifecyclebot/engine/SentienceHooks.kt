@@ -92,6 +92,36 @@ object SentienceHooks {
     private fun llmReady(): Boolean =
         try { GeminiCopilot.isConfigured() && !GeminiCopilot.isAIDegraded() } catch (_: Throwable) { false }
 
+    // V5.9.781 — operator audit item G:
+    // LLM-driven hooks (preTradeVeto/shouldExit/sizeMult) used to default
+    // ALLOW silently on cache miss without making it visible that the LLM
+    // never actually voted. The bot was then advertised as having a working
+    // sentience/symbolic layer when in reality the layer was NEUTRAL because
+    // no LLM round-trip completed in time. We keep ALLOW as the safe trading
+    // default (never block trades on LLM availability) but now expose:
+    //
+    //   • llmStatus()   → "READY" | "UNAVAILABLE" | "DEGRADED"
+    //   • llmVote(sym)  → "VETO" | "ALLOW" | "NEUTRAL" — NEUTRAL means
+    //                     the LLM did not actually reason about this trade.
+    //
+    // UI / WalletTruthDigest can render these honestly instead of pretending
+    // the LLM reasoned every entry.
+    fun llmStatus(): String =
+        try {
+            when {
+                !GeminiCopilot.isConfigured() -> "UNAVAILABLE"
+                GeminiCopilot.isAIDegraded() -> "DEGRADED"
+                else -> "READY"
+            }
+        } catch (_: Throwable) { "UNAVAILABLE" }
+
+    fun llmVote(symbol: String): String {
+        val cached = vetoCache[symbol] ?: return "NEUTRAL"
+        return if (System.currentTimeMillis() - cached.ts < CACHE_TTL_MS) {
+            if (cached.allow) "ALLOW" else "VETO"
+        } else "NEUTRAL"
+    }
+
     private fun ask(prompt: String, system: String = SYS_TRADE, maxTokens: Int = 96): String? =
         try { GeminiCopilot.rawText(prompt, system, temperature = 0.4, maxTokens = maxTokens) } catch (_: Throwable) { null }
 

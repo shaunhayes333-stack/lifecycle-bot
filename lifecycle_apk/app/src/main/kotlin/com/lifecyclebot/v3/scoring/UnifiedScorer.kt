@@ -48,6 +48,15 @@ class UnifiedScorer(
          * false = full modern stack (V5.9.123+ outer ring, TrustNet, MuteBoost, genEq)
          */
         @Volatile var classicMode: Boolean = true
+
+        /**
+         * V5.9.781 — operator audit item H: surface current scoring mode to UI/log
+         * so dashboards never imply "full symbolic/modern AI" while classicMode
+         * is silently bypassing the outer ring (AITrustNetwork, MuteBoost,
+         * genEqRamp, CrossTalk kill penalty, approvalMemory).
+         */
+        fun modeLabel(): String =
+            if (classicMode) "CLASSIC (20-layer build ~1920)" else "MODERN (V5.9.325 outer-ring)"
     }
 
     /**

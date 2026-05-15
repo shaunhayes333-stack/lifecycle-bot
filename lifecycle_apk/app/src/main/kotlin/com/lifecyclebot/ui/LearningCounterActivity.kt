@@ -88,10 +88,51 @@ class LearningCounterActivity : Activity() {
         rootColumn.removeAllViews()
 
         // ── Section 1: Wallet truth digest ────────────────────────────
+        // V5.9.781 — operator audit item I: read HostWalletTokenTracker as
+        // PRIMARY source of live wallet positions (it's the authoritative
+        // open-position registry keyed by mint). WalletReconciler.knownMints
+        // is a secondary mirror that lags behind during reconcile and used
+        // to be the only source the digest displayed — which caused the
+        // dashboard to show "0 mints" while host tracker had real open
+        // positions. The drift line below makes the lag visible.
         addHeader("🔄 Wallet Truth Digest")
-        val mints = try { com.lifecyclebot.engine.WalletReconciler::class.java.declaredFields.find { it.name == "knownMints" }?.let { f -> f.isAccessible = true; (f.get(com.lifecyclebot.engine.WalletReconciler) as? Set<*>)?.size } } catch (_: Throwable) { null } ?: -1
-        addKv("Known mints in registry", mints.toString())
-        addKv("Last digest", "see logcat (60s interval)")
+        val hostOpen: Int = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
+        val hostHeld: Int = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { -1 }
+        val reconcilerKnown: Int = try {
+            com.lifecyclebot.engine.WalletReconciler::class.java.declaredFields.find { it.name == "knownMints" }?.let { f ->
+                f.isAccessible = true
+                (f.get(com.lifecyclebot.engine.WalletReconciler) as? Set<*>)?.size
+            }
+        } catch (_: Throwable) { null } ?: -1
+        val drift = if (hostOpen >= 0 && reconcilerKnown >= 0) hostOpen - reconcilerKnown else 0
+        addKvHighlight("HostWalletTokenTracker.openCount", hostOpen.toString(), "#10B981")
+        addKvHighlight("HostWalletTokenTracker.actuallyHeldCount", hostHeld.toString(), "#10B981")
+        addKv("WalletReconciler.knownMints", reconcilerKnown.toString())
+        val driftColor = when {
+            hostOpen < 0 || reconcilerKnown < 0 -> "#6B7280"
+            kotlin.math.abs(drift) <= 1 -> "#10B981"
+            kotlin.math.abs(drift) <= 5 -> "#F59E0B"
+            else -> "#EF4444"
+        }
+        addKvHighlight("drift (host - reconciler)", drift.toString(), driftColor)
+        addKv("last digest", "see logcat (60s interval)")
+
+        // ── Section 1b: Scoring mode + LLM status ─────────────────────
+        // V5.9.781 — operator audit items G & H: surface the active scoring
+        // pipeline and live LLM availability so the UI never implies modern
+        // symbolic AI is reasoning while classicMode silently bypasses the
+        // outer ring or while the LLM defaults ALLOW on cache miss.
+        addHeader("🏛️ Scoring & Sentience Mode")
+        val scoringMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.modeLabel() } catch (_: Throwable) { "?" }
+        val scoringColor = if (scoringMode.startsWith("CLASSIC")) "#F59E0B" else "#10B981"
+        addKvHighlight("UnifiedScorer.mode", scoringMode, scoringColor)
+        val llmStatus = try { com.lifecyclebot.engine.SentienceHooks.llmStatus() } catch (_: Throwable) { "UNAVAILABLE" }
+        val llmColor = when (llmStatus) {
+            "READY" -> "#10B981"
+            "DEGRADED" -> "#F59E0B"
+            else -> "#EF4444"
+        }
+        addKvHighlight("LLM_STATUS", llmStatus, llmColor)
 
         // ── Section 2: Canonical pipeline ─────────────────────────────
         addHeader("📊 Canonical Pipeline (single source of truth)")
