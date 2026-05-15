@@ -8969,6 +8969,8 @@ class Executor(
                         "Tx built | router=${txResult.router} | rfq=${txResult.isRfqRoute} | slip=${currentSlip}bps (attempt $broadcastAttempts)" + (if (txResult.dynSlipPickedBps >= 0) " | dyn-slip picked=${txResult.dynSlipPickedBps}bps incurred=${txResult.dynSlipIncurredBps}bps" else ""),
                         traderTag = "MEME",
                     )
+                    // V5.9.767 — drive SellJobRegistry state machine end-to-end.
+                    try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.BUILDING) } catch (_: Throwable) {}
                     security.enforceSignDelay()
 
                     val useJito = c.jitoEnabled && !quote!!.isUltra
@@ -8990,6 +8992,8 @@ class Executor(
                         "Broadcasting @ ${currentSlip}bps | route=${if (quote!!.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                         traderTag = "MEME",
                     )
+                    // V5.9.767 — drive SellJobRegistry state machine end-to-end.
+                    try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.BROADCASTING) } catch (_: Throwable) {}
 
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
@@ -9001,6 +9005,8 @@ class Executor(
                         "✅ Sell tx confirmed on-chain @ ${currentSlip}bps (attempt $broadcastAttempts)",
                         sig = sig, traderTag = "MEME",
                     )
+                    // V5.9.767 — drive SellJobRegistry state machine end-to-end.
+                    try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.CONFIRMING) } catch (_: Throwable) {}
                     break  // success — exit slippage ladder
                 } catch (broadcastEx: Exception) {
                     lastBroadcastException = broadcastEx
@@ -9155,6 +9161,8 @@ class Executor(
             var verifierLanded = false
             run {
                 if (sig.isBlank() || sig.startsWith("PHANTOM_")) return@run
+                // V5.9.767 — drive SellJobRegistry state machine end-to-end.
+                try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.VERIFYING) } catch (_: Throwable) {}
                 val vsr = try {
                     TradeVerifier.verifySell(wallet, sig, ts.mint, timeoutMs = 60_000L)
                 } catch (vfx: Throwable) {
@@ -9176,6 +9184,9 @@ class Executor(
                             "✅ FULL SELL LANDED: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lam${if (vsr.tokenAccountClosedFullExit) " (ATA closed)" else ""}",
                             sig = sig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                         )
+                        // V5.9.767 — terminal LANDED state. Idempotent; reconciler
+                        // also calls markLanded when on-chain balance reaches zero.
+                        try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, sig) } catch (_: Throwable) {}
                     }
                     TradeVerifier.Outcome.FAILED_CONFIRMED -> {
                         LiveTradeLogStore.log(
@@ -9184,6 +9195,8 @@ class Executor(
                             "🚨 FULL SELL FAILED_CONFIRMED: meta.err=${vsr.txErr}",
                             sig = sig, traderTag = "MEME",
                         )
+                        // V5.9.767 — terminal FAILED_FINAL state.
+                        try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.FAILED_FINAL) } catch (_: Throwable) {}
                         TradeVerifier.endSell(ts.mint)
                         throw RuntimeException("Sell failed on-chain: ${vsr.txErr}")
                     }
@@ -9336,6 +9349,8 @@ class Executor(
                         "✅ Token left host wallet | remaining=${remainingTokens.fmt(4)} (was ${originalTokens.fmt(4)})",
                         tokenAmount = remainingTokens, traderTag = "MEME",
                     )
+                    // V5.9.767 — terminal LANDED state via legacy verify path.
+                    try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, sig) } catch (_: Throwable) {}
                     // Verify SOL returned by checking balance bump
                     try {
                         Thread.sleep(800)
@@ -11083,12 +11098,15 @@ class Executor(
                 "Tx built | router=PUMP_DIRECT [$labelTag] | slip=${slipPct}% | size=${tokenUnits ?: "ALL"}",
                 traderTag = traderTag,
             )
+            // V5.9.767 — drive SellJobRegistry state machine end-to-end (pump path).
+            try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.BUILDING) } catch (_: Throwable) {}
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_BROADCAST,
                 "Broadcasting PUMP-FIRST [$labelTag] @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
                 traderTag = traderTag,
             )
+            try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.BROADCASTING) } catch (_: Throwable) {}
             // V5.9.603 — PumpPortal sell must wait for on-chain confirmation.
             // A raw sendTransaction signature only means RPC/Jito accepted the
             // packet; it can still expire/fail before landing. Wallet polling
@@ -11110,6 +11128,11 @@ class Executor(
                 "✅ Tx confirmed via PumpPortal [$labelTag] @ ${slipPct}% slip — wallet settlement verify scheduled",
                 sig = sig, traderTag = traderTag,
             )
+            // V5.9.767 — drive SellJobRegistry state machine end-to-end (pump path).
+            // Final LANDED transition is asserted by the reconciler when on-chain
+            // balance reaches zero (the bg verify launches below; we cannot
+            // synchronously markLanded from this path).
+            try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.CONFIRMING) } catch (_: Throwable) {}
 
             // V5.9.495d — BACKGROUND SELL VERIFY. Polls wallet for token
             // disappearance + SOL return, logs both to the forensics tile.
