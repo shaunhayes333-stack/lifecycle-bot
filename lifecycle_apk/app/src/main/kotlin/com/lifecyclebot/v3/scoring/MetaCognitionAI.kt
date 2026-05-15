@@ -1129,6 +1129,36 @@ object MetaCognitionAI {
     }
 
     // -------------------------------------------------------------------------
+    // V5.9.783 — CANONICAL BUS ADAPTER (operator audit item B)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Real adapter for CanonicalOutcomeBus. Subscribed via CanonicalSubscribers.
+     *
+     * Counter behavior identical to onCanonicalSettlement(isWin, mint).
+     *
+     * Strategy-learning rule (audit item J): when outcome.featuresIncomplete=true
+     * we still tick totalTradesAnalyzed (visibility/readiness counter). The
+     * ConsensusPattern strategy memory in winningPatterns/losingPatterns is
+     * fed from the direct recordTradeOutcome() path because it requires the
+     * per-AILayer Prediction roster — which the canonical outcome does not
+     * carry. When Push 5 lands a richer producer that includes the AILayer
+     * vote roster, this adapter will be extended to also update the
+     * ConsensusPattern memory; until then it's counters + EWMA only.
+     */
+    fun onCanonicalOutcome(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
+        try {
+            if (outcome.result != com.lifecyclebot.engine.TradeResult.WIN &&
+                outcome.result != com.lifecyclebot.engine.TradeResult.LOSS) return
+            // Counter behavior (same dedup as onCanonicalSettlement)
+            if (outcome.mint.isNotBlank() && recentlyCountedMints.contains(outcome.mint)) return
+            totalTradesAnalyzed++
+            val isWin = outcome.result == com.lifecyclebot.engine.TradeResult.WIN
+            metaAccuracy = ewma(metaAccuracy, if (isWin) 100.0 else 0.0, 0.02)
+        } catch (_: Throwable) {}
+    }
+
+    // -------------------------------------------------------------------------
     // RESET
     // -------------------------------------------------------------------------
 

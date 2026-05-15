@@ -1243,6 +1243,105 @@ object AdaptiveLearningEngine {
         reset()
     }
 
+    // -------------------------------------------------------------------------
+    // V5.9.783 — CANONICAL BUS ADAPTER (operator audit item B)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Real adapter for CanonicalOutcomeBus. Subscribed via CanonicalSubscribers.
+     *
+     * Semantics (audit items B & J):
+     *   • Skip when outcome.featuresIncomplete == true. Strategy learners must
+     *     not train on feature-poor legacy bridge samples.
+     *   • Skip when outcome.candidate is null.
+     *   • Otherwise translate the canonical outcome into TradeFeatures and
+     *     call the existing learnFromTrade() pipeline so pattern extraction,
+     *     weight adjustment, and the rolling feature buffer all advance from
+     *     the same source as every other learner.
+     *
+     * Dedupe: learnFromTrade() already has its own (mcap_hold_pnl_minute)
+     * key guard, so duplicate publishes don't double-count. CanonicalSubscribers
+     * also dedupes per (layer, tradeId).
+     */
+    fun onCanonicalOutcome(outcome: com.lifecyclebot.engine.CanonicalTradeOutcome) {
+        try {
+            if (outcome.featuresIncomplete) return
+            if (outcome.result != com.lifecyclebot.engine.TradeResult.WIN &&
+                outcome.result != com.lifecyclebot.engine.TradeResult.LOSS) return
+            val cand = outcome.candidate ?: return
+            val pnlPct = outcome.realizedPnlPct ?: return
+            val holdMins = outcome.holdSeconds?.let { it.toDouble() / 60.0 } ?: 0.0
+            // Numeric reconstruction from bucketed strings — exact mcap/liq aren't
+            // available from the canonical outcome (operator's spec uses buckets),
+            // so we map back to bucket-center magnitudes for ALE pattern keys.
+            val liqUsd = liqUsdFromBucket(cand.liqBucket)
+            val mcapUsd = mcapUsdFromBucket(cand.mcapBucket)
+            val features = captureFeatures(
+                entryMcapUsd = mcapUsd,
+                tokenAgeMinutes = ageMinsFromBucket(cand.ageBucket),
+                buyRatioPct = if (cand.buyPressure == "STRONG") 65.0 else if (cand.buyPressure == "WEAK") 35.0 else 50.0,
+                volumeUsd = liqUsd,                                  // approximation when raw vol not carried
+                liquidityUsd = liqUsd,
+                holderCount = 0,
+                topHolderPct = holderTopFromBucket(cand.holderConcentration),
+                holderGrowthRate = 0.0,
+                devWalletPct = 0.0,
+                bondingCurveProgress = if (cand.bondingCurveActive) 0.5 else (if (cand.migrated) 1.0 else 0.0),
+                rugcheckScore = 0.0,
+                emaFanState = cand.volVelocity,
+                entryScore = 0.0,
+                priceFromAth = 0.0,
+                pnlPct = pnlPct,
+                maxGainPct = outcome.maxGainPct ?: 0.0,
+                maxDrawdownPct = outcome.maxDrawdownPct ?: 0.0,
+                timeToPeakMins = 0.0,
+                holdTimeMins = holdMins,
+                exitReason = cand.exitReasonFamily.ifBlank { outcome.closeReason ?: "" },
+                entryPhase = cand.entryPattern,
+            )
+            learnFromTrade(features)
+        } catch (e: Throwable) {
+            ErrorLogger.debug("AdaptiveLearning", "onCanonicalOutcome error: ${e.message?.take(80)}")
+        }
+    }
+
+    // Bucket-string → numeric magnitude. Used to reconstruct approximate
+    // numeric features when the canonical outcome only carries bucketed
+    // strings. Numbers are bucket centers, sufficient for pattern-key
+    // matching but not for high-precision signal generation.
+    private fun liqUsdFromBucket(b: String): Double = when (b) {
+        "LIQ_DUST" -> 500.0
+        "LIQ_TINY" -> 1_500.0
+        "LIQ_LOW" -> 10_000.0
+        "LIQ_MED" -> 35_000.0
+        "LIQ_GOOD" -> 75_000.0
+        "LIQ_DEEP" -> 250_000.0
+        else -> 5_000.0
+    }
+    private fun mcapUsdFromBucket(b: String): Double = when (b) {
+        "MCAP_MICRO" -> 10_000.0
+        "MCAP_TINY" -> 35_000.0
+        "MCAP_SMALL" -> 75_000.0
+        "MCAP_MED" -> 250_000.0
+        "MCAP_LARGE" -> 1_000_000.0
+        else -> 25_000.0
+    }
+    private fun ageMinsFromBucket(b: String): Double = when (b) {
+        "UNDER_2M" -> 1.0
+        "UNDER_10M" -> 5.0
+        "UNDER_1H" -> 30.0
+        "UNDER_24H" -> 360.0
+        "OLDER" -> 4320.0
+        else -> 60.0
+    }
+    private fun holderTopFromBucket(b: String): Double = when (b) {
+        "CONC_HIGH" -> 55.0
+        "CONC_RUG" -> 80.0
+        "CONC_MED" -> 35.0
+        "CONC_LOW" -> 15.0
+        else -> 25.0
+    }
+
     private fun Double.fmt(): String {
         return String.format(Locale.US, "%.2f", sanitizeDouble(this))
     }

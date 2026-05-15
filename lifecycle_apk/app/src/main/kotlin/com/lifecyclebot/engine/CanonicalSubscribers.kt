@@ -163,6 +163,16 @@ object CanonicalSubscribers {
                             com.lifecyclebot.engine.BehaviorLearning.onCanonicalSettlement(isWin, outcome.mint)
                         } catch (_: Throwable) {}
                     }
+                    if (layer == "AdaptiveLearningEngine") {
+                        try {
+                            // V5.9.783 — operator audit item B:
+                            // AdaptiveLearningEngine consumes the canonical outcome too.
+                            // Skips when outcome.featuresIncomplete=true. learnFromTrade()
+                            // has its own (mcap_hold_pnl_minute) dedup so duplicate
+                            // publishes don't double-count vs the legacy direct path.
+                            com.lifecyclebot.engine.AdaptiveLearningEngine.onCanonicalOutcome(outcome)
+                        } catch (_: Throwable) {}
+                    }
                 }
             }
 
