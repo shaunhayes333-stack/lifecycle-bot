@@ -4,6 +4,7 @@ import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.CandidateDecision
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.quant.EVCalculator
+import com.lifecyclebot.engine.sell.LiveBuyAdmissionGate
 import com.lifecyclebot.v3.scoring.FluidLearningAI
 
 @Deprecated(
@@ -642,6 +643,26 @@ object FinalDecisionGate {
         ErrorLogger.info("FDG", "🔄 Learning state reset (fresh session)")
     }
 
+    /** V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate per-mint
+     *  dedupe map. One forensic emit per mint per 60 s window so the
+     *  scanner cycling cannot flood dumps when a token has no safety
+     *  report yet. Mirrors the executor-level dedupe added in V5.9.765. */
+    private val fdgSafetyReadyDedup = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val FDG_SAFETY_READY_COOLDOWN_MS = 60_000L
+
+    private fun shouldEmitSafetyReadyBlock(mint: String): Boolean {
+        val now = System.currentTimeMillis()
+        val prev = fdgSafetyReadyDedup[mint]
+        if (prev != null && (now - prev) < FDG_SAFETY_READY_COOLDOWN_MS) return false
+        fdgSafetyReadyDedup[mint] = now
+        if (fdgSafetyReadyDedup.size > 256) {
+            val cutoff = now - FDG_SAFETY_READY_COOLDOWN_MS
+            val it = fdgSafetyReadyDedup.entries.iterator()
+            while (it.hasNext()) if (it.next().value < cutoff) it.remove()
+        }
+        return true
+    }
+
 
     fun evaluate(
         ts: TokenState,
@@ -657,6 +678,57 @@ object FinalDecisionGate {
         val tags = mutableListOf<String>()
 
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
+
+        // V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate.
+        // Operator forensics_20260515_161017 showed 17 BUY_FAILED
+        // LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING events
+        // in a 1.28 s burst — every one fired by the executor's
+        // LiveBuyAdmissionGate AFTER FDG had already approved the trade.
+        // V5.9.765 added a 60 s per-mint dedupe at the executor gate.
+        // V5.9.766 moves the safety-readiness check UPSTREAM so the
+        // candidate is never dispatched to the executor at all when
+        // the safety report is missing or stale — the cleanest fix
+        // per the deferred ticket.
+        //
+        // PAPER mode is intentionally exempt — paper trades treat the
+        // safety report as a scoring input, not a hard gate, so the
+        // bot can keep learning even when rugcheck is slow / down.
+        if (mode == TradeMode.LIVE) {
+            val safetyAgeMs = System.currentTimeMillis() - ts.lastSafetyCheck
+            val safetyMissing = ts.lastSafetyCheck == 0L
+            val safetyStale = !safetyMissing && safetyAgeMs > LiveBuyAdmissionGate.SAFETY_STALE_MS
+            if (safetyMissing || safetyStale) {
+                val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                if (shouldEmitSafetyReadyBlock(ts.mint)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "FDG_BLOCKED_SAFETY_NOT_READY",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
+                        )
+                    } catch (_: Throwable) {}
+                    ErrorLogger.info(
+                        "FDG",
+                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
+                    )
+                }
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = reason,
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                    gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
+                )
+            }
+        }
 
         val modeMultipliers = try {
             ModeSpecificGates.getMultipliers(tradingModeTag)
