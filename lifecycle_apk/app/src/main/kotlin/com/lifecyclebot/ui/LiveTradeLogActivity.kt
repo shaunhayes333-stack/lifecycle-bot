@@ -147,22 +147,10 @@ class LiveTradeLogActivity : Activity() {
         }
         outer.addView(summaryView)
 
-        rootScroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
-            isFillViewport = true
-        }
-        rootColumn = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        rootScroll.addView(rootColumn)
-        outer.addView(rootScroll)
-
         // V5.9.779 — RecyclerView replaces the ScrollView/LinearLayout
         // pair so only the visible viewport's worth of group cards is
         // rendered. removeAllViews() / per-event TextView floods are
         // gone — DiffUtil only touches what actually changed.
-        // (rootScroll / rootColumn kept above for any compat references
-        // but the actual rendering goes through the RecyclerView below.)
         recycler = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(this@LiveTradeLogActivity)
             setHasFixedSize(false)
@@ -171,9 +159,6 @@ class LiveTradeLogActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
             setBackgroundColor(Color.parseColor("#0B0E13"))
         }
-        // Remove the legacy ScrollView from the outer layout and use the
-        // RecyclerView as the scrollable region instead.
-        outer.removeView(rootScroll)
         outer.addView(recycler)
 
         setContentView(outer)

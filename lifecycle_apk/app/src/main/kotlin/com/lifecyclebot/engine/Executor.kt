@@ -9246,6 +9246,18 @@ class Executor(
             // 400s (un-routable: deep-graduated Orca-only, insufficient
             // liquidity, etc.) we fall through to the Jupiter Ultra → Metis
             // ladder, then to a final PUMP-RESCUE retry at higher slip.
+            // V5.9.779 — EMERGENT MEME ROUTER FIX: resolve and log the
+            // venue decision BEFORE the sell attempt so the operator can
+            // see why a particular route was chosen for this mint.
+            val venueResolution = com.lifecyclebot.engine.sell.MemeVenueRouter.resolve(ts.mint, ts.symbol)
+            try {
+                ForensicLogger.lifecycle(
+                    "ROUTE_ATTEMPT",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL_LOCAL attempt=1 " +
+                        "slippage=${if (isDrainExit) 75 else 30} venue=${venueResolution.venue.name} " +
+                        "preferPumpNative=${com.lifecyclebot.engine.sell.MemeVenueRouter.preferPumpNative(venueResolution.venue)}",
+                )
+            } catch (_: Throwable) {}
             val lsPumpSlip = if (isDrainExit) 75 else 30
             val lsPumpJito = c.jitoEnabled
             val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
@@ -11114,6 +11126,7 @@ class Executor(
             onLog("🧹 Orphan sell skipped (paper mode): $mint", mint)
             return false
         }
+        val c = cfg()
         
         return try {
             onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
@@ -11345,23 +11358,43 @@ class Executor(
             // V5.9.495z43 operator spec item B — even for "full exit" labels,
             // physically verify the requested fraction is >= 95% of the
             // chain-confirmed wallet balance before allowing PumpPortal.
+            // V5.9.779 — EMERGENT MEME ROUTER FIX: when RPC returns empty
+            // OR is missing the mint, fall back to HostWalletTokenTracker
+            // TX_PARSE authority instead of skipping the 95% check (which
+            // previously caused PumpPortal to fall through to Jupiter
+            // exact-in even when HostTracker had authoritative qty).
             if (tokenUnits != null && tokenUnits > 0L) {
-                val verifiedRaw = try {
+                val verifiedRaw: java.math.BigInteger = try {
                     val bal = wallet.getTokenAccountsWithDecimals()[ts.mint]
                     val ui = bal?.first ?: 0.0
                     val dec = bal?.second ?: 9
                     if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
                 } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                if (verifiedRaw.signum() > 0) {
+                // V5.9.779 — HOST_TRACKER_TX_PARSE fallback for the 95% check.
+                val effectiveVerified: java.math.BigInteger = if (verifiedRaw.signum() > 0) {
+                    verifiedRaw
+                } else {
+                    val tracked = HostWalletTokenTracker.getEntry(ts.mint)
+                    if (tracked != null &&
+                        tracked.uiAmount > 0.0 &&
+                        tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE &&
+                        tracked.status in HostWalletTokenTracker.OPEN_STATUSES &&
+                        tracked.sellSignature.isNullOrBlank()
+                    ) {
+                        try {
+                            java.math.BigDecimal(tracked.uiAmount).movePointRight(tracked.decimals).toBigInteger()
+                        } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                    } else java.math.BigInteger.ZERO
+                }
+                if (effectiveVerified.signum() > 0) {
                     val requested = java.math.BigInteger.valueOf(tokenUnits)
-                    // requested * 100 / verifiedRaw < 95  →  partial sell, reject.
                     val pctTimes100 = requested.multiply(java.math.BigInteger.valueOf(100))
-                        .divide(verifiedRaw)
+                        .divide(effectiveVerified)
                     if (pctTimes100 < java.math.BigInteger.valueOf(95)) {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
-                            "🚫 SEV_PUMPPORTAL_FRACTION_BLOCKED requested=$tokenUnits verified=$verifiedRaw " +
+                            "🚫 SEV_PUMPPORTAL_FRACTION_BLOCKED requested=$tokenUnits verified=$effectiveVerified " +
                             "(${pctTimes100}%) < 95% — Jupiter exact-in only.",
                             traderTag = traderTag,
                         )
@@ -11430,13 +11463,46 @@ class Executor(
                 return "PHANTOM_${System.currentTimeMillis().toString(16)}"
             }
             if (preBalancesEmpty) {
-                LiveTradeLogStore.log(
-                    sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                    "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; caller tokenUnits/cache not authoritative",
-                    traderTag = traderTag,
-                )
-                return null
+                // V5.9.779 — EMERGENT MEME ROUTER FIX: PumpPortal must
+                // NOT be blocked by a single empty RPC read when the
+                // caller has authoritative tokenUnits AND HostWalletTokenTracker
+                // shows TX_PARSE-verified OPEN_TRACKING with sellSignature
+                // empty. Operator forensics: Marvin sell rejected at this
+                // exact gate even though SELL_QTY_SOURCE=HOST_TRACKER had
+                // just stamped the qty.
+                val tracked = HostWalletTokenTracker.getEntry(ts.mint)
+                val trackerAuthoritative = tracked != null &&
+                    tracked.uiAmount > 0.0 &&
+                    tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE &&
+                    tracked.status in HostWalletTokenTracker.OPEN_STATUSES &&
+                    tracked.sellSignature.isNullOrBlank()
+                if (tokenUnits != null && tokenUnits > 0L && trackerAuthoritative) {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                        "SELL_AMOUNT_AUTHORITY=HOST_TRACKER_TX_PARSE rawAmount=$tokenUnits uiAmount=${tracked!!.uiAmount} " +
+                            "decimals=${tracked.decimals} tokenAccount=${tracked.tokenAccount?.take(10) ?: "?"} " +
+                            "— RPC empty BUT HostTracker TX_PARSE authoritative; proceeding with PumpPortal broadcast.",
+                        traderTag = traderTag,
+                    )
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SELL_AMOUNT_AUTHORITY",
+                            "source=HOST_TRACKER_TX_PARSE mint=${ts.mint.take(10)} rawAmount=$tokenUnits uiAmount=${tracked.uiAmount} decimals=${tracked.decimals}",
+                        )
+                    } catch (_: Throwable) {}
+                    // Fall through to PumpPortal broadcast — DO NOT return null.
+                } else {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                        "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; caller tokenUnits/cache " +
+                            "AND HostWalletTokenTracker both non-authoritative (tracker=${tracked?.status?.name ?: "absent"} " +
+                            "source=${tracked?.source?.name ?: "?"} sellSig=${tracked?.sellSignature?.take(8) ?: "none"})",
+                        traderTag = traderTag,
+                    )
+                    return null
+                }
             }
 
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
