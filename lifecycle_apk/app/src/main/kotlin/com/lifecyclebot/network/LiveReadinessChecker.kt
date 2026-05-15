@@ -83,7 +83,7 @@ object LiveReadinessChecker {
             else -> State.RED
         }
         val summary = when (state) {
-            State.GREEN -> "🟢 LIVE READY · Jupiter + Pyth healthy"
+            State.GREEN -> "🟢 APIs READY · Jupiter + Pyth healthy"
             State.YELLOW -> "🟡 DEGRADED · Jupiter OK · Oracle slow/down"
             State.RED -> if (!jupOk) "🔴 JUPITER UNREACHABLE · live swaps blocked" else "🔴 Oracle & swap down · stay in paper"
             State.UNKNOWN -> "Checking live readiness…"

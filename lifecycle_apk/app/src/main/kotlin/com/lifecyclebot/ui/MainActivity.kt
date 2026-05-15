@@ -1805,14 +1805,19 @@ for legal compliance.
 
         if (balSol > 0.001) {
             tvBalanceLarge.text = currency.format(balSol)  // currency.format() converts SOL→display currency internally
-            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER ◎ ${"%.4f".format(balSol)}"
-                                  else "◎ ${"%.4f".format(balSol)}"
+            // V5.9.773 — BIG explicit mode chip so the operator can never
+            // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
+            // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
+            // banner and thought bot was live, but cfg.paperMode=true.
+            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
+                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
             tvBalanceLarge.text = currency.format(ws.solBalance)
-            tvBalanceUsd.text   = "◎ ${"%.4f".format(ws.solBalance)}"
+            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
+                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}"
         } else {
             tvBalanceLarge.text = "—"
-            tvBalanceUsd.text   = ""
+            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE"
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
