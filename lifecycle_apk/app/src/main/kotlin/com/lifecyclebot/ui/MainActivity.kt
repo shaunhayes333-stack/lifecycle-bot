@@ -3294,6 +3294,39 @@ for legal compliance.
                     currentPrice = it.lastSeenPrice, isPaper = it.isPaperMode)
             }
         } catch (_: Exception) {}
+        // V5.9.763 — operator screenshot V5.9.761: HIM held by Project
+        // Sniper at -16.5% (live mode) was visible in the Sniper card
+        // but missing from the unified Open Positions panel. Same gap
+        // affected Manipulated. Both lanes now contribute their
+        // mission/position rosters so a held token always shows in the
+        // unified list regardless of which sub-trader owns it.
+        try {
+            com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions().forEach { m ->
+                upsert(
+                    m.mint, m.symbol, "PROJECT_SNIPER", "🎯",
+                    entryPrice = m.entryPrice,
+                    entrySol = m.entrySol,
+                    entryTime = m.entryTime,
+                    peakPct = if (m.entryPrice > 0)
+                        ((m.highestPrice - m.entryPrice) / m.entryPrice * 100.0) else 0.0,
+                    currentPrice = m.highestPrice,
+                    isPaper = com.lifecyclebot.v3.scoring.ProjectSniperAI.isPaperMode,
+                )
+            }
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().forEach { p ->
+                upsert(
+                    p.mint, p.symbol, "MANIPULATED", "🎭",
+                    entryPrice = p.entryPrice,
+                    entrySol = p.entrySol,
+                    entryTime = p.entryTime,
+                    peakPct = p.peakPnlPct,
+                    currentPrice = p.highWaterMark,
+                    isPaper = p.isPaper,
+                )
+            }
+        } catch (_: Exception) {}
         // V5.9.471 — DO NOT pull TREASURY or BLUE_CHIP positions into the
         // unified Open Positions list. Operator-reported double-count:
         // MINDFAK appeared in BOTH 'Open Positions' (with 💰 icon) AND
