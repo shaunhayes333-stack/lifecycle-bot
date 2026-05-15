@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.770"
+    private const val BUILD_TAG = "V5.9.771"
 
     data class Event(
         val tsMs: Long,
@@ -859,11 +859,38 @@ object PipelineHealthCollector {
 
         // ── FDG gate ────────────────────────────────────────────────────
         sb.append("\n  [FDG GATE]  allow=$fdgAllow  block=$fdgBlock\n")
+        // V5.9.771 — EMERGENT-MEME #9: derive interpretation from
+        // actual top block reason, not blanket "likely bootstrap".
+        // The user's V5.9.770 dump had top reason
+        // LIQUIDITY_BELOW_EXECUTION_FLOOR (824/839) but the text
+        // still said "CONFIDENCE_FLOOR means live-WR data too
+        // sparse" — wrong call to action.
+        val topBlockReasonRaw = s.blockReasonCounts.entries
+            .filter { it.key.startsWith("FDG/") }
+            .maxByOrNull { it.value }?.key?.removePrefix("FDG/")
+            ?: ""
         if (fdgBlock > 0 && fdgAllow == 0L) {
-            sb.append("  ⚠ FDG blocking 100% — system likely in bootstrap (no confidence yet).\n")
-            sb.append("    CONFIDENCE_FLOOR means live-WR data too sparse for LIVE trades.\n")
-            sb.append("    Normal in first 1000 paper trades. Paper trades still execute.\n")
-            sb.append("    Action: let paper trades accumulate; FDG relaxes as WR data builds.\n")
+            when {
+                topBlockReasonRaw.contains("SAFETY_NOT_READY") -> {
+                    sb.append("  ⚠ FDG blocking 100% on SAFETY_NOT_READY — safety pipeline miswired or rugcheck pending.\n")
+                    sb.append("    Action: verify SafetyReport.write keys == FDG read keys (canonical mint).\n")
+                }
+                topBlockReasonRaw.contains("LIQUIDITY_BELOW") -> {
+                    sb.append("  ⚠ FDG blocking 100% on $topBlockReasonRaw — execution floor too high for current universe.\n")
+                    sb.append("    Action: audit ts.lastLiquidityUsd freshness or lower SHITCOIN execution-floor lerp.\n")
+                }
+                topBlockReasonRaw.contains("CONFIDENCE") -> {
+                    sb.append("  ⚠ FDG blocking 100% on CONFIDENCE_FLOOR — live-WR data too sparse for LIVE.\n")
+                    sb.append("    Normal in first 1000 paper trades. Paper trades still execute.\n")
+                }
+                topBlockReasonRaw.isNotEmpty() -> {
+                    sb.append("  ⚠ FDG blocking 100% — top reason: $topBlockReasonRaw.\n")
+                    sb.append("    Action: inspect that gate / lerp / threshold first.\n")
+                }
+                else -> {
+                    sb.append("  ⚠ FDG blocking 100% — no block reason recorded; check FDG instrumentation.\n")
+                }
+            }
         }
         else if (fdgBlock > fdgAllow * 2)
             sb.append("  ⚠ FDG blocking majority — check DANGER_ZONE, edge veto rate, or brain state.\n")
@@ -946,13 +973,41 @@ object PipelineHealthCollector {
         sb.append("\n  [ANR / MAIN THREAD]\n")
         val anrHints = labelCounts["ANR_HINTS"]?.get() ?: 0L
         sb.append("  ANR_HINTS=$anrHints  Stall=${stall}%% of uptime\n")
-        if (anrHints > 0) {
-            sb.append("  ⚠ Main thread blocked >700ms — inspect 'ANR top blocking call sites' above.\n")
-        } else if (stall > 50) {
-            sb.append("  ⚠ Stall >50%% — UI render is blocking main thread.\n")
-            sb.append("    Fix: reduce renderOpenPositions/buildTokenCard frequency.\n")
-        } else {
-            sb.append("  ✅ No ANR events. Stall=${stall}%%.\n")
+        // V5.9.771 — EMERGENT-MEME #9: interpretation derived from
+        // actual data. The previous logic skipped the severe path
+        // when ANR_HINTS=0 even if stall=94% / maxFrameGap=77s,
+        // and printed "✅ No ANR events" — a complete misread.
+        // Source order matters: gate severity on stall + max frame
+        // gap first, then ANR count, then top stack site.
+        val maxFrameGap = s.maxFrameGapMs
+        val topAnrSite = s.anrStackCounts.entries.maxByOrNull { it.value }?.key ?: ""
+        when {
+            maxFrameGap > 5_000 || stall > 80 -> {
+                sb.append("  🛑 SEVERE: maxFrameGap=${maxFrameGap}ms  stall=${stall}%% — bot is barely getting cycles.\n")
+                if (topAnrSite.contains("SolanaWallet.rpc") || topAnrSite.contains("getSolBalance")) {
+                    sb.append("    Root cause: wallet RPC blocking main thread. Wrap caller in withContext(Dispatchers.IO).\n")
+                } else if (topAnrSite.contains("MainActivity") || topAnrSite.contains("renderOpenPositions") || topAnrSite.contains("buildTokenCard")) {
+                    sb.append("    Root cause: UI render saturation. Move heavy work off Dispatchers.Main; cap renderOpenPositions list size.\n")
+                } else if (topAnrSite.contains("TradeJournal") || topAnrSite.contains("TradeHistoryStore")) {
+                    sb.append("    Root cause: SQLite query on main thread. Move journal stats reads to Dispatchers.IO.\n")
+                } else if (topAnrSite.isNotEmpty()) {
+                    sb.append("    Top blocking call site: $topAnrSite — investigate why it runs on main.\n")
+                }
+            }
+            anrHints > 0 || stall > 50 -> {
+                sb.append("  ⚠ Main thread under pressure — inspect 'ANR top blocking call sites' above.\n")
+                if (topAnrSite.isNotEmpty()) sb.append("    Top: $topAnrSite\n")
+            }
+            else -> {
+                sb.append("  ✅ Main thread healthy. Stall=${stall}%%.\n")
+            }
+        }
+
+        // V5.9.771 — EMERGENT-MEME #9: live-paper contamination
+        // interpretation. Surface the mode mismatch in plain text.
+        if (modeSnapshot == "LIVE" && execPaperBuyOk.get() > 0) {
+            sb.append("  ⚠ MODE CONTAMINATION: LIVE active but EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()} — paper trades are firing during live.\n")
+            sb.append("    Fix: shadowPaperEnabled gate, or hard-block paper buys when mode==LIVE.\n")
         }
 
         // ── V3 / skip rate ──────────────────────────────────────────────

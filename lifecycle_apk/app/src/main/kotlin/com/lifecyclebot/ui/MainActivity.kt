@@ -3214,7 +3214,19 @@ for legal compliance.
     // sub-trader tracker has a recent price; otherwise falls back to
     // entry price (0% line) rather than the misleading "—".
     private fun buildUnifiedOpenPositions(state: UiState): List<TokenState> {
-        val merged = state.openPositions.toMutableList()
+        // V5.9.771 — EMERGENT-MEME #3 + #4: live ↔ paper UI contamination.
+        // Operator screenshot 2026-05-15 21:14 showed LIVE mode active
+        // with 40 open positions, the bulk of which were paper.
+        // `state.openPositions` is a UNION across modes; the readiness
+        // tile / risk bar / "X at risk" must reflect the CURRENT mode
+        // only. Filter the source list by `isPaperPosition` against
+        // `config.paperMode` BEFORE anything synthesises further rows.
+        // Paper trades retain a separate panel; this surface is the
+        // live-vs-paper executive view of REAL trading.
+        val isPaperMode = state.config.paperMode
+        val merged = state.openPositions
+            .filter { it.position.isPaperPosition == isPaperMode }
+            .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
 
         fun upsert(mint: String, symbol: String, layer: String, emoji: String,

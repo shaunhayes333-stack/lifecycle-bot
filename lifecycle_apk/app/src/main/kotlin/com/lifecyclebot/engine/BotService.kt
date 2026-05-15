@@ -5721,6 +5721,27 @@ class BotService : Service() {
             return false
         }
 
+        // V5.9.771 — EMERGENT-MEME #8: blocked-symbol FINAL enforcement.
+        // Operator dump V5.9.770 showed:
+        //   FILTER REJECT USDT: blocked symbol 'usdt'
+        //   WATCHLISTED: USDT
+        //   MEME_DIRECT_INTAKE: USDT
+        //   PROTECTED_INTAKE: USDT
+        // The scanner-side reject was only protecting one of 11 intake
+        // paths. This single gate at the canonical intake function
+        // now catches every path: TokenMergeQueue, PumpPortal WS,
+        // DataOrchestrator, MEME_REGISTRY_RESTORE, all 8 scanner
+        // sources, etc. Single source of truth.
+        if (com.lifecyclebot.data.CanonicalMint.isBlockedMemeSymbol(symbol)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "INTAKE_BLOCKED_SYMBOL_FINAL",
+                    "symbol=$symbol mint=${mint.take(10)} src=$source no_watchlist=true",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+
         // V5.9.768 — per-mint intake dedupe (see field-doc above).
         // V5.9.769 — even on a dedupe hit we MUST still let liq/mcap freshness
         // propagate to the existing TokenState. The original (V5.9.768) early

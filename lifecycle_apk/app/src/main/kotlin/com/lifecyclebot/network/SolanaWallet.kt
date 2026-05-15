@@ -71,6 +71,26 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     // ── balance ────────────────────────────────────────────
 
     fun getSolBalance(): Double {
+        // V5.9.771 — EMERGENT-MEME #5: ANR / main-thread guard.
+        // Operator dump V5.9.770: ANR top blocking call sites
+        //   [41] com.lifecyclebot.network.SolanaWallet.rpc
+        //   [3]  com.lifecyclebot.network.SolanaWallet.getSolBalance
+        //   Max frame gap 77433 ms, stall 47% of uptime.
+        // Required by spec: "No getSolBalance call may run on
+        // Dispatchers.Main." We fail FAST with a forensic emit
+        // instead of blocking — any caller invoking this from main
+        // gets an immediate exception they can catch, and the
+        // forensic dump reveals the culprit. Background refreshes
+        // continue to work normally.
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WALLET_RPC_ON_MAIN_THREAD",
+                    "fn=getSolBalance blocked=true — caller must use Dispatchers.IO",
+                )
+            } catch (_: Throwable) {}
+            throw IllegalStateException("SolanaWallet.getSolBalance() called from Dispatchers.Main — wrap in withContext(Dispatchers.IO)")
+        }
         var lastEx: Exception? = null
         repeat(3) { attempt ->
             try {
@@ -388,6 +408,20 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     fun rpcCall(method: String, params: JSONArray): JSONObject = rpc(method, params)
 
     private fun rpc(method: String, params: JSONArray): JSONObject {
+        // V5.9.771 — EMERGENT-MEME #5: ANR / main-thread guard.
+        // Top ANR blocker in V5.9.770 dump was this function (41
+        // samples). Reject main-thread invocation immediately with
+        // a forensic emit so the offending caller is surfaced and
+        // can be wrapped in withContext(Dispatchers.IO).
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WALLET_RPC_ON_MAIN_THREAD",
+                    "fn=rpc method=$method blocked=true — caller must use Dispatchers.IO",
+                )
+            } catch (_: Throwable) {}
+            throw IllegalStateException("SolanaWallet.rpc($method) called from Dispatchers.Main — wrap in withContext(Dispatchers.IO)")
+        }
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
             .put("id",      idGen.getAndIncrement())

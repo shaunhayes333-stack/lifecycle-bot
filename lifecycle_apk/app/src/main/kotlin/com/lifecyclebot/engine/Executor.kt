@@ -5013,10 +5013,30 @@ class Executor(
         
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
 
-        // NOTE: paperBuy() is only reached when cfg().paperMode == true (see doBuy).
-        // No live-buy override here — paper mode means paper mode, full stop.
-        // The shadow buy path (runShadowPaperBuy) handles the live-override case correctly
-        // with an explicit !cfg().paperMode guard.
+        // V5.9.771 — EMERGENT-MEME #4: hard guard against paper buys
+        // in LIVE mode. Spec: "if (mode == LIVE && requestedExecutionMode
+        // == PAPER && !shadowPaperEnabled) block PAPER_BUY_IN_LIVE_MODE".
+        // The existing comment ("only reached when cfg().paperMode==true")
+        // is correct for the primary doBuy() path, but ~7 other call
+        // sites in this file (lines 5279, 5387, 5448, 5542, 5632, etc.)
+        // invoke paperBuy() directly from sub-trader fallback paths and
+        // some of those wrappers did NOT re-check the global mode. This
+        // single gate at the function entry is the canonical fence —
+        // even if a future refactor reintroduces a leak, paper buys
+        // cannot fire in live mode unless shadowPaperEnabled is on.
+        if (!cfg().paperMode) {
+            val shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false }
+            if (!shadowEnabled) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_BUY_IN_LIVE_MODE",
+                        "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag",
+                    )
+                } catch (_: Throwable) {}
+                ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE blocked: ${ts.symbol} (sol=$sol) — live mode is on and shadowPaperEnabled is off")
+                return
+            }
+        }
 
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
