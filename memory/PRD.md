@@ -29,6 +29,49 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.780 / 780a / 780b — Paper realism + JVM 64 KB method fix (May 16, CI GREEN)
+Operator forensics on V5.9.774 build 5.0.2711 showed +\$7,218 paper P&L
+fantasy: 27% WR, avg-win +383.9%, STRICT_SL_-10 booking at -94%,
+RAPID_TAKE_PROFIT_30 booking at +8234%. Paper was lying to the AI
+layers about edge — the bot would graduate to LIVE thinking it had a
++37%/trade prior and immediately bleed.
+
+Six surgical paper-realism corrections:
+ 1) Realistic slippage curve based on liquidity tier
+    (<$5k: 12% entry / 18% exit; up to >\$250k: 0.8% / 1.5%)
+ 2) Exit-price clamp via parsePaperExitClamp() — strategy reason
+    label drives the allowed price band so STRICT_SL_-10 fills in
+    [-15%, -10%], RAPID_TAKE_PROFIT_30 in [+25%, +30%], etc.
+ 3) Liquidity-aware return cap — single trade pnl bounded by
+    (liq_usd * 0.5 / sol_price) so a \$1 position in a \$4k pool
+    can't extract +8234%.
+ 5) isPaperScratchTrade() helper (deferred wire into RunTracker30D).
+ (#4 lane size + #6 SL watchdog deferred — followup once realism
+ corrections produce honest WR numbers.)
+
+Plus the entire V5.9.779 backlog finally landed (was stuck on CI
+red since the bulk cfg().paperMode → FQN replacement bloated a
+method past the JVM 64 KB limit):
+ - EnabledTraderAuthority (single trader-set source of truth)
+ - PROJECT_SNIPER top-level gate
+ - CyclicTradeEngine LIVE-when-wallet>=\$1500 (extracted to
+   maybeTickCyclicTradeEngine helper to keep botLoop under 64 KB)
+ - paperBuy / paperTopUp LIVE-mode hard block
+ - 36 cfg().paperMode call sites → short isPaperRT()/isLiveRT()
+   helpers (avoids constant-pool bloat)
+ - Shadow → live moonshot full-chain handoff
+ - SellReconciler.sellTrigger callback + rehydrateTokenStateFromTracker
+ - LiveTradeLogActivity RecyclerView refactor (MAX_VISIBLE_GROUPS=30,
+   MAX_EVENTS_PER_GROUP=15, singleton SimpleDateFormat)
+ - HostWalletTokenTracker manual-swap detection (CLOSED_SOLD_BY_AATE
+   + CLOSED_EXTERNALLY_MANUAL_SWAP statuses, 90 s grace window)
+ - MEME_LIVE_BUY_MUTEX serialising live buys per wallet
+ - PumpPortal RPC-empty HOST_TRACKER_TX_PARSE fallback
+ - MemeVenueRouter (VENUE_RESOLVE forensic) + ROUTE_ATTEMPT logging
+ - SELL_AMOUNT_AUTHORITY forensic on every sell path
+
+CI: Build APK ✅ + Runtime Smoke ✅ on sha=7c043e6.
+
 ### V5.9.777 / 777a — Live-mode containment surgical fix (May 16, CI GREEN)
 Operator forensics_20260516_014510.json on AATE 5.0.2706: 10-section
 regression report — zero EXEC counters despite landed live buys, live
