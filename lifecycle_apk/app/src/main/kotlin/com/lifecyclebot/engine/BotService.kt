@@ -4190,6 +4190,49 @@ class BotService : Service() {
      * ts is also added back into status.tokens so the bot loop's exit
      * gate can pick it up on the next tick.
      */
+    /**
+     * V5.9.780a — extracted from botLoop to keep the suspend state machine
+     * under the JVM 64 KB method-size limit. Identical semantics:
+     *   PAPER mode → tick if CYCLIC is enabled
+     *   LIVE  mode → tick only if CYCLIC enabled AND walletUsd >= $1500
+     */
+    private fun maybeTickCyclicTradeEngine(wallet: SolanaWallet?) {
+        try {
+            val isPaperRuntime = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+            val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            val walletSolNow = walletManager.state.value.solBalance
+            val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
+            val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
+            )
+            val liveThreshold = 1500.0
+            val allowTick = when {
+                isPaperRuntime -> cyclicEnabled
+                else -> cyclicEnabled && walletUsdNow >= liveThreshold
+            }
+            if (allowTick) {
+                val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
+                CyclicTradeEngine.tick(
+                    context   = applicationContext,
+                    tokens    = cyclicTokens,
+                    executor  = executor,
+                    wallet    = wallet,
+                    walletSol = walletSolNow,
+                )
+            } else {
+                try {
+                    ForensicLogger.lifecycle(
+                        "CYCLIC_TICK_SKIPPED",
+                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("BotService", "CyclicTradeEngine tick error: ${e.message}", e)
+        }
+    }
+
+
     private fun rehydrateTokenStateFromTracker(
         mint: String,
         symbolHint: String,
@@ -8494,60 +8537,13 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             
             // ═══════════════════════════════════════════════════════════════════
             // CYCLIC TRADE ENGINE — $500 USD compound ring
+            // V5.9.780a — extracted into maybeTickCyclicTradeEngine() so the
+            // botLoop suspend state machine stays under the JVM 64 KB method
+            // size limit. Gate logic identical: PAPER → tick if CYCLIC enabled;
+            // LIVE → tick only if CYCLIC enabled AND walletUsd >= $1500.
             // ═══════════════════════════════════════════════════════════════════
-            // V5.9.779 — EMERGENT MEME-ONLY: CyclicTradeEngine gating.
-            // Operator decision (V5.9.779 §2): run LIVE in MEME ONLY when
-            // wallet SOL value > $1500 USD. Below that threshold the engine
-            // stays paper (or paused entirely in LIVE Meme-only mode to
-            // prevent paper-trade contamination of the LIVE forensics page).
-            //
-            // Old behaviour: "Always tick CyclicTradeEngine — it runs
-            // paper permanently" — caused the operator's reported
-            // EXEC/PAPER_BUY=1 + paper-sell rows in LIVE mode.
-            //
-            // New behaviour:
-            //   PAPER mode  → tick (always allowed; user is in paper).
-            //   LIVE  mode  → tick only if EnabledTraderAuthority has
-            //                 CYCLIC AND walletSolUsd > $1500. The engine
-            //                 itself will then route via Executor LIVE
-            //                 paths because RuntimeModeAuthority is LIVE.
-            //                 Below $1500 the engine is silent — no paper
-            //                 writes, no live trades.
             if (loopCount % 10 == 0) {
-                try {
-                    val isPaperRuntime = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-                    val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                    val walletSolNow = walletManager.state.value.solBalance
-                    val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
-                    val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
-                        com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
-                    )
-                    val liveThreshold = 1500.0
-                    val allowTick = when {
-                        isPaperRuntime -> cyclicEnabled
-                        else -> cyclicEnabled && walletUsdNow >= liveThreshold
-                    }
-                    if (allowTick) {
-                        val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
-                        CyclicTradeEngine.tick(
-                            context   = applicationContext,
-                            tokens    = cyclicTokens,
-                            executor  = executor,
-                            wallet    = wallet,
-                            walletSol = walletSolNow,
-                        )
-                    } else if (loopCount % 100 == 0) {
-                        // Throttled forensic so operator can see why the engine is silent.
-                        try {
-                            ForensicLogger.lifecycle(
-                                "CYCLIC_TICK_SKIPPED",
-                                "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
-                            )
-                        } catch (_: Throwable) {}
-                    }
-                } catch (e: Exception) {
-                    ErrorLogger.error("BotService", "CyclicTradeEngine tick error: ${e.message}", e)
-                }
+                maybeTickCyclicTradeEngine(wallet)
             }
 
             // V5.9.676 — final phase breadcrumb. If the loop wedges
