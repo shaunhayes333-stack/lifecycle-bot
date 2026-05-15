@@ -908,11 +908,65 @@ class Executor(
             ErrorLogger.warn("Executor", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
             null
         }
+
+        // V5.9.777 — EMERGENT MEME-ONLY: HOST_TRACKER FALLBACK for partial /
+        // treasury / PumpPortal sells. Operator forensics: RPD sell entered
+        // resolveConfirmedSellAmountOrNull, RPC returned an empty map, the
+        // function returned null and the caller logged "tokenUnits/cache not
+        // authoritative" + downgraded to Jupiter ladder which failed slippage.
+        // V5.9.775 added the fallback inside liveSell() but the partial-sell
+        // path uses THIS helper first. We now mirror the same authoritative-
+        // source rules here: if RPC empty/missing AND HostWalletTokenTracker
+        // shows uiAmount>0 with status OPEN_TRACKING/HELD_IN_WALLET (etc.)
+        // AND sellSignature is empty (no in-flight sell), we adopt the
+        // tracker reading as authoritative and proceed. Bonafide empty wallets
+        // still return null because tracker.uiAmount will also be zero.
+        if (accounts == null || accounts.isEmpty() || accounts[ts.mint] == null) {
+            val tracked = HostWalletTokenTracker.getEntry(ts.mint)
+            val trackerEligible = tracked != null &&
+                tracked.uiAmount > 0.0 &&
+                tracked.status in setOf(
+                    HostWalletTokenTracker.PositionStatus.BUY_CONFIRMED,
+                    HostWalletTokenTracker.PositionStatus.HELD_IN_WALLET,
+                    HostWalletTokenTracker.PositionStatus.OPEN_TRACKING,
+                    HostWalletTokenTracker.PositionStatus.EXIT_SIGNALLED,
+                ) &&
+                tracked.sellSignature.isNullOrBlank()
+            if (trackerEligible) {
+                val t = tracked!!
+                val decimals = t.decimals.coerceAtLeast(0)
+                val scale = 10.0.pow(decimals.toDouble())
+                val walletUi = t.uiAmount
+                val walletRaw = (walletUi * scale).toLong().coerceAtLeast(0L)
+                if (walletRaw <= 0L) return null
+                val requestedUi = when {
+                    fraction != null -> walletUi * fraction.coerceIn(0.0, 1.0)
+                    requestedUiQty > walletUi -> walletUi
+                    else -> requestedUiQty
+                }
+                val requestedRaw = (requestedUi * scale).toLong().coerceIn(1L, walletRaw)
+                LiveTradeLogStore.log(
+                    sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                    ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                    "SELL_QTY_SOURCE=HOST_TRACKER (resolveConfirmed): RPC empty/missing → using tracker " +
+                        "raw=$walletRaw ui=$walletUi decimals=$decimals status=${t.status.name}",
+                    tokenAmount = walletUi, traderTag = traderTag,
+                )
+                try {
+                    ForensicLogger.lifecycle(
+                        "SELL_QTY_SOURCE_HOST_TRACKER",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} ui=$walletUi raw=$walletRaw site=resolveConfirmed",
+                    )
+                } catch (_: Throwable) {}
+                return ConfirmedSellAmount(requestedRaw, requestedRaw.toDouble() / scale, walletRaw, walletUi, decimals)
+            }
+        }
+
         if (accounts == null || accounts.isEmpty()) {
             LiveTradeLogStore.log(
                 sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                 ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                "RPC-EMPTY-MAP → BALANCE_UNKNOWN — sell broadcast blocked; caller tokenUnits/cache not authoritative",
+                "RPC-EMPTY-MAP → BALANCE_UNKNOWN — sell broadcast blocked; caller tokenUnits/cache not authoritative AND HostWalletTokenTracker has no eligible entry",
                 traderTag = traderTag,
             )
             return null
@@ -922,7 +976,7 @@ class Executor(
             LiveTradeLogStore.log(
                 sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                 ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                "BALANCE_UNKNOWN — exact owner+mint token account missing; sell broadcast blocked",
+                "BALANCE_UNKNOWN — exact owner+mint token account missing; sell broadcast blocked (no tracker fallback eligible)",
                 traderTag = traderTag,
             )
             return null
@@ -4618,6 +4672,21 @@ class Executor(
             }
         }
 
+        // V5.9.777 — EMERGENT MEME-ONLY: EXEC_LIVE_ATTEMPT counter wiring on
+        // the second live-buy entrypoint (top-ups). Without this the operator
+        // sees EXEC=0 even though tryPumpPortalBuy lands a real tx.
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_ATTEMPT",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} src=liveTopUp",
+            )
+            ForensicLogger.lifecycle(
+                "MEME_LIVE_EXEC_ENTRY",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} callSite=liveTopUp",
+            )
+        } catch (_: Throwable) {}
+
         val lamports = (sol * 1_000_000_000L).toLong()
         val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
         val pos = ts.position
@@ -5811,6 +5880,26 @@ class Executor(
             if (decision is com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.Decision.Blocked) return
         }
 
+        // V5.9.777 — EMERGENT MEME-ONLY: EXEC_LIVE_ATTEMPT counter wiring.
+        // Operator forensics showed 5 confirmed live buys landed while
+        // FDG_LIVE_ALLOW=0 / EXEC_LIVE_ATTEMPT=0 / EXEC funnel counter=0.
+        // Root cause: liveBuy() never called ForensicLogger.exec() so the
+        // PipelineHealthCollector.onExec counter pipeline was completely
+        // bypassed. Now wired at the canonical entry point, immediately
+        // after the admission gate so every gate-approved live attempt
+        // increments the counter even if the quote/broadcast later fails.
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_ATTEMPT",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=liveBuy",
+            )
+            ForensicLogger.lifecycle(
+                "MEME_LIVE_EXEC_ENTRY",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} callSite=liveBuy.main",
+            )
+        } catch (_: Throwable) {}
+
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
         
         if (walletSol <= 0) {
@@ -6424,6 +6513,16 @@ class Executor(
                             "✅ Tokens landed in host wallet | qty=${verifiedQty.fmt(4)}",
                             tokenAmount = verifiedQty, traderTag = "MEME",
                         )
+                        // V5.9.777 — EXEC_LIVE_BUY_OK counter wiring at the
+                        // canonical wallet-delta verification point. Operator
+                        // forensics showed EXEC=0 even after BUY_VERIFIED_LANDED.
+                        try {
+                            ForensicLogger.exec(
+                                "LIVE_BUY_OK",
+                                verifySymbol,
+                                "mint=${verifyMint.take(10)} qty=${verifiedQty.fmt(4)} sol=${"%.4f".format(sol)}",
+                            )
+                        } catch (_: Throwable) {}
                         EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
                         // V5.9.385 — also register with GlobalTradeRegistry.
                         // See detailed comment above the other registerPosition

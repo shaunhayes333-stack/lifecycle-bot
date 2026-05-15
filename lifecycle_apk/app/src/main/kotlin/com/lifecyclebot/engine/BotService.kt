@@ -936,11 +936,20 @@ class BotService : Service() {
         }
 
         // V5.7.3: Start PerpsAutoReplayLearner for CONTINUOUS learning
-        try {
-            com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
-            ErrorLogger.info("BotService", "🎬 PerpsAutoReplayLearner STARTED - Always Learning Mode ACTIVE")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
+        // V5.9.777 — EMERGENT MEME-ONLY: gate behind marketsLaneOn. The
+        // operator runs Meme Trader only and the auto-replay learner has
+        // nothing meaningful to do without perps lanes; it was running
+        // unconditionally and contributing to ANR churn.
+        if (marketsLaneOn) {
+            try {
+                com.lifecyclebot.perps.PerpsAutoReplayLearner.start()
+                ErrorLogger.info("BotService", "🎬 TRADER_GATE PERPS_AUTO_REPLAY enabled=true started=true")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "PerpsAutoReplayLearner start error: ${e.message}", e)
+            }
+        } else {
+            try { com.lifecyclebot.perps.PerpsAutoReplayLearner.stop() } catch (_: Throwable) {}
+            ErrorLogger.info("BotService", "🎬 TRADER_GATE PERPS_AUTO_REPLAY enabled=false started=false (marketsLaneOn=false)")
         }
 
         // V5.7.4: Start Learning Insights Panel for continuous analysis
@@ -2829,6 +2838,24 @@ class BotService : Service() {
             ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
         }
 
+        // V5.9.777 — EMERGENT MEME-ONLY: LiveWalletReconciler periodic tick.
+        // Operator forensics_20260516_014510 showed reconciler.totalChecked=0
+        // and tickAtMs=0 — the wallet-truth reconciler was only invoked on
+        // demand (throttled to 30 s) and had no background loop. The
+        // periodic tick (6 s in LIVE mode) is now the canonical source of
+        // wallet-truth-into-host-tracker hydration. PAPER mode skips it.
+        if (!cfg.paperMode) {
+            try {
+                com.lifecyclebot.engine.sell.LiveWalletReconciler.start { WalletManager.getWallet() }
+                ErrorLogger.info("BotService", "🔄 LiveWalletReconciler periodic tick STARTED for LIVE mode")
+            } catch (e: Throwable) {
+                ErrorLogger.warn("BotService", "LiveWalletReconciler start failed: ${e.message}")
+            }
+        } else {
+            try { com.lifecyclebot.engine.sell.LiveWalletReconciler.stop() } catch (_: Throwable) {}
+            ErrorLogger.info("BotService", "🔄 LiveWalletReconciler tick SKIPPED (paperMode=true)")
+        }
+
         // V5.9.674 — STUCK-LOOP HEARTBEAT WATCHDOG. Operator reported the
         // loop coroutine going silent while still "active" (suspended on
         // a network call that has no timeout — Jupiter / RPC fallback chain
@@ -4539,50 +4566,96 @@ class BotService : Service() {
         // actually drops to 0. Operator: 'still showed 11 as per
         // screen shot with the bot off'. Root cause was these two
         // trackers retaining their counts past stop.
+        // V5.9.777 — EMERGENT MEME-ONLY stop-bot live preservation.
+        // Operator forensics: WC2026 / early / GOAT vanished from host
+        // tracker after a stop/start cycle because clearAll() wiped
+        // live OPEN_TRACKING positions. In LIVE mode we now call
+        // clearPaperOnly() which preserves every live wallet-backed
+        // position (BUY_CONFIRMED / HELD_IN_WALLET / OPEN_TRACKING /
+        // EXIT_SIGNALLED / SELL_PENDING / SELL_VERIFYING). PAPER mode
+        // still uses clearAll() because there's no on-chain truth to
+        // preserve. The lifecycle tracker keeps its existing clearAll
+        // behaviour — it's an ephemeral state machine, not wallet truth.
+        val liveStop = !cfg.paperMode
         try { com.lifecyclebot.engine.TokenLifecycleTracker.clearAll() }
             catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear LifecycleTracker: ${e.message}") }
-        try { com.lifecyclebot.engine.HostWalletTokenTracker.clearAll() }
-            catch (e: Throwable) { ErrorLogger.warn("BotService", "stop-clear HostWalletTracker: ${e.message}") }
+        try {
+            if (liveStop) {
+                com.lifecyclebot.engine.HostWalletTokenTracker.clearPaperOnly()
+            } else {
+                com.lifecyclebot.engine.HostWalletTokenTracker.clearAll()
+            }
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "stop-clear HostWalletTracker: ${e.message}")
+        }
         try {
             ForensicLogger.lifecycle(
                 "STOP_TRACKERS_CLEARED",
-                "lifecycleCleared=true hostCleared=true"
+                "lifecycleCleared=true hostCleared=${if (liveStop) "PAPER_ONLY" else "ALL"} mode=${if (liveStop) "LIVE" else "PAPER"}"
             )
         } catch (_: Throwable) {}
-        addLog("✅ Cleared all layer position tracking + lifecycle/host trackers")
+        addLog("✅ Cleared trackers (host=${if (liveStop) "PAPER_ONLY · live positions preserved" else "ALL"})")
         
         // V5.2.12 FIX: Also clear position.isOpen flags in status.tokens
         // This is what the UI reads - critical to prevent stale position display
         // Note: isOpen is a computed property (qtyToken > 0), so we replace with empty Position
+        //
+        // V5.9.777 — EMERGENT MEME-ONLY: in LIVE mode, do NOT clear live
+        // position flags. The wallet still holds the tokens; clearing the
+        // in-memory flag desyncs the UI from on-chain truth and causes
+        // restart races where paper sells overwrite the live position.
+        // Paper positions are still cleared because there's no on-chain
+        // truth to preserve.
         try {
             synchronized(status.tokens) {
                 status.tokens.values.forEach { ts ->
                     if (ts.position.isOpen) {
-                        ts.position = Position()  // Replace with empty position to clear isOpen
-                        ErrorLogger.debug("BotService", "Cleared position for ${ts.symbol}")
+                        if (liveStop && !ts.position.isPaperPosition) {
+                            // Preserve live wallet-backed position.
+                            ErrorLogger.debug("BotService", "🔒 Preserved LIVE position for ${ts.symbol} on stopBot")
+                        } else {
+                            ts.position = Position()
+                            ErrorLogger.debug("BotService", "Cleared position for ${ts.symbol}")
+                        }
                     }
                 }
             }
-            addLog("✅ Cleared all token position flags")
+            addLog("✅ Cleared token position flags (live positions preserved: $liveStop)")
         } catch (tokensEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing token positions: ${tokensEx.message}", tokensEx)
         }
 
         // V5.6: Clear the watchlist so UI shows clean state after stop
         // Learning data is persisted in trade DB — status.tokens is just the live runtime cache
+        //
+        // V5.9.777 — EMERGENT MEME-ONLY: in LIVE mode, retain mints that
+        // still have an open live position so restart can find them.
         try {
             val _preClearCount = status.tokens.values.count { it.position.isOpen }
             synchronized(status.tokens) {
-                status.tokens.clear()
+                if (liveStop) {
+                    // Retain only live open positions; drop the rest.
+                    val keepKeys = status.tokens.entries.asSequence()
+                        .filter { it.value.position.isOpen && !it.value.position.isPaperPosition }
+                        .map { it.key }
+                        .toSet()
+                    val it = status.tokens.entries.iterator()
+                    while (it.hasNext()) {
+                        if (it.next().key !in keepKeys) it.remove()
+                    }
+                    ErrorLogger.info("BotService", "🔒 stopBot LIVE: retained ${keepKeys.size} open mints in watchlist")
+                } else {
+                    status.tokens.clear()
+                }
             }
-            GlobalTradeRegistry.reset()
+            if (!liveStop) GlobalTradeRegistry.reset()
             try {
                 ForensicLogger.lifecycle(
                     "STOP_TOKENS_CLEARED",
-                    "preClearOpen=$_preClearCount mapSize=${status.tokens.size}"
+                    "preClearOpen=$_preClearCount mapSize=${status.tokens.size} liveStop=$liveStop"
                 )
             } catch (_: Throwable) {}
-            addLog("✅ Cleared watchlist — UI reset to clean state")
+            addLog("✅ Watchlist ${if (liveStop) "trimmed (live mints kept)" else "cleared"}")
         } catch (clearEx: Exception) {
             ErrorLogger.error("BotService", "Error clearing watchlist on stop: ${clearEx.message}", clearEx)
         }
@@ -4707,6 +4780,9 @@ class BotService : Service() {
             // it doesn't keep ticking after Stop and won't survive into
             // the next paper-mode start.
             com.lifecyclebot.engine.sell.SellReconciler.stop()
+            // V5.9.777 — also stop the LiveWalletReconciler periodic tick
+            // on bot stop so it doesn't keep hammering the wallet RPC.
+            try { com.lifecyclebot.engine.sell.LiveWalletReconciler.stop() } catch (_: Throwable) {}
         } catch (_: Throwable) {}
 
         try {

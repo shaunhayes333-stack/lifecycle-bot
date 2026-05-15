@@ -636,4 +636,56 @@ object HostWalletTokenTracker {
         positions.clear()
         try { com.lifecyclebot.engine.ErrorLogger.info(TAG, "🧹 HostWalletTokenTracker.clearAll(): wiped $n entries") } catch (_: Throwable) {}
     }
+
+    /**
+     * V5.9.777 — EMERGENT MEME-ONLY stop-bot live preservation.
+     *
+     * Operator forensics_20260516_014510.json: WC2026, early, GOAT
+     * all reached BUY_VERIFIED_LANDED + TOKEN_TRACKER_OPEN_TRACKING
+     * but then VANISHED from the host tracker. Root cause:
+     * BotService.stopBot() unconditionally called clearAll(), wiping
+     * every live OPEN_TRACKING position alongside paper artefacts.
+     *
+     * This helper removes ONLY paper/closed/dust artefacts and
+     * leaves live wallet-backed positions intact so a stop/start
+     * cycle (or an OS-driven service kill) does not nuke the live
+     * MEME book. Live mints are preserved across stopBot() —
+     * applyWalletSnapshot() will reconcile them on the next start.
+     *
+     * Statuses preserved (live wallet truth):
+     *   BUY_CONFIRMED, HELD_IN_WALLET, OPEN_TRACKING,
+     *   EXIT_SIGNALLED, SELL_PENDING, SELL_VERIFYING
+     *
+     * Statuses cleared:
+     *   UNKNOWN_NEEDS_RECONCILE, DUST_IGNORED, BUY_PENDING,
+     *   SOLD_CONFIRMED, CLOSED — plus everything originating from
+     *   PositionSource.BOT_BUY in PAPER context (those statuses
+     *   don't survive past CLOSED so this is implicit).
+     */
+    @Synchronized
+    fun clearPaperOnly() {
+        val before = positions.size
+        val livePreserved = OPEN_STATUSES + setOf(
+            PositionStatus.SELL_PENDING,
+            PositionStatus.SELL_VERIFYING,
+        )
+        val it = positions.entries.iterator()
+        var removed = 0
+        var kept = 0
+        while (it.hasNext()) {
+            val e = it.next()
+            if (e.value.status in livePreserved) {
+                kept++
+            } else {
+                it.remove()
+                removed++
+            }
+        }
+        try {
+            com.lifecyclebot.engine.ErrorLogger.info(
+                TAG,
+                "🧹 HostWalletTokenTracker.clearPaperOnly(): before=$before removed=$removed liveKept=$kept",
+            )
+        } catch (_: Throwable) {}
+    }
 }

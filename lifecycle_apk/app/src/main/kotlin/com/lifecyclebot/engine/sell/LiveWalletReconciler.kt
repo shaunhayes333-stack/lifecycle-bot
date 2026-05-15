@@ -42,6 +42,18 @@ object LiveWalletReconciler {
     private const val TAG = "LiveWalletReconciler"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // V5.9.777 — EMERGENT MEME-ONLY periodic tick.
+    // Operator forensics: reconciler.totalChecked=0 / tickAtMs=0 because
+    // the reconciler was only invoked on demand via reconcileNow(), which
+    // is throttled. There was no background tick keeping the host tracker
+    // in sync. We now start a periodic loop (5–8 s in LIVE mode, off in
+    // PAPER) that pulls wallet truth into the trackers continuously.
+    @Volatile private var isStarted = false
+    @Volatile private var tickJob: kotlinx.coroutines.Job? = null
+    @Volatile var lastTickAtMs: Long = 0L
+        private set
+    private const val LIVE_TICK_INTERVAL_MS = 6_000L
+
     // ── Operator-facing telemetry (drives the forensics export) ────────────
     private val totalChecked = AtomicInteger(0)
     private val totalUpdated = AtomicInteger(0)
@@ -101,6 +113,53 @@ object LiveWalletReconciler {
 
     /** Operator/test diagnostic for the throttle. */
     fun skippedDueToCooldown(): Int = skippedDueToCooldown.get()
+
+    /** V5.9.777 — diagnostic for ForensicReportExporter. */
+    fun isStarted(): Boolean = isStarted
+
+    /**
+     * V5.9.777 — start the periodic LIVE wallet-truth tick.
+     *
+     * Called from BotService.startBot() when paperMode == false. Pulls
+     * wallet token accounts every 6 s on Dispatchers.IO and pushes the
+     * snapshot through HostWalletTokenTracker.applyWalletSnapshot() +
+     * TokenLifecycleTracker. Bypasses the 30 s reconcileNow() throttle
+     * (which was designed to suppress 70+ per-token bursts from
+     * processTokenCycle, not a single coordinated periodic tick).
+     */
+    fun start(walletProvider: () -> SolanaWallet?) {
+        if (isStarted) return
+        isStarted = true
+        tickJob = scope.launch {
+            try {
+                ErrorLogger.info(TAG, "🔄 LiveWalletReconciler periodic tick STARTED (interval=${LIVE_TICK_INTERVAL_MS}ms)")
+                // Warm-up: one immediate reconcile so first FDG cycle has truth.
+                walletProvider()?.let {
+                    try { reconcileBlocking(it, "tick_warmup") } catch (_: Throwable) {}
+                }
+                while (isStarted) {
+                    try { kotlinx.coroutines.delay(LIVE_TICK_INTERVAL_MS) } catch (_: Throwable) {}
+                    if (!isStarted) break
+                    val w = walletProvider() ?: continue
+                    try {
+                        reconcileBlocking(w, "tick")
+                        lastTickAtMs = System.currentTimeMillis()
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn(TAG, "periodic tick threw: ${e.message?.take(80)}")
+                    }
+                }
+            } finally {
+                ErrorLogger.info(TAG, "🛑 LiveWalletReconciler periodic tick STOPPED")
+            }
+        }
+    }
+
+    /** Stop the periodic tick. Idempotent. */
+    fun stop() {
+        isStarted = false
+        try { tickJob?.cancel() } catch (_: Throwable) {}
+        tickJob = null
+    }
 
     /** Synchronous variant used by tests + bot-start path. */
     fun reconcileBlocking(wallet: SolanaWallet, reason: String): Int {
