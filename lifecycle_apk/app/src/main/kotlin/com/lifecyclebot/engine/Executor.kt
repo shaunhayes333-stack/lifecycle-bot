@@ -61,20 +61,36 @@ object WrRecoveryPartial {
     /**
      * Returns the effective first-partial trigger pct.
      * Returns [normalTrigger] unchanged when recovery mode is not active.
+     *
+     * V5.9.770 — counters source moved from `CanonicalLearningCounters`
+     * (in-memory AtomicLong(0), wiped on every process death) to
+     * `TradeHistoryStore.getLifetimeStats()` (SQLite-persisted). The
+     * old source meant a fresh install or backgrounded-then-revived
+     * service saw total<50 and disabled recovery, even when the
+     * persisted WR (e.g. 27% over 2074 W/L) was deep below phase
+     * target. Operator screenshot 2026-05-15 21:14 showed
+     * "27% Win Rate · 2981 Trades · target 44.9%" with no
+     * 🚑 WR recovery tag because the in-memory counters were near
+     * zero. The persisted lifetime stats already power every other
+     * UI surface (the readiness tile uses them directly), so this
+     * change keeps the recovery logic in sync with what the operator
+     * actually sees on screen.
      */
     fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
         if (partialLevel != 0) return normalTrigger          // only override first rung
         if (profitLockTriggered) return normalTrigger        // already locked — let it ride
 
-        val wins   = CanonicalLearningCounters.settledWins.get().toDouble()
-        val losses = CanonicalLearningCounters.settledLosses.get().toDouble()
+        val stats = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+        } catch (_: Throwable) { null }
+        val wins   = (stats?.totalWins ?: 0).toDouble()
+        val losses = (stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
         if (total < 50.0) return normalTrigger              // too few trades for reliable WR signal
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
         val targetWR  = try {
-            val trades = (wins + losses).toInt()
-            com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(trades)
+            com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt())
         } catch (_: Exception) { 30.0 }
 
         if (targetWR <= 0.0) return normalTrigger           // phase has no WR target yet
@@ -92,10 +108,13 @@ object WrRecoveryPartial {
         return recoveryTrigger
     }
 
-    /** Human-readable status for logs */
+    /** Human-readable status for logs (V5.9.770 — persisted source). */
     fun statusTag(): String {
-        val wins   = CanonicalLearningCounters.settledWins.get().toDouble()
-        val losses = CanonicalLearningCounters.settledLosses.get().toDouble()
+        val stats = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+        } catch (_: Throwable) { null }
+        val wins   = (stats?.totalWins ?: 0).toDouble()
+        val losses = (stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
         if (total < 50) return "WR_RECOVERY:insufficient_data"
         val wr     = (wins / total) * 100.0
