@@ -276,8 +276,17 @@ class Executor(
     // pushed one big method past the JVM 64 KB bytecode limit
     // (Kotlin "Couldn't transform method node" failure on V5.9.779/780).
     // These two collapse every call back to a single virtual dispatch.
-    private fun isPaperRT(): Boolean = isPaperRT()
-    private fun isLiveRT(): Boolean = isLiveRT()
+    //
+    // V5.9.786 — CRITICAL FIX:
+    //   V5.9.780a shipped these as `private fun isPaperRT(): Boolean = isPaperRT()`
+    //   — INFINITE RECURSION. Kotlin accepted it (a function may call itself), so
+    //   CI was green, but every runtime call StackOverflowError'd. Effects:
+    //     1. EXEC_PAPER_BUY_OK=0 — paperBuy()/openPosition mode checks crashed,
+    //        silently dropping every FDG-approved trade (36 allow → 0 exec).
+    //     2. BOTLOOP_RESCUE_THREW=58/60 — bot loop mode checks crashed every tick.
+    //   The intent (per V5.9.780a commit message) was to call RuntimeModeAuthority.
+    private fun isPaperRT(): Boolean = RuntimeModeAuthority.isPaper()
+    private fun isLiveRT(): Boolean = RuntimeModeAuthority.isLive()
 
     
     // ═══════════════════════════════════════════════════════════════════════════
