@@ -1550,6 +1550,15 @@ class Executor(
                         "tradeSize" to trade.sol,
                         "holdSec" to (holdSec?.toDouble() ?: 0.0),
                     )
+                    // V5.9.785 — operator audit Wave 5 producer sweep: build a
+                    // feature-rich CandidateFeatures payload from TokenState +
+                    // Trade + mode + source so BehaviorLearning / AdaptiveLearning
+                    // / MetaCognitionAI can pattern-match on venue/route/safety/
+                    // age/liq/mcap instead of training on legacy bridge stubs.
+                    val envEnum = if (isPaperEnv) com.lifecyclebot.engine.TradeEnvironment.PAPER
+                                  else com.lifecyclebot.engine.TradeEnvironment.LIVE
+                    val (candFeatures, isIncomplete) = com.lifecyclebot.engine.CanonicalFeaturesBuilder
+                        .fromTokenState(ts, trade, modeEnum, sourceEnum, envEnum)
                     val rich = com.lifecyclebot.engine.CanonicalTradeOutcome(
                         tradeId = tradeId,
                         mint = ts.mint,
@@ -1557,7 +1566,7 @@ class Executor(
                         assetClass = assetClassEnum,
                         mode = modeEnum,
                         source = sourceEnum,
-                        environment = if (isPaperEnv) com.lifecyclebot.engine.TradeEnvironment.PAPER else com.lifecyclebot.engine.TradeEnvironment.LIVE,
+                        environment = envEnum,
                         entryTimeMs = ts.position.entryTime,
                         exitTimeMs = trade.ts,
                         entryPrice = ts.position.entryPrice,
@@ -1575,6 +1584,8 @@ class Executor(
                         executionResult = executionEnum,
                         closeReason = trade.reason.ifBlank { null },
                         featuresAtEntry = features,
+                        candidate = candFeatures,
+                        featuresIncomplete = isIncomplete,
                     )
                     com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished(tradeId)
                     com.lifecyclebot.engine.CanonicalOutcomeBus.publish(rich)
