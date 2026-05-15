@@ -227,6 +227,16 @@ object LiveTradeLogStore {
         TOKEN_TRACKER_CLOSED,
         TOKEN_TRACKER_DUST_LEFT,
         WATCHLIST_PROTECT_HELD_TOKEN,
+        /** V5.9.765 — EMERGENT priority 6. Operator forensics_20260515_161017
+         *  showed 276 WATCHLIST_PROTECT_HELD_TOKEN events for tokens that
+         *  were NEVER wallet-held (BLACKLIST_SHADOW, Rugcheck shadows,
+         *  drained-zombie shadows). The HELD_TOKEN wording implies wallet
+         *  inventory; in reality these are intake-blacklisted candidates
+         *  the bot is just refusing to drop from the protected list. New
+         *  enum disambiguates the two cases — WATCHLIST_PROTECT_HELD_TOKEN
+         *  stays for genuine wallet-held tokens (balance > 0); this new
+         *  value covers everything else. */
+        WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
         POSITION_COUNT_RECONCILED,
 
         // Sweep phases (shutdown wallet liquidation)

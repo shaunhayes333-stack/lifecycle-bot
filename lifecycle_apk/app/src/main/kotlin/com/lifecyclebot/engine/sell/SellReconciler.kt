@@ -50,6 +50,11 @@ object SellReconciler {
     @Volatile var totalTicks: Long = 0L
     /** Cumulative open positions inspected across all ticks. */
     @Volatile var totalChecked: Long = 0L
+    /** V5.9.765 — count of consecutive ticks where a mint has price=0 so we
+     *  can emit a PRICE_STALE_LIVE_POSITION anomaly after the second tick. */
+    private val zeroPriceStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    /** V5.9.765 — only emit one RECONCILER_START forensic event per service lifecycle. */
+    @Volatile private var startEventEmitted: Boolean = false
 
     /** Idempotent start. Caller (BotService) re-invokes whenever mode or
      *  wallet changes; we restart cleanly. */
@@ -64,6 +69,21 @@ object SellReconciler {
         }
         val newJob = scope.launch(Dispatchers.IO) {
             ErrorLogger.info("SellReconciler", "🩹 SellReconciler started (10s tick, LIVE mode)")
+            // V5.9.765 — EMERGENT priority 1 + acceptance test D: one-shot
+            // RECONCILER_START forensic event so operator dumps prove the
+            // watchdog has actually engaged (operator forensics_20260515_161017
+            // showed reconciler.totalChecked = 0 with 2 open live positions —
+            // the legacy LiveWalletReconciler was throttled out by the
+            // 30 s gap, but the new SellReconciler's tick proves it ran).
+            if (!startEventEmitted) {
+                startEventEmitted = true
+                try {
+                    ForensicLogger.lifecycle(
+                        "RECONCILER_START",
+                        "intervalMs=$TICK_INTERVAL_MS paperMode=$isPaperMode walletPresent=true",
+                    )
+                } catch (_: Throwable) {}
+            }
             while (isActive) {
                 try { tickOnce() } catch (e: Throwable) {
                     ErrorLogger.warn("SellReconciler", "tick error: ${e.message}")
@@ -102,12 +122,70 @@ object SellReconciler {
             try { w.getTokenAccountsWithDecimals() } catch (_: Throwable) { emptyMap() }
         }
 
+        // V5.9.765 — EMERGENT priority 2: live price hydration for every
+        // OPEN_TRACKING position. Operator forensics_20260515_161017 showed
+        // HIM and CABAL stuck at currentPriceUsd = 0.0 — no maxGainPct,
+        // no drawdown, no exit eligibility. The host_tracker has a
+        // recordPriceUpdate(mint, priceUsd, gainPct) hook; we just need
+        // to call it. DexscreenerApi.batchPriceFetch accepts up to 30
+        // mints per HTTP call, respects the global rate-limiter.
+        val openMints = open.map { it.mint }
+        val priceMap: Map<String, Double> = try {
+            if (openMints.isEmpty()) emptyMap()
+            else withContext(Dispatchers.IO) {
+                com.lifecyclebot.network.DexscreenerApi.batchPriceFetch(openMints)
+            }
+        } catch (_: Throwable) { emptyMap() }
+
         for (pos in open) {
-            try { reconcileOne(pos, tokens) } catch (e: Throwable) {
+            try {
+                hydratePrice(pos, priceMap)
+                reconcileOne(pos, tokens)
+            } catch (e: Throwable) {
                 ErrorLogger.warn("SellReconciler", "reconcileOne(${pos.mint.take(10)}): ${e.message}")
             }
         }
         SellJobRegistry.pruneTerminal()
+    }
+
+    /** V5.9.765 — push fresh DexScreener price into host_tracker fields and
+     *  emit anomaly events when a mint stays at price=0 across multiple
+     *  ticks. */
+    private fun hydratePrice(
+        pos: HostWalletTokenTracker.TrackedTokenPosition,
+        priceMap: Map<String, Double>,
+    ) {
+        val priceUsd = priceMap[pos.mint] ?: 0.0
+        val entry = pos.entryPriceUsd ?: 0.0
+        if (priceUsd > 0.0) {
+            val gainPct = if (entry > 0.0) ((priceUsd - entry) / entry) * 100.0 else 0.0
+            HostWalletTokenTracker.recordPriceUpdate(pos.mint, priceUsd, gainPct)
+            zeroPriceStreak.remove(pos.mint)
+            return
+        }
+        // Price returned 0 (no DS pair OR rate-limit denied the batch).
+        // Track the consecutive zero-tick streak so we emit anomaly events
+        // only after the price has actually stalled — single-tick blips
+        // due to RateLimiter denials are normal and not worth screaming
+        // about. Threshold = 2 ticks ≈ 20s without any DS pair update.
+        val newStreak = (zeroPriceStreak[pos.mint] ?: 0) + 1
+        zeroPriceStreak[pos.mint] = newStreak
+        if (newStreak == 2) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PRICE_STALE_LIVE_POSITION",
+                    "mint=${pos.mint.take(10)} symbol=${pos.symbol} streakTicks=$newStreak entry=$entry",
+                )
+                // V5.9.765 — EMERGENT priority 5 anomaly emission. The
+                // existing forensics_events array in the export was empty
+                // despite obvious faults; emitting this anomaly under a
+                // dedicated tag means the exporter picks it up.
+                ForensicLogger.lifecycle(
+                    "LIVE_POSITION_PRICE_ZERO",
+                    "mint=${pos.mint.take(10)} symbol=${pos.symbol} ticksWithoutPrice=$newStreak",
+                )
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun reconcileOne(

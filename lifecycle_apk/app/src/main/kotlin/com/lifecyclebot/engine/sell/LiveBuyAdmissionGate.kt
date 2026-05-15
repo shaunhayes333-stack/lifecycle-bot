@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine.sell
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.NotificationHistory
 import com.lifecyclebot.engine.PipelineTracer
 import com.lifecyclebot.engine.SafetyTier
@@ -48,6 +49,15 @@ object LiveBuyAdmissionGate {
      * ticket.
      */
     const val SAFETY_STALE_MS = 120_000L
+
+    /** V5.9.765 — EMERGENT priority 4. Operator forensics_20260515_161017
+     *  showed 17 BUY_FAILED LIVE_BUY_BLOCKED_RISK[liveBuy.main] events
+     *  in ~1.28 seconds — all SAFETY_DATA_MISSING duplicates for a
+     *  handful of mints. The block path was firing once per scanner
+     *  visit. This cooldown ensures one clean block event per mint per
+     *  COOLDOWN_MS window. Cooldown TTL of 60s matches operator spec. */
+    private const val BLOCK_COOLDOWN_MS = 60_000L
+    private val recentBlockEmits = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Result of an admission attempt. */
     sealed class Decision {
@@ -111,6 +121,34 @@ object LiveBuyAdmissionGate {
         onLog: (String, String) -> Unit,
         onNotify: (String, String, NotificationHistory.NotifEntry.NotifType) -> Unit,
     ) {
+        // V5.9.765 — EMERGENT priority 4. Suppress duplicate block events
+        // for the same mint inside BLOCK_COOLDOWN_MS so a single
+        // SAFETY_DATA_MISSING does not generate 17 BUY_FAILED rows per
+        // scan burst. We still RETURN Blocked — the upstream caller's
+        // guarantee that no buy proceeds is preserved. Only the forensic
+        // / notification / pipeline-tracer side-effects are skipped on
+        // the duplicate path. Emits a one-time LIVE_BUY_DEDUPE_DROP
+        // forensic so dumps still show that the spam was caught.
+        val now = System.currentTimeMillis()
+        val prevAt = recentBlockEmits[ts.mint]
+        if (prevAt != null && (now - prevAt) < BLOCK_COOLDOWN_MS) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_DEDUPE_DROP",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reasonCode ageMs=${now - prevAt}",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        recentBlockEmits[ts.mint] = now
+        // Opportunistic prune so the map can't grow unbounded across long
+        // sessions. Cheap O(n) scan only when we add a new entry.
+        if (recentBlockEmits.size > 256) {
+            val cutoff = now - BLOCK_COOLDOWN_MS
+            val it = recentBlockEmits.entries.iterator()
+            while (it.hasNext()) if (it.next().value < cutoff) it.remove()
+        }
+
         val fullReason = "$reasonCode: $detail"
         ErrorLogger.warn(TAG,
             "[EXECUTION/LIVE_BUY_BLOCKED_RISK] callSite=$callSite ${ts.symbol} mint=${ts.mint.take(12)}… reason=$fullReason")

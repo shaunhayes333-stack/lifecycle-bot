@@ -8577,12 +8577,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 // stale/idle/wait/flat states are summarized below so a 500-token
                 // bench does not create its own logging/IO choke.
                 try {
+                    // V5.9.765 — EMERGENT priority 6. Intake hard-shadow
+                    // protection is NOT a wallet-held situation; route via
+                    // the BLACKLISTED enum so the dump no longer claims
+                    // the operator's wallet holds 276 of these.
                     LiveTradeLogStore.log(
                         tradeKey = "INTAKE_${mint.take(16)}",
                         mint = mint,
                         symbol = ts?.symbol ?: mint.take(6),
                         side = "INFO",
-                        phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+                        phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
                         message = "🛡 protected intake hard-shadow · $phase · $message",
                         traderTag = "INTAKE",
                     )
@@ -9272,7 +9276,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     mint = ts.mint,
                     symbol = ts.symbol,
                     side = "INFO",
-                    phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_HELD_TOKEN,
+                    phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
                     message = "🛡 drained zombie shadow-only retained in protected intake",
                     traderTag = "INTAKE",
                 )
