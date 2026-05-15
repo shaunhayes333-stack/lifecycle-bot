@@ -5722,9 +5722,32 @@ class BotService : Service() {
         }
 
         // V5.9.768 — per-mint intake dedupe (see field-doc above).
+        // V5.9.769 — even on a dedupe hit we MUST still let liq/mcap freshness
+        // propagate to the existing TokenState. The original (V5.9.768) early
+        // return was discarding fresh Raydium liq=$23,579 for SOLMAN because
+        // a PUMP_PORTAL_WS hit had already seeded liq=$2,311 inside the 30s
+        // window, leaving FDG to evaluate against the stale $2,311 value
+        // (which sat just below the $2,100 SHITCOIN floor). Max-take
+        // semantics: never overwrite a higher value with a lower one.
         val nowMs = System.currentTimeMillis()
         val prevAt = intakeLastAcceptMs[mint]
         if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
+            // V5.9.769 — freshness max-take even on dedupe hits.
+            if (liquidityUsd > 0.0 || marketCapUsd > 0.0) {
+                try {
+                    synchronized(status.tokens) {
+                        val tsExisting = status.tokens[mint]
+                        if (tsExisting != null) {
+                            if (liquidityUsd > tsExisting.lastLiquidityUsd) {
+                                tsExisting.lastLiquidityUsd = liquidityUsd
+                            }
+                            if (marketCapUsd > tsExisting.lastMcap) {
+                                tsExisting.lastMcap = marketCapUsd
+                            }
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
             val cnt = (intakeDedupCount[mint] ?: 0) + 1
             intakeDedupCount[mint] = cnt
             // Emit ONE dedupe forensic per mint per TTL window so the dump
@@ -5800,10 +5823,15 @@ class BotService : Service() {
                 // getOrPut initializer above is the authority for first hydrate.
                 if (ts.source.isBlank()) ts.source = joinedSources
 
-                if (liquidityUsd > 0.0 && ts.lastLiquidityUsd <= 0.0) {
+                if (liquidityUsd > ts.lastLiquidityUsd) {
+                    // V5.9.769 — max-take semantics (was `<= 0.0` guard, which
+                    // froze stale low-liq seeds and starved FDG). Fresh higher
+                    // liquidity from any source (DexScreener/Raydium) always
+                    // wins over older Pump-portal/WS seeds.
                     ts.lastLiquidityUsd = liquidityUsd
                 }
-                if (marketCapUsd > 0.0 && ts.lastMcap <= 0.0) {
+                if (marketCapUsd > ts.lastMcap) {
+                    // V5.9.769 — max-take (was `<= 0.0`).
                     ts.lastMcap = marketCapUsd
                 }
                 // V5.9.655 — operator triage: 391 of 392 PumpPortal tokens
