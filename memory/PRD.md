@@ -29,6 +29,94 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.774 — Live sell triage RCA (NOT a regression; visibility + 1 dust-bug) (May 15)
+Operator escalation against forensics_20260508_071749.json claiming
+6 unsafe-sell issues + "the triage agent and I had live buying and
+selling working perfectly. I want the triage agent to check it again."
+
+Triage agent verdict: NOT a full regression.
+  - SellJobRegistry state machine (V5.9.767) intact end-to-end.
+  - V5.9.766 upstream FDG safety gate firing correctly (29 blocks
+    in operator dump).
+  - V5.9.765 per-mint executor dedupe working (21 drops).
+  - V5.9.769 max-take liquidity freshness alive.
+  - V5.9.773 shadowPaperEnabled now false by default.
+  - V5.9.772 Treasury Scalps respect global mode.
+
+Real bugs found (only 2):
+
+1) ForensicReportExporter exports PositionWalletReconciler (phantom-
+   detection) stats but NOT SellReconciler (live-wallet sync) stats.
+   Operator's "reconciler.totalChecked=0" was a visibility bug; the
+   live SellReconciler.tick() is running every 10s. Added new
+   `sell_reconciler` block with totalTicks, totalChecked,
+   lastTickAtMs, isStarted, activeJobs(=SellJobRegistry size).
+   New @Volatile fields on SellReconciler: lastTickAtMs, isStarted.
+
+2) Executor.kt:8709 `tokenUnits = actualRawUnits.coerceAtLeast(1L)`
+   could force a 1-raw-unit broadcast when actualBalanceUi was so
+   dust that raw floor-divided to 0. Added explicit
+   `if (actualRawUnits <= 0L) return FAILED_RETRYABLE` with
+   DUST_BALANCE_NO_BROADCAST forensic emit.
+
+Still in play for future cycles (operator's required-changes A-F):
+  A. SellAmountAuthority unified resolver class extraction
+  B. PumpPortal partial-sell disable + 95% gate
+  C. TREASURY_TAKE_PROFIT default-fraction audit
+  D. Caller-side RAPID_TRAILING_STOP rate limit
+  E. Reconciler hooks on buy-verify + sell-broadcast
+  F. STATE_DOWNGRADE_BLOCKED audit
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on 9ca9ea7eb.
+
+### V5.9.773 — "wtf paper or live" definitive UX fix (May 15)
+Operator: "I'M LIVE YET ALL I SEE IS PAPER TRADES WHAT THE FUCK"
+
+Troubleshoot agent RCA: bot was in PAPER mode all along
+(PipelineHealthCollector modeSnapshot=PAPER). Operator read
+"🟢 LIVE READY · Jupiter + Pyth healthy" banner and thought
+they were live. Plus shadowPaperEnabled defaulted to true.
+
+Three surgical fixes:
+  1. LiveReadinessChecker banner: "LIVE READY" → "APIs READY"
+  2. MainActivity.kt:1806 balance bar shows explicit big chip:
+     "📝 PAPER MODE ◎ 0.3944" or "🔴 LIVE MODE ◎ 0.3944"
+  3. BotConfig.shadowPaperEnabled default true → false. Operator
+     must explicitly opt in to shadow learning.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on d42927e74.
+
+### V5.9.772 — Treasury Scalps respect global trade mode (May 15)
+Root cause (CyclicTradeEngine.kt:121-122): isLiveMode formula only
+checked cyclic-specific flags, never cfg.paperMode. In live mode
+without cyclic-live opt-in, Treasury fired paper trades that bled
+into live UI.
+
+Fix:
+  globalLive = !cfg.paperMode
+  if (globalLive && !cyclicLiveOptedIn) skip tick (no paper bleed)
+  else isLiveMode = globalLive
+New forensic: LIFECYCLE/TREASURY_LIVE_NOT_OPTED_IN
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on ba3930ed6.
+
+### V5.9.771 — Surgical 6-in-1 EMERGENT MEME (May 15)
+Operator: "EMERGENT — MEME TRADER ONLY. surgical one push not 7."
+All 9 critical findings addressed in a single commit:
+  1. data/CanonicalMint.kt new — single mint-key + BLOCKED_MEME_SYMBOLS
+  2. admitProtectedMemeIntake blocked-symbol final enforcement at entry
+  3. MainActivity.buildUnifiedOpenPositions mode-filtered by
+     position.isPaperPosition == state.config.paperMode
+  4. SolanaWallet.rpc()/getSolBalance() throw on Dispatchers.Main +
+     WALLET_RPC_ON_MAIN_THREAD forensic
+  5. Executor.paperBuy() entry hard-block when !cfg.paperMode &&
+     !cfg.shadowPaperEnabled
+  6. PipelineHealthCollector interpretation derived from actual
+     top reasons (FDG block reason, ANR severity from frame gap,
+     LIVE-mode + EXEC_PAPER_BUY_OK → MODE CONTAMINATION)
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on 6160642dc.
+
 ### V5.9.770 — pivot WR-Recovery counters from in-memory to persisted source (May 15)
 Operator screenshots 2026-05-15 21:14 — Main dashboard showed
 WR=27% (575W / 1499L / 907S = 2981 trades), Phase 4 target 44.9%.
