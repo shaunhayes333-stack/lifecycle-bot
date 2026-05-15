@@ -90,14 +90,6 @@ object ProjectSniperAI {
     // Active missions
     private val activeMissions = ConcurrentHashMap<String, SniperMission>()
     
-    /** V5.9.763 — UI access for the unified Open Positions panel.
-     *  Operator screenshot V5.9.761: HIM was held by Project Sniper at
-     *  -16.5% (live mode), visible in the Sniper card but ABSENT from
-     *  the main Open Positions panel. Root cause: MainActivity's
-     *  buildUnifiedOpenPositions never walked this lane. This getter
-     *  exposes the missions snapshot so the unifier can surface them. */
-    fun getActiveMissions(): List<SniperMission> = activeMissions.values.toList()
-    
     // Cooldown tracking - don't re-snipe same token
     private val recentTargets = ConcurrentHashMap<String, Long>()
     
