@@ -29,6 +29,67 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.764 EMERGENT CRITICAL — sell-job state machine + qty-guard + reconciler (May 15)
+Operator forensics_20260515_151634.json: HIM live full sell qty=122210.6058
+retried at qty=1331.4409 (1.1%); CABAL qty=7330.5470 retried at qty=88.5843
+(1.2%). `last_sell_signature` empty for both — no sell ever landed. Sell-lock
+spammed SELL_BLOCKED_ALREADY_IN_PROGRESS, reconciler.totalChecked = 0. Real
+live SOL at risk.
+
+Full EMERGENT spec A–F shipped as ONE surgical push:
+
+NEW FILES
+- engine/sell/SellJobRegistry.kt
+  - data class SellJob + enums SellJobStatus / SellJobMode per spec.
+  - LOCK_TTL_MS = 60s. isLockedAndFresh() auto-demotes to FAILED_RETRYABLE
+    and emits SELL_LOCK_STALE_FORCE_RELEASED past TTL.
+  - SellQtyGuard.guard(): blocks any FULL_EXIT-class broadcast whose qty
+    is < 90% of authoritative wallet balance. Reasons matched:
+    RUG, CATASTROPHE, HARD_FLOOR, HARD_STOP, STARTUP_SWEEP,
+    FALLBACK_ORPHAN, STRICT_SL, TREASURY_STOP_LOSS,
+    STALE_LIVE_PRICE_RUG_ESCAPE, MANUAL, FULL_EXIT, EMERGENCY,
+    STOP_LOSS, DRAIN, LIQUIDITY_COLLAPSE. Emits
+    SELL_RETRY_QTY_CHANGED_BLOCKED + SELL_RETRY_FULL_BALANCE.
+
+- engine/sell/SellReconciler.kt
+  - 10s tick in LIVE mode only.
+  - Scans HostWalletTokenTracker.getOpenTrackedPositions(), one wallet
+    read per pass via SolanaWallet.getTokenAccountsWithDecimals().
+  - balance == 0  -> tracker closed, SELL_VERIFY_BALANCE_ZERO emitted.
+  - balance > 0 past TTL -> registry force-release + RECONCILER_EXIT_REQUEUED.
+  - Emits RECONCILER_TICK / RECONCILER_OPEN_CHECKED every tick.
+
+MODIFIED
+- engine/Executor.kt: SellQtyGuard.guard() called right after the on-chain
+  qty override (line 8649). SellJobRegistry.getOrCreate() called next.
+  acquireSellLock/releaseSellLock emit SELL_LOCK_SET / SELL_LOCK_RELEASED.
+- engine/BotService.kt: startBot launches SellReconciler; stopBot tears down.
+- engine/PipelineHealthCollector.kt: BUILD_TAG -> V5.9.764. All new
+  LIFECYCLE/SELL_* and LIFECYCLE/RECONCILER_* counters auto-pinned via the
+  existing onLifecycle -> labelCounts -> render pipeline (V5.9.677 infra).
+
+CI: Build AATE APK ✅ GREEN on b87d5f06c.
+
+### V5.9.763 — surface live positions from Project Sniper + Manipulated lanes (May 15)
+Operator screenshot V5.9.761: HIM held by Project Sniper at -16.5% (live mode)
+visible in lane card but absent from unified Open Positions panel. Root cause:
+buildUnifiedOpenPositions walked only ShitCoin/Quality/Moonshot.
+- ProjectSniperAI getActiveMissions() already existed (line 583).
+- MainActivity.buildUnifiedOpenPositions now walks Sniper missions + Manipulated
+  positions with proper isPaper flag derivation.
+
+### V5.9.762 EMERGENT CRITICAL #1 — heartbeat/rescue rewrite (May 15)
+Operator V5.9.761 dump: 104 RESCUE events, GlobalScope band-aid, BOTLOOP
+ripped out of slow-but-healthy cycles by spurious cancels. Surgical rewrite
+of ACTION_LOOP_HEARTBEAT:
+- New state: loopJobLock (CAS), lastProgressAtMs (volatile), currentPhase
+  (volatile), activePhaseSet, rescueProgressGraceMs=180s.
+- markProgress(phase) wired into emitBotLoopTick + ENTER + PRE_SUPERVISOR +
+  SUPERVISOR + POST_SUPERVISOR + EXIT_SWEEP + IDLE + CYCLE_EXIT.
+- New decision tree: HEARTBEAT_OK / HEARTBEAT_SLOW_NO_RESCUE /
+  HEARTBEAT_RESCUE_SUPPRESSED_ACTIVE_PHASE / RESCUE_DENIED_EXISTING_JOB /
+  RESCUE_RELAUNCHED_SERVICE_SCOPE. NO GlobalScope, NO ACTION_START fallback.
+
 ### V5.9.761 — Meme sub-trader paper-mode leak (operator regression) (May 15)
 Operator report: "in the meme trader when running live there are still
 traders running in paper mode!! check all".
