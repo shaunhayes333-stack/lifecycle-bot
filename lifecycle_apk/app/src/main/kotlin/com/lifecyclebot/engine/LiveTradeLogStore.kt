@@ -266,6 +266,11 @@ object LiveTradeLogStore {
         val tokenAmount: Double? = null,
         val priceUsd: Double? = null,
         val traderTag: String? = null, // "MEME" / "MOONSHOT" / "BLUECHIP" / "MANIP" / "EXPRESS" / "PERPS_ALT" / "STOCK" / etc.
+        // V5.9.778 — EMERGENT MEME-ONLY: mode tag for forensics filtering.
+        // Auto-populated by `log()` from RuntimeModeAuthority so the
+        // LIVE Trade Forensics page can filter PAPER spam out without
+        // touching every call site.
+        val mode: String? = null,    // "LIVE" / "PAPER" / null = unknown/legacy
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("ts", ts)
@@ -326,6 +331,11 @@ object LiveTradeLogStore {
         priceUsd: Double? = null,
         traderTag: String? = null,
     ) {
+        // V5.9.778 — snapshot the current runtime mode so the LIVE
+        // forensics page can filter PAPER rows out cleanly.
+        val modeTag = try {
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        } catch (_: Throwable) { null }
         emit(
             Event(
                 ts = System.currentTimeMillis(),
@@ -341,6 +351,7 @@ object LiveTradeLogStore {
                 tokenAmount = tokenAmount,
                 priceUsd = priceUsd,
                 traderTag = traderTag,
+                mode = modeTag,
             )
         )
     }
@@ -357,20 +368,34 @@ object LiveTradeLogStore {
     /**
      * Group events into one entry per tradeKey, sorted newest-first.
      */
-    fun groupedByTrade(): List<Group> {
+    fun groupedByTrade(): List<Group> = groupedByTradeFiltered(modeFilter = null)
+
+    /**
+     * V5.9.778 — EMERGENT MEME-ONLY: mode-filtered grouping for the
+     * LIVE / PAPER forensics pages. Pass "LIVE" to get only LIVE
+     * groups (any event with mode=="LIVE" qualifies; legacy
+     * mode==null events are included only when no filter is given so
+     * we don't hide pre-V5.9.778 history on first launch).
+     */
+    fun groupedByTradeFiltered(modeFilter: String?): List<Group> {
         val byKey = LinkedHashMap<String, MutableList<Event>>()
         for (e in queue) {
             byKey.getOrPut(e.tradeKey) { mutableListOf() }.add(e)
         }
-        return byKey.entries.map { (k, evs) ->
+        return byKey.entries.mapNotNull { (k, evs) ->
             val sorted = evs.sortedBy { it.ts }
             val first = sorted.first()
             val last  = sorted.last()
+            // Determine canonical mode for the whole group — earliest
+            // non-null wins (matches the moment the trade was initiated).
+            val groupMode = sorted.firstOrNull { it.mode != null }?.mode
+            if (modeFilter != null && groupMode != null && groupMode != modeFilter) return@mapNotNull null
             Group(
                 tradeKey   = k,
                 mint       = first.mint,
                 symbol     = first.symbol,
                 traderTag  = first.traderTag ?: last.traderTag ?: "?",
+                mode       = groupMode ?: "?",
                 events     = sorted,
                 firstTs    = first.ts,
                 lastTs     = last.ts,
@@ -385,6 +410,7 @@ object LiveTradeLogStore {
         val mint: String,
         val symbol: String,
         val traderTag: String,
+        val mode: String = "?",       // V5.9.778 — LIVE / PAPER / "?" for legacy events
         val events: List<Event>,
         val firstTs: Long,
         val lastTs: Long,

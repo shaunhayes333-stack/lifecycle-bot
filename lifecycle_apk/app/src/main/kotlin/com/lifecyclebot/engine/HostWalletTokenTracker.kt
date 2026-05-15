@@ -48,6 +48,14 @@ object HostWalletTokenTracker {
     /** SOL native mint — always excluded from the tracker. */
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
 
+    // V5.9.778 — EMERGENT MEME-ONLY: manual-swap detection grace window.
+    // A wallet snapshot can briefly miss a mint due to RPC propagation
+    // delay. We only mark CLOSED_EXTERNALLY_MANUAL_SWAP when the token
+    // has been absent for at least this long since the last positive
+    // sighting, otherwise a single empty snapshot would terminally
+    // close a healthy position.
+    private const val MANUAL_SWAP_GRACE_MS = 90_000L
+
     enum class PositionSource {
         BOT_BUY,
         TX_PARSE,
@@ -69,6 +77,19 @@ object HostWalletTokenTracker {
         SELL_VERIFYING(7),
         SOLD_CONFIRMED(8),
         CLOSED(9),
+
+        // V5.9.778 — EMERGENT MEME-ONLY: external-swap terminal states.
+        // Operator forensics 5.0.2709: user manually swapped received
+        // tokens (SEHUR / TTTS / etc.) → SOL because AATE failed to
+        // sell. The tracker kept them in OPEN_TRACKING forever and
+        // spawned endless sell retries. We now distinguish AATE-driven
+        // sells from external user/wallet swaps:
+        //   CLOSED_SOLD_BY_AATE         — AATE broadcasted+confirmed sell
+        //   CLOSED_EXTERNALLY_MANUAL_SWAP — wallet snapshot shows the
+        //       mint vanished while sellSignature was empty, i.e. user
+        //       (or another tool) swapped it externally. No retries.
+        CLOSED_SOLD_BY_AATE(10),
+        CLOSED_EXTERNALLY_MANUAL_SWAP(11),
     }
 
     /** Statuses considered "open" for dashboard / exit-monitor / cleanup-protect. */
@@ -494,23 +515,54 @@ object HostWalletTokenTracker {
             val pair = walletMints[p.mint]
             val walletUi = pair?.first ?: 0.0
             if (walletUi > 0.0) continue
-            // Wallet shows zero. If we have a sell tx parse already confirmed,
-            // collapse to SOLD_CONFIRMED → CLOSED. Otherwise mark
-            // UNKNOWN_NEEDS_RECONCILE (don't delete — operator spec: do not
-            // immediately delete).
+            // Wallet shows zero. Distinguish three cases:
+            //  (a) AATE broadcasted a sell (sellSignature != null) →
+            //      CLOSED_SOLD_BY_AATE then CLOSED.
+            //  (b) Position was in SELL_VERIFYING but never got a sig →
+            //      treat as SOLD_CONFIRMED → CLOSED (tx confirmed off-band).
+            //  (c) sellSignature is null AND activeSellAttemptId is null
+            //      AND the token had previously been seen in the wallet
+            //      → user/external tool swapped it manually. Mark
+            //      CLOSED_EXTERNALLY_MANUAL_SWAP; do NOT spawn retries.
+            //  (d) Otherwise → UNKNOWN_NEEDS_RECONCILE (transient RPC).
+            //
+            // V5.9.778 — EMERGENT MEME-ONLY: case (c) is the new branch
+            // operator demanded — manual wallet swap terminal close.
             if (p.status == PositionStatus.SELL_VERIFYING || p.sellSignature != null) {
-                p.status = PositionStatus.SOLD_CONFIRMED
+                p.status = PositionStatus.CLOSED_SOLD_BY_AATE
                 emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, p.mint, p.symbol, p.sellSignature,
-                    "Tracker wallet=0 + sell sig present → SOLD_CONFIRMED")
+                    "Tracker wallet=0 + AATE sell sig present → CLOSED_SOLD_BY_AATE")
                 p.status = PositionStatus.CLOSED
                 p.uiAmount = 0.0
                 emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, p.mint, p.symbol, p.sellSignature,
                     "Tracker CLOSED ${p.symbol ?: p.mint.take(6)}")
+            } else if (
+                p.activeSellAttemptId == null &&
+                p.sellSignature.isNullOrBlank() &&
+                p.firstSeenWalletMs > 0L &&
+                p.lastSeenWalletMs > 0L &&
+                (now - p.lastSeenWalletMs) >= MANUAL_SWAP_GRACE_MS
+            ) {
+                // Case (c) — externally swapped (user manually sold to SOL).
+                // The grace window (90 s default) protects against transient
+                // RPC blips so we don't flip a healthy position to a terminal
+                // status from a single empty snapshot.
+                p.status = PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP
+                p.uiAmount = 0.0
+                p.lastWalletReconcileMs = now
+                emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, p.mint, p.symbol, null,
+                    "MANUAL_SWAP_DETECTED ${p.symbol ?: p.mint.take(6)} — wallet=0 with no AATE sell sig; user swapped externally. No retries.")
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "MANUAL_WALLET_SWAP_DETECTED",
+                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} firstSeenAt=${p.firstSeenWalletMs} lastSeenAt=${p.lastSeenWalletMs}",
+                    )
+                } catch (_: Throwable) {}
             } else {
                 p.status = PositionStatus.UNKNOWN_NEEDS_RECONCILE
                 p.uiAmount = 0.0
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "Tracker wallet=0 but no sell sig — UNKNOWN_NEEDS_RECONCILE")
+                    "Tracker wallet=0 but no sell sig + in-flight attempt — UNKNOWN_NEEDS_RECONCILE")
             }
         }
 

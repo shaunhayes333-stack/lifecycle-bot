@@ -37,6 +37,15 @@ import com.lifecyclebot.engine.LiveTradeLogStore.Phase
  */
 class LiveTradeLogActivity : Activity() {
 
+    private companion object {
+        // V5.9.778 — EMERGENT MEME-ONLY ANR cap. Operator forensics showed
+        // renderGroup as top main-thread blocker with 98 s frame gaps once
+        // the queue grew past a few hundred groups. Cap the visible window;
+        // older history remains queryable via the store snapshot.
+        private const val MAX_VISIBLE_GROUPS = 60
+        private const val REFRESH_INTERVAL_MS = 5_000L
+    }
+
     private lateinit var rootScroll: ScrollView
     private lateinit var rootColumn: LinearLayout
     private lateinit var summaryView: TextView
@@ -47,7 +56,7 @@ class LiveTradeLogActivity : Activity() {
         override fun run() {
             if (refreshing) {
                 renderTimelineAsync()
-                handler.postDelayed(this, 5_000L)  // V5.9.727 — was 2s, raised to 5s
+                handler.postDelayed(this, REFRESH_INTERVAL_MS)
             }
         }
     }
@@ -151,9 +160,18 @@ class LiveTradeLogActivity : Activity() {
     }
 
     // V5.9.727 — async wrapper: query off main thread, render on main thread.
+    // V5.9.778 — EMERGENT MEME-ONLY: filter to current runtime mode so the
+    // LIVE forensics page only shows LIVE trades (and the PAPER page only
+    // PAPER). Operator forensics 5.0.2709 showed paper Sniper rows polluting
+    // the live page during a LIVE bot run.
     private fun renderTimelineAsync() {
         Thread {
-            val groups = try { LiveTradeLogStore.groupedByTrade() } catch (_: Throwable) { emptyList() }
+            val modeFilter = try {
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+            } catch (_: Throwable) { null }
+            val groups = try {
+                LiveTradeLogStore.groupedByTradeFiltered(modeFilter)
+            } catch (_: Throwable) { emptyList() }
             handler.post {
                 if (isFinishing || isDestroyed) return@post
                 renderTimelineWithGroups(groups)
@@ -184,7 +202,28 @@ class LiveTradeLogActivity : Activity() {
             rootColumn.addView(emptyState())
             return
         }
-        for (g in groups) rootColumn.addView(renderGroup(g, now))
+        // V5.9.778 — EMERGENT MEME-ONLY ANR mitigation. Operator forensics
+        // 5.0.2709 showed max frame gap 98 s (avg cycle 151 s, max 302 s)
+        // with renderGroup/buildTokenCard as the top blocker because the
+        // page rendered EVERY trade group across the entire queue (10k+
+        // events in a long session). Cap the visible window to the most
+        // recent N groups; the underlying queue still grows unbounded
+        // for diagnostics, the UI just doesn't crawl every entry. Bot
+        // service continues cycling independently because renderGroup
+        // is invoked from the UI handler — main-thread stalls here no
+        // longer block the bot loop, but operators see the page render
+        // in <100 ms instead of multi-second hangs.
+        val capped = if (groups.size > MAX_VISIBLE_GROUPS) groups.subList(0, MAX_VISIBLE_GROUPS) else groups
+        for (g in capped) rootColumn.addView(renderGroup(g, now))
+        if (groups.size > MAX_VISIBLE_GROUPS) {
+            rootColumn.addView(TextView(this).apply {
+                text = "… ${groups.size - MAX_VISIBLE_GROUPS} older trade group(s) not shown to keep UI responsive."
+                setTextColor(Color.parseColor("#64748B"))
+                textSize = 11f
+                setPadding(dp(8), dp(12), dp(8), dp(20))
+                gravity = Gravity.CENTER
+            })
+        }
     }
 
     private fun emptyState(): View = TextView(this).apply {

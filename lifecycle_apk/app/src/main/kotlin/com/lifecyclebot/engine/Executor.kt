@@ -251,6 +251,15 @@ class Executor(
         
         // Fee split (50/50 between wallets)
         private const val FEE_SPLIT_RATIO = 0.5
+
+        // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
+        // Operator forensics showed 15 live buy attempts (each ~0.097
+        // SOL) competing against a 0.107 SOL wallet balance, causing
+        // Jupiter "Insufficient funds" failures + balance exhaustion.
+        // Single live-buy in flight at a time per wallet; tryAcquire
+        // with a short timeout so we don't queue up stale signals.
+        private val MEME_LIVE_BUY_MUTEX = java.util.concurrent.Semaphore(1, true)
+        private const val MEME_LIVE_BUY_MUTEX_WAIT_MS = 150L
     }
     
     // Lazy init to get Jupiter API key from config
@@ -4447,9 +4456,17 @@ class Executor(
             } catch (_: Throwable) { /* best-effort */ }
         }
         
-        val isPaper = cfg().paperMode
-        // V5.9.495z32 — publish executor mode + mark hot tick so the
-        // RuntimeModeAuthority sees it and background lanes yield.
+        // V5.9.778 — EMERGENT MEME-ONLY: single source of truth.
+        // Operator forensics 5.0.2709: `[MODE] current=PAPER` while live
+        // tokens landed on chain and EXEC_LIVE_BUY_OK=1. Root cause was
+        // a ConfigStore 2s cache race serving stale paperMode after a
+        // PAPER→LIVE flip, producing the impossible `route=PAPER
+        // cfgPaper=true walletLoaded=false` pipeline line. Executor now
+        // reads from RuntimeModeAuthority (atomic, no cache) — the same
+        // authority ConfigStore.save() publishes on every config write.
+        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        // Keep publishing the executor's chosen branch so detectDesync()
+        // can still warn the operator if anyone reads a different value.
         com.lifecyclebot.engine.RuntimeModeAuthority.publishExecutorMode(isPaper)
         com.lifecyclebot.engine.HotPathLaneGate.markHotTick()
         ErrorLogger.info("Executor", "🔔 UNIFIED BUY: ${ts.symbol} | " +
@@ -4888,13 +4905,16 @@ class Executor(
         // paper trades being booked during live runs because a transient
         // wallet=null at this call site silently flipped the route.
         // Mirror the V5.9.738 dipHunterBuy pattern: refuse cleanly.
-        val isPaperMode = cfg().paperMode
+        // V5.9.778 — EMERGENT MEME-ONLY: read mode from RuntimeModeAuthority
+        // (atomic, no cache), not cfg().paperMode. See doExecuteBuy site
+        // above for the full root-cause writeup.
+        val isPaperMode = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         val spineRoute = when {
             isPaperMode -> "PAPER"
             wallet == null -> "LIVE_REFUSED_NO_WALLET"
             else -> "LIVE_PRECHECK"
         }
-        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | cfgPaper=$isPaperMode | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE DO_BUY_ROUTE ${ts.symbol} | route=$spineRoute | authPaper=$isPaperMode | walletLoaded=${wallet != null} | size=${effSol.fmt(4)} | walletSol=${walletSol.fmt(4)}")
         if (isPaperMode) {
             paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)
         } else if (wallet == null) {
@@ -5367,11 +5387,16 @@ class Executor(
         openPositionCount: Int,
         totalExposureSol: Double
     ) {
-        val isPaper = cfg().paperMode
+        // V5.9.778 — EMERGENT MEME-ONLY: single mode authority. The
+        // exact log line `MEME_SPINE V3_BUY_ROUTE route=PAPER cfgPaper=true`
+        // in the operator's forensic was emitted from here while the
+        // user was in LIVE mode (PAPER→LIVE flip + 2s ConfigStore cache
+        // race). Now reads from RuntimeModeAuthority, single source.
+        val isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
-        ErrorLogger.info("Executor", "🧬 MEME_SPINE V3_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | cfgPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE V3_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | authPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
         
         if (isPaper) {
             paperBuy(
@@ -5830,6 +5855,27 @@ class Executor(
                         skipGraduated: Boolean = false,
                         layerTag: String = "",           // V5.9.386 — sub-trader journal tag
                         layerTagEmoji: String = "") {    // V5.9.386 — matching emoji
+
+        // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
+        // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL
+        // each against a 0.107 SOL wallet → Jupiter "Insufficient funds"
+        // failures, balance exhaustion, and several broadcast races.
+        // Serialise live buys per host wallet. tryAcquire with a short
+        // timeout (150 ms) — if another live buy is in flight we drop
+        // this signal cleanly and let the next intake try again.
+        if (!MEME_LIVE_BUY_MUTEX.tryAcquire(MEME_LIVE_BUY_MUTEX_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            ErrorLogger.warn("Executor",
+                "[LIVE_BUY_MUTEX_BUSY] ${ts.symbol} — another live buy in flight; skipping to prevent SOL race")
+            try {
+                ForensicLogger.exec(
+                    "LIVE_BUY_MUTEX_BUSY",
+                    ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)}",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        try {
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
@@ -6852,6 +6898,12 @@ class Executor(
             )
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
+        }
+        } finally {
+            // V5.9.778 — release MEME_LIVE_BUY_MUTEX on every exit path
+            // so a thrown exception, blocked return, or successful broadcast
+            // all hand the lock back to the next intake cleanly.
+            try { MEME_LIVE_BUY_MUTEX.release() } catch (_: Throwable) {}
         }
     }
 
@@ -11741,13 +11793,46 @@ class Executor(
             Pair(sig, estimatedQty)
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
-            onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
-            LiveTradeLogStore.log(
-                tradeKey, ts.mint, ts.symbol, "BUY",
-                LiveTradeLogStore.Phase.BUY_FAILED,
-                "PUMP-FIRST BUY failed: ${safe.take(80)} — falling back to Jupiter",
-                traderTag = traderTag,
-            )
+            // V5.9.778 — EMERGENT MEME-ONLY: classify TLS / cert errors.
+            // Operator forensics 5.0.2709 showed
+            //   PUMP-FIRST BUY failed: java.security.cert.CertPathValidatorException:
+            //   Trust anchor for certification path not found
+            // The bot silently fell back to Jupiter using the SAME pre-buy
+            // wallet snapshot, racing other concurrent buys. We now mark
+            // the error as ROUTE_UNAVAILABLE_TLS in forensics so the operator
+            // can spot it, and emit a distinct log line. The Jupiter fallback
+            // is still attempted (better than refusing the buy) but the
+            // MEME_LIVE_BUY_MUTEX (V5.9.778) ensures only one fallback runs.
+            val isTls = pumpEx is javax.net.ssl.SSLHandshakeException ||
+                pumpEx is javax.net.ssl.SSLPeerUnverifiedException ||
+                pumpEx is java.security.cert.CertPathValidatorException ||
+                (pumpEx.cause is java.security.cert.CertPathValidatorException) ||
+                safe.contains("CertPath", ignoreCase = true) ||
+                safe.contains("Trust anchor", ignoreCase = true) ||
+                safe.contains("SSLHandshake", ignoreCase = true)
+            if (isTls) {
+                onLog("🔒 PUMP-FIRST BUY: TLS trust anchor failure — ROUTE_UNAVAILABLE_TLS. Falling through to Jupiter.", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "ROUTE_UNAVAILABLE_TLS — PumpPortal cert chain rejected by Android truststore: ${safe.take(80)} — falling back to Jupiter",
+                    traderTag = traderTag,
+                )
+                try {
+                    ForensicLogger.lifecycle(
+                        "ROUTE_UNAVAILABLE_TLS",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} err=${safe.take(80)}",
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
+                LiveTradeLogStore.log(
+                    tradeKey, ts.mint, ts.symbol, "BUY",
+                    LiveTradeLogStore.Phase.BUY_FAILED,
+                    "PUMP-FIRST BUY failed: ${safe.take(80)} — falling back to Jupiter",
+                    traderTag = traderTag,
+                )
+            }
             null
         }
     }
