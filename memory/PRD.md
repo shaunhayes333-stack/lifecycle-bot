@@ -29,6 +29,41 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.793 — operator audit Item 5 + Item 6 (May 16, CI GREEN Build, Smoke running)
+
+ITEM 5 — Split liquidity fields + BC-sim exclusion (P1, COMPLETE)
+- New `engine/LiquidityClassifier.kt`: derives realPoolLiquidityUsd /
+  bondingCurveLiquidityEstUsd / exitCapacityUsd / isBcSimOnly from
+  TokenState (no schema change). Pure helper, no allocation per call.
+- `CanonicalTradeOutcome` gains `bcSimOnly: Boolean = false`.
+  `CanonicalLearningCounters` gains `bcSimOnlyOutcomes` and `bumpCounters`
+  increments it on every flagged outcome.
+- `Executor.recordTrade` rich-publish path populates the flag from
+  `LiquidityClassifier.isBcSimOnly(ts)`.
+- `FinalDecisionGate.kt` LIQUIDITY_BELOW_EXECUTION_FLOOR check now reads
+  `exitCapacityUsd(ts)` (real-pool only). Pump.fun BC-only tokens with
+  no confirmed pool return 0.0 → never pass the execution floor until a
+  real pool is observed. Watchlist floor (discovery) still uses raw
+  lastLiquidityUsd intentionally.
+- `CanonicalSubscribers` FluidLearningAI mirror drops bcSimOnly outcomes
+  with WR_FILTERED_BC_SIM_ONLY forensic.
+
+ITEM 6 — Scanner pressure control (P1, partial)
+- New `engine/CycleTimingTracker.kt`: 64-cycle rolling window for scan
+  cycle duration. Reports avg/p95/max + counts of cycles over the 12s
+  target / 30s hard limit.
+- `SolanaMarketScanner` records each cycle's duration and warns on
+  >30s; CycleTimingTracker.recordCycle() is called at end-of-scan.
+- `WatchlistTtlPolicy` aggressive low-score TTL: entries with
+  score < 40 expire after 60s independently of saturation TTL.
+- `UniverseHealthActivity` Learning section now surfaces
+  `bcSimOnlyOutcomes`. New 'Scanner Cycle Timing' panel renders
+  avg/p95/max vs the targets with green/amber/red colour coding.
+
+Still pending from Item 6 (planned for V5.9.794):
+- Hard cap on concurrent PumpPortal active candidates
+- Explicit priority-queue sort (currently scan order is source-based)
+
 ### V5.9.791 + V5.9.792 — operator audit Items 1 + 2 + 3 + 4 + 7-partial (May 16, CI GREEN)
 
 Operator audit on build 5.0.2729 identified 7 remaining critical items
