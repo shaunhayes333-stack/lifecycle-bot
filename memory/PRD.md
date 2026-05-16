@@ -29,6 +29,66 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.801 + V5.9.801a — Performance Recovery Patch A-E (May 16, CI ✅ Build + Runtime Smoke)
+
+Operator audit: "I need all done as one surgical reversible push please.
+use the triage agent" — Deep Performance Analysis Report fixes shipped
+as a single batch. Operator excluded item F: "a-e leave f no caps".
+
+FIX A — Hoist Smart Entry Gate into sub-trader entry paths (P0, COMPLETE)
+- V5.9.798 Smart Entry Gate in FinalDecisionGate was BYPASSED when
+  sub-traders (Moonshot promotion, ShitCoin Express handoff, CashGen
+  treasury auto-buys) emitted shouldEnter=true without re-running FDG.
+- Added WR Recovery Quality Floor check at the lane source in:
+    ShitCoinTraderAI.evaluate()      (threshold gate area)
+    MoonshotTraderAI.scoreToken()    (minScore check)
+    CashGenerationAI.evaluate()      (rejectionReasons block)
+- Floor sourced from `WrRecoveryPartial.minScoreFloor()` in Executor.kt
+  (AGGRESSIVE→45, MODERATE→30, FLUID/OFF→0). Each lane ORs with its
+  existing FluidLearningAI threshold via maxOf(), so floor never relaxes.
+
+FIX B — Tighten V3 min score in MODERATE/AGGRESSIVE bands (P0, COMPLETE)
+- Implemented as part of Fix A via the centralised
+  WrRecoveryPartial.minScoreFloor() helper.
+
+FIX C — Tighten paper exit clamps (P0, COMPLETE)
+- Executor.parsePaperExitClamp():
+    STRICT_SL_-N:       `pct - 5.0` → `pct - 2.0`
+                        (e.g., STRICT_SL_-10 now books [-12%, -10%])
+    RAPID_CATASTROPHE:  [-19%, -14%] → [-16%, -14%]
+- Closes the 3-5pp paper-vs-live drift the operator identified.
+
+FIX D — WR Recovery entry-size dampener (P0, COMPLETE)
+- Executor.paperBuy() and Executor.liveBuy() multiply requested SOL
+  by WrRecoveryPartial.entrySizeMultiplier() at function entry:
+    AGGRESSIVE → 0.5×
+    MODERATE   → 0.75×
+    FLUID/OFF  → 1.0× (no change)
+- Implemented via Kotlin parameter shadowing (val sol = damped) so
+  every downstream reference picks up the dampened value.
+- Log: `🩹 WR_RECOVERY_SIZE_DAMP (paper|live): SYM | sol=X × M → Y`
+
+FIX E — Legacy consumers source from canonical bus (P0, COMPLETE)
+- FluidLearningAI.getTotalTradeCount() previously returned
+  `sessionLifetimeBaseline + sessionTrades.get()` — own counter.
+- Now sources sessionDelta from
+  `CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()`
+  when canonical has fired ≥1 outcome. Local sessionTrades retained
+  as boot-time fallback so bootstrap progress doesn't snap to 0.
+
+FIX skipped — F (concurrent position cap)
+- Operator instruction: "a-e leave f no caps". Position cap unchanged.
+
+V5.9.801a — One-line CI fix
+- V5.9.800 introduced `trade.tokenPrice` in the isPartialByQty quantity
+  check, but the Trade data class (Models.kt) only has `price`. CI
+  caught it on the V5.9.801 push. Renamed to trade.price. Identical
+  semantics.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on 34c9f4579.
+
+### V5.9.800 — CRITICAL FIX: fluid profit-lock / capital-recovery / WR-recovery partials restored (May 16, CI ✅)
+
 ### V5.9.794 — operator audit Item 6 (cap + priority queue) + Item 7 (fresh-meme HARD_FLOOR) (May 16, CI Build ✅)
 
 ITEM 6 — PumpPortal cap + explicit priority queue (P1, COMPLETE)
