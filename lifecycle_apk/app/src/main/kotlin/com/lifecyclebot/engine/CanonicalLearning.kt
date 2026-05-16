@@ -576,6 +576,11 @@ object LayerReadinessRegistry {
         var settledOutcomes: Long = 0L,
         var positiveEvSamples: Long = 0L,
         var lastEducationMs: Long = 0L,
+        // V5.9.790 — operator audit Critical Fix 2: track rich vs incomplete
+        // education separately so DEGRADED layers can be classified into
+        // sub-reasons (FEATURE_STARVED vs BAD_EV vs NO_ADAPTER vs NO_VOTES).
+        var richEducationCount: Long = 0L,
+        var incompleteEducationCount: Long = 0L,
     )
 
     private val states = ConcurrentHashMap<String, State>()
@@ -585,6 +590,24 @@ object LayerReadinessRegistry {
         s.settledOutcomes += settledDelta
         s.positiveEvSamples += positiveEvDelta
         s.lastEducationMs = System.currentTimeMillis()
+    }
+
+    /**
+     * V5.9.790 — operator audit Critical Fix 2: record education with rich/incomplete classification.
+     * Layers wired through CanonicalSubscribers should call this instead of recordEducation so the
+     * dashboard can show DEGRADED_FEATURE_STARVED separately from DEGRADED_BAD_EV.
+     */
+    fun recordEducationDetailed(
+        layer: String,
+        settledDelta: Long,
+        positiveEvDelta: Long,
+        isRichSample: Boolean,
+    ) {
+        val s = states.getOrPut(layer) { State() }
+        s.settledOutcomes += settledDelta
+        s.positiveEvSamples += positiveEvDelta
+        s.lastEducationMs = System.currentTimeMillis()
+        if (isRichSample) s.richEducationCount += 1L else s.incompleteEducationCount += 1L
     }
 
     fun readinessOf(layer: String): LayerReadiness {
