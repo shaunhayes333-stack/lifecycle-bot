@@ -394,6 +394,33 @@ object CanonicalOutcomeBus {
     /** Publish a canonical outcome — runs through normalizer + counters + router. */
     fun publish(raw: CanonicalTradeOutcome) {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
+        // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter enforces
+        // ONE terminal SELL per (canonicalMint, entryTimeMs). Duplicate
+        // exit cascades (CASHGEN_STOP_LOSS + STRICT_SL + RAPID_CATASTROPHE_STOP
+        // all firing on the same Position) collide here and the loser is
+        // logged as EXIT_SUPPRESSED_DUPLICATE — never fanned out to learners,
+        // never journalled. Only terminal SELLs are arbitrated; OPEN /
+        // INCONCLUSIVE_PENDING / BREAKEVEN-with-no-exit-time pass through.
+        // Partial sells (reason starts with "partial") explicitly do NOT
+        // lock the slot — they're counted separately and the eventual full
+        // close is the actual terminal event.
+        val isTerminalResult = normalized.result == TradeResult.WIN || normalized.result == TradeResult.LOSS
+        val reasonLower = normalized.closeReason?.lowercase().orEmpty()
+        val isPartial = reasonLower.startsWith("partial") || reasonLower.contains("partial_") || reasonLower.contains("partialsell")
+        if (isTerminalResult && !isPartial) {
+            val key = PositionExitArbiter.positionKey(normalized.mint, normalized.entryTimeMs)
+            val verdict = PositionExitArbiter.arbitrate(
+                positionKey = key,
+                reason = normalized.closeReason ?: "UNKNOWN_TERMINAL",
+                env = normalized.environment.name,
+                sig = null,
+            )
+            if (verdict.decision == PositionExitArbiter.Decision.SUPPRESS) {
+                return
+            }
+        } else if (isPartial) {
+            PositionExitArbiter.recordPartial(normalized.mint)
+        }
         bumpCounters(normalized)
         // Append to ring buffer.
         recentEvents.addFirst(normalized)
@@ -401,6 +428,27 @@ object CanonicalOutcomeBus {
         // Route to layers — strategy vs execution separation.
         try { LayerEducationRouter.dispatch(normalized) } catch (_: Throwable) {}
         // Fan out to subscribers.
+        for (s in subscribers) {
+            try { s.onOutcome(normalized) } catch (t: Throwable) {
+                ErrorLogger.debug(TAG, "subscriber threw: ${t.message?.take(80)}")
+            }
+        }
+    }
+
+    /**
+     * V5.9.791 — operator audit Item 1: bypass-arbiter publish. Used by the
+     * meme primary close path (Executor.recordTrade → rich publish at line
+     * ~1600) where Executor.recordTrade has ALREADY arbitrated the position
+     * key — re-arbitrating in the bus would falsely SUPPRESS the legitimate
+     * first publish for this terminal exit. Non-meme lanes / legacy bridge
+     * callers stay on the standard publish() with full arbitration.
+     */
+    fun publishUnchecked(raw: CanonicalTradeOutcome) {
+        val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
+        bumpCounters(normalized)
+        recentEvents.addFirst(normalized)
+        while (recentEvents.size > RECENT_MAX) recentEvents.pollLast()
+        try { LayerEducationRouter.dispatch(normalized) } catch (_: Throwable) {}
         for (s in subscribers) {
             try { s.onOutcome(normalized) } catch (t: Throwable) {
                 ErrorLogger.debug(TAG, "subscriber threw: ${t.message?.take(80)}")

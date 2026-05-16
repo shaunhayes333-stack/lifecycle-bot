@@ -171,6 +171,17 @@ class UniverseHealthActivity : Activity() {
         addKv("recoveredTrades", (snap["recoveredTrades"] ?: 0L).toString())
         val sellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size.toLong() } catch (_: Throwable) { -1L }
         addKv("SellJobRegistry size", sellJobs.toString())
+        // V5.9.791 — operator audit Item 1 + 2 visibility: PositionExitArbiter counters.
+        val arb: Map<String, Long> = try { com.lifecyclebot.engine.PositionArbiterCounters.snapshot() } catch (_: Throwable) { emptyMap() }
+        addKvHighlight("arbiter terminalSells", (arb["terminalSells"] ?: 0L).toString(), "#10B981")
+        val suppressed = arb["suppressedDuplicates"] ?: 0L
+        addKvHighlight(
+            "arbiter suppressedDuplicates",
+            suppressed.toString(),
+            if (suppressed > 0L) "#F59E0B" else "#10B981",
+        )
+        addKv("arbiter partialSells", (arb["partialSells"] ?: 0L).toString())
+        addKv("arbiter staleSlotEvictions", (arb["staleSlotEvictions"] ?: 0L).toString())
 
         // ── 5. AUTHORITY ──────────────────────────────────────────────
         addHeader("🛡 5. Authority")

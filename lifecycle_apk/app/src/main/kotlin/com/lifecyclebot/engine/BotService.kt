@@ -5568,7 +5568,15 @@ class BotService : Service() {
                         // The dynamic/trailing stop block below remains but
                         // its condition is fixed in the same change to allow
                         // it to run regardless of how deep the loss is.
-                        val isCatastrophe = pnlPct <= -25.0
+                        // V5.9.791 — operator audit Item 7: catastrophe stop tightened from
+                        // -25% to -14%. Previously the rapid catastrophe band (≤ -25%)
+                        // let positions bleed past the operator's mandated meme hard floor.
+                        // Combined with the new PositionExitArbiter, an early hard exit at
+                        // -14% means one terminal SELL per position with a tighter loss cap
+                        // — duplicate cascades that used to fire CASHGEN+STRICT_SL+CATASTROPHE
+                        // on the same position now collide at the arbiter and only the first
+                        // (typically -9% to -14% range) wins.
+                        val isCatastrophe = pnlPct <= -14.0
                         val peakGainPct   = ts.position.peakGainPct
                         val drawdownFromPeak = peakGainPct - pnlPct
                         val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0

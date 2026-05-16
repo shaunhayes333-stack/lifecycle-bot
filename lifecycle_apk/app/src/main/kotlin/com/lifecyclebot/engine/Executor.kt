@@ -1222,6 +1222,40 @@ class Executor(
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
     private fun recordTrade(ts: TokenState, trade: Trade) {
+        // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter chokepoint.
+        // Without this, a cascade of exit reasons (CASHGEN_STOP_LOSS firing
+        // simultaneously with STRICT_SL and RAPID_CATASTROPHE_STOP on the
+        // same Position) would each push a fresh Trade row + canonical
+        // outcome + ToxicModeCircuitBreaker loss + MetaCognition outcome
+        // + RunTracker30D row, polluting every learner and the journal.
+        // Arbitrate ONLY for terminal SELLs (skip BUY + partial SELLs).
+        try {
+            val isSell = trade.side.equals("SELL", ignoreCase = true)
+            val reasonLower = trade.reason.lowercase()
+            val isPartial = reasonLower.startsWith("partial") || reasonLower.contains("partial_")
+            if (isSell && !isPartial) {
+                val env = if (ts.position.isPaperPosition) "PAPER" else "LIVE"
+                val verdict = com.lifecyclebot.engine.PositionExitArbiter.arbitrate(
+                    canonicalMint = ts.mint,
+                    entryTimeMs = ts.position.entryTime,
+                    reason = trade.reason.ifBlank { "UNKNOWN_TERMINAL" },
+                    env = env,
+                    sig = trade.sig.ifBlank { null },
+                )
+                if (verdict.decision == com.lifecyclebot.engine.PositionExitArbiter.Decision.SUPPRESS) {
+                    return
+                }
+                // V5.9.791 — pre-mark this tradeId as rich-published so the
+                // legacy bridge (TradeHistoryStore.recordTrade →
+                // publishFromLegacyTrade) early-returns and the arbiter slot
+                // (just locked above) isn't falsely "suppressed-once" by the
+                // bridge before the actual rich publish at line ~1600 fires.
+                try {
+                    val tradeId = "${ts.mint}_${trade.ts}"
+                    com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished(tradeId)
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
         // Ensure trade has mint set
         val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
         ts.trades.add(tradeWithMint)
@@ -1597,7 +1631,12 @@ class Executor(
                         featuresIncomplete = isIncomplete,
                     )
                     com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished(tradeId)
-                    com.lifecyclebot.engine.CanonicalOutcomeBus.publish(rich)
+                    // V5.9.791 — operator audit Item 1: Executor.recordTrade already
+                    // arbitrated this terminal SELL at the top of the method;
+                    // bypass-arbiter publish prevents the bus from re-checking
+                    // the (now-locked) positionKey and falsely SUPPRESS-ing this
+                    // legitimate first-write canonical event.
+                    com.lifecyclebot.engine.CanonicalOutcomeBus.publishUnchecked(rich)
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug("Executor", "Canonical rich publish error: ${e.message?.take(80)}")
