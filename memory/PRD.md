@@ -29,6 +29,62 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.791 + V5.9.792 — operator audit Items 1 + 2 + 3 + 4 + 7-partial (May 16, CI GREEN)
+
+Operator audit on build 5.0.2729 identified 7 remaining critical items
+once V3 safety gates landed. V5.9.791 (sha=80182aa5e) ships Items 1+2+7;
+V5.9.792 (sha=e93248a36) layers Items 3+4 on top. Both: Build ✅ + Smoke ✅.
+
+ITEM 1 + 2 — PositionExitArbiter / CanonicalPositionOutcomeBus (P0)
+- New `engine/PositionExitArbiter.kt`. positionKey = "<canonicalMint>_<entryTimeMs>"
+  with 5-minute wall-clock bucket fallback. First terminal SELL reason wins.
+- `arbitrate()` returns ALLOW/SUPPRESS. Subsequent cascade firings (e.g.
+  CASHGEN_STOP_LOSS + STRICT_SL + RAPID_CATASTROPHE_STOP on the same
+  Position) emit EXIT_SUPPRESSED_DUPLICATE forensic and never fan out
+  to learners.
+- PARTIAL_SELL paths never lock the slot; counted via `recordPartial()`.
+- `CanonicalLearningCounters` snapshot now includes terminalSells /
+  suppressedDuplicates / partialSells / staleSlotEvictions.
+- Wiring:
+  • `CanonicalOutcomeBus.publish()` arbitrates terminal WIN/LOSS results.
+    Partials (reason startsWith "partial") bypass arbitration.
+  • New `publishUnchecked()` for callers that already arbitrated locally.
+  • `Executor.recordTrade(ts, trade)` arbitrates at the top for terminal
+    SELLs — blocks TradeHistoryStore row, PatternClassifier, ToxicMode,
+    MetaCognition, RunTracker30D, AND the rich canonical publish in one
+    surgical chokepoint. Pre-marks tradeId as rich-published so the
+    legacy bridge doesn't false-suppress at the bus layer.
+  • Rich publish at Executor.kt:~1600 switched to publishUnchecked().
+- UI: `UniverseHealthActivity` Execution pillar renders arbiter counters.
+
+ITEM 7 (partial) — catastrophe stop tightening
+- BotService rapid-monitor: `isCatastrophe = pnlPct <= -14.0` (was -25.0).
+- Fresh-meme HARD_FLOOR -9% deferred to V5.9.793 (requires age gate).
+
+ITEM 3 — MEME_ONLY_TEST_MODE enforcement
+- BotService enabledTrader publish: dropped `(|| cfg.paperMode)` from
+  the CYCLIC enable predicate. CYCLIC now requires explicit
+  `cfg.cyclicTradeLiveEnabled`.
+- CanonicalSubscribers FluidLearningAI mirror: when
+  `EnabledTraderAuthority.snapshot() == {MEME}`, drop outcomes whose
+  source is not in {SHITCOIN, MOONSHOT, EXPRESS, MANIP, CYCLIC}. Emits
+  MEME_TRAINING_FILTERED_NONMEME_SOURCE forensic per filter hit.
+
+ITEM 4 — V3 fatal terminates lane flow
+- BotService ShitCoin lane: hoisted V3 hard-reject check ABOVE the
+  ShitCoinTraderAI.evaluate() call. V3 BlockFatal / Rejected / Blocked
+  short-circuits, emits REJECTED_FATAL_V3 forensic, no qualification
+  training sample. Paper-mode rug-tolerated BlockFatal still allowed
+  through to match the existing scHardReject parity at line 11604.
+
+Still pending from the 7-point operator audit (planned for V5.9.793+):
+- Item 5: Split liquidity fields (realPoolLiquidityUsd /
+  bondingCurveLiquidityEstUsd / exitCapacityUsd) and mark BC_SIM_ONLY
+  paper outcomes for exclusion from production WR.
+- Item 6: Scanner pressure control (cap PumpPortal candidates, TTL
+  low-score mints, priority queue, target cycle avg < 12s).
+- Item 7 remaining: fresh-meme HARD_FLOOR -9% with position-age guard.
+
 ### V5.9.790 — operator audit Critical Fixes 2 + 4 + 5 + 9 (May 16, CI GREEN)
 
 Closes the remaining 9-point audit items beyond V5.9.789 (which landed
