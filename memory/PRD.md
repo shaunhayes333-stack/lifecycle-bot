@@ -29,7 +29,83 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
-### V5.9.786 — CRITICAL HOTFIX: isPaperRT/isLiveRT infinite recursion (May 16, CI GREEN)
+### V5.9.790 — operator audit Critical Fixes 2 + 4 + 5 + 9 (May 16, CI GREEN)
+
+Closes the remaining 9-point audit items beyond V5.9.789 (which landed
+Fixes 1+3+6+8). Build AATE APK ✅ + Runtime Smoke ✅ on sha=614093be.
+
+CRITICAL FIX 2 (P1) — sub-classify DEGRADED layers
+- `LayerReadiness` enum split: legacy `DEGRADED` retained for back-compat;
+  added `DEGRADED_BAD_EV`, `DEGRADED_FEATURE_STARVED`, `DEGRADED_NO_ADAPTER`,
+  `DEGRADED_NO_VOTES`.
+- `LayerReadinessRegistry.State` gains `richEducationCount` +
+  `incompleteEducationCount`; new `recordEducationDetailed()` helper.
+- `readinessOf()` returns `DEGRADED_FEATURE_STARVED` when rich==0 &
+  incomplete>=500, `DEGRADED_BAD_EV` when rich>0 & lossRatio>=70%.
+- New `countersOf(layer) → (settled, rich, incomplete)` for the UI.
+- `CanonicalLearningCounters` gains `strategyTrainableOutcomes` (rich +
+  EXECUTED) and `executionOnlyOutcomes` (rest).
+- `CanonicalSubscribers` all three readiness recorders switched to
+  `recordEducationDetailed(isRichSample=!outcome.featuresIncomplete)`.
+- `LearningCounterActivity` renders new counters + per-layer
+  `n=… rich=… incomplete=…` annotation.
+
+CRITICAL FIX 5 (P1) — bus-only strategy pattern learning
+- `BehaviorLearning.strategyLearningFromLegacy = false` (default).
+- `recordTrade()` legacy direct path now ALWAYS bumps the new
+  `totalLegacyDirectRecorded` counter but returns early before mutating
+  pattern memory. Pattern memory writes (`goodPatterns`/`badPatterns`)
+  flow exclusively through `onCanonicalOutcome()` (canonical bus).
+- Operator can flip the flag back to `true` from a debug hook if the
+  bus underdelivers — full back-compat preserved.
+- Legacy direct count surfaced in `LearningCounterActivity`.
+
+CRITICAL FIX 4 (P1) — clarify CLASSIC vs MODERN sentience
+- `UniverseHealthActivity` Section 2 shows the actual
+  `UnifiedScorer.modeLabel()` AND an explicit "Effective sentience mode"
+  line:
+    CLASSIC → "CLASSIC (full sentient OFF — outer symbolic ring bypassed)"
+    MODERN  → "MODERN (sentient symbolic outer ring active)"
+- Footer note reminds the operator that CLASSIC = 20-layer build-1920
+  pipeline, NOT full symbolic sentient trading.
+
+CRITICAL FIX 9 (P1) — AATE Universe Health screen
+- New `UniverseHealthActivity` covers 6 pillars (Runtime / Scoring /
+  Learning / Execution / Authority / Wallet), auto-refreshes every 3s.
+- Surfaces canonical totals + richness ratio, layer-readiness bucket
+  counts, sell-job registry size, `EnabledTraderAuthority` snapshot,
+  PROJECT_SNIPER proof-off status, host-wallet truth + reconciler drift.
+- Long-press the 🩺 Pipeline tile on MainActivity → opens it.
+- Registered in `AndroidManifest.xml`.
+
+### V5.9.789 — operator audit Critical Fixes 1 + 3 + 6 + 8 (May 16, CI GREEN)
+
+Operator dump on build 2727 showed canonicalOutcomesTotal=716,
+richFeatureOutcomes=0, incompleteFeatureOutcomes=716 — 100% of outcomes
+were skipping strategy learning.
+
+CRITICAL FIX 1 (rich producer) + 6 (forensic): `CanonicalFeaturesBuilder.kt`
+- ROOT CAUSE: paper-mode tokens that never got a fresh DEX quote had
+  empty `ts.lastPriceDex`/`lastPriceSource` → `inferVenueRoute` returned
+  `UNKNOWN` → `isIncomplete=true` on every outcome.
+- FIX: source-derived fallback for venue + route + trader when direct
+  lookup fails:
+    SHITCOIN/MOONSHOT/EXPRESS/CYCLIC → venue=PUMP_FUN_BONDING / route=PUMP_NATIVE
+    BLUECHIP/TREASURY/MARKETS         → venue=JUPITER / route=JUPITER
+    V3/default                        → trader=STANDARD (still trainable)
+- Per-field `missing=[…]` forensic line (`CANONICAL_FEATURES_INCOMPLETE`).
+
+CRITICAL FIX 3 (Sniper proven off):
+- `ProjectSniperAI.engageMission` FATAL_AUTH_BREACH guard rejects
+  missions if PROJECT_SNIPER isn't in `EnabledTraderAuthority.snapshot()`.
+- BotService startup `AUTH_SURFACE_AT_START` line dumps mode + cfg +
+  Sniper enable status + full enabledTraders set.
+
+CRITICAL FIX 8 (stop training strategy on feed/execution failures):
+- Strategy learners now skip when executionResult ∈ {PHANTOM_UNCONFIRMED,
+  STUCK_UNCONFIRMED, FAILED_*}; execution learners still consume those.
+
+CI: Build AATE APK ✅ + Runtime Smoke ✅ on sha=42c458e6.
 Operator forensics on build 5.0.2724 reported **zero paper trades after 61min uptime**
 despite `FDG_PAPER_ALLOW=36` and `BOTLOOP_RESCUE_THREW=58/60` heartbeats failing.
 
