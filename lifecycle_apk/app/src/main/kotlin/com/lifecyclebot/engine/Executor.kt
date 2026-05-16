@@ -45,82 +45,137 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object WrRecoveryPartial {
     private const val WR_RECOVERY_THRESHOLD  = 0.85   // fire below 85% of phase target
-    private const val MIN_PARTIAL_GAIN_PCT   = 5.0    // never lock below 5% gain
-    // V5.9.755 — recovery is ABSOLUTE not relative. When V5.9.722 shipped,
-    // partialSellTriggerPct defaulted to 15% and `normal * 0.60 = 9%` made sense.
-    // Today the tuner can drive partialSellTriggerPct anywhere from 50%–500%,
-    // so a relative scale gives recovery triggers of 30%–300% — far too high
-    // to ever fire on the kind of stop-loss-heavy ladder a recovering bot sees.
-    // Operator screenshot 2026-05-15 02:58: WR=29% with 0 partials firing because
-    // tokens died at -12% / -21% / -37% long before reaching the +120% trigger.
-    // V5.9.755 uses a fixed 9% first-partial trigger when recovery is active —
-    // matches the spec example in WR-Recovery rule (Memory #31) and ensures
-    // the lock-in actually fires on the bot's typical trade trajectory.
-    private const val ABSOLUTE_RECOVERY_TRIGGER = 9.0  // hard recovery trigger %
+    private const val MIN_PARTIAL_GAIN_PCT   = 12.0   // never lock below +12%
+    // V5.9.796 — operator audit (build-2733 screenshot, 25% WR / 1469 trades):
+    //
+    //   "win rate/ratio sells aren't aggressive enough to make a difference.
+    //    multiple sells on same token if up? and not WITH 10% — we are
+    //    targeting THE NUMBER or BETTER, not lower."
+    //
+    // The old logic returned a single hard-coded +9% trigger and left rungs 2
+    // and 3 at the config defaults (+500% / +2000%) — which on real meme
+    // trajectories never fire. So the bot was effectively a single +9% partial
+    // bot, capturing winners that were MATHEMATICALLY too small to offset a
+    // -12% catastrophe at 25% WR. To break even at the operator's TIER-2 33.5%
+    // target the avg-win must exceed `(1 - 0.335)/0.335 ≈ 1.99 ×` the avg-loss.
+    // With -12% avg-loss → avg-win must clear +24% — so a +9% partial is
+    // suicidal.
+    //
+    // New design: WrRecoveryLadder.effectiveLadder() returns a 3-rung partial
+    // ladder when recovery mode is active:
+    //   Rung 1: +18% → first cash-in at the target expectancy floor.
+    //   Rung 2: +35% → roughly 2x the implied 1R win at target WR.
+    //   Rung 3: +60% → fat-tail capture; remaining runner is small enough
+    //                  not to dominate P&L if it rugs.
+    // Caller (checkPartialSell) uses these rungs in place of the
+    // config-default 200/500/2000. When recovery is NOT active the config
+    // values are used unchanged — operator can still tune them via LLM /
+    // SettingsBottomSheet.
+    private const val RECOVERY_RUNG_1_PCT = 18.0
+    private const val RECOVERY_RUNG_2_PCT = 35.0
+    private const val RECOVERY_RUNG_3_PCT = 60.0
+
+    /** Optional smaller per-rung fraction when recovery is active — keeps a runner
+     *  on every rung instead of dumping 33% chunks. */
+    private const val RECOVERY_RUNG_FRACTION = 0.25
+
+    /** Snapshot of the WR-recovery state for the current call. */
+    data class State(
+        val active: Boolean,
+        val currentWr: Double,
+        val targetWr: Double,
+        val totalSettled: Int,
+    )
 
     /**
-     * Returns the effective first-partial trigger pct.
-     * Returns [normalTrigger] unchanged when recovery mode is not active.
-     *
-     * V5.9.770 — counters source moved from `CanonicalLearningCounters`
-     * (in-memory AtomicLong(0), wiped on every process death) to
-     * `TradeHistoryStore.getLifetimeStats()` (SQLite-persisted). The
-     * old source meant a fresh install or backgrounded-then-revived
-     * service saw total<50 and disabled recovery, even when the
-     * persisted WR (e.g. 27% over 2074 W/L) was deep below phase
-     * target. Operator screenshot 2026-05-15 21:14 showed
-     * "27% Win Rate · 2981 Trades · target 44.9%" with no
-     * 🚑 WR recovery tag because the in-memory counters were near
-     * zero. The persisted lifetime stats already power every other
-     * UI surface (the readiness tile uses them directly), so this
-     * change keeps the recovery logic in sync with what the operator
-     * actually sees on screen.
+     * V5.9.796 — compute & cache the WR recovery state so callers (the
+     * partial-sell ladder + the status tag + LLM tuner) all read from
+     * the same source. Lifetime stats come from the SQLite-persisted
+     * TradeHistoryStore so a fresh install / backgrounded service sees
+     * the same numbers as the UI readiness tile.
      */
-    fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
-        if (partialLevel != 0) return normalTrigger          // only override first rung
-        if (profitLockTriggered) return normalTrigger        // already locked — let it ride
-
+    fun stateNow(): State {
         val stats = try {
             com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
         } catch (_: Throwable) { null }
         val wins   = (stats?.totalWins ?: 0).toDouble()
         val losses = (stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
-        if (total < 50.0) return normalTrigger              // too few trades for reliable WR signal
+        if (total < 50.0) return State(false, 0.0, 0.0, total.toInt())
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
         val targetWR  = try {
             com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt())
         } catch (_: Exception) { 30.0 }
+        if (targetWR <= 0.0) return State(false, currentWR, 0.0, total.toInt())
 
-        if (targetWR <= 0.0) return normalTrigger           // phase has no WR target yet
-        if (currentWR >= targetWR * WR_RECOVERY_THRESHOLD) return normalTrigger  // on-target → no override
+        val active = currentWR < targetWR * WR_RECOVERY_THRESHOLD
+        return State(active, currentWR, targetWR, total.toInt())
+    }
 
-        // Below target → use the absolute recovery trigger.
-        // Clamp to at most the normal trigger so we never RAISE it.
-        val recoveryTrigger = ABSOLUTE_RECOVERY_TRIGGER
+    /**
+     * Returns the effective first-partial trigger pct.
+     * Returns [normalTrigger] unchanged when recovery mode is not active.
+     *
+     * V5.9.796 — operator audit: the recovery FIRST rung is now +18% (was
+     * +9%), so we never cash a winner below the TIER-2 expectancy. The
+     * trigger CAN still be capped by normalTrigger (don't raise the floor),
+     * but the floor itself moves up to honor operator's "targeting the
+     * number or better, NOT lower" mandate.
+     */
+    fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
+        if (partialLevel != 0) return normalTrigger          // only override first rung
+        if (profitLockTriggered) return normalTrigger        // already locked — let it ride
+
+        val state = stateNow()
+        if (!state.active) return normalTrigger              // on-target → no override
+
+        // Recovery active → use ladder rung 1, clamped to never RAISE above
+        // the operator-configured trigger but always ABOVE the min-gain floor.
+        val recoveryTrigger = RECOVERY_RUNG_1_PCT
             .coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
             .coerceAtMost(normalTrigger)
-        // Only log when we're actually going to act (token has reached the new trigger)
         if (gainPct >= recoveryTrigger) {
-            ErrorLogger.info("WrRecovery", "📉 WR RECOVERY PARTIAL FIRING: WR=${"%.1f".format(currentWR)}% < target=${targetWR.toInt()}%×0.85 → ${normalTrigger.toInt()}%→${recoveryTrigger.toInt()}% (gain=${gainPct.toInt()}%)")
+            ErrorLogger.info(
+                "WrRecovery",
+                "📉 WR_RECOVERY_LADDER R1 FIRING: WR=${"%.1f".format(state.currentWr)}% < target=${state.targetWr.toInt()}%×0.85 → first=${recoveryTrigger.toInt()}% (gain=${gainPct.toInt()}%)"
+            )
         }
         return recoveryTrigger
     }
 
+    /**
+     * V5.9.796 — operator audit: rung 2 + rung 3 overrides. The old code
+     * left these at the config defaults (+500% / +2000%) which on real meme
+     * trajectories never fire, so the bot was effectively a single-partial
+     * bot. Now they fire at +35% / +60% when recovery is active — giving
+     * the operator-requested 'multiple sells on same token if up'.
+     */
+    fun effectiveSecondTrigger(normalTrigger: Double): Double {
+        return if (stateNow().active) RECOVERY_RUNG_2_PCT.coerceAtMost(normalTrigger) else normalTrigger
+    }
+    fun effectiveThirdTrigger(normalTrigger: Double): Double {
+        return if (stateNow().active) RECOVERY_RUNG_3_PCT.coerceAtMost(normalTrigger) else normalTrigger
+    }
+
+    /**
+     * V5.9.796 — operator audit: per-rung sell fraction. When recovery is
+     * active we sell smaller chunks (25%) so each rung leaves a runner
+     * instead of dumping 33% on the first hit. When not active, return
+     * the operator-configured base fraction unchanged.
+     */
+    fun effectiveSellFraction(baseFraction: Double): Double {
+        return if (stateNow().active) RECOVERY_RUNG_FRACTION.coerceAtMost(baseFraction) else baseFraction
+    }
+
     /** Human-readable status for logs (V5.9.770 — persisted source). */
     fun statusTag(): String {
-        val stats = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
-        } catch (_: Throwable) { null }
-        val wins   = (stats?.totalWins ?: 0).toDouble()
-        val losses = (stats?.totalLosses ?: 0).toDouble()
-        val total  = wins + losses
-        if (total < 50) return "WR_RECOVERY:insufficient_data"
-        val wr     = (wins / total) * 100.0
-        val target = try { com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt()) } catch (_: Exception) { 30.0 }
-        val active = wr < target * WR_RECOVERY_THRESHOLD
-        return if (active) "WR_RECOVERY:ACTIVE(wr=${wr.toInt()}%,target=${target.toInt()}%)" else "WR_RECOVERY:off"
+        val s = stateNow()
+        if (s.totalSettled < 50) return "WR_RECOVERY:insufficient_data"
+        return if (s.active)
+            "WR_RECOVERY:LADDER_ACTIVE(wr=${s.currentWr.toInt()}%,target=${s.targetWr.toInt()}%,rungs=${RECOVERY_RUNG_1_PCT.toInt()}/${RECOVERY_RUNG_2_PCT.toInt()}/${RECOVERY_RUNG_3_PCT.toInt()}%)"
+        else
+            "WR_RECOVERY:off"
     }
 }
 
@@ -3136,17 +3191,23 @@ class Executor(
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
         
         // V5.9.722 — WR-recovery partial: lower the first milestone when WR is below phase target.
-        // Second/third milestones are unchanged — runners are never capped by recovery mode.
+        // V5.9.796 — operator audit: rungs 2 + 3 ALSO recovery-aware. Old behaviour left them at
+        // the config defaults (+500% / +2000%) which never fire on real meme trajectories — so the
+        // bot was effectively single-partial. New WrRecoveryPartial.effectiveSecondTrigger /
+        // effectiveThirdTrigger give us the proper +35% / +60% rungs when recovery is active,
+        // and pass the config defaults through untouched when it isn't.
         val firstTrigger = WrRecoveryPartial.effectiveTrigger(
             normalTrigger      = c.partialSellTriggerPct,
             gainPct            = gainPct,
             partialLevel       = partialLevel,
             profitLockTriggered = pos.profitLocked,
         )
+        val secondTrigger = WrRecoveryPartial.effectiveSecondTrigger(c.partialSellSecondTriggerPct)
+        val thirdTrigger  = WrRecoveryPartial.effectiveThirdTrigger(c.partialSellThirdTriggerPct)
         val milestones = listOf(
             firstTrigger,
-            c.partialSellSecondTriggerPct,
-            c.partialSellThirdTriggerPct,
+            secondTrigger,
+            thirdTrigger,
             10000.0,
             50000.0,
         )
@@ -3158,7 +3219,11 @@ class Executor(
         if (!shouldPartial) return false
         if (partialLevel == 2 && !c.partialSellThirdEnabled) return false
 
-        val baseFraction = c.partialSellFraction
+        // V5.9.796 — operator audit: smaller per-rung fraction when WR recovery
+        // is active so each rung leaves a runner instead of dumping a third
+        // of the position on the first ladder hit. WrRecoveryPartial returns
+        // the operator-configured fraction unchanged when recovery is off.
+        val baseFraction = WrRecoveryPartial.effectiveSellFraction(c.partialSellFraction)
         val treasuryAdjustedFraction = try {
             val solPrice = WalletManager.lastKnownSolPrice
             val treasuryUsd = TreasuryManager.treasurySol * solPrice
