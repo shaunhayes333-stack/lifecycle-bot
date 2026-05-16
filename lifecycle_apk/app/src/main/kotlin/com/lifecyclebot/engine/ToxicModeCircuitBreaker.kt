@@ -196,10 +196,28 @@ object ToxicModeCircuitBreaker {
         }
         
         // 8. Memory score check
-        if (memoryScore <= -8) {
+        //
+        // V5.9.787 — operator fix B: relax MEMORY_TOO_NEGATIVE so paper-mode
+        // learning isn't permanently locked by historic losses. The whole
+        // point of paper mode is to let the bot trade through unfavorable
+        // patterns and accumulate fresh outcomes — but the previous code
+        // blocked at -8 (which a single -0.3x multiplier from TokenWinMemory
+        // hits immediately). New behavior:
+        //   • PAPER mode → never block on memoryScore (log + allow). The
+        //     operator audit specifically requires paper mode to remain
+        //     un-choked so strategy learners get fresh feature-rich samples.
+        //   • LIVE mode  → only block at <= -12 (was <= -8). A single losing
+        //     run no longer permanently locks the lane; the trader has to
+        //     have a substantially negative memory profile before LIVE
+        //     entries are blocked.
+        if (memoryScore <= -12 && !isPaperMode) {
             blockedEntries++
-            Log.w(TAG, "🚫 BLOCKED: Memory score $memoryScore too negative")
+            Log.w(TAG, "🚫 BLOCKED [LIVE]: Memory score $memoryScore too negative")
             return "MEMORY_TOO_NEGATIVE"
+        }
+        if (memoryScore <= -8 && isPaperMode) {
+            // Visibility only — do NOT block paper trades.
+            Log.w(TAG, "⚠️ PAPER warning: Memory score $memoryScore is negative — allowing for learning.")
         }
         
         // 9. Confidence check for copy/whale modes

@@ -1068,7 +1068,19 @@ class LifecycleStrategy(
         val prices = hist.map { it.ref }
         
         // Handle bootstrap/thin_market early returns
-        if (hist.size < 3 || result.phase in listOf("bootstrap", "thin_market")) {
+        //
+        // V5.9.787 — operator fix A.2: relax the hist.size<3 gate when the
+        // token has strong fresh-launch signals (liq >= $15K AND entryScore >= 30).
+        // Previously, fresh tokens with $247K liquidity (LOL) and score 41 (CATCH)
+        // were rejected with "Insufficient data: early_unknown" purely because
+        // they hadn't accumulated 3 candle snapshots yet. The candle requirement
+        // is still enforced for thin/low-score tokens where lifecycle phase
+        // genuinely matters; fresh, large, well-scored tokens go straight to
+        // the hard-block gate below.
+        val hasStrongFreshLaunchSignals =
+            ts.lastLiquidityUsd >= 15_000.0 && result.entryScore >= 30.0
+        if ((hist.size < 3 && !hasStrongFreshLaunchSignals) ||
+            result.phase in listOf("bootstrap", "thin_market")) {
             val decision = CandidateDecision.blocked(
                 reason = "Insufficient data: ${result.phase}",
                 meta = result.meta

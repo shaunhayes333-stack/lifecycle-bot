@@ -3054,9 +3054,23 @@ class BotService : Service() {
             // user's maxWatchlistSize AND a hard ceiling of 80. We also drop
             // tokens with no activity in the last 60 minutes — those are
             // stale registry rows that should NOT clog the cold-start watchlist.
+            //
+            // V5.9.787 — operator fix C: 60 minutes was still leaving ~80
+            // restored mints crashing through V3 with liq=$0/vol=$0 at every
+            // cold boot (snapshot showed MEME_REGISTRY_RESTORE=80 dominating
+            // intake source). MemeMintRegistry doesn't store last-known
+            // liq/mcap, so admitted restored tokens enter V3 with zero
+            // signal until enrichment populates them — that's the dominant
+            // V3_SKIPPED vol_gate reject reason and the source of the
+            // boot-loop perf hit (avg cycle 5.4s). Tightening:
+            //   • cutoff   60min → 10min (only very-recently confirmed mints)
+            //   • cap         80 → 40  (was excessive)
+            // Older mints stay in the persistent registry (14-day retention)
+            // but are not force-admitted to the watchlist; the scanner
+            // re-discovers them organically when fresh activity arrives.
             val nowMs = System.currentTimeMillis()
-            val recentCutoffMs = 60 * 60 * 1000L  // 1 hour
-            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(30).coerceAtMost(80)
+            val recentCutoffMs = 10 * 60 * 1000L  // 10 minutes (was 60min)
+            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(30).coerceAtMost(40)
             val recent = restoredMemeMints
                 .asSequence()
                 .filter { (nowMs - it.lastSeenMs) < recentCutoffMs }
