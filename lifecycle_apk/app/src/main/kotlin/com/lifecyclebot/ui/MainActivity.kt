@@ -2022,14 +2022,11 @@ for legal compliance.
                 // partial trigger had dropped to drive WR back up. Pull the
                 // canonical status tag from WrRecoveryPartial.statusTag().
                 val wrRecoveryTag = try {
-                    val tag = com.lifecyclebot.engine.WrRecoveryPartial.statusTag()
-                    when {
-                        tag.contains("ACTIVE") -> {
-                            // e.g. "WR_RECOVERY:ACTIVE(wr=29%,target=38%)" → "🚑 WR recovery @9%"
-                            "🚑 WR recovery @9%"
-                        }
-                        else -> ""
-                    }
+                    // V5.9.797 — operator audit: pull the active-band badge (e.g. F@30%,
+                    // M@25%, A@18%, with ⚡ prefix when predictive escalated) instead of
+                    // the stale hardcoded "@9%". When recovery is off the badge is empty.
+                    val short = com.lifecyclebot.engine.WrRecoveryPartial.shortBadge()
+                    if (short == "off") "" else "🚑 WR recovery $short"
                 } catch (_: Throwable) { "" }
 
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
@@ -2497,7 +2494,18 @@ for legal compliance.
             try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
             val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Exception) { 0 }
             val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Exception) { 0 }
-            val openCount = maxOf(openMints.size, hostOpen, lifecycleOpen)
+            // V5.9.797 — operator audit (build-2734 screenshot): top tile showed
+            // "7 Open" while the actual Open Positions list rendered 10 cards.
+            // Source-of-truth divergence: the list uses buildUnifiedOpenPositions(state)
+            // which pulls from a wider source (incl. EXPRESS / sub-trader positions
+            // that aren't in state.openPositions OR the trader-AI active maps),
+            // but this tile was computing its own union. We now read the SAME
+            // unified list size so what you see in the tile always equals what
+            // the card below renders.
+            val unifiedListSize = try {
+                buildUnifiedOpenPositions(state).size
+            } catch (_: Throwable) { 0 }
+            val openCount = maxOf(openMints.size, hostOpen, lifecycleOpen, unifiedListSize)
             tvStatsOpenPos.text = "$openCount"
             tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
             

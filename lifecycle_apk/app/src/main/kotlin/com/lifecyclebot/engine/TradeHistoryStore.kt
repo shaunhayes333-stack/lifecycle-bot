@@ -498,6 +498,25 @@ object TradeHistoryStore {
         return if (decisive > 0) ((wins.toDouble() * 100.0) / decisive).toInt() else 0
     }
 
+    /**
+     * V5.9.797 — operator audit: rolling-N short-term WR for the
+     * WrRecoveryPartial predictive band. Looks at the last [n] SELL trades
+     * (newest first), counts the decisive ones (W/L, ignoring scratches),
+     * and returns the win-rate as a percentage. Returns -1.0 when the
+     * sample is too small for a meaningful signal (< n/2 decisive trades).
+     */
+    fun rollingWinRatePct(n: Int): Double {
+        val sample = synchronized(lock) {
+            // Newest-first window of the most recent N sells.
+            trades.asReversed().asSequence().filter { it.side == "SELL" }.take(n).toList()
+        }
+        val wins   = sample.count { isWin(it) }
+        val losses = sample.count { isLoss(it) }
+        val decisive = wins + losses
+        if (decisive < n / 2) return -1.0
+        return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
+    }
+
     fun getTradeCount24h(): Int = getTrades24h().size
 
     fun getPnl24hSol(): Double = getSells24h().sumOf { it.pnlSol }

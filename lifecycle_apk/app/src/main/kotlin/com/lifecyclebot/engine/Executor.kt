@@ -44,55 +44,54 @@ import java.util.concurrent.ConcurrentHashMap
  * e.g. normal trigger = 15% → recovery trigger = max(5%, 15%*0.60) = 9%
  */
 object WrRecoveryPartial {
-    private const val WR_RECOVERY_THRESHOLD  = 0.85   // fire below 85% of phase target
-    private const val MIN_PARTIAL_GAIN_PCT   = 12.0   // never lock below +12%
-    // V5.9.796 — operator audit (build-2733 screenshot, 25% WR / 1469 trades):
+    // V5.9.797 — operator audit: 'win rate recovery should basically be
+    // running in a FLUID STATE. it's not preemptively working to help itself.'
     //
-    //   "win rate/ratio sells aren't aggressive enough to make a difference.
-    //    multiple sells on same token if up? and not WITH 10% — we are
-    //    targeting THE NUMBER or BETTER, not lower."
+    // Pre-V5.9.797 behaviour: recovery flipped ON below target × 0.85, OFF
+    // otherwise. That left a 15-point gap (between 0.85×target and target)
+    // where the bot ran with the +200% / +500% / +2000% config defaults —
+    // which on real meme trajectories NEVER fire. So whenever WR was just
+    // *slightly* under target, the bot had ZERO partial protection.
     //
-    // The old logic returned a single hard-coded +9% trigger and left rungs 2
-    // and 3 at the config defaults (+500% / +2000%) — which on real meme
-    // trajectories never fire. So the bot was effectively a single +9% partial
-    // bot, capturing winners that were MATHEMATICALLY too small to offset a
-    // -12% catastrophe at 25% WR. To break even at the operator's TIER-2 33.5%
-    // target the avg-win must exceed `(1 - 0.335)/0.335 ≈ 1.99 ×` the avg-loss.
-    // With -12% avg-loss → avg-win must clear +24% — so a +9% partial is
-    // suicidal.
+    // V5.9.797 — three intensity bands, no gap. Recovery is active anytime
+    // current WR < target. The deeper the deficit, the tighter the ladder:
     //
-    // New design: WrRecoveryLadder.effectiveLadder() returns a 3-rung partial
-    // ladder when recovery mode is active:
-    //   Rung 1: +18% → first cash-in at the target expectancy floor.
-    //   Rung 2: +35% → roughly 2x the implied 1R win at target WR.
-    //   Rung 3: +60% → fat-tail capture; remaining runner is small enough
-    //                  not to dominate P&L if it rugs.
-    // Caller (checkPartialSell) uses these rungs in place of the
-    // config-default 200/500/2000. When recovery is NOT active the config
-    // values are used unchanged — operator can still tune them via LLM /
-    // SettingsBottomSheet.
-    private const val RECOVERY_RUNG_1_PCT = 18.0
-    private const val RECOVERY_RUNG_2_PCT = 35.0
-    private const val RECOVERY_RUNG_3_PCT = 60.0
+    //   FLUID    — currentWR ≤ target            : light protection (always-on)
+    //              rungs +30/+60/+120%, sell 20% each
+    //   MODERATE — currentWR < target × 0.95     : closer in
+    //              rungs +25/+45/+80%, sell 25% each
+    //   AGGRESSIVE — currentWR < target × 0.85   : deep deficit
+    //              rungs +18/+35/+60%, sell 25% each
+    //
+    // Pre-emptive band (PREDICTIVE) — rolling-50 WR < target × 0.90 even
+    // while lifetime WR is on target. The "see it coming and pre-empt" piece
+    // operator asked for. Kicks the ladder one band tighter than the
+    // lifetime-based decision would have produced.
+    private const val DEEP_THRESHOLD     = 0.85
+    private const val MODERATE_THRESHOLD = 0.95
+    private const val FLUID_THRESHOLD    = 1.00
+    private const val PREDICTIVE_THRESHOLD = 0.90
+    private const val MIN_PARTIAL_GAIN_PCT = 12.0
 
-    /** Optional smaller per-rung fraction when recovery is active — keeps a runner
-     *  on every rung instead of dumping 33% chunks. */
-    private const val RECOVERY_RUNG_FRACTION = 0.25
+    enum class Band { OFF, FLUID, MODERATE, AGGRESSIVE }
 
     /** Snapshot of the WR-recovery state for the current call. */
     data class State(
-        val active: Boolean,
+        val band: Band,
         val currentWr: Double,
         val targetWr: Double,
         val totalSettled: Int,
-    )
+        val rollingWr: Double,        // last 50 settled
+        val predictive: Boolean,      // rolling-50 below target × 0.90
+    ) {
+        val active: Boolean get() = band != Band.OFF
+    }
 
     /**
-     * V5.9.796 — compute & cache the WR recovery state so callers (the
-     * partial-sell ladder + the status tag + LLM tuner) all read from
-     * the same source. Lifetime stats come from the SQLite-persisted
-     * TradeHistoryStore so a fresh install / backgrounded service sees
-     * the same numbers as the UI readiness tile.
+     * V5.9.797 — compute & cache the WR recovery state. Reads the SQLite
+     * lifetime stats AND samples the rolling-50 short-term WR from the
+     * in-memory trade history so predictive recovery can fire before the
+     * lifetime number degrades.
      */
     fun stateNow(): State {
         val stats = try {
@@ -101,81 +100,113 @@ object WrRecoveryPartial {
         val wins   = (stats?.totalWins ?: 0).toDouble()
         val losses = (stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
-        if (total < 50.0) return State(false, 0.0, 0.0, total.toInt())
+        if (total < 50.0) return State(Band.OFF, 0.0, 0.0, total.toInt(), 0.0, false)
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
         val targetWR  = try {
             com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt())
         } catch (_: Exception) { 30.0 }
-        if (targetWR <= 0.0) return State(false, currentWR, 0.0, total.toInt())
+        if (targetWR <= 0.0) return State(Band.OFF, currentWR, 0.0, total.toInt(), 0.0, false)
 
-        val active = currentWR < targetWR * WR_RECOVERY_THRESHOLD
-        return State(active, currentWR, targetWR, total.toInt())
+        val rollingWr = try {
+            com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePct(50)
+        } catch (_: Throwable) { -1.0 }
+        val predictive = rollingWr in 0.0..(targetWR * PREDICTIVE_THRESHOLD)
+
+        val lifetimeBand = when {
+            currentWR < targetWR * DEEP_THRESHOLD     -> Band.AGGRESSIVE
+            currentWR < targetWR * MODERATE_THRESHOLD -> Band.MODERATE
+            currentWR < targetWR * FLUID_THRESHOLD    -> Band.FLUID
+            else -> Band.OFF
+        }
+        // Predictive escalation: when rolling-50 is bleeding, tighten by one band.
+        val band = if (predictive) escalate(lifetimeBand) else lifetimeBand
+        return State(band, currentWR, targetWR, total.toInt(), rollingWr, predictive)
+    }
+
+    private fun escalate(b: Band): Band = when (b) {
+        Band.OFF -> Band.FLUID
+        Band.FLUID -> Band.MODERATE
+        Band.MODERATE -> Band.AGGRESSIVE
+        Band.AGGRESSIVE -> Band.AGGRESSIVE
+    }
+
+    /** Three rung trigger pcts for the active band. */
+    private fun rungsFor(band: Band): Triple<Double, Double, Double> = when (band) {
+        Band.AGGRESSIVE -> Triple(18.0, 35.0, 60.0)
+        Band.MODERATE   -> Triple(25.0, 45.0, 80.0)
+        Band.FLUID      -> Triple(30.0, 60.0, 120.0)
+        Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+    }
+
+    /** Per-rung sell fraction for the active band. */
+    private fun fractionFor(band: Band): Double = when (band) {
+        Band.AGGRESSIVE -> 0.25
+        Band.MODERATE   -> 0.25
+        Band.FLUID      -> 0.20
+        Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 
     /**
      * Returns the effective first-partial trigger pct.
-     * Returns [normalTrigger] unchanged when recovery mode is not active.
+     * Returns [normalTrigger] unchanged when no band is active.
      *
-     * V5.9.796 — operator audit: the recovery FIRST rung is now +18% (was
-     * +9%), so we never cash a winner below the TIER-2 expectancy. The
-     * trigger CAN still be capped by normalTrigger (don't raise the floor),
-     * but the floor itself moves up to honor operator's "targeting the
-     * number or better, NOT lower" mandate.
+     * V5.9.797 — caps at MIN_PARTIAL_GAIN_PCT on the floor (operator: 'we are
+     * targeting THE NUMBER or BETTER, not lower') and at normalTrigger on the
+     * ceiling (recovery can only LOWER a trigger, never raise it — operator's
+     * Settings / LLM tuner remain authoritative).
      */
     fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
-        if (partialLevel != 0) return normalTrigger          // only override first rung
-        if (profitLockTriggered) return normalTrigger        // already locked — let it ride
+        if (partialLevel != 0) return normalTrigger
+        if (profitLockTriggered) return normalTrigger
 
         val state = stateNow()
-        if (!state.active) return normalTrigger              // on-target → no override
+        if (!state.active) return normalTrigger
 
-        // Recovery active → use ladder rung 1, clamped to never RAISE above
-        // the operator-configured trigger but always ABOVE the min-gain floor.
-        val recoveryTrigger = RECOVERY_RUNG_1_PCT
-            .coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
-            .coerceAtMost(normalTrigger)
-        if (gainPct >= recoveryTrigger) {
+        val (rung1, _, _) = rungsFor(state.band)
+        val effective = rung1.coerceAtLeast(MIN_PARTIAL_GAIN_PCT).coerceAtMost(normalTrigger)
+        if (gainPct >= effective) {
             ErrorLogger.info(
                 "WrRecovery",
-                "📉 WR_RECOVERY_LADDER R1 FIRING: WR=${"%.1f".format(state.currentWr)}% < target=${state.targetWr.toInt()}%×0.85 → first=${recoveryTrigger.toInt()}% (gain=${gainPct.toInt()}%)"
+                "📉 ${state.band.name}${if (state.predictive) "*PREDICTIVE" else ""} R1 FIRING: WR=${"%.1f".format(state.currentWr)}% / rolling50=${"%.1f".format(state.rollingWr)}% / target=${state.targetWr.toInt()}% → first=${effective.toInt()}% (gain=${gainPct.toInt()}%)"
             )
         }
-        return recoveryTrigger
+        return effective
     }
 
-    /**
-     * V5.9.796 — operator audit: rung 2 + rung 3 overrides. The old code
-     * left these at the config defaults (+500% / +2000%) which on real meme
-     * trajectories never fire, so the bot was effectively a single-partial
-     * bot. Now they fire at +35% / +60% when recovery is active — giving
-     * the operator-requested 'multiple sells on same token if up'.
-     */
     fun effectiveSecondTrigger(normalTrigger: Double): Double {
-        return if (stateNow().active) RECOVERY_RUNG_2_PCT.coerceAtMost(normalTrigger) else normalTrigger
+        val s = stateNow()
+        if (!s.active) return normalTrigger
+        return rungsFor(s.band).second.coerceAtMost(normalTrigger)
     }
     fun effectiveThirdTrigger(normalTrigger: Double): Double {
-        return if (stateNow().active) RECOVERY_RUNG_3_PCT.coerceAtMost(normalTrigger) else normalTrigger
+        val s = stateNow()
+        if (!s.active) return normalTrigger
+        return rungsFor(s.band).third.coerceAtMost(normalTrigger)
     }
-
-    /**
-     * V5.9.796 — operator audit: per-rung sell fraction. When recovery is
-     * active we sell smaller chunks (25%) so each rung leaves a runner
-     * instead of dumping 33% on the first hit. When not active, return
-     * the operator-configured base fraction unchanged.
-     */
     fun effectiveSellFraction(baseFraction: Double): Double {
-        return if (stateNow().active) RECOVERY_RUNG_FRACTION.coerceAtMost(baseFraction) else baseFraction
+        val s = stateNow()
+        if (!s.active) return baseFraction
+        return fractionFor(s.band).coerceAtMost(baseFraction)
     }
 
-    /** Human-readable status for logs (V5.9.770 — persisted source). */
+    /** Human-readable status for logs / UI badges. */
     fun statusTag(): String {
         val s = stateNow()
         if (s.totalSettled < 50) return "WR_RECOVERY:insufficient_data"
-        return if (s.active)
-            "WR_RECOVERY:LADDER_ACTIVE(wr=${s.currentWr.toInt()}%,target=${s.targetWr.toInt()}%,rungs=${RECOVERY_RUNG_1_PCT.toInt()}/${RECOVERY_RUNG_2_PCT.toInt()}/${RECOVERY_RUNG_3_PCT.toInt()}%)"
-        else
-            "WR_RECOVERY:off"
+        if (!s.active) return "WR_RECOVERY:off"
+        val (r1, r2, r3) = rungsFor(s.band)
+        val predicate = if (s.predictive) "*PREDICTIVE" else ""
+        return "WR_RECOVERY:${s.band.name}${predicate}(wr=${s.currentWr.toInt()}%,roll=${s.rollingWr.toInt()}%,target=${s.targetWr.toInt()}%,rungs=${r1.toInt()}/${r2.toInt()}/${r3.toInt()}%)"
+    }
+
+    /** Compact tag for the Memes Live-Readiness "🚑 WR recovery @X%" badge. */
+    fun shortBadge(): String {
+        val s = stateNow()
+        if (!s.active) return "off"
+        val (r1, _, _) = rungsFor(s.band)
+        val pre = if (s.predictive) "⚡" else ""
+        return "${pre}${s.band.name.first()}@${r1.toInt()}%"
     }
 }
 
