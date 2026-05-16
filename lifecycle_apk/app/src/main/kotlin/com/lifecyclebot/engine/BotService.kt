@@ -5473,7 +5473,18 @@ class BotService : Service() {
                             val priceRefMs = maxOf(ts.lastPriceUpdate, ts.position.entryTime)
                             val livePriceAgeMs = System.currentTimeMillis() - priceRefMs
                             val posAgeForStale = System.currentTimeMillis() - ts.position.entryTime
-                            val staleLivePriceThreshMs = if (posAgeForStale > 60_000L) 90_000L else 120_000L
+                            // V5.9.788 — operator dump (build 2726) showed 273
+                            // SELL_LOCK_SET events in 23min, almost all from
+                            // STALE_LIVE_PRICE_RUG_ESCAPE on paper positions.
+                            // In paper mode price-staleness is feed noise, not
+                            // a real rug — relaxing thresholds 5x so paper
+                            // trades actually live long enough to compound a
+                            // realistic edge (used to escape after 90s, now 5min).
+                            val staleLivePriceThreshMs = if (cfg.paperMode) {
+                                if (posAgeForStale > 60_000L) 450_000L else 600_000L     // 7.5min / 10min in paper
+                            } else {
+                                if (posAgeForStale > 60_000L) 90_000L else 120_000L      // 90s / 120s in LIVE (real money)
+                            }
                             if (livePriceAgeMs > staleLivePriceThreshMs && ts.position.isOpen) {
                                 ErrorLogger.warn("BotService",
                                     "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), force-exit")

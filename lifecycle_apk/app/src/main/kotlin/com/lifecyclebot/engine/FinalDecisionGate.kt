@@ -1246,13 +1246,20 @@ object FinalDecisionGate {
         //   FDG at $3,000 adds a middle-tier quality bar without sterility.
         val EXECUTION_FLOOR = when (tradingModeTag) {
             ModeSpecificGates.TradingModeTag.SHITCOIN ->
-                // V5.9.727 — was lerp(2000,5000). At ~24% progress (1206/5000)
-                // that put the floor at $2720, blocking the entire $2100-2700
-                // fresh pump.fun protected-intake stream — operator dump
-                // showed Officer/¥1/DADDYTROLL all bouncing here. Tighter
-                // lerp keeps the rug-defence intent but lets the learning-band
-                // intake actually take samples.
-                lerp(1_500.0, 4_000.0, learningProgress)
+                // V5.9.788 — operator dump (build 2726): lerp(1500,4000) was
+                // blocking 98.8% of all FDG decisions (4883/4940 blocks) because
+                // the dominant pump.fun bonding-curve intake stream consistently
+                // arrives in the $2,100-$2,200 liquidity band. With learningProgress
+                // anywhere above ~25%, the floor lifted above $2,125 and rejected
+                // every single fresh meme candidate. The original V5.9.727 tighten
+                // was designed for the SHITCOIN's own scorer ($2K bootstrap floor),
+                // but FDG was set ABOVE that — defeating the meme trader by design.
+                //
+                // New tighter band keeps the rug-defence intent (still climbs to
+                // $2,500 once the AI has 5000+ trades of confidence) but starts
+                // at $1,000 so the actual pump.fun candidate stream can take
+                // samples without instantly hitting "LIQUIDITY_BELOW_EXECUTION_FLOOR".
+                lerp(1_000.0, 2_500.0, learningProgress)
             ModeSpecificGates.TradingModeTag.MOONSHOT ->
                 3_000.0                                      // own scorer already gates $2k/$15k; add middle bar
             else -> FluidLearningAI.getExecutionFloor()     // Lerp floor for proven-token traders
