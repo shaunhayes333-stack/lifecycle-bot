@@ -881,6 +881,28 @@ class BotService : Service() {
             if (cfg.shadowPaperEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
+            // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
+            // authority dump. The previous publish() call only logged the
+            // enabled/disabled trader sets. Operator audit requires the full
+            // runtime authority surface to be forensically visible on every
+            // start so a "Meme-only run that secretly ran Sniper" can be
+            // diagnosed from a single log line.
+            try {
+                val runtimeModeStr = try { com.lifecyclebot.engine.RuntimeModeAuthority.authority().name } catch (_: Throwable) { "?" }
+                val sniperLocalEnabled = try { com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled() } catch (_: Throwable) { false }
+                val sniperAuthEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+                )
+                ErrorLogger.info(
+                    "BotService",
+                    "🔐 AUTH_SURFACE_AT_START " +
+                        "RuntimeModeAuthority=$runtimeModeStr " +
+                        "cfg.paperMode=${cfg.paperMode} " +
+                        "ProjectSniperAI.isEnabled=$sniperLocalEnabled " +
+                        "sniperAllowed=$sniperAuthEnabled " +
+                        "enabledTraders=${com.lifecyclebot.engine.EnabledTraderAuthority.snapshotStr()}"
+                )
+            } catch (_: Throwable) { /* logging is best-effort */ }
         }
 
         if (marketsLaneOn) {

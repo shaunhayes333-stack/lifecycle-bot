@@ -393,6 +393,25 @@ object ProjectSniperAI {
         mcap: Double,
         buyPressure: Double,
     ) {
+        // V5.9.789 — operator audit Critical Fix 3: FATAL auth breach guard.
+        // If this path executes while PROJECT_SNIPER is NOT in the published
+        // EnabledTraderAuthority set, that's a regression — caller bypassed
+        // the gate at BotService.kt:12155 ("sniperAllowed && isEnabled()").
+        // Log a FATAL marker and reject the engagement so the operator's
+        // forensic dump immediately reveals the breach.
+        val sniperInAuthSet = try {
+            com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+            )
+        } catch (_: Throwable) { false }
+        if (!sniperInAuthSet) {
+            ErrorLogger.warn(TAG,
+                "🚨 FATAL_AUTH_BREACH_SNIPER_EXECUTED_WHILE_DISABLED " +
+                "symbol=$symbol mint=${mint.take(8)} entrySol=${entrySol.fmt(3)} " +
+                "authSet=${com.lifecyclebot.engine.EnabledTraderAuthority.snapshotStr()} " +
+                "isEnabledLocalFlag=${isEnabled()}")
+            return
+        }
         val mission = SniperMission(
             mint = mint,
             symbol = symbol,

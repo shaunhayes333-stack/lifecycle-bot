@@ -61,7 +61,48 @@ object CanonicalFeaturesBuilder {
             false -> "RETAINED"
             else -> "UNKNOWN"
         }
-        val (venue, route, bondingCurveActive, migrated) = inferVenueRoute(ts)
+        val (venueDirect, routeDirect, bondingCurveActive, migrated) = inferVenueRoute(ts)
+
+        // V5.9.789 — operator audit Critical Fix 1+6: SOURCE-DERIVED FALLBACKS.
+        // The previous build returned venue="UNKNOWN"/trader="UNKNOWN" whenever
+        // a token's lastPriceDex/lastPriceSource was empty (paper-mode tokens
+        // that never got a fresh quote, stale-price escape exits, registry-
+        // restored mints). Result: 716/716 outcomes were incomplete — strategy
+        // learners trained on zero rich samples.
+        //
+        // Now, when the price-source path can't identify a venue, we infer
+        // from the TradeSource (which is set authoritatively by Executor.kt
+        // from position type). Meme-class sources default to PUMP_FUN_BONDING
+        // (the dominant pump.fun intake stream), bluechip sources to JUPITER.
+        // Same fallback for trader when mode normalizes to UNKNOWN.
+        val venue: String = if (venueDirect != "UNKNOWN") venueDirect else when (source) {
+            TradeSource.SHITCOIN, TradeSource.MOONSHOT, TradeSource.MANIP,
+            TradeSource.EXPRESS, TradeSource.CYCLIC, TradeSource.COPYTRADE -> "PUMP_FUN_BONDING"
+            TradeSource.BLUECHIP -> "JUPITER"
+            TradeSource.TREASURY -> "JUPITER"
+            TradeSource.MARKETS -> "JUPITER"
+            TradeSource.V3 -> "PUMP_FUN_BONDING"
+            else -> "UNKNOWN"
+        }
+        val route: String = if (routeDirect != "UNKNOWN") routeDirect else when {
+            venue == "PUMP_FUN_BONDING" -> "PUMP_NATIVE"
+            venue == "PUMPSWAP" -> "PUMPPORTAL"
+            venue == "JUPITER" || venue == "RAYDIUM" || venue == "ORCA" || venue == "METEORA" -> "JUPITER"
+            else -> "UNKNOWN"
+        }
+        val trader: String = if (mode != TradeMode.UNKNOWN) mode.name else when (source) {
+            TradeSource.SHITCOIN -> "SHITCOIN"
+            TradeSource.BLUECHIP -> "BLUECHIP"
+            TradeSource.MOONSHOT -> "MOONSHOT"
+            TradeSource.MANIP -> "MANIP"
+            TradeSource.EXPRESS -> "EXPRESS"
+            TradeSource.CYCLIC -> "CYCLIC"
+            TradeSource.COPYTRADE -> "COPY_TRADE"
+            TradeSource.TREASURY -> "TREASURY"
+            TradeSource.MARKETS -> "ALTTRADER"
+            TradeSource.V3 -> "STANDARD"
+            else -> "STANDARD"     // V3 / default — still trainable
+        }
 
         val cand = CandidateFeatures(
             assetClass = when (source) {
@@ -73,7 +114,7 @@ object CanonicalFeaturesBuilder {
                 else -> "MEME"
             },
             runtimeMode = env.name,
-            trader = mode.name,
+            trader = trader,
             venue = venue,
             route = route,
             bondingCurveActive = bondingCurveActive,
@@ -100,14 +141,47 @@ object CanonicalFeaturesBuilder {
             manualOrExternalClose = false,
         )
 
-        // Key-field completeness gate: trader, venue, liqBucket, mcapBucket must
-        // be populated for the sample to count as feature-rich. If any key field
-        // is blank/unknown, mark incomplete so strategy learners skip the sample.
-        val isIncomplete = cand.trader.isBlank() || cand.trader == "UNKNOWN" ||
-                cand.venue.isBlank() || cand.venue == "UNKNOWN" ||
-                cand.liqBucket.isBlank() ||
-                cand.mcapBucket.isBlank() ||
-                cand.runtimeMode.isBlank()
+        // V5.9.789 — operator audit Critical Fix 6: forensic incompleteness log.
+        // Per-field missing-reason check + structured log so operator can see
+        // EXACTLY why a sample was rejected from strategy learning.
+        val missing = buildList<String> {
+            if (cand.trader.isBlank() || cand.trader == "UNKNOWN") add("trader")
+            if (cand.venue.isBlank() || cand.venue == "UNKNOWN") add("venue")
+            if (cand.liqBucket.isBlank()) add("liq")
+            if (cand.mcapBucket.isBlank()) add("mcap")
+            if (cand.runtimeMode.isBlank()) add("runtime")
+        }
+        // V5.9.789 — operator audit Critical Fix 8: feed/lifecycle-driven exits
+        // are NOT strategy outcomes. Even when features are technically populated,
+        // a STALE_LIVE_PRICE/bot_shutdown/external-swap close should not poison
+        // BehaviorLearning's "bad token call" memory — those are price-feed or
+        // execution-layer failures, not strategy losses.
+        val reason = trade.reason.uppercase()
+        val isFeedOrLifecycleClose =
+            reason.contains("STALE_LIVE_PRICE") ||
+            reason.contains("STALE_PRICE") ||
+            reason.contains("BOT_SHUTDOWN") ||
+            reason.contains("MANUAL_") ||
+            reason.contains("EXTERNAL_") ||
+            reason.contains("CLOSED_EXTERNALLY") ||
+            reason.contains("FEED_FAIL") ||
+            reason.contains("PHANTOM_") ||
+            reason.contains("WALLET_RECONCILE")
+        val mlist = missing.toMutableList()
+        if (isFeedOrLifecycleClose) mlist.add("execution-or-feed-driven-close($reason)")
+
+        val isIncomplete = mlist.isNotEmpty()
+        if (isIncomplete) {
+            try {
+                android.util.Log.w(
+                    "CanonicalFeatures",
+                    "CANONICAL_FEATURES_INCOMPLETE mint=${ts.mint.take(8)} symbol=${ts.symbol} " +
+                        "missing=$mlist source=$source lastPriceDex=${ts.lastPriceDex} " +
+                        "lastPriceSource=${ts.lastPriceSource} liq=${liqUsd} mcap=${mcapUsd} " +
+                        "mode=$mode closeReason=${trade.reason}"
+                )
+            } catch (_: Throwable) { /* logging is best-effort */ }
+        }
 
         return cand to isIncomplete
     }
