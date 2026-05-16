@@ -95,7 +95,16 @@ enum class LayerReadiness {
     PAPER_ELIGIBLE,
     LIVE_ELIGIBLE,
     TRUSTED,
+    // V5.9.790 — operator audit Critical Fix 2: split generic DEGRADED into
+    // diagnostic sub-reasons so the dashboard stops claiming a layer is
+    // 'bad' when the truth is it never received feature-rich samples.
+    // The old DEGRADED value is kept for back-compat; readinessOf() now
+    // returns one of the more specific values when the cause is known.
     DEGRADED,
+    DEGRADED_BAD_EV,            // genuine: enough rich samples + > 70% losses
+    DEGRADED_FEATURE_STARVED,   // only ever fed featuresIncomplete=true samples
+    DEGRADED_NO_ADAPTER,        // layer present but never received bus events
+    DEGRADED_NO_VOTES,          // adapter wired but layer never cast a vote
 }
 
 enum class CrossTalkSignal {
@@ -318,6 +327,13 @@ object CanonicalLearningCounters {
     // surface what fraction of training samples were actually feature-rich.
     val incompleteFeatureOutcomes = AtomicLong(0)
     val richFeatureOutcomes = AtomicLong(0)
+    // V5.9.790 — operator audit Critical Fix 2:
+    //   strategyTrainableOutcomes = rich + EXECUTED → BehaviorLearning patterns.
+    //   executionOnlyOutcomes     = everything that may train route/slippage
+    //                               learners but MUST NOT train strategy patterns
+    //                               (incomplete features OR rich w/ execution failure).
+    val strategyTrainableOutcomes = AtomicLong(0)
+    val executionOnlyOutcomes = AtomicLong(0)
 
     fun snapshot(): Map<String, Long> = mapOf(
         "canonicalOutcomesTotal" to canonicalOutcomesTotal.get(),
@@ -334,6 +350,8 @@ object CanonicalLearningCounters {
         "rejectedBadLabels" to rejectedBadLabels.get(),
         "incompleteFeatureOutcomes" to incompleteFeatureOutcomes.get(),
         "richFeatureOutcomes" to richFeatureOutcomes.get(),
+        "strategyTrainableOutcomes" to strategyTrainableOutcomes.get(),
+        "executionOnlyOutcomes" to executionOnlyOutcomes.get(),
     )
 }
 
@@ -395,10 +413,28 @@ object CanonicalOutcomeBus {
         // V5.9.782 — split rich vs incomplete so dashboards/strategy learners
         // can compute "real training samples" honestly. featuresIncomplete=true
         // is the legacy bridge default.
-        if (o.featuresIncomplete) {
-            CanonicalLearningCounters.incompleteFeatureOutcomes.incrementAndGet()
-        } else {
+        val rich = !o.featuresIncomplete
+        if (rich) {
             CanonicalLearningCounters.richFeatureOutcomes.incrementAndGet()
+        } else {
+            CanonicalLearningCounters.incompleteFeatureOutcomes.incrementAndGet()
+        }
+        // V5.9.790 — operator audit Critical Fix 2: classify EVERY canonical
+        // outcome into the bucket that decides which learners may consume it.
+        // Strategy learning requires BOTH rich features AND a real execution
+        // (PHANTOM_UNCONFIRMED / STUCK_UNCONFIRMED / FAILED_* never trains
+        // strategy patterns — operator audit Critical Fix 8).
+        val executedOk = when (o.executionResult) {
+            ExecutionResult.EXECUTED,
+            ExecutionResult.CLOSED_BY_TX_PARSE,
+            ExecutionResult.CLOSED_BY_WALLET_RECONCILE,
+            ExecutionResult.RECOVERED_FROM_WALLET -> true
+            else -> false
+        }
+        if (rich && executedOk) {
+            CanonicalLearningCounters.strategyTrainableOutcomes.incrementAndGet()
+        } else {
+            CanonicalLearningCounters.executionOnlyOutcomes.incrementAndGet()
         }
         when (o.environment) {
             TradeEnvironment.LIVE -> CanonicalLearningCounters.liveOutcomesTotal.incrementAndGet()
@@ -631,20 +667,32 @@ object LayerReadinessRegistry {
         // DEGRADED is reserved for genuinely broken layers: 500+ settled
         // samples AND a really bad ratio (more than 70% losses).
         //
+        // V5.9.790 — operator audit Critical Fix 2: when the layer has 500+
+        // settled samples but ZERO of them were rich (featuresIncomplete=true
+        // on every educate call), we return DEGRADED_FEATURE_STARVED instead
+        // of generic DEGRADED. The bot looks 'broken' to a casual reader of
+        // the dashboard otherwise — when in truth the producer never gave it
+        // a chance to learn.
+        //
         // 0:               RECEIVING_SIGNALS
         // 1-99:            LEARNING_ONLY
         // 100-499:         PAPER_ELIGIBLE   (still bootstrap; can't be DEGRADED)
         // 500-1999:        LIVE_ELIGIBLE
         // 2000+ ev>0:      TRUSTED
-        // 500+  ratio<-70%: DEGRADED (genuinely broken signal)
+        // 500+  ratio<-70% AND has rich samples : DEGRADED_BAD_EV
+        // 500+  rich==0   AND incomplete>=500   : DEGRADED_FEATURE_STARVED
         // else:            LIVE_ELIGIBLE
         val lossRatio = if (n > 0) losses.toDouble() / n.toDouble() else 0.0
+        val rich = s.richEducationCount
+        val incomplete = s.incompleteEducationCount
         return when {
             n == 0L -> LayerReadiness.RECEIVING_SIGNALS
             n in 1..99 -> LayerReadiness.LEARNING_ONLY
             n in 100..499 -> LayerReadiness.PAPER_ELIGIBLE
             n >= 2000L && ev > 0 -> LayerReadiness.TRUSTED
-            n >= 500L && lossRatio >= 0.70 -> LayerReadiness.DEGRADED
+            n >= 500L && rich == 0L && incomplete >= 500L -> LayerReadiness.DEGRADED_FEATURE_STARVED
+            n >= 500L && lossRatio >= 0.70 && rich > 0L -> LayerReadiness.DEGRADED_BAD_EV
+            n >= 500L && lossRatio >= 0.70 -> LayerReadiness.DEGRADED_FEATURE_STARVED
             n >= 500L -> LayerReadiness.LIVE_ELIGIBLE
             else -> LayerReadiness.LIVE_ELIGIBLE
         }
@@ -659,6 +707,16 @@ object LayerReadinessRegistry {
 
     fun snapshot(): Map<String, LayerReadiness> =
         states.keys.associateWith { readinessOf(it) }
+
+    /**
+     * V5.9.790 — operator audit Critical Fix 2: per-layer counters so the
+     * dashboard can render exactly why a layer is DEGRADED (bad EV vs feature
+     * starvation). Returns Triple(settled, richEducation, incompleteEducation).
+     */
+    fun countersOf(layer: String): Triple<Long, Long, Long> {
+        val s = states[layer] ?: return Triple(0L, 0L, 0L)
+        return Triple(s.settledOutcomes, s.richEducationCount, s.incompleteEducationCount)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────

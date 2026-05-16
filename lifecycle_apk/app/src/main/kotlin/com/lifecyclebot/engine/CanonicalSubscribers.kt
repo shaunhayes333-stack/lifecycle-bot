@@ -99,10 +99,11 @@ object CanonicalSubscribers {
                         TradeEnvironment.PAPER -> FluidLearningAI.recordPaperTrade(isWin, dedupKey = fluidDedupKey)
                         TradeEnvironment.SHADOW -> { /* shadow doesn't affect Fluid trust */ }
                     }
-                    LayerReadinessRegistry.recordEducation(
+                    LayerReadinessRegistry.recordEducationDetailed(
                         layer = "FluidLearningAI",
                         settledDelta = 1L,
                         positiveEvDelta = if (isWin) 1L else 0L,
+                        isRichSample = !outcome.featuresIncomplete,
                     )
                 } catch (t: Throwable) {
                     ErrorLogger.debug(TAG, "Fluid mirror threw: ${t.message?.take(80)}")
@@ -129,10 +130,11 @@ object CanonicalSubscribers {
                     if (!recordOnce(outcome.tradeId, layer)) return@subscribe
                     if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
                     val isWin = outcome.result == TradeResult.WIN
-                    LayerReadinessRegistry.recordEducation(
+                    LayerReadinessRegistry.recordEducationDetailed(
                         layer = layer,
                         settledDelta = 1L,
                         positiveEvDelta = if (isWin) 1L else 0L,
+                        isRichSample = !outcome.featuresIncomplete,
                     )
                     // V5.9.683-FIX: MetaCognitionAI.totalTradesAnalyzed was never
                     // incremented by the bus because recordTradeOutcome() requires
@@ -192,10 +194,11 @@ object CanonicalSubscribers {
 
                 val isWin = outcome.result == TradeResult.WIN
                 for (layer in toUpdate.distinct()) {
-                    LayerReadinessRegistry.recordEducation(
+                    LayerReadinessRegistry.recordEducationDetailed(
                         layer = layer,
                         settledDelta = 1L,
                         positiveEvDelta = if (isWin) 1L else 0L,
+                        isRichSample = !outcome.featuresIncomplete,
                     )
                 }
             }

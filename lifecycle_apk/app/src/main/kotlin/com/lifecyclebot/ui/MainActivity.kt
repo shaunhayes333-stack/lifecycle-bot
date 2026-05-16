@@ -7373,6 +7373,17 @@ This cannot be undone!
             startActivity(Intent(this, PipelineHealthActivity::class.java))
             performHaptic()
         }
+        // V5.9.790 — operator audit Critical Fix 9: long-press the Pipeline
+        // tile opens the new AATE Universe Health screen (6-pillar status:
+        // Runtime / Scoring / Learning / Execution / Authority / Wallet) so
+        // the operator can verify in one tap whether the bot is honestly
+        // sentient (MODERN) or running CLASSIC, and which Critical Fix lights
+        // are still red.
+        findViewById<View>(R.id.btnQuickPipeline)?.setOnLongClickListener {
+            startActivity(Intent(this, UniverseHealthActivity::class.java))
+            performHaptic()
+            true
+        }
 
         // ═══════════════════════════════════════════════════════════════════
         // V3.2 AI FEATURE BUTTONS

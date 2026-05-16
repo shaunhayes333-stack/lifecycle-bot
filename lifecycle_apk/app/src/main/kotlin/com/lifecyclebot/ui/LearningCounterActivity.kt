@@ -154,7 +154,24 @@ class LearningCounterActivity : Activity() {
         // still tick counters and educate execution layers.
         addKvHighlight("richFeatureOutcomes", snap["richFeatureOutcomes"]?.toString() ?: "?", "#10B981")
         addKvHighlight("incompleteFeatureOutcomes", snap["incompleteFeatureOutcomes"]?.toString() ?: "?", "#F59E0B")
+        // V5.9.790 — operator audit Critical Fix 2: split rich into the subset that
+        // actually trains strategy patterns vs the subset that may only train
+        // execution learners (route, slippage, fee retry).
+        addKvHighlight("strategyTrainableOutcomes", snap["strategyTrainableOutcomes"]?.toString() ?: "?", "#10B981")
+        addKvHighlight("executionOnlyOutcomes", snap["executionOnlyOutcomes"]?.toString() ?: "?", "#F59E0B")
         addKv("Bus subscribers", CanonicalOutcomeBus.subscriberCount().toString())
+        // V5.9.790 — operator audit Critical Fix 5: surface how many legacy
+        // direct BehaviorLearning.recordTrade() calls were made vs how many
+        // wrote to pattern memory. By default ALL legacy direct calls are
+        // compatibility-only (pattern memory comes from canonical bus alone).
+        val legacyDirect = try { com.lifecyclebot.engine.BehaviorLearning.getLegacyDirectRecorded().toLong() } catch (_: Throwable) { -1L }
+        val legacyPrimary = try { com.lifecyclebot.engine.BehaviorLearning.strategyLearningFromLegacy } catch (_: Throwable) { false }
+        val legacyColor = if (legacyPrimary) "#F59E0B" else "#6B7280"
+        addKvHighlight(
+            "BehaviorLearning legacy direct calls",
+            "$legacyDirect ${if (legacyPrimary) "(WRITING PATTERNS)" else "(counter-only · bus is primary)"}",
+            legacyColor,
+        )
 
         // ── Section 3: Legacy consumer counts (drift detection) ───────
         addHeader("📈 Legacy Consumer Counts (drift = fragmentation)")
@@ -207,10 +224,25 @@ class LearningCounterActivity : Activity() {
                     com.lifecyclebot.engine.LayerReadiness.PAPER_ELIGIBLE -> "#8B5CF6"
                     com.lifecyclebot.engine.LayerReadiness.LEARNING_ONLY -> "#F59E0B"
                     com.lifecyclebot.engine.LayerReadiness.DEGRADED -> "#EF4444"
+                    // V5.9.790 — operator audit Critical Fix 2 sub-classifications:
+                    // FEATURE_STARVED renders amber (not red) because the layer isn't
+                    // broken — its producer is — and operator must not be told the
+                    // layer's signal is bad when truth is it never got rich samples.
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_BAD_EV -> "#EF4444"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_FEATURE_STARVED -> "#F59E0B"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_ADAPTER -> "#6B7280"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_VOTES -> "#6B7280"
                     com.lifecyclebot.engine.LayerReadiness.RECEIVING_SIGNALS -> "#6B7280"
                     com.lifecyclebot.engine.LayerReadiness.DISCONNECTED -> "#374151"
                 }
-                addKvHighlight(layer, state.name, color)
+                // V5.9.790 — show per-layer rich vs incomplete sample counts so
+                // the operator can see at a glance whether a DEGRADED label is
+                // truthful (rich>0) or just feature-starved (rich==0).
+                val (settled, rich, incomplete) = try {
+                    LayerReadinessRegistry.countersOf(layer)
+                } catch (_: Throwable) { Triple(0L, 0L, 0L) }
+                val annotated = "${state.name}  n=$settled rich=$rich incomplete=$incomplete"
+                addKvHighlight(layer, annotated, color)
             }
         }
 

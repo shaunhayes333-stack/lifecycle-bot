@@ -47,6 +47,17 @@ object BehaviorLearning {
     // WalletTruthDigest reflects reality and self-healing thresholds
     // (MIN_TRADES_FOR_HEALTH etc) fire on the correct sample-size.
     private val totalScratchRecorded = AtomicInteger(0)
+    // V5.9.790 — operator audit Critical Fix 5: track legacy direct
+    // recordTrade() invocations separately from canonical bus writes. The
+    // operator's spec wants the canonical bus to be the ONLY writer of
+    // pattern memory (so we never train on feature-poor samples). Legacy
+    // direct calls now only increment counters for compatibility / drift
+    // visibility unless `strategyLearningFromLegacy` is explicitly flipped.
+    private val totalLegacyDirectRecorded = AtomicInteger(0)
+    @Volatile
+    var strategyLearningFromLegacy: Boolean = false       // BUS_ONLY by default
+
+    fun getLegacyDirectRecorded(): Int = totalLegacyDirectRecorded.get()
 
     data class BehaviorPattern(
         val patternId: String,
@@ -161,6 +172,21 @@ object BehaviorLearning {
     /**
      * Record a trade outcome.
      * Scratch trades are ignored.
+     *
+     * V5.9.790 — operator audit Critical Fix 5:
+     *   Legacy direct callers (Executor.kt:8221 + 10556) invoke this with
+     *   the local sentiment/volatility/volume snapshot they can scrape from
+     *   TokenState — which is feature-poor compared to the canonical bus
+     *   payload (CandidateFeatures with venue/route/safetyTier/holderConc
+     *   buckets, etc.). To prevent feature-poor samples from polluting
+     *   pattern memory and to make the canonical bus the single writer
+     *   of strategy patterns, this method now ONLY increments the
+     *   compatibility counter when `strategyLearningFromLegacy == false`
+     *   (which is the default — see operator audit point 5). Pattern memory
+     *   writes happen exclusively through `onCanonicalOutcome()`.
+     *
+     *   Flip `strategyLearningFromLegacy = true` from a debug/settings entry
+     *   to fall back to the legacy behaviour during canonical bridge issues.
      */
     fun recordTrade(
         entryScore: Int,
@@ -180,6 +206,14 @@ object BehaviorLearning {
         pnlPct: Double,
     ) {
         try {
+            // V5.9.790 — compatibility counter ALWAYS bumps so dashboards
+            // and self-healing thresholds keep working unchanged.
+            totalLegacyDirectRecorded.incrementAndGet()
+            if (!strategyLearningFromLegacy) {
+                // Audit Critical Fix 5: pattern memory is bus-only by default.
+                // Counter only — do not mutate goodPatterns / badPatterns.
+                return
+            }
             val isWin = isWin(pnlPct)
             val isLoss = isLoss(pnlPct)
 
