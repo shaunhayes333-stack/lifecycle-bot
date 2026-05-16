@@ -1413,7 +1413,7 @@ class Executor(
             // this sell, it's a partial. Defensive against future exit-
             // reason strings we haven't whitelisted yet.
             val isPartialByQty = try {
-                val price = if (trade.tokenPrice > 0.0) trade.tokenPrice else 1.0
+                val price = if (trade.price > 0.0) trade.price else 1.0
                 val sellQty = trade.sol / price
                 val totalQty = ts.position.qtyToken
                 totalQty > 0.0 && sellQty < totalQty * 0.99
