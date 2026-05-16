@@ -2049,6 +2049,25 @@ for legal compliance.
             }
         } catch (_: Exception) {}
 
+        // V5.9.798 — operator audit: WR Recovery Heatmap mini-tile.
+        // Renders 5 coloured blocks showing rolling-50 WR slices (newest on
+        // the left, oldest on the right). Each block is independently
+        // green / amber / red based on that slice's WR vs phase target.
+        // Lets the operator see at a glance whether the bot is actively
+        // improving, drifting, or already deep in a hole — exactly the
+        // 'no more 1469-trade screenshots wondering whether anything's
+        // happening' visibility they asked for.
+        try {
+            val heatmap = findViewById<TextView>(R.id.tvWrHeatmap)
+            if (heatmap != null) {
+                if (!isMemeTab) {
+                    heatmap.visibility = android.view.View.GONE
+                } else {
+                    renderWrRecoveryHeatmap(heatmap)
+                }
+            }
+        } catch (_: Exception) {}
+
         try {
             val lb = findViewById<TextView>(R.id.tvStrategyLeaderboard)
             if (lb != null) {
@@ -10493,6 +10512,59 @@ $preTweetText
             val total = s.deferred + s.backgroundClassed + s.expired
             if (total == 0) "" else " · 🛡 ${s.deferred} deferred · ${s.backgroundClassed} bg · ${s.expired} expired"
         } catch (_: Throwable) { "" }
+    }
+
+    /**
+     * V5.9.798 — WR Recovery Heatmap. Renders 5 coloured blocks (newest →
+     * oldest, left → right) into the [target] TextView. Each block shows
+     * a slice of rolling-50 WR, colour-coded vs phase target:
+     *   GREEN   — slice WR ≥ target
+     *   AMBER   — 0.85 × target ≤ slice WR < target
+     *   RED     — slice WR < 0.85 × target
+     *   DIM     — not enough sample yet (< 25 decisive trades in the slice)
+     */
+    private fun renderWrRecoveryHeatmap(target: TextView) {
+        try {
+            val store = com.lifecyclebot.engine.TradeHistoryStore
+            val stats = store.getLifetimeStats()
+            val totalSettled = (stats.totalWins + stats.totalLosses).toInt()
+            // Phase target — same source the recovery state uses.
+            val phaseTarget = try {
+                com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(totalSettled)
+            } catch (_: Throwable) { 30.0 }
+
+            val sliceWidth = 50
+            val sliceCount = 5
+            val builder = android.text.SpannableStringBuilder("🌡 WR slices: ")
+            val rolling = store.rollingWinRatePct(sliceWidth)
+            for (i in 0 until sliceCount) {
+                val pct = store.rollingWinRatePctSlice(offset = i * sliceWidth, width = sliceWidth)
+                val color = when {
+                    pct < 0 -> 0xFF4B5563.toInt()                   // DIM — sparse sample
+                    phaseTarget <= 0 -> 0xFF4B5563.toInt()
+                    pct >= phaseTarget -> 0xFF10B981.toInt()        // GREEN
+                    pct >= phaseTarget * 0.85 -> 0xFFF59E0B.toInt() // AMBER
+                    else -> 0xFFEF4444.toInt()                      // RED
+                }
+                val start = builder.length
+                builder.append("▰")
+                builder.setSpan(
+                    android.text.style.ForegroundColorSpan(color),
+                    start, builder.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+            // Append a short text summary so the operator knows what the
+            // blocks mean without hovering.
+            val rollLabel = if (rolling >= 0) "%.0f%%".format(rolling) else "—"
+            val targetLabel = if (phaseTarget > 0) "${phaseTarget.toInt()}%" else "—"
+            builder.append("  roll50=$rollLabel / target=$targetLabel")
+
+            target.text = builder
+            target.visibility = if (totalSettled >= 50) android.view.View.VISIBLE else android.view.View.GONE
+        } catch (_: Throwable) {
+            target.visibility = android.view.View.GONE
+        }
     }
 }
 

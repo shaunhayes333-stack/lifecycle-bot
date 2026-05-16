@@ -972,6 +972,20 @@
                     android:layout_marginTop="4dp"
                     android:visibility="gone"/>
 
+                <!-- V5.9.798 — operator audit: WR Recovery Heatmap.
+                     5 coloured blocks showing rolling-50 WR slices vs target.
+                     Newest slice on the LEFT, oldest on the right. -->
+                <TextView
+                    android:id="@+id/tvWrHeatmap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🌡 WR slices: ▰▰▰▰▰"
+                    android:textColor="#94A3B8"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone"/>
+
                 <TextView
                     android:id="@+id/tvStrategyLeaderboard"
                     android:layout_width="match_parent"

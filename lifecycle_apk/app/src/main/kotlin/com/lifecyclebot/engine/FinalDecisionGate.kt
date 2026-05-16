@@ -1059,6 +1059,48 @@ object FinalDecisionGate {
             rawConfidence
         }
 
+        // V5.9.798 — operator audit: Smart Entry Gate during WR recovery.
+        // Operator mandate: 'the bot overall should be working harder and
+        // smarter to ensure the recovery doesn't really need to fire.'
+        // While WR is in MODERATE/AGGRESSIVE recovery bands the bot should
+        // stop piling on low-EV C/D-grade entries and only take the
+        // highest-quality A / A+ setups. Skipping this gate in the FLUID
+        // band keeps discovery flowing when WR is barely under target.
+        try {
+            val wrState = com.lifecyclebot.engine.WrRecoveryPartial.stateNow()
+            val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
+                                 wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
+            val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
+            if (isHighRecovery && !isAGrade) {
+                ErrorLogger.info(
+                    "FDG",
+                    "🚑 WR_RECOVERY_QUALITY_FLOOR: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% < target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} blocked (need A/A+)"
+                )
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = confidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "WR_RECOVERY_QUALITY_FLOOR",
+                    blockLevel = BlockLevel.MODE,
+                    sizeSol = 0.0,
+                    tags = listOf("wr_recovery_qfloor", "band_${wrState.band.name.lowercase()}"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "WR recovery ${wrState.band.name} active (${"%.1f".format(wrState.currentWr)}% / target ${wrState.targetWr.toInt()}%) — only A/A+ setups allowed, this is ${candidate.setupQuality}",
+                    gateChecks = listOf(
+                        GateCheck(
+                            "wr_recovery_quality_floor",
+                            false,
+                            "band=${wrState.band.name} requires A/A+ entries; this candidate is ${candidate.setupQuality}"
+                        )
+                    )
+                )
+            }
+        } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
+
         // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
         // bot trades from first start per user directive. Modern keeps 8.0.
         val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0

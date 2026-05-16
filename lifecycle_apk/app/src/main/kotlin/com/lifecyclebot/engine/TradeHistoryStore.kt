@@ -517,6 +517,28 @@ object TradeHistoryStore {
         return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
     }
 
+    /**
+     * V5.9.798 — operator audit: WR Recovery Heatmap.
+     * Returns WR pct for a [width]-trade window starting [offset] sells
+     * back from the newest (0 = newest [width] sells, [width] = the prior
+     * [width], etc.). Used by the 5-block heatmap tile on the Memes tab.
+     * Returns -1.0 when the window is too sparse to be meaningful.
+     */
+    fun rollingWinRatePctSlice(offset: Int, width: Int): Double {
+        val sample = synchronized(lock) {
+            trades.asReversed().asSequence()
+                .filter { it.side == "SELL" }
+                .drop(offset)
+                .take(width)
+                .toList()
+        }
+        val wins   = sample.count { isWin(it) }
+        val losses = sample.count { isLoss(it) }
+        val decisive = wins + losses
+        if (decisive < width / 2) return -1.0
+        return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
+    }
+
     fun getTradeCount24h(): Int = getTrades24h().size
 
     fun getPnl24hSol(): Double = getSells24h().sumOf { it.pnlSol }
