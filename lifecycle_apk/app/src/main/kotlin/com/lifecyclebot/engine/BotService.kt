@@ -876,8 +876,12 @@ class BotService : Service() {
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
             if (com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled())
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
-            if (cfg.cyclicTradeLiveEnabled || cfg.paperMode)
+            if (cfg.cyclicTradeLiveEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
+            // V5.9.792 — operator audit Item 3: 'Do not auto-enable CYCLIC just
+            // because cfg.paperMode == true.' Removed the (|| cfg.paperMode)
+            // clause so paper-mode no longer secretly turns CYCLIC on alongside
+            // MEME. CYCLIC must be an EXPLICIT opt-in via cfg.cyclicTradeLiveEnabled.
             if (cfg.shadowPaperEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
@@ -11469,6 +11473,35 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             )
                         } else {
 
+                        // V5.9.792 — operator audit Item 4: V3 fatal must terminate lane flow.
+                        // Hoist the V3 BlockFatal / Rejected / Blocked check ABOVE the
+                        // ShitCoin evaluate so a rug-critical token never even runs
+                        // through the meme qualification. Without this guard, ShitCoin
+                        // emits a QUALIFIED signal that AdaptiveLearningEngine and the
+                        // Strategy Trust log treat as a "missed entry" — polluting the
+                        // false-positive feed. Route the rejection to REJECTED_FATAL_V3
+                        // and skip lane training entirely (rejected-feature telemetry
+                        // can still emit downstream).
+                        val v3IsPaperModeLocal = cfg.paperMode
+                        val v3FatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
+                        val v3FatalIsRug = v3FatalReason.startsWith("V3:RUG_FATAL:") || v3FatalReason.contains("RUG_CRITICAL")
+                        val v3HardRejectForShitCoin =
+                            v3Decision is com.lifecyclebot.v3.V3Decision.Rejected ||
+                                (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperModeLocal && v3FatalIsRug)) ||
+                                v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
+                        if (v3HardRejectForShitCoin) {
+                            try {
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "REJECTED_FATAL_V3",
+                                    "mint=${ts.mint} sym=${ts.symbol} v3=${v3Decision::class.java.simpleName} reason=${v3FatalReason.ifBlank { "(none)" }}",
+                                )
+                            } catch (_: Throwable) {}
+                            ErrorLogger.info(
+                                "BotService",
+                                "💩 [SHITCOIN] ${ts.symbol} | SKIP_EVAL | V3_HARD_REJECT (${v3Decision::class.java.simpleName}) — lane flow terminated, no qualification telemetry"
+                            )
+                        } else {
+
                         var shitCoinSignal = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -11840,6 +11873,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             } // end authResult.isExecutable()
                         }
                     }
+                    } // V5.9.792: close else of v3HardRejectForShitCoin guard (operator audit Item 4)
                     } // V5.9.103: close else of liqCollapseDetected guard
                     }
                 } // close FDG-required else (SHITCOIN V5.9.688)

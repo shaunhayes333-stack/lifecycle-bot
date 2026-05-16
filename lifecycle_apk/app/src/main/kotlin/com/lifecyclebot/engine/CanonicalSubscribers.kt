@@ -87,6 +87,35 @@ object CanonicalSubscribers {
                 if (!com.lifecyclebot.engine.execution.ExecutionStatusRegistry.shouldTrainStrategy(outcome.mint)) {
                     return@subscribe
                 }
+                // V5.9.792 — operator audit Item 3: MEME_ONLY_TEST_MODE isolation.
+                // When the operator runs Meme Trader only, ProjectSniper / CopyTrade /
+                // Treasury / BlueChip / CashGen close events must NOT contaminate the
+                // meme WR via FluidLearningAI. Two-layer guard:
+                //   (a) if only MEME is enabled in EnabledTraderAuthority, drop any
+                //       outcome whose source is not in the canonical meme set.
+                //   (b) restored non-meme positions (cold-start adoption) come in as
+                //       UNKNOWN source and must also be excluded from meme WR.
+                try {
+                    val memeOnly = try {
+                        com.lifecyclebot.engine.EnabledTraderAuthority.snapshot() ==
+                            setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
+                    } catch (_: Throwable) { false }
+                    if (memeOnly) {
+                        val memeSources = setOf(
+                            TradeSource.SHITCOIN, TradeSource.MOONSHOT, TradeSource.EXPRESS,
+                            TradeSource.MANIP, TradeSource.CYCLIC,
+                        )
+                        if (outcome.source !in memeSources) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "MEME_TRAINING_FILTERED_NONMEME_SOURCE",
+                                    "mint=${outcome.mint} src=${outcome.source.name} mode=${outcome.mode.name}",
+                                )
+                            } catch (_: Throwable) {}
+                            return@subscribe
+                        }
+                    }
+                } catch (_: Throwable) {}
                 val isWin = outcome.result == TradeResult.WIN
                 try {
                     // V5.9.694 — pass tradeId as dedupKey so FluidLearning's
