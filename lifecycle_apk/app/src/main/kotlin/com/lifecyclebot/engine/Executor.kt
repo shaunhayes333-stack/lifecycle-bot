@@ -1347,10 +1347,41 @@ class Executor(
         // outcome + ToxicModeCircuitBreaker loss + MetaCognition outcome
         // + RunTracker30D row, polluting every learner and the journal.
         // Arbitrate ONLY for terminal SELLs (skip BUY + partial SELLs).
+        //
+        // V5.9.800 — operator audit FIX: profit-lock / capital-recovery /
+        // WR-recovery partials use reason strings that DON'T start with
+        // 'partial' (e.g. 'profit_lock_1.5x', 'capital_recovery_2x',
+        // 'wr_recovery_partial_9'). Pre-V5.9.800 the arbiter treated those
+        // as terminal, locking the positionKey on the FIRST profit lock
+        // and then SUPPRESSING the actual terminal close — breaking the
+        // entire fluid stop-loss / fluid profit-lock flow. Now we detect
+        // ALL non-terminal sell signatures by reason prefix AND by an
+        // independent quantity check: if the sell didn't move the
+        // position size to zero (within rounding), it's a partial.
         try {
             val isSell = trade.side.equals("SELL", ignoreCase = true)
             val reasonLower = trade.reason.lowercase()
-            val isPartial = reasonLower.startsWith("partial") || reasonLower.contains("partial_")
+            val isPartialByReason =
+                reasonLower.startsWith("partial") ||
+                reasonLower.contains("partial_") ||
+                reasonLower.contains("partialsell") ||
+                reasonLower.startsWith("profit_lock") ||
+                reasonLower.startsWith("capital_recovery") ||
+                reasonLower.startsWith("wr_recovery") ||
+                reasonLower.contains("_partial_") ||
+                reasonLower.contains("profit_take_partial") ||
+                reasonLower.contains("scale_out")
+            // Quantity-based partial detection — independent of reason
+            // string. If the position still has > 1% of qty left after
+            // this sell, it's a partial. Defensive against future exit-
+            // reason strings we haven't whitelisted yet.
+            val isPartialByQty = try {
+                val price = if (trade.tokenPrice > 0.0) trade.tokenPrice else 1.0
+                val sellQty = trade.sol / price
+                val totalQty = ts.position.qtyToken
+                totalQty > 0.0 && sellQty < totalQty * 0.99
+            } catch (_: Throwable) { false }
+            val isPartial = isPartialByReason || isPartialByQty
             if (isSell && !isPartial) {
                 val env = if (ts.position.isPaperPosition) "PAPER" else "LIVE"
                 val verdict = com.lifecyclebot.engine.PositionExitArbiter.arbitrate(

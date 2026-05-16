@@ -418,7 +418,21 @@ object CanonicalOutcomeBus {
         // close is the actual terminal event.
         val isTerminalResult = normalized.result == TradeResult.WIN || normalized.result == TradeResult.LOSS
         val reasonLower = normalized.closeReason?.lowercase().orEmpty()
-        val isPartial = reasonLower.startsWith("partial") || reasonLower.contains("partial_") || reasonLower.contains("partialsell")
+        // V5.9.800 — operator audit FIX: broaden partial detection to include
+        // fluid profit-lock / capital-recovery / WR-recovery partials whose
+        // reason strings don't start with 'partial'. Without this the FIRST
+        // profit-lock or capital-recovery sell would lock the positionKey
+        // at the bus level and SUPPRESS the subsequent actual terminal sell.
+        val isPartial =
+            reasonLower.startsWith("partial") ||
+            reasonLower.contains("partial_") ||
+            reasonLower.contains("partialsell") ||
+            reasonLower.startsWith("profit_lock") ||
+            reasonLower.startsWith("capital_recovery") ||
+            reasonLower.startsWith("wr_recovery") ||
+            reasonLower.contains("_partial_") ||
+            reasonLower.contains("profit_take_partial") ||
+            reasonLower.contains("scale_out")
         if (isTerminalResult && !isPartial) {
             val key = PositionExitArbiter.positionKey(normalized.mint, normalized.entryTimeMs)
             val verdict = PositionExitArbiter.arbitrate(
