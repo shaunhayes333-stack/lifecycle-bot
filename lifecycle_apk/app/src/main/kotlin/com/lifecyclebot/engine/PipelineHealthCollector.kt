@@ -362,6 +362,11 @@ object PipelineHealthCollector {
 
     private const val LONG_FRAME_THRESHOLD_MS = 700L  // > 700ms gap = "the bot froze"
     private const val WATCHDOG_INTERVAL_MS    = 250L
+    // V5.9.795 — operator audit: ignore Choreographer gaps > 60s as
+    // they are virtually certain to be screen-off / Doze / background
+    // gaps rather than legitimate UI stalls. ActivityManager force-
+    // closes a foreground app long before this for genuine hangs.
+    private const val MAX_REAL_STALL_MS       = 60_000L
     @Volatile private var anrInstalled = false
     private var lastFrameNs: Long = 0L
     @Volatile private var watchdogThread: HandlerThread? = null
@@ -390,7 +395,21 @@ object PipelineHealthCollector {
                 lastFrameNs = frameTimeNanos
                 if (prev != 0L) {
                     val deltaMs = (frameTimeNanos - prev) / 1_000_000L
-                    if (deltaMs > LONG_FRAME_THRESHOLD_MS) {
+                    // V5.9.795 — operator audit (build-2733 dump showed
+                    // maxFrameGapMs=229,816ms / stall=40% which was a
+                    // FALSE READING. The Choreographer callback simply
+                    // stops firing when the screen is off / app is in
+                    // Doze / background, then resumes — yielding a delta
+                    // that's the entire screen-off duration. We were
+                    // accounting for that as a "main thread stall".
+                    //
+                    // Guard: any gap > MAX_REAL_STALL_MS (60s) is almost
+                    // certainly screen-off / Doze. Skip accumulation so
+                    // the stall % stays honest. Anything real (a JS-style
+                    // UI freeze) caps at ~30s before ActivityManager kills
+                    // the process — 60s is comfortably above the worst
+                    // legitimate stall a foreground app can survive.
+                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS) {
                         anrHintCount.incrementAndGet()
                         totalFrameStallMs.addAndGet(deltaMs)
                         var prevMax = maxFrameGapMs.get()
@@ -433,7 +452,7 @@ object PipelineHealthCollector {
                         ?: "(idle)"
                     pushStackSample(StackSample(System.currentTimeMillis(), gap, tickTop.take(160)))
 
-                    if (gap > LONG_FRAME_THRESHOLD_MS) {
+                    if (gap > LONG_FRAME_THRESHOLD_MS && gap <= MAX_REAL_STALL_MS) {
                         // Main thread hasn't acked in > 700ms — reuse the tick
                         // sample we just captured rather than re-walking the
                         // stack a second time.

@@ -7670,8 +7670,17 @@ class Executor(
             if (pct != null) return Pair(pct - 5.0, pct)
         }
         if (r.contains("RAPID_ENTRY_PROTECT_STOP")) return Pair(-13.0, -8.0)
-        if (r.contains("RAPID_HARD_FLOOR_STOP")) return Pair(-35.0, -25.0)
-        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-30.0, -15.0)
+        if (r.contains("RAPID_HARD_FLOOR_STOP")) return Pair(-20.0, -9.0)
+        // V5.9.795 — operator audit (build-2733 dump): catastrophe trigger
+        // was tightened from -25% to -14% in V5.9.791, but the paper clamp
+        // band was left at [-30%, -15%] — meaning every RAPID_CATASTROPHE
+        // exit was booking -15% to -30% realised even though the strategy
+        // pulled the trigger at -14%. Trade journal showed uniform -30.7%
+        // catastrophe exits, which was the paper sim lying to the AI
+        // layers about edge. Aligned to [-19%, -14%]: allows a realistic
+        // 0–5% slippage past the trigger; rejects fantasy 30% paper
+        // drawdowns the live executor could never reproduce.
+        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-19.0, -14.0)
         if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)
         if (r.contains("FLAT_EXIT") || r.contains("SCRATCH")) return Pair(-3.0, +3.0)
         if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)
