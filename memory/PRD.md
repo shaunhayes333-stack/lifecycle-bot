@@ -29,7 +29,37 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
-### V5.9.793 — operator audit Item 5 + Item 6 (May 16, CI GREEN Build, Smoke running)
+### V5.9.794 — operator audit Item 6 (cap + priority queue) + Item 7 (fresh-meme HARD_FLOOR) (May 16, CI Build ✅)
+
+ITEM 6 — PumpPortal cap + explicit priority queue (P1, COMPLETE)
+- `GlobalTradeRegistry.MAX_PUMP_PORTAL_CONCURRENT = 300` hard cap.
+  `addToWatchlist()` rejects new PumpPortal/PUMP_FUN_NEW/PUMPFUN_WS
+  additions with `PUMP_PORTAL_CAP_REACHED` once the cap is hit.
+  Aggressive low-score TTL drains old entries fast.
+- `isPumpPortalSource()` / `pumpPortalConcurrentCount()` /
+  `pumpPortalRejectionCount()` / `pumpPortalCapMax()` exposed.
+- `BotService` prioritized watchlist sort now reads:
+  • `realPoolLiquidityUsd` (capped 60.0) + bondingCurveLiquidityEstUsd
+    (capped 15.0) so confirmed-pool tokens dominate the head.
+  • Volume proxy capped 35.0.
+  • Safety freshness: +30/+10/0/-5 based on lastSafetyCheck age.
+  • Source reliability: +25.0 when LiquidityClassifier confirms an
+    executable pool.
+- `UniverseHealthActivity` Execution pillar shows
+  "PumpPortal concurrent / cap" with green/amber/red thresholds +
+  "PumpPortal cap rejections" counter.
+
+ITEM 7 — fresh-meme HARD_FLOOR -9% with age guard (P1, COMPLETE)
+- `Executor.evaluateExitSignal` HARD_FLOOR_STOP_PCT is now position
+  age aware:
+    • Fresh meme (heldSecs < 300s AND tradingMode in {SHITCOIN,
+      MOONSHOT, EXPRESS, PUMP_SNIPER}) → 9.0
+    • Matured / non-meme → 15.0 (unchanged)
+- Matures correctly: a meme that holds past 5 minutes graduates to
+  the looser floor so a one-off drawdown on a long-running winner
+  doesn't choke it.
+
+### V5.9.793 — operator audit Item 5 + Item 6 (May 16, CI GREEN)
 
 ITEM 5 — Split liquidity fields + BC-sim exclusion (P1, COMPLETE)
 - New `engine/LiquidityClassifier.kt`: derives realPoolLiquidityUsd /
