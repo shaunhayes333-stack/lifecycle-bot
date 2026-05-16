@@ -66,9 +66,18 @@ object WatchlistTtlPolicy {
             else      -> baseTtlMs
         }
         val cutoff = System.currentTimeMillis() - ttlMs
+        // V5.9.793 — operator audit Item 6: aggressive low-score TTL.
+        // Operator-stated: "TTL low-score mints aggressively." Independently
+        // of the saturation TTL, any mint whose score is below
+        // LOW_SCORE_THRESHOLD (40) gets the snipe-floor TTL (60s) so
+        // dead-weight candidates drain fast and don't crowd out high-quality
+        // prospects in the priority queue.
+        val lowScoreCutoff = System.currentTimeMillis() - LOW_SCORE_TTL_MS
         var removed = 0
         for ((k, v) in entries) {
-            if (v.ts < cutoff) {
+            val expiredByTime = v.ts < cutoff
+            val expiredByLowScore = v.score < LOW_SCORE_THRESHOLD && v.ts < lowScoreCutoff
+            if (expiredByTime || expiredByLowScore) {
                 if (entries.remove(k, v)) {
                     removed++
                     // V5.9.495z34 — surface expirations on the Meme tab
@@ -84,6 +93,10 @@ object WatchlistTtlPolicy {
         }
         return removed
     }
+
+    /** V5.9.793 — operator audit Item 6: low-score TTL constants. */
+    private const val LOW_SCORE_THRESHOLD: Int = 40
+    private const val LOW_SCORE_TTL_MS: Long = 60_000L
 
     /** Caller-supplied dedupe by mint string. Keeps the highest-score
      *  entry for each unique mint and drops the rest. */

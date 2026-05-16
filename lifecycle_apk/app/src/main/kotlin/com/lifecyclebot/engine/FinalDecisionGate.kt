@@ -1265,6 +1265,18 @@ object FinalDecisionGate {
             else -> FluidLearningAI.getExecutionFloor()     // Lerp floor for proven-token traders
         }
 
+        // V5.9.793 — operator audit Item 5: FDG / live executor MUST gate
+        // on exitCapacityUsd (the confirmed-pool subset), not on the raw
+        // lastLiquidityUsd which conflates pump.fun BC estimates with
+        // executable liquidity. A token priced solely off a pump.fun
+        // bonding-curve quote with no Jupiter/Raydium/DexScreener pool
+        // returns 0.0 here — so it can NEVER pass the execution floor
+        // until a real pool is observed. Watchlist floor still uses
+        // lastLiquidityUsd because discovery rules are deliberately
+        // looser than execution rules.
+        val exitCapacityUsd = try {
+            com.lifecyclebot.engine.LiquidityClassifier.exitCapacityUsd(ts)
+        } catch (_: Throwable) { ts.lastLiquidityUsd }
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")
 
@@ -1286,8 +1298,8 @@ object FinalDecisionGate {
             )
         }
 
-        if (ts.lastLiquidityUsd < EXECUTION_FLOOR) {
-            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} | WATCH_ONLY (no execution)")
+        if (exitCapacityUsd < EXECUTION_FLOOR) {
+            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} (raw=\$${ts.lastLiquidityUsd.toInt()}) < \$${EXECUTION_FLOOR.toInt()} | WATCH_ONLY (no execution)")
 
             return FinalDecision(
                 shouldTrade = false,
@@ -1302,12 +1314,12 @@ object FinalDecisionGate {
                 tags = listOf("liq_below_exec_floor", "shadow_track", "watch_only"),
                 mint = ts.mint,
                 symbol = ts.symbol,
-                approvalReason = "Liquidity \$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} execution floor - WATCH ONLY",
+                approvalReason = "Exit capacity \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} execution floor - WATCH ONLY",
                 gateChecks = listOf(
                     GateCheck(
                         "liq_exec_floor",
                         false,
-                        "liq \$${ts.lastLiquidityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} = shadow track only"
+                        "exitCap \$${exitCapacityUsd.toInt()} (BC-only? ${try { com.lifecyclebot.engine.LiquidityClassifier.isBcSimOnly(ts) } catch (_: Throwable) { false }}) < \$${EXECUTION_FLOOR.toInt()} = shadow track only"
                     )
                 )
             )

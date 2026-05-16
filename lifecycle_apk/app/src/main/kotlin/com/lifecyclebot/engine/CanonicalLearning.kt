@@ -218,6 +218,12 @@ data class CanonicalTradeOutcome(
     // (RouteSelectorAI, SlippageGuard, FeeRetryQueue, …) may still
     // learn from execution metadata. See operator acceptance test #3.
     val featuresIncomplete: Boolean = true,
+    // V5.9.793 — operator audit Item 5: marks outcomes where the entry/exit
+    // price was sourced ONLY from a pump.fun bonding-curve estimate (no
+    // confirmed Jupiter/Raydium/DexScreener executable pool). The
+    // production WR aggregator excludes these so paper BC sims can't
+    // inflate the real-money expectancy signal.
+    val bcSimOnly: Boolean = false,
     val timestampMs: Long = System.currentTimeMillis(),
 )
 
@@ -334,6 +340,11 @@ object CanonicalLearningCounters {
     //                               (incomplete features OR rich w/ execution failure).
     val strategyTrainableOutcomes = AtomicLong(0)
     val executionOnlyOutcomes = AtomicLong(0)
+    // V5.9.793 — operator audit Item 5: count outcomes that closed against
+    // a pump.fun bonding-curve sim (no real pool ever confirmed). These
+    // are EXCLUDED from production WR but counted here so the operator
+    // can verify the BC-sim path is being correctly isolated.
+    val bcSimOnlyOutcomes = AtomicLong(0)
 
     fun snapshot(): Map<String, Long> = mapOf(
         "canonicalOutcomesTotal" to canonicalOutcomesTotal.get(),
@@ -352,6 +363,7 @@ object CanonicalLearningCounters {
         "richFeatureOutcomes" to richFeatureOutcomes.get(),
         "strategyTrainableOutcomes" to strategyTrainableOutcomes.get(),
         "executionOnlyOutcomes" to executionOnlyOutcomes.get(),
+        "bcSimOnlyOutcomes" to bcSimOnlyOutcomes.get(),
     )
 }
 
@@ -483,6 +495,12 @@ object CanonicalOutcomeBus {
             CanonicalLearningCounters.strategyTrainableOutcomes.incrementAndGet()
         } else {
             CanonicalLearningCounters.executionOnlyOutcomes.incrementAndGet()
+        }
+        // V5.9.793 — operator audit Item 5: BC-sim-only outcomes counted
+        // separately. WR aggregators must subtract this from the strategy
+        // sample size (production WR is real-pool only).
+        if (o.bcSimOnly) {
+            CanonicalLearningCounters.bcSimOnlyOutcomes.incrementAndGet()
         }
         when (o.environment) {
             TradeEnvironment.LIVE -> CanonicalLearningCounters.liveOutcomesTotal.incrementAndGet()

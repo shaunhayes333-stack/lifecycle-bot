@@ -116,6 +116,19 @@ object CanonicalSubscribers {
                         }
                     }
                 } catch (_: Throwable) {}
+                // V5.9.793 — operator audit Item 5: BC-sim-only outcomes never train
+                // the production WR. They close against a pump.fun bonding-curve
+                // estimate (no executable pool) so the realized P&L is fiction —
+                // letting them into Fluid would falsely lift / drop the trust band.
+                if (outcome.bcSimOnly) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "WR_FILTERED_BC_SIM_ONLY",
+                            "mint=${outcome.mint} mode=${outcome.mode.name} env=${outcome.environment.name}",
+                        )
+                    } catch (_: Throwable) {}
+                    return@subscribe
+                }
                 val isWin = outcome.result == TradeResult.WIN
                 try {
                     // V5.9.694 — pass tradeId as dedupKey so FluidLearning's

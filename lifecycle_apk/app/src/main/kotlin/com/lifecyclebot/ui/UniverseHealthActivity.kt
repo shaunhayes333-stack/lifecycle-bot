@@ -128,6 +128,13 @@ class UniverseHealthActivity : Activity() {
         addKv("incompleteFeatureOutcomes", incomplete.toString())
         addKv("strategyTrainableOutcomes", (snap["strategyTrainableOutcomes"] ?: 0L).toString())
         addKv("executionOnlyOutcomes", (snap["executionOnlyOutcomes"] ?: 0L).toString())
+        // V5.9.793 — operator audit Item 5: BC-sim-only outcomes excluded from production WR.
+        val bcSim = snap["bcSimOnlyOutcomes"] ?: 0L
+        addKvHighlight(
+            "bcSimOnlyOutcomes (excl. from WR)",
+            bcSim.toString(),
+            if (bcSim > 0L) "#F59E0B" else "#6B7280",
+        )
         addKvHighlight("rejectedBadLabels", (snap["rejectedBadLabels"] ?: 0L).toString(), "#EF4444")
         // Per-layer summary — fold counts into the four buckets the operator audit named.
         val readiness: Map<String, com.lifecyclebot.engine.LayerReadiness> = try {
@@ -182,6 +189,23 @@ class UniverseHealthActivity : Activity() {
         )
         addKv("arbiter partialSells", (arb["partialSells"] ?: 0L).toString())
         addKv("arbiter staleSlotEvictions", (arb["staleSlotEvictions"] ?: 0L).toString())
+        // V5.9.793 — operator audit Item 6: cycle timing tracker.
+        // Target: avg < 12s, max < 30s.
+        try {
+            val ct = com.lifecyclebot.engine.CycleTimingTracker.snapshot()
+            addHeader("⏱ Scanner Cycle Timing")
+            val avgColor = if (ct.avgMs <= ct.targetMs) "#10B981" else if (ct.avgMs <= ct.hardLimitMs) "#F59E0B" else "#EF4444"
+            addKvHighlight("avg (last ${ct.windowSize})", "${ct.avgMs}ms (target ≤${ct.targetMs}ms)", avgColor)
+            val p95Color = if (ct.p95Ms <= ct.hardLimitMs) "#10B981" else "#EF4444"
+            addKvHighlight("p95 (last ${ct.windowSize})", "${ct.p95Ms}ms", p95Color)
+            val maxColor = if (ct.maxMs <= ct.hardLimitMs) "#10B981" else "#EF4444"
+            addKvHighlight("max (last ${ct.windowSize})", "${ct.maxMs}ms (hard ≤${ct.hardLimitMs}ms)", maxColor)
+            addKv("last cycle", "${ct.lastMs}ms")
+            addKvHighlight("cycles over hard limit", ct.overHardLimitCycles.toString(),
+                if (ct.overHardLimitCycles > 0L) "#EF4444" else "#10B981")
+            addKv("cycles over target", ct.overTargetCycles.toString())
+            addKv("total cycles", ct.totalCycles.toString())
+        } catch (_: Throwable) {}
 
         // ── 5. AUTHORITY ──────────────────────────────────────────────
         addHeader("🛡 5. Authority")

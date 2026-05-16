@@ -1629,6 +1629,14 @@ class Executor(
                         featuresAtEntry = features,
                         candidate = candFeatures,
                         featuresIncomplete = isIncomplete,
+                        // V5.9.793 — operator audit Item 5: flag BC-sim-only outcomes
+                        // so the production WR aggregator can exclude them. A paper
+                        // close priced exclusively against a pump.fun bonding-curve
+                        // estimate is NOT a real-money signal — it must not move
+                        // the live WR needle.
+                        bcSimOnly = try {
+                            com.lifecyclebot.engine.LiquidityClassifier.isBcSimOnly(ts)
+                        } catch (_: Throwable) { false },
                     )
                     com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished(tradeId)
                     // V5.9.791 — operator audit Item 1: Executor.recordTrade already

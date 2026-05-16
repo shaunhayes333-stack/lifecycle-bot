@@ -1052,6 +1052,7 @@ class SolanaMarketScanner(
                 }
 
                 lastScanCycleMs = System.currentTimeMillis()
+                val cycleStartedAtMs = lastScanCycleMs  // V5.9.793 — operator audit Item 6 timing
                 try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
                 scanRotation = (scanRotation + 1) % 4
 
@@ -1141,6 +1142,20 @@ class SolanaMarketScanner(
                 }
 
                 onLog("✅ Scan cycle #$scanRotation complete")
+
+                // V5.9.793 — operator audit Item 6: record cycle duration so
+                // the Universe Health screen can show avg/p95/max vs the
+                // <12s / <30s targets. Logs but never blocks the scanner.
+                try {
+                    val cycleDurMs = System.currentTimeMillis() - cycleStartedAtMs
+                    com.lifecyclebot.engine.CycleTimingTracker.recordCycle(cycleDurMs)
+                    if (cycleDurMs > 30_000L) {
+                        ErrorLogger.warn(
+                            "Scanner",
+                            "⏱ CYCLE_OVER_HARD_LIMIT durMs=$cycleDurMs (target<12000 hard<30000)",
+                        )
+                    }
+                } catch (_: Throwable) { /* timing is best-effort */ }
 
                 cleanupSeenMaps()
 
