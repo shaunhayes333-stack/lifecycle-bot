@@ -597,6 +597,15 @@ object CashGenerationAI {
         if (treasuryScore < minTreasuryScore) {
             rejectionReasons.add("score=$treasuryScore<$minTreasuryScore")
         }
+
+        // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
+        // into the CashGen entry path so the Smart Entry Gate cannot be
+        // bypassed when treasury auto-buys fire without re-routing through
+        // FinalDecisionGate. AGGRESSIVE → 45, MODERATE → 30, FLUID/OFF → 0.
+        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        if (wrFloor > 0 && treasuryScore < wrFloor) {
+            rejectionReasons.add("wr_recovery_score_floor=$treasuryScore<$wrFloor")
+        }
         if (treasuryConfidence < minTreasuryConf) {
             rejectionReasons.add("conf=$treasuryConfidence<$minTreasuryConf")
         }

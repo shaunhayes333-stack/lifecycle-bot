@@ -203,13 +203,31 @@ object FluidLearningAI {
      *
      * V5.9.115: Uses lifetime counters that survive journal clears so the
      * user can decluter the journal without wiping learned progress.
+     *
+     * V5.9.801: operator audit Fix E — force the legacy session counter
+     * onto the canonical bus when canonical has observed at least one
+     * outcome. Pre-V5.9.801 used the local `sessionTrades` AtomicInteger
+     * which is incremented in `recordLiveTrade`/`recordPaperTrade`. The
+     * canonical bus (`CanonicalLearningCounters.canonicalOutcomesTotal`)
+     * is incremented in `CanonicalLearning.normaliseAndDispatch` at the
+     * single SoT for trade outcomes. Any path that recorded directly to
+     * FluidLearning without also publishing to the canonical bus (or
+     * vice-versa) would drift — the bot's "trades observed" number on
+     * the brain side would diverge from the canonical journal. Sourcing
+     * from canonical eliminates the drift entirely. The local counter is
+     * kept as a fallback for the very first boot before canonical has
+     * fired (so existing bootstrap progress doesn't snap to zero).
      */
     fun getTotalTradeCount(): Int {
         // V5.9.695 — use (baseline + session delta) not (lifetimeSells + sessionTrades).
         // lifetimeSells grows in-session as trades close (bumpLifetimeFor fires immediately),
         // so the old formula counted every session close twice. Correct total =
         // sessionLifetimeBaseline (snapped at boot) + sessionTrades (delta only).
-        return sessionLifetimeBaseline + sessionTrades.get()
+        val canonicalDelta = try {
+            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+        } catch (_: Throwable) { 0 }
+        val sessionDelta = if (canonicalDelta > 0) canonicalDelta else sessionTrades.get()
+        return sessionLifetimeBaseline + sessionDelta
     }
 
     /** V5.9.719 — session-only trade count (excludes Turso historical baseline).

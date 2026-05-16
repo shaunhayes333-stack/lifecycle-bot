@@ -576,8 +576,16 @@ object MoonshotTraderAI {
             else                   -> if (isPaper) 45 else 58
         }
         
-        if (score < minScore) {
-            return MoonshotScore(false, score, 0.0, "score_${score}_below_${minScore}")
+        // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
+        // into the Moonshot entry path. Same rationale as ShitCoin: avoid
+        // bypassing the FinalDecisionGate Smart Entry Gate when Moonshot
+        // promotion fires its own signal. AGGRESSIVE → 45, MODERATE → 30,
+        // FLUID/OFF → 0 (no floor).
+        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        val effectiveMinScore = maxOf(minScore, wrFloor)
+        if (score < effectiveMinScore) {
+            val tag = if (wrFloor > 0 && score < wrFloor) "wr_recovery_score_floor" else "score"
+            return MoonshotScore(false, score, 0.0, "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor})")
         }
 
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).

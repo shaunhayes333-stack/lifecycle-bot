@@ -215,6 +215,43 @@ object WrRecoveryPartial {
         return fractionFor(s.band).coerceAtMost(baseFraction)
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.9.801 — operator audit Fix D + Fix A/B support
+    // Single source of truth for two derived quantities used by sub-trader
+    // entry paths and the buy-side sizing helper:
+    //
+    //   entrySizeMultiplier()  → multiplier applied to position size before
+    //                            paperBuy()/liveBuy() commits it. AGGRESSIVE
+    //                            band gets 0.5×, MODERATE 0.75×, anything
+    //                            else 1.0× (no scaling).
+    //
+    //   minScoreFloor()        → score floor that sub-traders OR in with
+    //                            their own (FluidLearningAI) thresholds.
+    //                            AGGRESSIVE → 45 (only top-tier setups),
+    //                            MODERATE   → 30 (mid),
+    //                            FLUID/OFF  →  0 (no extra floor).
+    //
+    // Centralising these here means item-A (sub-trader entry gating) and
+    // item-D (entry-size dampening) can never drift between lanes.
+    // ─────────────────────────────────────────────────────────────────────
+    fun entrySizeMultiplier(): Double {
+        val s = stateNow()
+        return when (s.band) {
+            Band.AGGRESSIVE -> 0.5
+            Band.MODERATE   -> 0.75
+            else            -> 1.0
+        }
+    }
+
+    fun minScoreFloor(): Int {
+        val s = stateNow()
+        return when (s.band) {
+            Band.AGGRESSIVE -> 45
+            Band.MODERATE   -> 30
+            else            -> 0
+        }
+    }
+
     /** Human-readable status for logs / UI badges. */
     fun statusTag(): String {
         val s = stateNow()
@@ -5390,6 +5427,21 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
             return
         }
+
+        // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener.
+        // When WR recovery is in MODERATE/AGGRESSIVE the bot is bleeding
+        // and every entry is statistically more likely to be a loss.
+        // Halving (AGGRESSIVE) or three-quartering (MODERATE) the position
+        // size shrinks each loss proportionally while still collecting
+        // training samples, so the bot can climb out of the deficit
+        // without compounding it. FLUID/OFF bands are not touched.
+        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
+        @Suppress("NAME_SHADOWING")
+        val sol = if (wrSizeMult < 1.0) {
+            val damped = sol * wrSizeMult
+            ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
+            damped
+        } else sol
         
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
 
@@ -6185,6 +6237,18 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
             return
         }
+
+        // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).
+        // Same dampener applied in paperBuy(); duplicated here so the
+        // live and paper paths cannot drift. AGGRESSIVE → 0.5×,
+        // MODERATE → 0.75×, FLUID/OFF → 1.0× (no change).
+        val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
+        @Suppress("NAME_SHADOWING")
+        val sol = if (wrSizeMult < 1.0) {
+            val damped = sol * wrSizeMult
+            ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
+            damped
+        } else sol
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
         // must NEVER be entered as a meme-target buy. Forensic report
@@ -7821,7 +7885,14 @@ class Executor(
         val strictSl = Regex("""STRICT_SL_(-?\d+(?:\.\d+)?)""").find(r)
         if (strictSl != null) {
             val pct = strictSl.groupValues[1].toDoubleOrNull()
-            if (pct != null) return Pair(pct - 5.0, pct)
+            // V5.9.801 — operator audit Fix C: tightened paper realism on
+            // STRICT_SL exits. Pre-V5.9.801 used `pct - 5.0` → STRICT_SL_-10
+            // booked in [-15%, -10%]. Operator forensics on the deep
+            // performance report showed paper STRICT_SL exits routinely
+            // booking near -15% while live cannot reproduce that drift on
+            // a -10% trigger. Cap the band at 2% beyond the strategy's
+            // stated threshold so [-12%, -10%] on STRICT_SL_-10 etc.
+            if (pct != null) return Pair(pct - 2.0, pct)
         }
         val tp = Regex("""RAPID_TAKE_PROFIT_(\d+(?:\.\d+)?)""").find(r)
         if (tp != null) {
@@ -7836,10 +7907,13 @@ class Executor(
         // exit was booking -15% to -30% realised even though the strategy
         // pulled the trigger at -14%. Trade journal showed uniform -30.7%
         // catastrophe exits, which was the paper sim lying to the AI
-        // layers about edge. Aligned to [-19%, -14%]: allows a realistic
-        // 0–5% slippage past the trigger; rejects fantasy 30% paper
-        // drawdowns the live executor could never reproduce.
-        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-19.0, -14.0)
+        // layers about edge. V5.9.795 aligned to [-19%, -14%].
+        // V5.9.801 — operator audit Fix C: tightened further to [-16%, -14%].
+        // The deep-performance report still showed catastrophe paper
+        // exits booking ~-19% on a -14% trigger, a 5pp paper-vs-live
+        // drift. Live execution catastrophe drift is empirically 0–2pp;
+        // matching that ends the paper-edge fantasy entirely.
+        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-16.0, -14.0)
         if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)
         if (r.contains("FLAT_EXIT") || r.contains("SCRATCH")) return Pair(-3.0, +3.0)
         if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)

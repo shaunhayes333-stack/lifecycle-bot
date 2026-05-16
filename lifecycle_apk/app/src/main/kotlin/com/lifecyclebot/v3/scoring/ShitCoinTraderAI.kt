@@ -1028,17 +1028,30 @@ object ShitCoinTraderAI {
         }
 
         // Check thresholds
-        val passesScore = shitScore >= minScore
+        // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
+        // into the sub-trader entry path. The Smart Entry Gate in
+        // FinalDecisionGate is BYPASSED whenever this sub-trader emits its
+        // own shouldEnter=true signal without re-running FDG (Moonshot
+        // promotion, Express handoff, paper fallback paths). Enforcing the
+        // floor here at the lane source guarantees no bypass: during
+        // MODERATE/AGGRESSIVE WR recovery the lane MUST score above
+        // WrRecoveryPartial.minScoreFloor() (45 / 30 respectively) on top
+        // of its FluidLearningAI threshold. FLUID/OFF bands return 0 and
+        // change nothing for healthy WR.
+        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        val effectiveMinScore = maxOf(minScore, wrFloor)
+        val passesScore = shitScore >= effectiveMinScore
         val passesConf = shitConfidence >= minConf
         
         if (!passesScore || !passesConf) {
+            val failTag = if (wrFloor > 0 && shitScore < wrFloor) "WR_RECOVERY_SCORE_FLOOR" else "THRESHOLD_FAIL"
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = shitConfidence,
-                reason = "THRESHOLD_FAIL: score=$shitScore<$minScore conf=$shitConfidence<$minConf",
+                reason = "${failTag}: score=$shitScore<$effectiveMinScore (base=$minScore wr_floor=$wrFloor) conf=$shitConfidence<$minConf",
                 mode = mode,
                 isPaperMode = isPaperMode,
                 launchPlatform = launchPlatform,
