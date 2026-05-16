@@ -10561,7 +10561,13 @@ $preTweetText
             builder.append("  roll50=$rollLabel / target=$targetLabel")
 
             target.text = builder
-            target.visibility = if (totalSettled >= 50) android.view.View.VISIBLE else android.view.View.GONE
+            // V5.9.799 — operator audit: visible from trade 1. The first
+            // few slices will render DIM until they have ≥25 decisive
+            // sells, but the operator wanted 'working from trade 1' so
+            // the tile no longer hides during the bootstrap window. Once
+            // the first 50 trades settle the leftmost block lights up
+            // green/amber/red automatically.
+            target.visibility = android.view.View.VISIBLE
         } catch (_: Throwable) {
             target.visibility = android.view.View.GONE
         }

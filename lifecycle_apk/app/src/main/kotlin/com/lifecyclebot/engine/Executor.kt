@@ -100,7 +100,32 @@ object WrRecoveryPartial {
         val wins   = (stats?.totalWins ?: 0).toDouble()
         val losses = (stats?.totalLosses ?: 0).toDouble()
         val total  = wins + losses
-        if (total < 50.0) return State(Band.OFF, 0.0, 0.0, total.toInt(), 0.0, false)
+
+        // V5.9.799 — operator audit: 'win rates / ratio meant to start at
+        // around 20% or better from trade ONE. to ever improve over 50% we
+        // need to be working from trade 1.'
+        //
+        // Pre-V5.9.799 returned Band.OFF for the first 50 trades, which
+        // meant the bootstrap window — the riskiest part of the bot's
+        // career — had ZERO partial protection and ZERO entry quality
+        // gating. The bot could C/D-grade entries with +200% defaults until
+        // 50 trades had piled up at sub-20% WR, then activate recovery
+        // AFTER the damage. The operator wants the opposite: training
+        // wheels FROM trade 1, then graduate to lifetime-WR logic once we
+        // have a meaningful sample.
+        //
+        // New bootstrap policy:
+        //   total < 25  → AGGRESSIVE (tightest: +18/+35/+60% rungs, only A/A+ entries)
+        //   total < 50  → MODERATE   (mid: +25/+45/+80% rungs, A/A+ entries)
+        //   total ≥ 50  → fall through to lifetime-WR band selection
+        // Net effect: discovery happens, but losses are tiny per trade and
+        // winners ladder out properly from trade 1.
+        if (total < 25.0) {
+            return State(Band.AGGRESSIVE, 0.0, 0.0, total.toInt(), -1.0, false)
+        }
+        if (total < 50.0) {
+            return State(Band.MODERATE, 0.0, 0.0, total.toInt(), -1.0, false)
+        }
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
         val targetWR  = try {
@@ -193,11 +218,15 @@ object WrRecoveryPartial {
     /** Human-readable status for logs / UI badges. */
     fun statusTag(): String {
         val s = stateNow()
-        if (s.totalSettled < 50) return "WR_RECOVERY:insufficient_data"
         if (!s.active) return "WR_RECOVERY:off"
         val (r1, r2, r3) = rungsFor(s.band)
         val predicate = if (s.predictive) "*PREDICTIVE" else ""
-        return "WR_RECOVERY:${s.band.name}${predicate}(wr=${s.currentWr.toInt()}%,roll=${s.rollingWr.toInt()}%,target=${s.targetWr.toInt()}%,rungs=${r1.toInt()}/${r2.toInt()}/${r3.toInt()}%)"
+        // V5.9.799 — bootstrap label so it's clear the band is from
+        // the under-50-trades training-wheels policy, not a lifetime-WR
+        // deficit. Stops the operator wondering 'why is recovery firing
+        // when I have 12 trades?'
+        val bootstrap = if (s.totalSettled < 50) "*BOOTSTRAP" else ""
+        return "WR_RECOVERY:${s.band.name}${predicate}${bootstrap}(wr=${s.currentWr.toInt()}%,roll=${s.rollingWr.toInt()}%,target=${s.targetWr.toInt()}%,rungs=${r1.toInt()}/${r2.toInt()}/${r3.toInt()}%)"
     }
 
     /** Compact tag for the Memes Live-Readiness "🚑 WR recovery @X%" badge. */
@@ -206,7 +235,10 @@ object WrRecoveryPartial {
         if (!s.active) return "off"
         val (r1, _, _) = rungsFor(s.band)
         val pre = if (s.predictive) "⚡" else ""
-        return "${pre}${s.band.name.first()}@${r1.toInt()}%"
+        // V5.9.799 — boot prefix so the operator sees 'boot M@25%' rather
+        // than just 'M@25%' during the first 50 trades.
+        val boot = if (s.totalSettled < 50) "boot " else ""
+        return "${boot}${pre}${s.band.name.first()}@${r1.toInt()}%"
     }
 }
 
