@@ -8292,11 +8292,50 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
 
             // Keep quality signals, but cap liquidity so giant older pools do
             // not starve fresh memes. Fluid sizing/learning remains untouched.
-            priority += (ts.lastLiquidityUsd / 2_000.0).coerceAtMost(45.0)
+            // V5.9.794 — operator audit Item 6: priority queue now reads REAL
+            // pool liquidity from LiquidityClassifier (not the raw value that
+            // conflates pump.fun BC estimates with executable depth). BC-only
+            // tokens still get a small bump (so discovery isn't starved) but
+            // confirmed-pool tokens dominate the head of the queue where the
+            // bot can actually trade them.
+            val realPoolUsd = try {
+                com.lifecyclebot.engine.LiquidityClassifier.realPoolLiquidityUsd(ts)
+            } catch (_: Throwable) { ts.lastLiquidityUsd }
+            val bcEstUsd = try {
+                com.lifecyclebot.engine.LiquidityClassifier.bondingCurveLiquidityEstUsd(ts)
+            } catch (_: Throwable) { 0.0 }
+            priority += (realPoolUsd / 2_000.0).coerceAtMost(60.0)
+            priority += (bcEstUsd / 8_000.0).coerceAtMost(15.0)
             priority += ts.entryScore
             priority += ts.meta.momScore * 0.8
             priority += ts.meta.volScore * 0.5
             priority += (ts.lastBuyPressurePct - 50.0).coerceIn(0.0, 35.0)
+            // V5.9.794 — operator audit Item 6 priority signals: volume,
+            // safety-freshness, source-reliability.
+            // Volume: real volume proxy — bias toward tokens with active
+            // turnover so dead pools don't stay top-of-queue on liquidity
+            // depth alone.
+            val volumeUsd = (ts.lastLiquidityUsd * 0.05).coerceAtLeast(0.0)
+            priority += (volumeUsd / 3_000.0).coerceAtMost(35.0)
+            // Safety freshness: tokens whose rugcheck/safety report was
+            // refreshed in the last 2 minutes are more trustworthy to act
+            // on. Stale safety = small de-prioritisation.
+            val safetyAgeSec = if (ts.lastSafetyCheck > 0L)
+                ((nowMs - ts.lastSafetyCheck) / 1_000L).coerceAtLeast(0L) else Long.MAX_VALUE
+            val safetyFreshBoost = when {
+                safetyAgeSec < 120L -> 30.0
+                safetyAgeSec < 600L -> 10.0
+                safetyAgeSec == Long.MAX_VALUE -> -5.0
+                else -> 0.0
+            }
+            priority += safetyFreshBoost
+            // Source reliability: confirmed-pool sources rank above BC-only
+            // sources rank above UNKNOWN. Distinct from the freshness boost
+            // — this is about how trustworthy the price/liquidity reading is.
+            val hasConfirmedPool = try {
+                com.lifecyclebot.engine.LiquidityClassifier.hasConfirmedExitPool(ts)
+            } catch (_: Throwable) { false }
+            priority += if (hasConfirmedPool) 25.0 else 0.0
             priority
         }
     }

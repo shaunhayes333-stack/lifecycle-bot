@@ -3703,7 +3703,18 @@ class Executor(
             return "v8_${exitSignal.reason.lowercase()}"
         }
 
-        val HARD_FLOOR_STOP_PCT = 15.0
+        // V5.9.794 — operator audit Item 7 fresh-meme HARD_FLOOR.
+        // Fresh meme positions (< 5 minutes old) get a tighter -9% hard
+        // floor so an early rug bleeds through much less damage. Matured
+        // positions (≥ 5 min) AND non-meme lanes (Quality / BlueChip /
+        // Treasury / Sniper / CryptoAlt) keep the prior -15% backstop so
+        // a one-off drawdown on a long-running winner doesn't choke them.
+        val isMemePosition = pos.isShitCoinPosition ||
+            pos.tradingMode.equals("MOONSHOT", ignoreCase = true) ||
+            pos.tradingMode.equals("EXPRESS", ignoreCase = true) ||
+            pos.tradingMode.equals("PUMP_SNIPER", ignoreCase = true)
+        val isFreshMeme = isMemePosition && heldSecs < 300L
+        val HARD_FLOOR_STOP_PCT = if (isFreshMeme) 9.0 else 15.0
 
         // V5.9.67 ProfitabilityLayer hooks — trailing stop + liquidity drain
         // exit. These run BEFORE the hard floor so in-profit positions get

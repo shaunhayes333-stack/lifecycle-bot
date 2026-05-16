@@ -206,6 +206,23 @@ class UniverseHealthActivity : Activity() {
             addKv("cycles over target", ct.overTargetCycles.toString())
             addKv("total cycles", ct.totalCycles.toString())
         } catch (_: Throwable) {}
+        // V5.9.794 — operator audit Item 6: PumpPortal active-candidate cap visibility.
+        try {
+            val cur = com.lifecyclebot.engine.GlobalTradeRegistry.pumpPortalConcurrentCount()
+            val cap = com.lifecyclebot.engine.GlobalTradeRegistry.pumpPortalCapMax()
+            val rej = com.lifecyclebot.engine.GlobalTradeRegistry.pumpPortalRejectionCount()
+            val ratioColor = when {
+                cur >= cap -> "#EF4444"
+                cur >= cap * 0.8 -> "#F59E0B"
+                else -> "#10B981"
+            }
+            addKvHighlight("PumpPortal concurrent / cap", "$cur / $cap", ratioColor)
+            addKvHighlight(
+                "PumpPortal cap rejections",
+                rej.toString(),
+                if (rej > 0L) "#F59E0B" else "#6B7280",
+            )
+        } catch (_: Throwable) {}
 
         // ── 5. AUTHORITY ──────────────────────────────────────────────
         addHeader("🛡 5. Authority")

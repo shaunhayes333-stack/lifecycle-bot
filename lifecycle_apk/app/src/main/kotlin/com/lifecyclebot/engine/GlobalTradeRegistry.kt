@@ -114,6 +114,34 @@ object GlobalTradeRegistry {
     private const val MAX_WATCHLIST_SIZE = 500  // V5.9.369: was 300; bumped for memetrader idle pool target ≥100
     private const val MAX_PROBATION_SIZE = 500
 
+    // V5.9.794 — operator audit Item 6: hard cap on concurrent PumpPortal
+    // active candidates. Operator-stated rule: "Cap PumpPortal active
+    // candidates." When the cap is reached, NEW pump-source additions are
+    // rejected (PUMP_PORTAL_CAP_REACHED) — old entries drain via the
+    // aggressive low-score TTL (WatchlistTtlPolicy V5.9.793) so the
+    // pipeline doesn't get poisoned by a long-tail of no-pair tokens.
+    private const val MAX_PUMP_PORTAL_CONCURRENT = 300
+
+    private val pumpPortalRejections = AtomicLong(0)
+
+    /** Identifies whether an addedBy / source tag points at a PumpPortal-style intake. */
+    private fun isPumpPortalSource(addedBy: String, source: String): Boolean {
+        val tags = (addedBy + "|" + source).uppercase()
+        return tags.contains("PUMP_PORTAL") ||
+            tags.contains("PUMPPORTAL") ||
+            tags.contains("PUMP_FUN_NEW") ||
+            tags.contains("PUMP_FUN_DIRECT") ||
+            tags.contains("PUMPFUN_WS")
+    }
+
+    /** Count of current pump-source entries (cheap, scans the small watchlist map). */
+    fun pumpPortalConcurrentCount(): Int =
+        watchlist.values.count { isPumpPortalSource(it.addedBy, it.source) }
+
+    fun pumpPortalRejectionCount(): Long = pumpPortalRejections.get()
+
+    fun pumpPortalCapMax(): Int = MAX_PUMP_PORTAL_CONCURRENT
+
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
@@ -253,6 +281,21 @@ object GlobalTradeRegistry {
             val elapsed = now - lastProcessed
             if (elapsed < effectiveDuplicateCooldownMs()) {
                 ErrorLogger.debug(TAG, "🛡️ Protected intake admits $symbol despite recent processed marker: ${elapsed/1000}s ago")
+            }
+        }
+
+        // V5.9.794 — operator audit Item 6: hard cap on concurrent PumpPortal
+        // candidates. Stops the pump-source firehose from saturating the
+        // watchlist with no-pair tokens that would never pass FDG's
+        // exitCapacityUsd floor anyway. Operator-stated target capped at
+        // MAX_PUMP_PORTAL_CONCURRENT (300). Aggressive low-score TTL +
+        // saturation TTL drain old entries so this cap is rarely hit
+        // outside genuine pump-launch storms.
+        if (isPumpPortalSource(addedBy, source)) {
+            val current = pumpPortalConcurrentCount()
+            if (current >= MAX_PUMP_PORTAL_CONCURRENT) {
+                pumpPortalRejections.incrementAndGet()
+                return AddResult(false, "PUMP_PORTAL_CAP_REACHED: $current >= $MAX_PUMP_PORTAL_CONCURRENT")
             }
         }
 
