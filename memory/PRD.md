@@ -29,6 +29,38 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.810 — Triage: journal=truth for all meme counters + LLM Lab auto-promote @ 33% (Feb '26, CI ✅✅)
+
+Operator mandate: 'ensure journal is source of truth for all meme
+counters and displays including learning. as you can see behaviour
+still double counts. please note skimming on all 3 fixes. be surgical.
+use triage.'
+
+troubleshoot_agent identified 4 consumers drifting from canonical
+journal baseline (settledWins + settledLosses):
+- AdaptiveLearningEngine  Δ = +404  (double-count, bucketed dedup leak)
+- BehaviorLearning        Δ = -187  (BY DESIGN — featuresIncomplete filter)
+- FluidLearningAI         Δ = -30   (under-count, missed shadow paths)
+- MetaCognitionAI         Δ = 0     ✓ (reference impl — mint-based dedup)
+
+Five surgical edits, no wide-open bypasses:
+1. AdaptiveLearningEngine — `tradeCount += 1` moved from learnFromTrade
+   into onCanonicalOutcome. Canonical bus (layer,tradeId) recordOnce LRU
+   ensures exactly-once. Eliminates +404 drift.
+2. FluidLearningAI.getSessionTradeCount() — read-through to canonical.
+   Drift = 0 by construction.
+3. LlmLabStore — auto-promotion thresholds relaxed: 60→30 trades,
+   55%→33% WR, NEW MIN_PAPER_PNL_SOL_FOR_PROMOTION=0.05 SOL.
+   Captures asymmetric-R/R strategies (Genesis · Sniper / Scalper /
+   Hunter). Live-money still requires LabPromotedFeed.requireLiveApproval.
+4. LlmLabEngine.runCullCycle() — uses new constant instead of >0.0.
+5. MainActivity — 'X% wins' sub-banner reads TradeHistoryStore (journal
+   source). All 3 top-level WR surfaces now byte-aligned.
+
+BehaviorLearning -187 intentionally NOT touched (feature-poor legacy
+bridge samples filtered to keep pattern memory clean).
+
+
 ### V5.9.807 — Counter-drift display + Predictive exit wired (Feb '26, CI ✅✅)
 
 Operator follow-up: "latest apk counters still off in learning... just
