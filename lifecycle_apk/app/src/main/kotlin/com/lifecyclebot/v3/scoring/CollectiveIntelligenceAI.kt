@@ -343,7 +343,42 @@ object CollectiveIntelligenceAI {
                 confAdj -= 2
                 reasoning.add("BELOW_COLLECTIVE_THRESHOLD")
             }
-            
+
+            // ── V5.9.837 — V3 vs Hivemind cross-check (v3Score consumer) ──
+            // v3Score was a function parameter for the entire lifetime of
+            // CollectiveIntelligenceAI and was silently dropped. Wire it as
+            // a sanity check between THIS bot's V3 verdict and the network's
+            // collective verdict. When V3 strongly disagrees with a
+            // network-driven score adjustment, we damp the adjustment so the
+            // hivemind can't fully override local intelligence.
+            //
+            // Pattern: only fires when network signal is contributing the
+            // bulk of scoreAdj (>= +15 or <= -10). Otherwise neutral.
+            if (networkSignal != null && v3Confidence >= 40) {
+                val v3SaysBuy = v3Score >= 50
+                val v3SaysFade = v3Score < 30
+                when {
+                    // Hivemind says BUY but local V3 says fade → trust local
+                    scoreAdj >= 15 && v3SaysFade -> {
+                        scoreAdj -= 8
+                        confAdj  -= 3
+                        reasoning.add("V3_DISAGREE_NET_BUY(v3=$v3Score)")
+                    }
+                    // Hivemind says AVOID but local V3 strongly buys → soften penalty
+                    scoreAdj <= -10 && v3SaysBuy -> {
+                        scoreAdj += 5
+                        confAdj  += 2
+                        reasoning.add("V3_DISAGREE_NET_AVOID(v3=$v3Score)")
+                    }
+                    // Both agree strongly → confidence boost (no score change)
+                    scoreAdj >= 15 && v3SaysBuy -> {
+                        confAdj += 3
+                        reasoning.add("V3_CONFIRMS_NET(v3=$v3Score)")
+                    }
+                    else -> { /* no cross-check fire */ }
+                }
+            }
+
             // V4.0: Clamp adjustments (higher max due to network signals)
             scoreAdj = scoreAdj.coerceIn(-30, 30)
             confAdj = confAdj.coerceIn(-15, 15)
