@@ -1644,6 +1644,45 @@ class Executor(
             } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
         }
 
+        // ── V5.9.824 — NarrativeDetectorAI hot/cold consumed on MEME size ──
+        // Audit ref: TIER 3 tracker AIs. Producer side has been fully wired
+        // for months:
+        //   Executor:9189, 11375          → recordOutcome (paper + live close)
+        //   EducationSubLayerAI:819       → recordOutcome (cross-learning)
+        //   BotService:7981               → refreshHeat (periodic)
+        //
+        // Consumer side until V5.9.824:
+        //   AICrossTalk → getEntryScoreAdjustment (score boost only)
+        //   isHotNarrative / isColdNarrative — DARK on size path
+        //
+        // Both methods self-gate on outcomes.size >= 3 internally, so during
+        // bootstrap (< 3 samples for a narrative) they return false →
+        // sizeMult stays at 1.0 → fully bootstrap-safe.
+        //
+        // WR/profit thesis: when a narrative (e.g. AI, DOG, CAT, GAMING) is
+        // running HOT (3+ historical trades averaging > 20% PnL), tokens
+        // matching that narrative get +10% size — concentration on the
+        // currently-paying narrative. When narrative is COLD (avg < -10% over
+        // 3+ samples), -15% — less $ on losing narratives.
+        //
+        // Bounded [0.85, 1.10], no new veto.
+        var narrativeSizeMult = 1.0
+        if (ts != null) {
+            try {
+                val nd = com.lifecyclebot.engine.NarrativeDetectorAI
+                when {
+                    nd.isHotNarrative(ts.symbol, ts.name) -> {
+                        narrativeSizeMult = 1.10
+                    }
+                    nd.isColdNarrative(ts.symbol, ts.name) -> {
+                        narrativeSizeMult = 0.85
+                    }
+                    // else: neutral narrative or insufficient data → 1.0
+                }
+                narrativeSizeMult = narrativeSizeMult.coerceIn(0.85, 1.10)
+            } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1680,10 +1719,11 @@ class Executor(
             // multiplicative envelope as patternSizeMult and brakeMult.
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
-            // V5.9.823 — also compose momentumSizeMult into the envelope.
+            // V5.9.824 — also compose narrativeSizeMult into the envelope.
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
                            behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
-                           symbolicSizeMult * timeSizeMult * momentumSizeMult
+                           symbolicSizeMult * timeSizeMult * momentumSizeMult *
+                           narrativeSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1735,6 +1775,18 @@ class Executor(
                     else                            -> "neutral"
                 }
                 onLog("📈 Momentum: [$tag] size×${"%.2f".format(momentumSizeMult)}", "sizing")
+            }
+            if (narrativeSizeMult != 1.0 && ts != null) {
+                val nd = com.lifecyclebot.engine.NarrativeDetectorAI
+                val tag = when {
+                    nd.isHotNarrative(ts.symbol, ts.name)  -> "HOT"
+                    nd.isColdNarrative(ts.symbol, ts.name) -> "COLD"
+                    else                                    -> "neutral"
+                }
+                val narrative = try {
+                    nd.detectNarrative(ts.symbol, ts.name).name
+                } catch (_: Throwable) { "?" }
+                onLog("📖 Narrative: [$tag $narrative] size×${"%.2f".format(narrativeSizeMult)}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
