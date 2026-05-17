@@ -1510,6 +1510,69 @@ class Executor(
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // ── V5.9.819 — SymbolicContext booleans wire-up (AGI campaign push 8) ──
+        // Audit ref: audit_v5.9.811_dormant_agi.md TIER 1.3 — "biggest meme
+        // volume unlock per audit". SymbolicContext maintains 24+ symbolic
+        // signals via refresh() (called from BotBrain regime update). Until
+        // now ONLY getSignal(name, default) was consumed (by SymbolicExitReasoner
+        // on the exit side). Every boolean shortcut on the entry side was dark.
+        //
+        // Five soft-shape consumers wired here:
+        //   isHighRisk()           → size × 0.80   (overall risk > 60%)
+        //   isExecutionDegraded()  → size × 0.70   (slippage / RPC degraded)
+        //   isMarketHealthy()      → size × 1.10   (healthy → size up modestly)
+        //   isConfident()          → confShave -3  (looser bar when sure of edge)
+        //   !isFresh()             → size × 0.85   (stale symbolic state → caution)
+        //
+        // Skipping isFundingUnfavourable — perps-only signal, not meme-relevant.
+        //
+        // WR/profit thesis: every multiplier here was designed by the audit to
+        // SHRINK when conditions are bad (cuts losses) and modestly EXPAND when
+        // conditions are good (more $ on winners). Net effect on WR: more
+        // selective sizing → fewer dollar-weighted losses → higher dollar WR.
+        // Net effect on profit: size scales with quality of conditions.
+        var symbolicSizeMult = 1.0
+        var symbolicConfShave = 0.0
+        try {
+            val sym = com.lifecyclebot.engine.SymbolicContext
+
+            // Fresh-data guard: if symbolic state is stale (>30s old), the
+            // booleans below are reading stale signals. Apply a small all-
+            // round size cut so the bot doesn't size up on dead data.
+            if (!sym.isFresh()) {
+                symbolicSizeMult *= 0.85
+            }
+
+            // Risk / execution degraded — these are the strongest signals
+            // for "shrink this bet". Compose multiplicatively so when BOTH
+            // fire, size drops to 0.80 * 0.70 = 0.56× (still trades).
+            if (sym.isHighRisk()) {
+                symbolicSizeMult *= 0.80
+            }
+            if (sym.isExecutionDegraded()) {
+                symbolicSizeMult *= 0.70
+            }
+
+            // Positive signal — modest upsize when market is healthy.
+            // Capped: cant push above 1.15× even when ALL good signals fire.
+            if (sym.isMarketHealthy()) {
+                symbolicSizeMult *= 1.10
+            }
+
+            // Confidence shave: -3 (LOOSER bar) when bot is internally
+            // confident in its edge. Small magnitude on purpose — symbolic
+            // confidence is a soft hint, not the dominant signal.
+            if (sym.isConfident()) {
+                symbolicConfShave = -3.0
+                adjustedConfidence = (adjustedConfidence - symbolicConfShave).coerceIn(0.0, 100.0)
+            }
+
+            // Final clamp on size — even with all positive signals firing,
+            // bound at [0.5, 1.15]. Worst case isHighRisk + isExecDegraded +
+            // !isFresh stacks to 0.85 * 0.80 * 0.70 = 0.476 → clamp to 0.5.
+            symbolicSizeMult = symbolicSizeMult.coerceIn(0.5, 1.15)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1546,9 +1609,10 @@ class Executor(
             // multiplicative envelope as patternSizeMult and brakeMult.
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
-            // V5.9.818 — also compose regimeSizeMult into the envelope.
+            // V5.9.819 — also compose symbolicSizeMult into the envelope.
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
-                           behaviorSizeMult * behaviorGradeMult * regimeSizeMult
+                           behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
+                           symbolicSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1569,6 +1633,18 @@ class Executor(
                 } catch (_: Throwable) { "?" }
                 onLog("🌐 MarketRegime: $regimeLabel size×${"%.2f".format(regimeSizeMult)} " +
                       "scoreShave=${regimeMinScoreBoost.toInt()}", "sizing")
+            }
+            if (symbolicSizeMult != 1.0 || symbolicConfShave != 0.0) {
+                val sym = com.lifecyclebot.engine.SymbolicContext
+                val flags = buildString {
+                    if (sym.isHighRisk())          append("RISK ")
+                    if (sym.isExecutionDegraded()) append("EXEC- ")
+                    if (sym.isMarketHealthy())     append("HEALTH+ ")
+                    if (sym.isConfident())         append("CONF+ ")
+                    if (!sym.isFresh())            append("STALE ")
+                }.trim().ifBlank { "neutral" }
+                onLog("🧬 Symbolic: [$flags] size×${"%.2f".format(symbolicSizeMult)} " +
+                      "confShave=${symbolicConfShave.toInt()}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
