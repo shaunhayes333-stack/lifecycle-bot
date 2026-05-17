@@ -569,12 +569,46 @@ object CashGenerationAI {
             scoreReasons.add("mode${if (modeBonus > 0) "+" else ""}$modeBonus")
         }
 
-        val treasuryConfidence = (
+        val rawTreasuryConfidence = (
             (if (liquidityUsd > 10_000) 25 else if (liquidityUsd > 5_000) 15 else 5) +
                 (if (buyPressurePct > 55) 25 else if (buyPressurePct > 45) 15 else 5) +
                 (if (momentum > 2) 25 else if (momentum > -2) 15 else 5) +
                 (if (topHolderPct < 20) 25 else if (topHolderPct < 30) 15 else 5)
             ).coerceIn(0, 100)
+
+        // ── V5.9.836 — V3 cosign on Treasury confidence ──
+        // v3Score and v3Confidence were both function parameters that have
+        // been silently dropped since CashGenerationAI shipped. The Treasury
+        // path is the bot's auto-reinvestment-from-profits flow — it does
+        // not route through FinalDecisionGate. Without a V3 cosign, the
+        // Treasury can independently decide to buy a token V3 already
+        // rejected, missing the bot's primary scoring signal.
+        //
+        // Wire: small additive cosign on rawTreasuryConfidence based on
+        // V3's own verdict. Bounded ±10 points so this can never veto
+        // a treasury entry and never override the V5.9.801/805 hard
+        // floors (treasuryScore >= minTreasuryScore + buyPressure < 65
+        // anti-FOMO clamp etc.).
+        //
+        // v3Score is 0-100 scale, v3Confidence is 0-100. Combined verdict:
+        //   strong V3 buy (score >= 55 AND conf >= 60)  → +8
+        //   mild V3 buy   (score >= 45 AND conf >= 45)  → +4
+        //   neutral       (otherwise, including conf=0) → 0
+        //   mild V3 fade  (score <  35 AND conf >= 45)  → -4
+        //   strong V3 fade(score <  25 AND conf >= 60)  → -8
+        val v3Cosign = when {
+            v3Confidence < 30                          -> 0  // V3 itself doesn't trust its read
+            v3Score >= 55 && v3Confidence >= 60        -> 8
+            v3Score >= 45 && v3Confidence >= 45        -> 4
+            v3Score <  25 && v3Confidence >= 60        -> -8
+            v3Score <  35 && v3Confidence >= 45        -> -4
+            else                                       -> 0
+        }
+        val treasuryConfidence = (rawTreasuryConfidence + v3Cosign).coerceIn(0, 100)
+
+        if (v3Cosign != 0) {
+            scoreReasons.add("v3cosign${if (v3Cosign > 0) "+" else ""}$v3Cosign")
+        }
 
         val learningProgress = FluidLearningAI.getLearningProgress()
 
