@@ -932,11 +932,36 @@ class UnifiedScorer(
             val minSamples = if (isOuter) 50 else 20
             if (maturity == null || maturity.trades < minSamples) return c
             val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
-            val weight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+            val educationWeight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+
+            // ── V5.9.833 (B2) — mirror classicScore MetaCog trust blend into UnifiedScorer ──
+            // V5.9.820 wired MetaCognitionAI.getTrustMultiplier into classicScore's
+            // weightedComponents loop but never into unifiedScore's symmetricTrust.
+            // If production ever flips to UNIFIED mode (Settings → V5.9.814 toggle),
+            // the trust-weighting evaporates and we lose months of MetaCog learning.
+            // Identical bootstrap floor (0.5 weight pre-3000 trades, ramps to 1.0
+            // at 5000 trades). Identical clamp envelope.
+            val metaCogTrust = try {
+                val mcLayer = mapComponentNameToLayer(c.name)
+                if (mcLayer != null) {
+                    val raw = MetaCognitionAI.getTrustMultiplier(mcLayer).coerceIn(0.6, 1.4)
+                    val totalTrades = try {
+                        com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                    } catch (_: Throwable) { 0 }
+                    val blendFactor = when {
+                        totalTrades >= 5000 -> 1.0
+                        totalTrades >= 3000 -> 0.5 + 0.5 * (totalTrades - 3000) / 2000.0
+                        else                -> 0.5
+                    }
+                    1.0 + (raw - 1.0) * blendFactor
+                } else 1.0
+            } catch (_: Throwable) { 1.0 }
+
+            val weight = (educationWeight * metaCogTrust).coerceIn(0.5, 1.6)
             val newValue = (c.value * weight).toInt()
             return if (newValue == c.value) c else c.copy(
                 value = newValue,
-                reason = "${c.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]"
+                reason = "${c.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%${if (metaCogTrust != 1.0) " mc×${"%.2f".format(metaCogTrust)}" else ""}]"
             )
         }
         val phase3Classic = phase2Classic.map { symmetricTrust(it, isOuter = false) }
