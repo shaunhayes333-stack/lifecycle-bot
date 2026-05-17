@@ -322,7 +322,16 @@ object BehaviorAI {
         
         // Log state
         logBehaviorState()
-        
+
+        // V5.9.816 — internal auto-deescalation of aggression based on the
+        // freshly-updated tilt + streak state. Soft-shape only, no veto.
+        // See AUTO-DEESCALATION block below for full doctrine.
+        try {
+            autoDeescalateAggression()
+        } catch (e: Throwable) {
+            ErrorLogger.debug(TAG, "auto-deesc error (non-fatal): ${e.message}")
+        }
+
         // V5.6.28e: Auto-save after behavior state change
         save()
     }
@@ -409,6 +418,78 @@ object BehaviorAI {
         return if (remaining > 0) remaining / 1000 else 0
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.816 — INTERNAL AUTO-DEESCALATION
+    //
+    // Doctrine ref: memory entry #86 ("help, don't hinder" / V5.9.812+ AGI
+    // campaign). When the bot is on a losing streak or tilted, it should
+    // SHAPE its own aggression down — no new veto, just slide the internal
+    // aggressionLevel knob toward more conservative bands. The existing
+    // consumers (getSizingMultiplier, getEntryThresholdMod, getMinQualityGrade)
+    // already convert aggressionLevel into bounded multipliers; this just
+    // makes the bot smart enough to push that knob itself instead of waiting
+    // for the operator to do it in BehaviorActivity.
+    //
+    // CRITICAL — every output stays in the soft-shape range:
+    //   minimum auto-floor = aggressionLevel 1 (still trades, 0.6× size, A-grade)
+    //   no veto, no hard block, no new gate
+    //   manual setAggressionLevel(level, force=true) bypasses this entirely
+    //   maturity scale: pre-3000 trades = move ±1 per call max (gentler)
+    //
+    // Called at the end of recordTradeForAsset (MEME only — same scope as
+    // tilt/discipline state above). Hot-path safe: bounded work, no IO.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private fun autoDeescalateAggression() {
+        val tilt   = tiltLevel.get()
+        val losses = consecutiveLosses.get()
+        val wins   = consecutiveWins.get()
+        val current = aggressionLevel.get()
+
+        // Compute target aggression band from current tilt / streak state.
+        // Operator default = 5. Deescalation drifts DOWN. Recovery drifts UP.
+        val target = when {
+            tilt >= 85 || losses >= 8 -> 1
+            tilt >= 70 || losses >= 6 -> 2
+            tilt >= 50 || losses >= 4 -> 3
+            tilt >= 30 || losses >= 2 -> 4
+            wins   >= 10              -> 5  // full recovery
+            wins   >= 5               -> minOf(current + 2, 5)  // partial recovery toward 5
+            else                       -> current  // no change
+        }
+
+        if (target == current) return
+
+        // Maturity scaling — pre-3000 trades, move by at most 1 notch per call.
+        // Same trade-count thresholds used by V5.9.662d penalty ramp above so
+        // the bot's self-shaping speeds up in lock-step with its sample size.
+        val totalTrades = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+        } catch (_: Throwable) { 0 }
+
+        val maxStep = when {
+            totalTrades >= 5000 -> 3   // mature: can jump aggressively (e.g. 5→2 on cluster of losses)
+            totalTrades >= 3000 -> 2
+            else                -> 1   // learning: glacial, ±1 per call
+        }
+
+        val stepped = if (target > current) {
+            (current + maxStep).coerceAtMost(target)
+        } else {
+            (current - maxStep).coerceAtLeast(target)
+        }
+
+        // Hand off to setAggressionLevel with force=false so the existing
+        // 5-second cooldown still applies (prevents oscillation if losses
+        // arrive back-to-back).
+        setAggressionLevel(stepped, force = false)
+
+        ErrorLogger.debug(
+            TAG,
+            "🎚️ AUTO-DEESC: tilt=$tilt losses=$losses wins=$wins | aggr $current → $stepped (target=$target, maxStep=$maxStep, trades=$totalTrades)"
+        )
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // FLUID LEARNING INTEGRATION
     // ═══════════════════════════════════════════════════════════════════════════
