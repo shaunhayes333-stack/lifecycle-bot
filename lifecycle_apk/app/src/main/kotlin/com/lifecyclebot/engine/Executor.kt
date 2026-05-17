@@ -254,13 +254,88 @@ object WrRecoveryPartial {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.9.805 — operator audit Fix (β): Score-distribution auto-fit.
+    //
+    // Problem context: operator dump build-5.0.2745 showed V3 scores
+    // squashed in the 0-36 band across the entire pump.fun candidate
+    // universe (market regime). WR Recovery AGGRESSIVE floor was 45 →
+    // FDG rejected 232/237 candidates on WR_RECOVERY_QUALITY_FLOOR →
+    // the bot literally could not collect samples in a thin market.
+    //
+    // Resolution: maintain a 200-tick ring buffer of V3 scores; compute
+    // the running median. In thin regimes (median<15) the floor drops by
+    // ~25pts so the bot can learn; in normal regimes the floor is the
+    // band's nominal value; in rich regimes (median>50) the floor adds
+    // 10pts so the bot tightens to keep only top-decile entries when
+    // scores rip. minimumScoreFloor() composes the band base + auto-fit
+    // delta in a single call so all sub-traders pick up the change
+    // automatically.
+    //
+    // recordV3Score() is called from FinalDecisionGate.evaluate() — the
+    // single FDG entry that sees every candidate's V3 score AFTER the
+    // V3 engine has actually scored it (not pre-scoring zeros).
+    // ─────────────────────────────────────────────────────────────────────
+    private const val V3_RING_SIZE = 200
+    private val v3ScoreRing = IntArray(V3_RING_SIZE)
+    private val v3RingIdx = java.util.concurrent.atomic.AtomicInteger(0)
+    private val v3RingCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun recordV3Score(score: Int) {
+        if (score < 0) return
+        val clamped = score.coerceAtMost(200)
+        val slot = (v3RingIdx.getAndIncrement() % V3_RING_SIZE).let { if (it < 0) it + V3_RING_SIZE else it }
+        synchronized(v3ScoreRing) {
+            v3ScoreRing[slot] = clamped
+        }
+        v3RingCount.incrementAndGet()
+    }
+
+    private fun v3ScoreMedian(): Int? {
+        val n = v3RingCount.get().coerceAtMost(V3_RING_SIZE)
+        if (n < 30) return null  // not enough samples to trust the distribution
+        val snapshot = synchronized(v3ScoreRing) {
+            IntArray(n) { v3ScoreRing[it] }
+        }
+        snapshot.sort()
+        return snapshot[n / 2]
+    }
+
+    /** Snapshot for the UI / pipeline-health pill. */
+    data class V3DistSnapshot(val samples: Int, val median: Int, val mode: String)
+    fun v3DistSnapshot(): V3DistSnapshot {
+        val n = v3RingCount.get().coerceAtMost(V3_RING_SIZE)
+        val median = v3ScoreMedian() ?: -1
+        val mode = when {
+            n < 30      -> "WARMUP"
+            median < 15 -> "THIN"
+            median > 50 -> "RICH"
+            else        -> "NORMAL"
+        }
+        return V3DistSnapshot(samples = n, median = median, mode = mode)
+    }
+
     fun minScoreFloor(): Int {
         val s = stateNow()
-        return when (s.band) {
+        val base = when (s.band) {
             Band.AGGRESSIVE -> 45
             Band.MODERATE   -> 30
             else            -> 0
         }
+        if (base == 0) return 0
+        val median = v3ScoreMedian() ?: return base
+        // Auto-fit delta:
+        //   THIN   (median<15) → -25  (drop one tier so the bot can collect samples)
+        //   THIN-  (median<25) → -12  (half-tier drop)
+        //   NORMAL                 0
+        //   RICH   (median>50) → +10  (tighten to keep only top setups)
+        val delta = when {
+            median < 15 -> -25
+            median < 25 -> -12
+            median > 50 -> +10
+            else        -> 0
+        }
+        return (base + delta).coerceAtLeast(0)
     }
 
     /** Human-readable status for logs / UI badges. */

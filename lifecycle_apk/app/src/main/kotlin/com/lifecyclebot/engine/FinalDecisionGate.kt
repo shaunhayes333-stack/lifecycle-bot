@@ -679,6 +679,19 @@ object FinalDecisionGate {
 
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
 
+        // V5.9.805 — operator audit Fix (β): record this candidate's V3
+        // score in the WrRecoveryPartial rolling distribution. We do this
+        // at the top of FDG (after candidate construction) because every
+        // candidate that reaches FDG has already been scored by V3 — so
+        // we're sampling the live regime distribution without pre-score
+        // zeros. The auto-fit logic in WrRecoveryPartial.minScoreFloor()
+        // then drops the floor by ~25 in thin regimes (median<15) so
+        // sub-traders / FDG can collect samples instead of starving.
+        try {
+            val v3Score = candidate.entryScore.toInt()
+            if (v3Score >= 0) com.lifecyclebot.engine.WrRecoveryPartial.recordV3Score(v3Score)
+        } catch (_: Throwable) {}
+
         // V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate.
         // Operator forensics_20260515_161017 showed 17 BUY_FAILED
         // LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING events

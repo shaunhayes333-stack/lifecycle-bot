@@ -601,10 +601,44 @@ object CashGenerationAI {
         // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
         // into the CashGen entry path so the Smart Entry Gate cannot be
         // bypassed when treasury auto-buys fire without re-routing through
-        // FinalDecisionGate. AGGRESSIVE → 45, MODERATE → 30, FLUID/OFF → 0.
-        val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
-        if (wrFloor > 0 && treasuryScore < wrFloor) {
-            rejectionReasons.add("wr_recovery_score_floor=$treasuryScore<$wrFloor")
+        // FinalDecisionGate.
+        //
+        // V5.9.805 — operator audit Fix (α): the V5.9.801 wrFloor was on
+        // the V3 score scale (45 in AGGRESSIVE, 30 in MODERATE) which is
+        // WRONG for Treasury. Treasury scoring runs 0-100 with heavy
+        // weight on buyPressure+30 / momentum+20 — i.e., the HIGHEST
+        // Treasury scores are exactly the FOMO traps (late entries on
+        // overheated tokens that instant-SL within 30ms of buy — see
+        // operator forensic build-5.0.2745: heldMs=24, heldMs=18,
+        // heldMs=28 on STRICT_SL_-10 exits).
+        //
+        // Resolution: switch to a Treasury-scale ADDITIVE floor anchored
+        // off `minTreasuryScore` (the proven base threshold). AGGRESSIVE
+        // requires +20 over base (e.g., bootstrap 11→31, mature 25→45);
+        // MODERATE requires +10 (bootstrap 21, mature 35). Additionally
+        // require buyPressure < 65 in AGGRESSIVE to PREVENT entry on
+        // overheated tokens (anti-FOMO clamp — the buy+30 scoring band
+        // makes >65% buy pressure look attractive, but live data shows
+        // those are sell-side imbalance about to flip).
+        val wrBand = try {
+            com.lifecyclebot.engine.WrRecoveryPartial.stateNow().band.name
+        } catch (_: Throwable) { "OFF" }
+        val wrFloorBoost = when (wrBand) {
+            "AGGRESSIVE" -> 20
+            "MODERATE"   -> 10
+            else         -> 0
+        }
+        if (wrFloorBoost > 0) {
+            val effectiveFloor = minTreasuryScore + wrFloorBoost
+            if (treasuryScore < effectiveFloor) {
+                rejectionReasons.add("wr_recovery_score_floor=$treasuryScore<$effectiveFloor (base=$minTreasuryScore+$wrFloorBoost band=$wrBand)")
+            }
+            // Anti-FOMO clamp: in AGGRESSIVE band reject entries where the
+            // Treasury "high score" is being driven by an overheated buy
+            // pressure imbalance — these are the heldMs<30 traps.
+            if (wrBand == "AGGRESSIVE" && buyPressurePct > 65.0) {
+                rejectionReasons.add("wr_recovery_anti_fomo=buyPressure=${buyPressurePct.toInt()}%>65%")
+            }
         }
         if (treasuryConfidence < minTreasuryConf) {
             rejectionReasons.add("conf=$treasuryConfidence<$minTreasuryConf")
