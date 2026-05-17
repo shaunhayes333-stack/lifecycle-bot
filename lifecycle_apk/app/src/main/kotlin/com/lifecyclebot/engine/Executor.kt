@@ -1416,6 +1416,50 @@ class Executor(
             } catch (_: Exception) {}
         }
 
+        // ── V5.9.817 — BehaviorAI MEME path wire-up (AGI campaign push 6) ──
+        // CryptoAltTrader already consumes BehaviorAI.getSizingMultiplier (see
+        // CryptoAltTrader.hiveEntryModifier, V5.9.x). Meme path had three dark
+        // consumers per audit_v5.9.811_dormant_agi.md TIER 1.1:
+        //   getSizingMultiplier  — dark on meme until now
+        //   getEntryThresholdMod — dark everywhere until now
+        //   getMinQualityGrade   — dark everywhere until now
+        //
+        // V5.9.816 closed BehaviorAI's internal autoDeescalation loop. This
+        // commit finally lets that loop steer the meme execution path. When
+        // BehaviorAI auto-deescalates aggression 5→2 after a loss streak:
+        //   - confidence is shaved by 5 points (harder bar)
+        //   - size is multiplied by 0.7 (smaller bets)
+        //   - if grade < min, size further multiplied by 0.7
+        //
+        // Doctrine compliance (memory #86): no new veto. Every output stays
+        // in the soft-shape range [0.5, 1.5]× and bounded confidence delta.
+        // The candidate still trades — just smaller and pickier when the bot
+        // is on tilt. Aggression band 1 (the auto-floor) still yields a
+        // non-zero size; only manual setAggressionLevel(0) clamps to 0.5×.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            // Confidence shave: BehaviorAI returns positive = harder threshold
+            // (i.e. SHAVE confidence). Negative = looser (BOOST confidence).
+            val confShave = com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()
+            if (confShave != 0.0) {
+                adjustedConfidence = (adjustedConfidence - confShave).coerceIn(0.0, 100.0)
+            }
+
+            // Quality-grade soft penalty: if candidate's setupQuality is below
+            // BehaviorAI's current min-required grade, ×0.7 size (NOT reject).
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[setupQuality.uppercase()] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1448,13 +1492,25 @@ class Executor(
             val brakeMult = try {
                 com.lifecyclebot.engine.MemeWREmergencyBrake.sizingMultiplier()
             } catch (_: Throwable) { 1.0 }
-            val finalSol = result.solAmount * patternSizeMult * brakeMult
+            // V5.9.817 — compose BehaviorAI multipliers into the same
+            // multiplicative envelope as patternSizeMult and brakeMult.
+            // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
+            // behaviorGradeMult ∈ {0.7, 1.0}.
+            val finalSol = result.solAmount * patternSizeMult * brakeMult *
+                           behaviorSizeMult * behaviorGradeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
             }
             if (brakeMult != 1.0) {
                 onLog("🚨 WR-brake mult: ${"%.2f".format(brakeMult)}x (meme WR low — halving risk)", "sizing")
+            }
+            if (behaviorSizeMult != 1.0 || behaviorGradeMult != 1.0) {
+                val aggrLvl = try {
+                    com.lifecyclebot.v3.scoring.BehaviorAI.getAggressionLevel()
+                } catch (_: Throwable) { 5 }
+                onLog("🎚️ BehaviorAI: aggr=$aggrLvl size×${"%.2f".format(behaviorSizeMult)} " +
+                      "grade×${"%.2f".format(behaviorGradeMult)} confShave→${adjustedConfidence.toInt()}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
