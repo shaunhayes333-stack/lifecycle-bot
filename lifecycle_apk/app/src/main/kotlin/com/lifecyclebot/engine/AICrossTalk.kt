@@ -765,13 +765,29 @@ object AICrossTalk {
             }
         }
 
-        val shouldSwitch = bestMode != currentMode && highestConfidence >= 65.0
+        // ── V5.9.830 (A9) — holdTime confidence multiplier ──
+        // holdTimeMs arrived as a function parameter but was completely
+        // unread. Mode-switching decisions can't ignore hold age: a
+        // +200% PnL at 5min has very different character vs +200% at 5h.
+        // Apply a multiplier to the aggregated confidence so the same
+        // raw signals get reweighted by trade stage.
+        val holdMinutes = holdTimeMs / 60_000.0
+        val holdMult = when {
+            holdMinutes < 2.0  -> 0.70  // sub-2min — too early to mode-switch on noise
+            holdMinutes < 10.0 -> 0.90  // first 10min — keep some skepticism
+            holdMinutes < 60.0 -> 1.00  // first hour — full trust
+            holdMinutes < 240.0 -> 1.05 // 1-4h — slight boost (stable runner deserves switch attention)
+            else                -> 1.10 // 4h+ — meaningful longevity
+        }
+        val adjustedConfidence = (highestConfidence * holdMult).coerceIn(0.0, 100.0)
+
+        val shouldSwitch = bestMode != currentMode && adjustedConfidence >= 65.0
 
         if (shouldSwitch) {
             modeSwitchesRecommended++
             ErrorLogger.info(
                 "CrossTalk",
-                "🔄 MODE SWITCH: $symbol | $currentMode → $bestMode | conf=${highestConfidence.toInt()}% | ${reasons.joinToString("; ")}"
+                "🔄 MODE SWITCH: $symbol | $currentMode → $bestMode | conf=${adjustedConfidence.toInt()}% (raw ${highestConfidence.toInt()}% × hold×${"%.2f".format(holdMult)}) | ${reasons.joinToString("; ")}"
             )
         }
 
@@ -779,7 +795,7 @@ object AICrossTalk {
             shouldSwitch = shouldSwitch,
             currentMode = currentMode,
             recommendedMode = bestMode,
-            confidence = highestConfidence,
+            confidence = adjustedConfidence,
             reason = if (reasons.isNotEmpty()) reasons.joinToString("; ") else "No switch needed",
             participatingAIs = participatingAIs.distinct(),
         )

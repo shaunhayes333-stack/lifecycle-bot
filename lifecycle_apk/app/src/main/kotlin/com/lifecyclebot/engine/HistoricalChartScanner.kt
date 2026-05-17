@@ -824,14 +824,33 @@ object HistoricalChartScanner {
             volumeUsd < 100000 -> "MEDIUM"
             else -> "HIGH"
         }
-        
-        // Find matching patterns
-        val matchingWinners = winningPatterns.values.filter { 
-            it.signature.startsWith("${liqBucket}_${volumeBucket}") 
+
+        // ── V5.9.830 (A8) — gain-stage bucket ──
+        // currentGainPct was passed in but dropped — patterns matched by
+        // liq/vol only, so a +5% candidate was matched against the SAME
+        // historical cohort as a +500% candidate. Completely different
+        // outcome distributions. Now we partition by where the trade IS.
+        val gainBucket = when {
+            currentGainPct >= 100.0 -> "RUNNER"   // 2x+ already
+            currentGainPct >= 30.0  -> "BREAK"    // breakout
+            currentGainPct >= 5.0   -> "EARLY"    // first leg
+            currentGainPct >= -5.0  -> "ENTRY"    // near flat
+            currentGainPct >= -20.0 -> "DIP"      // mild drawdown
+            else                    -> "DEEP_DIP" // serious drawdown
         }
-        val matchingLosers = losingPatterns.values.filter { 
-            it.signature.startsWith("${liqBucket}_${volumeBucket}") 
-        }
+
+        // Find matching patterns with gain-stage qualifier. Fall back to
+        // 2-component prefix when no stage-specific samples exist yet —
+        // preserves bootstrap behavior on cold pattern libraries.
+        val stageSig = "${liqBucket}_${volumeBucket}_${gainBucket}"
+        val baseSig  = "${liqBucket}_${volumeBucket}"
+        val stageWinners = winningPatterns.values.filter { it.signature.startsWith(stageSig) }
+        val stageLosers  = losingPatterns.values.filter { it.signature.startsWith(stageSig) }
+        val stageSampleSize = stageWinners.sumOf { it.occurrences } + stageLosers.sumOf { it.occurrences }
+        val matchingWinners = if (stageSampleSize >= 5) stageWinners else
+            winningPatterns.values.filter { it.signature.startsWith(baseSig) }
+        val matchingLosers = if (stageSampleSize >= 5) stageLosers else
+            losingPatterns.values.filter { it.signature.startsWith(baseSig) }
         
         val winnerCount = matchingWinners.sumOf { it.occurrences }
         val loserCount = matchingLosers.sumOf { it.occurrences }
