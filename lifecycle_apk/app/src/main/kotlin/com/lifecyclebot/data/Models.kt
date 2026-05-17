@@ -272,6 +272,11 @@ data class TokenState(
     var lastV3Score: Int? = null,
     var lastV3Confidence: Int? = null,
     var lastBuyPressurePct: Double = 50.0,  // Buy pressure percentage
+    // V5.9.827 — sells5m / priceChange1h were silently dropped by DataOrchestrator's
+    // WS lambda for months despite being emitted on every DexScreener tick. Surfaced
+    // here so distribution detection and hourly trend bias finally have real data.
+    var lastSellPressurePct: Double = 50.0,  // sells5m / txns5m * 100 — distribution sense
+    var lastPriceChange1h: Double = 0.0,     // 1h price drift % — hourly trend bias
     var topHolderPct: Double? = null,        // Top holder concentration
     var momentum: Double? = null,            // Price momentum
     var volatility: Double? = null,          // Price volatility

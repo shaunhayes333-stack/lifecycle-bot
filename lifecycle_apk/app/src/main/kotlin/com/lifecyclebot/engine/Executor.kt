@@ -1683,6 +1683,49 @@ class Executor(
             } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
         }
 
+        // ── V5.9.827 — sell-pressure soft-shape on MEME size ──
+        // For months DataOrchestrator's DexScreener WS lambda dropped sells5m
+        // on every tick — only buys5m flowed through to pressScore. The bot
+        // was structurally blind to distribution. V5.9.827 surfaces it as
+        // ts.lastSellPressurePct (sells5m / txns5m * 100) and consumes here.
+        //
+        // WR/profit thesis: high sell-pressure entries are distribution
+        // events disguised as continuations. Soft-shave size [-15% at 65%
+        // sell-pressure, -25% at 75%+]. Below 50% sell-pressure (i.e. buy-
+        // dominated) → mild +5% boost. Bounded, no new veto, fail-open.
+        var sellPressureSizeMult = 1.0
+        if (ts != null) {
+            try {
+                val sp = ts.lastSellPressurePct
+                sellPressureSizeMult = when {
+                    sp >= 75.0 -> 0.75  // heavy distribution
+                    sp >= 65.0 -> 0.85  // moderate distribution
+                    sp <= 35.0 -> 1.05  // strong buy dominance
+                    else       -> 1.00  // neutral / no signal
+                }
+                sellPressureSizeMult = sellPressureSizeMult.coerceIn(0.75, 1.05)
+            } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        }
+
+        // ── V5.9.827 — 1h trend soft-shape on MEME size ──
+        // priceChange1h was also dropped by the WS lambda for months. Now
+        // available as ts.lastPriceChange1h. Strong 1h dump (-20%+) → -15%
+        // size. Strong 1h pump (+20%+) → +10% size. Bounded, no veto.
+        var trend1hSizeMult = 1.0
+        if (ts != null) {
+            try {
+                val ch = ts.lastPriceChange1h
+                trend1hSizeMult = when {
+                    ch <= -20.0 -> 0.85
+                    ch <= -10.0 -> 0.92
+                    ch >=  20.0 -> 1.10
+                    ch >=  10.0 -> 1.05
+                    else        -> 1.00
+                }
+                trend1hSizeMult = trend1hSizeMult.coerceIn(0.85, 1.10)
+            } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1723,7 +1766,7 @@ class Executor(
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
                            behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
                            symbolicSizeMult * timeSizeMult * momentumSizeMult *
-                           narrativeSizeMult
+                           narrativeSizeMult * sellPressureSizeMult * trend1hSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1787,6 +1830,21 @@ class Executor(
                     nd.detectNarrative(ts.symbol, ts.name).name
                 } catch (_: Throwable) { "?" }
                 onLog("📖 Narrative: [$tag $narrative] size×${"%.2f".format(narrativeSizeMult)}", "sizing")
+            }
+            if (sellPressureSizeMult != 1.0 && ts != null) {
+                val sp = ts.lastSellPressurePct
+                val tag = when {
+                    sp >= 75.0 -> "DISTRIB++"
+                    sp >= 65.0 -> "DISTRIB"
+                    sp <= 35.0 -> "BUYS+"
+                    else       -> "neutral"
+                }
+                onLog("📉 SellPress: [$tag ${sp.toInt()}%] size×${"%.2f".format(sellPressureSizeMult)}", "sizing")
+            }
+            if (trend1hSizeMult != 1.0 && ts != null) {
+                val ch = ts.lastPriceChange1h
+                val arrow = if (ch >= 0) "↑" else "↓"
+                onLog("⏱️ 1hTrend: $arrow${"%.1f".format(ch)}% size×${"%.2f".format(trend1hSizeMult)}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol

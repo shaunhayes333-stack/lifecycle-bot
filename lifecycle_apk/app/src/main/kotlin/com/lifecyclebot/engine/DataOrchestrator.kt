@@ -352,6 +352,9 @@ class DataOrchestrator(
                 ts.lastMcap = mcap
                 ts.lastLiquidityUsd = liquidity
                 ts.lastBuyPressurePct = if (txns5m > 0) (buys5m.toDouble() / txns5m) * 100 else 50.0
+                // V5.9.827 — wire previously-dropped distribution + hourly signals
+                ts.lastSellPressurePct = if (txns5m > 0) (sells5m.toDouble() / txns5m) * 100 else 50.0
+                ts.lastPriceChange1h = priceChange1h
                 
                 // Update volume scores in meta (copy with new values)
                 ts.meta = ts.meta.copy(
