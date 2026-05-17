@@ -29,6 +29,46 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.807 — Counter-drift display + Predictive exit wired (Feb '26, CI ✅✅)
+
+Operator follow-up: "latest apk counters still off in learning... just
+focus there tho no skimming and do 2 and the predictive exits."
+
+Two surgical fixes — no entry-volume impact.
+
+(1) LearningCounterActivity.kt — drift baseline switched from
+    canonicalOutcomesTotal (which counts every bus event, including
+    OPEN events / mode shadows / preserved-label replays) to
+    settledWins + settledLosses. canonicalOutcomesTotal is still
+    visible in Section 2 + alongside the new baseline label so the
+    operator can compare both. tradeCount-style legacy counters
+    (FluidLearningAI / AdaptiveLearningEngine / BehaviorLearning /
+    MetaCognitionAI) now compare against settled trades — the only
+    honest comparator.
+
+(2) Executor.kt — LosingPatternMemory.recommendedSlPct() wired into
+    the HARD_FLOOR exit. When a position's (tradingMode × scoreBand)
+    bucket is a danger zone (≥5 losses, ≥75% loss rate in last 2k
+    closes), tighten the hard floor to the recommended SL
+    (-3% / -5% / -7% by loss count). Read-only over the journal +
+    minOf(...) means the hard floor can only be TIGHTENED — never
+    widened — beyond its baseline -9% (fresh meme) / -15%
+    (everything else). New exit reason `predictive_hard_floor_stop`
+    for telemetry separation; new icon 🧠🛑 when predictive
+    tightening fires.
+
+NOT TOUCHED:
+- Executor.paperBuy / liveBuy unchanged.
+- PumpPortal swap scripting unchanged.
+- Sub-trader evaluate() methods unchanged.
+- FluidLearningAI dynamic stop unchanged.
+- PrecisionExitLogic / ExitIntelligence unchanged.
+- Entry sizing & FDG flow unchanged.
+
+Brace + paren deltas: balanced (Executor Δparen=-6 pre-existing
+baseline preserved). CI: Build AATE APK ✅ + Runtime Smoke Test ✅
+both GREEN on 107953fd1.
+
 ### V5.9.806 — Full intelligence wire-up: P0+P1+P2+P3+P4 (May 17, CI ✅)
 
 Operator: "AATE is meant to be beyond AGI with its sentience, metacognition,
