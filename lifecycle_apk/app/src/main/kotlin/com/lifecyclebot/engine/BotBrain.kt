@@ -935,7 +935,20 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         consecutiveLosses: Int,
         solPriceChange1h: Double,     // SOL price change last hour
     ) {
-        val newRegime = when {
+        // ── V5.9.829 (A7) — SOL macro drift bias ──
+        // solPriceChange1h was passed in but never read. Meme/SOL correlation
+        // is significant: when SOL is dumping -5%+ in the last hour, meme
+        // tokens systematically underperform. Bias the regime classification
+        // away from BULL when SOL is bleeding, and toward BULL when SOL is
+        // ripping. Pure classifier shift — no new band, no veto.
+        val solDriftBias = when {
+            solPriceChange1h <= -5.0 -> -2  // SOL dumping → downshift one band
+            solPriceChange1h <= -2.0 -> -1
+            solPriceChange1h >=  5.0 -> +1  // SOL ripping → upshift one band
+            else                      -> 0
+        }
+
+        val rawRegime = when {
             consecutiveLosses >= 3             -> "DANGER"       // circuit breaker territory
             recentWinRate >= 75 && avgVolRatio > 1.5 -> "BULL_HOT"   // everything pumping
             recentWinRate >= 65                -> "BULL"
@@ -945,8 +958,20 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             else                               -> "NEUTRAL"
         }
 
+        // Apply SOL drift bias as band shift. Rank ordered hot→cold.
+        // DANGER is sticky (only entered via consecutiveLosses), HIGH_VOL is
+        // orthogonal so we leave it alone.
+        val newRegime = if (rawRegime == "DANGER" || rawRegime == "HIGH_VOL") {
+            rawRegime
+        } else {
+            val ladder = listOf("BEAR_COLD", "BEAR", "NEUTRAL", "BULL", "BULL_HOT")
+            val idx = ladder.indexOf(rawRegime).takeIf { it >= 0 } ?: 2
+            ladder[(idx + solDriftBias).coerceIn(0, ladder.size - 1)]
+        }
+
         if (newRegime != currentRegime) {
-            onLog("🌡️ Market regime: $currentRegime → $newRegime")
+            val driftTag = if (solDriftBias != 0) " [SOL drift ${if (solDriftBias>0) "+" else ""}$solDriftBias band, 1h=${"%.1f".format(solPriceChange1h)}%]" else ""
+            onLog("🌡️ Market regime: $currentRegime → $newRegime$driftTag")
             currentRegime = newRegime
         }
 

@@ -358,7 +358,7 @@ object TokenWinMemory {
 
         val exactStats = tokenStats[mint]
         if (exactStats != null && exactStats.decisiveTrades > 0) {
-            val exactScore = when {
+            val rawExactScore = when {
                 exactStats.totalPnl >= 100.0 -> 50.0
                 exactStats.totalPnl >= 50.0 -> 35.0
                 exactStats.totalPnl >= 20.0 -> 25.0
@@ -370,13 +370,44 @@ object TokenWinMemory {
                 else -> 0.0
             }
 
+            // ── V5.9.829 (A6) — liquidity + buyPercent context scaling ──
+            // The "known winner" boost was ignoring CURRENT liquidity. A token
+            // that 10x'd at 100k liquidity gets the same boost when it
+            // restarts at 1k liquidity — a classic rug-restart shape. Same for
+            // buy% — a known winner with current sell-dominance has flipped
+            // character. Scale boost (positive scores only), keep penalties
+            // fully active.
+            val exactScore = if (rawExactScore > 0.0) {
+                // Liquidity ratio: current vs entry-at-win-time. Look up the
+                // most recent WinningToken record for this mint.
+                val winRec = winningTokens[mint]
+                val liqRatio = if (winRec != null && winRec.entryLiquidity > 0.0 && liquidity > 0.0) {
+                    (liquidity / winRec.entryLiquidity).coerceIn(0.0, 2.0)
+                } else 1.0
+                val liqMult = when {
+                    liqRatio >= 1.0 -> 1.0                    // same/better liquidity — full boost
+                    liqRatio >= 0.5 -> 0.75                   // half drained — 75% boost
+                    liqRatio >= 0.2 -> 0.40                   // 80% drained — quarter boost
+                    else            -> 0.10                   // rug-restart shape — keep tiny memory only
+                }
+                val buyMult = when {
+                    buyPercent >= 60.0 -> 1.0                 // strong buy dominance
+                    buyPercent >= 50.0 -> 0.90
+                    buyPercent >= 40.0 -> 0.70                // weakening
+                    else               -> 0.40                // sell-dominated — winner shape has flipped
+                }
+                rawExactScore * liqMult * buyMult
+            } else {
+                rawExactScore   // penalties pass through unscaled
+            }
+
             score += exactScore
             factors++
 
             if (exactScore > 0.0) {
                 ErrorLogger.info(
                     "TokenWinMemory",
-                    "🔥 KNOWN WINNER DETECTED: $symbol | total pnl: ${exactStats.totalPnl.toInt()}% | boost: +$exactScore"
+                    "🔥 KNOWN WINNER DETECTED: $symbol | total pnl: ${exactStats.totalPnl.toInt()}% | boost: +${"%.1f".format(exactScore)} (raw +${rawExactScore.toInt()}, liq×buy ctx)"
                 )
             } else if (exactScore < 0.0) {
                 ErrorLogger.debug(
