@@ -29,6 +29,40 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.803 — FDG works from trade 1 (May 16, CI ✅ Build + Runtime Smoke)
+
+Operator dump on build 5.0.2743 (V5.9.802 installed): "ai adjustments
+need to start earlier obviously and the fdg needs to start working
+from trade 1". FDG was STILL blocking 62% of decisions on
+LIQUIDITY_BELOW_EXECUTION_FLOOR (639 blocks).
+
+Forensic root cause:
+The V5.9.802 fallback only applied when `tradingModeTag == SHITCOIN`.
+But the same pump.fun bonding-curve token gets evaluated by FDG via
+BLUECHIP / TREASURY / MOONSHOT paths FIRST. Those paths use
+`FluidLearningAI.getExecutionFloor()` ($800–$10000 lerped) and
+never hit the SHITCOIN-only fallback → instant fail because
+`LiquidityClassifier.exitCapacityUsd` returns 0 for any token
+without a confirmed Raydium/Jupiter pool.
+
+FIX 1 (P0, COMPLETE) — FDG bootstrap fallback applies to ALL paths
+- Drop `tradingModeTag == SHITCOIN` clause from `isBootstrap` check.
+  Any FDG path during `learningProgress<0.5` falls back to
+  `lastLiquidityUsd` when `exitCapacityUsd` is 0.
+- Canonical bus still tags outcomes `bcSimOnly=true` so WR analytics
+  stay separable. Live execution still enforces strict
+  `exitCapacityUsd` in the live executor's own pre-flight pool check.
+
+FIX 2 (P0, COMPLETE) — FluidLearningAI.LIQ_EXECUTION_BOOTSTRAP $800 → $300
+- With Fix 1 letting BLUECHIP/TREASURY paths use `lastLiquidityUsd`
+  during bootstrap, $800 was still rejecting ~half the $2K pump.fun
+  candidate stream when learningProgress was very low.
+- $300 bootstrap gives the AI a clean first-100-trade sample window.
+  MATURE $10,000 unchanged — once the bot has 5000+ trades of
+  confidence, BLUECHIP/TREASURY return to demanding deep liquidity.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on 17f8c2048.
+
 ### V5.9.802 — Performance Recovery Patch P2 (May 16, CI ✅ Build + Runtime Smoke)
 
 Forensic on build 5.0.2742 (V5.9.801 installed) revealed THREE silent
