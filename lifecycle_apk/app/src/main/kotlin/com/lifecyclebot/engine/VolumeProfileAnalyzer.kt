@@ -194,16 +194,49 @@ object VolumeProfileAnalyzer {
         // Check if price is in a low volume zone (breakout territory)
         val inLvn = lvnLevels.any { abs((price - it) / it) < 0.02 }
 
+        // ── V5.9.847 — wire poc + inValueArea (both were dropped params) ──
+        // poc (Point of Control) is the price level where the most volume
+        // traded. distFromPoc gave us magnitude; poc itself gives us the
+        // raw level so we can compute DIRECTION (above/below POC has very
+        // different meaning in Volume Profile theory):
+        //   • Above POC + away → bullish trend, buyers in control
+        //   • Below POC + away → bearish trend, sellers in control
+        // inValueArea: canonical 'is this a normal-volume zone?' signal.
+        // When price is OUTSIDE the value area, the move is statistically
+        // significant — exactly when a breakout signal carries weight.
+        val abovePoc = price > poc
+        val outOfValueArea = !inValueArea
+        // POC reclaim/lose: was below POC, now at-or-above (or inverse).
+        // Right now we only have one snapshot — we encode it as a
+        // proximity-to-POC plus directional component.
+        val pocReclaim = abovePoc && distFromPoc in 0.5..3.0   // just above POC
+        val pocLose    = !abovePoc && abs(distFromPoc) in 0.5..3.0  // just below POC
+
         return when {
-            // Breakout signals
+            // V5.9.847 — strongest breakouts also have inLvn confirmation;
+            // we let those keep their existing UP/DOWN classification.
             aboveVah && inLvn -> VolumeSignal.BREAKOUT_UP
             belowVal && inLvn -> VolumeSignal.BREAKOUT_DOWN
-            
+
+            // V5.9.847 — VA-extension signals: price outside the value
+            // area without LVN confirmation indicates an attempted move
+            // that may still resolve as breakout OR rejection. Classify
+            // by direction relative to POC to match VP theory.
+            outOfValueArea && abovePoc && buyPressure >= 55 -> VolumeSignal.BREAKOUT_UP
+            outOfValueArea && !abovePoc && buyPressure <= 45 -> VolumeSignal.BREAKOUT_DOWN
+
             // Value area signals
             nearVal && buyPressure >= 60 -> VolumeSignal.ACCUMULATION
             nearVah && buyPressure <= 40 -> VolumeSignal.DISTRIBUTION
+
+            // V5.9.847 — POC reclaim/lose nuances. Classic VP setups:
+            //   pocReclaim with strong buy% = bullish accumulation
+            //   pocLose with weak buy%      = bearish distribution
+            pocReclaim && buyPressure >= 55 -> VolumeSignal.ACCUMULATION
+            pocLose    && buyPressure <= 45 -> VolumeSignal.DISTRIBUTION
+
             nearPoc -> VolumeSignal.CONSOLIDATION
-            
+
             else -> VolumeSignal.NEUTRAL
         }
     }
