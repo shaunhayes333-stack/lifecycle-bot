@@ -579,8 +579,12 @@ object BehaviorLearning {
     // that intentionally only counts feature-rich outcomes.
     fun getTradeCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get() + totalScratchRecorded.get()
     fun getCanonicalAlignedTradeCount(): Int {
+        // V5.9.804: switch to settledWins+settledLosses to match the
+        // journal/UI round-trip trade count (canonicalOutcomesTotal
+        // double-counts BUY+SELL legs).
         val canonical = try {
-            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 0 }
         return if (canonical > 0) canonical else getTradeCount()
     }

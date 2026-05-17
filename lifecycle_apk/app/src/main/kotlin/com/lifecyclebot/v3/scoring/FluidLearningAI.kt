@@ -214,9 +214,16 @@ object FluidLearningAI {
      * FluidLearning without also publishing to the canonical bus (or
      * vice-versa) would drift — the bot's "trades observed" number on
      * the brain side would diverge from the canonical journal. Sourcing
-     * from canonical eliminates the drift entirely. The local counter is
-     * kept as a fallback for the very first boot before canonical has
-     * fired (so existing bootstrap progress doesn't snap to zero).
+     * from canonical eliminates the drift entirely.
+     *
+     * V5.9.804: operator audit "count still looks doubled vs trade count".
+     * Confirmed: canonicalOutcomesTotal counts EVERY dispatched outcome
+     * including both BUY and SELL legs of each round-trip (548 events ≈
+     * 274 round-trips, but UI shows 294 trades). For WR / learning
+     * decisions we want the CLOSED-trade count, which is
+     * settledWins + settledLosses (487 in operator forensic = actual
+     * round-trips with W/L outcomes). Switch the source so the AI brain
+     * count matches the journal/UI count.
      */
     fun getTotalTradeCount(): Int {
         // V5.9.695 — use (baseline + session delta) not (lifetimeSells + sessionTrades).
@@ -224,7 +231,8 @@ object FluidLearningAI {
         // so the old formula counted every session close twice. Correct total =
         // sessionLifetimeBaseline (snapped at boot) + sessionTrades (delta only).
         val canonicalDelta = try {
-            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 0 }
         val sessionDelta = if (canonicalDelta > 0) canonicalDelta else sessionTrades.get()
         return sessionLifetimeBaseline + sessionDelta

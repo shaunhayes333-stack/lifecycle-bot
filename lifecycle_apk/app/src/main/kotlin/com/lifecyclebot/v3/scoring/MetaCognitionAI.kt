@@ -787,15 +787,16 @@ object MetaCognitionAI {
     }
 
     // V5.9.224 — exposed for SentienceOrchestrator harvest
-    // V5.9.802 — operator audit Fix (c): drift hunt. Forensic build-5.0.2742
-    // showed totalTradesAnalyzed=10965 vs canonical=3805 (Δ=+7160) — wildly
-    // over-counted because each trade is analysed across multiple AI layers
-    // and every per-layer record bumps this counter. Source from canonical
-    // when it has fired so the dashboard "trades observed" stays aligned
-    // across all brains; keep local counter as boot-time fallback.
+    // V5.9.802 — operator audit Fix (c): drift hunt. Source from canonical
+    // when it has fired so the dashboard "trades observed" stays aligned.
+    // V5.9.804: operator audit "count still looks doubled vs trade count" —
+    // switch to settledWins+settledLosses so the AI brain count matches
+    // the journal/UI count (canonicalOutcomesTotal double-counts BUY+SELL
+    // legs).
     fun getTotalTradesAnalyzed(): Int {
         val canonical = try {
-            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 0 }
         return if (canonical > 0) canonical else totalTradesAnalyzed
     }

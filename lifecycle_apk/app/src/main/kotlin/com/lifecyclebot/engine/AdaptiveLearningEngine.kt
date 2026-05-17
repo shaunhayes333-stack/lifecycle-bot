@@ -1095,15 +1095,16 @@ object AdaptiveLearningEngine {
         // V5.9.802 — operator audit Fix (c): legacy counter drift hunt.
         // Pre-V5.9.802 returned the local `tradeCount` int — which only
         // increments on AdaptiveLearningEngine.recordTrade() and drifts
-        // from CanonicalLearningCounters.canonicalOutcomesTotal whenever
-        // a path publishes to the canonical bus without also calling
-        // AdaptiveLearningEngine (forensic build-5.0.2742 showed
-        // Δ=+1725 vs canonical=3805). Source from canonical when it has
-        // observed at least one outcome; keep local `tradeCount` as
-        // boot-time fallback so prior-session learning isn't snapped
-        // to zero before the first canonical fire.
+        // from canonical bus (forensic build-5.0.2742 showed Δ=+1725 vs
+        // canonical=3805). Source from canonical when it has observed at
+        // least one outcome.
+        // V5.9.804: operator audit "count still looks doubled vs trade
+        // count" — canonicalOutcomesTotal counts BUY+SELL legs (~2× the
+        // round-trip count). Switch to settledWins+settledLosses so the
+        // AI brain count matches the journal/UI count.
         val canonical = try {
-            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 0 }
         return if (canonical > 0) canonical else tradeCount
     }
