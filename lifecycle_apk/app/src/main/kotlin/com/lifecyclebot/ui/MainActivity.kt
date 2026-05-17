@@ -2341,26 +2341,14 @@ for legal compliance.
             // use RunTracker30D.totalTrades (same field the card shows) so the
             // top-bar number aligns with the card directly below it. Prior
             // 24h-window source always drifted from the 30-day cumulative count.
+            //
+            // V5.9.809 — operator mandate: headline number must match Journal
+            // (source of truth) regardless of which tab is active. Tabs are
+            // for drill-down on the per-lane Live Readiness tiles BELOW.
+            // The top-bar is now the cross-lane journal total — same numbers
+            // shown when you open the Trade Journal screen.
             val trades24h = persistedStats.trades24h
-            val topBarTradeCount = when (currentReadinessTab) {
-                "MEME"  -> if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) com.lifecyclebot.engine.RunTracker30D.totalTrades else trades24h
-                "ALTS"  -> try { (com.lifecyclebot.perps.CryptoAltTrader.getStats()["totalTrades"] as? Int) ?: trades24h } catch (_: Exception) { trades24h }
-                "PERPS" -> try {
-                    // V5.9.387 — PERPS tab = unified AATE markets, so the top-bar
-                    // trade count aggregates every markets trader the same way
-                    // renderPerpsReadiness() does. Was only PerpsTraderAI which
-                    // meant the top-bar always showed 0 while markets were trading.
-                    var t = 0
-                    t += ((com.lifecyclebot.perps.CryptoAltTrader.getStats()["totalTrades"] as? Int) ?: 0)
-                    t += com.lifecyclebot.perps.PerpsTraderAI.getLifetimeTrades()
-                    t += com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades()
-                    t += com.lifecyclebot.perps.ForexTrader.getTotalTrades()
-                    t += com.lifecyclebot.perps.MetalsTrader.getTotalTrades()
-                    t += com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades()
-                    t
-                } catch (_: Exception) { trades24h }
-                else    -> trades24h
-            }
+            val topBarTradeCount = persistedStats.totalTrades
             tvStats24hTrades.text = "$topBarTradeCount"
             
             // Win rate: Use RunTracker30D meme-trader-specific WR.
@@ -2374,12 +2362,17 @@ for legal compliance.
             // contradicted its own subline. Fix: on MEME tab, never fall
             // through to persistedStats — show 0 so the headline number
             // matches the W/L/S subline byte-for-byte. Other tabs unchanged.
-            val winRate = when {
-                memeDecisive >= 1                     -> memeWrRT.toInt()
-                currentReadinessTab == "MEME"         -> 0
-                persistedStats.winRate24h > 0         -> persistedStats.winRate24h
-                else -> 0
-            }
+            // V5.9.809 — operator mandate: 'journal win rate (source of truth)
+            // shows 22%. 30day and main ui show much much less.' The headline
+            // WR was filtered to per-lane data when a tab was active, which
+            // contradicted the cross-lane Journal. Operator wants the BIG
+            // number on top to match the Journal byte-for-byte. Now we read
+            // TradeHistoryStore.winRate (lifetime cross-lane, same source the
+            // Journal reads) and show it as the headline regardless of tab.
+            // Per-lane Live Readiness tiles below still display their own
+            // lane-specific WR for drill-down (those are correct in context).
+            val journalWr = persistedStats.winRate.toInt()
+            val winRate = if (persistedStats.totalTrades >= 1) journalWr else 0
             
             tvStatsWinRate.text = "$winRate%"
             tvStatsWinRate.setTextColor(when {
@@ -2406,9 +2399,13 @@ for legal compliance.
                         }
                         parent.addView(sub)
                     }
-                    val w = memeWinsRT
-                    val l = memeLossesRT
-                    val s = memeScratchRT
+                    // V5.9.809 — operator mandate: W/L/S subline matches Journal
+                    // cross-lane truth, not per-lane RunTracker30D. Headline,
+                    // WR, and subline now all agree byte-for-byte with the
+                    // Trade Journal screen.
+                    val w = persistedStats.totalWins
+                    val l = persistedStats.totalLosses
+                    val s = persistedStats.totalScratches
                     val totalNonScratch = w + l
                     val rawWr = if (totalNonScratch > 0) w * 100.0 / totalNonScratch else 0.0
                     val totalAll = w + l + s

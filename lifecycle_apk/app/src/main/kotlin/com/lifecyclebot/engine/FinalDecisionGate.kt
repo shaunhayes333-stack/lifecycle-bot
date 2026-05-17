@@ -973,19 +973,25 @@ object FinalDecisionGate {
         // to collect data and escape the death spiral. Hard floors at 22% add extra
         // blocking on top of already-bad scoring, reducing volume and making
         // the WR problem worse (less volume = slower learning recovery).
+        //
+        // V5.9.809 — operator mandate revokes this clause. 'No more wide-open
+        // mode' — bypassing because WR is low is the WORST moment to wide-open:
+        // it lets the death spiral compound on itself. Replaced with soft
+        // penalties at each individual gate (see WR_RECOVERY_SOFT_PENALTY etc.).
+        // Variable retained as telemetry-only for the audit dump below.
         val systemWrForBypass = try {
             val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
             if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 1.0
         } catch (_: Throwable) { 1.0 }
-        val lowWrBypass = systemWrForBypass < 0.30
+        val lowWrBypass = false  // V5.9.809: revoked (was: systemWrForBypass < 0.30)
 
         val canBypassConfidenceFloors = isBootstrapPhase ||
-            totalTradesForBypass < 3000 ||  // V5.9.721: raised from 1000 → 3000 (operator target is 5000)
+            totalTradesForBypass < 500 ||  // V5.9.809: 3000→500 (operator mandate: short cold-start, not wide-open through learning)
             antiChokeRelaxing ||
             adaptiveRelaxationActive ||
-            lowWrBypass  // V5.9.721: bypass floors when WR < 30% to prevent death spiral
+            lowWrBypass
         // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
-        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/3000 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=$lowWrBypass(${(systemWrForBypass*100).toInt()}%)")
+        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -1066,11 +1072,14 @@ object FinalDecisionGate {
 
         val isCGrade = candidate.setupQuality == "C" || candidate.setupQuality == "D"
         val rawConfidence = candidate.aiConfidence
-        val confidence = if (canBypassConfidenceFloors) {
-            FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperMode)
-        } else {
-            rawConfidence
-        }
+        // V5.9.809 — operator mandate: 'AI learning and soft adjustment from
+        // trade one.' Previously FluidLearningAI.getAdjustedConfidence only
+        // ran when canBypassConfidenceFloors was TRUE (wide-open path) — i.e.
+        // the soft-learning layer was OFF for the normal path. That's the
+        // exact opposite of the mandate. Always run the fluid learning
+        // adjustment now; it's the soft mechanism that nudges confidence
+        // based on accumulated outcomes from trade 1 onward.
+        val confidence = FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperMode)
 
         // V5.9.798 — operator audit: Smart Entry Gate during WR recovery.
         // Operator mandate: 'the bot overall should be working harder and
@@ -1080,50 +1089,37 @@ object FinalDecisionGate {
         // highest-quality A / A+ setups. Skipping this gate in the FLUID
         // band keeps discovery flowing when WR is barely under target.
         //
-        // V5.9.808 — operator triage: SKIP this gate entirely in paper-mode
-        // bootstrap. Operator mandate: 'never choke the bot during
-        // learning'. With paper WR at 15% / target 30% the bot is in
-        // AGGRESSIVE recovery and the gate was blocking 53% of all FDG
-        // candidates (495/933) — strangling the learning sample size
-        // exactly when we need it. Live-mode still respects the gate.
+        // V5.9.809 — operator mandate: NO MORE WIDE-OPEN BYPASSES.
+        // Convert this gate from HARD BLOCK to SOFT PENALTY. Non-A/A+
+        // entries during recovery are no longer rejected outright; they
+        // continue down the pipeline with reduced confidence + size.
+        // The existing confidence floors then naturally filter the truly
+        // weak setups, while volume is preserved and AI learning
+        // (FluidLearningAI below) accumulates samples from trade 1
+        // across all quality grades.
+        var wrRecoveryQualityPenaltyMult = 1.0
         try {
             val wrState = com.lifecyclebot.engine.WrRecoveryPartial.stateNow()
             val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
                                  wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
             val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
-            if (isHighRecovery && !isAGrade && !isPaperMode) {
+            if (isHighRecovery && !isAGrade) {
+                // Soft penalty graduated by quality + band severity. Same
+                // shape as the old hard-block: more punishment in
+                // AGGRESSIVE band and for lower-grade setups.
+                val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.65 else 0.80
+                val qualityMult = when (candidate.setupQuality) {
+                    "B"  -> 0.95   // mild discount
+                    "C"  -> 0.85   // bigger discount
+                    "D"  -> 0.70   // largest discount
+                    else -> 0.85
+                }
+                wrRecoveryQualityPenaltyMult = bandMult * qualityMult
+                tags.add("wr_recovery_softened")
+                tags.add("band_${wrState.band.name.lowercase()}")
                 ErrorLogger.info(
                     "FDG",
-                    "🚑 WR_RECOVERY_QUALITY_FLOOR: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% < target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} blocked (need A/A+)"
-                )
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = confidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "WR_RECOVERY_QUALITY_FLOOR",
-                    blockLevel = BlockLevel.MODE,
-                    sizeSol = 0.0,
-                    tags = listOf("wr_recovery_qfloor", "band_${wrState.band.name.lowercase()}"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "WR recovery ${wrState.band.name} active (${"%.1f".format(wrState.currentWr)}% / target ${wrState.targetWr.toInt()}%) — only A/A+ setups allowed, this is ${candidate.setupQuality}",
-                    gateChecks = listOf(
-                        GateCheck(
-                            "wr_recovery_quality_floor",
-                            false,
-                            "band=${wrState.band.name} requires A/A+ entries; this candidate is ${candidate.setupQuality}"
-                        )
-                    )
-                )
-            } else if (isHighRecovery && !isAGrade && isPaperMode) {
-                // Telemetry-only log on the paper-mode bypass so the operator
-                // can see what would have been blocked in live mode.
-                ErrorLogger.info(
-                    "FDG",
-                    "🚑 WR_RECOVERY_QUALITY_FLOOR_PAPER_BYPASS: ${ts.symbol} | band=${wrState.band.name} quality=${candidate.setupQuality} (learning sample preserved)"
+                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% < target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
                 )
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
@@ -2365,7 +2361,7 @@ object FinalDecisionGate {
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
         val isBootstrap = currentConditions.totalSessionTrades < 30
         val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
-        val adjustedConfidence = (confidence + narrativeAdjustment + orthogonalBonus).coerceIn(0.0, 100.0)
+        val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
@@ -2547,7 +2543,7 @@ object FinalDecisionGate {
             ErrorLogger.info("EV", "📊 ${ts.symbol}: ${evResult.summary()}")
         }
 
-        var finalSize = proposedSizeSol
+        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809: soft WR-recovery size penalty
 
         val winMemoryMultiplier = try {
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
