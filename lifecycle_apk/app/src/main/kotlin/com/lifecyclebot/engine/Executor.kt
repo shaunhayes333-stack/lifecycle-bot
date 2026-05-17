@@ -1944,8 +1944,24 @@ class Executor(
         val c          = cfg()
         val topUpNum   = pos.topUpCount + 1  // which top-up this would be
         val initSize   = pos.initialCostSol.coerceAtLeast(c.smallBuySol)
-        val multiplier = Math.pow(c.topUpSizeMultiplier, topUpNum.toDouble())
-        var size       = initSize * multiplier
+        // V5.9.808 — operator triage: GROWTH pyramiding, not decay.
+        // Old formula: size = initSize * (multiplier ^ topUpNum) where
+        // multiplier defaulted to 0.50 — meaning every top-up SHRANK to
+        // 1/2 the previous one (0.04 → 0.02 → 0.01 → 0.005). That's the
+        // exact opposite of the operator's mandate: 'increase position
+        // size as it runs'. New formula: top-up size grows with the
+        // position's PEAK gain so far. A flat-out runner at +50% gets
+        // a 2× top-up; a wobbler at +10% gets a 1.2× top-up.
+        //   peakGain  0%  → 1.0x initial
+        //   peakGain 25%  → 1.5x initial
+        //   peakGain 50%+ → 2.0x initial (cap)
+        // Still bounded above by topUpMaxTotalSol AND walletSol*0.15 so
+        // we never go nuclear. Subsequent top-ups stay at the same
+        // gain-scaled level rather than decaying.
+        val peakGainPct = pos.peakGainPct.coerceAtLeast(0.0)
+        val growthBonus = (peakGainPct / 50.0).coerceIn(0.0, 1.0)
+        val growthMultiplier = (1.0 + growthBonus).coerceAtMost(2.0)
+        var size       = initSize * growthMultiplier
 
         // Top-up cap from config
         val currentTotal  = pos.costSol
@@ -2012,9 +2028,17 @@ class Executor(
 
         // CHANGE 3: High-conviction entries pyramid earlier
         // Entry score ≥75 = pre-grad/whale/BULL_FAN confluence — fire at 12% not 25%
+        // V5.9.808 — operator triage: pyramid EARLIER on every winner, not
+        // just A-grade entries. Was 25% / +30% per rung — too slow for
+        // meme cadence; most runs round-trip before hitting 25%. New cap:
+        // first top-up fires at 8% (high-conviction) or 10% (anyone),
+        // and each subsequent rung needs +12% more (was +30%). Forces
+        // the new bigger-on-winners behaviour onto existing operator
+        // configs that still have the old 25/30 saved in prefs.
         val earlyFirst = pos.entryScore >= 75.0 && pos.topUpCount == 0
-        val baseMin    = if (earlyFirst) 12.0 else c.topUpMinGainPct
-        val requiredGain = baseMin + (pos.topUpCount * c.topUpGainStepPct)
+        val baseMin    = if (earlyFirst) 8.0 else c.topUpMinGainPct.coerceAtMost(10.0)
+        val stepGain   = c.topUpGainStepPct.coerceAtMost(12.0)
+        val requiredGain = baseMin + (pos.topUpCount * stepGain)
         if (gainPct < requiredGain) return false
 
         // Cooldown since last top-up

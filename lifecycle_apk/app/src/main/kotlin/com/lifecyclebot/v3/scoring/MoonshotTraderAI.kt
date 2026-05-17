@@ -98,7 +98,16 @@ object MoonshotTraderAI {
     // that produced 500%+ trades in build #1941 — early pump.fun launches
     // with sparse buy-pressure data and lopsided volume profiles. Soft
     // scoring still penalises weak signals; FluidLearningAI gates per-trader.
-    private const val HARD_FLOOR_STOP = -20.0        // V5.9.316: -15→-20 (build #1941 era)
+    // V5.9.808 — operator triage push: -20 → -15 progressive tightening.
+    // The MOONSHOT lane was bleeding -85% / -95% as MOONSHOT_STOP_LOSS
+    // because the prior -20% floor + bot-loop choke (max cycle 100s) let
+    // flash rugs blow straight through. The matched Executor.kt fresh-meme
+    // floor is -9%, mature-meme floor is -15%; -15% here matches the
+    // mature backstop and is the most progressive step that still claws
+    // back catastrophic bleeds. Tightened in concert with the new
+    // LosingPatternMemory predictive override below (-3/-5/-7 for buckets
+    // in danger zone).
+    private const val HARD_FLOOR_STOP = -15.0        // V5.9.808: -20→-15 progressive triage
     private const val EARLY_DEAD_EXIT_MINUTES = 20   // Dead exit window (mirrors ShitCoin's 12min)
     private const val EARLY_DEAD_EXIT_THRESHOLD = -6.0 // Dead at <-6% within early window
 
@@ -856,6 +865,30 @@ object MoonshotTraderAI {
             "size=${position.entrySol.fmt(3)} SOL | " +
             "TP=${position.takeProfitPct.toInt()}% SL=${position.stopLossPct.toInt()}%")
 
+        // V5.9.808 — operator triage: BrainConsensusGate visibility hook.
+        // MOONSHOT entries bypass FDG's allow/block counter (FDG shows
+        // 0 allow / 933 block while EXEC_BUY=895). Result: the V5.9.806
+        // BrainConsensusGate never fires on MOONSHOT and the danger-bucket
+        // intelligence is unused. This call is TELEMETRY-ONLY — we log
+        // the consensus verdict so operator can see what it WOULD say,
+        // but do not block the entry yet. Once we trust the signal across
+        // a few hundred MOONSHOT trades we can promote to binding.
+        try {
+            val bucket = com.lifecyclebot.engine.LosingPatternMemory.bucketKey(
+                tradingMode = "MOONSHOT",
+                score = position.entryScore.toInt(),
+            )
+            val stats = com.lifecyclebot.engine.LosingPatternMemory.stats(
+                tradingMode = "MOONSHOT",
+                v3Score = position.entryScore.toInt(),
+            )
+            val tag = if (stats.isDangerous) "🧠⚠ DANGER_BUCKET" else "🧠 ok_bucket"
+            ErrorLogger.info(
+                TAG,
+                "$tag MOONSHOT entry on $bucket — bucketLosses=${stats.losses} bucketWins=${stats.wins} meanPnl=${"%+.1f".format(stats.meanPnl)}% (advisory)"
+            )
+        } catch (_: Throwable) {}
+
         // V5.9.404 — telegraph the open into CultMomentumAI so subsequent
         // tokens in the same cluster ride the live narrative bonus.
         try {
@@ -1129,8 +1162,30 @@ object MoonshotTraderAI {
         // Flash rugs can move -94% before the 14s botloop fires the early-death check.
         // Guard: if we're past the absolute hard floor stop, always exit immediately.
         // This is the same principle as the global -15% rule (memory entry #24).
-        if (pnlPct <= HARD_FLOOR_STOP) {
-            ErrorLogger.warn(TAG, "🚀🛑 HARD_FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(HARD_FLOOR_STOP)}% — unconditional exit")
+        // V5.9.808 — operator triage: wire LosingPatternMemory predictive
+        // override. If THIS position's (tradingMode × scoreBand) bucket is
+        // a danger zone (≥5 losses, ≥75% loss rate), tighten the floor to
+        // -3 / -5 / -7. ADVISORY + TIGHTENING ONLY via minOf(...) — we
+        // never widen the existing HARD_FLOOR. Read-only over the journal;
+        // no impact on entry sizing or open scripting.
+        val predictiveSlPct: Double? = try {
+            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+                tradingMode = "MOONSHOT",
+                v3Score = pos.entryScore.toInt(),
+            )
+        } catch (_: Throwable) { null }
+        val effectiveHardFloor: Double = if (predictiveSlPct != null) {
+            // recommendedSlPct returns NEGATIVE (-3.0 / -5.0 / -7.0);
+            // HARD_FLOOR_STOP is also NEGATIVE (-15.0). Take the LESS-NEGATIVE
+            // (tighter) of the two so we only ever shorten the leash.
+            maxOf(HARD_FLOOR_STOP, predictiveSlPct)
+        } else {
+            HARD_FLOOR_STOP
+        }
+        if (pnlPct <= effectiveHardFloor) {
+            val predictiveTag = if (predictiveSlPct != null && effectiveHardFloor > HARD_FLOOR_STOP)
+                " 🧠 predictive=${predictiveSlPct.toInt()}%" else ""
+            ErrorLogger.warn(TAG, "🚀🛑 HARD_FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(effectiveHardFloor)}%$predictiveTag — unconditional exit")
             return ExitSignal.STOP_LOSS
         }
 

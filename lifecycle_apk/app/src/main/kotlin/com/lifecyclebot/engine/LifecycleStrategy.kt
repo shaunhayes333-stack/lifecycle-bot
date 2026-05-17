@@ -961,6 +961,12 @@ class LifecycleStrategy(
         val gainPctNow   = if (ts.position.isOpen && ts.position.entryPrice > 0)
             pct(ts.position.entryPrice, ts.ref) else 0.0
         val spikeNow     = detectSpikeTop(ts.history.toList(), ts.history.toList().map { it.ref }, gainPctNow)
+        // V5.9.808 — operator triage: loosen the vol/pressure gates so the
+        // bot can pyramid on more runners, not just the strongest. Was
+        // vol≥35 / press≥45 — these tight gates were turning topUpReady
+        // off on most meme winners. Operator mandate: 'increase position
+        // size as it runs' — favour fast firing over surgical perfection.
+        // BULL_FAN/BULL_FLAT EMA gate retained (don't pile into sideways).
         val topUpReadyNow = ts.position.isOpen
             && gainPctNow > 0
             && !exhaust
@@ -968,8 +974,8 @@ class LifecycleStrategy(
             && !spikeNow.isPostSpike
             && exitScore < 35.0
             && emafan.alignment in listOf(EmaAlignment.BULL_FAN, EmaAlignment.BULL_FLAT)
-            && volScore >= 35.0
-            && pressScore >= 45.0
+            && volScore >= 25.0
+            && pressScore >= 30.0
             && ts.position.partialSoldPct < 75.0
             && mtf5m != MtfTrend.BEAR
 

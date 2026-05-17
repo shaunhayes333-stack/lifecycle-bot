@@ -1079,12 +1079,19 @@ object FinalDecisionGate {
         // stop piling on low-EV C/D-grade entries and only take the
         // highest-quality A / A+ setups. Skipping this gate in the FLUID
         // band keeps discovery flowing when WR is barely under target.
+        //
+        // V5.9.808 — operator triage: SKIP this gate entirely in paper-mode
+        // bootstrap. Operator mandate: 'never choke the bot during
+        // learning'. With paper WR at 15% / target 30% the bot is in
+        // AGGRESSIVE recovery and the gate was blocking 53% of all FDG
+        // candidates (495/933) — strangling the learning sample size
+        // exactly when we need it. Live-mode still respects the gate.
         try {
             val wrState = com.lifecyclebot.engine.WrRecoveryPartial.stateNow()
             val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
                                  wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
             val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
-            if (isHighRecovery && !isAGrade) {
+            if (isHighRecovery && !isAGrade && !isPaperMode) {
                 ErrorLogger.info(
                     "FDG",
                     "🚑 WR_RECOVERY_QUALITY_FLOOR: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% < target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} blocked (need A/A+)"
@@ -1110,6 +1117,13 @@ object FinalDecisionGate {
                             "band=${wrState.band.name} requires A/A+ entries; this candidate is ${candidate.setupQuality}"
                         )
                     )
+                )
+            } else if (isHighRecovery && !isAGrade && isPaperMode) {
+                // Telemetry-only log on the paper-mode bypass so the operator
+                // can see what would have been blocked in live mode.
+                ErrorLogger.info(
+                    "FDG",
+                    "🚑 WR_RECOVERY_QUALITY_FLOOR_PAPER_BYPASS: ${ts.symbol} | band=${wrState.band.name} quality=${candidate.setupQuality} (learning sample preserved)"
                 )
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
