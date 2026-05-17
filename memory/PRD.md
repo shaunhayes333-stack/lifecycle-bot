@@ -29,6 +29,51 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.802 — Performance Recovery Patch P2 (May 16, CI ✅ Build + Runtime Smoke)
+
+Forensic on build 5.0.2742 (V5.9.801 installed) revealed THREE silent
+killers neutralising the V5.9.801 A-E patch + one new regression-class
+bug. All four fixed in one push.
+
+FIX (d) — WR Recovery 'Band.OFF' silent killer (P0, COMPLETE)
+- Live Readiness pill on V5.9.801 showed 'target 0.0% · size×1.00' at
+  179 settled trades. Root cause: `FreeRangeMode.phaseTargetWr(179)`
+  returns 0.0 for the entire `[0, PHASE1_START=500)` range, then
+  `WrRecoveryPartial.stateNow()` returns `Band.OFF`, making V5.9.801's
+  Fix A quality floor = 0 and Fix D size multiplier = 1.0×.
+- Resolution: in 50-499 range, default target to 25% so the band can
+  engage. Beyond 500 unchanged.
+
+FIX (a) — FDG LIQUIDITY_BELOW_EXECUTION_FLOOR 97% block rate (P0, COMPLETE)
+- 21,387 / 21,980 FDG blocks (97.3%) on a meme-only universe were
+  LIQUIDITY_BELOW_EXECUTION_FLOOR. Two compound causes: (1) SHITCOIN
+  exec floor lerp(1000, 2500) too high vs the pump.fun BC universe;
+  (2) V5.9.793's strict `exitCapacityUsd` returns 0.0 for any
+  bonding-curve token with no Raydium/Jupiter pool.
+- Resolution: lower SHITCOIN floor to lerp(500, 1500); during SHITCOIN
+  bootstrap (learningProgress < 0.5) fall back to `lastLiquidityUsd`
+  when `exitCapacityUsd` is 0. Canonical bus already flags these as
+  bcSimOnly=true so quality analytics stay separable. Other lanes
+  unchanged.
+
+FIX (b) — UI defensive render cap on renderOpenPositions (P0, COMPLETE)
+- 122 open positions × full LinearLayout rebuild → maxFrameGap
+  30,947 ms. V5.9.749 hash-dedupe stopped some rebuilds but didn't
+  cap card count.
+- Resolution: cap rendered rows at 25 (newest-by-entry first); hidden
+  positions still managed by the engine. Amber footer 'N more
+  (cap=25, still managed)' surfaces the truncation.
+
+FIX (c) — Extend Fix E canonical-bus alignment to 3 more brains (P0, COMPLETE)
+- AdaptiveLearningEngine (Δ=+1725), BehaviorLearning (Δ=-3756),
+  MetaCognitionAI (Δ=+7160) all drifting from canonical=3805.
+- Resolution: AdaptiveLearningEngine.getTradeCount() and
+  MetaCognitionAI.getTotalTradesAnalyzed() now source from canonical
+  when fired. BehaviorLearning has by-design feature-richness gating
+  so added .getCanonicalAlignedTradeCount() as a separate accessor.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on a9305a9b1.
+
 ### V5.9.801 + V5.9.801a — Performance Recovery Patch A-E (May 16, CI ✅ Build + Runtime Smoke)
 
 Operator audit: "I need all done as one surgical reversible push please.
