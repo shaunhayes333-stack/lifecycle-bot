@@ -96,6 +96,14 @@ object FluidLearningAI {
     // MEME MODE counters (used by BotService, Executor, FDG, Scanners)
     private val sessionTrades = AtomicInteger(0)
     private val sessionWins = AtomicInteger(0)
+    // V5.9.841 — pnlPct was a dropped parameter on recordPaperTrade since
+    // the engine shipped. Track session expectancy in addition to W/L counts.
+    // Cumulative session PnL (sum of all close pnlPct values).
+    @Volatile private var sessionPnlSumPct: Double = 0.0
+    // Largest single-trade win and worst single-trade loss this session.
+    @Volatile private var sessionBiggestWinPct: Double = 0.0
+    @Volatile private var sessionWorstLossPct: Double = 0.0
+    private val sessionPnlLock = Any()
     // V5.9.695 — snapshot of TradeHistoryStore.lifetimeSells at session start.
     // Prevents getTotalTradeCount() from double-counting in-session: lifetimeSells
     // bumps immediately on every close (bumpLifetimeFor) AND sessionTrades increments
@@ -174,6 +182,12 @@ object FluidLearningAI {
         // Reset session counters
         sessionTrades.set(0)
         sessionWins.set(0)
+        // V5.9.841 — reset session pnl trackers
+        synchronized(sessionPnlLock) {
+            sessionPnlSumPct = 0.0
+            sessionBiggestWinPct = 0.0
+            sessionWorstLossPct = 0.0
+        }
         cachedProgress = 0.0
         lastProgressUpdate.set(0)
         
@@ -809,8 +823,44 @@ object FluidLearningAI {
         // V5.9.187: PAPER_WEIGHT=1.0 exactly. 1 trade = 1 count.
         sessionTrades.incrementAndGet()
         if (isWin) sessionWins.incrementAndGet()
+        // V5.9.841 — capture pnlPct magnitude for session expectancy tracking.
+        // Bounded ±500% to prevent a single ML_RUG outlier or 100x moonshot
+        // from poisoning the rolling biggest/worst trackers. Cumulative sum
+        // still accepts the full magnitude (it's a sum, outliers wash out
+        // over hundreds of trades).
+        if (pnlPct.isFinite()) {
+            synchronized(sessionPnlLock) {
+                sessionPnlSumPct += pnlPct
+                val clamped = pnlPct.coerceIn(-500.0, 500.0)
+                if (clamped > sessionBiggestWinPct) sessionBiggestWinPct = clamped
+                if (clamped < sessionWorstLossPct)  sessionWorstLossPct  = clamped
+            }
+        }
         lastProgressUpdate.set(0)
     }
+
+    // V5.9.841 — session expectancy diagnostics accessor.
+    // Returns (totalPnlPct, biggestWinPct, worstLossPct, avgPnlPct).
+    fun getSessionPnlStats(): SessionPnlSnapshot {
+        synchronized(sessionPnlLock) {
+            val n = sessionTrades.get()
+            return SessionPnlSnapshot(
+                totalPnlPct  = sessionPnlSumPct,
+                biggestWin   = sessionBiggestWinPct,
+                worstLoss    = sessionWorstLossPct,
+                avgPnlPct    = if (n > 0) sessionPnlSumPct / n else 0.0,
+                tradeCount   = n,
+            )
+        }
+    }
+
+    data class SessionPnlSnapshot(
+        val totalPnlPct: Double,
+        val biggestWin: Double,
+        val worstLoss: Double,
+        val avgPnlPct: Double,
+        val tradeCount: Int,
+    )
 
     // V5.9.388 — per-sub-trader counters so the MEME bucket (sessionTrades)
     // stays pure-meme. Before this, ShitCoin / Quality / BlueChip / Moonshot
