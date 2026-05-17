@@ -568,7 +568,22 @@ object BehaviorLearning {
     // dashboard's WalletTruthDigest reflects every settled trade. WR remains
     // calculated only over graded (win/loss) trades — scratches are excluded
     // from the denominator because they would artificially deflate the WR.
+    //
+    // V5.9.802 — operator audit Fix (c): drift hunt. Forensic build-5.0.2742
+    // showed BehaviorLearning.tradeCount=49 vs canonical=3805 (Δ=-3756).
+    // BehaviorLearning is gated by feature richness — incomplete-feature
+    // outcomes never increment good/bad/scratch counters, while the canonical
+    // bus increments on EVERY outcome regardless. The drift is by design.
+    // Surface a canonical-aligned getter so the dashboard / cross-checkers
+    // can read the bus-aligned count without breaking the WR/Pattern logic
+    // that intentionally only counts feature-rich outcomes.
     fun getTradeCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get() + totalScratchRecorded.get()
+    fun getCanonicalAlignedTradeCount(): Int {
+        val canonical = try {
+            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+        } catch (_: Throwable) { 0 }
+        return if (canonical > 0) canonical else getTradeCount()
+    }
     fun getWinLossCount(): Int = totalGoodRecorded.get() + totalBadRecorded.get()
     fun getScratchCount(): Int = totalScratchRecorded.get()
 

@@ -1297,11 +1297,17 @@ object FinalDecisionGate {
                 // was designed for the SHITCOIN's own scorer ($2K bootstrap floor),
                 // but FDG was set ABOVE that — defeating the meme trader by design.
                 //
-                // New tighter band keeps the rug-defence intent (still climbs to
-                // $2,500 once the AI has 5000+ trades of confidence) but starts
-                // at $1,000 so the actual pump.fun candidate stream can take
-                // samples without instantly hitting "LIQUIDITY_BELOW_EXECUTION_FLOOR".
-                lerp(1_000.0, 2_500.0, learningProgress)
+                // V5.9.802 — operator audit (build 5.0.2742 snapshot): 97% of FDG
+                // blocks are still LIQUIDITY_BELOW_EXECUTION_FLOOR even on
+                // V5.9.801. Root cause: V5.9.793 swapped lastLiquidityUsd for
+                // LiquidityClassifier.exitCapacityUsd which returns 0.0 for any
+                // pump.fun bonding-curve token (no confirmed Raydium/Jupiter
+                // pool). Combined with lerp(1000, 2500) — even floor=$1000 is
+                // unreachable when exitCapacityUsd=0. Lower the floor band to
+                // lerp(500, 1500) so the SHITCOIN lane can take learning
+                // samples on the universe it's actually scanning. Live safety
+                // still enforced via WATCHLIST_FLOOR + rugcheck + safety gates.
+                lerp(500.0, 1_500.0, learningProgress)
             ModeSpecificGates.TradingModeTag.MOONSHOT ->
                 3_000.0                                      // own scorer already gates $2k/$15k; add middle bar
             else -> FluidLearningAI.getExecutionFloor()     // Lerp floor for proven-token traders
@@ -1316,9 +1322,27 @@ object FinalDecisionGate {
         // until a real pool is observed. Watchlist floor still uses
         // lastLiquidityUsd because discovery rules are deliberately
         // looser than execution rules.
-        val exitCapacityUsd = try {
+        //
+        // V5.9.802 — operator audit Fix (a): the V5.9.793 strict BC-only
+        // exclusion is killing 97% of FDG decisions because the SHITCOIN
+        // lane's entire universe is pump.fun bonding-curve tokens. For
+        // SHITCOIN bootstrap (learningProgress < 0.5) fall back to
+        // lastLiquidityUsd so the lane can collect samples. The
+        // canonical bus already flags these outcomes via the bcSimOnly
+        // field added in V5.9.793, so quality WR analytics remain
+        // separable from real-pool outcomes — learning still happens
+        // safely. Other lanes (Moonshot, Quality, Treasury) keep the
+        // strict exitCapacity check unchanged.
+        val rawExitCap = try {
             com.lifecyclebot.engine.LiquidityClassifier.exitCapacityUsd(ts)
         } catch (_: Throwable) { ts.lastLiquidityUsd }
+        val isShitcoinBootstrap = tradingModeTag == ModeSpecificGates.TradingModeTag.SHITCOIN &&
+                                  learningProgress < 0.5
+        val exitCapacityUsd = if (isShitcoinBootstrap && rawExitCap <= 0.0) {
+            ts.lastLiquidityUsd  // BC-only fallback for SHITCOIN bootstrap learning
+        } else {
+            rawExitCap
+        }
         if (ts.lastLiquidityUsd < WATCHLIST_FLOOR) {
             ErrorLogger.debug("FDG", "🚫 LIQ_FLOOR: ${ts.symbol} | liq=\$${ts.lastLiquidityUsd.toInt()} < \$${WATCHLIST_FLOOR.toInt()} | TOO_LOW_FOR_WATCHLIST")
 

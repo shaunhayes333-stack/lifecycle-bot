@@ -1091,7 +1091,22 @@ object AdaptiveLearningEngine {
         )
     }
 
-    fun getTradeCount(): Int = tradeCount
+    fun getTradeCount(): Int {
+        // V5.9.802 — operator audit Fix (c): legacy counter drift hunt.
+        // Pre-V5.9.802 returned the local `tradeCount` int — which only
+        // increments on AdaptiveLearningEngine.recordTrade() and drifts
+        // from CanonicalLearningCounters.canonicalOutcomesTotal whenever
+        // a path publishes to the canonical bus without also calling
+        // AdaptiveLearningEngine (forensic build-5.0.2742 showed
+        // Δ=+1725 vs canonical=3805). Source from canonical when it has
+        // observed at least one outcome; keep local `tradeCount` as
+        // boot-time fallback so prior-session learning isn't snapped
+        // to zero before the first canonical fire.
+        val canonical = try {
+            com.lifecyclebot.engine.CanonicalLearningCounters.canonicalOutcomesTotal.get().toInt()
+        } catch (_: Throwable) { 0 }
+        return if (canonical > 0) canonical else tradeCount
+    }
     /** V5.9.719 — trades recorded THIS session only (excludes persisted historical count). */
     fun getSessionTradeCount(): Int = (tradeCount - sessionTradeBaseline).coerceAtLeast(0)
 

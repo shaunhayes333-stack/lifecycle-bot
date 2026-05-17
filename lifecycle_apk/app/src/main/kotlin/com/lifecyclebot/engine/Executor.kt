@@ -128,9 +128,20 @@ object WrRecoveryPartial {
         }
 
         val currentWR = if (total > 0) (wins / total) * 100.0 else 0.0
-        val targetWR  = try {
+        val targetWRRaw  = try {
             com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt())
         } catch (_: Exception) { 30.0 }
+        // V5.9.802 — operator audit Fix D rescue:
+        // FreeRangeMode.phaseTargetWr returns 0.0 for the entire trades<500
+        // range (PHASE1_START). That silently disables WR Recovery for the
+        // 50–500 trade band — exactly the window V5.9.801 was designed to
+        // protect via Fix A's quality floor and Fix D's size dampener.
+        // Operator forensics: at 179 trades the Live Readiness pill showed
+        // "target 0.0% · size×1.00" → band=OFF → all V5.9.801 logic dead.
+        // Apply a sensible 25% default through the 50–500 range so the
+        // band can engage. Beyond 500 the lerped FreeRangeMode targets
+        // take over unchanged.
+        val targetWR = if (targetWRRaw <= 0.0 && total in 50.0..499.0) 25.0 else targetWRRaw
         if (targetWR <= 0.0) return State(Band.OFF, currentWR, 0.0, total.toInt(), 0.0, false)
 
         val rollingWr = try {

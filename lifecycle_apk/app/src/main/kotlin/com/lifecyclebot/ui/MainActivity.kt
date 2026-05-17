@@ -3491,7 +3491,21 @@ for legal compliance.
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
-        positions.forEach { ts ->
+        // V5.9.802 — operator audit Fix (b): defensive render cap.
+        // Build-5.0.2741 forensic showed 122 open positions × full
+        // LinearLayout rebuild → maxFrameGap 30,947 ms, ANR top-site
+        // [16] buildTokenCard + [15] renderOpenPositions. The
+        // V5.9.749 hash-+-2s-interval dedupe stopped most cardless
+        // tick rebuilds but did NOT cap the per-rebuild card count.
+        // Cap rendered rows at 25 (newest-by-entry first) so a
+        // saturated FDG/Executor never re-introduces the 30 s frame
+        // freeze. Hidden positions are still managed by the engine.
+        val RENDER_CAP = 25
+        val capped = if (positions.size > RENDER_CAP) {
+            positions.sortedByDescending { it.position.entryTime }.take(RENDER_CAP)
+        } else positions
+        val hiddenCount = positions.size - capped.size
+        capped.forEach { ts ->
             val pos     = ts.position
             val ref     = ts.ref
             val gainPct = if (pos.entryPrice > 0 && ref > 0)
@@ -3718,6 +3732,19 @@ for legal compliance.
             }
             llOpenPositions.addView(row)
             llOpenPositions.addView(div)
+        }
+        // V5.9.802 — hidden-cards note when the cap was applied. Plain
+        // textview at bottom of llOpenPositions so the operator can SEE
+        // that N positions exist but aren't rendered (still being managed
+        // by the engine). Cap kicks in only when positions.size > 25.
+        if (hiddenCount > 0) {
+            llOpenPositions.addView(TextView(this).apply {
+                text = "+ $hiddenCount more position${if (hiddenCount == 1) "" else "s"} (cap = $RENDER_CAP, still managed)"
+                textSize = 11f
+                setTextColor(0xFFFBBF24.toInt())  // amber so it stands out
+                setPadding(0, 12, 0, 4)
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+            })
         }
     }
     
