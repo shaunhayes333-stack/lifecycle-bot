@@ -381,6 +381,25 @@ object EducationSubLayerAI {
     
     private val layerPerformance = ConcurrentHashMap<String, LayerPerformanceMetrics>()
 
+    // V5.9.846 — per-hold-bucket curriculum stats (FLASH/SCALP/SWING/HOLD/MARATHON).
+    // Lets the curriculum grade hold-skill separately from pick-skill.
+    private val curriculumHoldStats = ConcurrentHashMap<String, AtomicInteger>()
+    private val curriculumHoldWins  = ConcurrentHashMap<String, AtomicInteger>()
+
+    /** V5.9.846 — diagnostic snapshot of curriculum hold-bucket performance.
+     *  Returns map of bucket → (totalCount, winCount, winRatePct). */
+    fun getCurriculumHoldStats(): Map<String, Triple<Int, Int, Double>> {
+        val out = mutableMapOf<String, Triple<Int, Int, Double>>()
+        for ((bucket, cntRef) in curriculumHoldStats) {
+            val total = cntRef.get()
+            if (total <= 0) continue
+            val wins = curriculumHoldWins[bucket]?.get() ?: 0
+            val wrPct = if (total > 0) (wins.toDouble() / total) * 100.0 else 0.0
+            out[bucket] = Triple(total, wins, wrPct)
+        }
+        return out
+    }
+
     // V5.9.126 — REAL ACCURACY LEARNING
     // Capture per-layer entry scores keyed by mint. On trade close, correlate
     // the layer's entry-time prediction direction (sign of its score) with the
@@ -2272,10 +2291,36 @@ object EducationSubLayerAI {
             
             // Update curriculum progress
             val level = getCurrentCurriculumLevel()
-            if (isWin && pnlPct >= 100) {
-                ErrorLogger.info(TAG, "🎓 ${level.icon} MEGA WIN recorded: +${pnlPct.toInt()}%")
+
+            // ── V5.9.846 — wire 4 silently-dropped params ──
+            // mint, symbol, holdMinutes, scoreCard were function parameters
+            // that never appeared in the body. They carry the per-trade
+            // forensic identity (which token? how long held? what was the
+            // signal?). Without these, curriculum events were anonymous
+            // and unfilterable.
+            //
+            // holdMinutes is the critical learning axis: a +50% gain held
+            // for 30 minutes is a DIFFERENT pattern than +50% in 90s.
+            // The bot's curriculum cannot grade hold-skill without it.
+            val holdBucket = when {
+                holdMinutes < 1   -> "FLASH"      // sub-minute scalp
+                holdMinutes < 5   -> "SCALP"
+                holdMinutes < 30  -> "SWING"
+                holdMinutes < 120 -> "HOLD"
+                else              -> "MARATHON"
             }
-            
+            // Update curriculum hold-skill ledger
+            curriculumHoldStats.getOrPut(holdBucket) { AtomicInteger(0) }.incrementAndGet()
+            if (isWin) {
+                curriculumHoldWins.getOrPut(holdBucket) { AtomicInteger(0) }.incrementAndGet()
+            }
+
+            if (isWin && pnlPct >= 100) {
+                ErrorLogger.info(TAG, "🎓 ${level.icon} MEGA WIN recorded: $symbol ($mint) +${pnlPct.toInt()}% | hold=${holdMinutes}m($holdBucket) | scoreCard=${scoreCard?.javaClass?.simpleName ?: "none"}")
+            } else if (isWin && pnlPct >= 30) {
+                ErrorLogger.debug(TAG, "🎓 ${level.icon} solid win: $symbol +${pnlPct.toInt()}% hold=${holdMinutes}m($holdBucket)")
+            }
+
             save()
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "dispatchOutcome error: ${e.message}")
