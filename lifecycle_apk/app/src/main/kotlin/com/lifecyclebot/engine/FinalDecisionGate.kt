@@ -1327,19 +1327,27 @@ object FinalDecisionGate {
         // exclusion is killing 97% of FDG decisions because the SHITCOIN
         // lane's entire universe is pump.fun bonding-curve tokens. For
         // SHITCOIN bootstrap (learningProgress < 0.5) fall back to
-        // lastLiquidityUsd so the lane can collect samples. The
-        // canonical bus already flags these outcomes via the bcSimOnly
-        // field added in V5.9.793, so quality WR analytics remain
-        // separable from real-pool outcomes — learning still happens
-        // safely. Other lanes (Moonshot, Quality, Treasury) keep the
-        // strict exitCapacity check unchanged.
+        // lastLiquidityUsd so the lane can collect samples.
+        //
+        // V5.9.803 — operator dump (build 5.0.2743 / V5.9.802 installed):
+        // FDG block tally still shows 639 LIQUIDITY_BELOW_EXECUTION_FLOOR
+        // blocks (vs 389 WR_RECOVERY_QUALITY_FLOOR). Forensic on FDG path
+        // tags showed the rejected tokens are being routed via BLUECHIP
+        // and TREASURY paths first, NOT SHITCOIN — so the V5.9.802
+        // SHITCOIN-only bootstrap fallback never fires for them. Operator
+        // mandate: "the fdg needs to start working from trade 1".
+        // Resolution: extend the BC-only bootstrap fallback to ALL FDG
+        // paths during the learning bootstrap window. The canonical bus
+        // still tags every outcome with bcSimOnly so WR analytics stay
+        // separable. Live mode still enforces strict exitCapacityUsd
+        // via the live executor's own pre-flight pool check, which is
+        // separate from FDG.
         val rawExitCap = try {
             com.lifecyclebot.engine.LiquidityClassifier.exitCapacityUsd(ts)
         } catch (_: Throwable) { ts.lastLiquidityUsd }
-        val isShitcoinBootstrap = tradingModeTag == ModeSpecificGates.TradingModeTag.SHITCOIN &&
-                                  learningProgress < 0.5
-        val exitCapacityUsd = if (isShitcoinBootstrap && rawExitCap <= 0.0) {
-            ts.lastLiquidityUsd  // BC-only fallback for SHITCOIN bootstrap learning
+        val isLearningBootstrap = learningProgress < 0.5
+        val exitCapacityUsd = if (isLearningBootstrap && rawExitCap <= 0.0) {
+            ts.lastLiquidityUsd  // BC-only fallback for ALL paths during bootstrap learning
         } else {
             rawExitCap
         }

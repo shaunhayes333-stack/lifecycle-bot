@@ -994,7 +994,14 @@ object FluidLearningAI {
     
     // Execution floor: minimum liquidity to actually trade
     // V4.1.1: LOWERED bootstrap from $1500 to $800 to allow learning on smaller tokens
-    private const val LIQ_EXECUTION_BOOTSTRAP = 800.0    // $800 in bootstrap - allow more learning
+    // V5.9.803: operator dump "fdg needs to start working from trade 1" —
+    // lowered bootstrap from $800 → $300 so the BLUECHIP/TREASURY FDG paths
+    // can collect first-trade samples on pump.fun bonding-curve tokens
+    // (after V5.9.803 dropped the FDG SHITCOIN-only restriction on the
+    // exitCapacity bootstrap fallback). MATURE floor unchanged at $10k —
+    // once the bot has learned, BLUECHIP/TREASURY return to demanding
+    // deep liquidity for live execution.
+    private const val LIQ_EXECUTION_BOOTSTRAP = 300.0    // $300 in bootstrap - allow trade-1 learning
     private const val LIQ_EXECUTION_MATURE = 10000.0     // $10000 when mature
     
     // Scanner minimum: for fresh token discovery
