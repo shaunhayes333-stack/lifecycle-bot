@@ -29,6 +29,41 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.804 — Fix count doubling on legacy consumer canonical alignment (May 16, CI ✅)
+
+Operator on build 5.0.2745: "count still looks doubled vs trade count".
+
+Forensic:
+  canonicalOutcomesTotal = 547   (≈ 2× UI's 294 24h-trades count)
+  richFeatureOutcomes    = 293   (~matches UI)
+  settledWins+Losses     = 487   (closed round-trips)
+
+ROOT CAUSE
+V5.9.801 Fix E and V5.9.802 Fix (c) pointed the four legacy brains
+(FluidLearningAI, AdaptiveLearningEngine, MetaCognitionAI,
+BehaviorLearning) at `canonicalOutcomesTotal`. Forensic on
+`CanonicalLearning.bumpCounters()` confirmed that counter increments
+ONCE PER DISPATCHED OUTCOME — and every round-trip dispatches twice
+(BUY phase + SELL phase outcomes). So the AI brain trade-count was
+~1.5–1.9× the actual round-trip count.
+
+FIX (P0, COMPLETE)
+Switch all four legacy-consumer accessors from `canonicalOutcomesTotal`
+→ `(settledWins + settledLosses)` (the round-trip closed-trade count).
+
+Files:
+- FluidLearningAI.getTotalTradeCount()
+- AdaptiveLearningEngine.getTradeCount()
+- MetaCognitionAI.getTotalTradesAnalyzed()
+- BehaviorLearning.getCanonicalAlignedTradeCount()
+
+`WrRecoveryPartial.stateNow()` was already reading from
+`TradeHistoryStore.getLifetimeStats` (journal-based), so the band
+selection logic was never affected by the doubling — only the
+displayed/log "trades observed" number was inflated.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on 434a352d9.
+
 ### V5.9.803 — FDG works from trade 1 (May 16, CI ✅ Build + Runtime Smoke)
 
 Operator dump on build 5.0.2743 (V5.9.802 installed): "ai adjustments
