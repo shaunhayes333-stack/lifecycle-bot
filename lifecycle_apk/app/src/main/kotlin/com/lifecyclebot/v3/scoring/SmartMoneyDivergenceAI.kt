@@ -264,35 +264,60 @@ object SmartMoneyDivergenceAI {
         buyScore: Double,
         sellScore: Double
     ): DivergenceType {
+        // ── V5.9.840 — buyScore + sellScore were dropped params ──
+        // Originally divergence was classified purely by behavior bucket
+        // and price direction, ignoring the magnitude of whale conviction.
+        // A mild ACCUMULATION (buyScore=42) reads identical to a borderline
+        // ACCUMULATION (buyScore=22) even though the former is a much
+        // stronger signal. Compute net conviction here and use it to:
+        //   - Promote borderline ACCUMULATION → STRONG_BULLISH when whales
+        //     are very conviction-heavy
+        //   - Demote weak ACCUMULATION to NEUTRAL when conviction is thin
+        // Same logic mirrored for distribution side.
+        val netConviction = buyScore - sellScore       // signed, typically -100..+100
+        val absConv = kotlin.math.abs(netConviction)
+
         // Strong bullish divergence: whales buying heavily, price down
         if (behavior == SmartMoneyBehavior.HEAVY_ACCUMULATION && priceDirection == -1) {
             return DivergenceType.STRONG_BULLISH
         }
-        
+
         // Bullish divergence: whales buying, price flat/down
         if (behavior == SmartMoneyBehavior.ACCUMULATION && priceDirection <= 0) {
-            return DivergenceType.BULLISH
+            // V5.9.840 — promote to STRONG when conviction is high
+            return if (netConviction >= 50.0 && absConv >= 50.0)
+                DivergenceType.STRONG_BULLISH
+            else if (absConv < 15.0)
+                DivergenceType.NEUTRAL    // too thin to call
+            else
+                DivergenceType.BULLISH
         }
-        
+
         // Strong bearish divergence: whales selling heavily, price up
         if (behavior == SmartMoneyBehavior.HEAVY_DISTRIBUTION && priceDirection == 1) {
             return DivergenceType.STRONG_BEARISH
         }
-        
+
         // Bearish divergence: whales selling, price flat/up
         if (behavior == SmartMoneyBehavior.DISTRIBUTION && priceDirection >= 0) {
-            return DivergenceType.BEARISH
+            // V5.9.840 — promote to STRONG when conviction is high
+            return if (netConviction <= -50.0 && absConv >= 50.0)
+                DivergenceType.STRONG_BEARISH
+            else if (absConv < 15.0)
+                DivergenceType.NEUTRAL    // too thin to call
+            else
+                DivergenceType.BEARISH
         }
-        
+
         // Confirmation patterns (aligned)
         if (behavior == SmartMoneyBehavior.ACCUMULATION && priceDirection == 1) {
             return DivergenceType.CONFIRMATION_BULL
         }
-        
+
         if (behavior == SmartMoneyBehavior.DISTRIBUTION && priceDirection == -1) {
             return DivergenceType.CONFIRMATION_BEAR
         }
-        
+
         return DivergenceType.NEUTRAL
     }
     
