@@ -1610,6 +1610,40 @@ class Executor(
             timeSizeMult = timeSizeMult.coerceIn(0.7, 1.2)
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // ── V5.9.823 — MomentumPredictorAI wire-up on MEME buy size ──
+        // Audit ref: TIER 3 tracker AIs. recordPricePoint called from
+        // BotService:9886 continuously; recordOutcome called from Executor at
+        // close. Data populates. hasStrongMomentum + shouldAvoid + getMomentumScore
+        // — ALL READ-SIDE METHODS DARK on entry path until this commit.
+        //
+        // Per-mint signal: needs ts (TokenState) in scope. ts is already an
+        // optional param on buySizeSol (used by PatternClassifier wire), so
+        // the guard pattern matches.
+        //
+        // WR/profit thesis: MomentumPredictor has been classifying tokens as
+        // STRONG_PUMP / PUMP_BUILDING / NEUTRAL / WEAK / DISTRIBUTION for months.
+        // Sizing up on momentum-positive predictions + down on distribution-
+        // detected = direct dollar concentration on statistically winning
+        // patterns. Same volume, more $ on the right ones.
+        //
+        // Bounds: momentumSizeMult ∈ [0.7, 1.2]. No new veto.
+        var momentumSizeMult = 1.0
+        if (ts != null) {
+            try {
+                val mom = com.lifecyclebot.engine.MomentumPredictorAI
+                when {
+                    mom.hasStrongMomentum(ts.mint) -> {
+                        momentumSizeMult = 1.20
+                    }
+                    mom.shouldAvoid(ts.mint) -> {
+                        momentumSizeMult = 0.70
+                    }
+                    // else: neutral (NEUTRAL or no data yet) → 1.0
+                }
+                momentumSizeMult = momentumSizeMult.coerceIn(0.7, 1.2)
+            } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+        }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1646,10 +1680,10 @@ class Executor(
             // multiplicative envelope as patternSizeMult and brakeMult.
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
-            // V5.9.821 — also compose timeSizeMult into the envelope.
+            // V5.9.823 — also compose momentumSizeMult into the envelope.
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
                            behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
-                           symbolicSizeMult * timeSizeMult
+                           symbolicSizeMult * timeSizeMult * momentumSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1692,6 +1726,15 @@ class Executor(
                 }
                 onLog("🕐 TimeOpt: [$tag] hour=${tao.getCurrentHourUtc()}utc " +
                       "size×${"%.2f".format(timeSizeMult)}", "sizing")
+            }
+            if (momentumSizeMult != 1.0 && ts != null) {
+                val mom = com.lifecyclebot.engine.MomentumPredictorAI
+                val tag = when {
+                    mom.hasStrongMomentum(ts.mint) -> "STRONG_PUMP"
+                    mom.shouldAvoid(ts.mint)       -> "DISTRIBUTION"
+                    else                            -> "neutral"
+                }
+                onLog("📈 Momentum: [$tag] size×${"%.2f".format(momentumSizeMult)}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
