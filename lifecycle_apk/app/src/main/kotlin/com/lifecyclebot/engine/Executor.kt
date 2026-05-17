@@ -1573,6 +1573,43 @@ class Executor(
             symbolicSizeMult = symbolicSizeMult.coerceIn(0.5, 1.15)
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // ── V5.9.821 — TimeOptimizationAI wire-up on MEME buy size ──
+        // Audit ref: TIER 3 — tracker AIs dormant on meme decision path.
+        // TimeOptimizationAI has been measuring per-hour / per-day / per-session
+        // outcomes via recordOutcome() (wired from Executor.kt lines 9092 + 11278)
+        // for months. Stats populate. Then on the BUY side:
+        //   LifecycleStrategy → consumes for ENTRY SCORE adjustment
+        //   FinalDecisionGate → deprecated (V3 migration)
+        //   buy size envelope → NEVER CONSUMED (this commit)
+        //
+        // WR/profit thesis: golden hours (top-quartile WR windows historically)
+        // get +15% size, danger zones (bottom-quartile WR windows) get -25%.
+        // Direct dollar-WR lever: bigger bets when conditions historically
+        // produce winners; smaller bets when they historically produce losers.
+        //
+        // Bounds: timeSizeMult ∈ [0.7, 1.2]. Combined with everything else in
+        // the envelope, the bot now adapts size to:
+        //   personality state (BehaviorAI)
+        //   market regime (MarketRegimeAI)
+        //   symbolic mood (SymbolicContext)
+        //   time-of-day edge (TimeOptimizationAI) ← NEW
+        var timeSizeMult = 1.0
+        try {
+            val tao = com.lifecyclebot.engine.TimeOptimizationAI
+            // isGoldenHour requires sample size (per its internal threshold);
+            // returns false until enough trades observed at this hour. Same
+            // for isDangerZone — both gate themselves on maturity.
+            if (tao.isGoldenHour()) {
+                timeSizeMult *= 1.15
+            }
+            if (tao.isDangerZone()) {
+                timeSizeMult *= 0.75
+            }
+            // Final clamp — even if both somehow fire (shouldnt — hourly slot
+            // is either golden, danger, or neutral), bound at [0.7, 1.2].
+            timeSizeMult = timeSizeMult.coerceIn(0.7, 1.2)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1609,10 +1646,10 @@ class Executor(
             // multiplicative envelope as patternSizeMult and brakeMult.
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
-            // V5.9.819 — also compose symbolicSizeMult into the envelope.
+            // V5.9.821 — also compose timeSizeMult into the envelope.
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
                            behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
-                           symbolicSizeMult
+                           symbolicSizeMult * timeSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1645,6 +1682,16 @@ class Executor(
                 }.trim().ifBlank { "neutral" }
                 onLog("🧬 Symbolic: [$flags] size×${"%.2f".format(symbolicSizeMult)} " +
                       "confShave=${symbolicConfShave.toInt()}", "sizing")
+            }
+            if (timeSizeMult != 1.0) {
+                val tao = com.lifecyclebot.engine.TimeOptimizationAI
+                val tag = when {
+                    tao.isGoldenHour() -> "GOLDEN"
+                    tao.isDangerZone() -> "DANGER"
+                    else               -> "neutral"
+                }
+                onLog("🕐 TimeOpt: [$tag] hour=${tao.getCurrentHourUtc()}utc " +
+                      "size×${"%.2f".format(timeSizeMult)}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
