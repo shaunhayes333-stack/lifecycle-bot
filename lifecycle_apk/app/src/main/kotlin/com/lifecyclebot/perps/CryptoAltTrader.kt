@@ -1452,6 +1452,8 @@ object CryptoAltTrader {
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${signal.market.symbol} (${sizeSol} SOL)")
             return
+        }
+
 
         // V5.9.5 FIX: Sanity-check entry price vs last cached price.
         // Bad data (decimal shift, wrong feed ID, stale fallback) causes fake 1000x PnL.
@@ -1480,7 +1482,6 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${signal.market.symbol} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
                 return
             }
-        }
         }
 
         val tpPct = if (isSpot)
