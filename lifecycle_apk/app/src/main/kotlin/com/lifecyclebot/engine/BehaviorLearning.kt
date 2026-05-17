@@ -90,6 +90,16 @@ object BehaviorLearning {
         val isWin: Boolean,
         val outcomeCategory: String,
     ) {
+        // V5.9.832 (A3) — signature ladder.
+        // Finest (5-component) ↓ legacy 3-component ↓ broad 2-component.
+        // Producer writes ALL THREE shapes for every trade so the consumer
+        // lookup ladder (evaluate / shouldHardBlock / getScoreAdjustment)
+        // can fall through cleanly: prefer the new finer key, fall back to
+        // the historical key when fine-grained samples haven't accumulated yet.
+        fun getFineSignature(): String {
+            return "${setupQuality}_${tradingMode}_${liquidityBucket}_${entryPhase}_${volumeSignal}"
+        }
+
         fun getSignature(): String {
             return "${setupQuality}_${tradingMode}_${liquidityBucket}"
         }
@@ -261,18 +271,21 @@ object BehaviorLearning {
                 outcomeCategory = outcomeCategory,
             )
 
-            val exactSignature = pattern.getSignature()
-            val broadSignature = pattern.getBroadSignature()
+            val fineSignature  = pattern.getFineSignature()    // V5.9.832 (A3) finest
+            val exactSignature = pattern.getSignature()        // legacy 3-component
+            val broadSignature = pattern.getBroadSignature()   // broadest 2-component
 
             if (isWin) {
+                recordGoodPattern(pattern, fineSignature)    // V5.9.832 (A3)
                 recordGoodPattern(pattern, exactSignature)
                 recordGoodPattern(pattern, broadSignature)
                 totalGoodRecorded.incrementAndGet()
 
                 if (isBigWin) {
-                    ErrorLogger.info(TAG, "✅ BIG WIN pattern recorded: $exactSignature | +${pnlPct.toInt()}%")
+                    ErrorLogger.info(TAG, "✅ BIG WIN pattern recorded: $fineSignature | +${pnlPct.toInt()}%")
                 }
             } else {
+                recordBadPattern(pattern, fineSignature)    // V5.9.832 (A3)
                 recordBadPattern(pattern, exactSignature)
                 recordBadPattern(pattern, broadSignature)
                 totalBadRecorded.incrementAndGet()
@@ -281,7 +294,7 @@ object BehaviorLearning {
                     // V5.9.662c — operator: log spam every ~5s on paper
                     // rugfest. Demoted from info → debug; pattern is still
                     // recorded above via recordBadPattern().
-                    ErrorLogger.debug(TAG, "❌ BIG LOSS pattern recorded: $exactSignature | ${pnlPct.toInt()}%")
+                    ErrorLogger.debug(TAG, "❌ BIG LOSS pattern recorded: $fineSignature | ${pnlPct.toInt()}%")
                 }
             }
         } catch (e: Exception) {
@@ -332,11 +345,13 @@ object BehaviorLearning {
         volumeSignal: String,
     ): BehaviorEvaluation {
         return try {
+            // V5.9.832 (A3) — finest signature first, then 3-component, then broad.
+            val fineSignature  = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}_${entryPhase}_${volumeSignal}"
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val goodMatch = goodStats[exactSignature] ?: goodStats[broadSignature]
-            val badMatch = badStats[exactSignature] ?: badStats[broadSignature]
+            val goodMatch = goodStats[fineSignature] ?: goodStats[exactSignature] ?: goodStats[broadSignature]
+            val badMatch  = badStats[fineSignature]  ?: badStats[exactSignature]  ?: badStats[broadSignature]
 
             var scoreAdjust = 0.0
             var confidence = 0.0
@@ -447,10 +462,12 @@ object BehaviorLearning {
         volumeSignal: String,
     ): String? {
         return try {
+            // V5.9.832 (A3) — fine-grained signature first, fall back.
+            val fineSignature  = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}_${entryPhase}_${volumeSignal}"
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val badMatch = badStats[exactSignature] ?: badStats[broadSignature]
+            val badMatch = badStats[fineSignature] ?: badStats[exactSignature] ?: badStats[broadSignature]
             if (badMatch != null && badMatch.isReliable && badMatch.confidence >= 0.8) {
                 val lossRate = 100.0 - badMatch.winRate
                 if (lossRate >= 80.0 && badMatch.occurrences >= 5) {
@@ -458,7 +475,7 @@ object BehaviorLearning {
                 }
 
                 if (lossRate >= 70.0) {
-                    ErrorLogger.warn(TAG, "⚠️ High-loss pattern detected: $exactSignature (${lossRate.toInt()}% loss)")
+                    ErrorLogger.warn(TAG, "⚠️ High-loss pattern detected: ${badMatch.signature} (${lossRate.toInt()}% loss)")
                 }
             }
 
