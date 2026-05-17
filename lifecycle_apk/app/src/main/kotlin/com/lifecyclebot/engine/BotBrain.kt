@@ -160,6 +160,10 @@ class BotBrain(
     private val rugcheckBuckets = mutableMapOf<Int, DecayingBucket>()    // score bucket → decaying stats
     private val pressureBuckets = mutableMapOf<Int, DecayingBucket>()    // pressure bucket → decaying stats
     private val topHolderBuckets = mutableMapOf<Int, DecayingBucket>()   // holder% bucket → decaying stats
+    // V5.9.831 (A5) — liquidity tier + pnl magnitude buckets. learnThreshold
+    // accepted both as params and dropped them on the floor for months.
+    private val liquidityBuckets = mutableMapOf<Int, DecayingBucket>()   // liq tier → decaying stats
+    private val pnlMagBuckets = mutableMapOf<Int, DecayingBucket>()      // pnl magnitude bucket → decaying stats
     
     // Legacy counters (kept for backwards compatibility)
     private val rugcheckLosses = ConcurrentHashMap<Int, Int>()  // score bucket → loss count
@@ -1560,7 +1564,34 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             lastUpdateTime = now
             sampleCount++
         }
-        
+
+        // V5.9.831 (A5) — liquidity tier + pnl magnitude buckets
+        // Bucket layout mirrors the others (rounded-down decade-style):
+        //   liqTier: 0=micro(<1k), 1=<5k, 2=<10k, 3=<25k, 4=<50k, 5=<100k, 6=>=100k
+        //   pnlMag: rounded to 5%-bin sign-preserving (so +1% scratch and +50% home
+        //           run finally teach different things to the threshold learner).
+        val liqTier = when {
+            liquidityUsd < 1_000.0   -> 0
+            liquidityUsd < 5_000.0   -> 1
+            liquidityUsd < 10_000.0  -> 2
+            liquidityUsd < 25_000.0  -> 3
+            liquidityUsd < 50_000.0  -> 4
+            liquidityUsd < 100_000.0 -> 5
+            else                     -> 6
+        }
+        val pnlMagBucket = (pnlPct / 5.0).toInt() * 5  // -50, -45, ..., 0, 5, 10, ..., 100
+
+        liquidityBuckets.getOrPut(liqTier) { DecayingBucket() }.apply {
+            if (isWin) weightedWins += weightToAdd else weightedLosses += weightToAdd
+            lastUpdateTime = now
+            sampleCount++
+        }
+        pnlMagBuckets.getOrPut(pnlMagBucket) { DecayingBucket() }.apply {
+            if (isWin) weightedWins += weightToAdd else weightedLosses += weightToAdd
+            lastUpdateTime = now
+            sampleCount++
+        }
+
         // Legacy counters (for backwards compat)
         if (isWin) {
             rugcheckWins.merge(rugBucket, 1, Int::plus)  // V5.9.826: atomic
@@ -1612,6 +1643,9 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         rugcheckBuckets.values.forEach { decayBucket(it) }
         pressureBuckets.values.forEach { decayBucket(it) }
         topHolderBuckets.values.forEach { decayBucket(it) }
+        // V5.9.831 (A5) — also decay the new liq + pnl buckets
+        liquidityBuckets.values.forEach { decayBucket(it) }
+        pnlMagBuckets.values.forEach { decayBucket(it) }
     }
     
     /**
