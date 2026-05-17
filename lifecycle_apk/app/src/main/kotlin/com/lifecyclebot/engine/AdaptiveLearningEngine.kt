@@ -890,6 +890,28 @@ object AdaptiveLearningEngine {
             explanations.add("rug:${if (rugcheckContrib > 0.0) "+" else ""}${rugcheckContrib.toInt()}")
         }
 
+        // ── V5.9.843 — volumeUsd was the LAST silently-dropped param ──
+        // V5.9.828 wired holderCount / bondingCurveProgress / rugcheckScore but
+        // volumeUsd remained dropped despite featureWeights.volumeWeight (default
+        // 1.2) being defined, persisted, and weight-adjusted from outcomes.
+        //
+        // Volume relative to liquidity (vol/liq ratio) is one of the most-cited
+        // alpha-leak signals: high-vol-low-liq tokens are pumping/dumping; flat-
+        // vol tokens are dead; well-balanced vol/liq tokens are organic.
+        val safeVolume = sanitizeDouble(volumeUsd).coerceAtLeast(0.0)
+        val volContrib = when {
+            safeVolume >= 500_000.0 -> 6.0 * featureWeights.volumeWeight
+            safeVolume >= 100_000.0 -> 4.0 * featureWeights.volumeWeight
+            safeVolume >= 25_000.0  -> 2.0 * featureWeights.volumeWeight
+            safeVolume <  2_000.0   -> -4.0 * featureWeights.volumeWeight  // dead
+            safeVolume <  5_000.0   -> -2.0 * featureWeights.volumeWeight
+            else -> 0.0
+        }
+        score += volContrib
+        if (abs(volContrib) >= 3.0) {
+            explanations.add("vol:${if (volContrib > 0.0) "+" else ""}${volContrib.toInt()}")
+        }
+
         score = score.coerceIn(0.0, 100.0)
 
         // V5.9.301: PATTERN MATCHING — actually USE the learned good/bad pattern libraries.
