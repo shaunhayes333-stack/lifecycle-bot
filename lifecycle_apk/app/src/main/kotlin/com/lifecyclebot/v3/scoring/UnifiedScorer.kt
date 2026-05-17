@@ -185,7 +185,47 @@ class UnifiedScorer(
         val weightedComponents = allComponents.map { comp ->
             val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
             val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
-            val weight    = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+            val educationWeight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+
+            // V5.9.820 — MetaCog trust-weighted layer blend (AGI campaign push 9).
+            // Audit TIER 2.1 — "the BIG emergent-AGI commit". MetaCog has been
+            // measuring per-layer prediction reliability (recordEntryPredictions
+            // + recordTradeOutcome path) for months. Until now NOBODY consulted
+            // getTrustMultiplier when blending layer scores. This commit closes
+            // that loop: each layers final weight is its Education accuracy
+            // weight multiplied by MetaCogs measured trust.
+            //
+            // WR/profit thesis: layers that have historically predicted
+            // outcomes correctly get amplified; layers that have been wrong
+            // get muted. Over time the bot literally learns which of its
+            // senses to trust. This is the spine of the "true AGI" mission.
+            //
+            // Bounds:
+            //   educationWeight  ∈ [0.7, 1.5]   (existing)
+            //   metaCogTrust     ∈ [0.6, 1.4]   (per master plan #88)
+            //   composite weight ∈ [0.5, 1.6]   (PRODUCT after clamp)
+            //
+            // Bootstrap floor: pre-3000 trades, metaCogTrust pulled toward 1.0
+            // by a 0.5 weighting so trust drift is gentle while sample size
+            // is thin. After 5000 trades, full trust weight applies.
+            val metaCogTrust = try {
+                val mcLayer = mapComponentNameToLayer(comp.name)
+                if (mcLayer != null) {
+                    val raw = MetaCognitionAI.getTrustMultiplier(mcLayer).coerceIn(0.6, 1.4)
+                    val totalTrades = try {
+                        com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                    } catch (_: Throwable) { 0 }
+                    val blendFactor = when {
+                        totalTrades >= 5000 -> 1.0
+                        totalTrades >= 3000 -> 0.5 + 0.5 * (totalTrades - 3000) / 2000.0
+                        else                -> 0.5  // bootstrap floor — half-strength
+                    }
+                    // Lerp from 1.0 (neutral) toward raw based on maturity.
+                    1.0 + (raw - 1.0) * blendFactor
+                } else 1.0
+            } catch (_: Throwable) { 1.0 }
+
+            val weight = (educationWeight * metaCogTrust).coerceIn(0.5, 1.6)
 
             // V5.9.363: Polarity self-heal — STRENGTHENED (was V5.9.353).
             // OLD threshold: required smoothedAccuracy ≥ 0.55 AND expectancyPct ≤ -2.0%.
@@ -221,9 +261,10 @@ class UnifiedScorer(
 
             val newValue = (flippedValue * weight).toInt()
             if (comp.value != 0 && (newValue != comp.value || flipTag.isNotEmpty())) {
+                // V5.9.820 — expose composite weight breakdown: educationW × metaCogT
                 comp.copy(
                     value = newValue,
-                    reason = "${comp.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]$flipTag",
+                    reason = "${comp.reason} [w=${"%.2f".format(weight)}=${"%.2f".format(educationWeight)}×${"%.2f".format(metaCogTrust)}@${(accuracy * 100).toInt()}%]$flipTag",
                 )
             } else comp
         }
