@@ -175,11 +175,43 @@ object WrRecoveryPartial {
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
     }
 
-    /** Per-rung sell fraction for the active band. */
+    /**
+     * Per-rung sell fraction for the active band.
+     *
+     * V5.9.811 — operator audit (2026-05-17): reduced from 25/25/20% to
+     * 15/15/12%. Reasoning:
+     *   • Old fractions sold ~58% of original qty by +60% (since each rung
+     *     sells a % of REMAINING, not ABSOLUTE qty: 1 − 0.75³ ≈ 0.58).
+     *     That was tuned for a 29% WR bot that needed capital recovery
+     *     FAST, but it choked runners before they revealed themselves.
+     *   • Capital Recovery (dynamic 1.3x–4x clamp, sells 25–70%) and
+     *     Profit Lock (dynamic 2.5x–10x clamp, sells 50% of remaining)
+     *     ALREADY handle the "absolute size de-risking" job after R3 —
+     *     and they're factor-adaptive (liq/mcap/vol/phase/quality/time).
+     *   • FluidLearningAI.getDynamicFluidStop() handles the runner tail
+     *     via peakGainPct-aware trailing stop.
+     *   • WR-Recovery R1-R3 should only LOCK SMALL WIN TICKS into the
+     *     ledger, not aggressively reduce position. After R3 at 15% each,
+     *     ~61% of original qty rides forward into the Capital Recovery
+     *     / Profit Lock / Fluid Trail stack which knows what to do.
+     *
+     * Net effect:
+     *   • Each R1/R2/R3 still adds a WIN tick to lifetime WR (same
+     *     mechanical boost as before — partial sells count via
+     *     TradeHistoryStore.bumpLifetimeFor).
+     *   • Runner upside preserved — 61% rides into Capital Recovery
+     *     (vs 42% before), so the moonshot tail compounds on a larger
+     *     remainder.
+     *   • Capital recovery shifts from ~+60% to ~+200% (where the
+     *     dynamic Capital Recovery threshold kicks in for most setups).
+     *     Trade-off: choppers that top at +60% then fade give back more.
+     *     Mitigated by R1 at +18% (15%) still locking some profit early
+     *     and -15% hard floor catching dumpers.
+     */
     private fun fractionFor(band: Band): Double = when (band) {
-        Band.AGGRESSIVE -> 0.25
-        Band.MODERATE   -> 0.25
-        Band.FLUID      -> 0.20
+        Band.AGGRESSIVE -> 0.15
+        Band.MODERATE   -> 0.15
+        Band.FLUID      -> 0.12
         Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 
