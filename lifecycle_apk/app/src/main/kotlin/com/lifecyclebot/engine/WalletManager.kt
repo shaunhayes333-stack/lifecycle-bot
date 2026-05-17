@@ -514,11 +514,36 @@ class WalletManager private constructor(private val ctx: Context) {
             return
         }
 
-        val wins      = sells.count { it.pnlSol > 0 }
-        val losses    = sells.count { it.pnlSol < 0 }
-        val totalPnl  = sells.sumOf { it.pnlSol }
-        val best      = sells.maxOfOrNull { it.pnlSol } ?: 0.0
-        val worst     = sells.minOfOrNull { it.pnlSol } ?: 0.0
+        // V5.9.849 — wallet P&L was being computed from `allTrades` which is
+        // gathered from `status.tokens.values.flatMap{ it.trades }`. That map
+        // shrinks: AntiChokeManager + DataPipeline evict tokens once they're
+        // done. Every big win that came in early and got cleaned out of the
+        // watchlist silently dropped from the wallet number — operator was
+        // seeing top-bar $-175 while the Journal showed +$16,489.
+        //
+        // Fix: when TradeHistoryStore (the journal — persisted to disk, never
+        // evicted) holds more decisive trades than the in-memory window, trust
+        // it. The journal IS the source of truth (memory #126). Local pnl
+        // history chart still uses `allTrades` so the curve stays animated.
+        val sellsWins   = sells.count { it.pnlSol > 0 }
+        val sellsLosses = sells.count { it.pnlSol < 0 }
+        val sellsPnl    = sells.sumOf { it.pnlSol }
+        val sellsBest   = sells.maxOfOrNull { it.pnlSol } ?: 0.0
+        val sellsWorst  = sells.minOfOrNull { it.pnlSol } ?: 0.0
+
+        val journalStats = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+        } catch (_: Throwable) { null }
+
+        // Prefer journal when it has *more* decisive trades than in-memory.
+        // (Equal or fewer = trust in-memory — handles cold-boot before journal hydrates.)
+        val useJournal = journalStats != null &&
+            (journalStats.totalWins + journalStats.totalLosses) > (sellsWins + sellsLosses)
+        val wins     = if (useJournal) journalStats!!.totalWins else sellsWins
+        val losses   = if (useJournal) journalStats!!.totalLosses else sellsLosses
+        val totalPnl = if (useJournal) journalStats!!.totalPnlSol else sellsPnl
+        val best     = sellsBest    // best/worst from current window — historical extremes don't matter
+        val worst    = sellsWorst
         val startSol  = allTrades.firstOrNull()?.sol ?: 1.0
 
         // Build cumulative P&L history for chart
@@ -549,8 +574,12 @@ class WalletManager private constructor(private val ctx: Context) {
 
         val totalPct = if (startSol > 0) (totalPnl / startSol) * 100.0 else 0.0
 
+        // V5.9.849 — also reflect journal totalTrades when journal is authoritative
+        val totalTradesFinal = if (useJournal)
+            (journalStats!!.totalWins + journalStats.totalLosses + journalStats.totalScratches)
+        else sells.size
         _state.value = _state.value.copy(
-            totalTrades   = sells.size,
+            totalTrades   = totalTradesFinal,
             winningTrades = wins,
             losingTrades  = losses,
             totalPnlSol   = totalPnl,
