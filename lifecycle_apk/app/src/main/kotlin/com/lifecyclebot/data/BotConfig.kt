@@ -446,6 +446,11 @@ object ConfigStore {
             putBoolean("cyclic_trade_live_enabled",  cfg.cyclicTradeLiveEnabled)
             // V5.9.326: classic scoring mode
             putBoolean("classic_scoring_mode",         cfg.classicScoringMode)
+            // V5.9.850: unified scoring mode — was MISSING here, reader at line ~621
+            //   read getBoolean("unified_scoring_mode", false), so every app
+            //   restart silently reverted UNIFIED → MODERN. Operator: "UNIFIED
+            //   won't stay engaged." This wire makes the setting actually persist.
+            putBoolean("unified_scoring_mode",         cfg.unifiedScoringMode)
             apply()
         }
     }
