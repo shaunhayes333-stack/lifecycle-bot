@@ -1935,17 +1935,16 @@ for legal compliance.
                 if (!isMemeTab) {
                     lp.visibility = android.view.View.GONE
                 } else {
-                // V5.9.462 — data-consistency fix. User reported the ladder
-                // pill's WR (20.7% / 719 trades from TradeHistoryStore
-                // getLifetimeStats) disagreed with the big WR/Trades
-                // rendered on the SAME card (18% / 586 from RunTracker30D).
-                // Per V5.9.371 the big block intentionally mirrors the
-                // 30-Day Proof Run. Align the ladder pill to the same
-                // source so both halves of the card always agree.
-                val rt = com.lifecyclebot.engine.RunTracker30D
-                val trades = rt.totalTrades
-                val meaningful = rt.wins + rt.losses
-                val actual = if (meaningful > 0) rt.wins * 100.0 / meaningful else 0.0
+                // V5.9.815 — flipped from RunTracker30D to TradeHistoryStore so
+                // both halves of the card AND the Journal all agree byte-for-byte.
+                // (V5.9.371 originally pinned to RunTracker30D to mirror 30-Day Proof
+                // Run; V5.9.462 then aligned ladder pill to the same source so both
+                // halves agreed. Now V5.9.809 mandate "journal is source of truth"
+                // wins — the Journal source is TradeHistoryStore.getStatsCached().)
+                val stats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+                val trades = stats.totalTrades
+                val meaningful = stats.totalTrades  // decisive-only denominator
+                val actual = stats.winRate
                 val target = com.lifecyclebot.engine.QualityLadder.targetWrForTrades(trades)
                 val tier = com.lifecyclebot.engine.QualityLadder.tier()
                 val sizeMult = com.lifecyclebot.engine.QualityLadder.sizeMultiplier()
@@ -5861,20 +5860,28 @@ This cannot be undone!
             // asset-segregated (so the proof card shows MEME-only too).
             val rt = com.lifecyclebot.engine.RunTracker30D
             val stats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
-            // V5.9.371b — read EXACTLY from RunTracker30D so the numbers
-            // shown here match the 30-Day Proof Run card byte-for-byte.
-            // Removed the .coerceAtLeast(stats.totalStoredTrades) because
-            // stats.totalStoredTrades = 6663 (TradeHistoryStore raw trade
-            // count, includes scratches and journal-replay duplicates)
-            // while rt.totalTrades = 3312 (the 30-Day Proof's clean
-            // counter). User explicitly asked these match — that's
-            // rt.totalTrades, not whichever happens to be bigger.
-            val totalTrades = rt.totalTrades
-            val meaningfulTrades = rt.wins + rt.losses
-            val winRate = if (meaningfulTrades > 0)
-                (rt.wins * 100.0) / meaningfulTrades else 0.0
-            val profitFactor = stats.profitFactor  // stays on recent-in-memory avg w / avg l
-            val totalPnlSol = rt.totalRealizedPnlSol.takeIf { it != 0.0 } ?: stats.totalPnlSol
+            // V5.9.815 — operator screenshot 2026-05-18: Journal shows
+            // 21% WR / 100W-355L / 455 decisive + 60 scratch = 515 sells,
+            // but Live Readiness MEME card showed 349 trades / 19.1% WR
+            // because it was reading from RunTracker30D (started counting
+            // late; missing the first ~106 trades that hit the DB before
+            // startRun() fired). Per V5.9.809 operator mandate "journal
+            // is the source of truth", this tile now reads from
+            // TradeHistoryStore.getStatsCached() — the same source the
+            // Journal reads from. Numbers will now agree byte-for-byte.
+            //
+            // V5.9.371b note (now obsolete): the old behaviour pinned this
+            // tile to RunTracker30D to match the 30-Day Proof Run card. The
+            // 30-Day Proof card still reads RunTracker30D (that's its job),
+            // but the Live Readiness tile's purpose is "are we ready to go
+            // live?" — that has to use the same lifetime data the Journal
+            // reports, otherwise an operator sees one truth in the readiness
+            // tile and a different truth in the Journal and can't reconcile.
+            val totalTrades = stats.totalTrades        // = TradeHistoryStore lifetimeCompleted (wins+losses), matches Journal
+            val meaningfulTrades = stats.totalTrades   // same definition; alias kept for readability below
+            val winRate = stats.winRate                // = lifetime WR, matches Journal byte-for-byte
+            val profitFactor = stats.profitFactor      // unchanged — recent-in-memory avg w / avg l
+            val totalPnlSol = stats.totalPnlSol        // = lifetimeRealizedPnlSol — matches Journal P&L
 
             // V5.9.620 — Profitability gates re-baselined to the 5000-trade
             // maturity ladder (V5.9.616 / FDG.LearningPhase). Previously this
