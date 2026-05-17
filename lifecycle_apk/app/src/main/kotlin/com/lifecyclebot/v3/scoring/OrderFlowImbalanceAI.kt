@@ -311,12 +311,33 @@ object OrderFlowImbalanceAI {
         val expectedMove = buyTotal / 1000.0  // Simplified expectation
         val actualMove = priceChange
         
-        if (expectedMove > 0 && actualMove < expectedMove * 0.3) {
+        val baseAbsorption = if (expectedMove > 0 && actualMove < expectedMove * 0.3) {
             // Less than 30% of expected move = absorption
-            return ((1.0 - (actualMove / expectedMove).coerceAtLeast(0.0)) * 100).coerceIn(0.0, 100.0)
+            ((1.0 - (actualMove / expectedMove).coerceAtLeast(0.0)) * 100).coerceIn(0.0, 100.0)
+        } else 0.0
+
+        // ── V5.9.838 — history was a dropped parameter; wire repeat-absorption context ──
+        // history.absorptionCandles counts consecutive recent candles that
+        // already tripped absorption. A token with 3+ candles of repeated
+        // absorption is a much stronger distribution signal than a single
+        // 5-bar absorption spike. Amplify by up to +20pt for streak.
+        //
+        // history.cumulativeDelta < 0 means sells have dominated over the
+        // longer 100-bar window even though we may be seeing a short-term
+        // buy spike. That's a classic dead-cat absorption setup — add
+        // another +10pt when the deeper context confirms.
+        //
+        // All amplifications are additive on top of baseAbsorption and
+        // still clamped to [0, 100].
+        val streakBoost = when {
+            history.absorptionCandles >= 5 -> 20.0   // 5+ consecutive — clear distribution
+            history.absorptionCandles >= 3 -> 12.0   // confirmed pattern
+            history.absorptionCandles >= 1 -> 5.0    // single prior hit
+            else -> 0.0
         }
-        
-        return 0.0
+        val contextBoost = if (history.cumulativeDelta < 0 && baseAbsorption > 0) 10.0 else 0.0
+
+        return (baseAbsorption + streakBoost + contextBoost).coerceIn(0.0, 100.0)
     }
     
     private fun calculateEntryBoost(state: FlowState, pattern: FlowPattern, absorptionLevel: Double): Int {
