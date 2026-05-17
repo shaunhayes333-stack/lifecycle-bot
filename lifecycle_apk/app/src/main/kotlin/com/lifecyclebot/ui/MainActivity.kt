@@ -3388,7 +3388,18 @@ for legal compliance.
         // sub-traders that don't have a dedicated card: ShitCoin /
         // Quality / Moonshot.
 
-        return merged.sortedByDescending { it.position.entryTime }
+        // V5.9.810 — sort by current unrealized gain % descending so the
+        // strongest movers stay at the top of the Open Positions card.
+        // Falls back to entryTime when entryPrice/ref aren't set yet
+        // (a fresh open with no tick yet) so newly-opened positions
+        // still appear before stale ones at 0%/0%.
+        return merged.sortedWith(
+            compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
+                val p = ts.position
+                val r = ts.ref
+                if (p.entryPrice > 0.0 && r > 0.0) (r - p.entryPrice) / p.entryPrice * 100.0 else Double.NEGATIVE_INFINITY
+            }.thenByDescending { it.position.entryTime }
+        )
     }
 
     /**
@@ -3506,9 +3517,19 @@ for legal compliance.
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
         val RENDER_CAP = 25
-        val capped = if (positions.size > RENDER_CAP) {
-            positions.sortedByDescending { it.position.entryTime }.take(RENDER_CAP)
-        } else positions
+        // V5.9.810 — sort by current unrealized gain % descending. When
+        // we have to cap, the strongest movers always stay visible and
+        // the deepest losers fall off the bottom (they're managed by
+        // the engine regardless of whether they're painted). Tie-break
+        // on entryTime so a fresh 0%/0% open beats a stale 0%/0% open.
+        val sortedByGain = positions.sortedWith(
+            compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
+                val p = ts.position
+                val r = ts.ref
+                if (p.entryPrice > 0.0 && r > 0.0) (r - p.entryPrice) / p.entryPrice * 100.0 else Double.NEGATIVE_INFINITY
+            }.thenByDescending { it.position.entryTime }
+        )
+        val capped = if (sortedByGain.size > RENDER_CAP) sortedByGain.take(RENDER_CAP) else sortedByGain
         val hiddenCount = positions.size - capped.size
         capped.forEach { ts ->
             val pos     = ts.position

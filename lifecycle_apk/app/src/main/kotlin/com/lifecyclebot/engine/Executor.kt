@@ -1872,8 +1872,16 @@ class Executor(
                     // age/liq/mcap instead of training on legacy bridge stubs.
                     val envEnum = if (isPaperEnv) com.lifecyclebot.engine.TradeEnvironment.PAPER
                                   else com.lifecyclebot.engine.TradeEnvironment.LIVE
+                    // V5.9.810 — read the symbolic verdict that FDG recorded at
+                    // candidate-evaluation time. consume() removes it so a re-entry
+                    // on the same mint gets a fresh verdict next FDG.evaluate.
+                    // Returns "" if the verdict expired (TTL 10 min) or this mint
+                    // never went through FDG (e.g. copy-trade path).
+                    val symVerdict = try {
+                        com.lifecyclebot.engine.SymbolicVerdictRegistry.consume(ts.mint)
+                    } catch (_: Throwable) { "" }
                     val (candFeatures, isIncomplete) = com.lifecyclebot.engine.CanonicalFeaturesBuilder
-                        .fromTokenState(ts, trade, modeEnum, sourceEnum, envEnum)
+                        .fromTokenState(ts, trade, modeEnum, sourceEnum, envEnum, symVerdict)
                     val rich = com.lifecyclebot.engine.CanonicalTradeOutcome(
                         tradeId = tradeId,
                         mint = ts.mint,

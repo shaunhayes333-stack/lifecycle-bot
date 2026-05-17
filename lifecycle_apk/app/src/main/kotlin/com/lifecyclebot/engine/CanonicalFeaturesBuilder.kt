@@ -33,6 +33,12 @@ object CanonicalFeaturesBuilder {
         mode: TradeMode,
         source: TradeSource,
         env: TradeEnvironment,
+        // V5.9.810 — symbolic verdict captured at FDG-evaluate time, threaded
+        // through via SymbolicVerdictRegistry.consume(mint). Empty string when
+        // the verdict expired (TTL>10min) or FDG never evaluated this mint
+        // (e.g. external/copy-trade paths). Defaulted so existing callers
+        // that don't have a verdict in hand keep working.
+        symbolicVerdict: String = "",
     ): Pair<CandidateFeatures, Boolean> {
 
         val liqUsd = ts.lastLiquidityUsd
@@ -135,7 +141,7 @@ object CanonicalFeaturesBuilder {
             entryPattern = ts.phase.ifBlank { "STANDARD" },
             bubbleClusterPattern = ts.safety.bundleType.ifBlank { "CLEAN" },
             fdgReasonFamily = ts.signal.ifBlank { "STANDARD" },
-            symbolicVerdict = "",  // populated by FDG wiring in Push 6
+            symbolicVerdict = symbolicVerdict,  // V5.9.810 — Push 6 finally landed
             exitReasonFamily = trade.reason.ifBlank { "" },
             holdBucket = holdBucket(holdSec),
             manualOrExternalClose = false,

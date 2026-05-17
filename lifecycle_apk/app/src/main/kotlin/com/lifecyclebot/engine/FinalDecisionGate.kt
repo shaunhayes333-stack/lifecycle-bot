@@ -2805,6 +2805,65 @@ object FinalDecisionGate {
             // Brain layer failure must never break the entry pipeline.
         }
 
+        // V5.9.810 — SymbolicVerdict capture (the missing Push 6 wiring).
+        // CandidateSymbolicContextBuilder.buildFor() has existed since V5.9.784
+        // but had ZERO callers — CandidateFeatures.symbolicVerdict has stayed
+        // hardcoded to "" since then. Build a per-token verdict here using the
+        // data already in scope (TokenState safety slice + global SymbolicContext
+        // mood) and record it into SymbolicVerdictRegistry. The Executor's
+        // rich-publish site reads it at close time and stamps it into
+        // CanonicalFeatures.symbolicVerdict so BehaviorLearning can finally
+        // calibrate predicted-vs-actual failure mode.
+        //
+        // Fail-soft: full try/catch, no influence on shouldTradeFinal or blockReason.
+        // This is OBSERVATION ONLY. Never a gate, never a veto.
+        try {
+            val symCtx = com.lifecyclebot.engine.CandidateSymbolicContextBuilder.buildFor(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                safetyTier = ts.safety.tier.name,
+                rugRiskScore = run {
+                    val rc = ts.safety.rugcheckScore
+                    if (rc < 0) 0.0 else (rc.toDouble() / 100.0).coerceIn(0.0, 1.0)
+                },
+                holderConcentration = run {
+                    val pct = ts.safety.topHolderPct
+                    when {
+                        pct < 0 -> ""
+                        pct >= 50 -> "CONC_RUG"
+                        pct >= 30 -> "CONC_HIGH"
+                        pct >= 15 -> "CONC_MED"
+                        else      -> "CONC_LOW"
+                    }
+                },
+                mintAuthority = when (ts.safety.mintAuthorityDisabled) {
+                    true  -> "RENOUNCED"
+                    false -> "RETAINED"
+                    null  -> "UNKNOWN"
+                },
+                freezeAuthority = when (ts.safety.freezeAuthorityDisabled) {
+                    true  -> "RENOUNCED"
+                    false -> "RETAINED"
+                    null  -> "UNKNOWN"
+                },
+                walletAlreadyHolding = try {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.hasOpenPosition(ts.mint)
+                } catch (_: Throwable) { false },
+                walletOpenCount = try {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount()
+                } catch (_: Throwable) { 0 },
+            )
+            com.lifecyclebot.engine.SymbolicVerdictRegistry.record(
+                mint = ts.mint,
+                verdict = symCtx.symbolicVerdictString(),
+                vote = symCtx.verdict.vote.name,
+                confidence = symCtx.verdict.confidence,
+                expectedFailureMode = symCtx.verdict.expectedFailureMode,
+            )
+        } catch (_: Throwable) {
+            // Symbolic verdict is pure telemetry — never affect the decision.
+        }
+
         return FinalDecision(
             shouldTrade = shouldTradeFinal,
             mode = mode,
