@@ -4610,24 +4610,31 @@ class Executor(
         if (ts.position.isOpen && modeConfig != null) {
             val _held = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
             val _tf   = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
-            if (_held > modeConfig.maxHoldMins * _tf) {
+            // V5.9.822 — MarketRegimeAI.getHoldTimeMultiplier wired on exit
+            // timeout. STRONG_BULL = 2.0 (let runners ride), STRONG_BEAR = 0.5
+            // (cut losers fast). Clamped [0.5, 2.0] matching Regime enum.
+            // Audit ref: TIER 1.2 holdTime — deferred from V5.9.818.
+            // WR/profit thesis: bull regimes more often produce runners → longer
+            // holds capture them. Bear regimes more often produce death by a
+            // thousand cuts → shorter holds bleed less.
+            val _regimeHoldMult = try {
+                com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
+            } catch (_: Throwable) { 1.0 }
+            val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult
+            if (_held > _effectiveMaxHold) {
                 // V5.9.676 — surface the actual mode + held time + threshold
-                // into the sell reason. Operator's V5.9.675 dump showed 10
-                // positions force-sold on session start with reason
-                // mode_maxhold_paused but no visibility into WHY the bot
-                // was in PAUSED mode (default UTC window is 04-06 and the
-                // local clock was 15:24 = ~03 UTC in NZST, NOT in window).
-                // Likely modeConfig was stale from before restart. Adding
-                // utcHour + threshold lets us see the actual trigger.
+                // into the sell reason. V5.9.822 adds regime multiplier so
+                // operator can see why a position held longer/shorter than
+                // configured maxHold.
                 val _utcHour = try {
                     java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
                         .get(java.util.Calendar.HOUR_OF_DAY)
                 } catch (_: Throwable) { -1 }
                 val _modeNameLc = modeConfig.mode.name.lowercase()
-                val _reason = "mode_maxhold_$_modeNameLc held=${_held.toInt()}m max=${(modeConfig.maxHoldMins * _tf).toInt()}m utc=${_utcHour}h"
+                val _reason = "mode_maxhold_${_modeNameLc} held=${_held.toInt()}m max=${_effectiveMaxHold.toInt()}m regime×${"%.2f".format(_regimeHoldMult)} utc=${_utcHour}h"
                 ErrorLogger.info(
                     "Executor",
-                    "🚪 mode_maxhold: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${(modeConfig.maxHoldMins * _tf).toInt()}min utc=${_utcHour}:00"
+                    "🚪 mode_maxhold: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${_effectiveMaxHold.toInt()}min (regime×${"%.2f".format(_regimeHoldMult)}) utc=${_utcHour}:00"
                 )
                 doSell(ts, _reason, wallet, walletSol); return
             }
@@ -5068,17 +5075,21 @@ class Executor(
             if (modeConfig != null) {
                 val held = (System.currentTimeMillis() - ts.position.entryTime) / 60_000.0
                 val tf = ts.candleTimeframeMinutes.toDouble().coerceAtLeast(1.0)
-                if (held > modeConfig.maxHoldMins * tf) {
-                    // V5.9.676 — same forensic surface as the primary maxhold
-                    // gate above. See comment block at line ~3395 for context.
+                // V5.9.822 — same MarketRegimeAI.getHoldTimeMultiplier wire as
+                // the primary max-hold gate above. See V5.9.822 block at ~4613.
+                val regimeHoldMult2 = try {
+                    com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
+                } catch (_: Throwable) { 1.0 }
+                val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2
+                if (held > effectiveMaxHold2) {
                     val _utcHour2 = try {
                         java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
                             .get(java.util.Calendar.HOUR_OF_DAY)
                     } catch (_: Throwable) { -1 }
-                    val _reason2 = "mode_maxhold_${modeConfig.mode.name.lowercase()} held=${held.toInt()}m max=${(modeConfig.maxHoldMins * tf).toInt()}m utc=${_utcHour2}h"
+                    val _reason2 = "mode_maxhold_${modeConfig.mode.name.lowercase()} held=${held.toInt()}m max=${effectiveMaxHold2.toInt()}m regime×${"%.2f".format(regimeHoldMult2)} utc=${_utcHour2}h"
                     ErrorLogger.info(
                         "Executor",
-                        "🚪 mode_maxhold(v3): ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${(modeConfig.maxHoldMins * tf).toInt()}min utc=${_utcHour2}:00"
+                        "🚪 mode_maxhold(v3): ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${effectiveMaxHold2.toInt()}min (regime×${"%.2f".format(regimeHoldMult2)}) utc=${_utcHour2}:00"
                     )
                     doSell(ts, _reason2, wallet, walletSol, identity)
                     return
