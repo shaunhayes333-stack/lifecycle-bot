@@ -836,6 +836,60 @@ object AdaptiveLearningEngine {
             explanations.add("dev:${devContrib.toInt()}")
         }
 
+        // ── V5.9.828 — wire 3 top-predictor parameters that were silently dropped ──
+        // calculateAdaptiveScore() accepted holderCount, bondingCurveProgress, and
+        // rugcheckScore as inputs and the data classes had matching learned weights
+        // (holderCountWeight, bondingCurveWeight, rugcheckWeight), but no contribution
+        // terms ever consumed them. Three of the strongest meme-coin predictors went
+        // through the function on every scoring call and dropped on the floor.
+        //
+        // Contribution shape mirrors the existing bucketed style (mcap/buy%/conc).
+        // Weight multiplier preserves the per-bucket learned re-weighting that already
+        // operates on the other features.
+
+        val safeHolderCount = holderCount.coerceAtLeast(0)
+        val holderCountContrib = when {
+            safeHolderCount >= 500 -> 6.0 * featureWeights.holderCountWeight   // strong distribution
+            safeHolderCount >= 200 -> 4.0 * featureWeights.holderCountWeight
+            safeHolderCount >= 100 -> 2.0 * featureWeights.holderCountWeight
+            safeHolderCount <  20  -> -4.0 * featureWeights.holderCountWeight  // too concentrated / sniped
+            else -> 0.0
+        }
+        score += holderCountContrib
+        if (abs(holderCountContrib) >= 3.0) {
+            explanations.add("hCnt:${if (holderCountContrib > 0.0) "+" else ""}${holderCountContrib.toInt()}")
+        }
+
+        val safeBondingCurve = sanitizeDouble(bondingCurveProgress).coerceIn(0.0, 100.0)
+        // Sweet-spot bonding curve: 30-70% is the "discovery breakout" zone before
+        // graduation tax. <10% = brand new / risky; >95% = graduation pump priced in.
+        val bondingContrib = when {
+            safeBondingCurve in 30.0..70.0 -> 5.0 * featureWeights.bondingCurveWeight
+            safeBondingCurve in 70.0..90.0 -> 2.0 * featureWeights.bondingCurveWeight
+            safeBondingCurve > 95.0        -> -3.0 * featureWeights.bondingCurveWeight
+            safeBondingCurve < 5.0         -> -2.0 * featureWeights.bondingCurveWeight
+            else -> 0.0
+        }
+        score += bondingContrib
+        if (abs(bondingContrib) >= 3.0) {
+            explanations.add("bc:${if (bondingContrib > 0.0) "+" else ""}${bondingContrib.toInt()}")
+        }
+
+        val safeRugcheck = sanitizeDouble(rugcheckScore).coerceIn(0.0, 100.0)
+        // Rugcheck score is 0 (rug) → 100 (clean). FDG has its own hard-block for
+        // critical rug signals; this is a soft-shaping contribution for the score band.
+        val rugcheckContrib = when {
+            safeRugcheck >= 85.0 -> 5.0 * featureWeights.rugcheckWeight
+            safeRugcheck >= 70.0 -> 2.0 * featureWeights.rugcheckWeight
+            safeRugcheck <  40.0 -> -8.0 * featureWeights.rugcheckWeight
+            safeRugcheck <  55.0 -> -3.0 * featureWeights.rugcheckWeight
+            else -> 0.0
+        }
+        score += rugcheckContrib
+        if (abs(rugcheckContrib) >= 3.0) {
+            explanations.add("rug:${if (rugcheckContrib > 0.0) "+" else ""}${rugcheckContrib.toInt()}")
+        }
+
         score = score.coerceIn(0.0, 100.0)
 
         // V5.9.301: PATTERN MATCHING — actually USE the learned good/bad pattern libraries.
