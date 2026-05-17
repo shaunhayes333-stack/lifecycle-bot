@@ -2761,15 +2761,49 @@ object FinalDecisionGate {
 
         tags.add("class:${approvalClass.name}")
 
+        // V5.9.806 — P0 Brain Consensus Gate hook.
+        // Runs ONLY when shouldTrade is already TRUE and blockReason is null
+        // (i.e., the existing logic would have allowed the trade). Can
+        // therefore only DOWNGRADE an allow → block; can never upgrade
+        // a block → allow. Wrapped in try-catch so any consensus-layer
+        // bug cannot regress the existing decision path.
+        var shouldTradeFinal = shouldTrade
+        var blockReasonFinal = blockReason
+        var blockLevelFinal = blockLevel
+        try {
+            if (shouldTrade && blockReason == null) {
+                val modeTag = tradingModeTag?.name ?: "STANDARD"
+                val report = BrainConsensusGate.evaluate(ts, candidate, modeTag)
+                BrainConsensusGate.recordOutcome(report.verdict)
+                tags.add("bcg:${report.verdict.name}")
+                when (report.verdict) {
+                    BrainConsensusGate.Verdict.HARD_BLOCK -> {
+                        shouldTradeFinal = false
+                        blockReasonFinal = "BRAIN_CONSENSUS_VETO:${report.objections.joinToString("+").take(120)}"
+                        blockLevelFinal = BlockLevel.HARD
+                    }
+                    BrainConsensusGate.Verdict.SOFT_BLOCK -> {
+                        // Telemetry-only. Tag it so the operator can see soft-block
+                        // counts climb in the pipeline-health dump without us
+                        // actually preventing the trade yet.
+                        tags.add("bcg_objections:${report.objections.size}")
+                    }
+                    BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }
+                }
+            }
+        } catch (_: Throwable) {
+            // Brain layer failure must never break the entry pipeline.
+        }
+
         return FinalDecision(
-            shouldTrade = shouldTrade,
+            shouldTrade = shouldTradeFinal,
             mode = mode,
             approvalClass = approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = blockReason,
-            blockLevel = blockLevel,
+            blockReason = blockReasonFinal,
+            blockLevel = blockLevelFinal,
             sizeSol = finalSize,
             tags = tags,
             mint = ts.mint,

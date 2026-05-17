@@ -821,6 +821,28 @@ object PipelineHealthCollector {
         }
         sb.append('\n')
 
+        // V5.9.806 — operator-only strategy expectancy block. Read-only;
+        // surfaces which tradingMode strategies are net-positive vs which
+        // are bleeding, so the operator can decide what to retire without
+        // dumping the journal CSV and pivoting it by hand. Empty when the
+        // journal hasn't accumulated ≥5 trades per strategy yet.
+        try {
+            val strategyBlock = StrategyTelemetry.formatForPipelineDump()
+            if (strategyBlock.isNotEmpty()) sb.append(strategyBlock)
+        } catch (_: Throwable) {
+            // telemetry is non-essential; never let it break the dump
+        }
+        // V5.9.806 — Regime / LosingPattern / BrainConsensus telemetry.
+        try { sb.append(RegimeDetector.formatForPipelineDump()) } catch (_: Throwable) {}
+        try {
+            val lp = LosingPatternMemory.formatForPipelineDump()
+            if (lp.isNotEmpty()) sb.append(lp)
+        } catch (_: Throwable) {}
+        try {
+            val bcg = BrainConsensusGate.formatForPipelineDump()
+            if (bcg.isNotEmpty()) sb.append(bcg)
+        } catch (_: Throwable) {}
+
         // ── Cheat-sheet ─────────────────────────────────────────────
         // V5.9.709 — expanded cheat-sheet with actionable context
         val execBuy  = (labelCounts["EXEC/PAPER_BUY"]?.get() ?: 0L) + (labelCounts["EXEC/LIVE_BUY"]?.get() ?: 0L)
