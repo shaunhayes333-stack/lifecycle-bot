@@ -1460,6 +1460,56 @@ class Executor(
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // ── V5.9.818 — MarketRegimeAI policy wire-up (AGI campaign push 7) ──
+        // Audit ref: audit_v5.9.811_dormant_agi.md TIER 1.2. Five MarketRegimeAI
+        // policy methods were architecturally orphaned: getPositionSizeMultiplier,
+        // getMinEntryScore, isFavorableForEntry, shouldReduceExposure,
+        // getHoldTimeMultiplier. The Regime enum DATA was being consulted via
+        // direct field reads in LifecycleStrategy (exit timing only) — never
+        // through the policy methods on the entry path. So STRONG_BEAR would
+        // populate, but the meme path would still size 1.0× through it.
+        //
+        // This commit consumes all 4 entry-side methods into a single bounded
+        // regimeSizeMult composed alongside behaviorSizeMult. holdTimeMultiplier
+        // is exit-side and deferred to a future commit that touches the
+        // timeout path.
+        //
+        // Bounds: regimeSizeMult ∈ [0.5×, 1.5×] per Regime enum (STRONG_BEAR
+        // floor → STRONG_BULL ceiling). Composed multipliers cannot push the
+        // size below 0.5 * 0.5 * 0.5 = 0.125× (auto-deesc + regime bear + grade
+        // penalty all stacked), which still trades — just very small. No veto.
+        var regimeSizeMult = 1.0
+        var regimeMinScoreBoost = 0.0
+        try {
+            val regimeMult = com.lifecyclebot.engine.MarketRegimeAI.getPositionSizeMultiplier()
+            regimeSizeMult = regimeMult.coerceIn(0.5, 1.5)
+
+            // isFavorableForEntry: if STRONG_BEAR / HIGH_VOL / CRAB → false.
+            // Apply a small additional shrink (soft, not veto).
+            if (!com.lifecyclebot.engine.MarketRegimeAI.isFavorableForEntry()) {
+                regimeSizeMult *= 0.85
+            }
+
+            // shouldReduceExposure: STRONG_BEAR or HIGH_VOLATILITY only. This
+            // is the strongest signal — apply on top of the favorable check.
+            if (com.lifecyclebot.engine.MarketRegimeAI.shouldReduceExposure()) {
+                regimeSizeMult *= 0.85
+            }
+
+            // Re-clamp after compounding so the floor stays at 0.5
+            regimeSizeMult = regimeSizeMult.coerceIn(0.5, 1.5)
+
+            // Entry-score shave: getMinEntryScore returns 20-50 per regime.
+            // Treat as a soft confidence shave: NEUTRAL=30 → 0 shave,
+            // STRONG_BEAR=50 → +20 needed → shave 20 from confidence.
+            // Cap shave at +20 so STRONG_BULL doesnt push it negative.
+            val regimeMinScore = com.lifecyclebot.engine.MarketRegimeAI.getMinEntryScore()
+            regimeMinScoreBoost = (regimeMinScore - 30.0).coerceIn(-10.0, 20.0)
+            if (regimeMinScoreBoost != 0.0) {
+                adjustedConfidence = (adjustedConfidence - regimeMinScoreBoost).coerceIn(0.0, 100.0)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1496,8 +1546,9 @@ class Executor(
             // multiplicative envelope as patternSizeMult and brakeMult.
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
+            // V5.9.818 — also compose regimeSizeMult into the envelope.
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
-                           behaviorSizeMult * behaviorGradeMult
+                           behaviorSizeMult * behaviorGradeMult * regimeSizeMult
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1511,6 +1562,13 @@ class Executor(
                 } catch (_: Throwable) { 5 }
                 onLog("🎚️ BehaviorAI: aggr=$aggrLvl size×${"%.2f".format(behaviorSizeMult)} " +
                       "grade×${"%.2f".format(behaviorGradeMult)} confShave→${adjustedConfidence.toInt()}", "sizing")
+            }
+            if (regimeSizeMult != 1.0 || regimeMinScoreBoost != 0.0) {
+                val regimeLabel = try {
+                    com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime().label
+                } catch (_: Throwable) { "?" }
+                onLog("🌐 MarketRegime: $regimeLabel size×${"%.2f".format(regimeSizeMult)} " +
+                      "scoreShave=${regimeMinScoreBoost.toInt()}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             return finalSol
