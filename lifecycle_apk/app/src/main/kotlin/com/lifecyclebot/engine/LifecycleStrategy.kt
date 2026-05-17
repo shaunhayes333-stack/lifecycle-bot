@@ -2950,7 +2950,11 @@ class LifecycleStrategy(
                 val drawdownFromPeak = peakGain - paperGainPct
 
                 // V5.9.169 — continuous fluid profit floor (shared engine).
-                val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakGain)
+                // V5.9.835 — plumb holdSeconds (was dropped silently for months).
+                val _holdSecLs = try {
+                    (System.currentTimeMillis() - ts.position.entryTime) / 1000.0
+                } catch (_: Throwable) { 0.0 }
+                val profitFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakGain, holdSeconds = _holdSecLs)
                 if (paperGainPct < profitFloor) {
                     ErrorLogger.info(
                         "Strategy",

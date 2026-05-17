@@ -1377,14 +1377,29 @@ object FluidLearningAI {
         //   peak=+500% → lock ≈ +487% (give back max 13pts)
         //
         // High-volatility markets get +2pts extra allowance. Calm markets: tighter.
+        //
+        // V5.9.835 — holdSeconds was a parameter for months, never read.
+        // Time-aware allowance: fresh positions (<60s) get +1.5pt wider room
+        // because they may still be in parabolic ignition phase and a tight
+        // floor is more likely to clip a real runner. Mature positions
+        // (>30min) get -1pt tighter because the move is established and
+        // giving back 10pt from peak is a clear reversal, not noise.
         if (peakPnlPct < 5.0) return Double.NEGATIVE_INFINITY
         val volAdjust = when {
             volatility > 70 ->  2.0   // wild market — allow a little more
             volatility < 30 -> -1.0   // calm market — lock tighter
             else -> 0.0
         }
+        val ageAdjust = when {
+            holdSeconds <= 0.0   -> 0.0     // default — caller didn't plumb it, neutral
+            holdSeconds < 60.0   -> 1.5     // first minute — wider room for ignition
+            holdSeconds < 300.0  -> 0.5     // 1-5 min — slight room
+            holdSeconds < 1800.0 -> 0.0     // 5-30 min — neutral
+            holdSeconds < 7200.0 -> -0.5    // 30 min - 2h — slightly tighter
+            else                 -> -1.0    // 2h+ — established move, tighter lock
+        }
         val logFactor = kotlin.math.log10(kotlin.math.max(1.0, peakPnlPct / 5.0))
-        val allowance = (3.0 + 5.0 * logFactor + volAdjust).coerceIn(1.5, 15.0)
+        val allowance = (3.0 + 5.0 * logFactor + volAdjust + ageAdjust).coerceIn(1.5, 15.0)
         val floor = peakPnlPct - allowance
         // Safety net: never below 70% of peak (protects against very small peaks)
         return kotlin.math.max(floor, peakPnlPct * 0.70)
