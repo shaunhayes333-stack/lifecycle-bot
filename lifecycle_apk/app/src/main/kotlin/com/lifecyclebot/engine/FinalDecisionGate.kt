@@ -2303,7 +2303,7 @@ object FinalDecisionGate {
         if (blockReason == null) {
             try {
                 val unifiedNarrative = try {
-                    UnifiedNarrativeAI.analyze(ts.symbol, ts.name, "")
+                    UnifiedNarrativeAI.analyze(ts.symbol, ts.name, "", ts.mint, config.groqApiKey)
                 } catch (_: Exception) {
                     null
                 }

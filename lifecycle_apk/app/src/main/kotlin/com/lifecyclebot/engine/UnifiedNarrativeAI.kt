@@ -37,6 +37,8 @@ object UnifiedNarrativeAI {
         symbol: String,
         name: String,
         description: String = "",
+        mint: String = "",
+        groqApiKey: String = "",
     ): NarrativeResult {
         val cacheKey = "${symbol}_${name.hashCode()}"
         
@@ -65,7 +67,7 @@ object UnifiedNarrativeAI {
         }
         
         // TIER 2: Try Groq first (faster, cheaper)
-        val groqResult = tryGroqAnalysis(symbol, name, description)
+        val groqResult = tryGroqAnalysis(symbol, name, description, mint, groqApiKey)
         
         // If Groq is confident (>70%), use it
         if (groqResult != null && groqResult.confidence >= 70.0) {
@@ -89,19 +91,70 @@ object UnifiedNarrativeAI {
     }
     
     /**
-     * Try Groq-based analysis (using existing LlmSentimentEngine)
-     * Note: LlmSentimentEngine is a class that requires instantiation.
-     * For now, we skip Groq and rely on Gemini for narrative analysis.
+     * V5.9.851 — Was a stub returning null. Operator: "Groq is meant to be wired."
+     *
+     * Now reuses NarrativeDetector (the existing canonical Groq integration
+     * already used by FinalDecisionGate). Maps NarrativeDetector.NarrativeResult
+     * (riskLevel/confidenceAdjustment shape) → UnifiedNarrativeAI.NarrativeResult
+     * (score/confidence/isScam shape) so this object's contract is unchanged
+     * for downstream consumers.
+     *
+     * Returns null if:
+     * - groqApiKey is blank (gates to Gemini path naturally)
+     * - NarrativeDetector throws (gates to Gemini path naturally)
      */
-    private fun tryGroqAnalysis(symbol: String, name: String, description: String): NarrativeResult? {
-        // LlmSentimentEngine requires instantiation with API key and is designed
-        // for different use case (scoring with text bundle). 
-        // For unified narrative, we'll rely primarily on Gemini which is already
-        // integrated as an object singleton.
-        // 
-        // TODO: If Groq integration is needed, instantiate LlmSentimentEngine
-        // with the API key from BotConfig and adapt the call.
-        return null
+    private fun tryGroqAnalysis(
+        symbol: String,
+        name: String,
+        description: String,
+        mint: String,
+        groqApiKey: String,
+    ): NarrativeResult? {
+        if (groqApiKey.isBlank()) return null
+        return try {
+            val nd = NarrativeDetector.analyze(
+                symbol = symbol,
+                name = name,
+                mintAddress = mint.ifBlank { "${symbol}_${name.hashCode()}" },
+                description = description,
+                socialMentions = emptyList(),
+                groqApiKey = groqApiKey,
+            )
+
+            // Map NarrativeDetector verdict → UnifiedNarrativeAI shape.
+            // confidenceAdjustment range: -30..+10 (negative = suspicious)
+            // map: -30 → score 10, 0 → score 50, +10 → score 70
+            val score = (50.0 + nd.confidenceAdjustment * 2.0).coerceIn(0.0, 100.0)
+
+            val isScam = nd.riskLevel == "CRITICAL" || nd.riskLevel == "HIGH"
+            val scamConfidence = when (nd.riskLevel) {
+                "CRITICAL" -> 90.0
+                "HIGH" -> 70.0
+                "MEDIUM" -> 40.0
+                else -> 15.0
+            }
+            val confidence = when (nd.riskLevel) {
+                "CRITICAL", "HIGH" -> 80.0
+                "MEDIUM" -> 60.0
+                else -> 65.0
+            }
+            // Viral potential — inferred from positive signal count
+            val viralPotential = (nd.positiveSignals.size * 20.0).coerceAtMost(95.0)
+
+            NarrativeResult(
+                score = score,
+                confidence = confidence,
+                isScam = isScam,
+                scamConfidence = scamConfidence,
+                narrativeType = "groq_unified",
+                viralPotential = viralPotential,
+                source = "groq",
+                reasoning = nd.reasoning.take(280),
+            )
+        } catch (e: Exception) {
+            ErrorLogger.debug("UnifiedNarrativeAI", "Groq path failed: ${e.message}")
+            null
+        }
     }
     
     /**
