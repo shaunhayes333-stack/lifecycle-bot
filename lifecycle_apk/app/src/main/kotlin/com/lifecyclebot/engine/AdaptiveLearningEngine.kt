@@ -569,7 +569,16 @@ object AdaptiveLearningEngine {
             val cutoff = System.currentTimeMillis() - 120_000L
             aleSeenKeys.entries.removeIf { it.value < cutoff }
         }
-        tradeCount += 1
+        // V5.9.810 — operator triage: tradeCount used to increment HERE,
+        // which double-counted across direct Executor calls + canonical bus
+        // calls (each settled trade flows through BOTH paths, and the
+        // bucketed dedup above caught only ~95% of cases — leading to the
+        // +404 over-count observed on the Pipeline Counters screen).
+        // Single source of truth: tradeCount now increments ONLY inside
+        // onCanonicalOutcome() (line ~1322), which is gated by the
+        // CanonicalSubscribers (layer, tradeId) recordOnce LRU. Pattern
+        // memory writes below still benefit from the bucketed dedup so
+        // pattern weights don't double-shift.
         adjustWeights(features)
 
         // V5.9.301: Push features into rolling buffer (was previously discarded after weight nudge).
@@ -1316,6 +1325,11 @@ object AdaptiveLearningEngine {
                 entryPhase = cand.entryPattern,
             )
             learnFromTrade(features)
+            // V5.9.810 — operator triage: tradeCount is now bus-driven so
+            // it matches the journal (settledWins + settledLosses) 1:1
+            // regardless of which path (direct Executor vs canonical) the
+            // trade arrived on. Eliminates the +404 over-count.
+            tradeCount += 1
         } catch (e: Throwable) {
             ErrorLogger.debug("AdaptiveLearning", "onCanonicalOutcome error: ${e.message?.take(80)}")
         }

@@ -397,7 +397,7 @@ Reply with just the JSON object, nothing else.
             if (s.status == LabStrategyStatus.ACTIVE &&
                 s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
                 s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
-                s.paperPnlSol > 0.0
+                s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
             ) {
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
                 ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +

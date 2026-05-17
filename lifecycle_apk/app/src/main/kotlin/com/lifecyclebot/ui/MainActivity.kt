@@ -1843,7 +1843,15 @@ for legal compliance.
         if (ws.totalTrades > 0) {
             tvPnlChange.text = currency.format(pnl, showPlus = true)
             tvPnlChange.setTextColor(if (pnl >= 0) green else red)
-            tvPnlChangePct.text = "%+.1f%%  •  ${ws.winRate}%% wins".format(pnlPct)
+            // V5.9.810 — operator mandate: 'journal is source of truth for all
+            // meme counters and displays'. The 'X% wins' sub-banner used to
+            // pull from WalletState.winRate (own counter, drifted from the
+            // journal). Now reads TradeHistoryStore.winRate (same source the
+            // Journal screen displays). One source, one number, everywhere.
+            val journalWinRate = try {
+                com.lifecyclebot.engine.TradeHistoryStore.getStatsCached().winRate.toInt()
+            } catch (_: Throwable) { ws.winRate }
+            tvPnlChangePct.text = "%+.1f%%  •  $journalWinRate%% wins".format(pnlPct)
         } else {
             tvPnlChange.text    = ""
             tvPnlChangePct.text = ""

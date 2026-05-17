@@ -241,8 +241,21 @@ object FluidLearningAI {
     /** V5.9.719 — session-only trade count (excludes Turso historical baseline).
      *  Use this for drift comparison against the canonical bus (which also counts
      *  only session outcomes). getTotalTradeCount() includes the Turso baseline
-     *  which makes the Δ display look like massive fragmentation when it's just history. */
-    fun getSessionTradeCount(): Int = sessionTrades.get()
+     *  which makes the Δ display look like massive fragmentation when it's just history.
+     *
+     *  V5.9.810 — operator mandate: 'journal is source of truth for all meme
+     *  counters and displays including learning.' Return canonical (settledWins
+     *  + settledLosses) so the drift is 0 by construction. The local
+     *  sessionTrades AtomicInteger is retained for compatibility with internal
+     *  per-cycle learning loops, but is no longer exposed as the session count
+     *  to UI / drift telemetry. */
+    fun getSessionTradeCount(): Int {
+        val canonical = try {
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() +
+             com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
+        } catch (_: Throwable) { 0 }
+        return if (canonical > 0) canonical else sessionTrades.get()
+    }
 
     /** V5.9.719 — the Turso history baseline loaded at boot. */
     fun getHistoricalBaseline(): Int = sessionLifetimeBaseline

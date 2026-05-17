@@ -33,8 +33,16 @@ object LlmLabStore {
     // trading much faster (10s eval + 36 strategies + 24 open positions),
     // 60 trades is enough proof-of-concept to graduate while still being
     // meaningfully better than guessing.
-    const val MIN_TRADES_BEFORE_PROMOTION = 60
-    const val MIN_WR_FOR_PROMOTION_PCT = 55.0    // 60 → 55 to match faster cadence
+    //
+    // V5.9.810 — operator mandate: 'allow llm to automatically introduce
+    // strategies above 33% winrate and good profits.' Lowered to 30 trades
+    // (matches archive trigger) + 33% WR + ≥0.05 SOL paper profit. This
+    // captures asymmetric-R/R strategies like Genesis · Sniper that hit
+    // a low WR but with large average winners. Live-money gate
+    // (LabPromotedFeed.requireLiveApproval) still requires operator tap.
+    const val MIN_TRADES_BEFORE_PROMOTION = 30
+    const val MIN_WR_FOR_PROMOTION_PCT = 33.0
+    const val MIN_PAPER_PNL_SOL_FOR_PROMOTION = 0.05    // ~$6+ proof of asymmetric-R/R
     const val ARCHIVE_LOSER_AFTER_TRADES = 30
     const val ARCHIVE_LOSER_BELOW_WR_PCT = 30.0
 
