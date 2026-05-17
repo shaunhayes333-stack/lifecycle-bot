@@ -109,6 +109,13 @@ object BehaviorAI {
     private val perAssetWins   = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private val perAssetLosses = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
 
+    // V5.9.842 — reason was a dropped param. Now feeds a (class#reasonKey) ledger
+    // so we can answer "what's the avg PnL of MEME#STRICT_SL exits?" etc.
+    // Bounded cardinality via normalizeReasonKey() — collapses thousands of raw
+    // reason strings into ~12 canonical buckets.
+    private val perAssetReasonCount = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
+    private val perAssetReasonPnlSum = java.util.concurrent.ConcurrentHashMap<String, AtomicReference<Double>>()
+
     fun recordTrade(pnlPct: Double, reason: String, mint: String, isPaperMode: Boolean = true) =
         recordTradeForAsset(pnlPct, reason, mint, isPaperMode, assetClass = "MEME")
 
@@ -121,12 +128,76 @@ object BehaviorAI {
      * alone. This stops five ShitCoin rug losses from locking the meme
      * trader into PROTECT / tilt-cooldown.
      */
-    fun recordTradeForAsset(pnlPct: Double, reason: String, mint: String,
+    // V5.9.842 — collapse arbitrary reason strings into a bounded set of
+    // canonical buckets so the perAssetReason* ledgers stay finite. Order
+    // matters: more specific matches first (STRICT_SL_-10 must catch the
+    // STRICT_SL bucket before the looser SL one).
+    private fun normalizeReasonKey(raw: String): String {
+        val r = raw.uppercase()
+        return when {
+            r.isBlank()                          -> "UNKNOWN"
+            r.contains("ML_RUG")                 -> "ML_RUG"
+            r.contains("RUG")                    -> "RUG"
+            r.contains("HARD_FLOOR") ||
+                r.contains("-15")                -> "HARD_FLOOR_15"
+            r.contains("STRICT_SL") ||
+                r.contains("STOP_LOSS") ||
+                r.startsWith("SL_")              -> "STRICT_SL"
+            r.contains("TRAILING") ||
+                r.contains("FLOOR_LOCK")         -> "TRAILING"
+            r.contains("PEAK") ||
+                r.contains("PEAKDD")             -> "PEAK_DRAWDOWN"
+            r.contains("PARTIAL") ||
+                r.contains("LADDER")             -> "PARTIAL_LADDER"
+            r.contains("TAKE_PROFIT") ||
+                r.contains("TP_")                -> "TAKE_PROFIT"
+            r.contains("TIME") ||
+                r.contains("TIMEOUT") ||
+                r.contains("STALE")              -> "TIMEOUT"
+            r.contains("MOMENTUM") ||
+                r.contains("MOM_DEATH")          -> "MOMENTUM_DEATH"
+            r.contains("MANUAL") ||
+                r.contains("USER")               -> "MANUAL"
+            else                                 -> "OTHER"
+        }
+    }
+
+    /** V5.9.842 — diagnostic accessor for per-(class, reason) trade stats. */
+    fun getReasonStatsSnapshot(): Map<String, Triple<Int, Double, Double>> {
+        val out = mutableMapOf<String, Triple<Int, Double, Double>>()
+        for ((key, cntRef) in perAssetReasonCount) {
+            val n = cntRef.get()
+            if (n <= 0) continue
+            val sum = perAssetReasonPnlSum[key]?.get() ?: 0.0
+            val avg = sum / n
+            out[key] = Triple(n, sum, avg)
+        }
+        return out
+    }
+
+        fun recordTradeForAsset(pnlPct: Double, reason: String, mint: String,
                             isPaperMode: Boolean = true, assetClass: String = "MEME") {
         val cls = assetClass.uppercase().ifBlank { "MEME" }
         perAssetTrades.getOrPut(cls) { AtomicInteger(0) }.incrementAndGet()
         if (pnlPct >= 1.0)      perAssetWins.getOrPut(cls)   { AtomicInteger(0) }.incrementAndGet()
         else if (pnlPct < -1.0) perAssetLosses.getOrPut(cls) { AtomicInteger(0) }.incrementAndGet()
+
+        // V5.9.842 — record per-(class, reason) trade with PnL magnitude.
+        // The reason parameter has been dropped since this function shipped.
+        // Now keyed as "MEME#STRICT_SL" etc. with bounded cardinality.
+        if (pnlPct.isFinite()) {
+            val reasonKey = "$cls#${normalizeReasonKey(reason)}"
+            perAssetReasonCount.getOrPut(reasonKey) { AtomicInteger(0) }.incrementAndGet()
+            val pnlRef = perAssetReasonPnlSum.getOrPut(reasonKey) {
+                AtomicReference(0.0)
+            }
+            // Lock-free additive update via compareAndSet loop.
+            var prev: Double
+            do {
+                prev = pnlRef.get()
+            } while (!pnlRef.compareAndSet(prev, prev + pnlPct))
+        }
+
         if (cls != "MEME") return  // Skip global tilt / discipline state for non-meme classes.
 
         val now = System.currentTimeMillis()
