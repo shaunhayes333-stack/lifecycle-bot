@@ -227,6 +227,56 @@ object CandidateSymbolicContextBuilder {
             return SymbolicVerdict(vote, conf, reasons, affected, failureMode)
         }
 
+        // ─── V5.9.845 — 6 silently-dropped param consumers ────────────
+        // mintAuthority, venue, route, bondingCurveActive, migrated,
+        // walletOpenCount were function parameters that never appeared
+        // in the original verdict logic. They are major signal carriers
+        // — wire them as soft CAUTIONS (per doctrine #86, no new vetoes
+        // beyond the existing RUG/FREEZE/DUMP hard set).
+        //
+        // mintAuthority RETAINED is rugpull-adjacent (dev can mint new
+        // supply to dump). Currently FDG handles the hard block; here
+        // we elevate to CAUTION so the symbolic verdict tracks it.
+        if (mintAuthority.equals("RETAINED", ignoreCase = true)) {
+            vote = if (vote == SymbolicVote.VETO) vote else SymbolicVote.CAUTION
+            conf = maxOf(conf, 0.70)
+            reasons += "mintAuthority=RETAINED"
+            affected += "HolderSafetyAI"
+            if (failureMode.isBlank()) failureMode = "RUG"
+        }
+
+        // bondingCurveActive + migrated: bonding-curve tokens that
+        // haven't migrated to a real AMM yet are pre-graduation and
+        // carry the graduation-tax dump-risk. Once migrated, the dump
+        // risk drops sharply.
+        if (bondingCurveActive && !migrated) {
+            vote = if (vote == SymbolicVote.VETO) vote else SymbolicVote.CAUTION
+            conf = maxOf(conf, 0.55)
+            reasons += "preGraduation(bc=active,migrated=false)"
+            if (failureMode.isBlank()) failureMode = "DUMP"
+        }
+
+        // venue/route diagnostics: certain venue-route combos have
+        // historically poor fill quality (e.g. obscure DEX with no
+        // routing alternatives). Captured for forensic only — no
+        // confidence change. The trade is allowed; the verdict records
+        // what venue path was taken so post-hoc analysis can correlate
+        // WR with venue.
+        if (venue.isNotBlank() || route.isNotBlank()) {
+            reasons += "venue=$venue route=$route"
+        }
+
+        // walletOpenCount: portfolio-concentration awareness at verdict
+        // time. >=20 open positions = heavy concentration; raise the
+        // verdict bar to CAUTION so size-shapers downstream can react.
+        if (walletOpenCount >= 20) {
+            vote = if (vote == SymbolicVote.VETO) vote else SymbolicVote.CAUTION
+            conf = maxOf(conf, 0.55)
+            reasons += "walletOpenCount=$walletOpenCount"
+            affected += "WalletReconciler"
+            if (failureMode.isBlank()) failureMode = "CONCENTRATION"
+        }
+
         // ─── Soft cautions ────────────────────────────────────────────
         if (safetyTier == "UNSAFE") {
             vote = SymbolicVote.CAUTION
