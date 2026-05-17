@@ -726,7 +726,26 @@ object BlueChipTraderAI {
         }
         blueChipScore += holderPenalty
         if (holderPenalty < 0) scoreReasons.add("holder$holderPenalty")
-        
+
+        // ── V5.9.839 — VOLATILITY CHECK (-10 to +5 pts) ──
+        // volatility was a function parameter silently dropped since the
+        // engine shipped. BlueChip is THE quality lane — its whole thesis
+        // is that >$1M mcap tokens should provide steadier rides. A blue-
+        // chip showing >70 volatility is the worst-of-both-worlds setup:
+        // big cap (limited upside) WITH meme-coin chaos (full downside).
+        // Conversely, a calm blue-chip (vol 20-45) is exactly the
+        // risk-adjusted profile this lane is supposed to capture.
+        val volScore = when {
+            volatility >= 80 -> -10  // chaos zone — wrong lane for chaos
+            volatility >= 65 -> -5
+            volatility >= 50 -> 0    // typical — neutral
+            volatility >= 30 -> 5    // calm — bluechip sweet spot
+            volatility >= 15 -> 3    // very calm — likely real demand floor
+            else            -> 0     // dead-flat — possibly stale book, neutral
+        }
+        blueChipScore += volScore
+        if (volScore != 0) scoreReasons.add("vol${if (volScore > 0) "+" else ""}$volScore")
+
         // Calculate confidence
         blueChipConfidence = (
             (if (marketCapUsd > 100_000) 25 else 15) +
