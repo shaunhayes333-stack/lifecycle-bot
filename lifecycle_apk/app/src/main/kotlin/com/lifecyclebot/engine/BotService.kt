@@ -13330,11 +13330,40 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             fdgWouldExecute = fdgDecision.canExecute()
                         )
                         
-                        // V3 WATCH = DO NOT EXECUTE (even if FDG would approve)
+                        // ═════════════════════════════════════════════════════
+                        // V5.9.812 — OPERATOR DOCTRINE "help, don't hinder"
+                        // ─────────────────────────────────────────────────────
+                        // V3 WATCH is NOT a stupid-decision veto — it's V3
+                        // saying "score is below my EXECUTE floor but above
+                        // watchScoreMin". Previously this hard-blocked the
+                        // trade even when FDG approved.
+                        //
+                        // V5.9.687 comment was explicit: "Half of all winners
+                        // on Moonshot + ShitCoin were killed by V3 WATCH/
+                        // REJECT overrides while FDG was green."
+                        //
+                        // NEW BEHAVIOR: If FDG approves AND V3 didn't hit a
+                        // stupid-decision gate (BlockFatal), let FDG decide
+                        // sizing with a bounded shrink multiplier. V3's
+                        // concern reduces size to a probe — it doesn't
+                        // veto. The stupid-decision gates (FDG HARD blocks,
+                        // V3 BlockFatal) still kill trades.
+                        //
+                        // Shrink: 0.5× FDG-suggested size (probe tier).
+                        // Bridge fallback still runs in paper as before.
+                        // ═════════════════════════════════════════════════════
                         if (v3ControlsExecution) {
-                            addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} (no trade)", mint)
-                            // Don't set useV3Decision - this blocks the trade
-                            useV3Decision = false  // V5.9.187: WATCH skips V3 only; ShitCoin/FDG still runs
+                            if (fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
+                                val probeSize = (fdgDecision.sizeSol * 0.5).coerceAtLeast(0.003)
+                                useV3Decision = true
+                                v3SizeSol = probeSize
+                                v3Thesis = "V3-WATCH-PROBE score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk 0.5×)"
+                                ErrorLogger.info("BotService", "⚡ V3 WATCH→PROBE: ${identity.symbol} | size=${probeSize.fmt(4)} SOL (FDG approved, V3 shrink 0.5×)")
+                                addLog("⚡ V3 WATCH→PROBE: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL (0.5× FDG)", mint)
+                            } else {
+                                addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} | FDG also declined (no trade)", mint)
+                                useV3Decision = false
+                            }
                         }
                     }
                     
@@ -13351,10 +13380,33 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                             fdgWouldExecute = fdgDecision.canExecute()
                         )
 
-                        // V3 REJECT = DO NOT EXECUTE
+                        // ═════════════════════════════════════════════════════
+                        // V5.9.812 — OPERATOR DOCTRINE "help, don't hinder"
+                        // ─────────────────────────────────────────────────────
+                        // SCORE_TOO_LOW is NOT a stupid decision — it's V3
+                        // saying score < watchScoreMin. Other reject reasons
+                        // (SIZE_ZERO, eligibility fails, etc.) ARE
+                        // stupid-decision blocks and stay vetoes.
+                        //
+                        // For SCORE_TOO_LOW with FDG green: tiny probe
+                        // (0.4× FDG size). Bridge fallback below still
+                        // runs in paper for near-misses.
+                        //
+                        // For all other reject reasons: block as before.
+                        // ═════════════════════════════════════════════════════
+                        val isSoftReject = result.reason.startsWith("SCORE_TOO_LOW")
                         if (v3ControlsExecution) {
-                            addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                            useV3Decision = false  // V5.9.187: REJECT skips V3 only; routing-type rejects let ShitCoin run
+                            if (isSoftReject && fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
+                                val probeSize = (fdgDecision.sizeSol * 0.4).coerceAtLeast(0.003)
+                                useV3Decision = true
+                                v3SizeSol = probeSize
+                                v3Thesis = "V3-REJECT-PROBE ${result.reason} (FDG=green, V3 shrunk 0.4×)"
+                                ErrorLogger.info("BotService", "⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | size=${probeSize.fmt(4)} SOL")
+                                addLog("⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | ${probeSize.fmt(4)} SOL (0.4× FDG)", mint)
+                            } else {
+                                addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
+                                useV3Decision = false
+                            }
                         }
 
                         // ═════════════════════════════════════════════════════
