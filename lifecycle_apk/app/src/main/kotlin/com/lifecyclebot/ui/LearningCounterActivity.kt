@@ -175,31 +175,43 @@ class LearningCounterActivity : Activity() {
 
         // ── Section 3: Legacy consumer counts (drift detection) ───────
         addHeader("📈 Legacy Consumer Counts (drift = fragmentation)")
-        val canonicalTotal = snap["canonicalOutcomesTotal"] ?: 0L
-        // V5.9.719: compare SESSION counts only (exclude Turso historical baseline).
-        // getTotalTradeCount() includes the persisted Turso baseline which makes Δ look
-        // enormous even when both paths agree on session trades.
+        // V5.9.807 — operator audit: compare legacy consumers against
+        // SETTLED TRADES (settledWins + settledLosses), NOT canonicalOutcomesTotal.
+        // canonicalOutcomesTotal counts every event flowing through the bus
+        // including OPEN events, mode-shadows, and historic preserved labels,
+        // which made the drift look "doubled" against tradeCount-style
+        // counters that only ever increment on settlement. The honest
+        // comparison baseline is settled trades.
+        val settledWins   = snap["settledWins"] ?: 0L
+        val settledLosses = snap["settledLosses"] ?: 0L
+        val settledTrades = settledWins + settledLosses
+        val canonicalTotalRaw = snap["canonicalOutcomesTotal"] ?: 0L
+        addKvHighlight(
+            "drift baseline (settledWins + settledLosses)",
+            "$settledTrades (canonicalRaw=$canonicalTotalRaw)",
+            "#10B981",
+        )
         val fluidSession = try { FluidLearningAI.getSessionTradeCount().toLong() } catch (_: Throwable) { -1L }
         val fluidBaseline = try { FluidLearningAI.getHistoricalBaseline().toLong() } catch (_: Throwable) { 0L }
         addKvDrift(
             "FluidLearningAI.sessionTrades (baseline+$fluidBaseline)",
             fluidSession,
-            canonicalTotal,
+            settledTrades,
         )
         addKvDrift(
             "AdaptiveLearningEngine.sessionTrades",
             try { AdaptiveLearningEngine.getSessionTradeCount().toLong() } catch (_: Throwable) { -1L },
-            canonicalTotal,
+            settledTrades,
         )
         addKvDrift(
             "BehaviorLearning.tradeCount",
             try { BehaviorLearning.getTradeCount().toLong() } catch (_: Throwable) { -1L },
-            canonicalTotal,
+            settledTrades,
         )
         addKvDrift(
             "MetaCognitionAI.totalTradesAnalyzed",
             try { MetaCognitionAI.getTotalTradesAnalyzed().toLong() } catch (_: Throwable) { -1L },
-            canonicalTotal,
+            settledTrades,
         )
         addKv(
             "TradeHistoryStore.size",

@@ -3998,6 +3998,30 @@ class Executor(
         val isFreshMeme = isMemePosition && heldSecs < 300L
         val HARD_FLOOR_STOP_PCT = if (isFreshMeme) 9.0 else 15.0
 
+        // V5.9.807 — P3 predictive exit hook. If this position's
+        // (tradingMode × scoreBand) bucket is a danger zone (≥5 losses,
+        // ≥75% loss rate in last 2k closes), tighten the hard floor to
+        // the recommended SL. ADVISORY + TIGHTENING ONLY: we use
+        // minOf(...) so the hard floor can only be MADE TIGHTER, never
+        // loosened. Read-only over LosingPatternMemory; no impact on
+        // entry sizing, swap scripting, or PrecisionExitLogic.
+        val predictiveSlPct: Double? = try {
+            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+                tradingMode = pos.tradingMode,
+                v3Score = pos.entryScore.toInt(),
+            )
+        } catch (_: Throwable) { null }
+        val effectiveHardFloorPct: Double = if (predictiveSlPct != null) {
+            // recommendedSlPct returns NEGATIVE values (-3.0/-5.0/-7.0);
+            // HARD_FLOOR_STOP_PCT is the POSITIVE magnitude. Take the
+            // tighter of the two so we never widen an existing backstop.
+            minOf(HARD_FLOOR_STOP_PCT, -predictiveSlPct)
+        } else {
+            HARD_FLOOR_STOP_PCT
+        }
+        val predictiveTightened = predictiveSlPct != null &&
+            effectiveHardFloorPct < HARD_FLOOR_STOP_PCT
+
         // V5.9.67 ProfitabilityLayer hooks — trailing stop + liquidity drain
         // exit. These run BEFORE the hard floor so in-profit positions get
         // locked in before the −15% emergency cutoff fires.
@@ -4012,10 +4036,12 @@ class Executor(
             return reason
         }
 
-        if (gainPct <= -HARD_FLOOR_STOP_PCT) {
-            onLog("🛑 HARD FLOOR STOP: ${ts.symbol} at ${gainPct.toInt()}% - EMERGENCY EXIT", ts.mint)
-            markForRecoveryScan(ts, gainPct, "hard_floor")
-            return "hard_floor_stop"
+        if (gainPct <= -effectiveHardFloorPct) {
+            val tag = if (predictiveTightened) "predictive_hard_floor" else "hard_floor"
+            val icon = if (predictiveTightened) "🧠🛑" else "🛑"
+            onLog("$icon HARD FLOOR STOP ($tag): ${ts.symbol} at ${gainPct.toInt()}% (effective=${effectiveHardFloorPct.toInt()}% pred=${predictiveSlPct?.toInt() ?: 0}%) - EMERGENCY EXIT", ts.mint)
+            markForRecoveryScan(ts, gainPct, tag)
+            return if (predictiveTightened) "predictive_hard_floor_stop" else "hard_floor_stop"
         }
         
         val peakPnlPct = pos.peakGainPct
