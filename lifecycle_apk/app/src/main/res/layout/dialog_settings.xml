@@ -1147,6 +1147,52 @@
         </LinearLayout>
 
         <!-- ═══════════════════════════════
+             AI SCORING MODE CARD (V5.9.814)
+             ═══════════════════════════════ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/section_card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="AI SCORING MODE"
+                android:textColor="#9945FF"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:layout_marginBottom="4dp"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Which scoring engine the bot uses to rank candidates. Restart bot after change."
+                android:textColor="#6B7280"
+                android:textSize="10sp"
+                android:layout_marginBottom="10dp"/>
+
+            <Spinner
+                android:id="@+id/spScoringMode"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:backgroundTint="#374151"
+                android:layout_marginBottom="6dp"/>
+
+            <TextView
+                android:id="@+id/tvScoringModeHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="CLASSIC (20-layer build ~1920) — production default. Symmetric trust + polarity self-heal."
+                android:textColor="#9CA3AF"
+                android:textSize="10sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <!-- ═══════════════════════════════
              WATCHLIST CARD
              ═══════════════════════════════ -->
         <LinearLayout

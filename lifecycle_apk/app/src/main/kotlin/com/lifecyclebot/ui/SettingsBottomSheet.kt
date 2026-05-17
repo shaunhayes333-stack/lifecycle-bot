@@ -70,6 +70,9 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var switchNotifications: SwitchCompat
     private lateinit var switchSounds: SwitchCompat
     private lateinit var switchDarkMode: SwitchCompat
+    // V5.9.814 — AI scoring mode selector (3-way: CLASSIC / MODERN / UNIFIED)
+    private lateinit var spScoringMode: Spinner
+    private lateinit var tvScoringModeHint: TextView
     private lateinit var etWatchlist: EditText
     
     // V5.7.6: Trading Mode
@@ -145,6 +148,25 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchNotifications = view.findViewById(R.id.switchNotifications)
         switchSounds = view.findViewById(R.id.switchSounds)
         switchDarkMode = view.findViewById(R.id.switchDarkMode)
+        // V5.9.814 — AI scoring mode (CLASSIC / MODERN / UNIFIED 44-layer)
+        spScoringMode     = view.findViewById(R.id.spScoringMode)
+        tvScoringModeHint = view.findViewById(R.id.tvScoringModeHint)
+        run {
+            val opts = arrayOf("CLASSIC (20-layer build ~1920)", "MODERN (V5.9.325 outer-ring)", "UNIFIED (44-layer V5.9.813)")
+            val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, opts)
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spScoringMode.adapter = adapter
+            spScoringMode.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    tvScoringModeHint.text = when (position) {
+                        0 -> "CLASSIC — 20 inner layers, symmetric accuracy weighting, polarity self-heal. Production default."
+                        1 -> "MODERN — V5.9.325 outer-ring + TrustNet + MuteBoost. Historical over-penalising; not recommended."
+                        else -> "UNIFIED — 44 layers, CLASSIC fixes + V5.9.325 outer ring with softened caps. Operator opt-in (V5.9.813)."
+                    }
+                }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
+            }
+        }
         etWatchlist = view.findViewById(R.id.etWatchlist)
         
         // V5.7.6: Trading Mode
@@ -375,6 +397,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         switchNotifications.isChecked = cfg.notificationsEnabled
         switchSounds.isChecked = cfg.soundEnabled
         switchDarkMode.isChecked = cfg.darkModeEnabled
+        // V5.9.814 — scoring mode: 0=CLASSIC, 1=MODERN, 2=UNIFIED (precedence: unified > classic > modern)
+        spScoringMode.setSelection(when {
+            cfg.unifiedScoringMode -> 2
+            cfg.classicScoringMode -> 0
+            else                   -> 1
+        })
         
         // Watchlist
         etWatchlist.setText(cfg.watchlist.joinToString(", "))
@@ -422,6 +450,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             notificationsEnabled = switchNotifications.isChecked,
             soundEnabled = switchSounds.isChecked,
             darkModeEnabled = switchDarkMode.isChecked,
+            // V5.9.814 — scoring mode from 3-way spinner. UNIFIED takes precedence in score() router
+            // so when UNIFIED selected, set unifiedScoringMode=true and classicScoringMode irrelevant.
+            // When CLASSIC selected, classicScoringMode=true + unifiedScoringMode=false.
+            // When MODERN selected, both false.
+            classicScoringMode = (spScoringMode.selectedItemPosition == 0),
+            unifiedScoringMode = (spScoringMode.selectedItemPosition == 2),
             watchlist = etWatchlist.text.toString()
                 .split(",")
                 .map { it.trim() }
