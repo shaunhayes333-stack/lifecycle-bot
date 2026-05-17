@@ -6347,7 +6347,41 @@ class Executor(
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
-        ErrorLogger.info("Executor", "🧬 MEME_SPINE V3_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | authPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
+
+        // ── V5.9.844 — observability for 3 silently-dropped v3Buy params ──
+        // lastSuccessfulPollMs, openPositionCount, totalExposureSol have
+        // been parameters since v3Buy shipped, dropped on the floor at
+        // every entry. These are the entry-state context numbers an
+        // operator needs in the forensic to diagnose why a trade fired:
+        //   • pollAgeMs: how stale was the price tick? (>5s = thin venue)
+        //   • openPos: how crowded was the book? (correlates with WR)
+        //   • exposureSol: portfolio concentration at entry time
+        val pollAgeMs = if (lastSuccessfulPollMs > 0L)
+            (System.currentTimeMillis() - lastSuccessfulPollMs).coerceAtLeast(0L)
+            else -1L
+        val pollTag = when {
+            pollAgeMs < 0L      -> "BOOT"
+            pollAgeMs < 2_500L  -> "FRESH"
+            pollAgeMs < 5_000L  -> "OK"
+            pollAgeMs < 10_000L -> "STALE"
+            else                -> "VERY_STALE"
+        }
+        val exposurePctOfBank = if (walletSol > 0.0)
+            ((totalExposureSol / walletSol) * 100.0).coerceIn(0.0, 999.9)
+            else 0.0
+
+        ErrorLogger.info("Executor", "🧬 MEME_SPINE V3_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | authPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)} | openPos=$openPositionCount | exposure=${totalExposureSol.fmt(3)}SOL(${exposurePctOfBank.toInt()}%) | poll=${pollTag}${if (pollAgeMs >= 0L) "(${pollAgeMs}ms)" else ""}")
+
+        // V5.9.844 — observability-only warnings (no veto, no size mutation).
+        // The Executor already passed all FDG / size checks upstream; here
+        // we just emit a structured warning so the forensic explorer can
+        // surface trades fired during sub-optimal data conditions.
+        if (pollAgeMs >= 10_000L) {
+            ErrorLogger.warn("Executor", "⏱️ STALE_POLL_AT_ENTRY ${ts.symbol} | pollAge=${pollAgeMs}ms | proceeding (FDG/size already approved)")
+        }
+        if (exposurePctOfBank >= 80.0 && walletSol > 0.0) {
+            ErrorLogger.warn("Executor", "📊 HIGH_EXPOSURE_AT_ENTRY ${ts.symbol} | exposure=${exposurePctOfBank.toInt()}% of bank | openPos=$openPositionCount")
+        }
         
         if (isPaper) {
             paperBuy(
