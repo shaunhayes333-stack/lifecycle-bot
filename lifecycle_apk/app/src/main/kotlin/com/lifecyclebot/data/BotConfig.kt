@@ -237,6 +237,7 @@ data class BotConfig(
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
     val classicScoringMode: Boolean = true,          // V5.9.326: Use build ~1920 classic scorer (20 inner layers, no outer ring, no TrustNet/MuteBoost/genEq/CrossTalk/approvalMemory)
+    val unifiedScoringMode: Boolean = false,         // V5.9.813: Opt-in 44-layer UNIFIED scorer. When true, takes precedence over classicScoringMode. Default false — operator opt-in only.
     // V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
     // Auto-buy from network signals (Copy Trade from Hive)
     val autoTradeNetworkSignals: Boolean = false,   // DISABLED by default - user must opt-in
@@ -616,6 +617,8 @@ object ConfigStore {
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
             // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
             classicScoringMode          = p.getBoolean("classic_scoring_mode", true),
+            // V5.9.813: unified scoring mode (opt-in, default false)
+            unifiedScoringMode          = p.getBoolean("unified_scoring_mode", false),
         ).also {
             // V5.9.495z31 — bootstrap RuntimeModeAuthority on load.
             com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(

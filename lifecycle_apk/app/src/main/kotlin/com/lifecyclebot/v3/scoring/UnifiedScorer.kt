@@ -50,13 +50,29 @@ class UnifiedScorer(
         @Volatile var classicMode: Boolean = true
 
         /**
+         * V5.9.813 — UNIFIED scorer flag. When unifiedMode=true the scorer
+         * runs the merged 44-layer pipeline (CLASSIC's symmetric trust
+         * weighting + polarity self-heal + V5.9.325 outer-ring layers,
+         * with MODERN's over-penalising vectors softened per operator
+         * doctrine #86 "help, don't hinder").
+         *
+         * Opt-in only. Default false — CLASSIC stays the production default
+         * until operator confirms unifiedMode delivers ≥ CLASSIC volume + WR
+         * on a paper run. takes precedence over classicMode when true.
+         */
+        @Volatile var unifiedMode: Boolean = false
+
+        /**
          * V5.9.781 — operator audit item H: surface current scoring mode to UI/log
          * so dashboards never imply "full symbolic/modern AI" while classicMode
          * is silently bypassing the outer ring (AITrustNetwork, MuteBoost,
          * genEqRamp, CrossTalk kill penalty, approvalMemory).
          */
-        fun modeLabel(): String =
-            if (classicMode) "CLASSIC (20-layer build ~1920)" else "MODERN (V5.9.325 outer-ring)"
+        fun modeLabel(): String = when {
+            unifiedMode -> "UNIFIED (44-layer V5.9.813)"
+            classicMode -> "CLASSIC (20-layer build ~1920)"
+            else        -> "MODERN (V5.9.325 outer-ring)"
+        }
     }
 
     /**
@@ -66,7 +82,14 @@ class UnifiedScorer(
      * V5.9.326: routes to classicScore() or modernScore() based on classicMode flag.
      */
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
-        return if (classicMode) classicScore(candidate, ctx) else modernScore(candidate, ctx)
+        // V5.9.813 — unifiedMode takes precedence; falls through to classic/modern split otherwise.
+        // Opt-in only. classicMode (default true) remains the production path until operator
+        // flips unifiedMode after a successful paper-run comparison.
+        return when {
+            unifiedMode -> unifiedScore(candidate, ctx)
+            classicMode -> classicScore(candidate, ctx)
+            else        -> modernScore(candidate, ctx)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -749,6 +772,358 @@ class UnifiedScorer(
         "behavior",
         "insider_tracker",
     )
+
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.813 — UNIFIED SCORE
+    // ───────────────────────────────────────────────────────────────────────────
+    // Merges CLASSIC (20-layer build ~1920, currently live) and MODERN (V5.9.325
+    // outer-ring 14 layers + TrustNet/MuteBoost) into a single 44-layer scorer.
+    //
+    // OPERATOR DOCTRINE (memory #86, "help don't hinder"):
+    //   ALL decision engines must operate in a way that can only help not
+    //   hinder, and not outright block unless it's a stupid decision.
+    //
+    // Why MODERN choked previously (root-cause analysis 2026-05-17):
+    //   1. AITrustNetworkAI.getTrustWeight scaled ONLY positive votes —
+    //      a low-accuracy layer's negative still hit at full strength.
+    //   2. v59123 outer-ring cap at -25 was too loose — death by 14 small negatives.
+    //   3. v4KillPenalty added -5..-20 to EVERY token on global flag — mass extinction.
+    //   4. approvalNudge could go negative — penalised unfamiliar setups.
+    //   5. applyMuteBoost could mute a vote to zero — triple-penalty on top of
+    //      already-weighted + already-capped components.
+    //
+    // UNIFIED algorithm fixes each:
+    //   Phase 3: symmetric trust weight (CLASSIC's 0.7..1.5 formula on BOTH sides
+    //            of ALL 44 layers, never zeroes a vote)
+    //   Phase 4: polarity self-heal preserved (CLASSIC V5.9.363 with V5.9.721 WR guard)
+    //   Phase 5: soft penalty cap -5 (holders+narrative+social+holdtime cluster) preserved
+    //   Phase 6: outer-ring soft cap tightened from -25 → -10
+    //   Phase 7: V4 crosstalk penalties halved (-15→-8, -20→-10, -8→-4, -5→-3)
+    //   Phase 11: approval nudge clamped >= 0 (never penalise unfamiliar)
+    //   Phase 12: mute/boost gate becomes BOOST-ONLY (mute decision already made
+    //             by trust-weight × polarity-flip × soft-caps; doctrine #86)
+    //
+    // SAFETY RAILS:
+    //   - 20 CLASSIC inner-ring scoring identical to today
+    //   - BootstrapAdaptiveEngine ramp applied (cold-start protection)
+    //   - All 44 layers learn and contribute (MetaCog already records all of them)
+    //   - No new vetoes added (doctrine #86)
+    //   - V5.9.809 "no wide-open" mandate preserved at FDG level (untouched)
+    //
+    // Opt-in only via BotConfig.unifiedScoringMode (default false).
+    // ═══════════════════════════════════════════════════════════════════════════
+    private fun unifiedScore(candidate: CandidateSnapshot, ctx: TradingContext): ScoreCard {
+        val learningProgress = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+        } catch (_: Exception) { 0.0 }
+        val bootstrapBypass = learningProgress < 0.40
+
+        // ─── PHASE 1: RAW VOTES (44 layers) ────────────────────────────────
+        val classic20Raw = listOf(
+            sourceScoreWithTiming(candidate.source, candidate.mint),
+            entryAI.score(candidate, ctx),
+            momentumAI.score(candidate, ctx),
+            liquidityAI.score(candidate, ctx),
+            volumeAI.score(candidate, ctx),
+            holderAI.score(candidate, ctx),
+            narrativeAI.score(candidate, ctx),
+            memoryAI.score(candidate, ctx),
+            regimeAI.score(candidate, ctx),
+            timeAI.score(candidate, ctx),
+            copyTradeAI.score(candidate, ctx),
+            suppressionAI.score(candidate, ctx),
+            fearGreedAI.score(candidate, ctx),
+            socialVelocityAI.score(candidate, ctx),
+            VolatilityRegimeAI.score(candidate, ctx),
+            OrderFlowImbalanceAI.score(candidate, ctx),
+            SmartMoneyDivergenceAI.score(candidate, ctx),
+            HoldTimeOptimizerAI.score(candidate, ctx),
+            LiquidityCycleAI.score(candidate, ctx),
+            insiderTrackerScore(candidate),
+        )
+
+        val outerRing14Raw = listOf(
+            CorrelationHedgeAI.score(candidate, ctx),
+            LiquidityExitPathAI.score(candidate, ctx),
+            MEVDetectionAI.score(candidate, ctx),
+            StablecoinFlowAI.score(candidate, ctx),
+            OperatorFingerprintAI.score(candidate, ctx),
+            SessionEdgeAI.score(candidate, ctx),
+            ExecutionCostPredictorAI.score(candidate, ctx),
+            DrawdownCircuitAI.score(candidate, ctx),
+            CapitalEfficiencyAI.score(candidate, ctx),
+            TokenDNAClusteringAI.score(candidate, ctx),
+            PeerAlphaVerificationAI.score(candidate, ctx),
+            NewsShockAI.score(candidate, ctx),
+            FundingRateAwarenessAI.score(candidate, ctx),
+            OrderbookImbalancePulseAI.score(candidate, ctx),
+        )
+
+        // ─── PHASE 2: BOOTSTRAP RAMP (cold-start protection, existing engine) ───
+        val phase2Classic = if (bootstrapBypass) {
+            classic20Raw.map { c ->
+                val adj = BootstrapAdaptiveEngine.applyBootstrapScale(c.name.lowercase(), c.value)
+                if (adj == c.value) c else c.copy(value = adj,
+                    reason = "${c.reason} | BSTRAP×${"%.2f".format(BootstrapAdaptiveEngine.getMultiplier(c.name.lowercase()))}")
+            }
+        } else classic20Raw
+
+        val phase2Outer = if (bootstrapBypass) {
+            outerRing14Raw.map { c ->
+                val adj = BootstrapAdaptiveEngine.applyBootstrapScale(c.name.lowercase(), c.value)
+                if (adj == c.value) c else c.copy(value = adj,
+                    reason = "${c.reason} | BSTRAP×${"%.2f".format(BootstrapAdaptiveEngine.getMultiplier(c.name.lowercase()))}")
+            }
+        } else outerRing14Raw
+
+        // ─── PHASE 3: SYMMETRIC TRUST WEIGHT (THE BIG UNIFYING FIX) ─────────
+        // CLASSIC formula (0.7 + accuracy × 0.8, clamped 0.7..1.5) applied to
+        // BOTH positive AND negative votes for ALL 44 layers. Fixes MODERN's
+        // asymmetric AITrustNetworkAI which only scaled positives.
+        //
+        // Minimum samples=20 inner / 50 outer before any adjustment (per
+        // AITrustNetworkAI's existing two-tier rule).
+        fun symmetricTrust(c: ScoreComponent, isOuter: Boolean): ScoreComponent {
+            if (c.value == 0) return c
+            val layerName = try { EducationSubLayerAI.componentNameToLayer(c.name) } catch (_: Exception) { c.name }
+            val maturity = try { EducationSubLayerAI.getLayerMaturity(layerName) } catch (_: Exception) { null }
+            val minSamples = if (isOuter) 50 else 20
+            if (maturity == null || maturity.trades < minSamples) return c
+            val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
+            val weight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
+            val newValue = (c.value * weight).toInt()
+            return if (newValue == c.value) c else c.copy(
+                value = newValue,
+                reason = "${c.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%]"
+            )
+        }
+        val phase3Classic = phase2Classic.map { symmetricTrust(it, isOuter = false) }
+        val phase3Outer   = phase2Outer.map   { symmetricTrust(it, isOuter = true) }
+
+        // ─── PHASE 4: POLARITY SELF-HEAL (CLASSIC V5.9.363 + V5.9.721 WR guard) ───
+        val systemWr = try {
+            val ls = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+            if (ls.totalSells > 0) ls.totalWins.toDouble() / ls.totalSells else 0.0
+        } catch (_: Throwable) { 0.0 }
+        fun polarityFlip(c: ScoreComponent): ScoreComponent {
+            if (c.value == 0) return c
+            return try {
+                val layerName = try { EducationSubLayerAI.componentNameToLayer(c.name) } catch (_: Exception) { c.name }
+                val maturity = EducationSubLayerAI.getLayerMaturity(layerName)
+                val anticorrelated = systemWr >= 0.30 &&
+                    maturity.trades >= 30 &&
+                    maturity.expectancyPct < -0.3
+                if (anticorrelated) {
+                    c.copy(value = -c.value,
+                        reason = "${c.reason} [FLIP exp=${"%.1f".format(maturity.expectancyPct)}% sysWR=${(systemWr * 100).toInt()}%]")
+                } else c
+            } catch (_: Exception) { c }
+        }
+        val phase4Classic = phase3Classic.map { polarityFlip(it) }
+        val phase4Outer   = phase3Outer.map   { polarityFlip(it) }
+
+        // ─── PHASE 5: SOFT PENALTY CAP — noisy cluster (CLASSIC V5.8) ───────
+        val softNames = setOf("holders", "narrative", "social", "holdtime")
+        val softTotal = phase4Classic
+            .filter { it.name.lowercase() in softNames && it.value < 0 }
+            .sumOf { it.value }
+        val phase5Classic = if (softTotal < -5) {
+            val scale = -5.0 / softTotal
+            phase4Classic.map { c ->
+                if (c.name.lowercase() in softNames && c.value < 0)
+                    c.copy(value = (c.value * scale).toInt(),
+                        reason = "${c.reason} | SOFTCAP×${"%.2f".format(scale)}")
+                else c
+            }
+        } else phase4Classic
+
+        // ─── PHASE 6: OUTER-RING SOFT CAP (tightened from MODERN's -25 to -10) ───
+        val outerTotalNeg = phase4Outer.filter { it.value < 0 }.sumOf { it.value }
+        val phase6Outer = if (outerTotalNeg < -10) {
+            val scale = -10.0 / outerTotalNeg
+            phase4Outer.map { c ->
+                if (c.value < 0) c.copy(value = (c.value * scale).toInt(),
+                    reason = "${c.reason} | OUTERCAP×${"%.2f".format(scale)}")
+                else c
+            }
+        } else phase4Outer
+
+        // ─── PHASE 7: V4 CROSSTALK (MODERN, penalties halved per doctrine #86) ───
+        val v4Penalty: Int = try {
+            val snap = CrossTalkFusionEngine.getSnapshot()
+            when {
+                snap == null -> 0
+                "NO_MEME" in snap.killFlags        -> -8   // was -15
+                "NO_NEW_ENTRIES" in snap.killFlags -> -10  // was -20
+                "RISK_OFF" == snap.globalRiskMode.name -> -4  // was -8
+                "CHAOTIC" == snap.globalRiskMode.name  -> -3  // was -5
+                else -> 0
+            }
+        } catch (_: Exception) { 0 }
+        val v4Component: ScoreComponent? = if (v4Penalty != 0) {
+            val snap = try { CrossTalkFusionEngine.getSnapshot() } catch (_: Exception) { null }
+            val reason = snap?.killFlags?.joinToString(",")?.ifBlank { snap?.globalRiskMode?.name } ?: "V4_SIGNAL"
+            ScoreComponent("v4_crosstalk", v4Penalty, "🌐 V4: $reason | SOFT")
+        } else null
+
+        // ─── PHASE 8: COLLECTIVE INTELLIGENCE (hive mind) ───────────────────
+        val collectiveComp = try {
+            val insight = CollectiveIntelligenceAI.score(
+                mint = candidate.mint,
+                symbol = candidate.symbol,
+                source = candidate.source.name,
+                liquidityUsd = candidate.liquidityUsd,
+                v3Score = (phase5Classic + phase6Outer).sumOf { it.value },
+                v3Confidence = 70,
+            )
+            ScoreComponent(
+                name = "COLLECTIVE_AI",
+                value = insight.score,
+                reason = "🧠 ${insight.reasoning} (${insight.signal.name}) conf=${insight.confidence}"
+            )
+        } catch (_: Exception) {
+            ScoreComponent(name = "COLLECTIVE_AI", value = 0, reason = "🧠 NO_DATA")
+        }
+
+        // Layer health tracking (UI/diagnostics only)
+        val allBase = phase5Classic + phase6Outer + (if (v4Component != null) listOf(v4Component) else emptyList()) + collectiveComp
+        try { LayerHealthTracker.record(allBase) } catch (_: Exception) {}
+
+        return try {
+            // ─── PHASE 9: METACOG adjustScore (existing trust-weighted blend) ───
+            MetaCognitionAI.recordFromScoreCard(candidate.mint, candidate.symbol, allBase)
+            val predictions = allBase.mapNotNull { comp ->
+                val layer = mapComponentNameToLayer(comp.name) ?: return@mapNotNull null
+                val signal = when {
+                    comp.value > 5  -> MetaCognitionAI.SignalType.BULLISH
+                    comp.value < -5 -> MetaCognitionAI.SignalType.BEARISH
+                    else            -> MetaCognitionAI.SignalType.NEUTRAL
+                }
+                MetaCognitionAI.Prediction(
+                    layer = layer,
+                    signal = signal,
+                    confidence = (50.0 + comp.value * 2).coerceIn(0.0, 100.0),
+                    rawScore = comp.value.toDouble(),
+                )
+            }
+            val metaResult     = MetaCognitionAI.calculateMetaConfidence(predictions)
+            val baseTotal      = allBase.sumOf { it.value }
+            val adjustedTotal  = MetaCognitionAI.adjustScore(baseTotal, predictions)
+            val metaAdjustment = adjustedTotal - baseTotal
+            val vetoReason     = MetaCognitionAI.checkVeto(predictions, metaResult.confidence)
+
+            // Soft veto only (no fatal) per doctrine #86 — MetaCog can shave score
+            // but cannot solo-veto; stupid-decision blocks live in FDG.
+            val metaComponent = ScoreComponent(
+                name  = "metacognition",
+                value = metaAdjustment,
+                reason = if (vetoReason != null) "VETO_SOFT: $vetoReason | ${metaResult.summary()}"
+                         else metaResult.summary(),
+                fatal = false,
+            )
+            if (metaAdjustment != 0 || vetoReason != null) {
+                Log.i("UnifiedScorer", "🧠 META[UNIFIED]: ${candidate.symbol} | adj=$metaAdjustment | " +
+                    "conf=${metaResult.confidence.toInt()}% | ${metaResult.dominantSignal}" +
+                    (if (vetoReason != null) " | VETO_SOFT" else ""))
+            }
+
+            // ─── PHASE 10: BEHAVIOR LAYER (tilt protection + sentiment) ─────
+            val behaviorComponent = try {
+                if (BehaviorAI.isTiltProtectionActive()) {
+                    val remaining = BehaviorAI.getTiltProtectionRemaining()
+                    ScoreComponent(name = "behavior", value = -15,
+                        reason = "🛑 Tilt cooldown: ${remaining}s", fatal = false)
+                } else {
+                    val scoreAdj = BehaviorAI.getScoreAdjustment()
+                    val state    = BehaviorAI.getState()
+                    ScoreComponent(name = "behavior", value = scoreAdj,
+                        reason = "${state.sentimentClass} | streak=${state.currentStreak} | " +
+                            "tilt=${state.tiltLevel}% disc=${state.disciplineScore}%")
+                }
+            } catch (_: Exception) {
+                ScoreComponent(name = "behavior", value = 0, reason = "NO_DATA")
+            }
+
+            // ─── PHASE 11: APPROVAL MEMORY (clamped >= 0 per doctrine) ──────
+            val votesForApproval = (allBase + metaComponent + behaviorComponent)
+                .associate { it.name to it.value }
+            val (approvalRaw, approvalReason) = try {
+                EducationSubLayerAI.approvalBoostFor(votesForApproval)
+            } catch (_: Exception) { 0 to "ERR" }
+            val approvalScaled = if (bootstrapBypass) {
+                (approvalRaw * BootstrapAdaptiveEngine.getBootstrapRamp()).toInt()
+            } else approvalRaw
+            // V5.9.813 doctrine: approval-memory can BOOST, never penalise. An
+            // unfamiliar setup should not be punished for being new.
+            val approvalNudge = approvalScaled.coerceAtLeast(0)
+            val approvalTag = if (approvalScaled < 0) "$approvalReason | CLAMPED_>=0" else approvalReason
+            val approvalComponent = ScoreComponent(
+                name = "approval_memory", value = approvalNudge, reason = approvalTag
+            )
+
+            // ─── PHASE 12: MUTE/BOOST GATE — BOOST ONLY per doctrine #86 ────
+            // The MUTE / SOFT_PENALTY paths from applyMuteBoost are redundant
+            // with Phase 3 (symmetric trust weight) + Phase 4 (polarity flip)
+            // + Phase 5/6 (soft caps). Stacking another mute on top was the
+            // primary triple-penalty vector that choked MODERN. We honor only
+            // BOOST and HEAVY_BOOST here.
+            val boostedNames = mutableListOf<String>()
+            val allBeforeGate = allBase + metaComponent + behaviorComponent + approvalComponent
+            val gatedComponents = allBeforeGate.map { c ->
+                if (c.value == 0) return@map c
+                val layerName = EducationSubLayerAI.normalizeComponentName(c.name)
+                val (newVote, mult, status) = try {
+                    EducationSubLayerAI.applyMuteBoost(layerName, c.value)
+                } catch (_: Exception) { Triple(c.value, 1.0, "NORMAL") }
+                when (status) {
+                    "BOOST" -> {
+                        boostedNames.add(layerName)
+                        c.copy(value = newVote, reason = "${c.reason} | BOOST×${"%.2f".format(mult)}")
+                    }
+                    "HEAVY_BOOST" -> {
+                        boostedNames.add("$layerName(hvy)")
+                        c.copy(value = newVote, reason = "${c.reason} | HEAVY_BOOST×${"%.2f".format(mult)}")
+                    }
+                    // MUTE / SOFT_PENALTY / NORMAL — pass through unchanged (doctrine #86)
+                    else -> c
+                }
+            }
+            if (boostedNames.isNotEmpty()) {
+                Log.i("UnifiedScorer", "🌟 BOOST[UNIFIED] ${candidate.symbol} | ${boostedNames.joinToString(",")}")
+            }
+
+            val finalCard = ScoreCard(gatedComponents)
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
+
+            // CrossTalk publish (existing behavior — fan-out the unified score)
+            try {
+                val totalScore = finalCard.total
+                val normConf   = ((totalScore + 50.0) / 150.0).coerceIn(0.0, 1.0)
+                val direction  = if (totalScore > 0) "LONG" else if (totalScore < -10) "SHORT" else null
+                CrossTalkFusionEngine.publish(
+                    AATESignal(
+                        source    = "UnifiedScorerV3-UNIFIED",
+                        market    = "MEME",
+                        symbol    = candidate.symbol,
+                        confidence = normConf,
+                        direction  = direction,
+                        horizonSec = 300,
+                        regimeTag  = "V3_SCORED_UNIFIED",
+                        narrativeHeat = null,
+                        riskFlags  = if (totalScore < 0) listOf("V3_BEARISH") else emptyList(),
+                    )
+                )
+            } catch (_: Exception) {}
+
+            finalCard
+        } catch (e: Exception) {
+            Log.w("UnifiedScorer", "unifiedScore error: ${e.message}")
+            val fallbackCard = ScoreCard(allBase)
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components, candidate) } catch (_: Exception) {}
+            fallbackCard
+        }
+    }
 
     /**
      * V5.7.4: Score based on Insider Tracker signals

@@ -112,7 +112,9 @@ object V3EngineManager {
 
                 // V5.9.326 — propagate classic scoring flag to UnifiedScorer
                 com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode = botCfg.classicScoringMode
-                android.util.Log.i("V3EngineManager", "🏛️ Scoring mode: ${if (botCfg.classicScoringMode) "CLASSIC (build ~1920)" else "MODERN (V5.9.325)"}")
+                // V5.9.813 — propagate unified scoring flag (takes precedence when true)
+                com.lifecyclebot.v3.scoring.UnifiedScorer.unifiedMode = botCfg.unifiedScoringMode
+                android.util.Log.i("V3EngineManager", "🏛️ Scoring mode: ${com.lifecyclebot.v3.scoring.UnifiedScorer.modeLabel()}")
 
                 config = TradingConfigV3(
                     minLiquidityUsd = 500.0,
@@ -632,7 +634,11 @@ object V3EngineManager {
         val openPos = exposureGuard?.openCount() ?: 0
         val tracked = shadowTracker?.allTracked()?.size ?: 0
 
-        val scoringTag = if (com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode) "CLASSIC🏛️" else "MODERN"
+        val scoringTag = when {
+            com.lifecyclebot.v3.scoring.UnifiedScorer.unifiedMode -> "UNIFIED🌐"
+            com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode -> "CLASSIC🏛️"
+            else                                                   -> "MODERN"
+        }
         return "V3: $mode | exp=${exposure}% | pos=$openPos | tracked=$tracked | scoring=$scoringTag"
     }
 
