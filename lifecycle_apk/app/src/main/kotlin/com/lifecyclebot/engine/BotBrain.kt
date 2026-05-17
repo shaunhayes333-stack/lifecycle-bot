@@ -14,6 +14,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import kotlin.math.*
+import java.util.concurrent.ConcurrentHashMap   // V5.9.826: thread-safe counters
 
 /**
  * BotBrain — the self-learning engine
@@ -161,12 +162,12 @@ class BotBrain(
     private val topHolderBuckets = mutableMapOf<Int, DecayingBucket>()   // holder% bucket → decaying stats
     
     // Legacy counters (kept for backwards compatibility)
-    private val rugcheckLosses = mutableMapOf<Int, Int>()  // score bucket → loss count
-    private val rugcheckWins = mutableMapOf<Int, Int>()    // score bucket → win count
-    private val pressureLosses = mutableMapOf<Int, Int>()  // pressure bucket → loss count
-    private val pressureWins = mutableMapOf<Int, Int>()    // pressure bucket → win count
-    private val topHolderLosses = mutableMapOf<Int, Int>() // holder% bucket → loss count
-    private val topHolderWins = mutableMapOf<Int, Int>()   // holder% bucket → win count
+    private val rugcheckLosses = ConcurrentHashMap<Int, Int>()  // score bucket → loss count
+    private val rugcheckWins = ConcurrentHashMap<Int, Int>()    // score bucket → win count
+    private val pressureLosses = ConcurrentHashMap<Int, Int>()  // pressure bucket → loss count
+    private val pressureWins = ConcurrentHashMap<Int, Int>()    // pressure bucket → win count
+    private val topHolderLosses = ConcurrentHashMap<Int, Int>() // holder% bucket → loss count
+    private val topHolderWins = ConcurrentHashMap<Int, Int>()   // holder% bucket → win count
 
     // ══════════════════════════════════════════════════════════════════
     // ROLLING MEMORY SYSTEM
@@ -1033,9 +1034,9 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     // FDG INTEGRATION - Record blocked trades for learning (without execution)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val blockedTradesByReason = mutableMapOf<String, Int>()
-    private val blockedTradesByPhase = mutableMapOf<String, Int>()
-    private val blockedTradesBySource = mutableMapOf<String, Int>()
+    private val blockedTradesByReason = ConcurrentHashMap<String, Int>()
+    private val blockedTradesByPhase = ConcurrentHashMap<String, Int>()
+    private val blockedTradesBySource = ConcurrentHashMap<String, Int>()
     
     /**
      * Record a trade that was blocked by the Final Decision Gate.
@@ -1056,13 +1057,13 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     ) {
         try {
             // Count blocks by reason
-            blockedTradesByReason[blockReason] = (blockedTradesByReason[blockReason] ?: 0) + 1
+            blockedTradesByReason.merge(blockReason, 1, Int::plus)  // V5.9.826: atomic
             
             // Count blocks by phase
-            blockedTradesByPhase[phase] = (blockedTradesByPhase[phase] ?: 0) + 1
+            blockedTradesByPhase.merge(phase, 1, Int::plus)  // V5.9.826: atomic
             
             // Count blocks by source
-            blockedTradesBySource[source] = (blockedTradesBySource[source] ?: 0) + 1
+            blockedTradesBySource.merge(source, 1, Int::plus)  // V5.9.826: atomic
             
             // Log for visibility
             val totalBlocks = blockedTradesByReason.values.sum()
@@ -1195,12 +1196,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             
             // Track phase performance in session counters (reset on restart)
             // These give immediate feedback, rolling memory provides context
-            val phaseWins = phaseWinCounts.getOrDefault(phase, 0)
-            val phaseLosses = phaseLossCounts.getOrDefault(phase, 0)
+            // V5.9.826: atomic counters — no read-then-write needed
             if (isWin) {
-                phaseWinCounts[phase] = phaseWins + 1
+                phaseWinCounts.merge(phase, 1, Int::plus)
             } else {
-                phaseLossCounts[phase] = phaseLosses + 1
+                phaseLossCounts.merge(phase, 1, Int::plus)
             }
             
             // Phase boost: Use RECENT MEMORY win rate (not global)
@@ -1217,12 +1217,11 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             }
             
             // Track source performance
-            val sourceWins = sourceWinCounts.getOrDefault(source, 0)
-            val sourceLosses = sourceLossCounts.getOrDefault(source, 0)
+            // V5.9.826: atomic counters — no read-then-write needed
             if (isWin) {
-                sourceWinCounts[source] = sourceWins + 1
+                sourceWinCounts.merge(source, 1, Int::plus)
             } else {
-                sourceLossCounts[source] = sourceLosses + 1
+                sourceLossCounts.merge(source, 1, Int::plus)
             }
             
             // Source boost: Use RECENT MEMORY win rate
@@ -1260,8 +1259,8 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
             // ═══════════════════════════════════════════════════════════════════
             val key = "${phase}+${emaFan}"
             if (!isWin) {
-                val currentLosses = patternLossCounts.getOrDefault(key, 0) + 1
-                patternLossCounts[key] = currentLosses
+                // V5.9.826: atomic increment — merge returns the new value
+                val currentLosses = patternLossCounts.merge(key, 1, Int::plus) ?: 1
                 
                 // Auto-suppress patterns with 3+ consecutive losses
                 if (currentLosses >= 3) {
@@ -1270,8 +1269,8 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
                 
                 // Track losses per token for auto-blacklisting
                 if (mint.isNotBlank()) {
-                    val tokenLosses = tokenLossCounts.getOrDefault(mint, 0) + 1
-                    tokenLossCounts[mint] = tokenLosses
+                    // V5.9.826: atomic increment — merge returns the new value
+                    val tokenLosses = tokenLossCounts.merge(mint, 1, Int::plus) ?: 1
                     
                     if (tokenLosses >= TOKEN_LOSS_BLACKLIST_THRESHOLD) {
                         onLog("🚫 Token ${mint.take(8)}... has $tokenLosses losses — BLACKLISTING")
@@ -1378,16 +1377,16 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
     fun isRecentRegimeFavorable(): Boolean = memoryStats.recentWinRate >= 0.50
     
     // Real-time tracking maps
-    private val phaseWinCounts = mutableMapOf<String, Int>()
-    private val phaseLossCounts = mutableMapOf<String, Int>()
-    private val sourceWinCounts = mutableMapOf<String, Int>()
-    private val sourceLossCounts = mutableMapOf<String, Int>()
-    private val patternLossCounts = mutableMapOf<String, Int>()
+    private val phaseWinCounts = ConcurrentHashMap<String, Int>()
+    private val phaseLossCounts = ConcurrentHashMap<String, Int>()
+    private val sourceWinCounts = ConcurrentHashMap<String, Int>()
+    private val sourceLossCounts = ConcurrentHashMap<String, Int>()
+    private val patternLossCounts = ConcurrentHashMap<String, Int>()
     private var totalTradesLearned = 0
     
     // Track losses per token mint for auto-blacklisting
     // Key = mint address, Value = number of losing trades on this token
-    private val tokenLossCounts = mutableMapOf<String, Int>()
+    private val tokenLossCounts = ConcurrentHashMap<String, Int>()
     private val TOKEN_LOSS_BLACKLIST_THRESHOLD = 2  // Blacklist after 2 losses on same token
     
     /**
@@ -1539,13 +1538,13 @@ Analyse this data and respond with ONLY valid JSON in this exact format:
         
         // Legacy counters (for backwards compat)
         if (isWin) {
-            rugcheckWins[rugBucket] = (rugcheckWins[rugBucket] ?: 0) + 1
-            pressureWins[pressBucket] = (pressureWins[pressBucket] ?: 0) + 1
-            topHolderWins[holderBucket] = (topHolderWins[holderBucket] ?: 0) + 1
+            rugcheckWins.merge(rugBucket, 1, Int::plus)  // V5.9.826: atomic
+            pressureWins.merge(pressBucket, 1, Int::plus)  // V5.9.826: atomic
+            topHolderWins.merge(holderBucket, 1, Int::plus)  // V5.9.826: atomic
         } else {
-            rugcheckLosses[rugBucket] = (rugcheckLosses[rugBucket] ?: 0) + 1
-            pressureLosses[pressBucket] = (pressureLosses[pressBucket] ?: 0) + 1
-            topHolderLosses[holderBucket] = (topHolderLosses[holderBucket] ?: 0) + 1
+            rugcheckLosses.merge(rugBucket, 1, Int::plus)  // V5.9.826: atomic
+            pressureLosses.merge(pressBucket, 1, Int::plus)  // V5.9.826: atomic
+            topHolderLosses.merge(holderBucket, 1, Int::plus)  // V5.9.826: atomic
         }
         
         // ═══════════════════════════════════════════════════════════════════
