@@ -350,22 +350,64 @@ object SmartMoneyDivergenceAI {
     ): Double {
         // Insider pattern: Whale activity BEFORE price moves
         // Look for: whale buying → price pump sequence
-        
+
         val recentBuys = history.whaleBuyScores.toList().takeLast(5)
         val recentPrices = history.priceChanges.toList().takeLast(5)
-        
+
         if (recentBuys.size < 4) return 0.0
-        
+
         // Check if early buying was followed by price pump
         val earlyBuying = recentBuys.take(3).average()
         val latePriceMove = recentPrices.takeLast(2).average()
-        
-        if (earlyBuying > 60 && latePriceMove > 5) {
-            // Whales bought before pump - insider-like pattern
-            return ((earlyBuying - 40) + (latePriceMove * 2)).coerceIn(0.0, 100.0)
+
+        // Base historical pattern (early whale buying → late price move)
+        var pattern = if (earlyBuying > 60 && latePriceMove > 5) {
+            ((earlyBuying - 40) + (latePriceMove * 2))
+        } else {
+            0.0
         }
-        
-        return 0.0
+
+        // ── V5.9.848 — wire behavior + currentPriceChange (both dropped) ──
+        // The function name says "insider pattern" but the original logic
+        // only checked HISTORY. The cleanest insider signature is when
+        // CURRENT whale behavior is ACCUMULATION/HEAVY_ACCUMULATION AND
+        // CURRENT price is just starting to move — the front-run window.
+        // Without these two inputs, the bot could detect the pattern in
+        // hindsight but never DURING the actual setup.
+        //
+        // Boost rules (additive to the historical base):
+        //   currentBehavior = HEAVY_ACCUMULATION + price 2-15% moving → +25
+        //   currentBehavior = ACCUMULATION       + price 1-10% moving → +12
+        // Penalty when price is dumping while history shows whales bought:
+        //   currentPriceChange < -10 AND earlyBuying > 60                → -15
+        //   (this is the "whales front-ran but it failed" anti-pattern —
+        //    keeps the pattern detector honest, doesn't add a new veto)
+        val absChange = kotlin.math.abs(currentPriceChange)
+        val frontRunBoost = when {
+            behavior == SmartMoneyBehavior.HEAVY_ACCUMULATION &&
+                currentPriceChange in 2.0..15.0 -> 25.0
+            behavior == SmartMoneyBehavior.ACCUMULATION &&
+                currentPriceChange in 1.0..10.0 -> 12.0
+            // Failed front-run anti-pattern
+            currentPriceChange < -10.0 && earlyBuying > 60.0 -> -15.0
+            // Whales currently distributing while history shows past
+            // accumulation — late-cycle, reduce insider conviction
+            (behavior == SmartMoneyBehavior.DISTRIBUTION ||
+                behavior == SmartMoneyBehavior.HEAVY_DISTRIBUTION) &&
+                earlyBuying > 60.0 -> -8.0
+            else -> 0.0
+        }
+        pattern += frontRunBoost
+
+        // Tiny micro-confirmation: if we never hit the historical
+        // threshold but current state is screaming insider, still
+        // surface a low-magnitude reading (capped at 30 in this branch
+        // so it never dominates a real historical signal).
+        if (pattern == 0.0 && frontRunBoost > 0.0 && absChange >= 1.5) {
+            pattern = (frontRunBoost * 0.6).coerceAtMost(30.0)
+        }
+
+        return pattern.coerceIn(0.0, 100.0)
     }
     
     private fun calculateEntryBoost(
