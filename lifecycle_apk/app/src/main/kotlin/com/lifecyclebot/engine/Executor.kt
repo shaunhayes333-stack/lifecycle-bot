@@ -1726,6 +1726,24 @@ class Executor(
             } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
         }
 
+        // ── V5.9.834 (B8) — EmergentGuardrails rate-limit soft-shaper ──
+        // EmergentGuardrails.recordTradeExecution() has been firing on every
+        // trade close since the safety system was added, populating
+        // tradeTimestamps. But getRateLimitSizeMultiplier() has been DARK —
+        // no consumer. Wire it as a size multiplier so the bot naturally
+        // slows down trade aggression when the per-minute trade rate
+        // approaches the configured threshold.
+        // Returns from EmergentGuardrails are already bounded:
+        //   ratio >= 1.0  → 0.5
+        //   ratio >= 0.8  → 0.75
+        //   else          → 1.0
+        // Pure soft-shape. No new veto. FDG hard floors untouched.
+        var rateLimitSizeMult = 1.0
+        try {
+            rateLimitSizeMult = com.lifecyclebot.engine.EmergentGuardrails
+                .getRateLimitSizeMultiplier().coerceIn(0.5, 1.0)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Update session peak (mode-aware to prevent paper stats affecting live)
         SmartSizer.updateSessionPeak(walletSol, isPaperMode)
 
@@ -1766,7 +1784,8 @@ class Executor(
             val finalSol = result.solAmount * patternSizeMult * brakeMult *
                            behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
                            symbolicSizeMult * timeSizeMult * momentumSizeMult *
-                           narrativeSizeMult * sellPressureSizeMult * trend1hSizeMult
+                           narrativeSizeMult * sellPressureSizeMult * trend1hSizeMult *
+                           rateLimitSizeMult   // V5.9.834 (B8) — EmergentGuardrails
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
@@ -1840,6 +1859,9 @@ class Executor(
                     else       -> "neutral"
                 }
                 onLog("📉 SellPress: [$tag ${sp.toInt()}%] size×${"%.2f".format(sellPressureSizeMult)}", "sizing")
+            }
+            if (rateLimitSizeMult != 1.0) {
+                onLog("🚧 RateLimit: size×${"%.2f".format(rateLimitSizeMult)} (trade rate near/at threshold)", "sizing")
             }
             if (trend1hSizeMult != 1.0 && ts != null) {
                 val ch = ts.lastPriceChange1h
