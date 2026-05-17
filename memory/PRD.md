@@ -29,6 +29,69 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 ## Implementation History — Recent Sessions
 
+### V5.9.806 — Full intelligence wire-up: P0+P1+P2+P3+P4 (May 17, CI ✅)
+
+Operator: "AATE is meant to be beyond AGI with its sentience, metacognition,
+ai cross talk and symbolic reasoning. why isnt it performing like this?
+it has all the architecture". Diagnosis: the AGI lived in the commentary
+layer; the decision path was a dumb `score > threshold` if-statement.
+This patch wires the brain layers INTO the entry decision (`FinalDecisionGate.evaluate`)
+without touching pumpfun/Executor.paperBuy/liveBuy scripting.
+
+P1 — StrategyTelemetry + auto-retirement (COMPLETE)
+- Read-only journal aggregator grouped by tradingMode.
+- Top-5 winners / bottom-5 bleeders in pipeline-health dump.
+- Auto-disable rule: strategies with ≥50 trades AND meanPnl ≤ -5% are
+  flagged via `isDisabled(strategy)`. Operator can reset via
+  `clearDisabled()`. 60s memo.
+
+P0 — BrainConsensusGate (COMPLETE)
+- Binding cross-brain gate consulted at the end of `FDG.evaluate` —
+  can only downgrade allow→block, never upgrade block→allow.
+- Composes: SentientPersonality mood, RegimeDetector, SecondScorer
+  disagreement, LosingPatternMemory danger-zone, StrategyTelemetry
+  auto-disabled.
+- Verdict: ALLOW / SOFT_BLOCK (telemetry-only) / HARD_BLOCK (reason
+  `BRAIN_CONSENSUS_VETO`).
+- HARD_BLOCK triggers: strategy disabled, mood HUMBLED/SELF_CRITICAL
+  in DUMP regime, SecondScorer disagrees in CHOP/DUMP.
+
+P2 — RegimeDetector (COMPLETE)
+- Classifies bot performance into BULL_RIPPING / NORMAL / CHOP / DUMP
+  / DEAD using last-100-sells WR%, mean PnL%, V3 score median.
+- Exposes scoreFloorDelta() and sizeMultiplier() for downstream
+  consumers. Memoised 30s.
+
+P3 — LosingPatternMemory (COMPLETE)
+- Coarse-bucket pattern recall keyed by (tradingMode × scoreBand).
+- ≥5 losses AND ≥75% loss rate → 'danger zone' → BrainConsensusGate
+  objection. Recommends tightened SL (-3%/-5%/-7%) for advisory use.
+
+P4 — SecondScorer (COMPLETE)
+- Independent 0-100 perception scorer with different weights from V3:
+  heavy on liquidity stability, holder count, age, balanced buy
+  pressure; intentionally LIGHT on momentum.
+- ≥20pt gap with second-scorer-says-worse → objection in CHOP/DUMP.
+
+NOT TOUCHED (per operator mandate):
+- Executor.paperBuy / liveBuy unchanged. PumpPortal swap scripting
+  unchanged. Sub-trader evaluate() methods unchanged.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on 89761e13e.
+
+### V5.9.805 — Treasury-scale floor (α) + Score-distribution auto-fit (β) (May 16, CI ✅)
+
+Operator approved both fixes from prior summary. Treasury-scale floor:
+CashGenerationAI WR Recovery floor switched from V3 scale (45/30) to
+Treasury-scale additive (base+20 AGGRESSIVE, base+10 MODERATE) +
+anti-FOMO clamp (reject buyPressure>65% in AGGRESSIVE band — those
+were the heldMs<30 traps). Score-distribution auto-fit: WrRecoveryPartial
+maintains 200-tick V3 score ring; minScoreFloor() adjusts band base
+by -25 (THIN) / 0 (NORMAL) / +10 (RICH). FDG.evaluate records every
+candidate's V3 score for the rolling buffer.
+
+CI: Build AATE APK ✅ + Runtime Smoke Test ✅ on 787de5355.
+
 ### V5.9.804 — Fix count doubling on legacy consumer canonical alignment (May 16, CI ✅)
 
 Operator on build 5.0.2745: "count still looks doubled vs trade count".
