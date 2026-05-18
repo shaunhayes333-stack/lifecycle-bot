@@ -140,6 +140,25 @@ class PipelineHealthActivity : AppCompatActivity() {
                 snap.anrHints < 5   -> 0xFFF59E0B.toInt() // amber
                 else                -> 0xFFEF4444.toInt() // red
             }
+
+            // V5.9.944 — PRECOMPUTE TEXT MEASUREMENT OFF-MAIN.
+            // The previous implementation built `dump` async but then assigned
+            // it to dumpText.text on the main thread. That assignment triggers
+            // StaticLayout.generate() — text measurement for tens of thousands
+            // of glyphs — synchronously on main. Operator pipeline-health
+            // snapshots showed 35-55 second main-thread blocks while the
+            // dump was being measured (top frame: StaticLayout.generate from
+            // PipelineHealthActivity.renderSnapshotAsync$lambda).
+            //
+            // PrecomputedText.create() does ALL the heavy measurement work on
+            // whichever thread calls it. Posting the precomputed object to
+            // main means the TextView just installs already-measured layout
+            // data — O(1) on main instead of O(N) where N = char count.
+            val precomputed = try {
+                val params = androidx.core.text.PrecomputedTextCompat.getTextMetricsParams(dumpText)
+                androidx.core.text.PrecomputedTextCompat.create(dump, params)
+            } catch (_: Throwable) { null }
+
             mainHandler.post {
                 statLoop.text     = formatBig(loop)
                 statExec.text     = formatBig(exec)
@@ -147,7 +166,16 @@ class PipelineHealthActivity : AppCompatActivity() {
                 statMaxFrame.text = maxFrameTxt
                 anrBadge.text     = anrTxt
                 anrBadge.setTextColor(anrColor)
-                dumpText.text     = dump
+                if (precomputed != null) {
+                    try {
+                        androidx.core.widget.TextViewCompat.setPrecomputedText(dumpText, precomputed)
+                    } catch (_: Throwable) {
+                        // Fallback if TextView config doesn't match (e.g. textSize changed)
+                        dumpText.text = dump
+                    }
+                } else {
+                    dumpText.text = dump
+                }
             }
         }
     }

@@ -2642,6 +2642,17 @@ class SolanaMarketScanner(
                     skippedThin++
                     continue
                 }
+                // V5.9.944 — ABSOLUTE MCAP FLOOR.
+                // Operator pipeline dump showed NARRATIVE_SCAN emitting
+                // tokens with mcap=$0.000003 (dust). The OR-style thin
+                // gate above lets vol-driven dust through (high churn,
+                // zero real mcap). Hard floor at $5K mcap kills the
+                // phantom-pool junk regardless of how much wash-volume
+                // is sloshing through it.
+                if (r.marketCapUsd > 0 && r.marketCapUsd < 5_000.0) {
+                    skippedThin++
+                    continue
+                }
 
                 // Hit DexScreener for the canonical pair (rich pool info, volume H1, etc).
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(r.mint) }
