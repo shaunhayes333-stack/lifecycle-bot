@@ -15519,7 +15519,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
                 val request = okhttp3.Request.Builder()
-                    .url("https://frontend-api.pump.fun/coins/$mint")
+                    .url("https://frontend-api-v3.pump.fun/coins/$mint")
                     .header("Accept", "application/json").build()
                 val response = client.newCall(request).execute()
                 if (response.isSuccessful) {

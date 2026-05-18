@@ -169,7 +169,7 @@ class CopyTradeEngine(
      */
     fun discoverTopWallets(): List<Pair<String, Double>> {
         // Pump.fun leaderboard API (public)
-        val url  = "https://frontend-api.pump.fun/leaderboard?timeframe=7d&limit=20"
+        val url  = "https://frontend-api-v3.pump.fun/leaderboard?timeframe=7d&limit=20"
         val body = get(url) ?: return emptyList()
         return try {
             val arr = org.json.JSONArray(body)

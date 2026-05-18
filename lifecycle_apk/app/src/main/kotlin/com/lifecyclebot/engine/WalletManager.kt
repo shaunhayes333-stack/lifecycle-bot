@@ -471,24 +471,34 @@ class WalletManager private constructor(private val ctx: Context) {
     }
     
     private fun tryJupiter(): Double {
+        // V5.9.854 — price.jup.ag is DNS-dead (live probe 2026-05-18).
+        // New endpoint: lite-api.jup.ag/price/v3?ids=<mint>. Schema changed too:
+        //   OLD v6: {"data": {"<mint>": {"price": "X", ...}}}
+        //   NEW v3: {"<mint>": {"usdPrice": X, "blockId": ..., "decimals": ...}}
+        // No key required for the lite tier. Parser supports both shapes so a
+        // future Jupiter rollback doesn't break us.
         return try {
             val http = com.lifecyclebot.network.SharedHttpClient.builder()
                 .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()
-            // Jupiter price API - SOL mint
+            val solMint = "So11111111111111111111111111111111111111112"
             val req = okhttp3.Request.Builder()
-                .url("https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112")
+                .url("https://lite-api.jup.ag/price/v3?ids=$solMint")
                 .header("Accept", "application/json")
                 .build()
             val resp = http.newCall(req).execute()
             val body = resp.body?.string() ?: return 0.0
             val json = org.json.JSONObject(body)
-            val data = json.optJSONObject("data")
-            val solData = data?.optJSONObject("So11111111111111111111111111111111111111112")
-            val price = solData?.optDouble("price", 0.0) ?: 0.0
+            // V3 shape (flat, no data wrapper)
+            var price = json.optJSONObject(solMint)?.optDouble("usdPrice", 0.0) ?: 0.0
+            // Legacy v4/v6 fallback (in case Jupiter ever rolls back or proxies)
+            if (price <= 0.0) {
+                val legacyData = json.optJSONObject("data")
+                price = legacyData?.optJSONObject(solMint)?.optDouble("price", 0.0) ?: 0.0
+            }
             if (price > 50.0) {
-                ErrorLogger.info("Wallet", "SOL price from Jupiter: $${String.format("%.2f", price)}")
+                ErrorLogger.info("Wallet", "SOL price from Jupiter lite-api/v3: $${String.format("%.2f", price)}")
             }
             price
         } catch (e: Exception) {
