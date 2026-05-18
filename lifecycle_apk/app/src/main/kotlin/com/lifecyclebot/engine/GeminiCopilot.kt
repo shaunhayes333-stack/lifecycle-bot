@@ -1034,6 +1034,7 @@ Not one sentence unless the moment truly calls for it.
                                 // V5.9.855 — sticky-DEAD verdict for KeyValidator so next analyzeNarrative
                                 // call short-circuits at the entry gate instead of burning another RTT.
                                 try { KeyValidator.recordResult("gemini", success = false, httpStatus = response.code, error = errorBody) } catch (_: Throwable) {}
+                                try { ApiHealthMonitor.record("gemini", response.code, errorBody = errorBody) } catch (_: Throwable) {}
                                 hardFail = true
                             }
 
@@ -1053,6 +1054,8 @@ Not one sentence unless the moment truly calls for it.
                         resetRateLimit(provider.name)
                         // V5.9.855 — successful response promotes KeyValidator to LIVE.
                         try { KeyValidator.recordResult("gemini", success = true, httpStatus = response.code) } catch (_: Throwable) {}
+                        // V5.9.856 — host health observability (no gating).
+                        try { ApiHealthMonitor.record("gemini", response.code) } catch (_: Throwable) {}
 
                         val body = response.body?.string().orEmpty().trim()
                         if (body.isBlank()) {
