@@ -2463,8 +2463,32 @@ class Executor(
         val remainingRoom = c.topUpMaxTotalSol - currentTotal
         size = size.coerceAtMost(remainingRoom)
 
-        // Never exceed wallet exposure cap
-        // Wallet room from SmartSizer exposure — unlimited from config side
+        // ── V5.9.894 — totalExposureSol finally consumed in top-up sizing ──
+        // Audit (memory #145) found topUpSizeSol(pos, walletSol, totalExposureSol)
+        // accepts totalExposureSol but the body NEVER reads it. Old comment
+        // here literally said "Wallet room from SmartSizer exposure —
+        // unlimited from config side" — meaning the function relied on
+        // upstream SmartSizer to handle exposure caps. But top-ups go
+        // through THIS function on a DIFFERENT path than fresh buys, so
+        // SmartSizer's 70% legacy-exposure cap (SmartSizer.kt L616) never
+        // applied to additions.
+        //
+        // Net effect: a position already at 65% wallet exposure could
+        // receive a top-up of up to 15% of walletSol, pushing total
+        // exposure to 80%+ — past the SmartSizer doctrine ceiling.
+        //
+        // Wire the same 70% portfolio-exposure ceiling here. Hard cap,
+        // not soft-shape: the doctrine is explicit (SmartSizer enforces
+        // it for fresh buys), top-ups must respect the same envelope.
+        // Hard returns 0.0 only when the new exposure WOULD cross 70%;
+        // otherwise sizes the top-up to fit within the remaining headroom.
+        val exposureCeilingSol = walletSol * 0.70
+        val exposureRoomSol = (exposureCeilingSol - totalExposureSol).coerceAtLeast(0.0)
+        if (exposureRoomSol <= 0.0) {
+            // Already at/past the 70% cap — no top-up at all
+            return 0.0
+        }
+        size = size.coerceAtMost(exposureRoomSol)
 
         // Minimum viable trade
         return size.coerceAtMost(walletSol * 0.15)  // never more than 15% of wallet in one add
