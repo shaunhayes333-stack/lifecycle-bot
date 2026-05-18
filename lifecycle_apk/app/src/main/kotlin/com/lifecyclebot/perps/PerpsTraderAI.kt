@@ -569,7 +569,42 @@ object PerpsTraderAI {
             confidence >= 65 -> 1.2
             else -> 1.0
         }
-        val recommendedSizePct = (baseSize * sizeMultiplier).coerceIn(2.0, MAX_POSITION_PCT_OF_BALANCE)
+
+        // ── V5.9.884 — BehaviorAI sizing wire-up for PERPS lane ──
+        // Final dark-lane closure. PerpsTraderAI scored fluid=0/behavior=0
+        // on the audit matrix — completely insulated from the bot's
+        // adaptive brain. Perps already has a separate risk axis (leverage),
+        // so BehaviorAI shapes ONLY the position-size %, NOT leverage. The
+        // riskTier ladder above already encodes leverage-as-risk; we don't
+        // want to double-attenuate by also scaling leverage off BehaviorAI.
+        //
+        // Per doctrine #86: bounded soft-shape, fail-open, no veto.
+        // Final cap (2.0..MAX_POSITION_PCT_OF_BALANCE) preserved as safety.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            // Perps confidence ranges 0-100, A bar set high for leveraged risk:
+            //   85+ = A, 75+ = B, 65+ = C, else D
+            val inferredGrade = when {
+                confidence >= 85 -> "A"
+                confidence >= 75 -> "B"
+                confidence >= 65 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        val composed = baseSize * sizeMultiplier * behaviorSizeMult * behaviorGradeMult
+        val recommendedSizePct = composed.coerceIn(2.0, MAX_POSITION_PCT_OF_BALANCE)
         
         // ═══════════════════════════════════════════════════════════════════
         // RISK PARAMETERS
