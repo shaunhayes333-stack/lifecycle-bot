@@ -87,10 +87,29 @@ object HardRugPreFilter {
         // kept the bypass unconditional in paper mode — that's the
         // learning-rich path that produced the 60% WR. The QualityLadder
         // tier check was choking the paper feedback loop.
+        // V5.9.877 — REPLACE blanket LENIENT_MODE_BYPASS with structured telemetry.
+        //
+        // PRIOR BEHAVIOR: in lenient mode (paper, or proven-edge live), the
+        // pre-filter ran ONE check (zero-liq) and let everything else through
+        // with reason="LENIENT_MODE_BYPASS". This is exactly the "old bypass
+        // thinking under new architecture" the operator + external review
+        // flagged: trades passed without labels, so the learning bus had no
+        // way to distinguish "clean entry" from "would-have-been-rugged".
+        //
+        // NEW BEHAVIOR (per doctrine #86 + external GPT audit Item 4):
+        //   - Zero-liquidity ALWAYS hard-fails (truly untradeable).
+        //   - In lenient mode, the OTHER 6 checks STILL evaluate, but
+        //     instead of blocking they return PASS with a structured
+        //     PAPER_TELEMETRY:<reason> tag. Learners can soft-down-weight,
+        //     pattern clusters can discover "trades labeled X have N% WR",
+        //     and the FDG can apply graded confidence penalties per label.
+        //   - Strict mode is unchanged: the 6 checks still HARD_FAIL.
+        //
+        // Net effect: same trade volume in paper mode (learning preserved),
+        // but each trade now carries a quality label for the learning fan-out.
         val lenient = ModeLeniency.useLenientGates(isPaperMode)
         if (lenient) {
-            // Even in lenient mode, block tokens with literally zero liquidity (can't trade)
-            // But only if they've had enough time to get polled (grace period above handles new tokens)
+            // Hard-fail: literally zero liquidity (can't execute even in paper)
             if (ts.lastLiquidityUsd <= 0) {
                 return PreFilterResult(
                     pass = false,
@@ -98,11 +117,24 @@ object HardRugPreFilter {
                     severity = FilterSeverity.HARD_FAIL,
                 )
             }
-            // Allow everything else through for learning
-            ErrorLogger.debug(TAG, "✅ LENIENT BYPASS (${ModeLeniency.label(isPaperMode)}): ${ts.symbol} pre-filter skipped for learning")
+            // Run all the strict checks and collect telemetry labels for any
+            // that would have failed. Don't block — emit PASS with labels.
+            val telemetryReasons = computeLenientTelemetryLabels(ts)
+            if (telemetryReasons.isNotEmpty()) {
+                ErrorLogger.debug(
+                    TAG,
+                    "🏷️ LENIENT TELEMETRY (${ModeLeniency.label(isPaperMode)}): " +
+                    "${ts.symbol} labels=${telemetryReasons.joinToString(",")}"
+                )
+                return PreFilterResult(
+                    pass = true,
+                    reason = "PAPER_TELEMETRY:${telemetryReasons.joinToString("|")}",
+                    severity = FilterSeverity.PASS,
+                )
+            }
             return PreFilterResult(
                 pass = true,
-                reason = "LENIENT_MODE_BYPASS",
+                reason = "LENIENT_CLEAN",
                 severity = FilterSeverity.PASS,
             )
         }
@@ -246,6 +278,81 @@ object HardRugPreFilter {
         )
     }
     
+
+    /**
+     * V5.9.877 — for lenient mode, compute the list of telemetry labels that
+     * STRICT mode would have used to hard-fail. Returns an empty list when
+     * the token would pass strict mode too. Order matches the strict check
+     * order so the first label is the "highest-priority" issue.
+     *
+     * Pure function: read-only on TokenState, no mutation, no logging.
+     * Safe to call frequently. Mirrors the strict check thresholds — if a
+     * strict check is updated, update its mirror here too.
+     */
+    private fun computeLenientTelemetryLabels(ts: com.lifecyclebot.data.TokenState): List<String> {
+        val labels = mutableListOf<String>()
+        val hist = ts.history.toList()
+        val now = System.currentTimeMillis()
+        val tokenAgeMins = if (hist.isNotEmpty()) {
+            (now - hist.first().ts) / 60_000.0
+        } else 0.0
+
+        // CHECK 1 mirror — LOW_LIQUIDITY (not zero, just below threshold)
+        val liq = ts.lastLiquidityUsd
+        val minLiq = when {
+            tokenAgeMins < 5 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqFresh()
+            tokenAgeMins < 30 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqYoung()
+            else -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqEstablished()
+        }
+        if (liq > 0 && liq < minLiq) {
+            labels.add("LOW_LIQUIDITY")
+        }
+
+        // CHECK 2 mirror — holder concentration
+        val topHolderPct = ts.meta.holderConcentration
+        if (topHolderPct > 85) {
+            labels.add("TOXIC_CONCENTRATION")
+        } else if (topHolderPct > 70 && tokenAgeMins > 10) {
+            labels.add("HIGH_CONCENTRATION")
+        }
+
+        // CHECK 3 mirror — no history
+        if (hist.isEmpty()) {
+            labels.add("NO_HISTORY")
+            return labels  // can't run candle-based checks
+        }
+
+        // CHECK 4 mirror — liquidity collapse pattern
+        if (hist.size >= 3) {
+            val volumes = hist.takeLast(3).map { it.vol }
+            val isCollapsing = volumes.zipWithNext { a, b -> b < a * 0.5 }.count { it } >= 2
+            if (isCollapsing && liq < 5000) {
+                labels.add("LIQUIDITY_COLLAPSE_PATTERN")
+            }
+        }
+
+        // CHECK 5 mirror — pure sell pressure
+        if (hist.size >= 2) {
+            val recentBuyRatios = hist.takeLast(3).map { it.buyRatio }
+            val avgBuyRatio = recentBuyRatios.average()
+            if (avgBuyRatio < 0.25) {
+                labels.add("PURE_SELL_PRESSURE")
+            }
+        }
+
+        // CHECK 7 mirror — price crashed
+        if (hist.size >= 5) {
+            val prices = hist.map { it.priceUsd }
+            val peakPrice = prices.maxOrNull() ?: 0.0
+            val currentPrice = prices.lastOrNull() ?: 0.0
+            if (peakPrice > 0 && currentPrice < peakPrice * 0.05) {
+                labels.add("PRICE_COLLAPSED")
+            }
+        }
+
+        return labels
+    }
+
     /**
      * Quick check if token passes basic viability thresholds.
      * Returns true if token should proceed to full evaluation.
