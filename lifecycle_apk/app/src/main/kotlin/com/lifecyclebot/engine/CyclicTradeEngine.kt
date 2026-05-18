@@ -168,34 +168,94 @@ object CyclicTradeEngine {
 
             val (tpPct, slPct) = adaptiveTpSl()
             val holdMs = System.currentTimeMillis() - entryTimeMs
-            val timedOut = holdMs >= MAX_HOLD_MS
-            val hitTP    = pnlPct >= tpPct
-            val hitSL    = pnlPct <= -slPct
 
             // V5.9.696 — Dynamic profit lock (ratchet).
             // Once a position reaches a profit threshold, lock in a floor so
             // gains can't fully evaporate. High-water tracking + ratchet tiers.
             if (pnlPct > positionHighWaterPnlPct) positionHighWaterPnlPct = pnlPct
-            val profitLockTriggered = when {
-                // Reached 10%+ profit: lock floor at +3% (don't give it all back)
-                positionHighWaterPnlPct >= 10.0 && pnlPct < 3.0  -> true
-                // Reached 6%+ profit: lock floor at breakeven
-                positionHighWaterPnlPct >= 6.0  && pnlPct < 0.0  -> true
-                // Reached 4%+ profit: lock at -1% (minor givebacks ok, but not full SL)
-                positionHighWaterPnlPct >= 4.0  && pnlPct < -1.0 -> true
-                else -> false
-            }
-            val dynamicSlReason = when {
-                profitLockTriggered -> "PROFIT_LOCK_${positionHighWaterPnlPct.toInt()}PCT_HW"
-                pnlPct <= -slPct    -> "SL"
-                else                -> null
-            }
-            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | HW:+${positionHighWaterPnlPct.toInt()}% | TP${tpPct.toInt()}/SL${slPct.toInt()} | ${if (isLiveMode) "LIVE" else "PAPER"}"
 
-            when {
-                hitTP                -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TP", solPrice)
-                dynamicSlReason != null -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, dynamicSlReason, solPrice)
-                timedOut             -> closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "TIMEOUT", solPrice)
+            // V5.9.898 — RUNNER MODE for the $500→$1M ring.
+            // PRE-FIX: hitTP at +15% closed the ENTIRE ring, capping every
+            // winner at exactly +15%. A token that ran to +50% / +100% was
+            // exited at +15%. That mathematically forbids the compounding
+            // path to $1M because EV/cycle is bounded by TP regardless of
+            // runner availability.
+            //
+            // FIX: once we're past TP, ENTER RUNNER MODE — don't close on
+            // TP hit, instead RATCHET the profit floor higher. The ring
+            // only exits when the runner gives back N% from high-water,
+            // letting +50%/+100% moves actually contribute.
+            //
+            // Trail config (chosen conservatively):
+            //   HW ≥ 15%:  floor at +8%      (lock 8 of the 15)
+            //   HW ≥ 25%:  floor at +15%     (lock the original TP)
+            //   HW ≥ 40%:  floor at +25%
+            //   HW ≥ 60%:  floor at +40%
+            //   HW ≥ 100%: floor at +70%
+            //   HW ≥ 200%: floor at HW*0.70  (continuous 30% trail)
+            //
+            // If pnlPct ever falls below the active floor → close as
+            // RUNNER_TRAIL_<floor>. Otherwise keep riding.
+            //
+            // Sub-TP profit-lock cascade (V5.9.696 + tightened V5.9.898):
+            //   HW ≥ 10%: floor +3% (was: same)
+            //   HW ≥  8%: floor +1% (NEW — between 6 and 10 there was a gap)
+            //   HW ≥  6%: floor  0% (was: same)
+            //   HW ≥  4%: floor -1% (was: same)
+            //   HW ≥  2%: floor -3% (NEW — tighten on early gains)
+            val runnerFloor: Double? = when {
+                positionHighWaterPnlPct >= 200.0 -> positionHighWaterPnlPct * 0.70
+                positionHighWaterPnlPct >= 100.0 -> 70.0
+                positionHighWaterPnlPct >= 60.0  -> 40.0
+                positionHighWaterPnlPct >= 40.0  -> 25.0
+                positionHighWaterPnlPct >= 25.0  -> 15.0
+                positionHighWaterPnlPct >= 15.0  -> 8.0
+                positionHighWaterPnlPct >= 10.0  -> 3.0
+                positionHighWaterPnlPct >= 8.0   -> 1.0
+                positionHighWaterPnlPct >= 6.0   -> 0.0
+                positionHighWaterPnlPct >= 4.0   -> -1.0
+                positionHighWaterPnlPct >= 2.0   -> -3.0
+                else                              -> null
+            }
+            val inRunnerMode = positionHighWaterPnlPct >= tpPct
+
+            // V5.9.898 — timeout BYPASS for runners.
+            // Pre-fix: any cycle that hadn't TP'd by 90min closed regardless
+            // of trajectory. A +12% position at minute 89 still in uptrend
+            // would close at TIMEOUT for less than TP. That penalises the
+            // exact runners we need for compounding.
+            //
+            // Bypass rule: skip timeout while HW ≥ TP*0.6 AND pnl ≥ HW*0.7
+            // (still close to high-water → trend intact). Hard ceiling at
+            // 3× MAX_HOLD_MS to prevent zombies.
+            val hwGate = positionHighWaterPnlPct >= tpPct * 0.6
+            val trendIntact = pnlPct >= positionHighWaterPnlPct * 0.7
+            val absoluteMaxHold = MAX_HOLD_MS * 3L
+            val timedOut = when {
+                holdMs >= absoluteMaxHold -> true                  // hard ceiling
+                hwGate && trendIntact     -> false                 // still riding
+                holdMs >= MAX_HOLD_MS     -> true                  // legacy timeout
+                else                       -> false
+            }
+
+            val floorBreached = runnerFloor != null && pnlPct < runnerFloor
+            val hitSL    = pnlPct <= -slPct
+
+            val exitReason: String? = when {
+                floorBreached && inRunnerMode ->
+                    "RUNNER_TRAIL_${runnerFloor!!.toInt()}_HW${positionHighWaterPnlPct.toInt()}"
+                floorBreached ->
+                    "PROFIT_LOCK_${positionHighWaterPnlPct.toInt()}PCT_HW"
+                pnlPct <= -slPct -> "SL"
+                timedOut         -> "TIMEOUT_HW${positionHighWaterPnlPct.toInt()}"
+                else              -> null
+            }
+
+            val modeTag = if (inRunnerMode) "🚀RUN" else "TP${tpPct.toInt()}/SL${slPct.toInt()}"
+            statusMessage = "IN: $currentSymbol | PnL: ${"%+.1f".format(pnlPct)}% | HW:+${positionHighWaterPnlPct.toInt()}% | $modeTag | ${if (isLiveMode) "LIVE" else "PAPER"}"
+
+            if (exitReason != null) {
+                closeCycle(context, ts, executor, wallet, walletSol, pnlPct, exitReason, solPrice)
             }
             return
         }
