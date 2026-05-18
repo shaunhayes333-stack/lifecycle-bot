@@ -428,10 +428,15 @@ object TradeHistoryStore {
             mint  = mint,
         )
         synchronized(lock) { trades.add(partialTrade) }
-        lifetimeRealizedPnlSol += profitSol
-        saveLifetimeStats()
+        // V5.9.869 — record this partial as a lifetime sell so the win-rate
+        // counter sees the +18%/+35%/+60% rungs. bumpLifetimeFor now accepts
+        // PARTIAL_SELL alongside SELL and also accumulates pnlSol there, so
+        // the previous `lifetimeRealizedPnlSol += profitSol` is removed here
+        // to avoid double-counting realized profit.
+        bumpLifetimeFor(partialTrade)
+        // saveLifetimeStats() already called inside bumpLifetimeFor.
         insertTradeAsync(partialTrade)
-        ErrorLogger.debug("TradeHistoryStore", "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}%")
+        ErrorLogger.debug("TradeHistoryStore", "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}% (counted as lifetime win-tick)")
     }
 
     fun recordTradeForML(
@@ -833,19 +838,40 @@ object TradeHistoryStore {
     }
 
     private fun bumpLifetimeFor(trade: Trade) {
-        if (trade.side != "SELL") return
+        // V5.9.869 — operator audit: PARTIAL_SELL trades MUST contribute to
+        // lifetime WR statistics. Previously only side=='SELL' was counted,
+        // which meant the WR-Recovery ladder added zero "win ticks" to the
+        // lifetime WR — the entire premise of the ladder doctrine
+        // (R1/R2/R3 = small wins to boost recovery WR) was silently broken.
+        //
+        // New behaviour:
+        //   - Full SELL closes: count as before (1 sell, 1 win/loss/scratch).
+        //   - PARTIAL_SELL: counts as a sell too, win/loss/scratch decided
+        //     by isWin/isLoss against partial pnlPct (typically the
+        //     +18%/+35%/+60% AGGRESSIVE rungs all classify as wins).
+        if (trade.side != "SELL" && trade.side != "PARTIAL_SELL") return
         lifetimeSells++
         when {
             isWin(trade)  -> { lifetimeWins++;    lifetimeWinPnlSum += trade.pnlPct }
             isLoss(trade) ->   lifetimeLosses++
             else          ->   lifetimeScratches++
         }
+        // Realized PnL also accumulated here. recordPartialProfit no longer
+        // adds pnlSol manually (it was duplicating this accumulation in the
+        // pre-V5.9.869 code path — but only for PARTIAL_SELL, since
+        // recordTrade routed through bumpLifetimeFor for SELL).
         lifetimeRealizedPnlSol += trade.pnlSol
         saveLifetimeStats()
     }
 
     private fun backfillLifetimeFromTrades() {
-        val sells = synchronized(lock) { trades.filter { it.side == "SELL" } }
+        // V5.9.869 — include PARTIAL_SELL in the lifetime back-fill so a
+        // restart correctly recovers the WR counters (previously partials
+        // were dropped on rebuild). Realized PnL is summed across both
+        // SELL and PARTIAL_SELL because both write pnlSol.
+        val sells = synchronized(lock) {
+            trades.filter { it.side == "SELL" || it.side == "PARTIAL_SELL" }
+        }
         if (sells.isEmpty()) return
         lifetimeSells          = sells.size
         lifetimeWins           = sells.count { isWin(it) }
@@ -855,7 +881,7 @@ object TradeHistoryStore {
         lifetimeRealizedPnlSol = sells.sumOf { it.pnlSol }
         saveLifetimeStats()
         ErrorLogger.info("TradeHistoryStore",
-            "📊 Back-filled lifetime stats from ${sells.size} existing SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
+            "📊 Back-filled lifetime stats from ${sells.size} SELL/PARTIAL_SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
