@@ -1192,6 +1192,49 @@ object ShitCoinTraderAI {
             }
         } catch (_: Exception) {}
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.927 — HARVARD BRAIN PATTERN MEMORY (FIRST 9-LANE CONSUMER).
+        //
+        // Operator deep-audit finding: EducationSubLayerAI.approvalBoostFor()
+        // has been silently learning win/loss patterns from every lane's
+        // outcomes (via recordTradeOutcomeAcrossAllLayers) — but only
+        // UnifiedScorer.kt read the wisdom back. The 9 dedicated trader
+        // lanes have been re-deciding from base scoring every time, while
+        // the Harvard brain held the cross-trade memory and never got
+        // queried.
+        //
+        // This is Pass 1 of the wiring fix: build a Map<String, Int> sig
+        // from ShitCoin's bullish features, ask Harvard's pattern memory
+        // whether similar sigs have historically won, apply the [-4, +10]
+        // nudge. Also feed sig back via recordEntryScores so the Harvard
+        // brain learns from ShitCoin entries the same way it learns from
+        // UnifiedScorer entries.
+        //
+        // Fail-open per FDG doctrine #86: any error → 0 nudge, no veto.
+        // Bounded soft-shape: nudge in [-4, +10] (Harvard's own clamp).
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "SHITCOIN_TRADER"   to shitScore.coerceIn(0, 100),
+                "LIQUIDITY"         to liqScore,
+                "BUY_PRESSURE"      to buyScore,
+                "MOMENTUM"          to momentumScore,
+                "AGE"               to ageScore,
+                "PLATFORM"          to platformScore,
+                "SOCIAL"            to socialBonus,
+                "DEXBONUS"          to dexBonus,
+                "HOLDERS"           to holderScore,
+            ).filterValues { it > 0 }  // approvalBoostFor only counts entries ≥ APPROVAL_BULLISH_THRESHOLD anyway
+
+            val (harvardNudge, harvardReason) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                shitScore = (shitScore + harvardNudge).coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "🎓 HARVARD PATTERN MEMORY: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$shitScore")
+            }
+            // Feed the sig back so Harvard learns from ShitCoin entries — symmetric with UnifiedScorer.
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardSig)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
         // 
         // Problem: User had 12 SOL but shitcoin was taking tiny 0.05 SOL entries
