@@ -85,7 +85,7 @@ object BirdeyeSecurityProvider {
      * Returns trust score in [MIN_TRUST, 1.0]. Fail-open on any error.
      * Safe to call from any thread.
      */
-    suspend fun getTrust(mint: String): Double {
+    suspend fun getTrust(mint: String, apiKey: String = ""): Double {
         if (mint.isBlank()) return NEUTRAL_TRUST
         val cached = cache[mint]
         val now = System.currentTimeMillis()
@@ -93,9 +93,14 @@ object BirdeyeSecurityProvider {
             return cached.trust
         }
 
+        // V5.9.910/912: fast-fail-open. If no key configured, the endpoint
+        // will 401 (current plan tier doesn't include token_security per
+        // V5.9.910 sandbox probe). Save a 1.5s timeout and return neutral.
+        if (apiKey.isBlank()) return NEUTRAL_TRUST
+
         return try {
             val sec = withContext(Dispatchers.IO) {
-                withTimeoutOrNull(REQUEST_TIMEOUT_MS) { fetchAndScore(mint) }
+                withTimeoutOrNull(REQUEST_TIMEOUT_MS) { fetchAndScore(mint, apiKey) }
             }
             sec?.trust ?: NEUTRAL_TRUST
         } catch (e: Exception) {
