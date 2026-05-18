@@ -281,7 +281,41 @@ object ManipulatedTraderAI {
             return noEnter("EXPECTANCY_REJECT_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
         }
 
-        val positionSizeSol = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
+        val baseSize = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
+
+        // ── V5.9.881 — BehaviorAI sizing wire-up for MANIPULATED lane ──
+        // Final trader in the V5.9.878-881 batch closing the "dark lane" audit.
+        // Manipulated trader rides bundle-buy momentum + early-pump signals —
+        // exactly the lane where tilt protection matters because a misread
+        // bundle = instant -30% rug. With BehaviorAI dark, tilt periods were
+        // sizing full POSITION_SOL_MATURE into rug-heavy environments.
+        //
+        // Per doctrine #86: bounded soft-shape, fail-open, no veto.
+        // Grade inferred from score vs minScore — A if 1.5× over threshold,
+        // B if 1.2×, C if at threshold, else D.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            val ratio = if (minScore > 0) score.toDouble() / minScore.toDouble() else 1.0
+            val inferredGrade = when {
+                ratio >= 1.5 -> "A"
+                ratio >= 1.2 -> "B"
+                ratio >= 1.0 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        val positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult
         val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
         ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score (min=$minScore) | " +
