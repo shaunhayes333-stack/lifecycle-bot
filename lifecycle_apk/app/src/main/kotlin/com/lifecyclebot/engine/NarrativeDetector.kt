@@ -70,6 +70,12 @@ object NarrativeDetector {
         if (groqApiKey.isBlank()) {
             return fallbackAnalysis(symbol, name, description)
         }
+        // V5.9.858 — if KeyValidator has flagged Groq DEAD (401/403 within
+        // the 30min TTL), short-circuit to fallback. Saves a round-trip per
+        // candidate at intake throughput. Fail-open: unknown verdict = proceed.
+        if (!KeyValidator.isLive("groq")) {
+            return fallbackAnalysis(symbol, name, description)
+        }
 
         // Check cache
         val cached = cache[mintAddress]
@@ -134,12 +140,20 @@ object NarrativeDetector {
                 .header("Content-Type", "application/json")
                 .build()
 
+            val groqStart = System.currentTimeMillis()
             val resp = http.newCall(req).execute()
+            val groqLatency = System.currentTimeMillis() - groqStart
             if (!resp.isSuccessful) {
                 ErrorLogger.debug("NarrativeAI", "Groq returned ${resp.code}")
+                // V5.9.858 — auth failures flag the key DEAD; transient (5xx/timeout) doesn't.
+                val errBody = try { resp.body?.string()?.take(200) } catch (_: Throwable) { null }
+                try { ApiHealthMonitor.record("groq", resp.code, groqLatency, errorBody = errBody) } catch (_: Throwable) {}
+                try { KeyValidator.recordResult("groq", success = false, httpStatus = resp.code, error = errBody) } catch (_: Throwable) {}
                 return null
             }
 
+            try { ApiHealthMonitor.record("groq", resp.code, groqLatency) } catch (_: Throwable) {}
+            try { KeyValidator.recordResult("groq", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
             val body = resp.body?.string() ?: return null
             val content = JSONObject(body)
                 .optJSONArray("choices")
