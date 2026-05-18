@@ -447,11 +447,20 @@ object QualityTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val positionSize = min(
+        var positionSize = min(
             BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult,
             MAX_POSITION_SOL
         )
-        
+
+        // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
+        try {
+            val globalMultiplier = com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+            if (globalMultiplier.isFinite() && globalMultiplier > 1.0) {
+                positionSize *= globalMultiplier
+                positionSize = positionSize.coerceAtMost(MAX_POSITION_SOL * 1.5)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Get fluid TP/SL
         val tp = getFluidTakeProfit()
         val sl = getFluidStopLoss()

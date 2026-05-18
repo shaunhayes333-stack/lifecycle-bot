@@ -893,6 +893,16 @@ object BlueChipTraderAI {
 
         positionSol *= (behaviorSizeMult * behaviorGradeMult)
 
+        // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
+        try {
+            val globalMultiplier = com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+            if (globalMultiplier.isFinite() && globalMultiplier > 1.0) {
+                positionSol *= globalMultiplier
+                // BlueChip is the biggest-size lane — keep the *1.5 overshoot cap consistent
+                positionSol = positionSol.coerceAtMost(MAX_POSITION_SOL * 1.5)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Cap at max
         positionSol = positionSol.coerceIn(0.05, MAX_POSITION_SOL)
         

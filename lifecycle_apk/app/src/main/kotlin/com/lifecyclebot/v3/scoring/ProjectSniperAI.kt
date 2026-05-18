@@ -378,7 +378,16 @@ object ProjectSniperAI {
         // composing on a sub-60 confidence (0.8×), composed product is 0.4×,
         // which the new floor preserves instead of clamping back to 1.0×.
         val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult
-        val positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.5, MAX_POSITION_SOL)
+        var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.5, MAX_POSITION_SOL)
+
+        // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
+        try {
+            val globalMultiplier = com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+            if (globalMultiplier.isFinite() && globalMultiplier > 1.0) {
+                positionSol *= globalMultiplier
+                positionSol = positionSol.coerceAtMost(MAX_POSITION_SOL * 1.5)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
         
         val threatLevel = when {
             confidence >= 70 -> ThreatLevel.GREEN

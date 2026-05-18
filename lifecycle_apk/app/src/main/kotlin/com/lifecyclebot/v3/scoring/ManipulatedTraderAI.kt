@@ -315,7 +315,18 @@ object ManipulatedTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult
+        var positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult
+
+        // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
+        try {
+            val globalMultiplier = com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+            if (globalMultiplier.isFinite() && globalMultiplier > 1.0) {
+                positionSizeSol *= globalMultiplier
+                // Manipulated lane has no MAX_POSITION_SOL constant; use baseSize*3 as soft cap
+                positionSizeSol = positionSizeSol.coerceAtMost(baseSize * 3.0)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
         ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score (min=$minScore) | " +

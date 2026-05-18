@@ -665,7 +665,20 @@ object MoonshotTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult, MAX_POSITION_SOL)
+        var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult, MAX_POSITION_SOL)
+
+        // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
+        // Operator: 5 of 9 lanes were not consuming AutoCompoundEngine.
+        // Same upside-only pattern as CashGen / ShitCoin: only boosts on
+        // accumulated winning trades, never shrinks, capped at MAX*1.5
+        // so a runaway compound state can't bust live risk budgets.
+        try {
+            val globalMultiplier = com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+            if (globalMultiplier.isFinite() && globalMultiplier > 1.0) {
+                sizeSol *= globalMultiplier
+                sizeSol = sizeSol.coerceAtMost(MAX_POSITION_SOL * 1.5)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
         val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
