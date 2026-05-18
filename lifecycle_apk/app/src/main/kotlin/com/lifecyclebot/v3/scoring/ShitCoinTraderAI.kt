@@ -1490,7 +1490,12 @@ object ShitCoinTraderAI {
         // Now only exit on: stop loss, trailing stop, take profit, flat, or rug
         
         // 6. Early exit if profitable after 5 mins (but not if running hot)
-        if (holdMinutes >= 5 && pnlPct >= 20.0 && pnlPct < 50.0) {
+        // V5.9.899: skip Early TP once the partial ladder has fired. Pre-fix
+        // this branch closed the FULL position at +20-50% on every tick after
+        // 5min, even AFTER rung #1 at +20% had taken its partial. Ladder +
+        // trailing-stop manage the exit cleanly once rung #1 has fired.
+        if (pos.partialRungsTaken == 0 &&
+            holdMinutes >= 5 && pnlPct >= 20.0 && pnlPct < 50.0) {
             // V5.2: Quick 20%+ profit after 5 mins - take it (was 15% after 3 mins)
             ErrorLogger.info(TAG, "💩💰 EARLY TP: ${pos.symbol} | +${pnlPct.fmt(1)}% @ ${holdMinutes}min")
             return ExitSignal.TAKE_PROFIT

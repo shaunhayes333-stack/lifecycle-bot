@@ -559,7 +559,9 @@ object BlueChipTraderAI {
         // ═══════════════════════════════════════════════════════════════════
 
         // 1. TAKE PROFIT - hit target
-        if (pnlPct >= pos.takeProfitPct) {
+        // V5.9.899: skip hard-TP once the partial ladder has started — ladder
+        // + trailing/profit-floor manage exits and let runners run past TP.
+        if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) {
             ErrorLogger.info(TAG, "🔵 TP HIT: ${pos.symbol} | +${pnlPct.toInt()}%")
             return ExitSignal.TAKE_PROFIT
         }

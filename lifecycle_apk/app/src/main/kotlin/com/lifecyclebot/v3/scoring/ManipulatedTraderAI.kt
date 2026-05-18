@@ -405,8 +405,11 @@ object ManipulatedTraderAI {
             return ManipExitSignal.TIME_EXIT
         }
 
-        // 1. Take profit
-        if (pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
+        // 1. Take profit — V5.9.899: skip hard-TP once the partial ladder has
+        // started. Pre-fix, Manipulated TP=+25 fired a full exit between rung #1
+        // (+20%) and rung #2 (+50%), killing every runner at +25%. Ladder + fluid
+        // profit floor manage exits cleanly once rung #1 has fired.
+        if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) return ManipExitSignal.TAKE_PROFIT
 
         // 2. Stop loss
         if (pnlPct <= pos.stopLossPct) return ManipExitSignal.STOP_LOSS
