@@ -419,7 +419,8 @@ object PerpsMarketDataFetcher {
     
     // API Endpoints (fallbacks)
     private const val COINGECKO_SOL = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
-    private const val JUPITER_PRICE = "https://price.jup.ag/v4/price?ids=So11111111111111111111111111111111111111112"
+    // V5.9.862 — price.jup.ag DNS dead → lite-api.jup.ag/price/v3
+    private const val JUPITER_PRICE = "https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112"
     
     /**
      * Get market data for a specific market
@@ -665,7 +666,15 @@ object PerpsMarketDataFetcher {
                 .url(COINGECKO_SOL)
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val cgStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("coingecko", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("coingecko", response.code, System.currentTimeMillis() - cgStart) } catch (_: Throwable) {}
             val body = response.body?.string() ?: throw Exception("Empty response")
             val json = JSONObject(body)
             
@@ -712,7 +721,15 @@ object PerpsMarketDataFetcher {
                 .url(JUPITER_PRICE)
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val jpStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", response.code, System.currentTimeMillis() - jpStart) } catch (_: Throwable) {}
             val body = response.body?.string() ?: return 0.0
             val json = JSONObject(body)
             

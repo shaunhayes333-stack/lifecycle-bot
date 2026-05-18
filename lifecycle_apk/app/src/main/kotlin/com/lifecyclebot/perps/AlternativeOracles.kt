@@ -199,7 +199,7 @@ object SwitchboardOracle {
 object JupiterPriceOracle {
     
     private const val TAG = "🪐Jupiter"
-    private const val JUPITER_PRICE_API = "https://price.jup.ag/v6/price"
+    private const val JUPITER_PRICE_API = "https://lite-api.jup.ag/price/v3"  // V5.9.862 — price.jup.ag DNS dead
     
     private val priceCache = ConcurrentHashMap<String, Double>()
     private var lastFetchTime = 0L

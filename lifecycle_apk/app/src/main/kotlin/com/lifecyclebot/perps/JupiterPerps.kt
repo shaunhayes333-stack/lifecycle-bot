@@ -62,7 +62,7 @@ object JupiterPerps {
     @Deprecated("Jupiter Perps v2 retired — use MarketsLiveExecutor.executeFlashTradePerps()")
     private const val JUPITER_PERPS_API = "https://api.jup.ag/perps/v2"  // DEAD — 404
     private const val FLASH_TRADE_API   = "https://api.flash.trade/v1"   // ACTIVE replacement
-    private const val JUPITER_PRICE_API = "https://price.jup.ag/v4"
+    private const val JUPITER_PRICE_API = "https://lite-api.jup.ag/price/v3"  // V5.9.862 — price.jup.ag DNS dead
     
     // Pool addresses (mainnet)
     private const val SOL_POOL = "5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq"
@@ -164,7 +164,15 @@ object JupiterPerps {
                 .addHeader("Accept", "application/json")
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val perpsStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", response.code, System.currentTimeMillis() - perpsStart) } catch (_: Throwable) {}
             val body = response.body?.string()
             
             if (body == null || !response.isSuccessful) {
@@ -545,7 +553,15 @@ object JupiterPerps {
                 .header("Content-Type", "application/json")
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val perpsStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", response.code, System.currentTimeMillis() - perpsStart) } catch (_: Throwable) {}
             
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
@@ -588,7 +604,15 @@ object JupiterPerps {
                 .header("Content-Type", "application/json")
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val perpsStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", response.code, System.currentTimeMillis() - perpsStart) } catch (_: Throwable) {}
             
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
@@ -664,7 +688,15 @@ object JupiterPerps {
                 .header("Content-Type", "application/json")
                 .build()
             
-            val response = client.newCall(request).execute()
+            // V5.9.862 — health-aware execute
+            val perpsStart = System.currentTimeMillis()
+            val response = try {
+                client.newCall(request).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", response.code, System.currentTimeMillis() - perpsStart) } catch (_: Throwable) {}
             
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
