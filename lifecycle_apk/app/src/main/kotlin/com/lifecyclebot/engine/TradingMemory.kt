@@ -351,7 +351,18 @@ object TradingMemory {
             
             // No socials like bad token
             if (!hadSocials && !f.hadSocials) similarity += 10
-            
+
+            // V5.9.886 — pump.fun match: previously the isPumpFun param was
+            // accepted but NEVER compared against record.features.pumpFunToken.
+            // Pump.fun tokens have a distinct rug profile (extra-volatile,
+            // no liquidity locks, dev-controlled bonding curve). If the
+            // candidate AND a remembered bad token are both pump.fun,
+            // that's a strong same-cohort signal — add a moderate match
+            // boost (15) similar to liquidity/mcap matches. Conservative:
+            // only fires when BOTH are pump.fun, never penalizes a non-
+            // pump.fun candidate against pump.fun bad records.
+            if (isPumpFun && f.pumpFunToken) similarity += 15
+
             // Similar volume/liq ratio
             if (volumeToLiqRatio > 5 && f.volumeToLiqRatio > 5) similarity += 10
             
