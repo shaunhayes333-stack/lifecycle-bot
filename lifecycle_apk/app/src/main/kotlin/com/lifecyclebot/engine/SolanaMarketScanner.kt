@@ -2445,6 +2445,17 @@ class SolanaMarketScanner(
             else -> 2.0
         }
 
+        // V5.9.892 — mcap finally consumed in scoreToken
+        s += when {
+            mcap > 10_000_000 -> 5.0
+            mcap > 1_000_000  -> 10.0
+            mcap > 250_000    -> 15.0
+            mcap > 50_000     -> 20.0
+            mcap > 5_000      -> 12.0
+            mcap > 0          -> 2.0
+            else              -> 0.0
+        }
+
         return s.coerceIn(0.0, 100.0)
     }
 
