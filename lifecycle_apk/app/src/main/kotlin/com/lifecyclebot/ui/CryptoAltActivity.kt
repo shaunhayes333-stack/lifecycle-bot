@@ -2126,7 +2126,11 @@ class CryptoAltActivity : AppCompatActivity() {
                     // Previously BirdeyeApi was the only source and silently
                     // failed to rate-limit (no key, 10 req/min), leaving every
                     // chart stuck on "Waiting for price data…".
-                    val points = com.lifecyclebot.network.ChartHistoryFetcher.fetch(
+                    // V5.9.943 — Use fetchCandles() to get full OHLCV (open/high/low/close/vol)
+                    // and feed setCandles() so the chart renders REAL candlesticks + volume bars,
+                    // not a flat collapsed line. fetchCandles falls back through Birdeye → CG →
+                    // Yahoo → synth, so this is strictly an upgrade over fetch().
+                    val candles = com.lifecyclebot.network.ChartHistoryFetcher.fetchCandles(
                         mint          = tok.mint,
                         symbol        = tok.symbol,
                         timeframe     = tf,
@@ -2136,11 +2140,13 @@ class CryptoAltActivity : AppCompatActivity() {
                     )
 
                     withContext(Dispatchers.Main) {
-                        if (points.size >= 2) {
-                            chartView.setSimpleLine(points)
+                        if (candles.size >= 2) {
+                            chartView.setCandles(candles)
+                            val hasVol = candles.any { it.volumeH1 > 0 || it.volume24h > 0 }
+                            val volTag = if (hasVol) " +vol" else ""
                             val label = when {
-                                points.size > 10 -> "📊 Price Chart  ($tf)  ${points.size} pts"
-                                else             -> "📊 Price Chart  (24h snapshot)"
+                                candles.size > 10 -> "📊 Price Chart  ($tf)  ${candles.size} candles$volTag"
+                                else              -> "📊 Price Chart  (24h snapshot)"
                             }
                             labelTv?.text = label
                         } else {
@@ -2382,11 +2388,29 @@ class CryptoAltActivity : AppCompatActivity() {
      * Simple canvas line/sparkline chart for token price display.
      * Draws last N close prices as a smooth line with gradient fill.
      */
+    /**
+     * V5.9.943 — Full OHLCV candlestick + volume chart.
+     *
+     * Backwards compatible:
+     *   - setSimpleLine(List<Double>) — legacy line/sparkline mode (used by
+     *     callers that still pass close-price-only data).
+     *   - setCandles(List<Candle>)     — REAL candle mode. Each candle renders
+     *     as body (open→close, green if up else red) + wick (high→low).
+     *     Volume sub-panel at the bottom takes ~24% of canvas height.
+     *
+     * Indicators (when in candle mode):
+     *   - SMA20 overlay (orange thin line)
+     *   - Last-price tag right-edge (highlighted close color)
+     *   - High/low Y-axis labels
+     *   - Faint horizontal grid
+     */
     inner class MiniPriceChartView @JvmOverloads constructor(
         ctx: android.content.Context, attrs: android.util.AttributeSet? = null
     ) : android.view.View(ctx, attrs) {
 
         private var prices: List<Double> = emptyList()
+        private var candles: List<com.lifecyclebot.data.Candle> = emptyList()
+
         private val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             strokeWidth = 2.5f * resources.displayMetrics.density
             style = android.graphics.Paint.Style.STROKE
@@ -2396,28 +2420,182 @@ class CryptoAltActivity : AppCompatActivity() {
         private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             style = android.graphics.Paint.Style.FILL
         }
+        private val wickPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            strokeWidth = 1.2f * resources.displayMetrics.density
+            style = android.graphics.Paint.Style.STROKE
+        }
+        private val bodyPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+        }
+        private val smaPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFA500.toInt()
+            strokeWidth = 1.5f * resources.displayMetrics.density
+            style = android.graphics.Paint.Style.STROKE
+        }
         private val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             color     = 0xFF4A5E70.toInt()
             textSize  = 9f * resources.displayMetrics.scaledDensity
             typeface  = android.graphics.Typeface.MONOSPACE
         }
+        private val priceTagPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize  = 10f * resources.displayMetrics.scaledDensity
+            typeface  = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            textAlign = android.graphics.Paint.Align.RIGHT
+        }
+        private val gridPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF1A2632.toInt()
+            strokeWidth = 0.7f
+            style = android.graphics.Paint.Style.STROKE
+        }
 
-        fun setCandles(candles: List<com.lifecyclebot.data.Candle>) {
-            prices = candles.map { it.priceUsd }.filter { it > 0 }
+        fun setCandles(cs: List<com.lifecyclebot.data.Candle>) {
+            candles = cs.filter { it.priceUsd > 0 }
+            prices  = emptyList()
             invalidate()
         }
 
         fun setSimpleLine(pts: List<Double>) {
             prices = pts.filter { it > 0 }
+            candles = emptyList()
             invalidate()
         }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
-            if (prices.size < 2) {
-                val p = android.graphics.Paint().apply { color = 0xFF2A3A4A.toInt(); textSize = 12f * resources.displayMetrics.scaledDensity; isAntiAlias = true }
+            if (candles.size >= 2) {
+                drawCandleChart(canvas)
+            } else if (prices.size >= 2) {
+                drawLineChart(canvas)
+            } else {
+                val p = android.graphics.Paint().apply {
+                    color = 0xFF2A3A4A.toInt()
+                    textSize = 12f * resources.displayMetrics.scaledDensity
+                    isAntiAlias = true
+                }
                 canvas.drawText("Waiting for price data…", 16f, height / 2f, p)
-                return
             }
+        }
+
+        private fun drawCandleChart(canvas: android.graphics.Canvas) {
+            val padL = 56f; val padR = 56f; val padT = 12f; val padB = 24f
+            val totalH = height.toFloat() - padT - padB
+            val priceH = totalH * 0.76f
+            val volGap = 4f
+            val volH   = totalH - priceH - volGap
+            val w = width.toFloat() - padL - padR
+
+            val pMin = candles.minOf { if (it.lowUsd > 0) it.lowUsd else it.priceUsd }
+            val pMax = candles.maxOf { if (it.highUsd > 0) it.highUsd else it.priceUsd }
+            val pRange = if (pMax > pMin) pMax - pMin else (pMin.coerceAtLeast(1.0) * 0.01)
+
+            val vols = candles.map { if (it.volumeH1 > 0) it.volumeH1 else it.volume24h }
+            val vMax = vols.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0
+
+            val n = candles.size
+            val candleSlot = w / n
+            val bodyW = (candleSlot * 0.70f).coerceAtLeast(1f)
+
+            fun xCenter(i: Int) = padL + candleSlot * (i + 0.5f)
+            fun yPrice(v: Double) = padT + priceH - ((v - pMin) / pRange * priceH).toFloat()
+            fun yVolBase() = padT + priceH + volGap + volH
+            fun yVol(v: Double) = yVolBase() - ((v / vMax) * volH).toFloat()
+
+            for (k in 1..3) {
+                val y = padT + priceH * k / 4f
+                canvas.drawLine(padL, y, padL + w, y, gridPaint)
+            }
+
+            val greenC = 0xFF22C55E.toInt()
+            val redC   = 0xFFEF4444.toInt()
+
+            for ((i, c) in candles.withIndex()) {
+                val o = if (c.openUsd > 0) c.openUsd else c.priceUsd
+                val cl = c.priceUsd
+                val hi = if (c.highUsd > 0) c.highUsd else maxOf(o, cl)
+                val lo = if (c.lowUsd  > 0) c.lowUsd  else minOf(o, cl)
+                val up = cl >= o
+                val col = if (up) greenC else redC
+
+                val cx = xCenter(i)
+                wickPaint.color = col
+                canvas.drawLine(cx, yPrice(hi), cx, yPrice(lo), wickPaint)
+
+                val yo = yPrice(o)
+                val yc = yPrice(cl)
+                val top = minOf(yo, yc)
+                val bot = maxOf(yo, yc)
+                val left = cx - bodyW / 2f
+                val right = cx + bodyW / 2f
+                val bodyTop = top
+                val bodyBot = if ((bot - top) < 1f) top + 1f else bot
+                bodyPaint.color = col
+                canvas.drawRect(left, bodyTop, right, bodyBot, bodyPaint)
+
+                if (vMax > 0 && volH > 0) {
+                    val v = if (c.volumeH1 > 0) c.volumeH1 else c.volume24h
+                    if (v > 0) {
+                        val barTop = yVol(v)
+                        val barBot = yVolBase()
+                        val translucentCol = (col and 0x00FFFFFF.toInt()) or (0x80 shl 24)
+                        bodyPaint.color = translucentCol
+                        canvas.drawRect(left, barTop, right, barBot, bodyPaint)
+                    }
+                }
+            }
+
+            if (n >= 20) {
+                val sma = ArrayList<Float>(n)
+                var sum = 0.0
+                val closes = candles.map { it.priceUsd }
+                for (i in 0 until n) {
+                    sum += closes[i]
+                    if (i >= 20) sum -= closes[i - 20]
+                    if (i >= 19) {
+                        sma.add(yPrice(sum / 20.0))
+                    }
+                }
+                val path = android.graphics.Path()
+                var first = true
+                for ((j, y) in sma.withIndex()) {
+                    val i = j + 19
+                    val xc = xCenter(i)
+                    if (first) { path.moveTo(xc, y); first = false }
+                    else        { path.lineTo(xc, y) }
+                }
+                canvas.drawPath(path, smaPaint)
+            }
+
+            fun fmt(v: Double) = when {
+                v >= 1000  -> "$%.0f".format(v)
+                v >= 1     -> "$%.4f".format(v)
+                v >= 0.001 -> "$%.6f".format(v)
+                else       -> "$%.8f".format(v)
+            }
+            labelPaint.textAlign = android.graphics.Paint.Align.LEFT
+            canvas.drawText(fmt(pMax), 2f, padT + 10, labelPaint)
+            canvas.drawText(fmt(pMin), 2f, padT + priceH, labelPaint)
+            if (volH > 4f && vMax > 0) {
+                val vLab = when {
+                    vMax >= 1_000_000 -> "%.1fM".format(vMax / 1_000_000)
+                    vMax >= 1_000     -> "%.1fK".format(vMax / 1_000)
+                    else              -> "%.0f".format(vMax)
+                }
+                canvas.drawText("V:$vLab", 2f, padT + priceH + volGap + 10, labelPaint)
+            }
+
+            val last = candles.last()
+            val lastUp = last.priceUsd >= (if (last.openUsd > 0) last.openUsd else last.priceUsd)
+            priceTagPaint.color = if (lastUp) greenC else redC
+            val tagY = yPrice(last.priceUsd) + 4f
+            canvas.drawText(fmt(last.priceUsd), padL + w + padR - 2f, tagY, priceTagPaint)
+
+            val dotPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = if (lastUp) greenC else redC
+                style = android.graphics.Paint.Style.FILL
+            }
+            canvas.drawCircle(xCenter(n - 1), yPrice(last.priceUsd), 3f * resources.displayMetrics.density, dotPaint)
+        }
+
+        private fun drawLineChart(canvas: android.graphics.Canvas) {
             val padL = 48f; val padR = 12f; val padT = 12f; val padB = 24f
             val w = width.toFloat() - padL - padR
             val h = height.toFloat() - padT - padB
@@ -2434,7 +2612,6 @@ class CryptoAltActivity : AppCompatActivity() {
             fun px(i: Int) = padL + i.toFloat() / (prices.size - 1) * w
             fun py(v: Double) = padT + h - ((v - mn) / range * h).toFloat()
 
-            // Fill path
             val fillPath = android.graphics.Path()
             fillPath.moveTo(px(0), padT + h)
             prices.forEachIndexed { i, v -> fillPath.lineTo(px(i), py(v)) }
@@ -2442,14 +2619,12 @@ class CryptoAltActivity : AppCompatActivity() {
             fillPath.close()
             canvas.drawPath(fillPath, fillPaint)
 
-            // Line path
             val linePath = android.graphics.Path()
             prices.forEachIndexed { i, v ->
                 if (i == 0) linePath.moveTo(px(i), py(v)) else linePath.lineTo(px(i), py(v))
             }
             canvas.drawPath(linePath, linePaint)
 
-            // Y axis labels (min/max/last)
             fun fmtLabel(v: Double) = when {
                 v >= 1000 -> "$%.0f".format(v)
                 v >= 1    -> "$%.4f".format(v)
@@ -2459,7 +2634,10 @@ class CryptoAltActivity : AppCompatActivity() {
             canvas.drawText(fmtLabel(mx), 2f, padT + 4, labelPaint)
             canvas.drawText(fmtLabel(mn), 2f, padT + h, labelPaint)
             val lastY = py(prices.last())
-            val dotPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = lineColor; style = android.graphics.Paint.Style.FILL }
+            val dotPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = lineColor
+                style = android.graphics.Paint.Style.FILL
+            }
             canvas.drawCircle(px(prices.size - 1), lastY, 4f * resources.displayMetrics.density, dotPaint)
         }
     }
