@@ -437,6 +437,30 @@ object ManipulatedTraderAI {
         try {
             com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlSol > 0.0)
         } catch (_: Exception) {}
+
+        // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
+        val manipExitTs = System.currentTimeMillis()
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed   = "${pos.mint}_$manipExitTs",
+            mint          = pos.mint,
+            symbol        = pos.symbol,
+            source        = com.lifecyclebot.engine.TradeSource.MANIP,
+            isPaper       = pos.isPaper,
+            entryTimeMs   = pos.entryTime,
+            exitTimeMs    = manipExitTs,
+            entryPrice    = pos.entryPrice,
+            exitPrice     = exitPrice,
+            entrySol      = pos.entrySol,
+            exitSol       = pos.entrySol + pnlSol,
+            realizedPnlSol = pnlSol,
+            realizedPnlPct = pnlPct,
+            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
+                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
+            closeReason   = "MANIPULATED_${reason.name}",
+            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
+            entryScore    = pos.manipScore.toDouble(),
+        )
+
         // V5.9.8: Sync paper P&L to shared wallet
         // V5.9.495z17: deduct treasuryShare so wallet only gets 70%.
         if (pos.isPaper) {

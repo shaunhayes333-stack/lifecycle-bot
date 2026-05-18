@@ -545,6 +545,29 @@ object ShitCoinTraderAI {
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
 
+        // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
+        val shitcoinExitTs = System.currentTimeMillis()
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed   = "${mint}_$shitcoinExitTs",
+            mint          = mint,
+            symbol        = pos.symbol,
+            source        = com.lifecyclebot.engine.TradeSource.SHITCOIN,
+            isPaper       = pos.isPaper,
+            entryTimeMs   = pos.entryTime,
+            exitTimeMs    = shitcoinExitTs,
+            entryPrice    = pos.entryPrice,
+            exitPrice     = exitPrice,
+            entrySol      = pos.entrySol,
+            exitSol       = pos.entrySol + pnlSol,
+            realizedPnlSol = pnlSol,
+            realizedPnlPct = pnlPct,
+            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
+                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
+            closeReason   = "SHITCOIN_${exitReason.name}",
+            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
+            entryScore    = pos.entryScore.toDouble(),
+        )
+
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, pnlPct >= 1.0) } catch (_: Exception) {}
 

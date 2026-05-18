@@ -2328,6 +2328,27 @@ object CryptoAltTrader {
         // ── BehaviorAI ────────────────────────────────────────────────────────
         try { BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper, assetClass = "ALTS") } catch (_: Exception) {}
 
+        // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed   = "${pos.id}_$timestamp",
+            mint          = pos.market.symbol,    // CryptoAlt has no mint — use market symbol
+            symbol        = pos.market.symbol,
+            source        = com.lifecyclebot.engine.TradeSource.MARKETS,
+            isPaper       = paper,
+            entryTimeMs   = pos.openTime,
+            exitTimeMs    = timestamp,
+            entryPrice    = pos.entryPrice,
+            exitPrice     = pos.currentPrice,
+            entrySol      = pos.sizeSol,
+            exitSol       = pos.sizeSol + pnlSol,
+            realizedPnlSol = pnlSol,
+            realizedPnlPct = pnlPct,
+            maxGainPct    = pos.highestPnlPct.takeIf { it > 0.0 },
+            closeReason   = "CRYPTOALT_$reason",
+            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,  // closest enum — no CRYPTO yet
+            entryScore    = pos.aiScore.toDouble(),
+        )
+
         // ── TradeHistoryStore — cross-bot shared log ──────────────────────────
         try {
             TradeHistoryStore.recordTrade(Trade(

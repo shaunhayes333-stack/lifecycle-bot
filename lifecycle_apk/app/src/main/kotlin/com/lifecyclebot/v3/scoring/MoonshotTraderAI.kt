@@ -943,6 +943,34 @@ object MoonshotTraderAI {
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaperMode, assetClass = "MOONSHOT") } catch (_: Exception) {}
 
+        // V5.9.852 — operator audit: non-meme close paths never published to
+        // CanonicalOutcomeBus, so Layer Readiness showed every layer
+        // DEGRADED_BAD_EV with rich/incomplete ≈ 50/50. The bus is THE channel
+        // BehaviorLearning / AdaptiveLearning / MetaCognitionAI subscribe to;
+        // bypassing it = invisible outcomes for AGI calibration. This emits a
+        // lite-rich outcome (featuresIncomplete=true) tagged TradeSource.MOONSHOT.
+        val exitTs = System.currentTimeMillis()
+        com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
+            tradeIdSeed   = "${mint}_$exitTs",
+            mint          = mint,
+            symbol        = pos.symbol,
+            source        = com.lifecyclebot.engine.TradeSource.MOONSHOT,
+            isPaper       = pos.isPaperMode,
+            entryTimeMs   = pos.entryTime,
+            exitTimeMs    = exitTs,
+            entryPrice    = pos.entryPrice,
+            exitPrice     = exitPrice,
+            entrySol      = pos.entrySol,
+            exitSol       = pos.entrySol + pnlSol,
+            realizedPnlSol = pnlSol,
+            realizedPnlPct = pnlPct,
+            maxGainPct    = if (pos.entryPrice > 0 && pos.highWaterMark > pos.entryPrice)
+                                ((pos.highWaterMark - pos.entryPrice) / pos.entryPrice) * 100.0 else null,
+            closeReason   = "MOONSHOT_${exitReason.name}",
+            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
+            entryScore    = pos.entryScore,
+        )
+
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (_: Exception) {}
 
