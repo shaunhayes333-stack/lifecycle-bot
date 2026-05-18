@@ -667,6 +667,7 @@ class SolanaMarketScanner(
         DEX_GAINERS,
         DEX_BOOSTED,
         BIRDEYE_TRENDING,
+        BIRDEYE_MEME_LIST,  // V5.9.906 — birdeye v3 meme/list, no API key required
         COINGECKO_TRENDING,
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
@@ -1131,6 +1132,13 @@ class SolanaMarketScanner(
                     runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
                     delay(200)
                     runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
+                    delay(200)
+                    // V5.9.906 — birdeye v3 meme/list. NO API key required.
+                    // Sorted by pump.fun graduation progress descending.
+                    // Returns rich per-token data (multi-TF volume, buy/sell
+                    // counts, holder count, creator wallet, real liquidity)
+                    // even when the operator hasn't configured a birdeye key.
+                    runScan("scanBirdeyeMemeList") { scanBirdeyeMemeList() }
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
@@ -2092,6 +2100,126 @@ class SolanaMarketScanner(
         }
     }
 
+    /**
+     * V5.9.906 — BIRDEYE v3 MEME LIST (no API key required).
+     *
+     * Endpoint:
+     *   GET https://public-api.birdeye.so/defi/v3/token/meme/list
+     *       ?sort_by=progress_percent&sort_type=desc&source=all&offset=0&limit=100
+     *   Headers: x-chain: solana
+     *
+     * The operator verified (V5.9.906 paste) that this endpoint returns full
+     * pump.fun-style meme data WITHOUT requiring an x-api-key header. This
+     * gives us a free, key-less intake lane that complements the existing
+     * (key-gated) scanBirdeyeTrending.
+     *
+     * Per-token fields used:
+     *   address, symbol, name, market_cap, liquidity,
+     *   volume_1h_usd, trade_1h_count, price_change_1h_percent,
+     *   holder, recent_listing_time, meme_info.progress_percent,
+     *   meme_info.graduated, meme_info.creator
+     *
+     * Skipped if graduated == true (those go via PUMP_FUN_GRADUATE lane).
+     *
+     * Doctrine: complies with memory #20 (no scanner pool pruning) — this
+     * ADDS a source, never removes one. ADDS samples to the 500-token
+     * intake. Score-only effects downstream.
+     */
+    private suspend fun scanBirdeyeMemeList() {
+        try {
+            val url = "https://public-api.birdeye.so/defi/v3/token/meme/list?" +
+                "sort_by=progress_percent&sort_type=desc&source=all&offset=0&limit=100"
+            val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: run {
+                ErrorLogger.debug("Scanner", "scanBirdeyeMemeList: no response")
+                return
+            }
+
+            val root = JSONObject(body)
+            if (!root.optBoolean("success", false)) {
+                ErrorLogger.debug("Scanner", "scanBirdeyeMemeList: success=false")
+                return
+            }
+            val items = root.optJSONObject("data")?.optJSONArray("items") ?: return
+
+            var found = 0
+            var skippedGraduated = 0
+            var skippedSeen = 0
+            var skippedFilter = 0
+
+            for (i in 0 until items.length()) {
+                if (found >= 50) break  // cap per cycle to avoid swamping the intake
+                val item = items.optJSONObject(i) ?: continue
+
+                val mint = item.optString("address", "")
+                if (mint.isBlank()) continue
+                if (isSeen(mint)) { skippedSeen++; continue }
+
+                val symbol = item.optString("symbol", "").ifBlank { item.optString("name", "") }
+                val name = item.optString("name", symbol)
+
+                // Skip graduated memes — they belong to the PUMP_FUN_GRADUATE lane
+                // which has its own scoring (post-grad behaviour is different).
+                val memeInfo = item.optJSONObject("meme_info")
+                if (memeInfo?.optBoolean("graduated", false) == true) {
+                    skippedGraduated++
+                    continue
+                }
+
+                val liqUsd = item.optDouble("liquidity", 0.0).let { if (it.isFinite()) it else 0.0 }
+                val mcap = item.optDouble("market_cap", 0.0).let { if (it.isFinite()) it else 0.0 }
+                val volH1 = item.optDouble("volume_1h_usd", 0.0).let { if (it.isFinite()) it else 0.0 }
+                val priceChH1 = item.optDouble("price_change_1h_percent", 0.0).let { if (it.isFinite()) it else 0.0 }
+                val txH1 = item.optInt("trade_1h_count", 0)
+
+                // Age from recent_listing_time (epoch seconds)
+                val createdSec = item.optLong("recent_listing_time", 0L)
+                val ageHours = if (createdSec > 0L) {
+                    (System.currentTimeMillis() / 1000.0 - createdSec) / 3600.0
+                } else 24.0
+
+                val token = ScannedToken(
+                    mint = mint,
+                    symbol = symbol,
+                    name = name,
+                    source = TokenSource.BIRDEYE_MEME_LIST,
+                    liquidityUsd = liqUsd,
+                    volumeH1 = volH1,
+                    mcapUsd = mcap,
+                    pairCreatedHoursAgo = ageHours,
+                    dexId = memeInfo?.optString("source", "pump_dot_fun") ?: "pump_dot_fun",
+                    priceChangeH1 = priceChH1,
+                    txCountH1 = txH1,
+                    score = scoreToken(liqUsd, volH1, txH1, mcap, priceChH1, ageHours),
+                )
+
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                } else {
+                    skippedFilter++
+                }
+            }
+
+            if (found > 0) {
+                ErrorLogger.info(
+                    "Scanner",
+                    "🐦 scanBirdeyeMemeList: found $found (seen=$skippedSeen, " +
+                    "graduated=$skippedGraduated, filter=$skippedFilter, total=${items.length()})"
+                )
+            } else {
+                ErrorLogger.debug(
+                    "Scanner",
+                    "scanBirdeyeMemeList: 0 new (seen=$skippedSeen, " +
+                    "graduated=$skippedGraduated, filter=$skippedFilter, total=${items.length()})"
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanBirdeyeMemeList error: ${e.message}")
+        }
+    }
+
     private suspend fun scanRaydiumNewPools() {
         // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
         try {
@@ -2936,12 +3064,12 @@ class SolanaMarketScanner(
         emit(token)
     }
 
-    private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2): String? {
+    private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
         var lastError: Exception? = null
 
         repeat(maxRetries.coerceAtLeast(1)) { attempt ->
             try {
-                val result = get(url, apiKey)
+                val result = get(url, apiKey, extraHeaders)
                 if (result != null) return result
 
                 if (attempt < maxRetries - 1) {
@@ -2987,7 +3115,7 @@ class SolanaMarketScanner(
         }
     }
 
-    private fun get(url: String, apiKey: String = ""): String? = try {
+    private fun get(url: String, apiKey: String = "", extraHeaders: Map<String, String> = emptyMap()): String? = try {
         // V5.9.859 — interpose AutoEndpointMigrator before the wire so dead
         // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -3002,6 +3130,10 @@ class SolanaMarketScanner(
             .header("Connection", "keep-alive")
 
         if (apiKey.isNotBlank()) builder.header("X-API-KEY", apiKey)
+        // V5.9.906 — allow per-call extra headers (e.g. x-chain: solana for
+        // birdeye v3 endpoints that key off the chain header instead of an
+        // API key).
+        for ((k, v) in extraHeaders) builder.header(k, v)
 
         ErrorLogger.debug("Scanner", "HTTP GET: ${effectiveUrl.take(60)}...")
         val httpStart = System.currentTimeMillis()
