@@ -377,9 +377,14 @@ object BehaviorLearning {
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val richSig    = pattern.getRichSignature()    // V5.9.871 — top of ladder
-            val goodMatch = goodStats[richSig] ?: goodStats[fineSignature] ?: goodStats[exactSignature] ?: goodStats[broadSignature]
-            val badMatch  = badStats[richSig]  ?: badStats[fineSignature]  ?: badStats[exactSignature]  ?: badStats[broadSignature]
+            // V5.9.871 — evaluate() doesn't receive marketSentiment/volatility/holderConc
+            // (those become known only at trade close, not at entry-decision time), so we
+            // can't construct a rich signature here. The rich tier still works at RECORD
+            // time (recordOutcome writes rich + fine + exact + broad) — at lookup time the
+            // legacy fine→exact→broad ladder gracefully degrades. Future: thread symbolic
+            // verdict into evaluate() params so the rich tier becomes lookup-effective.
+            val goodMatch = goodStats[fineSignature] ?: goodStats[exactSignature] ?: goodStats[broadSignature]
+            val badMatch  = badStats[fineSignature]  ?: badStats[exactSignature]  ?: badStats[broadSignature]
 
             var scoreAdjust = 0.0
             var confidence = 0.0
@@ -495,7 +500,7 @@ object BehaviorLearning {
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val badMatch = badStats[pattern.getRichSignature()] ?: badStats[fineSignature] ?: badStats[exactSignature] ?: badStats[broadSignature]    // V5.9.871
+            val badMatch = badStats[fineSignature] ?: badStats[exactSignature] ?: badStats[broadSignature]  // V5.9.871: rich lookup deferred — shouldHardBlock has no verdict context
             if (badMatch != null && badMatch.isReliable && badMatch.confidence >= 0.8) {
                 val lossRate = 100.0 - badMatch.winRate
                 if (lossRate >= 80.0 && badMatch.occurrences >= 5) {
