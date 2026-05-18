@@ -405,7 +405,52 @@ object QualityTraderAI {
             qualityScore >= 60 -> 1.2
             else -> 1.0
         }
-        val positionSize = min(BASE_POSITION_SOL * sizeMultiplier, MAX_POSITION_SOL)
+
+        // ── V5.9.878 — BehaviorAI sizing wire-up for QUALITY lane ──
+        // The Meme path consumed BehaviorAI.getSizingMultiplier + grade penalty
+        // since V5.9.817. Quality lane was operating with a static 3-tier
+        // size ladder while the bot's global aggression level was adapting
+        // every loss streak. This brings Quality into the same fluid-state
+        // brain as Meme: same auto-deescalation steers the lane during tilt,
+        // same boost during recovery.
+        //
+        // Per doctrine #86 (memory): bounded soft-shape multipliers, no veto.
+        //   - behaviorSizeMult ∈ [0.5, 1.5]
+        //   - behaviorGradeMult: 1.0 normally; 0.7 if quality grade below
+        //     BehaviorAI.getMinQualityGrade()
+        //   - Composed product floored implicitly by Executor's V5.9.867
+        //     composed-multiplier floor when this signal feeds the executor.
+        //
+        // Live mode safety: getSizingMultiplier reads aggression band 0-11.
+        // Band 0 gives 0.5× (half size) — band floor never reaches 0, so
+        // QUALITY never gets clamped to size-zero by Behavior alone.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            // Infer setup quality from qualityScore (no new fields needed).
+            // Quality lane scoring ranges 0-100, with 80+ as A, 60+ B, 40+ C.
+            val inferredGrade = when {
+                qualityScore >= 80 -> "A"
+                qualityScore >= 60 -> "B"
+                qualityScore >= 40 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        val positionSize = min(
+            BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult,
+            MAX_POSITION_SOL
+        )
         
         // Get fluid TP/SL
         val tp = getFluidTakeProfit()
