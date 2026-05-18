@@ -1168,6 +1168,12 @@ class SolanaMarketScanner(
                     //   2) meme platform enabled (pump.fun graduates)
                     // Both queries use limit=50, freshness gated to <= 6h old.
                     runScan("scanBirdeyeNewListing") { scanBirdeyeNewListing() }
+                    delay(200)
+                    // V5.9.942 — Birdeye searchTokens narrative scan.
+                    // Activates the previously-INERT NARRATIVE_SCAN TokenSource.
+                    // Rotates through 14 hot keywords; ~520K CU/month worst case.
+                    // Per V5.9.941 Phase 6: GROWTH-tier-fit by source whitelist.
+                    runScan("scanBirdeyeNarratives") { scanBirdeyeNarratives() }
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
@@ -2565,6 +2571,117 @@ class SolanaMarketScanner(
             throw e
         } catch (e: Exception) {
             ErrorLogger.debug("Scanner", "scanBirdeyeNewListing error: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.9.942 — BIRDEYE NARRATIVE SCAN (searchTokens, requires Starter key).
+     *
+     * Endpoint:
+     *   GET /defi/v3/search?keyword=X&target=token&sort_by=volume_24h_usd&sort_type=desc
+     *
+     * Activates the previously-INERT NARRATIVE_SCAN TokenSource (defined in
+     * the enum + ScalingMode.Tier.scanSources whitelist for GROWTH tier
+     * but never fed by any producer). Live-probed 2026-05-19 — returns rich
+     * per-token data (mcap, volume24h, liquidity, trade count, unique wallets,
+     * 24h % change) with high signal-to-noise.
+     *
+     * Hot narrative keywords rotated per cycle (one per cycle to keep CU
+     * budget tight). Each keyword returns up to 10 results sorted by 24h
+     * volume, so even one cycle harvests 10 fresh candidates the trending
+     * lanes wouldn't surface.
+     *
+     * Per memory #128 ('500 minimum a day' doctrine): this is a NEW
+     * additive intake source — does not prune or replace any existing
+     * lane. Per V5.9.941 Phase 6: source-tag is NARRATIVE_SCAN so the
+     * tier-source-match shaper natively routes these to GROWTH tier.
+     *
+     * Budget: 1 search call per cycle × ~50s cycle = ~72 calls/hr =
+     * ~52K calls/month × ~10 CU = ~520K CU/month. Well under 5M Starter.
+     *
+     * Fail-open: if Birdeye key missing or call fails, NO-OP.
+     */
+    private suspend fun scanBirdeyeNarratives() {
+        try {
+            val cfgSnap = cfg()
+            val apiKey = cfgSnap.birdeyeApiKey
+            if (apiKey.isBlank()) {
+                ErrorLogger.debug("Scanner", "scanBirdeyeNarratives: no birdeye key, skipping")
+                return
+            }
+
+            // Hot narrative keywords. Rotated per scan cycle to spread the
+            // search across themes without burning CU.
+            val narratives = listOf(
+                "AI", "meme", "dog", "cat", "pepe", "moon", "trump",
+                "bonk", "wif", "agent", "wojak", "frog", "chad", "boden",
+            )
+            val keyword = narratives[(scanRotation.toInt() % narratives.size).coerceAtLeast(0)]
+
+            val results = withContext(Dispatchers.IO) {
+                try { birdeye.searchTokens(keyword, limit = 15) } catch (_: Throwable) { emptyList() }
+            }
+            if (results.isEmpty()) {
+                ErrorLogger.debug("Scanner", "scanBirdeyeNarratives[$keyword]: 0 results")
+                return
+            }
+
+            var emitted = 0
+            var skippedSeen = 0
+            var skippedThin = 0
+            var skippedFilter = 0
+            var skippedNoPair = 0
+
+            for (r in results) {
+                if (r.mint.isBlank()) continue
+                if (isSeen(r.mint)) { skippedSeen++; continue }
+                // Liquidity sanity gate. Birdeye search returns raw liquidity
+                // numbers; reject obvious dust (the AI/AIA result had liq=0.0004
+                // for a $11K mcap token — that's a non-tradeable phantom pool).
+                if (r.liquidity < 1_000.0 && r.volume24hUsd < 5_000.0) {
+                    skippedThin++
+                    continue
+                }
+
+                // Hit DexScreener for the canonical pair (rich pool info, volume H1, etc).
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(r.mint) }
+                if (pair == null) { skippedNoPair++; continue }
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+
+                // Fallback liquidity if DexScreener has none — use Birdeye's mcap × 10% heuristic.
+                var fallbackLiq = 0.0
+                if (pair.liquidity <= 0) {
+                    fallbackLiq = if (r.liquidity > 0) r.liquidity
+                                  else if (r.marketCapUsd > 0) (r.marketCapUsd * 0.10).takeIf { it > 1000 } ?: 0.0
+                                  else 0.0
+                }
+
+                val token = buildScannedToken(r.mint, pair, TokenSource.NARRATIVE_SCAN, fallbackLiq) ?: continue
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    emitted++
+                } else {
+                    skippedFilter++
+                }
+            }
+
+            if (emitted > 0) {
+                ErrorLogger.info(
+                    "Scanner",
+                    "🎯 scanBirdeyeNarratives[$keyword]: emitted $emitted from ${results.size} " +
+                    "(seen=$skippedSeen, thin=$skippedThin, noPair=$skippedNoPair, filter=$skippedFilter)"
+                )
+            } else {
+                ErrorLogger.debug(
+                    "Scanner",
+                    "scanBirdeyeNarratives[$keyword]: 0 emitted from ${results.size} " +
+                    "(seen=$skippedSeen, thin=$skippedThin, noPair=$skippedNoPair, filter=$skippedFilter)"
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanBirdeyeNarratives error: ${e.message}")
         }
     }
 

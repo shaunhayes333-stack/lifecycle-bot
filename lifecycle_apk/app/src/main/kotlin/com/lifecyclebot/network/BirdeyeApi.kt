@@ -484,6 +484,10 @@ class BirdeyeApi(private val apiKey: String = "") {
         val volume24hUsd: Double,
         val liquidity: Double,
         val priceChange24hPct: Double,
+        val marketCapUsd: Double = 0.0,
+        val priceUsd: Double = 0.0,
+        val trade24hCount: Int = 0,
+        val uniqueWallet24h: Int = 0,
     )
 
     fun searchTokens(keyword: String, limit: Int = 10): List<SearchResult> {
@@ -506,6 +510,10 @@ class BirdeyeApi(private val apiKey: String = "") {
                         volume24hUsd      = it.optDouble("volume_24h_usd", 0.0),
                         liquidity         = it.optDouble("liquidity", 0.0),
                         priceChange24hPct = it.optDouble("price_change_24h_percent", 0.0),
+                        marketCapUsd      = it.optDouble("market_cap", 0.0),
+                        priceUsd          = it.optDouble("price", 0.0),
+                        trade24hCount     = it.optInt("trade_24h", 0),
+                        uniqueWallet24h   = it.optInt("unique_wallet_24h", 0),
                     ))
                 }
             }
