@@ -741,7 +741,13 @@ object AdaptiveLearningEngine {
         bondingCurveProgress: Double,
         rugcheckScore: Double,
         emaFanState: String,
-        baseEntryScore: Double
+        baseEntryScore: Double,
+        // V5.9.875 — entry depth below ATH (0.0 = at ATH, 100.0 = 100% below).
+        // Optional with default 0.0 so all existing callers compile unchanged.
+        // When threaded by callers that track ATH, the learned-pattern matcher
+        // gains an extra dimension. When absent (0.0), the matcher just skips
+        // this feature (matchesPattern() already handles missing keys).
+        priceFromAth: Double = 0.0
     ): AdaptiveScore {
         var score = sanitizeDouble(baseEntryScore)
         val explanations = mutableListOf<String>()
@@ -925,7 +931,15 @@ object AdaptiveLearningEngine {
             "devWallet" to safeDevWallet,
             "liquidity" to safeLiquidity,
             "mcap" to safeMcap,
-            "volLiqRatio" to (if (safeLiquidity > 0.0) sanitizeDouble(volumeUsd) / safeLiquidity else 0.0)
+            "volLiqRatio" to (if (safeLiquidity > 0.0) sanitizeDouble(volumeUsd) / safeLiquidity else 0.0),
+            // V5.9.875 — match the 3 entry-side features now learned in featureRanges.
+            // matchesPattern requires at least 60% feature overlap; adding these
+            // INCREASES the denominator (more features checked) AND the numerator
+            // when the candidate falls inside any learned range — net effect:
+            // patterns become more discriminating, not stricter.
+            "rugcheck" to safeRugcheck,
+            "bondingCurve" to safeBondingCurve,
+            "priceFromAth" to sanitizeDouble(priceFromAth).coerceIn(0.0, 100.0)
         )
         val matchedGood = mutableListOf<String>()
         val matchedBad = mutableListOf<String>()
@@ -1146,6 +1160,32 @@ object AdaptiveLearningEngine {
         ranges["maxDrawdown"] = Pair(
             cohort.map { it.maxDrawdownPct }.percentile(loP),
             cohort.map { it.maxDrawdownPct }.percentile(hiP)
+        )
+        // V5.9.875 — DEAD-TELEMETRY WIN: these 4 features have been captured in
+        // TradeFeatures since V5.5+, serialized to JSON, but never used for
+        // learned-pattern range/match. V5.9.828 wired them into the hand-coded
+        // contribution buckets in calculateAdaptiveScore, but the dynamic pattern
+        // learner ignored them. Sibling pattern to V5.9.871/873 audit finds.
+        //
+        // rugcheckScore — 0-100 rug risk at entry (critical meme alpha signal)
+        // bondingCurveProgress — pump.fun BC % at entry (regime-defining signal)
+        // priceFromAth — entry depth below ATH (rotation signal)
+        // timeToPeakMins — outcome-side: range-learn only, no match-side use
+        ranges["rugcheck"] = Pair(
+            cohort.map { it.rugcheckScore }.percentile(loP),
+            cohort.map { it.rugcheckScore }.percentile(hiP)
+        )
+        ranges["bondingCurve"] = Pair(
+            cohort.map { it.bondingCurveProgress }.percentile(loP),
+            cohort.map { it.bondingCurveProgress }.percentile(hiP)
+        )
+        ranges["priceFromAth"] = Pair(
+            cohort.map { it.priceFromAth }.percentile(loP),
+            cohort.map { it.priceFromAth }.percentile(hiP)
+        )
+        ranges["timeToPeak"] = Pair(
+            cohort.map { it.timeToPeakMins }.percentile(loP),
+            cohort.map { it.timeToPeakMins }.percentile(hiP)
         )
 
         return LearnedPattern(
