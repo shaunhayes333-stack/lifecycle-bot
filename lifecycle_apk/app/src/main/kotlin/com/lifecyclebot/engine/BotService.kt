@@ -5832,21 +5832,21 @@ class BotService : Service() {
                         //
                         // Memory rule #23: -15% floor is unconditional. -30% deep-net
                         // is unambiguously rugged for any token where we have ANY price.
-                        run {
-                            val posAgeForNet = System.currentTimeMillis() - ts.position.entryTime
-                            if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
-                                ErrorLogger.warn("BotService",
-                                    "🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")
-                                addLog("🛑 DEEP CATASTROPHE NET: ${ts.symbol} ${pnlPct.toInt()}% (>${(posAgeForNet/1000).toInt()}s) — emergency exit", ts.mint)
-                                try {
-                                    executor.requestSell(ts = ts, reason = "DEEP_CATASTROPHE_NET",
-                                        wallet = wallet, walletSol = effectiveBalance)
-                                    TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
-                                } catch (e: Throwable) {
-                                    ErrorLogger.warn("BotService", "DEEP_CATASTROPHE_NET sell error: ${e.message?.take(50)}")
-                                }
-                                continue  // skip rest of per-position loop, position closed
+                        // (V5.9.924: inlined — `continue` inside `run{}` was illegal Kotlin
+                        // and broke V5.9.922 compile. The conditional is identical in effect.)
+                        val posAgeForNet = System.currentTimeMillis() - ts.position.entryTime
+                        if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
+                            ErrorLogger.warn("BotService",
+                                "🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")
+                            addLog("🛑 DEEP CATASTROPHE NET: ${ts.symbol} ${pnlPct.toInt()}% (>${(posAgeForNet/1000).toInt()}s) — emergency exit", ts.mint)
+                            try {
+                                executor.requestSell(ts = ts, reason = "DEEP_CATASTROPHE_NET",
+                                    wallet = wallet, walletSol = effectiveBalance)
+                                TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+                            } catch (e: Throwable) {
+                                ErrorLogger.warn("BotService", "DEEP_CATASTROPHE_NET sell error: ${e.message?.take(50)}")
                             }
+                            continue  // skip rest of per-position loop, position closed
                         }
 
                         // V5.9.363 — TIGHTENED HARD FLOOR.
@@ -6158,7 +6158,11 @@ class BotService : Service() {
      *   - On success: update ts.lastPrice + ts.lastPriceUpdate, append a
      *     synthetic candle so trailing-stop / pattern detectors see motion
      */
-    private suspend fun openPositionTickLoop() {
+    // V5.9.924 — per-mint cooldown for Birdeye fallback in openPositionTickLoop.
+    // Prevents hammering /defi/price for permanently-rugged mints.
+    private val openPosFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        private suspend fun openPositionTickLoop() {
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
         val TICK_MS = 1_000L
         val IDLE_MS = 5_000L
@@ -6184,6 +6188,51 @@ class BotService : Service() {
                 for (chunk in chunks) {
                     val part = try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() }
                     priceMap.putAll(part)
+                }
+
+                // V5.9.924 — MULTI-SOURCE FALLBACK for mints DS dropped.
+                // Operator V5.9.922 screenshots showed positions bleeding past
+                // every floor while ts.lastPrice was frozen — DexScreener had
+                // dropped rugged tokens from its index, so the batch call
+                // returned no entry for those mints. Previously the tick loop
+                // silently moved on, leaving ts.lastPrice at the entry value
+                // and pnlPct=0% so catastrophe never fired.
+                //
+                // Memory rules #87 (paper trains live, dropped signal hurts the
+                // brain) and #23 (-15% floor unconditional): if DS won't tell
+                // us the rugged price, ask Birdeye. /defi/price is the cheapest
+                // tier-unrestricted endpoint (memory #143). For an 8-position
+                // open set with 3-4 DS misses, this adds ≤4 HTTP calls/sec —
+                // well inside our rate budget. We rate-limit to 1 fallback
+                // attempt per mint per 5s so a permanently-rugged mint can't
+                // hammer the API every tick.
+                val missing = openMints.filter { it !in priceMap }
+                if (missing.isNotEmpty()) {
+                    val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                    val key = cfg2?.birdeyeApiKey
+                    if (!key.isNullOrBlank()) {
+                        val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
+                        if (birdeye != null) {
+                            val nowMs = System.currentTimeMillis()
+                            for (mint in missing) {
+                                val lastFb = openPosFallbackLastAttempt[mint] ?: 0L
+                                if (nowMs - lastFb < 5_000L) continue   // 5s cooldown per mint
+                                openPosFallbackLastAttempt[mint] = nowMs
+                                val price = try { birdeye.getTokenPrice(mint) } catch (_: Throwable) { null }
+                                if (price != null && price > 0.0) {
+                                    priceMap[mint] = price
+                                    val tsRef = status.tokens[mint]
+                                    if (tsRef != null) {
+                                        synchronized(tsRef) {
+                                            tsRef.lastPriceSource = "BIRDEYE_PRICE_FALLBACK"
+                                        }
+                                    }
+                                    ErrorLogger.info("BotService",
+                                        "📡 BIRDEYE_FALLBACK: ${mint.take(8)} DS missing → birdeye price=$price")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (priceMap.isEmpty()) {
@@ -6257,6 +6306,35 @@ class BotService : Service() {
                             if (ts.history.size > 300) ts.history.removeFirst()
                         }
                     }
+                    // V5.9.924 — BROADCAST FRESH TICK TO LANE-PRIVATE STORES.
+                    // Operator reported "data mismatches between token display
+                    // panels". Root cause: openPositionTickLoop updated only
+                    // ts.lastPrice. The Treasury card reads CashGenerationAI's
+                    // trackedPrices map; ShitCoin/Moonshot/BlueChip/Quality
+                    // cards each read their own private currentPrice fields.
+                    // None of those stores were ever updated by the 1Hz tick
+                    // loop — they only got fresh prices from the slow scanner
+                    // cycle in processTokenCycle. So the meme card showed a
+                    // live PnL while the Treasury card for the same mint sat
+                    // at +0.0% (or stale numbers from minutes ago). Broadcast
+                    // each fresh tick to every lane-private store so all cards
+                    // read the same number. Each lane updateLivePrice is a
+                    // fast no-op if the lane doesn't hold this mint.
+                    try {
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.updatePrice(mint, priceUsd)
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.updateLivePrice(mint, priceUsd)
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.updateLivePrice(mint, priceUsd)
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.updateLivePrice(mint, priceUsd)
+                    } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(mint, priceUsd)
+                    } catch (_: Throwable) {}
                     updated++
                 }
 

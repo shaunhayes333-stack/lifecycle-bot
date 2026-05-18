@@ -141,6 +141,24 @@ class BirdeyeApi(private val apiKey: String = "") {
         } catch (_: Exception) { null }
     }
 
+    /**
+     * V5.9.924 — lightweight single-mint price fetch for open-position
+     * tick loop fallback. /defi/price is the cheapest Birdeye endpoint
+     * (no tier limit per memory rule #143 testing). When DexScreener
+     * drops a rugged mint from its batch endpoint, this is the cheapest
+     * way to confirm a real -90% price before catastrophe gates fire.
+     *
+     * Returns the price in USD, or null on any error / missing data.
+     */
+    fun getTokenPrice(mint: String): Double? {
+        val body = get("$BASE/defi/price?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            val p = data.optDouble("value", 0.0)
+            if (p > 0.0) p else null
+        } catch (_: Exception) { null }
+    }
+
     // ── HTTP helper ───────────────────────────────────────────────────
 
     private fun get(url: String): String? {
