@@ -618,13 +618,55 @@ object MoonshotTraderAI {
             SpaceMode.JUPITER -> BASE_POSITION_SOL * 2.0
         }
         
-        val sizeSol = when {
-            score > 100 -> min(baseSize * 2.5, MAX_POSITION_SOL)
-            score > 85 -> min(baseSize * 2.0, MAX_POSITION_SOL)
-            score > 70 -> min(baseSize * 1.5, MAX_POSITION_SOL)
+        val baseSizeAdj = when {
+            score > 100 -> baseSize * 2.5
+            score > 85 -> baseSize * 2.0
+            score > 70 -> baseSize * 1.5
             else -> baseSize
         }
-        
+
+        // ── V5.9.880 — BehaviorAI sizing wire-up for MOONSHOT lane ──
+        // Sibling to V5.9.817 (Meme) / V5.9.878 (Quality) / V5.9.879 (BlueChip).
+        // Moonshot is the highest-risk lane — JUPITER mode sizes up to 2.0×
+        // BASE_POSITION_SOL and the score-ladder multiplies that by up to 2.5×.
+        // That's up to 5× the normal BASE size on a single Moonshot. With
+        // BehaviorAI dark on this lane, a tilt period was 5×-leveraging into
+        // the same loss-streak that auto-deescalated the global brain.
+        //
+        // This is THE lane where adaptive sizing matters most for capital
+        // preservation. After this wire-up, JUPITER mode at score 100+
+        // during BehaviorAI band 2 sizes:
+        //    baseSize * 2.5 * 0.7 (behavior) * 0.7 (grade) = 1.225×
+        // instead of the previous 2.5× — a 50% capital protection during tilt.
+        //
+        // Per doctrine #86: bounded multipliers, fail-open, no veto.
+        // Min function still applied AFTER composition so MAX_POSITION_SOL
+        // cap is preserved.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            // Moonshot uses higher score thresholds — score >100 is "elite"
+            //   100+ = A, 85+ = B, 70+ = C, else D
+            val inferredGrade = when {
+                score > 100 -> "A"
+                score > 85 -> "B"
+                score > 70 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        val sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult, MAX_POSITION_SOL)
+
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
         val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
         val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
