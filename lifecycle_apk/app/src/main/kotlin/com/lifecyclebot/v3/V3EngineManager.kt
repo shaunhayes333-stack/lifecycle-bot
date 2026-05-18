@@ -573,6 +573,95 @@ object V3EngineManager {
 
             learningStore?.record(event)
 
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.930 — SHADOW OUTCOME RESOLVER (write side of falseBlock/
+            // missedWinner). V5.9.929 lit up the CONSUMPTION side of the
+            // DecisionEngine self-correction penalty (DecisionEngine.kt:77-78);
+            // this commit closes the PRODUCTION loop so the penalty receives
+            // real data instead of always-0.
+            //
+            // TWO HALVES:
+            //
+            // (A) recordShadowPass — every executed trade IS a "pass" from
+            //     V3's filter. We know its actual outcome (pnlPct), so we
+            //     can immediately tell the store whether this passed-trade
+            //     was a win or a loss. wasWin uses the same +1% threshold
+            //     used by CollectiveLearning.uploadPatternOutcome below for
+            //     consistency.
+            //
+            // (B) recordShadowBlock — every snapshot in BotOrchestrator's
+            //     shadowTracker is a candidate V3 BLOCKED/WATCHED/REJECTED.
+            //     If the token has since mooned (≥+20% from startPrice) we
+            //     mark the block a FALSE BLOCK (would-have-won=true). If it
+            //     dumped (≤-10%) we mark the block CORRECT (would-have-won=
+            //     false). Snapshots <10min old are skipped (need time to
+            //     move). Resolved snapshots get untracked.
+            //
+            // Bounded: we sweep at most 20 snapshots per call to keep this
+            // path cheap. Fail-open: any throw aborts the resolver without
+            // affecting the rest of recordOutcome.
+            //
+            // Per FDG doctrine #87 #17: production-without-consumption =
+            // wasted compute; consumption-without-production = always-zero
+            // dead branch. V5.9.929 + V5.9.930 close the symmetry.
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                // (A) This executed trade's actual outcome
+                learningStore?.recordShadowPass(wasWin = pnlPct >= 1.0)
+
+                // (B) Sweep blocked snapshots
+                val shadow = orchestrator?.getShadowTracker()
+                if (shadow != null) {
+                    val solUsd = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                    } catch (_: Throwable) { 0.0 }
+
+                    val nowMs = System.currentTimeMillis()
+                    val ageFloorMs = 10 * 60 * 1000L   // need ≥10min to judge
+                    var resolved = 0
+                    val mints = shadow.allTracked().take(20)
+
+                    for (m in mints) {
+                        val snap = shadow.getSnapshot(m) ?: continue
+                        if (nowMs - snap.capturedAtMs < ageFloorMs) continue
+                        val startPrice = snap.startPrice ?: continue
+                        if (startPrice <= 0.0) { shadow.untrack(m); continue }
+
+                        val cur = try {
+                            com.lifecyclebot.engine.sell.PriceResolverFallback
+                                .resolve(m, solUsd)?.priceUsd ?: 0.0
+                        } catch (_: Throwable) { 0.0 }
+
+                        if (cur <= 0.0) continue  // can't judge yet
+                        val pnlVsStart = ((cur - startPrice) / startPrice) * 100.0
+
+                        when {
+                            pnlVsStart >= 20.0 -> {
+                                learningStore?.recordShadowBlock(wouldHaveWon = true)
+                                shadow.untrack(m)
+                                resolved++
+                            }
+                            pnlVsStart <= -10.0 -> {
+                                learningStore?.recordShadowBlock(wouldHaveWon = false)
+                                shadow.untrack(m)
+                                resolved++
+                            }
+                            else -> {
+                                // still in limbo — leave tracked, retry next call
+                            }
+                        }
+                    }
+                    if (resolved > 0) {
+                        ErrorLogger.debug(TAG, "🔍 SHADOW RESOLVER: $resolved/${mints.size} block-snapshots judged")
+                    }
+
+                    // Cheap bounded GC: kill snapshots older than 6h regardless
+                    shadow.clearOld(ttlMs = 6 * 60 * 60 * 1000L)
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.debug(TAG, "Shadow resolver soft-fail: ${e.message}")
+            }
+
             ErrorLogger.info(
                 TAG,
                 "V3 OUTCOME: $symbol | PnL=${pnlPct.fmt(1)}% | hold=${holdTimeMinutes}min | $exitReason"

@@ -558,6 +558,17 @@ class BotOrchestrator(
             breakdown = breakdown
         )
     }
+
+    /**
+     * V5.9.930 — expose the internal shadowTracker so V3EngineManager.recordOutcome
+     * can run a periodic resolver pass: for every snapshot we tracked as
+     * BLOCKED/WATCHED/REJECTED, check whether the token subsequently mooned
+     * (would-have-won → false block) and feed that back to the learning store
+     * via recordShadowBlock(). Pre-930 the shadowTracker accumulated snapshots
+     * forever and nothing read from it — write-only loop. This getter is the
+     * minimum surface change to close the loop without restructuring ownership.
+     */
+    fun getShadowTracker(): ShadowTracker = shadowTracker
 }
 
 sealed class ProcessResult {
