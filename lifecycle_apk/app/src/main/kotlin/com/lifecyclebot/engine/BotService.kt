@@ -6505,6 +6505,21 @@ class BotService : Service() {
                 "_loop",
                 "🧬[BOT_LOOP_TICK] n=$loopCount watch=$watchSize prevCycleMs=$prevCycleMs",
             )
+
+            // V5.9.864 — every 10 loop ticks, run AutoEndpointMigrator
+            // health-driven migration. ApiHealthMonitor needs >=20 samples
+            // and <10% success rate to trigger a swap, so this is rare and
+            // safe to call frequently. Fallback rules are curated below
+            // — if a host has zero fallback, this is a no-op.
+            if (loopCount % 10 == 0) {
+                try {
+                    val fallbackMap = mapOf(
+                        "frontend-api.pump.fun" to "frontend-api-v3.pump.fun",
+                        // Future: register Helius / Birdeye / etc. fallbacks here
+                    )
+                    com.lifecyclebot.engine.AutoEndpointMigrator.maybeAutoMigrate(fallbackMap)
+                } catch (_: Throwable) { /* observability never breaks loop */ }
+            }
         } catch (_: Throwable) { /* never block the loop on a logging failure */ }
     }
 
