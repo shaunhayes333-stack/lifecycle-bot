@@ -18,6 +18,16 @@ data class PairInfo(
     val liquidity: Double = 0.0,       // USD liquidity
     val fdv: Double = 0.0,             // fully diluted valuation
     val baseTokenAddress: String = "", // base token mint address (Solana)
+    // V5.9.911 — SOCIAL SIGNAL HARVEST. DexScreener already returns these in
+    // info.socials / info.websites on every token-pairs response — they were
+    // being dropped at parse time (memory #87 #1 "dropped signal = dropped
+    // AGI sample"). Surfacing them here enables TokenSocialScorer to apply
+    // a soft-shape trust multiplier without burning any new network requests.
+    // Defaulted to empty lists so EVERY existing PairInfo call site stays
+    // source-compatible.
+    val socials: List<String> = emptyList(),     // social platform types: ["twitter","telegram","discord","medium",...]
+    val websites: List<String> = emptyList(),    // website urls (deduped)
+    val hasImage: Boolean = false,                // imageUrl present in info block
 )
 
 class DexscreenerApi {
@@ -141,6 +151,33 @@ class DexscreenerApi {
             sells24h    = h24?.optInt("sells", 0) ?: 0,
         )
 
+        // V5.9.911 — Harvest social/website signals from info block.
+        // DexScreener returns these on every token-pairs response and we
+        // were silently discarding them (dropped AGI sample per memory #87).
+        val infoBlock = p.optJSONObject("info")
+        val socialsList = mutableListOf<String>()
+        val websitesList = mutableListOf<String>()
+        var imagePresent = false
+        if (infoBlock != null) {
+            imagePresent = infoBlock.optString("imageUrl", "").isNotBlank()
+            val socialsArr = infoBlock.optJSONArray("socials")
+            if (socialsArr != null) {
+                for (i in 0 until socialsArr.length()) {
+                    val s = socialsArr.optJSONObject(i) ?: continue
+                    val type = s.optString("type", "").lowercase().trim()
+                    if (type.isNotBlank() && type !in socialsList) socialsList += type
+                }
+            }
+            val websitesArr = infoBlock.optJSONArray("websites")
+            if (websitesArr != null) {
+                for (i in 0 until websitesArr.length()) {
+                    val w = websitesArr.optJSONObject(i) ?: continue
+                    val url = w.optString("url", "").trim()
+                    if (url.isNotBlank() && url !in websitesList) websitesList += url
+                }
+            }
+        }
+
         return PairInfo(
             pairAddress      = p.optString("pairAddress", ""),
             baseSymbol       = base?.optString("symbol", "") ?: "",
@@ -151,6 +188,9 @@ class DexscreenerApi {
             liquidity        = (p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0),
             fdv              = p.optDouble("fdv", 0.0),
             baseTokenAddress = base?.optString("address", "") ?: "",
+            socials          = socialsList.toList(),
+            websites         = websitesList.toList(),
+            hasImage         = imagePresent,
         )
     }
 
