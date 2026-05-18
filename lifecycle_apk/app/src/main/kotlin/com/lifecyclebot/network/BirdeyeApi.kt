@@ -143,36 +143,40 @@ class BirdeyeApi(private val apiKey: String = "") {
 
     // ── HTTP helper ───────────────────────────────────────────────────
 
-    private fun get(url: String): String? = try {
-        // V5.9.863 — KeyValidator entry gate. Birdeye is key-auth-class API.
-        // Empty key or 401/403 verdict → short-circuit to null. Saves a round
-        // trip per request when the operator's key is dead/expired.
+    private fun get(url: String): String? {
+        // V5.9.866 — KeyValidator entry gate. Birdeye is key-auth-class API.
+        // (Converted from expression body — early returns aren't legal there.)
         if (apiKey.isBlank()) return null
         if (!com.lifecyclebot.engine.KeyValidator.isLive("birdeye")) return null
 
-        val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
-        val builder = Request.Builder().url(effectiveUrl)
-            .header("accept", "application/json")
-            .header("x-chain", "solana")
-        builder.header("X-API-KEY", apiKey)
+        return try {
+            val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
+            val builder = Request.Builder().url(effectiveUrl)
+                .header("accept", "application/json")
+                .header("x-chain", "solana")
+            builder.header("X-API-KEY", apiKey)
 
-        val beStart = System.currentTimeMillis()
-        val resp = try {
-            http.newCall(builder.build()).execute()
-        } catch (e: Exception) {
-            try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("birdeye", e.message) } catch (_: Throwable) {}
-            throw e
-        }
-        try { com.lifecyclebot.engine.ApiHealthMonitor.record("birdeye", resp.code, System.currentTimeMillis() - beStart) } catch (_: Throwable) {}
-        if (resp.code in listOf(401, 403)) {
-            try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
-            return null
-        }
-        if (resp.isSuccessful) {
-            try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
-            resp.body?.string()
-        } else null
-    } catch (_: Exception) { null }
+            val beStart = System.currentTimeMillis()
+            val resp = try {
+                http.newCall(builder.build()).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("birdeye", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("birdeye", resp.code, System.currentTimeMillis() - beStart) } catch (_: Throwable) {}
+            when {
+                resp.code in listOf(401, 403) -> {
+                    try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
+                    null
+                }
+                resp.isSuccessful -> {
+                    try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
+                    resp.body?.string()
+                }
+                else -> null
+            }
+        } catch (_: Exception) { null }
+    }
 
     private fun timeframeToSeconds(tf: String): Long = when (tf) {
         "1m"  -> 60L

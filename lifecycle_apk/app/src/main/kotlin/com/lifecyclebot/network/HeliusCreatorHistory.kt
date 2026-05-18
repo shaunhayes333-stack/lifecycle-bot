@@ -166,32 +166,37 @@ class HeliusCreatorHistory(private val apiKey: String) {
         previousTokens    = emptyList(),
     )
 
-    private fun post(url: String, body: JSONObject): String? = try {
-        // V5.9.863 — KeyValidator gate. Helius enhanced is key-auth-class.
-        // The url itself contains api-key=$apiKey, so 401 here = bad key.
+    private fun post(url: String, body: JSONObject): String? {
+        // V5.9.866 — KeyValidator gate. Converted from expression body — early
+        // returns aren't legal there.
         if (apiKey.isBlank()) return null
         if (!com.lifecyclebot.engine.KeyValidator.isLive("helius")) return null
 
-        val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
-        val req = Request.Builder().url(effectiveUrl)
-            .post(body.toString().toRequestBody(JSON))
-            .header("Content-Type", "application/json")
-            .build()
-        val helStart = System.currentTimeMillis()
-        val resp = try {
-            http.newCall(req).execute()
-        } catch (e: Exception) {
-            try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("helius", e.message) } catch (_: Throwable) {}
-            throw e
-        }
-        try { com.lifecyclebot.engine.ApiHealthMonitor.record("helius", resp.code, System.currentTimeMillis() - helStart) } catch (_: Throwable) {}
-        if (resp.code in listOf(401, 403)) {
-            try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
-            return null
-        }
-        if (resp.isSuccessful) {
-            try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
-            resp.body?.string()
-        } else null
-    } catch (_: Exception) { null }
+        return try {
+            val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
+            val req = Request.Builder().url(effectiveUrl)
+                .post(body.toString().toRequestBody(JSON))
+                .header("Content-Type", "application/json")
+                .build()
+            val helStart = System.currentTimeMillis()
+            val resp = try {
+                http.newCall(req).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("helius", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("helius", resp.code, System.currentTimeMillis() - helStart) } catch (_: Throwable) {}
+            when {
+                resp.code in listOf(401, 403) -> {
+                    try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
+                    null
+                }
+                resp.isSuccessful -> {
+                    try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
+                    resp.body?.string()
+                }
+                else -> null
+            }
+        } catch (_: Exception) { null }
+    }
 }
