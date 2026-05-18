@@ -5180,7 +5180,33 @@ class Executor(
             onLog("🛑 Halted: ${cbState.haltReason}", identity.mint)
             return
         }
-        
+
+        // ── V5.9.893 — restore checkDataFreshness on maybeActWithDecision path ──
+        // The OLDER maybeAct() function (line 4762) calls
+        // security.checkDataFreshness(lastPollMs) and blocks trades if the
+        // last successful market poll is >60s stale. maybeActWithDecision()
+        // was added later (the V3-decision-routed path) and accepts
+        // lastPollMs in its signature — but the freshness check was NEVER
+        // wired through. Two BotService callers (L13650, L14951) pass
+        // lastPollMs correctly, expecting the gate to fire, but the gate
+        // was silently absent.
+        //
+        // Net effect: data-stale (RPC down, network drop, scanner stuck)
+        // BUYS could go through on the modern path even though the
+        // SecurityGuard had explicitly marked the data as untrustworthy.
+        // Classic memory lesson #3.8: when a function gets a sibling, the
+        // safety checks don't auto-migrate.
+        //
+        // This commit restores the original semantic. Block is a soft
+        // return (no buy / no sell action) — matches maybeAct behavior
+        // exactly. No new veto; this is RESTORING an existing veto that
+        // was silently dropped.
+        val freshness = security.checkDataFreshness(lastPollMs)
+        if (freshness is GuardResult.Block) {
+            onLog("⚠ ${freshness.reason}", identity.mint)
+            return
+        }
+
         if (ts.position.isOpen) {
             try {
                 val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
