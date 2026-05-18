@@ -986,11 +986,32 @@ class UnifiedScorer(
                 } else 1.0
             } catch (_: Throwable) { 1.0 }
 
-            val weight = (educationWeight * metaCogTrust).coerceIn(0.5, 1.6)
+            // ── V5.9.891 — mirror Sharpe-trust wire-up into symmetricTrust path ──
+            // Sibling fix to V5.9.890. The unifiedScore() path got Sharpe-trust;
+            // symmetricTrust (used in CLASSIC mode AND as the inner trust loop
+            // when UNIFIED is enabled) had to mirror it or we lose Sharpe
+            // signal whenever the user's bot runs classic. Per memory lesson
+            // #3.8: when fixing a parallel scoring path, mirror to BOTH or one
+            // mode silently misses the signal for months.
+            val sharpeTrust = try {
+                val raw = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLayerSharpe(c.name)
+                val mapped = (1.0 + raw * 0.10).coerceIn(0.85, 1.15)
+                val totalTrades = try {
+                    com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                } catch (_: Throwable) { 0 }
+                val blendFactor = when {
+                    totalTrades >= 5000 -> 1.0
+                    totalTrades >= 3000 -> 0.5 + 0.5 * (totalTrades - 3000) / 2000.0
+                    else                -> 0.5
+                }
+                1.0 + (mapped - 1.0) * blendFactor
+            } catch (_: Throwable) { 1.0 }
+
+            val weight = (educationWeight * metaCogTrust * sharpeTrust).coerceIn(0.5, 1.6)
             val newValue = (c.value * weight).toInt()
             return if (newValue == c.value) c else c.copy(
                 value = newValue,
-                reason = "${c.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%${if (metaCogTrust != 1.0) " mc×${"%.2f".format(metaCogTrust)}" else ""}]"
+                reason = "${c.reason} [w=${"%.2f".format(weight)}@${(accuracy * 100).toInt()}%${if (metaCogTrust != 1.0) " mc×${"%.2f".format(metaCogTrust)}" else ""}${if (sharpeTrust != 1.0) " sh×${"%.2f".format(sharpeTrust)}" else ""}]"
             )
         }
         val phase3Classic = phase2Classic.map { symmetricTrust(it, isOuter = false) }
