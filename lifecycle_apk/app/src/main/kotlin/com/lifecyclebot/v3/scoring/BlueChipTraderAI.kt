@@ -431,6 +431,9 @@ object BlueChipTraderAI {
             closeReason   = "BLUECHIP_${exitReason.name}",
             assetClass    = com.lifecyclebot.engine.AssetClass.BLUECHIP,
             entryScore    = pos.entryScore.toDouble(),
+            // V5.9.896 — promote from lite→rich so BehaviorLearning stops
+            // dropping every BlueChip sample at line 880.
+            entryPattern  = "BLUECHIP_ENTRY",
         )
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).

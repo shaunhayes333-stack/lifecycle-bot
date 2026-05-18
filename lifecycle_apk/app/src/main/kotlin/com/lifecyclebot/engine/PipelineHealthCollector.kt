@@ -13,13 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.9.895–V5.9.895 — PipelineHealthCollector
+ * V5.9.896–V5.9.896 — PipelineHealthCollector
  *
  * In-app mirror of the CI runtime-test funnel summary, plus an
  * accurate main-thread watchdog ANR sampler and a deep ring buffer
  * of recent forensic events.
  *
- * V5.9.895 changelog:
+ * V5.9.896 changelog:
  *   - Real watchdog-based ANR sampler: pings main thread Handler
  *     every 250ms; if no ACK in 700ms+ samples mainThread.stackTrace
  *     WHILE STILL BLOCKED. Previous Choreographer-based sampler
@@ -65,17 +65,17 @@ object PipelineHealthCollector {
     /** Custom labelled counters (e.g. lane name, error class). */
     private val labelCounts = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.895 — per-source intake counters (PUMP_PORTAL_WS / RAYDIUM_NEW_POOL / etc.). */
+    /** V5.9.896 — per-source intake counters (PUMP_PORTAL_WS / RAYDIUM_NEW_POOL / etc.). */
     private val intakeBySource = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.895 — per-lane LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
+    /** V5.9.896 — per-lane LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
     private val laneEvalCounts = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.895 — block-reason histogram across all gate types (top key on dump). */
+    /** V5.9.896 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
 
     // ════════════════════════════════════════════════════════════════
-    // V5.9.895 — Per-mode FDG / EXEC counters
+    // V5.9.896 — Per-mode FDG / EXEC counters
     //
     // Base44 ticket asked for FDG_LIVE_ALLOW / FDG_LIVE_BLOCK /
     // FDG_PAPER_ALLOW / FDG_PAPER_BLOCK and EXEC_LIVE_ATTEMPT /
@@ -106,14 +106,14 @@ object PipelineHealthCollector {
     private val execPaperBuyOk   = AtomicLong(0L)
     private val execPaperSellOk  = AtomicLong(0L)
 
-    /** V5.9.895 — per-symbol intake counter (top-10 surfaced in dump). */
+    /** V5.9.896 — per-symbol intake counter (top-10 surfaced in dump). */
     private val symbolIntakeCounts = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.895 — ANR stack frequency. Grouping by top frame so a 10s freeze
+    /** V5.9.896 — ANR stack frequency. Grouping by top frame so a 10s freeze
      *  on the same call site is one entry, not 40 separate ANR_HINT lines. */
     private val anrStackCounts = ConcurrentHashMap<String, AtomicLong>()
 
-    /** V5.9.895 — bot-loop cycle timing samples (most recent N). */
+    /** V5.9.896 — bot-loop cycle timing samples (most recent N). */
     private val recentCycleMsSamples = java.util.concurrent.ConcurrentLinkedDeque<Long>()
     private val recentCycleMsSize = AtomicInteger(0)
     private const val CYCLE_SAMPLE_CAP = 50
@@ -121,7 +121,7 @@ object PipelineHealthCollector {
     private val maxCycleMs = AtomicLong(0L)
     private val cycleCount = AtomicLong(0L)
 
-    /** V5.9.895 — recent executions ring (BUY/SELL with size + mode + reason). */
+    /** V5.9.896 — recent executions ring (BUY/SELL with size + mode + reason). */
     data class ExecRecord(
         val tsMs: Long,
         val side: String,
@@ -144,10 +144,10 @@ object PipelineHealthCollector {
     /** Total long-frame ms accumulated (for "time spent stuttering"). */
     private val totalFrameStallMs = AtomicLong(0L)
 
-    /** V5.9.895 — count of sample attempts where main thread was blocked. */
+    /** V5.9.896 — count of sample attempts where main thread was blocked. */
     private val anrSamplesTaken = AtomicLong(0L)
 
-    /** V5.9.895 — Pre-freeze rolling main-thread sample ring.
+    /** V5.9.896 — Pre-freeze rolling main-thread sample ring.
      *  Every watchdog tick (250ms) we capture (ts, sinceLastAckMs, topFrame)
      *  whether or not main thread is responsive. When a freeze fires, the
      *  dump now shows the last 30 samples = ~7.5s of pre-freeze history,
@@ -174,12 +174,12 @@ object PipelineHealthCollector {
     // Event ring buffer — last N forensic events for clipboard export.
     // ════════════════════════════════════════════════════════════════
 
-    private const val RING_CAP = 300  // V5.9.895 — increased from 200 for deeper history
+    private const val RING_CAP = 300  // V5.9.896 — increased from 200 for deeper history
 
-    // V5.9.895 — bumped each release. Printed verbatim at top of every
+    // V5.9.896 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.895"
+    private const val BUILD_TAG = "V5.9.896"
 
     data class Event(
         val tsMs: Long,
@@ -204,19 +204,19 @@ object PipelineHealthCollector {
         bump(phaseCounts, phaseTag)
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
             bump(labelCounts, "BOT_LOOP_TICK")
-            // V5.9.895 — extract prevCycleMs and record cycle timing.
+            // V5.9.896 — extract prevCycleMs and record cycle timing.
             val m = Regex("prevCycleMs=(\\d+)").find(fields)
             if (m != null) {
                 m.groupValues[1].toLongOrNull()?.let { recordCycleMs(it) }
             }
         }
-        // V5.9.895 — per-source intake bump for INTAKE phase events.
+        // V5.9.896 — per-source intake bump for INTAKE phase events.
         if (phaseTag == "INTAKE" && symbol.isNotEmpty()) {
             val srcMatch = Regex("src=([^ ]+)").find(fields)
             srcMatch?.groupValues?.get(1)?.let { bump(intakeBySource, it.take(40)) }
             bump(symbolIntakeCounts, symbol.take(20))
         }
-        // V5.9.895 — per-lane eval bump for LANE_EVAL phase events.
+        // V5.9.896 — per-lane eval bump for LANE_EVAL phase events.
         if (phaseTag == "LANE_EVAL") {
             val laneMatch = Regex("lane=([A-Z_]+)").find(fields)
             laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
@@ -229,12 +229,12 @@ object PipelineHealthCollector {
         bump(phaseCounts, phaseTag)
         if (allow) bump(phaseAllow, phaseTag) else bump(phaseBlock, phaseTag)
         if (!allow) {
-            // V5.9.895 — block-reason histogram. Truncate to the first token of
+            // V5.9.896 — block-reason histogram. Truncate to the first token of
             // the reason so we group "EXCEPTION cls=Foo" across distinct messages.
             val reasonKey = reason.substringBefore(' ').take(40).ifEmpty { "unspecified" }
             bump(blockReasonCounts, "$phaseTag/$reasonKey")
         }
-        // V5.9.895 — per-mode FDG counters. Other phases don't get this
+        // V5.9.896 — per-mode FDG counters. Other phases don't get this
         // split because only FDG is the live-money gate; SAFETY/V3/EXIT
         // run identically in paper and live so the unified counter is
         // already correct for them.
@@ -269,7 +269,7 @@ object PipelineHealthCollector {
         if (!attached) return
         bump(phaseCounts, "EXEC")
         bump(labelCounts, "EXEC/$action")
-        // V5.9.895 — per-mode EXEC outcome counters. Action strings come
+        // V5.9.896 — per-mode EXEC outcome counters. Action strings come
         // from the existing ForensicLogger.exec call sites:
         //   "PAPER_BUY", "PAPER_SELL", "LIVE_BUY_ATTEMPT",
         //   "LIVE_BUY_OK", "LIVE_BUY_FAIL", "LIVE_SELL_OK",
@@ -301,7 +301,7 @@ object PipelineHealthCollector {
     fun onSnapshot(label: String, fields: String) {
         if (!attached) return
         bump(labelCounts, "SNAP/$label")
-        // V5.9.895 — also record cycle timing if this is a LOOP_TOP snapshot.
+        // V5.9.896 — also record cycle timing if this is a LOOP_TOP snapshot.
         if (label == "LOOP_TOP" || label == "BOT_LOOP_TICK") {
             val m = Regex("prevCycleMs=(\\d+)").find(fields)
             if (m != null) m.groupValues[1].toLongOrNull()?.let { recordCycleMs(it) }
@@ -323,7 +323,7 @@ object PipelineHealthCollector {
     }
 
     /**
-     * V5.9.895 — public hook for executions so the dump can surface the last
+     * V5.9.896 — public hook for executions so the dump can surface the last
      * 30 trades right alongside the funnel counts. Called from TradeHistoryStore
      * after each successful journal write.
      */
@@ -351,7 +351,7 @@ object PipelineHealthCollector {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // ANR detector — V5.9.895 watchdog-thread sampler.
+    // ANR detector — V5.9.896 watchdog-thread sampler.
     //   Choreographer.FrameCallback (legacy) still measures durations.
     //   New: a 250ms-cadence watchdog thread that pings the main-thread
     //   Handler. If a ping isn't ACKed in > LONG_FRAME_THRESHOLD_MS,
@@ -362,7 +362,7 @@ object PipelineHealthCollector {
 
     private const val LONG_FRAME_THRESHOLD_MS = 700L  // > 700ms gap = "the bot froze"
     private const val WATCHDOG_INTERVAL_MS    = 250L
-    // V5.9.895 — operator audit: ignore Choreographer gaps > 60s as
+    // V5.9.896 — operator audit: ignore Choreographer gaps > 60s as
     // they are virtually certain to be screen-off / Doze / background
     // gaps rather than legitimate UI stalls. ActivityManager force-
     // closes a foreground app long before this for genuine hangs.
@@ -395,7 +395,7 @@ object PipelineHealthCollector {
                 lastFrameNs = frameTimeNanos
                 if (prev != 0L) {
                     val deltaMs = (frameTimeNanos - prev) / 1_000_000L
-                    // V5.9.895 — operator audit (build-2733 dump showed
+                    // V5.9.896 — operator audit (build-2733 dump showed
                     // maxFrameGapMs=229,816ms / stall=40% which was a
                     // FALSE READING. The Choreographer callback simply
                     // stops firing when the screen is off / app is in
@@ -422,7 +422,7 @@ object PipelineHealthCollector {
             }
         })
 
-        // V5.9.895 — watchdog thread that samples mainThread WHILE blocked.
+        // V5.9.896 — watchdog thread that samples mainThread WHILE blocked.
         val hThread = HandlerThread("ANR_Watchdog", Thread.MIN_PRIORITY).apply { start() }
         watchdogThread = hThread
         val watchdogHandler = Handler(hThread.looper)
@@ -440,7 +440,7 @@ object PipelineHealthCollector {
                     val now = SystemClock.elapsedRealtime()
                     val gap = now - ackTs.get()
 
-                    // V5.9.895 — sample main-thread top frame EVERY tick (not just
+                    // V5.9.896 — sample main-thread top frame EVERY tick (not just
                     // on freeze) and push to the rolling ring. Cheap (~1ms),
                     // gives us 7.5s of pre-freeze history when a hang fires.
                     val tickTrace = try {
@@ -469,7 +469,7 @@ object PipelineHealthCollector {
                         if (emitNow) {
                             lastReportedKey = topFrame
                             lastReportedAtMs = System.currentTimeMillis()
-                            // V5.9.895 — include the 30-frame pre-freeze ring
+                            // V5.9.896 — include the 30-frame pre-freeze ring
                             // so the operator sees what main was doing in the
                             // ~7.5s leading up to the hang, not just at the
                             // moment of detection.
@@ -591,7 +591,7 @@ object PipelineHealthCollector {
     /**
      * Render the full diagnostic dump for clipboard export.
      *
-     * V5.9.895 — expanded sections:
+     * V5.9.896 — expanded sections:
      *   - Pipeline funnel (CI parity)
      *   - Bot-loop cycle timing
      *   - Gate allow/block tally
@@ -620,7 +620,7 @@ object PipelineHealthCollector {
 
         val sb = StringBuilder(16 * 1024)
         sb.append("===== AATE Pipeline Health Snapshot =====\n")
-        // V5.9.895 — version stamp at top so we never debate which build
+        // V5.9.896 — version stamp at top so we never debate which build
         // is on the device. Tag is a hardcoded const bumped per release;
         // appVer comes from BuildConfig.VERSION_NAME (set by gradle to
         // "5.0.<ciBuildNumber>"). When the operator pastes a dump we can
@@ -764,7 +764,7 @@ object PipelineHealthCollector {
             sb.append('\n')
         }
 
-        // ── V5.9.895 — Pre-freeze rolling main-thread sample ────────
+        // ── V5.9.896 — Pre-freeze rolling main-thread sample ────────
         // Captured every watchdog tick (250ms). Newest first. When a
         // freeze fires, this shows the ~7.5s leading up to it — far
         // more useful than the single stack sampled at detection time.
@@ -779,7 +779,7 @@ object PipelineHealthCollector {
         }
 
         // ── Labelled counters ───────────────────────────────────────
-        // V5.9.895 — LIFECYCLE/* and SNAP/* entries are pinned BEFORE the
+        // V5.9.896 — LIFECYCLE/* and SNAP/* entries are pinned BEFORE the
         // top-40 by-count slice. The previous frequency-sorted-take(40)
         // pushed singleton lifecycle counters (BATTERY_OPT_CHECK=1,
         // LOOP_HEARTBEAT_ALARM=15, CYCLE_PHASE=63 etc.) below the cut
@@ -821,7 +821,7 @@ object PipelineHealthCollector {
         }
         sb.append('\n')
 
-        // V5.9.895 — operator-only strategy expectancy block. Read-only;
+        // V5.9.896 — operator-only strategy expectancy block. Read-only;
         // surfaces which tradingMode strategies are net-positive vs which
         // are bleeding, so the operator can decide what to retire without
         // dumping the journal CSV and pivoting it by hand. Empty when the
@@ -832,7 +832,7 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {
             // telemetry is non-essential; never let it break the dump
         }
-        // V5.9.895 — Regime / LosingPattern / BrainConsensus telemetry.
+        // V5.9.896 — Regime / LosingPattern / BrainConsensus telemetry.
         try { sb.append(RegimeDetector.formatForPipelineDump()) } catch (_: Throwable) {}
         try {
             val lp = LosingPatternMemory.formatForPipelineDump()
@@ -844,7 +844,7 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
 
         // ── Cheat-sheet ─────────────────────────────────────────────
-        // V5.9.895 — expanded cheat-sheet with actionable context
+        // V5.9.896 — expanded cheat-sheet with actionable context
         val execBuy  = (labelCounts["EXEC/PAPER_BUY"]?.get() ?: 0L) + (labelCounts["EXEC/LIVE_BUY"]?.get() ?: 0L)
         val execSell = labelCounts["EXEC_SELL"]?.get() ?: 0L
         val stall    = if (uptimeSec > 0) (s.totalFrameStallMs * 100L / (uptimeSec * 1000L)) else 0L
@@ -900,9 +900,9 @@ object PipelineHealthCollector {
 
         // ── FDG gate ────────────────────────────────────────────────────
         sb.append("\n  [FDG GATE]  allow=$fdgAllow  block=$fdgBlock\n")
-        // V5.9.895 — EMERGENT-MEME #9: derive interpretation from
+        // V5.9.896 — EMERGENT-MEME #9: derive interpretation from
         // actual top block reason, not blanket "likely bootstrap".
-        // The user's V5.9.895 dump had top reason
+        // The user's V5.9.896 dump had top reason
         // LIQUIDITY_BELOW_EXECUTION_FLOOR (824/839) but the text
         // still said "CONFIDENCE_FLOOR means live-WR data too
         // sparse" — wrong call to action.
@@ -938,7 +938,7 @@ object PipelineHealthCollector {
         else if (fdgAllow > 0)
             sb.append("  ✅ FDG passing $fdgAllow / ${fdgTotal} evaluations.\n")
 
-        // V5.9.895 — per-mode FDG / EXEC breakdown so operator (and
+        // V5.9.896 — per-mode FDG / EXEC breakdown so operator (and
         // forensics consumers like Base44) can disambiguate at a glance
         // whether live trading is actually happening.
         sb.append("\n  [MODE]  current=${modeSnapshot}\n")
@@ -1014,7 +1014,7 @@ object PipelineHealthCollector {
         sb.append("\n  [ANR / MAIN THREAD]\n")
         val anrHints = labelCounts["ANR_HINTS"]?.get() ?: 0L
         sb.append("  ANR_HINTS=$anrHints  Stall=${stall}%% of uptime\n")
-        // V5.9.895 — EMERGENT-MEME #9: interpretation derived from
+        // V5.9.896 — EMERGENT-MEME #9: interpretation derived from
         // actual data. The previous logic skipped the severe path
         // when ANR_HINTS=0 even if stall=94% / maxFrameGap=77s,
         // and printed "✅ No ANR events" — a complete misread.
@@ -1044,7 +1044,7 @@ object PipelineHealthCollector {
             }
         }
 
-        // V5.9.895 — EMERGENT-MEME #9: live-paper contamination
+        // V5.9.896 — EMERGENT-MEME #9: live-paper contamination
         // interpretation. Surface the mode mismatch in plain text.
         if (modeSnapshot == "LIVE" && execPaperBuyOk.get() > 0) {
             sb.append("  ⚠ MODE CONTAMINATION: LIVE active but EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()} — paper trades are firing during live.\n")
@@ -1056,14 +1056,14 @@ object PipelineHealthCollector {
         if (v3Skipped > 0)
             sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
 
-        // ── V5.9.895 — Self-healing tier surface (H1+H2+H3) ──────────────
+        // ── V5.9.896 — Self-healing tier surface (H1+H2+H3) ──────────────
         // Show operator: which API hosts are healthy, which keys are flagged
         // DEAD, and how many times AutoEndpointMigrator has fired. This is
         // the ONE place to look when "why is intake stalled?" comes up.
         try {
             val apiSnap = ApiHealthMonitor.snapshot()
             if (apiSnap.isNotEmpty()) {
-                sb.append("\n===== API health (V5.9.895 ApiHealthMonitor) =====\n")
+                sb.append("\n===== API health (V5.9.896 ApiHealthMonitor) =====\n")
                 val sorted = apiSnap.entries.sortedBy { it.key }
                 for ((host, st) in sorted) {
                     val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
@@ -1091,7 +1091,7 @@ object PipelineHealthCollector {
         try {
             val keySnap = KeyValidator.snapshot()
             if (keySnap.isNotEmpty()) {
-                sb.append("\n===== Key verdicts (V5.9.895 KeyValidator) =====\n")
+                sb.append("\n===== Key verdicts (V5.9.896 KeyValidator) =====\n")
                 for ((svc, t) in keySnap.entries.sortedBy { it.key }) {
                     val (isLive, http, err) = t
                     val icon = if (isLive) "✅" else "🔴"
@@ -1104,7 +1104,7 @@ object PipelineHealthCollector {
         try {
             val migSnap = AutoEndpointMigrator.snapshot()
             if (migSnap.isNotEmpty()) {
-                sb.append("\n===== Endpoint migrations (V5.9.895 AutoEndpointMigrator) =====\n")
+                sb.append("\n===== Endpoint migrations (V5.9.896 AutoEndpointMigrator) =====\n")
                 for ((dead, pair) in migSnap.entries.sortedBy { it.key }) {
                     val (live, count) = pair
                     sb.append(String.format("  ↪ %-32s → %-32s  (rewrites=%d)\n", dead, live, count))

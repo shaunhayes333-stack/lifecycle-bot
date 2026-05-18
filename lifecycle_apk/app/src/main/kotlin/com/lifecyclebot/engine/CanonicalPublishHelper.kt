@@ -62,6 +62,22 @@ object CanonicalPublishHelper {
         closeReason: String? = null,
         assetClass: AssetClass = AssetClass.MEME,
         entryScore: Double = 0.0,
+        // ── V5.9.896 — OPTIONAL lane-aware candidate construction ──
+        // When the caller passes a non-blank entryPattern, this helper builds
+        // a minimal CandidateFeatures payload and flips featuresIncomplete=false.
+        // That stops BehaviorLearning.onCanonicalOutcome from skipping the
+        // sample at line 880, finally exposing non-meme lanes to the
+        // behavioral learner. Empty fields fall through to "?" in
+        // richSignature/broadSignature — safe by design.
+        //
+        // Backward-compatible: legacy call sites pass nothing → behavior
+        // identical to V5.9.852 (featuresIncomplete=true, candidate=null).
+        entryPattern: String = "",          // e.g. "BLUECHIP_ENTRY", "MOONSHOT_VERTICAL_GREEN"
+        liqBucket: String = "",             // optional — LIQ_LOW / LIQ_MED / ...
+        mcapBucket: String = "",            // optional
+        holderConcentrationBucket: String = "",  // optional
+        safetyTier: String = "",            // optional
+        venue: String = "",                 // optional — RAYDIUM / JUPITER / ...
     ) {
         try {
             val tradeId = tradeIdSeed
@@ -86,6 +102,28 @@ object CanonicalPublishHelper {
                 "holdSec"         to (holdSec?.toDouble() ?: 0.0),
             )
 
+            // V5.9.896 — minimal lane-aware candidate. When entryPattern is
+            // non-blank, the caller is telling us "I have enough lane context
+            // to be a real training sample" — build a CandidateFeatures with
+            // identity + the fields we know, leave the rest blank (signature
+            // builders write "?" for blanks; the rich/broad keys still
+            // partition per-lane). Empty entryPattern → keep legacy lite
+            // behavior (candidate=null, featuresIncomplete=true).
+            val laneCandidate: CandidateFeatures? = if (entryPattern.isNotBlank()) {
+                CandidateFeatures(
+                    assetClass = assetClass.name,
+                    runtimeMode = envEnum.name,
+                    trader = source.name,
+                    venue = venue,
+                    entryPattern = entryPattern,
+                    liqBucket = liqBucket,
+                    mcapBucket = mcapBucket,
+                    holderConcentration = holderConcentrationBucket,
+                    safetyTier = safetyTier,
+                    fdgReasonFamily = closeReason?.takeIf { it.isNotBlank() } ?: "",
+                )
+            } else null
+
             val rich = CanonicalTradeOutcome(
                 tradeId          = tradeId,
                 mint             = mint,
@@ -109,8 +147,8 @@ object CanonicalPublishHelper {
                 executionResult  = executionEnum,
                 closeReason      = closeReason?.ifBlank { null },
                 featuresAtEntry  = features,
-                candidate        = null,        // no TokenState in these paths
-                featuresIncomplete = true,      // lite sample — honest reporting
+                candidate        = laneCandidate,                // V5.9.896
+                featuresIncomplete = (laneCandidate == null),    // V5.9.896 — true only on legacy lite
                 bcSimOnly        = false,
             )
             CanonicalOutcomeBus.markRichPublished(tradeId)

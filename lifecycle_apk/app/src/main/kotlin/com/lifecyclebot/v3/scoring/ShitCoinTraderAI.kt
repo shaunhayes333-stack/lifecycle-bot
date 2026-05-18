@@ -566,6 +566,8 @@ object ShitCoinTraderAI {
             closeReason   = "SHITCOIN_${exitReason.name}",
             assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
             entryScore    = pos.entryScore.toDouble(),
+            // V5.9.896 — promote lite→rich for BehaviorLearning.
+            entryPattern  = "SHITCOIN_ENTRY",
         )
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).

@@ -2347,6 +2347,8 @@ object CryptoAltTrader {
             closeReason   = "CRYPTOALT_$reason",
             assetClass    = com.lifecyclebot.engine.AssetClass.MEME,  // closest enum — no CRYPTO yet
             entryScore    = pos.aiScore.toDouble(),
+            // V5.9.896 — promote lite→rich for BehaviorLearning.
+            entryPattern  = "CRYPTOALT_ENTRY",
         )
 
         // ── TradeHistoryStore — cross-bot shared log ──────────────────────────

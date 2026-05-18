@@ -493,6 +493,8 @@ object ManipulatedTraderAI {
             closeReason   = "MANIPULATED_${reason.name}",
             assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
             entryScore    = pos.manipScore.toDouble(),
+            // V5.9.896 — promote lite→rich for BehaviorLearning.
+            entryPattern  = "MANIPULATED_ENTRY",
         )
 
         // V5.9.8: Sync paper P&L to shared wallet

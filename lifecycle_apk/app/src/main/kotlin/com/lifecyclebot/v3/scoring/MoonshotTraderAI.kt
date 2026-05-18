@@ -1011,6 +1011,8 @@ object MoonshotTraderAI {
             closeReason   = "MOONSHOT_${exitReason.name}",
             assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
             entryScore    = pos.entryScore,
+            // V5.9.896 — promote lite→rich for BehaviorLearning.
+            entryPattern  = "MOONSHOT_ENTRY",
         )
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph.
