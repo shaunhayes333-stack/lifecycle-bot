@@ -10701,6 +10701,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             }
 
             if (!v3WillExecuteCore && !ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+                // V5.9.920 — TREASURY LANE_EVAL emit.
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
+                    )
+                } catch (_: Throwable) {}
                 try {
                     // ═══════════════════════════════════════════════════════════════════
                     // V4.0 FIX: CHECK FINAL EXECUTION PERMIT
@@ -11043,6 +11051,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // V5.2 FIX: Must check if Treasury already has a position!
             //          Treasury must hit TP and sell BEFORE other layers can enter
             // ═══════════════════════════════════════════════════════════════════
+            // V5.9.920 — QUALITY lane LANE_EVAL emit (every tick, every lane).
+            // Memory rule #87: all 9 lanes must feed the brain from trade 1.
+            // Unconditional emit even when mcap is out of range, so the
+            // counter shows lane coverage and the brain learns "this token
+            // was not Quality-eligible".
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.QualityTraderAI.isEnabled()) {
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.LANE_EVAL,
+                    ts.symbol,
+                    "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
+                )
+            }
             if (!ts.position.isOpen && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
                 try {
@@ -11225,7 +11245,18 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                     // ═══════════════════════════════════════════════════════════════
                     // BLUE CHIP TRADER AI - For $1M+ mcap tokens
                     // ═══════════════════════════════════════════════════════════════
-                    
+
+                    // V5.9.920 — BLUECHIP LANE_EVAL emit. Even when mcap is below
+                    // $1M (the lane's own threshold), emit so the brain sees
+                    // this token was considered and rejected by-shape.
+                    try {
+                        ForensicLogger.phase(
+                            ForensicLogger.PHASE.LANE_EVAL,
+                            ts.symbol,
+                            "lane=BLUECHIP paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 1_000_000}"
+                        )
+                    } catch (_: Throwable) {}
+
                     // V4.0 FIX: Check execution permit first
                     val permitResult = FinalExecutionPermit.canExecute(
                         mint = ts.mint,
@@ -12260,6 +12291,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // The old gate !(v3Enabled && V3Ready) meant ManipulatedTraderAI never
             // ran because V3 is always ready, silencing the entire trader.
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
+                // V5.9.920 — MANIPULATED LANE_EVAL emit.
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=MANIPULATED paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} bundleRisk=${ts.safety.bundleRisk} score=${ts.entryScore}"
+                    )
+                } catch (_: Throwable) {}
                 try {
                     val manipTokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
@@ -12577,6 +12616,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val sniperAllowed = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
             )
+            // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
+            // so brain sees skips due to mode/permit too).
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed"
+                    )
+                } catch (_: Throwable) {}
+            }
             if (!ts.position.isOpen && sniperAllowed && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
@@ -12681,6 +12731,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
+                // V5.9.920 — DIP_HUNTER LANE_EVAL emit.
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=DIP_HUNTER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    )
+                } catch (_: Throwable) {}
                 // V5.7.8: DipHunter runs independently
                 try {
                     val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
