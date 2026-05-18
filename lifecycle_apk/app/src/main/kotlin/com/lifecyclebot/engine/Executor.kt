@@ -1810,7 +1810,42 @@ class Executor(
                 onLog("🪂 Composed mult floor: raw=${"%.4f".format(rawMultProduct)}x → 0.25x " +
                       "(stack was about to size-zero — keeping bot trading per doctrine)", "sizing")
             }
-            val finalSol = result.solAmount * composedMult   // V5.9.867 floor applied
+            // V5.9.939 — TIER-AWARE POSITION SIZE CAP (operator doctrine).
+            // ScalingMode.Tier.maxPositionSol() applies tier-specific
+            // ownership caps:
+            //   MICRO         4% of pool liquidity
+            //   STANDARD      4%
+            //   GROWTH        3%
+            //   SCALED        2%
+            //   INSTITUTIONAL 1%
+            // Pre-V5.9.939 this method existed but was UNUSED — Executor
+            // used a global cap regardless of token tier. A position that
+            // owns 4% of a $5K micro pool ($200) is healthy; that same
+            // 4% of a $50M chip pool ($2M) is catastrophic. Tier-aware
+            // cap honors the architectural intent.
+            var finalSol = result.solAmount * composedMult   // V5.9.867 floor applied
+            try {
+                if (mcapUsd > 0.0 && liquidityUsd > 0.0) {
+                    val tier = com.lifecyclebot.engine.ScalingMode.tierForToken(
+                        liquidityUsd = liquidityUsd,
+                        mcapUsd = mcapUsd,
+                    )
+                    val solUsdPrice = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                            .takeIf { it in 50.0..500.0 } ?: 85.0
+                    } catch (_: Throwable) { 85.0 }
+                    val tierCap = tier.maxPositionSol(liquidityUsd, solUsdPrice)
+                    if (tierCap.isFinite() && tierCap > 0.0 && finalSol > tierCap) {
+                        onLog(
+                            "🎯 TierCap: ${tier.label} (${tier.icon}) " +
+                            "${finalSol.fmt(4)} → ${tierCap.fmt(4)} SOL " +
+                            "(${(tier.ownershipCapPct * 100).fmt(1)}% of \$${liquidityUsd.toInt()} pool)",
+                            "sizing"
+                        )
+                        finalSol = tierCap
+                    }
+                }
+            } catch (_: Throwable) { /* fail-open — tier cap is advisory */ }
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")

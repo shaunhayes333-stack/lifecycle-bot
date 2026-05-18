@@ -161,7 +161,8 @@ class BotOrchestrator(
             scoreCard = scoreCard,
             confidence = confidence,
             fatal = fatal,
-            isPaperMode = isPaperMode
+            isPaperMode = isPaperMode,
+            marketCapUsd = candidate.marketCapUsd,  // V5.9.939: tier-aware floor
         )
 
         logger.stage(

@@ -208,20 +208,117 @@ object LayerTransitionManager {
         momentum: Double = 0.0,
         isQualitySetup: Boolean = false,
     ): TradingLayer {
+        // ═══════════════════════════════════════════════════════════════
+        // V5.9.939 — TIER-AWARE LANE ROUTING (architectural fix).
+        //
+        // Pre-V5.9.939 this dispatcher only knew 4 of 9 lanes and used
+        // enum-internal mcap ranges that DID NOT MATCH the actual lane
+        // scorer constants. Result: tokens in $50K-$1M (the PUMP_FUN
+        // graduate sweet spot) routed to BLUE_CHIP enum, then rejected
+        // by BlueChip scorer's own $1M floor. ~98% V3 rejection.
+        //
+        // Operator doctrine: "executors, V3, lanes are ALL meant to be
+        // mcap-aware for each tier." Lanes cover $500 → $100M+ across
+        // the entire Solana universe. This dispatcher now honors that.
+        //
+        // ROUTING TRUTH = actual lane scorer mcap ranges:
+        //   ShitCoinTraderAI:     $500    - $500K
+        //   ShitCoinExpress:      $2K     - $300K
+        //   ManipulatedTraderAI:  $5K     - $300K
+        //   ProjectSniperAI:      $3K     - $500K
+        //   QualityTraderAI:      $75K    - $1M
+        //   DipHunterAI:          $50K    - $5M
+        //   MoonshotTraderAI:     $10K    - $100M
+        //   BlueChipTraderAI:     $1M     - ∞
+        //
+        // Strategy: pick the lane whose mcap range FITS the token and
+        // whose secondary signal (age/momentum) is satisfied. Multiple
+        // lanes overlap; we pick by mcap-tier-appropriateness.
+        // ═══════════════════════════════════════════════════════════════
         return when {
-            marketCapUsd >= BLUECHIP_MIN_MCAP -> TradingLayer.BLUE_CHIP
+            // ────────────────────────────────────────────────────────────
+            // INSTITUTIONAL / BLUE_CHIP tier: ≥ $1M mcap. Mature only.
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 1_000_000.0 -> TradingLayer.BLUE_CHIP
 
-            marketCapUsd in V3_MIN_MCAP..V3_MAX_MCAP -> TradingLayer.V3_QUALITY
+            // ────────────────────────────────────────────────────────────
+            // GROWTH tier: $100K - $1M. Sweet spot for DipHunter & Moonshot.
+            // - If recent drawdown signal → DipHunter (mean-revert)
+            // - Otherwise → Quality (the actual $75K-$1M lane)
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 100_000.0 -> {
+                if (momentum <= -10.0) TradingLayer.DIP_HUNTER
+                else TradingLayer.QUALITY
+            }
 
-            marketCapUsd <= EXPRESS_MAX_MCAP && momentum >= EXPRESS_MIN_MOMENTUM ->
-                TradingLayer.EXPRESS
+            // ────────────────────────────────────────────────────────────
+            // STANDARD tier: $50K - $100K. Fresh runners + dip plays.
+            // - Strong momentum → Moonshot (built for the $10K-$100M run)
+            // - Otherwise → DipHunter / Quality
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 50_000.0 -> {
+                if (momentum >= 5.0) TradingLayer.MOONSHOT
+                else TradingLayer.QUALITY
+            }
 
-            marketCapUsd <= SHITCOIN_MAX_MCAP && tokenAgeHours <= SHITCOIN_MAX_AGE_HOURS ->
-                TradingLayer.SHITCOIN
+            // ────────────────────────────────────────────────────────────
+            // MICRO-HIGH tier: $10K - $50K. Active meme zone.
+            // - Moonshot if momentum is real
+            // - V3 Quality micro band ($5K-$50K) as fallback
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 10_000.0 -> {
+                if (momentum >= 3.0) TradingLayer.MOONSHOT
+                else TradingLayer.V3_QUALITY
+            }
 
-            // Fallbacks
-            marketCapUsd < V3_MIN_MCAP -> TradingLayer.SHITCOIN
-            else -> TradingLayer.V3_QUALITY
+            // ────────────────────────────────────────────────────────────
+            // MICRO tier: $5K - $10K. ShitCoin / Manipulated / Sniper land.
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 5_000.0 -> {
+                when {
+                    tokenAgeHours <= 0.5 -> TradingLayer.SHITCOIN     // ultra-fresh
+                    momentum >= 5.0      -> TradingLayer.EXPRESS       // momentum
+                    else                 -> TradingLayer.V3_QUALITY
+                }
+            }
+
+            // ────────────────────────────────────────────────────────────
+            // SUB-MICRO tier: $500 - $5K. ShitCoin's designed prey.
+            // (Pre-graduation pump.fun tokens land here.)
+            // ────────────────────────────────────────────────────────────
+            marketCapUsd >= 500.0 -> TradingLayer.SHITCOIN
+
+            // ────────────────────────────────────────────────────────────
+            // PRE-LIQUIDITY tier: < $500 OR unknown mcap (==0).
+            // Don't reject — fresh intakes often arrive with mcap=0 before
+            // first hydration. ShitCoin's downstream MCAP_TOO_LOW will
+            // gate it once real data lands.
+            // ────────────────────────────────────────────────────────────
+            else -> TradingLayer.SHITCOIN
+        }
+    }
+
+    /**
+     * V5.9.939 — Tier-aware decision floor.
+     *
+     * Returns the (scoreFloor, confFloor) pair for a given TradingLayer.
+     * Used by DecisionEngine to gate EXECUTE per-tier instead of one-
+     * global-floor-fits-all.
+     *
+     * MICRO lanes get looser floors (high churn, learning territory).
+     * BLUE_CHIP gets tighter floors (only A+ entries make sense).
+     */
+    fun tierFloorsFor(layer: TradingLayer): Pair<Int, Int> {
+        return when (layer) {
+            TradingLayer.BLUE_CHIP    -> 65 to 60   // strict — only A+ for $1M+
+            TradingLayer.QUALITY      -> 50 to 45
+            TradingLayer.DIP_HUNTER   -> 45 to 40
+            TradingLayer.MOONSHOT     -> 40 to 35
+            TradingLayer.V3_QUALITY   -> 40 to 35
+            TradingLayer.EXPRESS      -> 35 to 30
+            TradingLayer.SHITCOIN     -> 30 to 25   // loose — learning + churn
+            TradingLayer.TREASURY     -> 50 to 45
+            TradingLayer.ORBITAL      -> 40 to 35
         }
     }
 

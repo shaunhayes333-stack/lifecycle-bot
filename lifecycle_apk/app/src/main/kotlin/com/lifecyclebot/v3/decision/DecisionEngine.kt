@@ -174,8 +174,37 @@ class FinalDecisionEngine(
         source: String = "",
         phase: String = "",
         isAIDegraded: Boolean = false,
-        isPaperMode: Boolean = false  // V5.2: Paper mode bypasses liquidity floors
+        isPaperMode: Boolean = false,  // V5.2: Paper mode bypasses liquidity floors
+        marketCapUsd: Double = 0.0,    // V5.9.939: tier-aware floor adjustment
     ): DecisionResult {
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.939 — TIER-AWARE FLOOR ADJUSTMENT.
+        //
+        // Operator doctrine: "executors, V3, lanes are ALL meant to be
+        // mcap-aware for each tier." Pre-V5.9.939 the DecisionEngine had
+        // ZERO mcap awareness — same threshold for $500 micro and $500M
+        // chip. That treated tier-MICRO learning churn the same as
+        // tier-INSTITUTIONAL high-conviction-only entries.
+        //
+        // tierAdj is SUBTRACTED from the final score/conf floors:
+        //   MICRO   (< $50K):       -10  (loose — learning territory)
+        //   STANDARD ($50K-$500K):   -5
+        //   GROWTH   ($500K-$5M):     0  (neutral — current default)
+        //   SCALED   ($5M-$50M):     +5  (tighter — more selective)
+        //   BLUECHIP (≥ $50M):      +10  (only A+ entries here)
+        //
+        // Computed once, applied to BOTH score floor and conf floor.
+        // Fail-open: mcap=0 → tierAdj=0 (no change).
+        // ═══════════════════════════════════════════════════════════════════
+        val tierAdj = when {
+            marketCapUsd <= 0.0           -> 0   // unknown, no opinion
+            marketCapUsd < 50_000.0       -> -10
+            marketCapUsd < 500_000.0      -> -5
+            marketCapUsd < 5_000_000.0    -> 0
+            marketCapUsd < 50_000_000.0   -> 5
+            else                          -> 10
+        }
+
         // Fatal block overrides everything
         if (fatal.blocked) {
             return DecisionResult(
@@ -399,10 +428,12 @@ class FinalDecisionEngine(
         val hasMomentumOrVolume = !(momentumScoreV < 0 && volumeScoreV < 0)
 
         // V5.8: Anti-starvation — relax floors if no executes in recent window
+        // V5.9.939 — Apply tierAdj on top of starvation relief. Lower-tier
+        // tokens (MICRO) get extra slack; higher-tier (BLUE_CHIP) tighten up.
         val starvationRelief = getStarvationRelief()
-        val effectiveMinScore = minScoreForExecute - starvationRelief
-        val effectiveMinConf = minConfForExecute - starvationRelief
-        val effectiveCGradeConf = cGradeMinConf - starvationRelief
+        val effectiveMinScore = minScoreForExecute - starvationRelief + tierAdj
+        val effectiveMinConf = minConfForExecute - starvationRelief + tierAdj
+        val effectiveCGradeConf = cGradeMinConf - starvationRelief + tierAdj
 
         // V5.9.93: Tie EXECUTE_AGGRESSIVE confidence floor to the downstream
         // TradeAuthorizer promotion-gate floor. V5.9.97 added hard maxOf(..., 40/50)

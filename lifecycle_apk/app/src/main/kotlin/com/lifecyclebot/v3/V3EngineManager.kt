@@ -335,16 +335,46 @@ object V3EngineManager {
                 // FALL THROUGH — V3 scores the meme below.
             }
 
-            // V5.9.409 — MCAP_TOO_LOW rejection only blocks non-memes. Memes
-            // are legitimately tiny by design; the meme-lane multipliers
-            // (SHITCOIN / MOONSHOT / MANIPULATED / etc.) already tighten
-            // rugcheck/liquidity where appropriate for safety.
-            val minMcap = com.lifecyclebot.v3.scoring.LayerTransitionManager.V3_MIN_MCAP
-            if (!isShitCoinCandidate && ts.lastMcap < minMcap && !isQualityLowCap) {
-                return V3Decision.rejected(
-                    "MCAP_TOO_LOW: \$${(ts.lastMcap / 1_000).toInt()}K < \$${(minMcap / 1_000).toInt()}K"
+            // V5.9.939 — REPLACED MCAP_TOO_LOW HARD REJECT WITH TIER-AWARE ROUTING.
+            //
+            // Pre-V5.9.939: tokens that weren't isShitCoinCandidate AND weren't
+            // isQualityLowCap AND had mcap < $5K → REJECTED at V3 entry, never
+            // saw a lane scorer. With determineLayer() only knowing 4 of 9 lanes
+            // (using mismatched enum mcap ranges vs actual lane scorer ranges),
+            // ~98% of tokens died here.
+            //
+            // Operator doctrine: "executors, V3, lanes are ALL meant to be
+            // mcap-aware for each tier." Every token must reach a tier-
+            // appropriate lane. No catch-all reject at V3 entry.
+            //
+            // The lane scorer downstream still has authority to reject if
+            // the token genuinely fails ITS criteria (rug/safety/liquidity).
+            // This change ONLY removes the gate-before-routing layer.
+            //
+            // Tag the token with its routed lane so cross-talk, FDG, and
+            // sizing all see consistent tradingMode.
+            val routedLayer = try {
+                com.lifecyclebot.v3.scoring.LayerTransitionManager.determineLayer(
+                    marketCapUsd = ts.lastMcap,
+                    tokenAgeHours = tokenAgeHours,
+                    momentum = ts.lastPriceChange1h,
+                    isQualitySetup = isQualityLowCap,
                 )
+            } catch (_: Throwable) {
+                com.lifecyclebot.v3.scoring.LayerTransitionManager.TradingLayer.SHITCOIN
             }
+            // Apply the routed layer's tradingMode tag if the slot is blank
+            // OR currently UNKNOWN. Idempotent (cheap to set every cycle).
+            try {
+                val laneTag = routedLayer.name
+                if (ts.position.tradingMode.isBlank() ||
+                    com.lifecyclebot.engine.LaneTag.fromTradingMode(ts.position.tradingMode)
+                        == com.lifecyclebot.engine.LaneTag.Lane.UNKNOWN
+                ) {
+                    ts.position.tradingMode = laneTag
+                }
+            } catch (_: Throwable) { /* fail-open — tag is advisory */ }
+            // FALL THROUGH — let the lane scorer + V3 pipeline decide.
 
             ensureRuntimeContext(
                 mode = currentContext.mode,
