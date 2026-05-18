@@ -2958,8 +2958,30 @@ class SolanaMarketScanner(
         return null
     }
 
+    /** V5.9.859 — derive short host label for ApiHealthMonitor records. */
+    private fun hostLabel(url: String): String = when {
+        url.contains("dexscreener.com")    -> "dexscreener"
+        url.contains("pump.fun")           -> "pumpfun"
+        url.contains("jup.ag")             -> "jupiter"
+        url.contains("helius")             -> "helius"
+        url.contains("birdeye")            -> "birdeye"
+        url.contains("coingecko")          -> "coingecko"
+        url.contains("solana.com")         -> "solana_rpc"
+        url.contains("pyth")               -> "pyth"
+        url.contains("pumpportal")         -> "pumpportal"
+        url.contains("groq.com")           -> "groq"
+        url.contains("googleapis")         -> "gemini"
+        else                               -> {
+            try { java.net.URI(url).host?.lowercase() ?: "unknown" } catch (_: Throwable) { "unknown" }
+        }
+    }
+
     private fun get(url: String, apiKey: String = ""): String? = try {
-        val builder = Request.Builder().url(url)
+        // V5.9.859 — interpose AutoEndpointMigrator before the wire so dead
+        // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
+        val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
+        val host = hostLabel(effectiveUrl)
+        val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -2970,8 +2992,11 @@ class SolanaMarketScanner(
 
         if (apiKey.isNotBlank()) builder.header("X-API-KEY", apiKey)
 
-        ErrorLogger.debug("Scanner", "HTTP GET: ${url.take(60)}...")
+        ErrorLogger.debug("Scanner", "HTTP GET: ${effectiveUrl.take(60)}...")
+        val httpStart = System.currentTimeMillis()
         val resp = http.newCall(builder.build()).execute()
+        val httpLatency = System.currentTimeMillis() - httpStart
+        try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, httpLatency) } catch (_: Throwable) {}
 
         if (resp.isSuccessful) {
             val body = resp.body?.string()
@@ -2993,9 +3018,11 @@ class SolanaMarketScanner(
         }
     } catch (e: java.net.SocketTimeoutException) {
         ErrorLogger.debug("Scanner", "[NETWORK/TIMEOUT] ${url.take(50)}")
+        try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError(hostLabel(url), "timeout") } catch (_: Throwable) {}
         null
     } catch (e: java.net.UnknownHostException) {
         ErrorLogger.warn("Scanner", "[NETWORK/DNS_FAIL] Cannot resolve ${url.take(50)}")
+        try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError(hostLabel(url), "dns_fail") } catch (_: Throwable) {}
         null
     } catch (e: java.net.ConnectException) {
         ErrorLogger.warn("Scanner", "[NETWORK/CONN_FAIL] ${url.take(50)}")
