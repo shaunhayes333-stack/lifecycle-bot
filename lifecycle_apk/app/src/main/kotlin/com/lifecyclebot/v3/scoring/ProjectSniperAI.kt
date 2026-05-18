@@ -330,7 +330,54 @@ object ProjectSniperAI {
             ts.lastLiquidityUsd in 5_000.0..50_000.0 -> 5
             else -> 0
         }
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Sniper lane).
+        //
+        // ProjectSniper engages tokens <3min old — pump-or-rug zone. Harvard
+        // cross-trade memory is most valuable here: similar fresh-launch
+        // signatures historically winning vs rugging is the highest-leverage
+        // prior we have. Bounded [-4,+10] clamp; fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "PROJECT_SNIPER"  to confidence.coerceIn(0, 100),
+                "TOKEN_AGE_BUCKET" to when {
+                    tokenAgeSecs < 60 -> 20
+                    tokenAgeSecs < 90 -> 15
+                    tokenAgeSecs < 120 -> 10
+                    else -> 5
+                },
+                "PRICE_ACTION" to when {
+                    priceChange > 20 -> 15
+                    priceChange > 10 -> 10
+                    priceChange > 5 -> 5
+                    priceChange > 0 -> 3
+                    else -> 0
+                },
+                "BUY_PRESSURE" to when {
+                    ts.lastBuyPressurePct >= 70 -> 15
+                    ts.lastBuyPressurePct >= 60 -> 10
+                    ts.lastBuyPressurePct >= 55 -> 5
+                    else -> 0
+                },
+                "LIQUIDITY_SWEET" to when {
+                    ts.lastLiquidityUsd in 10_000.0..30_000.0 -> 10
+                    ts.lastLiquidityUsd in 5_000.0..50_000.0 -> 5
+                    else -> 0
+                },
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                confidence = (confidence + harvardNudge).coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "🎓 SNIPER HARVARD: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → conf=$confidence")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "sniper_harvard")
+            }
+            EducationSubLayerAI.recordEntryScores(ts.mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // ═══════════════════════════════════════════════════════════════════
         // POSITION SIZING
         // ═══════════════════════════════════════════════════════════════════

@@ -778,6 +778,37 @@ object BlueChipTraderAI {
         blueChipScore += volScore
         if (volScore != 0) scoreReasons.add("vol${if (volScore > 0) "+" else ""}$volScore")
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: BlueChip lane).
+        //
+        // BlueChip is the bot's steady-quality lane. Past-pattern memory of
+        // which (v3, mcap, liq, buy, momentum, volatility) signatures
+        // delivered vs disappointed is exactly the prior we want for a
+        // 'minimize drawdown, capture steady upside' thesis. Bounded
+        // [-4,+10]; fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "BLUECHIP_TRADER" to blueChipScore.coerceIn(0, 100),
+                "V3_SCORE"        to v3Contribution,
+                "MCAP"            to mcapScore,
+                "LIQUIDITY"       to liqScore,
+                "BUY_PRESSURE"    to buyScore,
+                "MOMENTUM"        to momentumScore.coerceAtLeast(0),
+                "VOLATILITY"      to volScore.coerceAtLeast(0),
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                blueChipScore = (blueChipScore + harvardNudge).coerceAtLeast(0)
+                scoreReasons.add("harvard${if (harvardNudge >= 0) "+" else ""}$harvardNudge")
+                ErrorLogger.debug(TAG, "🎓 BLUECHIP HARVARD: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$blueChipScore")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "bluechip_harvard")
+            }
+            EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Calculate confidence
         blueChipConfidence = (
             (if (marketCapUsd > 100_000) 25 else 15) +

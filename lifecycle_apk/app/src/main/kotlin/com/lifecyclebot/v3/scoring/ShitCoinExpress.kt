@@ -443,6 +443,36 @@ object ShitCoinExpress {
 
         // 3. MetaCognitionAI — trust multiplier already applied to confidence above (V5.9.236)
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Express lane).
+        //
+        // ShitCoinExpress already consumed EducationSubLayerAI.applyMuteBoost
+        // (binary mute), but NOT approvalBoostFor (cross-trade pattern memory
+        // — finer-grained, [-4,+10] continuous nudge). These are different
+        // APIs reading different memory banks; we want BOTH.
+        // Bounded nudge clamp; fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "EXPRESS_TRADER" to expressScore.coerceIn(0, 100),
+                "MOMENTUM"       to momentumScore,
+                "BUY_PRESSURE"   to buyScore,
+                "VOLUME"         to volumeScore,
+                "PRICE_5MIN"     to priceScore,
+                "TREND"          to trendScore,
+                "TOKEN_AGE"      to ageScore,
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                expressScore = (expressScore + harvardNudge).coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "🎓 EXPRESS HARVARD: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$expressScore")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "express_harvard")
+            }
+            EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // 4. EducationSubLayerAI — mute/boost on score
         try {
             val (educScore, educMult, educStatus) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_EXPRESS", expressScore)

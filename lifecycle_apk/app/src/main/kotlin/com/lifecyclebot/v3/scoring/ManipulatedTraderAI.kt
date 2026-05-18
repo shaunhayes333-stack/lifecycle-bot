@@ -268,7 +268,48 @@ object ManipulatedTraderAI {
         // TradeAuthorizer.ExecutionBook.MANIPULATED bypasses rugcheck checks
 
         // Calculate manipulation score
-        val score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+        var score = calcManipScore(bundlePct, buyPressurePct, momentum, source, ageMinutes, rugcheckScore)
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.933 — HARVARD BRAIN PATTERN MEMORY (Pass 3: Manipulated lane).
+        //
+        // Manipulated is purpose-built to ride coordinated pumps that other
+        // lanes correctly reject. Past-pattern memory is GOLD here — knowing
+        // which (bundle, buy, mom, source) combos historically dumped vs ran
+        // is exactly the prior that separates a good manipulator-ride from
+        // a rug-and-die. Bounded [-4,+10]; fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "MANIPULATED_TRADER" to score.coerceIn(0, 100),
+                "BUNDLE_PCT" to when {
+                    bundlePct >= 60.0 -> 30
+                    bundlePct >= 40.0 -> 20
+                    else -> 0
+                },
+                "BUY_PRESSURE" to when {
+                    buyPressurePct >= 80.0 -> 20
+                    buyPressurePct >= 70.0 -> 15
+                    else -> 0
+                },
+                "MOMENTUM" to when {
+                    momentum >= 15.0 -> 20
+                    momentum >= 10.0 -> 15
+                    else -> 0
+                },
+                "VENUE_PUMP_FUN" to (if (source.uppercase().contains("PUMP")) 10 else 0),
+                "FRESH_LAUNCH" to (if (ageMinutes < 3.0) 10 else 0),
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                score = (score + harvardNudge).coerceIn(0, 100)
+                ErrorLogger.debug(TAG, "🎓 MANIP HARVARD: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$score")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "manip_harvard")
+            }
+            EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
         // V5.6.8: Fluid score gate
         val minScore = getFluidScoreThreshold()
