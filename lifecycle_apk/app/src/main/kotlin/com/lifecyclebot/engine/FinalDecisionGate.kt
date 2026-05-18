@@ -2826,6 +2826,122 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open — startup coordinator is soft-shape only */ }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.937 — BIRDEYE SECURITY TRUST soft-shape (5th dormant subsystem).
+        //
+        // Operator upgraded to Birdeye Starter ($99/mo) 2026-05-19, which
+        // unlocks /defi/token_security. BirdeyeSecurityProvider has existed
+        // since V5.9.910 with FULL scoring logic (top10HolderPct, freeze
+        // authority, transferFeeEnable, mutableMetadata, fakeToken, creator
+        // concentration, LP lock, jupStrict) — but ZERO callers because the
+        // free tier 401'd every request. Pure dormant safety subsystem.
+        //
+        // Trust score is in [0.5, 1.0]:
+        //   1.00 = clean (no flags, jupStrict, low concentration)
+        //   0.50 = floor (multiple flags, e.g. freeze+honeypot+top10>80%)
+        //
+        // Shape (per doctrine #86 — soft-shape only, no veto):
+        //   trust >= 0.95 (clean)                → size × 1.10
+        //   trust >= 0.80 (low risk)             → 1.00 (no opinion)
+        //   trust >= 0.65 (medium risk)          → size × 0.80
+        //   trust <  0.65 (high risk)            → size × 0.60
+        //
+        // Bounded floor 0.01 SOL. Never blocks (rug/freeze/honeypot are
+        // already hard-vetoed by SecurityGuard upstream — this is incremental
+        // shaping on the survivors). Fail-open per FDG doctrine.
+        //
+        // Paper mode INCLUDED: per doctrine #87.1 we want paper to learn
+        // from security signals too. The fetch is cached 30min so each
+        // unique mint costs ≤1 Birdeye CU per half-hour (well under budget).
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            // peekCached avoids triggering a network fetch from inside FDG
+            // (FDG is sync and hot — fetches happen async upstream during
+            // scanner/V3 intake). If not cached, neutral 1.0.
+            val secSnapshot = com.lifecyclebot.engine.BirdeyeSecurityProvider.peekCached(ts.mint)
+            if (secSnapshot != null) {
+                val trust = secSnapshot.trust
+                val secMult = when {
+                    trust >= 0.95 -> 1.10
+                    trust >= 0.80 -> 1.00
+                    trust >= 0.65 -> 0.80
+                    else          -> 0.60
+                }
+                if (secMult != 1.00) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * secMult).coerceIn(0.01, 1.0)
+                    val direction = if (secMult > 1.0) "boosted" else "reduced"
+                    tags.add("size_${direction}_birdeye_security")
+                    val flags = buildList {
+                        if (secSnapshot.freezeAuth) add("freeze")
+                        if (secSnapshot.mutableMeta) add("mutable_meta")
+                        if (secSnapshot.honeypot) add("honeypot")
+                        if (secSnapshot.top10Pct > 0.40) add("top10=${(secSnapshot.top10Pct*100).toInt()}%")
+                        if (secSnapshot.jupStrict) add("jup_strict")
+                    }.joinToString(",").ifBlank { "none" }
+                    checks.add(
+                        GateCheck(
+                            "birdeye_security",
+                            true,
+                            "Trust ${"%.2f".format(trust)} (flags=$flags) — size $direction ${originalSize.format(3)} → ${finalSize.format(3)}"
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — security is soft-shape only */ }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.937 — BIRDEYE TRADE-DATA flow-imbalance soft-shape.
+        //
+        // Birdeye Starter unlocks /defi/v3/token/trade-data/single which
+        // returns 5m/30m/1h/2h/4h/8h/24h buy/sell counts + volume splits
+        // in ONE call. This is high-value flow data that we previously
+        // synthesised from DexScreener 1h aggregates (much coarser).
+        //
+        // Signal: 30-minute buy/sell imbalance ratio.
+        //   buyRatio = buys30m / (buys30m + sells30m)
+        //   buyRatio >= 0.70 → strong accumulation → size × 1.15
+        //   buyRatio >= 0.60 → mild accumulation   → size × 1.05
+        //   buyRatio in 0.40..0.60 → balanced      → 1.00
+        //   buyRatio <  0.40 → distribution        → size × 0.85
+        //   buyRatio <  0.30 → heavy distribution  → size × 0.70
+        //
+        // Requires min volume floor (10 trades / $500 USD in 30m) to avoid
+        // shaping on noise. Cached via BirdeyeTradeDataProvider (similar to
+        // security — 30s cache TTL because trade data is fresher than sec).
+        //
+        // Bounded floor 0.01; fail-open per doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val tradeSnapshot = com.lifecyclebot.engine.BirdeyeTradeDataProvider.peekCached(ts.mint)
+            if (tradeSnapshot != null) {
+                val totalTrades30m = tradeSnapshot.buys30m + tradeSnapshot.sells30m
+                if (totalTrades30m >= 10 && tradeSnapshot.volume30m >= 500.0) {
+                    val buyRatio = tradeSnapshot.buys30m.toDouble() / totalTrades30m
+                    val flowMult = when {
+                        buyRatio >= 0.70 -> 1.15
+                        buyRatio >= 0.60 -> 1.05
+                        buyRatio <= 0.30 -> 0.70
+                        buyRatio <= 0.40 -> 0.85
+                        else             -> 1.00
+                    }
+                    if (flowMult != 1.00) {
+                        val originalSize = finalSize
+                        finalSize = (finalSize * flowMult).coerceIn(0.01, 1.0)
+                        val direction = if (flowMult > 1.0) "boosted" else "reduced"
+                        tags.add("size_${direction}_flow_imbalance")
+                        checks.add(
+                            GateCheck(
+                                "flow_imbalance_30m",
+                                true,
+                                "buyRatio=${"%.0f".format(buyRatio*100)}% (b=${tradeSnapshot.buys30m}/s=${tradeSnapshot.sells30m} vol=\$${tradeSnapshot.volume30m.toInt()}) — size $direction ${originalSize.format(3)} → ${finalSize.format(3)}"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — flow shape is advisory only */ }
+
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
 

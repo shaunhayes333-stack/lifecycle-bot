@@ -10904,6 +10904,43 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             false
         }
         
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.937 — BIRDEYE STARTER-TIER PREFETCH (fire-and-forget).
+        //
+        // Operator upgraded to Starter on 2026-05-19 unlocking token_security
+        // + trade-data. Both providers cache aggressively (sec=30min, trade=
+        // 15min) so the actual network cost is bounded. Prefetching HERE
+        // (just before V3 processToken) means the FDG soft-shapes below
+        // will see fresh cached data on the NEXT pass for any mint that
+        // makes it through V3 selection.
+        //
+        // Fire-and-forget on the service scope — does NOT block V3 scoring
+        // or FDG. First time a mint hits this code, the cache is empty and
+        // FDG silently neutral-shapes; by the next intake tick (~7s later)
+        // both providers have data cached → FDG shapes correctly.
+        //
+        // Cost analysis: ~50 admitted mints + 15-min TTL → ~200 calls/hour
+        // total across both endpoints × 25 CU avg = 5K CU/hour. Starter
+        // budget is 5M CU/month = ~6.9K CU/hour. Fits with headroom.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val beKey = cfg.birdeyeApiKey
+            if (beKey.isNotBlank()) {
+                scope.launch {
+                    try {
+                        // Trust provider: cached 30min, hits /defi/token_security
+                        com.lifecyclebot.engine.BirdeyeSecurityProvider.getTrust(ts.mint, beKey)
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
+                scope.launch {
+                    try {
+                        // Trade-data provider: cached 15min, hits /defi/v3/token/trade-data/single
+                        com.lifecyclebot.engine.BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey)
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — prefetch is purely advisory */ }
+
         try {
             val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(
                 ts = ts,

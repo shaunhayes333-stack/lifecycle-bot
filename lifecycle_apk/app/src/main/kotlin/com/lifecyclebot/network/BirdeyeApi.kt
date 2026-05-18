@@ -159,6 +159,199 @@ class BirdeyeApi(private val apiKey: String = "") {
         } catch (_: Exception) { null }
     }
 
+    // ── V5.9.937 — STARTER-TIER RICH DATA ENDPOINTS ────────────────────
+    //
+    // These endpoints unlocked when operator upgraded from no-tier/Standard
+    // to Starter ($99/mo, 5M CUs/mo, 15 rps). Live-probed 2026-05-19 04:05:
+    //   /defi/token_security        → 200 OK
+    //   /defi/token_overview        → 200 OK
+    //   /defi/v3/token/trade-data/single → 200 OK (Starter unlocks)
+    //   /defi/v3/token/market-data  → 200 OK
+    //   /defi/v3/price/stats/single → 200 OK
+    //   /defi/token_creation_info   → 200 OK
+    //   /holder/v1/distribution     → 200 OK
+    //   /defi/v2/tokens/top_traders → 200 OK
+    //
+    // All endpoints fail-open: any error returns null so the caller
+    // continues on its default path. Caching belongs upstream
+    // (BirdeyeSecurityProvider, etc.).
+
+    // ── Trade-data — buy/sell/volume aggregates across 5m/30m/1h/2h/4h/8h/24h ─
+
+    data class TradeData(
+        val price: Double,
+        val priceChange30mPct: Double,
+        val priceChange1hPct: Double,
+        val priceChange4hPct: Double,
+        val priceChange24hPct: Double,
+        val volume30m: Double,
+        val volume1h: Double,
+        val volume24h: Double,
+        // Buy/sell counts — crucial for flow-imbalance / smart-money signals
+        val buys30m: Int,
+        val sells30m: Int,
+        val buys1h: Int,
+        val sells1h: Int,
+        val buys24h: Int,
+        val sells24h: Int,
+        // Unique traders
+        val uniqueWallets24h: Int,
+        // Volume buy/sell split (in USD)
+        val volBuy24h: Double,
+        val volSell24h: Double,
+    )
+
+    fun getTradeData(mint: String): TradeData? {
+        val body = get("$BASE/defi/v3/token/trade-data/single?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            TradeData(
+                price             = data.optDouble("price", 0.0),
+                priceChange30mPct = data.optDouble("price_change_30m_percent", 0.0),
+                priceChange1hPct  = data.optDouble("price_change_1h_percent", 0.0),
+                priceChange4hPct  = data.optDouble("price_change_4h_percent", 0.0),
+                priceChange24hPct = data.optDouble("price_change_24h_percent", 0.0),
+                volume30m         = data.optDouble("volume_30m_usd", 0.0),
+                volume1h          = data.optDouble("volume_1h_usd", 0.0),
+                volume24h         = data.optDouble("volume_24h_usd", 0.0),
+                buys30m           = data.optInt("buy_30m", 0),
+                sells30m          = data.optInt("sell_30m", 0),
+                buys1h            = data.optInt("buy_1h", 0),
+                sells1h           = data.optInt("sell_1h", 0),
+                buys24h           = data.optInt("buy_24h", 0),
+                sells24h          = data.optInt("sell_24h", 0),
+                uniqueWallets24h  = data.optInt("unique_wallet_24h", 0),
+                volBuy24h         = data.optDouble("volume_buy_24h_usd", 0.0),
+                volSell24h        = data.optDouble("volume_sell_24h_usd", 0.0),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    // ── Market-data — liquidity / price / fdv / circulating supply ────────
+
+    data class MarketData(
+        val price: Double,
+        val liquidity: Double,
+        val marketCap: Double,
+        val fdv: Double,
+        val circulatingSupply: Double,
+        val totalSupply: Double,
+    )
+
+    fun getMarketData(mint: String): MarketData? {
+        val body = get("$BASE/defi/v3/token/market-data?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            MarketData(
+                price             = data.optDouble("price", 0.0),
+                liquidity         = data.optDouble("liquidity", 0.0),
+                marketCap         = data.optDouble("market_cap", 0.0),
+                fdv               = data.optDouble("fdv", 0.0),
+                circulatingSupply = data.optDouble("circulating_supply", 0.0),
+                totalSupply       = data.optDouble("total_supply", 0.0),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    // ── Price stats — volatility / high-low / SMA on multiple windows ─────
+
+    data class PriceStats(
+        val priceMin30m: Double, val priceMax30m: Double, val stdDev30m: Double,
+        val priceMin1h: Double,  val priceMax1h: Double,  val stdDev1h: Double,
+        val priceMin24h: Double, val priceMax24h: Double, val stdDev24h: Double,
+    )
+
+    fun getPriceStats(mint: String): PriceStats? {
+        val body = get("$BASE/defi/v3/price/stats/single?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            PriceStats(
+                priceMin30m = data.optDouble("price_min_30m", 0.0),
+                priceMax30m = data.optDouble("price_max_30m", 0.0),
+                stdDev30m   = data.optDouble("price_std_dev_30m", 0.0),
+                priceMin1h  = data.optDouble("price_min_1h", 0.0),
+                priceMax1h  = data.optDouble("price_max_1h", 0.0),
+                stdDev1h    = data.optDouble("price_std_dev_1h", 0.0),
+                priceMin24h = data.optDouble("price_min_24h", 0.0),
+                priceMax24h = data.optDouble("price_max_24h", 0.0),
+                stdDev24h   = data.optDouble("price_std_dev_24h", 0.0),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    // ── Creation info — age, creator wallet, initial liquidity ────────────
+
+    data class CreationInfo(
+        val creatorAddress: String,
+        val createdAtMs: Long,
+        val creationTx: String,
+        val createdSlot: Long,
+    )
+
+    fun getCreationInfo(mint: String): CreationInfo? {
+        val body = get("$BASE/defi/token_creation_info?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            CreationInfo(
+                creatorAddress = data.optString("owner", ""),
+                createdAtMs    = data.optLong("blockUnixTime", 0L) * 1000L,
+                creationTx     = data.optString("txHash", ""),
+                createdSlot    = data.optLong("slot", 0L),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    // ── Holder distribution — top-10 / top-50 / top-100 concentration ────
+
+    data class HolderDistribution(
+        val top10Pct: Double,
+        val top50Pct: Double,
+        val top100Pct: Double,
+        val totalHolders: Int,
+    )
+
+    fun getHolderDistribution(mint: String): HolderDistribution? {
+        val body = get("$BASE/holder/v1/distribution?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            HolderDistribution(
+                top10Pct     = data.optDouble("top10_holder_percent", 0.0) * 100.0,
+                top50Pct     = data.optDouble("top50_holder_percent", 0.0) * 100.0,
+                top100Pct    = data.optDouble("top100_holder_percent", 0.0) * 100.0,
+                totalHolders = data.optInt("total_holders", 0),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    // ── Top traders — who's winning this coin (max 10) ────────────────────
+
+    data class TopTrader(
+        val wallet: String,
+        val volumeBuy: Double,
+        val volumeSell: Double,
+        val trades: Int,
+        val tradesBuy: Int,
+        val tradesSell: Int,
+    )
+
+    fun getTopTraders(mint: String, limit: Int = 10): List<TopTrader> {
+        val body = get("$BASE/defi/v2/tokens/top_traders?address=$mint&limit=$limit&offset=0") ?: return emptyList()
+        return try {
+            val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return emptyList()
+            (0 until items.length()).mapNotNull { i ->
+                val it = items.optJSONObject(i) ?: return@mapNotNull null
+                TopTrader(
+                    wallet      = it.optString("owner", ""),
+                    volumeBuy   = it.optDouble("volumeBuy", 0.0),
+                    volumeSell  = it.optDouble("volumeSell", 0.0),
+                    trades      = it.optInt("trade", 0),
+                    tradesBuy   = it.optInt("tradeBuy", 0),
+                    tradesSell  = it.optInt("tradeSell", 0),
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
     // ── HTTP helper ───────────────────────────────────────────────────
 
     private fun get(url: String): String? {
