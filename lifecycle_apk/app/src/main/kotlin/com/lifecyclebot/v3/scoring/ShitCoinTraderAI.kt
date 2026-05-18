@@ -1232,7 +1232,11 @@ object ShitCoinTraderAI {
                 ErrorLogger.debug(TAG, "🎓 HARVARD PATTERN MEMORY: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$shitScore")
             }
             // Feed the sig back so Harvard learns from ShitCoin entries — symmetric with UnifiedScorer.
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardSig)
+            // recordEntryScores expects List<ScoreComponent> (not Map). Convert the same sig.
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "shitcoin_harvard")
+            }
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
         // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
