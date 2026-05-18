@@ -341,8 +341,44 @@ object ProjectSniperAI {
             confidence >= 60 -> 1.0
             else -> 0.8
         }
-        
-        val positionSol = (BASE_POSITION_SOL * sizeMultiplier).coerceIn(BASE_POSITION_SOL, MAX_POSITION_SOL)
+
+        // ── V5.9.882 — BehaviorAI sizing wire-up for SNIPER lane ──
+        // Sibling to V5.9.817/878/879/880/881. ProjectSniperAI engages tokens
+        // < 3 minutes old — pure pump-or-rug environment, exactly where
+        // BehaviorAI tilt protection is most needed.
+        //
+        // Per doctrine #86: bounded soft-shape, fail-open, no veto.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            val inferredGrade = when {
+                confidence >= 80 -> "A"
+                confidence >= 70 -> "B"
+                confidence >= 60 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        // V5.9.882 — BUGFIX: the previous coerceIn(BASE_POSITION_SOL, MAX_POSITION_SOL)
+        // floored at BASE which meant the 0.8× low-confidence reduction was
+        // SILENTLY CLAMPED BACK UP to 1.0×. That's been live since the original
+        // ProjectSniperAI commit — every sub-60-confidence snipe was sizing at
+        // full BASE instead of 0.8×BASE. Fix: floor at half BASE (matches
+        // Quality lane minimum), keep MAX cap. With BehaviorAI band 0 (0.5×)
+        // composing on a sub-60 confidence (0.8×), composed product is 0.4×,
+        // which the new floor preserves instead of clamping back to 1.0×.
+        val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult
+        val positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.5, MAX_POSITION_SOL)
         
         val threatLevel = when {
             confidence >= 70 -> ThreatLevel.GREEN
