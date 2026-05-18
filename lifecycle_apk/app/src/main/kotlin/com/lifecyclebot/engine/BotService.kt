@@ -3154,6 +3154,43 @@ class BotService : Service() {
                                 )
                             }
                         }
+
+                        // V5.9.940 — STEALTH MINT-BURN MONITOR producer side.
+                        // Every 45 ticks (~90s) poll BirdeyeMintBurnMonitor for
+                        // each open position. registerOpen is idempotent so we
+                        // just call it every cycle (cheap put on existing key).
+                        // check() is suspend → launch on the same IO scope so
+                        // it never blocks the runManageOnly path.
+                        // Unregister mints whose positions have closed (sync diff).
+                        if (tick % 45L == 0L) {
+                            try {
+                                val cfgSnap = cfg
+                                val mintBurnKey = cfgSnap.birdeyeApiKey
+                                if (mintBurnKey.isNotBlank()) {
+                                    val openMintIds = openTokens.map { it.mint }.toSet()
+                                    val registered = com.lifecyclebot.engine.BirdeyeMintBurnMonitor.openMintIds()
+                                    // Drop mints whose positions have closed
+                                    (registered - openMintIds).forEach {
+                                        com.lifecyclebot.engine.BirdeyeMintBurnMonitor.unregisterClose(it)
+                                    }
+                                    // Register + poll each open position
+                                    openTokens.forEach { ts ->
+                                        val supply = if (ts.position.entryPrice > 0.0 && ts.position.entryMcap > 0.0)
+                                            ts.position.entryMcap / ts.position.entryPrice
+                                        else 1_000_000_000.0  // pump.fun default
+                                        if (!com.lifecyclebot.engine.BirdeyeMintBurnMonitor.isRegistered(ts.mint)) {
+                                            com.lifecyclebot.engine.BirdeyeMintBurnMonitor.registerOpen(ts.mint, supply)
+                                        }
+                                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            try {
+                                                com.lifecyclebot.engine.BirdeyeMintBurnMonitor.check(ts.mint, mintBurnKey)
+                                            } catch (_: Throwable) { /* fail-open */ }
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) { /* fail-open */ }
+                        }
+
                         if (tick % 30L == 0L) {
                             try {
                                 ForensicLogger.phase(

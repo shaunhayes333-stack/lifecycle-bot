@@ -44,6 +44,14 @@ object BirdeyeMintBurnMonitor {
     private val perMint = ConcurrentHashMap<String, State>()
     private val inFlight = ConcurrentHashMap<String, Boolean>()
 
+    // V5.9.940 — sync peek accessor so runManageOnly (non-suspend) can
+    // read the last known alert level without triggering a network call.
+    // Updated whenever check() finishes; cleared on unregisterClose.
+    private val lastAlertByMint = ConcurrentHashMap<String, MintAlert>()
+    fun peekAlert(mint: String): MintAlert = lastAlertByMint[mint] ?: MintAlert.NONE
+    fun openMintIds(): Set<String> = perMint.keys.toSet()
+    fun isRegistered(mint: String): Boolean = perMint.containsKey(mint)
+
     fun registerOpen(mint: String, totalSupplyAtEntry: Double) {
         if (mint.isBlank() || totalSupplyAtEntry <= 0) return
         perMint[mint] = State(
@@ -56,7 +64,10 @@ object BirdeyeMintBurnMonitor {
         )
     }
 
-    fun unregisterClose(mint: String) { perMint.remove(mint) }
+    fun unregisterClose(mint: String) {
+        perMint.remove(mint)
+        lastAlertByMint.remove(mint)
+    }
 
     suspend fun check(mint: String, apiKey: String): MintAlert {
         if (mint.isBlank() || apiKey.isBlank()) return MintAlert.NONE
@@ -96,6 +107,8 @@ object BirdeyeMintBurnMonitor {
                 totalBurnedSinceEntry = burnedSince,
                 lastAlert             = newAlert,
             )
+            // V5.9.940 — sync mirror so runManageOnly (non-suspend) can read it
+            lastAlertByMint[mint] = newAlert
 
             if (newAlert != state.lastAlert && newAlert != MintAlert.NONE) {
                 ErrorLogger.warn(TAG, "🚨 $mint: $newAlert (${"%.2f".format(mintPct)}% supply minted since entry)")

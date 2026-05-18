@@ -3882,6 +3882,35 @@ class Executor(
             }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.940 — STEALTH-MINT RUG EXIT (consumer of BirdeyeMintBurnMonitor).
+        //
+        // BirdeyeMintBurnMonitor polls /defi/v3/token/mint-burn-txs on
+        // a background coroutine and exposes a sync peekAlert(mint). If
+        // the alert escalates to CATASTROPHIC_MINT (>10% supply minted
+        // post-entry), the dev is rugging via stealth mint authority —
+        // force-exit immediately. Same priority as STRICT_SL because
+        // waiting for price action to confirm is too slow (dev can
+        // dump in the same block).
+        //
+        // STRONG_MINT (1-10%) is a warning but not auto-exit — relies
+        // on existing PnL/distribution detectors to act. MILD_MINT
+        // (0.5-1%) ignored (legitimate token emissions sometimes mint
+        // small amounts).
+        //
+        // Fail-open: if BirdeyeMintBurnMonitor isn't reachable or the
+        // mint never got registered, peekAlert returns NONE and this
+        // block is a no-op.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val mintAlert = com.lifecyclebot.engine.BirdeyeMintBurnMonitor.peekAlert(ts.mint)
+            if (mintAlert == com.lifecyclebot.engine.BirdeyeMintBurnMonitor.MintAlert.CATASTROPHIC_MINT) {
+                onLog("🚨 STEALTH MINT RUG: ${ts.symbol} — dev minted >10% post-entry, force-exiting", ts.mint)
+                doSell(ts, "STEALTH_MINT_RUG_CATASTROPHIC", wallet, walletSol)
+                return
+            }
+        } catch (_: Throwable) { /* fail-open — MintBurn is advisory */ }
+
         // V5.9.495i — POST-BUY SETTLE-IN GRACE for the FLUID exit predicates
         // (partial-sell, profit-lock unlock, fluid floor). Operator: "it
         // buys them then 5 seconds later it sells them". 45s breathing room

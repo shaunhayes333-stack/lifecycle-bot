@@ -3193,6 +3193,58 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open — tier-safety shape is advisory only */ }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.940 PHASE 6 — TIER-AWARE SCAN-SOURCE MATCH SOFT-SHAPE.
+        //
+        // ScalingMode.Tier defines a scanSources whitelist per tier:
+        //   MICRO         PUMP_FUN_NEW, PUMP_FUN_GRADUATE, DEX_TRENDING, DEX_GAINERS, RAYDIUM_NEW_POOL
+        //   STANDARD      PUMP_FUN_GRADUATE, DEX_TRENDING, DEX_GAINERS, BIRDEYE_TRENDING
+        //   GROWTH        DEX_TRENDING, BIRDEYE_TRENDING, COINGECKO_TRENDING, NARRATIVE_SCAN
+        //   SCALED        COINGECKO_TRENDING, BIRDEYE_TRENDING, DEX_TRENDING
+        //   INSTITUTIONAL COINGECKO_TRENDING, BIRDEYE_TRENDING
+        //
+        // These whitelists existed in ScalingMode but were INERT — no
+        // caller checked source-vs-tier compatibility. This means a
+        // PUMP_FUN_NEW intake at \$50M mcap (theoretically possible if
+        // a $50M token re-launches on pump.fun) was treated the same
+        // as a COINGECKO_TRENDING intake at \$50M.
+        //
+        // Per doctrine #86 we soft-shape, not veto. A source-tier
+        // mismatch reduces size by 0.85× — strong enough to register
+        // as a signal, weak enough not to choke learning.
+        //
+        // Fail-open: unknown source or empty whitelist → no shape.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (ts.source.isNotBlank()) {
+                val tier = com.lifecyclebot.engine.ScalingMode.tierForToken(
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    mcapUsd = candidateMcap,
+                )
+                // Normalise source — scanner tags use various casings/aliases
+                val srcNormalised = ts.source.uppercase()
+                    .replace(".", "_")
+                    .replace("-", "_")
+                val whitelist = tier.scanSources
+                val isMatch = whitelist.any { allowed ->
+                    srcNormalised.contains(allowed) || allowed.contains(srcNormalised)
+                }
+                if (!isMatch && whitelist.isNotEmpty()) {
+                    val mismatchMult = 0.85
+                    val originalSize = finalSize
+                    finalSize = (finalSize * mismatchMult).coerceIn(0.01, 1.0)
+                    tags.add("size_reduced_source_tier_mismatch")
+                    checks.add(
+                        GateCheck(
+                            "source_tier_match",
+                            true,
+                            "Source=${ts.source} not in ${tier.label} tier whitelist (${whitelist.joinToString(",")}) — size ${originalSize.format(3)} → ${finalSize.format(3)} (×${"%.2f".format(mismatchMult)})"
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — source-tier shape is advisory only */ }
+
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
 
