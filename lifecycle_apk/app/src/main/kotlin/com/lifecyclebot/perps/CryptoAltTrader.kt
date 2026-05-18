@@ -1982,12 +1982,26 @@ object CryptoAltTrader {
                     }
                 }
                 // V5.9.272: HARD TP — take profit immediately when price crosses target
+                // V5.9.903: RUNNER BYPASS — skip HARD_TP when the position has
+                // already been a proven runner past the TP price (peak gain
+                // >= 1.5x current PnL@TP). At that point FLUID_LOCK +
+                // PEAK_DRAWDOWN + trailing stop already manage exits cleanly,
+                // and forcing the full close at the original TP price during a
+                // pullback kneecaps every alts runner. Same doctrine as
+                // V5.9.899-902: runners must be allowed to run.
                 if (tpPriceOk) {
                     val hitTp = when (updated.direction) {
                         com.lifecyclebot.perps.PerpsDirection.LONG  -> data.price >= updated.takeProfitPrice
                         com.lifecyclebot.perps.PerpsDirection.SHORT -> data.price <= updated.takeProfitPrice
                     }
-                    if (hitTp) {
+                    // Compute implied TP% from entry vs tpPrice — used to detect
+                    // whether peakPnlPct has already exceeded TP territory by 1.5x.
+                    val _tpImpliedPct = if (updated.entryPrice > 0.0) {
+                        val raw = (kotlin.math.abs(updated.takeProfitPrice - updated.entryPrice) / updated.entryPrice) * 100.0 * updated.leverage
+                        raw.coerceAtLeast(0.01)
+                    } else 999.0
+                    val _runnerProven = updated.highestPnlPct >= _tpImpliedPct * 1.5
+                    if (hitTp && !_runnerProven) {
                         closePosition(id, "HARD_TP: price=${data.price.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
                         continue
                     }
@@ -2068,8 +2082,14 @@ object CryptoAltTrader {
                                 closePosition(id, "FLUID_LOCK: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% lock=+${dynamicLock.toInt()}%")
                             peakDrawdownFired ->
                                 closePosition(id, "PEAK_DRAWDOWN: peak=+${peakPnl.toInt()}% now=+${currentPnl.toInt()}% (gave back ${(peakPnl - currentPnl).toInt()}%)")
-                            updated.shouldTakeProfit(tpPct * 2.5) ->  // V5.9.230: 1.5→2.5x TP ceiling (bootstrap 8%×2.5=20%)
-                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 2.5}%")  // V5.9.230: was 1.5x — too tight at bootstrap
+                            // V5.9.903: TP_SAFETY runner bypass — skip when peak gain
+                            // has already proven the runner is past the safety cap.
+                            // Pre-fix: a position that peaked at +100% but pulled
+                            // back to +52% (mature TP*2.5=50% cap) got force-closed.
+                            // FLUID_LOCK + PEAK_DRAWDOWN are runner-aware and will
+                            // catch the giveback at the right moment.
+                            (updated.shouldTakeProfit(tpPct * 2.5) && updated.highestPnlPct < tpPct * 3.0) ->  // V5.9.230: 1.5→2.5x TP ceiling (bootstrap 8%×2.5=20%) | V5.9.903 runner bypass
+                                closePosition(id, "TP_SAFETY: +${"%.2f".format(updated.getPnlPct())}% exceeded ${tpPct * 2.5}% peak=+${peakPnl.toInt()}%")
                         }
                     }
                 }
