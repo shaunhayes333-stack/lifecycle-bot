@@ -667,8 +667,9 @@ class SolanaMarketScanner(
         DEX_GAINERS,
         DEX_BOOSTED,
         BIRDEYE_TRENDING,
-        BIRDEYE_MEME_LIST,  // V5.9.906 — birdeye v3 meme/list, no API key required
-        BIRDEYE_MARKETS,    // V5.9.907 — birdeye v2 markets, no API key required, exposes trade+wallet velocity
+        BIRDEYE_MEME_LIST,    // V5.9.906 — birdeye v3 meme/list, no API key required
+        BIRDEYE_MARKETS,      // V5.9.907 — birdeye v2 markets, no API key required, exposes trade+wallet velocity
+        BIRDEYE_NEW_LISTING,  // V5.9.908 — birdeye v2 new_listing, no API key required, earliest possible signal
         COINGECKO_TRENDING,
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
@@ -1160,6 +1161,13 @@ class SolanaMarketScanner(
                     // stable and LST pools (mature, low-EV); score-boost
                     // pools showing accelerating engagement.
                     runScan("scanBirdeyeMarkets") { scanBirdeyeMarkets() }
+                    delay(200)
+                    // V5.9.908 — birdeye v2 new_listing (earliest possible signal).
+                    // Runs TWO variants in succession:
+                    //   1) non-meme platform (raydium-direct launches that skip pump.fun)
+                    //   2) meme platform enabled (pump.fun graduates)
+                    // Both queries use limit=50, freshness gated to <= 6h old.
+                    runScan("scanBirdeyeNewListing") { scanBirdeyeNewListing() }
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
@@ -2402,6 +2410,161 @@ class SolanaMarketScanner(
             throw e
         } catch (e: Exception) {
             ErrorLogger.debug("Scanner", "scanBirdeyeMarkets error: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.9.908 — BIRDEYE v2 NEW LISTING (no API key required).
+     *
+     * Endpoint:
+     *   GET https://public-api.birdeye.so/defi/v2/tokens/new_listing
+     *       ?limit=50&meme_platform_enabled={true|false}
+     *   Headers: x-chain: solana
+     *
+     * Operator verified (V5.9.908 paste) the endpoint returns full listing
+     * data with NO API key required:
+     *
+     * Per-token fields:
+     *   address (mint), symbol, name, decimals
+     *   source (DEX where liquidity was added: raydium/orca/meteora/etc)
+     *   liquidityAddedAt (ISO timestamp — true t=0 age clock)
+     *   liquidity (USD at moment of listing)
+     *
+     * Why this lane is unique:
+     *   This is the EARLIEST possible signal — captured at the moment
+     *   liquidity is first added to a pool, before any trading history,
+     *   before any trend, before any volume accumulation. Every other
+     *   intake source sees tokens AFTER they've moved; this one sees
+     *   them at t=0.
+     *
+     * Two-variant strategy:
+     *   1) meme_platform_enabled=false → catches Raydium-direct launches
+     *      that skip pump.fun entirely (often the more 'serious' launches
+     *      that don't need bonding curve gimmicks)
+     *   2) meme_platform_enabled=true  → catches pump.fun graduations
+     *      and meme-platform listings
+     *   Both surface different opportunity classes; we want both.
+     *
+     * Safety:
+     *   - Brand-new pools have HIGHEST rug risk. rugcheck stays in loop
+     *     via emitWithRugcheck (existing pattern, no bypass).
+     *   - 6h freshness gate prevents stale results contaminating fresh signal
+     *   - 5K liquidity floor (same as markets lane) — too thin = ignored
+     *   - Cap at 40 emissions total (per cycle) to avoid swamping
+     *
+     * Doctrine:
+     *   - Memory #20: ADDS source, no pruning
+     *   - Memory #86: lower BASE score (50 vs 70 typical) because t=0
+     *     pools should compete on their own merit downstream, not be
+     *     pre-boosted. The earliness is the signal; let FDG + AI rank.
+     *   - Memory #87: maximally early signal = maximum training data
+     *     for runners. The bot LEARNS by seeing tokens before they move.
+     */
+    private suspend fun scanBirdeyeNewListing() {
+        var totalEmitted = 0
+        var totalScanned = 0
+        var skippedStale = 0
+        var skippedSeen = 0
+        var skippedThin = 0
+        var skippedFilter = 0
+
+        try {
+            for ((_, includeMeme) in listOf("raydium-direct" to false, "meme-platform" to true)) {
+                if (totalEmitted >= 40) break
+
+                val url = "https://public-api.birdeye.so/defi/v2/tokens/new_listing?" +
+                    "limit=50&meme_platform_enabled=$includeMeme"
+                val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: continue
+
+                val root = JSONObject(body)
+                if (!root.optBoolean("success", false)) continue
+                val items = root.optJSONObject("data")?.optJSONArray("items") ?: continue
+                totalScanned += items.length()
+
+                for (i in 0 until items.length()) {
+                    if (totalEmitted >= 40) break
+                    val item = items.optJSONObject(i) ?: continue
+
+                    val mint = item.optString("address", "")
+                    if (mint.isBlank()) continue
+                    if (isSeen(mint)) { skippedSeen++; continue }
+
+                    val liq = item.optDouble("liquidity", 0.0).let { if (it.isFinite()) it else 0.0 }
+                    if (liq < 5000.0) { skippedThin++; continue }
+
+                    // Freshness gate — only emit listings under 6 hours old.
+                    // Older entries here are stale (the bot has seen them via
+                    // other lanes by now anyway).
+                    val addedAtStr = item.optString("liquidityAddedAt", "")
+                    val ageHours = if (addedAtStr.isNotBlank()) {
+                        try {
+                            // The format from operator paste was "2024-09-18T17:59:23"
+                            // (no timezone suffix). Treat as UTC.
+                            val withZ = if (addedAtStr.endsWith("Z") || addedAtStr.contains("+")) {
+                                addedAtStr
+                            } else addedAtStr + "Z"
+                            val ms = java.time.Instant.parse(withZ).toEpochMilli()
+                            ((System.currentTimeMillis() - ms) / 3_600_000.0).coerceAtLeast(0.0)
+                        } catch (_: Exception) { 999.0 }
+                    } else 999.0
+                    if (ageHours > 6.0) { skippedStale++; continue }
+
+                    val symbol = item.optString("symbol", "").ifBlank { item.optString("name", "") }
+                    val name = item.optString("name", symbol)
+                    val source = item.optString("source", "unknown")
+
+                    // BASE score 50 (below typical lane baseline) because
+                    // at t=0 we have ZERO trading history — the score should
+                    // reflect 'high uncertainty, qualify downstream' not
+                    // 'high conviction'. The earliness itself is the signal.
+                    // Soft +5 if variant is raydium-direct (the rarer, often
+                    // higher-quality launch path).
+                    val baseScore = 50.0 + (if (!includeMeme) 5.0 else 0.0)
+
+                    val token = ScannedToken(
+                        mint = mint,
+                        symbol = symbol,
+                        name = name,
+                        source = TokenSource.BIRDEYE_NEW_LISTING,
+                        liquidityUsd = liq,
+                        volumeH1 = 0.0,         // no trading yet, by definition
+                        mcapUsd = 0.0,          // not exposed by this endpoint
+                        pairCreatedHoursAgo = ageHours,
+                        dexId = source.lowercase(),
+                        priceChangeH1 = 0.0,    // no price history
+                        txCountH1 = 0,          // no trades yet
+                        score = baseScore,
+                        // velocity fields stay at default 0.0 — they don't
+                        // exist at t=0 by definition. The MARKETS lane will
+                        // pick the same token up later with real velocity.
+                    )
+
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        totalEmitted++
+                    } else {
+                        skippedFilter++
+                    }
+                }
+            }
+
+            if (totalEmitted > 0) {
+                ErrorLogger.info(
+                    "Scanner",
+                    "🆕 scanBirdeyeNewListing: emitted $totalEmitted from $totalScanned listings " +
+                    "(stale=$skippedStale, seen=$skippedSeen, thin=$skippedThin, filter=$skippedFilter)"
+                )
+            } else {
+                ErrorLogger.debug(
+                    "Scanner",
+                    "scanBirdeyeNewListing: 0 emitted from $totalScanned (stale=$skippedStale, " +
+                    "seen=$skippedSeen, thin=$skippedThin, filter=$skippedFilter)"
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanBirdeyeNewListing error: ${e.message}")
         }
     }
 
