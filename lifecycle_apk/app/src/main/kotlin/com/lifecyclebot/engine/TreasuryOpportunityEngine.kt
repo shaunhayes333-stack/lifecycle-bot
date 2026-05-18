@@ -149,12 +149,52 @@ object TreasuryOpportunityEngine {
             val riskLevel = calculateRiskLevel(mode, liquidityUsd, mcapUsd)
 
             val maxDeploy = treasuryAvailable * (config.maxDeployPct / 100.0)
-            val recommendedSize = when (riskLevel) {
+            val riskAdjusted = when (riskLevel) {
                 1, 2 -> maxDeploy
                 3 -> maxDeploy * 0.7
                 4 -> maxDeploy * 0.5
                 else -> maxDeploy * 0.3
-            }.coerceAtLeast(0.01)
+            }
+
+            // ── V5.9.883 — BehaviorAI + FluidLearning sizing for TREASURY lane ──
+            // Treasury was 100% fluid-blind (audit V5.9.882): no BehaviorAI,
+            // no FluidLearningAI consumption. Sizing was a STATIC 4-tier
+            // risk ladder regardless of global bot tilt state. This is the
+            // most outrageous "dark lane" because Treasury deploys PROFIT
+            // capital — the trader you LEAST want to size into a losing
+            // streak.
+            //
+            // Per doctrine #86: bounded soft-shape, fail-open, no veto.
+            // BehaviorAI sizing × grade composed onto risk-adjusted size.
+            // Grade is INFERRED from confidence + entryScore (treasury
+            // has BOTH dimensions, unlike Quality which has only score).
+            //   A: confidence ≥ 70 AND entryScore ≥ 35
+            //   B: confidence ≥ 55 AND entryScore ≥ 28
+            //   C: confidence ≥ 35 AND entryScore ≥ 22
+            //   D: otherwise (still passed the entry filters above)
+            var behaviorSizeMult = 1.0
+            var behaviorGradeMult = 1.0
+            try {
+                val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+                behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+                val inferredGrade = when {
+                    confidence >= 70 && entryScore >= 35 -> "A"
+                    confidence >= 55 && entryScore >= 28 -> "B"
+                    confidence >= 35 && entryScore >= 22 -> "C"
+                    else -> "D"
+                }
+                val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+                val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+                val candidateRank = gradeOrder[inferredGrade] ?: 3
+                val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+                if (candidateRank < minRank) {
+                    behaviorGradeMult = 0.7
+                }
+            } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+            val recommendedSize = (riskAdjusted * behaviorSizeMult * behaviorGradeMult)
+                .coerceAtLeast(0.01)
 
             val opp = Opportunity(
                 mint = mint,
