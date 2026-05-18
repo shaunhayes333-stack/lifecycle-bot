@@ -225,7 +225,36 @@ class UnifiedScorer(
                 } else 1.0
             } catch (_: Throwable) { 1.0 }
 
-            val weight = (educationWeight * metaCogTrust).coerceIn(0.5, 1.6)
+            // ── V5.9.890 — EducationSubLayerAI.getLayerSharpe finally consumed ──
+            // The per-layer Sharpe ratio is computed inside EducationSubLayerAI
+            // every trade close but had ZERO consumers in the entire codebase
+            // (audit confirmed grep -r returned nothing outside the file). A
+            // dormant alpha signal: the bot literally measures which layers
+            // produce risk-adjusted-positive expectancy and never uses it.
+            //
+            // Wire it as a THIRD trust signal alongside Education accuracy +
+            // MetaCog trust. Sharpe range is typically [-2, +2] per trade;
+            // mapped into a multiplicative trust band [0.85, 1.15] — gentler
+            // than MetaCog's [0.6, 1.4] because Sharpe is highly variable on
+            // small samples. Bootstrap-gated identically to MetaCog (full
+            // strength only after 5000 trades).
+            val sharpeTrust = try {
+                val raw = com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                    .getLayerSharpe(comp.name)
+                // Sharpe -1.0 → 0.85x (mute), 0.0 → 1.0x (neutral), +1.5 → 1.15x (boost)
+                val mapped = (1.0 + raw * 0.10).coerceIn(0.85, 1.15)
+                val totalTrades = try {
+                    com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+                } catch (_: Throwable) { 0 }
+                val blendFactor = when {
+                    totalTrades >= 5000 -> 1.0
+                    totalTrades >= 3000 -> 0.5 + 0.5 * (totalTrades - 3000) / 2000.0
+                    else                -> 0.5
+                }
+                1.0 + (mapped - 1.0) * blendFactor
+            } catch (_: Throwable) { 1.0 }
+
+            val weight = (educationWeight * metaCogTrust * sharpeTrust).coerceIn(0.5, 1.6)
 
             // V5.9.363: Polarity self-heal — STRENGTHENED (was V5.9.353).
             // OLD threshold: required smoothedAccuracy ≥ 0.55 AND expectancyPct ≤ -2.0%.
