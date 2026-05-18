@@ -382,6 +382,17 @@ object V3EngineManager {
 
             val risk = PortfolioRiskState(recentDrawdownPct = 0.0)
 
+            // V5.9.929 — wire LearningStore self-correction metrics so the
+            // DecisionEngine penalty (DecisionEngine.kt:77-78) on falseBlockRate +
+            // missedWinnerRate finally fires. Pre-929 these were hardcoded to 0.0
+            // because nobody called learningStore.computeMetrics().
+            //
+            // Strategy: keep the caller-provided recentTradeCount/recentWinRate as
+            // authoritative (BotService has the lifetime-wide view), but pull
+            // falseBlockRate + missedWinnerRate from the store which is the only
+            // place that can compute them. Fail-open: any throw → both stay 0.0
+            // and we behave exactly like V5.9.928.
+            val storeMetrics = try { learningStore?.computeMetrics() } catch (_: Throwable) { null }
             val learningMetrics = com.lifecyclebot.v3.learning.LearningMetrics(
                 classifiedTrades = recentTradeCount,
                 last20WinRatePct = recentWinRate,
@@ -389,6 +400,8 @@ object V3EngineManager {
                     val avgWin = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().avgWinPct } catch (_: Exception) { 0.0 }
                     if (avgWin > 0.0) (avgWin / 8.0).coerceIn(0.5, 5.0) else 1.0
                 },
+                falseBlockRatePct = storeMetrics?.falseBlockRatePct ?: 0.0,
+                missedWinnerRatePct = storeMetrics?.missedWinnerRatePct ?: 0.0,
             )
 
 
