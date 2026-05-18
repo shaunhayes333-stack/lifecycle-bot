@@ -1492,13 +1492,40 @@ class BotService : Service() {
                             )
                         }
 
+                        // V5.9.914 — HARD UPPER BOUND for active-phase suppression.
+                        //
+                        // Operator dump 2026-05-18 21:00:59 showed
+                        // progressGapSec=1920 (32 min) with phase=SUPERVISOR
+                        // being suppressed forever. Memory rule #87.5
+                        // ("safety gates that EXIST must FIRE") + #87.11
+                        // ("exit safety must NOT depend on scanner throughput")
+                        // demand a hard ceiling.
+                        //
+                        // 10 minutes is well past any LEGIT supervisor work
+                        // (500-token pool × per-token timeout × maxParallel
+                        // chunks would top out around 4-5 minutes in the
+                        // worst case observed). Past 10min, the supervisor
+                        // is wedged — force rescue.
+                        phaseIsActive && progressGapMs >= 600_000L -> {
+                            ErrorLogger.warn(
+                                "BotService",
+                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 10-min ceiling)"
+                            )
+                            ForensicLogger.lifecycle(
+                                "HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT",
+                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=600000"
+                            )
+                            performServiceScopeRescue(lj, phase, progressGapMs)
+                        }
+
                         // Job alive, progress stalled, BUT inside a critical
-                        // long-running phase (SUPERVISOR/EXIT_SWEEP/etc.):
+                        // long-running phase (SUPERVISOR/EXIT_SWEEP/etc.)
+                        // AND still within the 10-min ceiling:
                         // suppress rescue, the loop is doing legitimate work.
                         phaseIsActive -> {
                             ErrorLogger.warn(
                                 "BotService",
-                                "🩺 LOOP_HEARTBEAT(alarm): SUPPRESSED — progress stalled ${progressGapMs / 1000}s but phase=$phase is in active set"
+                                "🩺 LOOP_HEARTBEAT(alarm): SUPPRESSED — progress stalled ${progressGapMs / 1000}s but phase=$phase is in active set (under 10-min ceiling)"
                             )
                             ForensicLogger.lifecycle(
                                 "HEARTBEAT_RESCUE_SUPPRESSED_ACTIVE_PHASE",
@@ -8738,6 +8765,17 @@ supervisorScope {
                 deferredCount++
             }
         }
+        // V5.9.914 — refresh progress AFTER each chunk completes so the
+        // heartbeat knows the supervisor is alive. Previously markProgress
+        // fired once at SUPERVISOR entry and was never refreshed during
+        // the inner loop. Operator dump 2026-05-18 21:00:59 showed
+        // progressGapSec=1920 (32 min) while supervisor was actively
+        // chewing through chunks — heartbeat then suppressed rescue
+        // because phase=SUPERVISOR was in activePhaseSet. Refreshing
+        // here means the progressGap measures TIME-SINCE-LAST-CHUNK
+        // rather than TIME-SINCE-SUPERVISOR-ENTRY, which is the
+        // semantically correct signal for "is the loop wedged?".
+        try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
 }
 
