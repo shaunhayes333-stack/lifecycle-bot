@@ -8377,6 +8377,22 @@ class Executor(
                         }
                     }
 
+                    // V5.9.870 — mirror the V5.9.743 treasury fix on the WR-stats
+                    // side. The PAPER partial branch (line ~8052) calls
+                    // recordPartialProfit so lifetime WR counts the +18%/+35%/+60%
+                    // ladder rungs as win-ticks. The LIVE partial branch was
+                    // missing that call entirely — meaning live partials get the
+                    // treasury siphon but NEVER show up in lifetime WR.
+                    // Combined with the V5.9.869 fix (bumpLifetimeFor now accepts
+                    // PARTIAL_SELL), this finally closes the loop: live partials
+                    // count as win-ticks too. Use netPnl as the profitSol value
+                    // (post-fee, matches what the operator actually realized).
+                    try {
+                        TradeHistoryStore.recordPartialProfit(ts.mint, netPnl, pnlPct)
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("Executor", "recordPartialProfit (live) error: ${e.message}")
+                    }
+
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)
                     
