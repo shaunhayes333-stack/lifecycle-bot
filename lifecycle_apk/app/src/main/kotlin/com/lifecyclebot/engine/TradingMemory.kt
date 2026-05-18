@@ -367,7 +367,31 @@ object TradingMemory {
             if (volumeToLiqRatio > 5 && f.volumeToLiqRatio > 5) similarity += 10
             
             if (similarity >= 40) {
-                riskScore += similarity
+                // V5.9.887 — weight similarity by SEVERITY of the bad record.
+                // Previously: a -50% rug and a -3% scratch contributed equally
+                // to riskScore. The record's avgLossPct field was captured at
+                // line 173 (newAvgLoss) but NEVER consumed downstream.
+                //
+                // Severity multiplier (capped 0.7..1.5):
+                //   avgLossPct <= -50% (rug)       → 1.5× (full magnitude)
+                //   avgLossPct <= -30% (deep loss) → 1.3×
+                //   avgLossPct <= -15% (moderate)  → 1.1×
+                //   avgLossPct <= -7%  (small)     → 1.0× (baseline)
+                //   avgLossPct <= -2%  (scratch)   → 0.8× (less indicative)
+                //   else (>-2% — barely a loss)    → 0.7×
+                //
+                // Conservative bounds: 0.7..1.5 cap so a single severe record
+                // can't dominate the average, and a string of small losses
+                // still contributes meaningfully.
+                val severityMult = when {
+                    record.avgLossPct <= -50.0 -> 1.5
+                    record.avgLossPct <= -30.0 -> 1.3
+                    record.avgLossPct <= -15.0 -> 1.1
+                    record.avgLossPct <= -7.0  -> 1.0
+                    record.avgLossPct <= -2.0  -> 0.8
+                    else                       -> 0.7
+                }
+                riskScore += (similarity * severityMult).toInt()
                 matchCount++
             }
         }
