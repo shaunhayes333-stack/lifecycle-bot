@@ -1534,30 +1534,30 @@ class BotService : Service() {
                         // ("exit safety must NOT depend on scanner throughput")
                         // demand a hard ceiling.
                         //
-                        // V5.9.935 — TIGHTENED to 5min (was 10min in V5.9.914).
-                        // Operator dump 2026-05-19 03:50:54 showed
-                        // progressGapSec=598 SUPPRESSED 14 times for 10
-                        // minutes straight, then HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT
-                        // fired ONCE (counters showed 1), the rescue
-                        // relaunched the loop, and it wedged again in the
-                        // SAME phase for another 10 minutes — total 20min+
-                        // of dead-bot-in-zombie-running-state. UI showed
-                        // "Bot stopped" while service believed running=true.
+                        // V5.9.936 — TIGHTENED FURTHER to 2min (was 5min in V5.9.935,
+                        // 10min in V5.9.914). Operator directive: "10 minutes
+                        // is way too long, 2 mins."
                         //
-                        // V5.9.935 PATCH-2 adds an INNER markProgress ticker
-                        // inside supervisorScope (every 15s) that refreshes
-                        // progress even while a single chunk is blocked.
-                        // With that in place 5min becomes a real ceiling —
-                        // legitimate work refreshes progress every 15s, so
-                        // anything that stalls 5min IS wedged.
-                        phaseIsActive && progressGapMs >= 300_000L -> {
+                        // The original 10-min was set when supervisor had NO
+                        // inner progress ticker, so a legitimate chunk-of-500
+                        // run could plausibly take 8+ min before refreshing.
+                        // With the V5.9.935 inner ticker (now 10s, see below)
+                        // refreshing markProgress every 10s while supervisor
+                        // is alive, 2min is plenty of headroom and any longer
+                        // gap IS genuinely wedged.
+                        //
+                        // Math: ticker fires every 10s → 12 refreshes in 2min.
+                        // For the ceiling to fire, all 12 of those refreshes
+                        // would have to fail to register, which means the
+                        // supervisor coroutine itself is dead (not just slow).
+                        phaseIsActive && progressGapMs >= 120_000L -> {
                             ErrorLogger.warn(
                                 "BotService",
-                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 5-min ceiling, V5.9.935 with 15s inner ticker)"
+                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 2-min ceiling, V5.9.936 with 10s inner ticker)"
                             )
                             ForensicLogger.lifecycle(
                                 "HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT",
-                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=300000"
+                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=120000"
                             )
                             // V5.9.935 — track consecutive same-phase rescues.
                             // If we rescue twice in <120s on the same phase, the
@@ -1620,10 +1620,13 @@ class BotService : Service() {
                         // wedged → force rescue. Lower than the 10-min
                         // active-phase ceiling because IDLE / RESCUE_LAUNCHING
                         // doing 5min of legitimate work is nonsensical.
-                        progressGapMs >= 300_000L -> {
+                        // V5.9.936 — idle/unknown phase ceiling also tightened
+                        // 5min → 2min. The bot has no business sitting in
+                        // RESCUE_LAUNCHING / IDLE / unknown for more than 2 min.
+                        progressGapMs >= 120_000L -> {
                             ErrorLogger.warn(
                                 "BotService",
-                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in idle/unknown phase=$phase (past 5-min ceiling)"
+                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in idle/unknown phase=$phase (past 2-min ceiling, V5.9.936)"
                             )
                             ForensicLogger.lifecycle(
                                 "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
@@ -9052,7 +9055,10 @@ supervisorScope {
     val progressTicker = launch {
         try {
             while (isActive) {
-                kotlinx.coroutines.delay(15_000L)
+                // V5.9.936 — tightened 15s → 10s to match the 2-min ceiling.
+                // Need to refresh frequently enough that legitimate work never
+                // approaches the ceiling. 10s gives 12 refreshes per 2min.
+                kotlinx.coroutines.delay(10_000L)
                 try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
             }
         } catch (_: kotlinx.coroutines.CancellationException) { /* normal */ }
