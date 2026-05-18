@@ -795,6 +795,30 @@ object FluidLearningAI {
                 liveTradeAccumulator -= 1.0
             }
         }
+        // ── V5.9.895 — paper/live expectancy PARITY (prime doctrine #2) ──
+        // recordPaperTrade has been feeding pnlPct into the session expectancy
+        // tracker since V5.9.841 (sessionPnlSumPct, sessionBiggestWinPct,
+        // sessionWorstLossPct). recordLiveTrade ACCEPTED pnlPct in its signature
+        // but the body never touched the tracker — meaning the moment the
+        // operator flips to live, the rolling session expectancy view goes
+        // silent (totalPnl flatlines, biggest/worst frozen at last paper value).
+        //
+        // CanonicalSubscribers.kt:140 already passes outcome.realizedPnlPct
+        // here — the data is at the door. Mirror recordPaperTrade's capture
+        // exactly so paper-trained expectancy heuristics see the same signal
+        // shape when live takes over.
+        //
+        // Prime doctrine: paper trains live. If paper has rich expectancy
+        // tracking and live silently drops it, the bot is learning a feature
+        // it loses access to on day 1 of live. Restoration, not new behavior.
+        if (pnlPct.isFinite()) {
+            synchronized(sessionPnlLock) {
+                sessionPnlSumPct += pnlPct
+                val clamped = pnlPct.coerceIn(-500.0, 500.0)
+                if (clamped > sessionBiggestWinPct) sessionBiggestWinPct = clamped
+                if (clamped < sessionWorstLossPct)  sessionWorstLossPct  = clamped
+            }
+        }
         lastProgressUpdate.set(0)
     }
     
