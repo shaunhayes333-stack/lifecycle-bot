@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.884"
+    private const val BUILD_TAG = "V5.9.885"
 
     data class Event(
         val tsMs: Long,
@@ -1056,7 +1056,7 @@ object PipelineHealthCollector {
         if (v3Skipped > 0)
             sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
 
-        // ── V5.9.884 — Self-healing tier surface (H1+H2+H3) ──────────────
+        // ── V5.9.885 — Self-healing tier surface (H1+H2+H3) ──────────────
         // Show operator: which API hosts are healthy, which keys are flagged
         // DEAD, and how many times AutoEndpointMigrator has fired. This is
         // the ONE place to look when "why is intake stalled?" comes up.

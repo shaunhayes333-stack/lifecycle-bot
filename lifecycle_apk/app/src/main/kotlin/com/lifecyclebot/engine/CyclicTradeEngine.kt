@@ -235,6 +235,28 @@ object CyclicTradeEngine {
             // the ring's own outcomes into entry quality.
             effectiveMinScore += (consecutiveLosses * 5).coerceAtMost(15)
         }
+
+        // ── V5.9.885 — BehaviorAI entry-threshold wire-up for CYCLIC lane ──
+        // Cyclic is a 'fixed pool, compound through wins' trader — it deploys
+        // the full RING_BALANCE_SOL every cycle, NOT a sized percentage. So
+        // BehaviorAI sizing doesn't apply here the way it does for the other
+        // 7 lanes (V5.9.817-884). What DOES apply is the entry threshold:
+        //   - getEntryThresholdMod() returns +15..-20 based on aggression band
+        //   - positive value = harder bar (shave eligibility)
+        //   - negative value = easier bar (boost eligibility)
+        //
+        // Cyclic already has TWO loop-learning gates (bootstrap + consecutive
+        // losses). BehaviorAI is the THIRD: global cross-lane tilt state.
+        // When the bot is on tilt across all lanes, raise Cyclic's bar too
+        // so the ring stops cycling into losing setups.
+        //
+        // Per doctrine #86: bounded modifier, fail-open, no hard veto. The
+        // ring will still trade — just demand higher-quality scores during
+        // tilt. Min effective floor = 25.0 even at maximum boost.
+        try {
+            val behaviorMod = com.lifecyclebot.v3.scoring.BehaviorAI.getEntryThresholdMod()
+            effectiveMinScore = (effectiveMinScore + behaviorMod).coerceIn(25.0, 90.0)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
         val best = tokens.values
             .filter { ts ->
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
