@@ -174,12 +174,12 @@ object PipelineHealthCollector {
     // Event ring buffer — last N forensic events for clipboard export.
     // ════════════════════════════════════════════════════════════════
 
-    private const val RING_CAP = 300  // V5.9.915 — increased from 200 for deeper history
+    private const val RING_CAP = 150  // V5.9.916 — reduced from 300: 16KB dumpText.setText every 2s was main-thread ANR storm
 
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.915"
+    private const val BUILD_TAG = "V5.9.916"
 
     data class Event(
         val tsMs: Long,
@@ -228,6 +228,16 @@ object PipelineHealthCollector {
         if (!attached) return
         bump(phaseCounts, phaseTag)
         if (allow) bump(phaseAllow, phaseTag) else bump(phaseBlock, phaseTag)
+        // V5.9.916 — extract lane=… from gate() reasons too so the per-lane
+        // LANE_EVAL counter sees MOONSHOT/QUALITY/BLUECHIP permit-deny paths,
+        // not just SHITCOIN's unconditional phase() emit. The "only SHITCOIN
+        // visible" bug in V5.9.915 dumps was forensics-only — every lane was
+        // actually evaluating, but only SHITCOIN emitted via phase() while
+        // the others emitted via gate() and slipped past the parser.
+        if (phaseTag == "LANE_EVAL") {
+            val laneMatch = Regex("lane=([A-Z_]+)").find(reason)
+            laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
+        }
         if (!allow) {
             // V5.9.915 — block-reason histogram. Truncate to the first token of
             // the reason so we group "EXCEPTION cls=Foo" across distinct messages.
@@ -812,8 +822,14 @@ object PipelineHealthCollector {
         }
 
         // ── Recent events ───────────────────────────────────────────
-        sb.append("===== Recent events (last ${s.recentEvents.size}) =====\n")
-        for (ev in s.recentEvents.asReversed()) {
+        // V5.9.916 — cap rendered events to last 80 even if ring holds more.
+        // Operator V5.9.915 ANR forensics: setting 16KB TextView text every 2s
+        // saturated the main thread (PipelineHealthActivity.renderSnapshotAsync
+        // gap=604ms repeatedly). The ring still captures 150 for snapshot/copy
+        // — we only truncate what gets rendered live every 2s.
+        val renderEvents = s.recentEvents.takeLast(80)
+        sb.append("===== Recent events (last ${renderEvents.size} of ${s.recentEvents.size}) =====\n")
+        for (ev in renderEvents.asReversed()) {
             sb.append("  ${df.format(Date(ev.tsMs))}  ")
                 .append(ev.tag.padEnd(28))
             if (ev.symbol.isNotEmpty()) sb.append(ev.symbol.padEnd(12)) else sb.append("            ")

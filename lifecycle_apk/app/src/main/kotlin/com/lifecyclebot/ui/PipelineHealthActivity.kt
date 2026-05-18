@@ -58,7 +58,7 @@ class PipelineHealthActivity : AppCompatActivity() {
     }
     private val bgHandler: Handler by lazy { Handler(bgThread.looper) }
 
-    private val refreshIntervalMs = 2_000L
+    private val refreshIntervalMs = 4_000L  // V5.9.916 — 2s → 4s: halves dumpText.setText main-thread cost
     private val refreshRunnable = object : Runnable {
         override fun run() {
             renderSnapshotAsync()
