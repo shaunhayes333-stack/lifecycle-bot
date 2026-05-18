@@ -126,8 +126,27 @@ object AIStartupCoordinator {
      */
     suspend fun initialize(scope: CoroutineScope): InitResult {
         if (isFullyInitialized.get()) {
-            Log.w(TAG, "Already initialized, skipping")
-            return InitResult(success = true, message = "Already initialized")
+            // V5.9.935 — return ACTUAL counts on re-entry, not zeros.
+            // Operator dump 2026-05-19 03:50:32 showed MainActivity
+            // logging "AI System initialized: 0 ready, 0 degraded, 0 failed"
+            // even though the singleton had real layer state from prior
+            // process lifecycle. The old early-return returned
+            // InitResult(success=true) with all numeric fields defaulting
+            // to 0, which made the operator's UI display "0 ready" and
+            // also broke the V5.9.934 BotService.startBot AI-readiness
+            // banner (it would say "ready=0" even when 27 layers were
+            // actually ready).
+            val readyCount = layerStates.values.count { it.status == LayerStatus.READY }
+            val degradedCount = layerStates.values.count { it.status == LayerStatus.DEGRADED }
+            val failedCount = layerStates.values.count { it.status == LayerStatus.FAILED }
+            Log.w(TAG, "Already initialized, skipping (ready=$readyCount degraded=$degradedCount failed=$failedCount)")
+            return InitResult(
+                success = isTradingAllowed.get(),
+                message = "Already initialized (ready=$readyCount degraded=$degradedCount failed=$failedCount)",
+                readyLayers = readyCount,
+                degradedLayers = degradedCount,
+                failedLayers = failedCount,
+            )
         }
         
         Log.i(TAG, "═══════════════════════════════════════════════════════")

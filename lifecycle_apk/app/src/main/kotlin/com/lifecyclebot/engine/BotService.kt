@@ -417,6 +417,14 @@ class BotService : Service() {
      *  The heartbeat reads (now - lastProgressAtMs) to decide whether
      *  the loop is wedged versus merely slow. Updated by markProgress(). */
     @Volatile private var lastProgressAtMs: Long = System.currentTimeMillis()
+    // V5.9.935 — re-deadlock auto-stop tracking. See heartbeat block where
+    // these are read & updated (consecutiveSamePhaseRescues >= 2 within
+    // 120s ⇒ auto-stop bot). Volatile because read from alarm receiver
+    // thread, written from heartbeat handler thread.
+    @Volatile private var lastRescueMs: Long = 0L
+    @Volatile private var lastRescuePhase: String = ""
+    @Volatile private var consecutiveSamePhaseRescues: Int = 0
+
     /** Current pipeline phase (BOT_LOOP_TICK, PRE_SUPERVISOR, SUPERVISOR,
      *  POST_SUPERVISOR, EXIT_SWEEP, CYCLE_EXIT, IDLE). Read by the heartbeat
      *  to decide whether to suppress a rescue while inside a critical
@@ -1526,21 +1534,60 @@ class BotService : Service() {
                         // ("exit safety must NOT depend on scanner throughput")
                         // demand a hard ceiling.
                         //
-                        // 10 minutes is well past any LEGIT supervisor work
-                        // (500-token pool × per-token timeout × maxParallel
-                        // chunks would top out around 4-5 minutes in the
-                        // worst case observed). Past 10min, the supervisor
-                        // is wedged — force rescue.
-                        phaseIsActive && progressGapMs >= 600_000L -> {
+                        // V5.9.935 — TIGHTENED to 5min (was 10min in V5.9.914).
+                        // Operator dump 2026-05-19 03:50:54 showed
+                        // progressGapSec=598 SUPPRESSED 14 times for 10
+                        // minutes straight, then HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT
+                        // fired ONCE (counters showed 1), the rescue
+                        // relaunched the loop, and it wedged again in the
+                        // SAME phase for another 10 minutes — total 20min+
+                        // of dead-bot-in-zombie-running-state. UI showed
+                        // "Bot stopped" while service believed running=true.
+                        //
+                        // V5.9.935 PATCH-2 adds an INNER markProgress ticker
+                        // inside supervisorScope (every 15s) that refreshes
+                        // progress even while a single chunk is blocked.
+                        // With that in place 5min becomes a real ceiling —
+                        // legitimate work refreshes progress every 15s, so
+                        // anything that stalls 5min IS wedged.
+                        phaseIsActive && progressGapMs >= 300_000L -> {
                             ErrorLogger.warn(
                                 "BotService",
-                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 10-min ceiling)"
+                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in active phase=$phase (past 5-min ceiling, V5.9.935 with 15s inner ticker)"
                             )
                             ForensicLogger.lifecycle(
                                 "HEARTBEAT_RESCUE_ACTIVE_PHASE_TIMEOUT",
-                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=600000"
+                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=300000"
                             )
-                            performServiceScopeRescue(lj, phase, progressGapMs)
+                            // V5.9.935 — track consecutive same-phase rescues.
+                            // If we rescue twice in <120s on the same phase, the
+                            // restart isn't fixing anything; auto-stop so UI matches reality.
+                            val nowMs = System.currentTimeMillis()
+                            val sincePrevRescueMs = nowMs - lastRescueMs
+                            if (lastRescuePhase == phase && sincePrevRescueMs in 0..120_000L) {
+                                consecutiveSamePhaseRescues++
+                            } else {
+                                consecutiveSamePhaseRescues = 1
+                            }
+                            lastRescueMs = nowMs
+                            lastRescuePhase = phase
+
+                            if (consecutiveSamePhaseRescues >= 2) {
+                                ErrorLogger.error(
+                                    "BotService",
+                                    "🛑 BOT WEDGED — same phase=$phase deadlocked $consecutiveSamePhaseRescues times within 120s. Auto-stopping to prevent zombie state."
+                                )
+                                ForensicLogger.lifecycle(
+                                    "BOT_AUTO_STOPPED_REDEADLOCK",
+                                    "phase=$phase consecutiveRescues=$consecutiveSamePhaseRescues sincePrevSec=${sincePrevRescueMs/1000}"
+                                )
+                                try { addLog("🛑 Bot wedged in $phase — auto-stopped (operator: restart from UI)") } catch (_: Throwable) {}
+                                try { status.running = false } catch (_: Throwable) {}
+                                try { loopJob?.cancel() } catch (_: Throwable) {}
+                                consecutiveSamePhaseRescues = 0
+                            } else {
+                                performServiceScopeRescue(lj, phase, progressGapMs)
+                            }
                         }
 
                         // Job alive, progress stalled, BUT inside a critical
@@ -8985,6 +9032,32 @@ supervisorScope {
     // section. The heartbeat must NOT cancel us while we're here even
     // if a single token's RPC stalls. SUPERVISOR is in activePhaseSet.
     markProgress("SUPERVISOR")
+
+    // V5.9.935 — INNER PROGRESS TICKER.
+    // Operator dump 2026-05-19 03:50:54 confirmed the per-chunk
+    // markProgress refresh (V5.9.914) was insufficient: when ONE token
+    // inside a single chunk hangs on a non-cancellable synchronous
+    // call (the per-token withTimeoutOrNull cannot interrupt a non-
+    // suspend processTokenCycle), the entire awaitAll() blocks and
+    // markProgress never refreshes for the duration. progressGap then
+    // climbed to 600s+ and the bot died.
+    //
+    // This ticker pings markProgress every 15s independently of chunk
+    // completion. Combined with the V5.9.935 ceiling tightening
+    // (10min → 5min), legitimate supervisor work always stays under
+    // the ceiling, and anything that exceeds it IS genuinely wedged.
+    //
+    // Ticker is launched on the supervisorScope so it auto-cancels when
+    // the supervisor block exits.
+    val progressTicker = launch {
+        try {
+            while (isActive) {
+                kotlinx.coroutines.delay(15_000L)
+                try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
+            }
+        } catch (_: kotlinx.coroutines.CancellationException) { /* normal */ }
+    }
+
     orderedMints.chunked(maxParallel).forEach { chunk ->
         if (!status.running) return@supervisorScope
 
@@ -9038,8 +9111,14 @@ supervisorScope {
         // here means the progressGap measures TIME-SINCE-LAST-CHUNK
         // rather than TIME-SINCE-SUPERVISOR-ENTRY, which is the
         // semantically correct signal for "is the loop wedged?".
+        //
+        // V5.9.935 — supplemented by inner ticker (15s, independent of
+        // chunk completion) for the case where a single non-cancellable
+        // token hangs the whole chunk.
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
+    // V5.9.935 — cancel inner ticker on normal supervisor exit.
+    try { progressTicker.cancel() } catch (_: Throwable) {}
 }
 
 if (deferredCount > 0) {
