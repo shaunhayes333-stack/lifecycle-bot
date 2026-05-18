@@ -262,19 +262,23 @@ class BirdeyeApi(private val apiKey: String = "") {
     )
 
     fun getPriceStats(mint: String): PriceStats? {
-        val body = get("$BASE/defi/v3/price/stats/single?address=$mint") ?: return null
+        // V5.9.938: list_timeframe REQUIRED per sandbox probe.
+        val body = get("$BASE/defi/v3/price/stats/single?address=$mint&list_timeframe=30m,1h,24h") ?: return null
         return try {
             val data = JSONObject(body).optJSONObject("data") ?: return null
+            val w30 = data.optJSONObject("30m") ?: JSONObject()
+            val w1h = data.optJSONObject("1h")  ?: JSONObject()
+            val w24 = data.optJSONObject("24h") ?: JSONObject()
             PriceStats(
-                priceMin30m = data.optDouble("price_min_30m", 0.0),
-                priceMax30m = data.optDouble("price_max_30m", 0.0),
-                stdDev30m   = data.optDouble("price_std_dev_30m", 0.0),
-                priceMin1h  = data.optDouble("price_min_1h", 0.0),
-                priceMax1h  = data.optDouble("price_max_1h", 0.0),
-                stdDev1h    = data.optDouble("price_std_dev_1h", 0.0),
-                priceMin24h = data.optDouble("price_min_24h", 0.0),
-                priceMax24h = data.optDouble("price_max_24h", 0.0),
-                stdDev24h   = data.optDouble("price_std_dev_24h", 0.0),
+                priceMin30m = w30.optDouble("price_min", 0.0),
+                priceMax30m = w30.optDouble("price_max", 0.0),
+                stdDev30m   = w30.optDouble("price_std_dev", 0.0),
+                priceMin1h  = w1h.optDouble("price_min", 0.0),
+                priceMax1h  = w1h.optDouble("price_max", 0.0),
+                stdDev1h    = w1h.optDouble("price_std_dev", 0.0),
+                priceMin24h = w24.optDouble("price_min", 0.0),
+                priceMax24h = w24.optDouble("price_max", 0.0),
+                stdDev24h   = w24.optDouble("price_std_dev", 0.0),
             )
         } catch (_: Exception) { null }
     }
@@ -347,6 +351,189 @@ class BirdeyeApi(private val apiKey: String = "") {
                     trades      = it.optInt("trade", 0),
                     tradesBuy   = it.optInt("tradeBuy", 0),
                     tradesSell  = it.optInt("tradeSell", 0),
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    // ── V5.9.938 — RICH-DATA ENDPOINTS (charts, pair, mint/burn, meta, search) ─
+
+    data class PairOverview(
+        val pairAddress: String,
+        val baseSymbol: String,
+        val quoteSymbol: String,
+        val liquidityUsd: Double,
+        val volume24hUsd: Double,
+        val volume24hChangePct: Double,
+        val trade24h: Int,
+        val priceChange24hPct: Double,
+        val createdAtMs: Long,
+        val ammSource: String,
+    )
+
+    fun getPairOverview(pairAddress: String): PairOverview? {
+        val body = get("$BASE/defi/v3/pair/overview/single?address=$pairAddress") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            val base = data.optJSONObject("base") ?: JSONObject()
+            val quote = data.optJSONObject("quote") ?: JSONObject()
+            PairOverview(
+                pairAddress       = data.optString("address", pairAddress),
+                baseSymbol        = base.optString("symbol", ""),
+                quoteSymbol       = quote.optString("symbol", ""),
+                liquidityUsd      = data.optDouble("liquidity", 0.0),
+                volume24hUsd      = data.optDouble("volume_24h_usd", 0.0),
+                volume24hChangePct= data.optDouble("volume_24h_change_percent", 0.0),
+                trade24h          = data.optInt("trade_24h", 0),
+                priceChange24hPct = data.optDouble("price_change_24h_percent", 0.0),
+                createdAtMs       = data.optLong("created_at", 0L) * 1000L,
+                ammSource         = data.optString("source", ""),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    data class MintBurnEvent(
+        val timestampMs: Long,
+        val type: String,
+        val amountTokens: Double,
+        val owner: String,
+        val txHash: String,
+    )
+
+    fun getMintBurnTxs(mint: String, limit: Int = 20): List<MintBurnEvent> {
+        val body = get("$BASE/defi/v3/token/mint-burn-txs?address=$mint&sort_type=desc&limit=$limit") ?: return emptyList()
+        return try {
+            val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return emptyList()
+            (0 until items.length()).mapNotNull { i ->
+                val it = items.optJSONObject(i) ?: return@mapNotNull null
+                MintBurnEvent(
+                    timestampMs  = it.optLong("block_unix_time", 0L) * 1000L,
+                    type         = it.optString("type", ""),
+                    amountTokens = it.optDouble("ui_amount", 0.0),
+                    owner        = it.optString("owner", ""),
+                    txHash       = it.optString("tx_hash", ""),
+                )
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    data class TokenMetaData(
+        val name: String,
+        val symbol: String,
+        val decimals: Int,
+        val logoUri: String,
+        val description: String,
+        val twitter: String,
+        val telegram: String,
+        val website: String,
+        val discord: String,
+        val coingeckoId: String,
+    )
+
+    fun getTokenMetaData(mint: String): TokenMetaData? {
+        val body = get("$BASE/defi/v3/token/meta-data/single?address=$mint") ?: return null
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            val ext = data.optJSONObject("extensions") ?: JSONObject()
+            TokenMetaData(
+                name        = data.optString("name", ""),
+                symbol      = data.optString("symbol", ""),
+                decimals    = data.optInt("decimals", 0),
+                logoUri     = data.optString("logo_uri", ""),
+                description = ext.optString("description", ""),
+                twitter     = ext.optString("twitter", ""),
+                telegram    = ext.optString("telegram", ""),
+                website     = ext.optString("website", ""),
+                discord     = ext.optString("discord", ""),
+                coingeckoId = ext.optString("coingecko_id", ""),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    data class AllTimeStats(
+        val totalBuys: Long,
+        val totalSells: Long,
+        val totalTrades: Long,
+        val volumeBuyUsd: Double,
+        val volumeSellUsd: Double,
+        val totalVolumeUsd: Double,
+    )
+
+    fun getAllTimeStats(mint: String): AllTimeStats? {
+        val body = get("$BASE/defi/v3/all-time/trades/single?address=$mint") ?: return null
+        return try {
+            val arr = JSONObject(body).optJSONArray("data") ?: return null
+            if (arr.length() == 0) return null
+            val it = arr.optJSONObject(0) ?: return null
+            AllTimeStats(
+                totalBuys      = it.optLong("buy", 0L),
+                totalSells     = it.optLong("sell", 0L),
+                totalTrades    = it.optLong("total_trade", 0L),
+                volumeBuyUsd   = it.optDouble("volume_buy_usd", 0.0),
+                volumeSellUsd  = it.optDouble("volume_sell_usd", 0.0),
+                totalVolumeUsd = it.optDouble("total_volume_usd", 0.0),
+            )
+        } catch (_: Exception) { null }
+    }
+
+    data class SearchResult(
+        val mint: String,
+        val name: String,
+        val symbol: String,
+        val fdv: Double,
+        val volume24hUsd: Double,
+        val liquidity: Double,
+        val priceChange24hPct: Double,
+    )
+
+    fun searchTokens(keyword: String, limit: Int = 10): List<SearchResult> {
+        val body = get(
+            "$BASE/defi/v3/search?keyword=$keyword&target=token" +
+            "&sort_by=volume_24h_usd&sort_type=desc&offset=0&limit=$limit"
+        ) ?: return emptyList()
+        return try {
+            val groups = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return emptyList()
+            val out = mutableListOf<SearchResult>()
+            for (g in 0 until groups.length()) {
+                val results = groups.optJSONObject(g)?.optJSONArray("result") ?: continue
+                for (i in 0 until results.length()) {
+                    val it = results.optJSONObject(i) ?: continue
+                    out.add(SearchResult(
+                        mint              = it.optString("address", ""),
+                        name              = it.optString("name", ""),
+                        symbol            = it.optString("symbol", ""),
+                        fdv               = it.optDouble("fdv", 0.0),
+                        volume24hUsd      = it.optDouble("volume_24h_usd", 0.0),
+                        liquidity         = it.optDouble("liquidity", 0.0),
+                        priceChange24hPct = it.optDouble("price_change_24h_percent", 0.0),
+                    ))
+                }
+            }
+            out
+        } catch (_: Exception) { emptyList() }
+    }
+
+    data class TraderRanking(
+        val wallet: String,
+        val pnlUsd: Double,
+        val volumeUsd: Double,
+        val tradeCount: Int,
+    )
+
+    fun getTraderGainersLosers(type: String = "today", descending: Boolean = true, limit: Int = 10): List<TraderRanking> {
+        val sort = if (descending) "desc" else "asc"
+        val body = get(
+            "$BASE/trader/gainers-losers?type=$type&sort_by=PnL&sort_type=$sort&offset=0&limit=$limit"
+        ) ?: return emptyList()
+        return try {
+            val items = JSONObject(body).optJSONObject("data")?.optJSONArray("items") ?: return emptyList()
+            (0 until items.length()).mapNotNull { i ->
+                val it = items.optJSONObject(i) ?: return@mapNotNull null
+                TraderRanking(
+                    wallet     = it.optString("address", ""),
+                    pnlUsd     = it.optDouble("pnl", 0.0),
+                    volumeUsd  = it.optDouble("volume", 0.0),
+                    tradeCount = it.optInt("trade_count", 0),
                 )
             }
         } catch (_: Exception) { emptyList() }

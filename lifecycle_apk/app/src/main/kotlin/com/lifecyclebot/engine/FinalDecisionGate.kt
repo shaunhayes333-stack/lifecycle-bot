@@ -2942,6 +2942,131 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open — flow shape is advisory only */ }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.938 — BIRDEYE VOLATILITY REGIME soft-shape (size-by-volatility).
+        //
+        // /defi/v3/price/stats/single returns 30m/1h/24h min/max/stddev.
+        // Stddev as a % of price classifies the regime. Calm tokens with
+        // tight ranges deserve larger size; insane tokens need smaller.
+        //
+        //   CALM      < 1%  → × 1.10
+        //   NORMAL    1-3%  → × 1.00
+        //   CHOPPY    3-6%  → × 0.85
+        //   VOLATILE  6-12% → × 0.70
+        //   INSANE    > 12% → × 0.60
+        //
+        // Cached 30min by BirdeyePriceStatsProvider. Paper included
+        // (doctrine #87.1). Fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val statsSnap = com.lifecyclebot.engine.BirdeyePriceStatsProvider.peekCached(ts.mint)
+            if (statsSnap != null) {
+                val (regime, volMult) = statsSnap.volatilityRegime()
+                if (volMult != 1.00 && regime != "UNKNOWN") {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * volMult).coerceIn(0.01, 1.0)
+                    val direction = if (volMult > 1.0) "boosted" else "reduced"
+                    tags.add("size_${direction}_volatility_${regime.lowercase()}")
+                    checks.add(
+                        GateCheck(
+                            "volatility_regime",
+                            true,
+                            "Regime=$regime — size $direction ${originalSize.format(3)} → ${finalSize.format(3)} (×${"%.2f".format(volMult)})"
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — volatility shape is advisory only */ }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.938 — FRESH DEPLOY soft-shape (age-based size discipline).
+        //
+        // /defi/token_creation_info returns the actual deploy timestamp.
+        // Tokens < 1h old are highly volatile and prone to honeypot/dump.
+        // Tokens > 24h old that survived are more mature.
+        //
+        //   age <  1h  → × 0.75 (fresh deploy, smaller size)
+        //   age <  6h  → × 0.90
+        //   age <  24h → × 1.00 (no opinion)
+        //   age >= 24h → × 1.05 (mild boost for survivors)
+        //   age >= 72h → × 1.10
+        //
+        // Note: this complements (does not replace) the existing
+        // addedToWatchlistAt-based age logic. addedToWatchlistAt is when
+        // WE saw it; createdAtMs is when it was DEPLOYED. Big difference
+        // for tokens we discover late.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val creationInfo = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(ts.mint)
+            if (creationInfo != null) {
+                val ageH = creationInfo.ageHours()
+                if (ageH >= 0.0) {
+                    val ageMult = when {
+                        ageH < 1.0  -> 0.75
+                        ageH < 6.0  -> 0.90
+                        ageH < 24.0 -> 1.00
+                        ageH < 72.0 -> 1.05
+                        else        -> 1.10
+                    }
+                    if (ageMult != 1.00) {
+                        val originalSize = finalSize
+                        finalSize = (finalSize * ageMult).coerceIn(0.01, 1.0)
+                        val direction = if (ageMult > 1.0) "boosted" else "reduced"
+                        tags.add("size_${direction}_age_${ageH.toInt()}h")
+                        checks.add(
+                            GateCheck(
+                                "deploy_age",
+                                true,
+                                "Age=${"%.1f".format(ageH)}h — size $direction ${originalSize.format(3)} → ${finalSize.format(3)} (×${"%.2f".format(ageMult)})"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — age shape is advisory only */ }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.938 — TOKEN SOCIAL DEPTH soft-shape.
+        //
+        // /defi/v3/token/meta-data/single returns twitter/telegram/discord/
+        // website + coingeckoId. Token social channel count is a weak but
+        // real quality proxy — devs willing to put their face on multiple
+        // channels are less likely to rug.
+        //
+        //   coingecko_id present (listed)   → × 1.10 (high-quality survivor)
+        //   3+ social channels populated    → × 1.05
+        //   2 channels                      → × 1.00
+        //   1 channel                       → × 0.95
+        //   0 channels (no socials at all)  → × 0.85
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val meta = com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(ts.mint)
+            if (meta != null) {
+                val sc = meta.socialChannelCount()
+                val socialMult = when {
+                    meta.isListed() -> 1.10
+                    sc >= 3         -> 1.05
+                    sc == 2         -> 1.00
+                    sc == 1         -> 0.95
+                    else            -> 0.85
+                }
+                if (socialMult != 1.00) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * socialMult).coerceIn(0.01, 1.0)
+                    val direction = if (socialMult > 1.0) "boosted" else "reduced"
+                    val tagFlag = if (meta.isListed()) "listed" else "${sc}ch"
+                    tags.add("size_${direction}_social_$tagFlag")
+                    checks.add(
+                        GateCheck(
+                            "social_depth",
+                            true,
+                            "Socials=$sc${if (meta.isListed()) " +CG" else ""} — size $direction ${originalSize.format(3)} → ${finalSize.format(3)} (×${"%.2f".format(socialMult)})"
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — social shape is advisory only */ }
+
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
 

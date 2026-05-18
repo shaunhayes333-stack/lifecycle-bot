@@ -10938,6 +10938,36 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                         com.lifecyclebot.engine.BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
+                // V5.9.938 — extended prefetch set
+                scope.launch {
+                    try {
+                        // Price stats: 30min cache, used for volatility-regime FDG soft-shape
+                        com.lifecyclebot.engine.BirdeyePriceStatsProvider.maybePrefetch(ts.mint, beKey)
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
+                scope.launch {
+                    try {
+                        // Creation info: 24h cache (immutable), feeds age + creator-history
+                        com.lifecyclebot.engine.BirdeyeCreationInfoProvider.maybePrefetch(ts.mint, beKey)
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
+                scope.launch {
+                    try {
+                        // Token metadata: 24h cache, richer socials than DexScreener
+                        com.lifecyclebot.engine.BirdeyeMetaDataProvider.maybePrefetch(ts.mint, beKey)
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
+                scope.launch {
+                    try {
+                        // Whale feeder: 60min cache, real wallet activity → WhaleTrackerAI
+                        com.lifecyclebot.engine.BirdeyeWhaleFeeder.maybeFeed(
+                            mint = ts.mint,
+                            symbol = identity.symbol,
+                            apiKey = beKey,
+                            currentPriceUsd = ts.lastPrice,
+                        )
+                    } catch (_: Throwable) { /* fail-open */ }
+                }
             }
         } catch (_: Throwable) { /* fail-open — prefetch is purely advisory */ }
 
