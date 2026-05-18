@@ -75,6 +75,17 @@ object BirdeyeSecurityProvider {
 
     private val cache = ConcurrentHashMap<String, CachedSecurity>()
 
+    // V5.9.919 — CIRCUIT BREAKER. Operator V5.9.916 dump: 5,819 Birdeye 4xx
+    // in 30min (sr=2%). The provider's per-call fail-open returned neutral
+    // every time but kept HAMMERING the endpoint on every intake. Each call
+    // burns a 1.5s timeout slot in the IO pool, contributing to the rescue's
+    // botLoop coroutine never getting scheduled (operator's RESCUE_LAUNCHING
+    // freeze). Trip after 5 consecutive 4xx → disable for 30min → re-probe.
+    @Volatile private var consecutiveFails: Int = 0
+    @Volatile private var circuitOpenUntilMs: Long = 0L
+    private const val CIRCUIT_TRIP_THRESHOLD = 5
+    private const val CIRCUIT_COOLDOWN_MS = 30L * 60_000L
+
     private val http = SharedHttpClient.builder()
         .connectTimeout(1, TimeUnit.SECONDS)
         .readTimeout(2, TimeUnit.SECONDS)
@@ -93,6 +104,10 @@ object BirdeyeSecurityProvider {
             return cached.trust
         }
 
+        // V5.9.919 — CIRCUIT BREAKER short-circuit. If the breaker tripped
+        // recently, return neutral without hitting the network at all.
+        if (now < circuitOpenUntilMs) return NEUTRAL_TRUST
+
         // V5.9.910/912: fast-fail-open. If no key configured, the endpoint
         // will 401 (current plan tier doesn't include token_security per
         // V5.9.910 sandbox probe). Save a 1.5s timeout and return neutral.
@@ -101,6 +116,18 @@ object BirdeyeSecurityProvider {
         return try {
             val sec = withContext(Dispatchers.IO) {
                 withTimeoutOrNull(REQUEST_TIMEOUT_MS) { fetchAndScore(mint, apiKey) }
+            }
+            if (sec == null) {
+                // V5.9.919 — count consecutive failures. After threshold,
+                // open the breaker for 30min so we stop hammering an
+                // endpoint our key tier can't access.
+                val fails = (consecutiveFails + 1).also { consecutiveFails = it }
+                if (fails >= CIRCUIT_TRIP_THRESHOLD && circuitOpenUntilMs < now) {
+                    circuitOpenUntilMs = now + CIRCUIT_COOLDOWN_MS
+                    ErrorLogger.warn(TAG, "⚡ Circuit OPEN — $fails consecutive failures, suppressing for 30min")
+                }
+            } else {
+                consecutiveFails = 0
             }
             sec?.trust ?: NEUTRAL_TRUST
         } catch (e: Exception) {

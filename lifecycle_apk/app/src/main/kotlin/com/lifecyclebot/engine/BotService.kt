@@ -1558,11 +1558,36 @@ class BotService : Service() {
                             )
                         }
 
+                        // V5.9.919 — IDLE/UNKNOWN PHASE CEILING.
+                        // Operator V5.9.916 dump showed phase=RESCUE_LAUNCHING
+                        // stuck for 242s+ with HEARTBEAT_SLOW_NO_RESCUE
+                        // logged every alarm — i.e. the rescue's own coroutine
+                        // never reached its first markProgress() to advance
+                        // the phase out of RESCUE_LAUNCHING. The bot is dead
+                        // but heartbeat refuses to nuke it because the job
+                        // object is still .isActive=true (queued, never ran).
+                        //
+                        // 5-min ceiling for non-active phases. If we've been
+                        // sitting in IDLE / RESCUE_LAUNCHING / unknown phase
+                        // for 5min with no markProgress, the coroutine is
+                        // wedged → force rescue. Lower than the 10-min
+                        // active-phase ceiling because IDLE / RESCUE_LAUNCHING
+                        // doing 5min of legitimate work is nonsensical.
+                        progressGapMs >= 300_000L -> {
+                            ErrorLogger.warn(
+                                "BotService",
+                                "🩺 LOOP_HEARTBEAT(alarm): FORCED RESCUE — progress stalled ${progressGapMs / 1000}s in idle/unknown phase=$phase (past 5-min ceiling)"
+                            )
+                            ForensicLogger.lifecycle(
+                                "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
+                                "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=300000"
+                            )
+                            performServiceScopeRescue(lj, phase, progressGapMs)
+                        }
                         // Job alive, progress stalled, NOT in a known
-                        // active phase. Do NOT cancel — just log loudly.
-                        // The job will either resume on its own or die,
-                        // at which point the next heartbeat catches it
-                        // in the !active branch above.
+                        // active phase, but under the 5-min ceiling.
+                        // Log loudly — the job will either resume on its own
+                        // or trip the ceiling above.
                         else -> {
                             ErrorLogger.warn(
                                 "BotService",
@@ -6977,6 +7002,13 @@ class BotService : Service() {
     }
 
     private suspend fun botLoop() {
+        // V5.9.919 — FIRST ACTION on botLoop entry: clear RESCUE_LAUNCHING
+        // phase by stamping progress. Operator V5.9.916 freeze showed phase
+        // stuck at RESCUE_LAUNCHING for 4+ minutes because the 78 lines of
+        // setup before the first markProgress("ENTER") could be delayed by
+        // IO-pool saturation — heartbeat alarm then saw no progress AND
+        // unknown phase → SLOW_NO_RESCUE forever.
+        markProgress("BOTLOOP_BOOT")
         ErrorLogger.info("BotService", "botLoop() started")
         ForensicLogger.lifecycle("BOTLOOP_STARTED", "scope.active=${scope.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
         
