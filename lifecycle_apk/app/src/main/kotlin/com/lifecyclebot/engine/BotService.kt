@@ -473,6 +473,21 @@ class BotService : Service() {
             // Idempotent: subsequent calls are no-ops. Wires FluidLearningAI
             // mirror + LayerReadinessRegistry samples to the canonical bus.
             CanonicalSubscribers.registerAll()
+
+            // V5.9.855 — passive API key validator. Flags known dead defaults
+            // (Emergent Gemini placeholder + Helius "hive-pattern-learn") so
+            // consumers gate off cleanly instead of burning a 401 RTT every
+            // call. Consumers should call KeyValidator.recordResult(...)
+            // after their HTTP and KeyValidator.isLive("...") before next call.
+            try {
+                val cfg = ConfigStore.load(applicationContext)
+                KeyValidator.preflightConfig(
+                    geminiKey  = cfg.geminiApiKey,
+                    heliusKey  = cfg.heliusApiKey,
+                    groqKey    = cfg.groqApiKey,
+                    birdeyeKey = cfg.birdeyeApiKey,
+                )
+            } catch (_: Throwable) { /* preflight is best-effort */ }
             // V5.9.455 — ANR FIX.
             // Previously LlmLabEngine.start() ran synchronously on the main
             // thread during onCreate and opened SQLite + seeded strategies,

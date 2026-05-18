@@ -256,6 +256,10 @@ object GeminiCopilot {
         description: String = "",
         socialMentions: List<String> = emptyList()
     ): NarrativeAnalysis? {
+        // V5.9.855 — gate off cleanly if KeyValidator has the Gemini key flagged DEAD.
+        // The default Emergent key is invalid (memory #146 live probe); without this
+        // gate every analyze burns a 401 RTT.
+        if (!KeyValidator.isLive("gemini")) return null
         val cacheKey = symbol.trim() + "|" +
             name.trim() + "|" +
             description.take(120) + "|" +
@@ -1027,6 +1031,9 @@ Not one sentence unless the moment truly calls for it.
                             401, 403 -> {
                                 lastBlipDiagnostic = provider.name + ":auth"
                                 ErrorLogger.warn(TAG, provider.name + " auth error " + response.code + ": " + errorBody)
+                                // V5.9.855 — sticky-DEAD verdict for KeyValidator so next analyzeNarrative
+                                // call short-circuits at the entry gate instead of burning another RTT.
+                                try { KeyValidator.recordResult("gemini", success = false, httpStatus = response.code, error = errorBody) } catch (_: Throwable) {}
                                 hardFail = true
                             }
 
@@ -1044,6 +1051,8 @@ Not one sentence unless the moment truly calls for it.
                         }
                     } else {
                         resetRateLimit(provider.name)
+                        // V5.9.855 — successful response promotes KeyValidator to LIVE.
+                        try { KeyValidator.recordResult("gemini", success = true, httpStatus = response.code) } catch (_: Throwable) {}
 
                         val body = response.body?.string().orEmpty().trim()
                         if (body.isBlank()) {
