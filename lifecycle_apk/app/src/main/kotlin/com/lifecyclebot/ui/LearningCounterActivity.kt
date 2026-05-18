@@ -22,6 +22,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -45,6 +46,26 @@ class LearningCounterActivity : Activity() {
     private lateinit var rootColumn: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private var refreshing = false
+
+    // V5.9.868 — operator instruction: high-latency DB queries MUST NOT run
+    // on the UI thread. TradeHistoryStore.getAllTrades() was called every 2s
+    // on the main looper from renderAll(). Solution: keep the existing
+    // 2-second refresh cadence, but pre-warm the cached count on a
+    // background HandlerThread so the UI-thread render reads a snapshot
+    // value instead of issuing a fresh DB scan.
+    private val ioThread = HandlerThread("LearningCounter-IO").apply { start() }
+    private val ioHandler = Handler(ioThread.looper)
+    @Volatile private var cachedTradeHistorySize: String = "loading…"
+
+    private val backgroundPrewarm = object : Runnable {
+        override fun run() {
+            if (!refreshing) return
+            cachedTradeHistorySize = try {
+                TradeHistoryStore.getAllTrades().size.toString()
+            } catch (_: Throwable) { "?" }
+            ioHandler.postDelayed(this, 2_000L)
+        }
+    }
 
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -76,12 +97,19 @@ class LearningCounterActivity : Activity() {
         super.onResume()
         refreshing = true
         handler.post(refreshRunnable)
+        ioHandler.post(backgroundPrewarm)   // V5.9.868
     }
 
     override fun onPause() {
         super.onPause()
         refreshing = false
         handler.removeCallbacks(refreshRunnable)
+        ioHandler.removeCallbacks(backgroundPrewarm)   // V5.9.868
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try { ioThread.quitSafely() } catch (_: Throwable) {}   // V5.9.868
     }
 
     private fun renderAll() {
@@ -213,9 +241,12 @@ class LearningCounterActivity : Activity() {
             try { MetaCognitionAI.getTotalTradesAnalyzed().toLong() } catch (_: Throwable) { -1L },
             settledTrades,
         )
+        // V5.9.868 — read pre-warmed snapshot instead of hitting the DB on
+        // the UI thread. Snapshot refreshes on ioThread every 2s (see
+        // backgroundPrewarm) — at most one render-tick of staleness.
         addKv(
             "TradeHistoryStore.size",
-            try { TradeHistoryStore.getAllTrades().size.toString() } catch (_: Throwable) { "?" },
+            cachedTradeHistorySize,
         )
         // RunTracker30D doesn't expose totalTrades directly; show learning string.
         addKv(

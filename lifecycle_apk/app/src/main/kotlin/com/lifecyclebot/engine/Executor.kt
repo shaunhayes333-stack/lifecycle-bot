@@ -71,7 +71,11 @@ object WrRecoveryPartial {
     private const val MODERATE_THRESHOLD = 0.95
     private const val FLUID_THRESHOLD    = 1.00
     private const val PREDICTIVE_THRESHOLD = 0.90
-    private const val MIN_PARTIAL_GAIN_PCT = 12.0
+    // V5.9.868 — operator instruction (active rules): "9% trigger for the
+    // first partial sell only" when currentWR < phaseTargetWR * 0.85. Old
+    // floor of 12.0 was inadvertently capping the operator-mandated 9% at 12%
+    // in deep WR-recovery. Restored to spec.
+    private const val MIN_PARTIAL_GAIN_PCT = 9.0
 
     enum class Band { OFF, FLUID, MODERATE, AGGRESSIVE }
 
