@@ -2475,6 +2475,26 @@ class BotService : Service() {
         try {
             ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
+
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.934 — Surface AIStartupCoordinator state to operator at
+            // bot-start. Pre-934 the coordinator's verdict was completely
+            // invisible — it logged its own readiness internally but neither
+            // the bot's UI feed nor the startBot path consulted it. Now the
+            // operator sees a clear ON/OFF banner for every start, plus the
+            // FDG soft-shape (this push) honors the state in LIVE mode.
+            // ═══════════════════════════════════════════════════════════════
+            try {
+                val aiReady = com.lifecyclebot.v3.core.AIStartupCoordinator.isTradingAllowed()
+                val summary = com.lifecyclebot.v3.core.AIStartupCoordinator.getSummary()
+                if (aiReady) {
+                    addLog("🧠 AI Subsystems READY — $summary")
+                } else {
+                    addLog("⚠️ AI degraded — LIVE sizing reduced to 50%, paper full-size for learning ($summary)")
+                    ErrorLogger.warn("BotService", "AIStartupCoordinator reports NOT ready: $summary")
+                }
+            } catch (_: Throwable) { /* fail-open — never block startBot on coordinator surface */ }
+
             status.running = true
             // Note: startForeground is already called in onStartCommand to meet Android's 5-second requirement
             ErrorLogger.info("BotService", "Foreground service started")

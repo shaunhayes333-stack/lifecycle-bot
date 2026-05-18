@@ -2789,6 +2789,43 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open — collective is soft-shape only */ }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.934 — AI STARTUP COORDINATOR soft-shape (4th dormant subsystem).
+        //
+        // Operator V5.9.929 audit (audit_v5.9.928_dormant_intelligence.md):
+        // AIStartupCoordinator.isTradingAllowed() has ZERO callers anywhere
+        // in the codebase. Pre-934 the flag flipped, the bot never read it.
+        // Pure dormant safety subsystem.
+        //
+        // Per doctrine #86: not a hard veto (AI degradation ≠ rug/freeze/
+        // BlockFatal/SIZE_ZERO/-15% floor). Treat as soft-shape:
+        //   isTradingAllowed = false (AI degraded/critical-failed) → size × 0.5
+        //   isTradingAllowed = true  → 1.00 (no opinion)
+        //
+        // Paper mode bypass — per doctrine #87.1 (dropped signal = dropped
+        // AGI sample), paper continues at full size so learning never stops
+        // even when AI subsystems are degraded. Live mode honors the dim.
+        //
+        // Bounded floor 0.01; fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                val aiReady = com.lifecyclebot.v3.core.AIStartupCoordinator.isTradingAllowed()
+                if (!aiReady) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * 0.5).coerceAtLeast(0.01)
+                    tags.add("size_reduced_ai_degraded")
+                    checks.add(
+                        GateCheck(
+                            "ai_startup",
+                            true,
+                            "AI degraded — size reduced ${originalSize.format(3)} → ${finalSize.format(3)} (×0.5 soft-shape)"
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — startup coordinator is soft-shape only */ }
+
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
 
