@@ -11368,6 +11368,17 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // evaluator independently. FinalExecutionPermit + the per-mint
             // GlobalTradeRegistry guard prevent V3+Moonshot double entries.
             if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
+                // V5.9.917 — unconditional LANE_EVAL emit (matches SHITCOIN pattern).
+                // Earlier this session the per-lane counter only saw SHITCOIN
+                // because every other lane emitted via gate() on permit-deny.
+                // V5.9.916 added gate-reason parsing AND now we add the
+                // unconditional phase() emit so the counter sees Moonshot
+                // evals even on happy paths.
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.LANE_EVAL,
+                    ts.symbol,
+                    "lane=MOONSHOT paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                )
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
                     // V5.2.12: Check if mcap is in moonshot zone ($10K-$100M)

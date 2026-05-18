@@ -1591,10 +1591,33 @@ object FluidLearningAI {
                 else -> 0.0
             }
             val holdMinutes = holdTimeSeconds / 60.0
-            val holdAdj = if (holdMinutes > 5.0) -0.5 else 0.0  // stale HWM → tighter
+            // V5.9.917 — HWM-staleness ramp. Old formula subtracted just
+            // -0.5pts after 5 minutes idle, so a token that peaked +83%
+            // and consolidated at +74-80% for 10+ minutes kept its lock
+            // stuck at +72%. Operator wants the lock SLIDING UP every
+            // tick to capture the running profit, not anchored at peak-11.
+            val holdAdj = when {
+                holdMinutes > 15.0 -> -5.0   // very stale HWM → tight
+                holdMinutes > 10.0 -> -4.0
+                holdMinutes >  5.0 -> -2.0
+                else               ->  0.0
+            }
             val dynLogFactor = kotlin.math.log10(kotlin.math.max(1.0, peakClamped / 5.0))
             val dynAllowance = (3.0 + 5.0 * dynLogFactor + dynVolAdj + holdAdj).coerceIn(1.5, 15.0)
-            val continuousLock = kotlin.math.max(peakClamped - dynAllowance, peakClamped * 0.70)
+            val baseLock = kotlin.math.max(peakClamped - dynAllowance, peakClamped * 0.70)
+
+            // V5.9.917 — NEAR-PEAK RATCHET. When current gain is within
+            // 5pts of peak (consolidating near HWM), force the lock to
+            // climb toward (current - 3). Bounded by baseLock floor so
+            // we never LOOSEN below the peak-anchored formula. Fires
+            // every render tick → operator sees the lock visibly tighten
+            // as the position holds its gains.
+            val nearPeak = (peakClamped - currentPnlPct) <= 5.0 && currentPnlPct > 0.0
+            val continuousLock = if (nearPeak) {
+                kotlin.math.max(baseLock, currentPnlPct - 3.0)
+            } else {
+                baseLock
+            }
 
             // Absolute safety floor: once peak >= +8%, never go back to entry
             val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY

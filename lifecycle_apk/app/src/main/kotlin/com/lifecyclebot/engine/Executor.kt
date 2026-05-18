@@ -5057,9 +5057,26 @@ class Executor(
             } catch (e: Exception) { 50.0 }
             
             var walletIntelligenceBlocked = false
-            val alphaSignals = try {
+            // V5.9.917 — COLD-START CHOKE FIX. The alphaSignals fetch makes
+            // 3 parallel network calls (DexScreener + Rugcheck + Solscan).
+            // On a fresh install with cold OkHttp DNS / no cached responses,
+            // each leg can take 1-3s. With 4 buys queued back-to-back in
+            // a single scanner cycle, that's up to 12s blocking the IO
+            // worker. The scanner heartbeat then misses, the loop appears
+            // frozen, and operator reports "buys 4 tokens then chokes".
+            //
+            // Two cuts:
+            //   (1) In paper mode the result is never CONSUMED (every
+            //       block-check below is `if (... !isPaper) {`). Skip the
+            //       fetch entirely — pure waste on the cold-start path.
+            //   (2) Tighten LIVE timeout 3000 → 1500ms. Wallet-intel is
+            //       a soft signal, not the hard gate; we'd rather miss
+            //       a marginal bot-farm flag than choke the loop.
+            val alphaSignals = if (isPaper) {
+                null
+            } else try {
                 runBlocking {
-                    withTimeoutOrNull(3000L) {
+                    withTimeoutOrNull(1500L) {
                         DataPipeline.getAlphaSignals(ts.mint, cfg()) { msg ->
                             ErrorLogger.debug("DataPipeline", msg)
                         }
