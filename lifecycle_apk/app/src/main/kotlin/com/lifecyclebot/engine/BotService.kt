@@ -5777,17 +5777,27 @@ class BotService : Service() {
                             val priceRefMs = maxOf(ts.lastPriceUpdate, ts.position.entryTime)
                             val livePriceAgeMs = System.currentTimeMillis() - priceRefMs
                             val posAgeForStale = System.currentTimeMillis() - ts.position.entryTime
-                            // V5.9.788 — operator dump (build 2726) showed 273
-                            // SELL_LOCK_SET events in 23min, almost all from
-                            // STALE_LIVE_PRICE_RUG_ESCAPE on paper positions.
-                            // In paper mode price-staleness is feed noise, not
-                            // a real rug — relaxing thresholds 5x so paper
-                            // trades actually live long enough to compound a
-                            // realistic edge (used to escape after 90s, now 5min).
+                            // V5.9.922 — TIGHTEN PAPER STALE THRESHOLD.
+                            // V5.9.788's 7.5min/10min paper window was meant to stop noise-
+                            // eviction, but operator V5.9.921 dump shows it lets REAL rugs
+                            // run free: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6% — all
+                            // bled past every floor while ts.lastPrice stayed frozen because
+                            // DexScreener dropped the rugged tokens from its batch endpoint.
+                            //
+                            // Paper trains live (memory #87 doctrine). When paper holds a
+                            // rugged position 7.5min before exit, the brain learns a -90%
+                            // loss it would never have taken in live (live's 90s window
+                            // would have escaped at -30%).
+                            //
+                            // Paper-noise WAS a real problem in V5.9.788 — solve it by
+                            // requiring TWO conditions: (a) price age threshold, AND
+                            // (b) PnL from last-known price is NOT actively winning.
+                            // A position at +50% with stale price isn't rugged, just dark.
+                            // A position at any negative pnl with stale price IS rugged.
                             val staleLivePriceThreshMs = if (cfg.paperMode) {
-                                if (posAgeForStale > 60_000L) 450_000L else 600_000L     // 7.5min / 10min in paper
+                                if (posAgeForStale > 60_000L) 120_000L else 180_000L      // 2min / 3min in paper
                             } else {
-                                if (posAgeForStale > 60_000L) 90_000L else 120_000L      // 90s / 120s in LIVE (real money)
+                                if (posAgeForStale > 60_000L) 90_000L else 120_000L       // 90s / 120s in LIVE (real money)
                             }
                             if (livePriceAgeMs > staleLivePriceThreshMs && ts.position.isOpen) {
                                 ErrorLogger.warn("BotService",
@@ -5808,7 +5818,37 @@ class BotService : Service() {
                         
                         // Calculate PnL
                         val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
-                        
+
+                        // V5.9.922 — BELT-AND-BRACES HARD CATASTROPHE NET.
+                        // Operator V5.9.921 dump: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6%
+                        // bled invisibly while normal catastrophe (-14%) never fired because
+                        // ts.lastPrice was frozen for several minutes.
+                        //
+                        // If the position has been open >60s AND pnlPct is past -30% on ANY
+                        // price reading (even one a couple minutes stale), force-exit. This
+                        // is BEYOND the standard -14% catastrophe — a sanity net for cases
+                        // where the standard exit chain didn't fire (sell-lock contention,
+                        // executor stall, or anything else).
+                        //
+                        // Memory rule #23: -15% floor is unconditional. -30% deep-net
+                        // is unambiguously rugged for any token where we have ANY price.
+                        run {
+                            val posAgeForNet = System.currentTimeMillis() - ts.position.entryTime
+                            if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
+                                ErrorLogger.warn("BotService",
+                                    "🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")
+                                addLog("🛑 DEEP CATASTROPHE NET: ${ts.symbol} ${pnlPct.toInt()}% (>${(posAgeForNet/1000).toInt()}s) — emergency exit", ts.mint)
+                                try {
+                                    executor.requestSell(ts = ts, reason = "DEEP_CATASTROPHE_NET",
+                                        wallet = wallet, walletSol = effectiveBalance)
+                                    TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+                                } catch (e: Throwable) {
+                                    ErrorLogger.warn("BotService", "DEEP_CATASTROPHE_NET sell error: ${e.message?.take(50)}")
+                                }
+                                continue  // skip rest of per-position loop, position closed
+                            }
+                        }
+
                         // V5.9.363 — TIGHTENED HARD FLOOR.
                         // Old rapid-stop fired at -15% but real positions kept
                         // hitting -69% because price feeds dropped during fast
