@@ -366,7 +366,40 @@ object QualityTraderAI {
         // Holder distribution bonus
         if (holderCount >= 100) qualityScore += 10
         if (topHolderPct < 15) qualityScore += 10
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.932 — HARVARD BRAIN PATTERN MEMORY (Pass 2: Quality lane).
+        //
+        // Same wiring as ShitCoin V5.9.927-928 and Moonshot (this push).
+        // Quality is the bot's mid-cap workhorse — when a feature
+        // signature (mcap+liq+age+buy+v3+holders) has historically won,
+        // Harvard nudges the score up; when it lost, nudge down. Cross-
+        // trade memory, NOT mint-keyed (doctrine #87.8).
+        //
+        // Bounded: Harvard's own [-4, +10] clamp. Fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "QUALITY_TRADER" to qualityScore.coerceIn(0, 100),
+                "MCAP"           to mcapScore,
+                "LIQUIDITY"      to liqScore,
+                "AGE"            to ageScore,
+                "BUY_PRESSURE"   to buyScore,
+                "V3_SCORE"       to v3Score.coerceAtLeast(0),
+                "HOLDERS"        to (if (holderCount >= 100) 10 else 0),
+                "DISTRIBUTION"   to (if (topHolderPct < 15) 10 else 0),
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                qualityScore = (qualityScore + harvardNudge).coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "🎓 HARVARD PATTERN MEMORY: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$qualityScore")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "quality_harvard")
+            }
+            EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // ═══════════════════════════════════════════════════════════════════
         // DECISION
         // ═══════════════════════════════════════════════════════════════════

@@ -572,7 +572,45 @@ object MoonshotTraderAI {
         }
         score += narrativeBonus + cultBonus
         // Stash the cluster on the position later via addPosition (read by closePosition)
-        
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.932 — HARVARD BRAIN PATTERN MEMORY (Pass 2: Moonshot lane).
+        //
+        // Replicates the V5.9.927-928 ShitCoin wiring. The Harvard brain
+        // (EducationSubLayerAI) maintains a cross-trade pattern memory of
+        // which feature signatures have historically won vs lost — but
+        // only UnifiedScorer + ShitCoinTraderAI consumed it pre-932.
+        //
+        // Moonshot wins are the bot's biggest hitters (500%+ runs); having
+        // them re-decide from base scoring every time while their own past
+        // winning signatures sat unused in approvalPatterns was the second
+        // biggest dropped-AGI gap. This closes it.
+        //
+        // Bounded: Harvard's own [-4, +10] clamp. Fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val harvardSig = mapOf(
+                "MOONSHOT_TRADER"  to score.coerceIn(0, 100),
+                "MCAP"             to mcapScore,
+                "LIQUIDITY"        to liqScore,
+                "VOLUME"           to volScore,
+                "BUY_PRESSURE"     to buyScore,
+                "V3_SCORE"         to v3Score,
+                "PHASE"            to phaseScore,
+                "NARRATIVE"        to narrativeBonus,
+                "CULT"             to cultBonus,
+            ).filterValues { it > 0 }
+            val (harvardNudge, harvardReason) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.approvalBoostFor(harvardSig)
+            if (harvardNudge != 0) {
+                score = (score + harvardNudge).coerceAtLeast(0)
+                ErrorLogger.debug(TAG, "🎓 HARVARD PATTERN MEMORY: nudge=${if (harvardNudge >= 0) "+" else ""}$harvardNudge | $harvardReason → score=$score")
+            }
+            val harvardComponents = harvardSig.map { (k, v) ->
+                ScoreComponent(name = k, value = v, reason = "moonshot_harvard")
+            }
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // Minimum threshold — fluid by learning + paper mode
         // V5.9.404 — restored build #1941-era permissiveness. The bootstrap
         // floor of 30 (V5.9.235) was strangling fresh-launch entries that
