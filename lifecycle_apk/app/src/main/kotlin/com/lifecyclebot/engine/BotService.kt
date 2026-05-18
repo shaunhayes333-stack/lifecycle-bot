@@ -643,6 +643,31 @@ class BotService : Service() {
             // Without this mirror the bot was silently falling back to
             // Android TTS (one default female voice for everyone).
             try { VoiceManager.ensureRemoteKeyMirroredFromGemini(applicationContext, cfg.geminiApiKey) } catch (_: Exception) {}
+
+            // V5.9.915 — wire LLM fallback chain (groq → openrouter → cerebras).
+            // Previously GeminiCopilot's openRouterApiKey / cerebrasApiKey
+            // slots were ALWAYS blank because nothing called
+            // configureFallbackApis() at boot. The fallback chain in
+            // pickProviderOrder() then silently skipped both providers,
+            // leaving Gemini as the sole LLM path and producing 429
+            // backoff cascades whenever the Emergent proxy throttled.
+            // With hardcoded keys in BotConfig we now have all four
+            // providers live by default.
+            try {
+                GeminiCopilot.configureFallbackApis(
+                    openRouterApiKey = cfg.openRouterApiKey,
+                    groqApiKey       = cfg.groqApiKey,
+                    cerebrasApiKey   = cfg.cerebrasApiKey,
+                )
+                ErrorLogger.info(
+                    "BotService",
+                    "🔑 LLM fallback chain wired: groq=${cfg.groqApiKey.isNotBlank()} " +
+                    "openrouter=${cfg.openRouterApiKey.isNotBlank()} " +
+                    "cerebras=${cfg.cerebrasApiKey.isNotBlank()}"
+                )
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "configureFallbackApis failed: ${e.message}")
+            }
         }
 
         // V5.9.129: Start the Sentience loop — LLM ↔ Personality ↔ Symbolic feedback.
