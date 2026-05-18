@@ -1584,40 +1584,68 @@ object FluidLearningAI {
             // V5.9.190: Use same tight allowance formula as fluidProfitFloor.
             // Old: floor = peak × ratio (gave back HALF the gain at peak=38%)
             // New: floor = peak − allowance (fixed points, not a ratio)
+            // V5.9.918 — TIGHT PEAK-ANCHORED TRAIL.
+            //
+            // Operator V5.9.917 verdict: "all open positions are meant to
+            // update on every tick. not sit for 10 minutes stale".
+            //
+            // Real bug: V5.9.169 set the giveback gap from a logarithmic
+            // formula that produced ~11pts at peak=83% (high vol), so the
+            // displayed lock was peak-11=72 even at gain=peak=83. The
+            // operator wants the lock RIGHT UNDER the peak.
+            //
+            // We keep the proper trailing-stop semantics — lock anchors
+            // to peakPnl (only ratchets UP, never down — peakPnl is the
+            // caller-maintained HWM) — but CUT THE GAP IN HALF:
+            //
+            //   peak ≤ 10%   → gap 2pts
+            //   peak ≤ 25%   → gap 3pts
+            //   peak ≤ 50%   → gap 4pts
+            //   peak ≤ 100%  → gap 5pts
+            //   peak ≤ 300%  → gap 7pts
+            //   peak ≤ 1000% → gap 9pts
+            //   peak > 1000% → gap 11pts
+            //
+            //   + volatility: high vol +1pt, low vol -1pt
+            //   (NO holdTime adjustment — operator wants tick-fresh, not
+            //    "let it loosen if it sits". peakGainPct already moves
+            //    every tick the price ticks up, so the lock visibly
+            //    climbs without any time-based logic.)
+            //
+            // Catastrophe floor: peak * keepRatio prevents giving back
+            // more than (1-keepRatio) of peak — kicks in when peakGap
+            // alone is too generous on big runners.
+            //
+            // Verification (WORLDCUP peak=83 vol=80):
+            //   gap = 5 + 1 = 6   → lock = 83-6 = 77   (was 72)
+            //   if gain falls to 70: lock stays 77 → exit fires at 77.
+            //   if peak grows to 90: lock = 90-6 = 84 (climbs every tick
+            //     the peak ratchets up).
             val peakClamped = peakPnlPct.coerceAtLeast(0.0)
-            val dynVolAdj = when {
-                volatility > 70 ->  2.0   // high vol → 2 more points grace
-                volatility < 30 -> -1.0   // calm → 1 point tighter
-                else -> 0.0
+            val peakGap = when {
+                peakClamped <= 10.0   -> 2.0
+                peakClamped <= 25.0   -> 3.0
+                peakClamped <= 50.0   -> 4.0
+                peakClamped <= 100.0  -> 5.0
+                peakClamped <= 300.0  -> 7.0
+                peakClamped <= 1000.0 -> 9.0
+                else                  -> 11.0
             }
-            val holdMinutes = holdTimeSeconds / 60.0
-            // V5.9.917 — HWM-staleness ramp. Old formula subtracted just
-            // -0.5pts after 5 minutes idle, so a token that peaked +83%
-            // and consolidated at +74-80% for 10+ minutes kept its lock
-            // stuck at +72%. Operator wants the lock SLIDING UP every
-            // tick to capture the running profit, not anchored at peak-11.
-            val holdAdj = when {
-                holdMinutes > 15.0 -> -5.0   // very stale HWM → tight
-                holdMinutes > 10.0 -> -4.0
-                holdMinutes >  5.0 -> -2.0
-                else               ->  0.0
+            val volBump = when {
+                volatility > 70 ->  1.0
+                volatility < 30 -> -1.0
+                else            ->  0.0
             }
-            val dynLogFactor = kotlin.math.log10(kotlin.math.max(1.0, peakClamped / 5.0))
-            val dynAllowance = (3.0 + 5.0 * dynLogFactor + dynVolAdj + holdAdj).coerceIn(1.5, 15.0)
-            val baseLock = kotlin.math.max(peakClamped - dynAllowance, peakClamped * 0.70)
+            val effectiveGap = (peakGap + volBump).coerceAtLeast(1.5)
+            val peakAnchoredLock = peakClamped - effectiveGap
 
-            // V5.9.917 — NEAR-PEAK RATCHET. When current gain is within
-            // 5pts of peak (consolidating near HWM), force the lock to
-            // climb toward (current - 3). Bounded by baseLock floor so
-            // we never LOOSEN below the peak-anchored formula. Fires
-            // every render tick → operator sees the lock visibly tighten
-            // as the position holds its gains.
-            val nearPeak = (peakClamped - currentPnlPct) <= 5.0 && currentPnlPct > 0.0
-            val continuousLock = if (nearPeak) {
-                kotlin.math.max(baseLock, currentPnlPct - 3.0)
-            } else {
-                baseLock
-            }
+            // Catastrophe floor — keepRatio curve from V5.9.169 (peak * ratio).
+            // Only relevant for very fast crashes where peakAnchoredLock would
+            // somehow be below this; in practice peakAnchoredLock wins.
+            val keepRatio = (0.40 + 0.57 * kotlin.math.log10(1.0 + peakClamped / 10.0) /
+                                          kotlin.math.log10(1001.0)).coerceIn(0.40, 0.97)
+            val peakFloor = peakClamped * keepRatio
+            val continuousLock = kotlin.math.max(peakAnchoredLock, peakFloor)
 
             // Absolute safety floor: once peak >= +8%, never go back to entry
             val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY
