@@ -2712,6 +2712,83 @@ object FinalDecisionGate {
             }
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.931 — COLLECTIVE BRAIN soft-shape (the biggest dropped-AGI gap).
+        //
+        // Operator deep-audit V5.9.929: CollectiveLearning UPLOADS every
+        // pattern outcome to Turso and DOWNLOADS them back into cachedPatterns
+        // every 15 min — but ONLY isBlacklisted (binary veto) was ever
+        // consulted. Every other AATE instance in the swarm has been pooling
+        // win/loss patterns for months, this bot pulled them down, never
+        // read from the cache. Pure write-mostly intelligence.
+        //
+        // Wire-up: at the same composition point as AICrossTalk's shape,
+        // ask the collective whether this candidate's pattern signature
+        // (entryPhase_tradingMode × discoverySource × liquidityBucket ×
+        // emaTrend) has won or lost across the swarm. Only act on RELIABLE
+        // patterns (≥10 swarm trades, CollectivePattern.isReliable).
+        //
+        // The signature tuple is SYMMETRIC with what V3EngineManager.
+        // recordOutcome uploads (V3EngineManager.kt:681), so the swarm
+        // wisdom we read back is in the same shape we contribute.
+        //
+        // Shape (per doctrine #86 — soft-shape only, no veto):
+        //   wr ≥ 65 (strong winner pattern) → size × 1.20
+        //   wr ≥ 55                         → size × 1.10
+        //   wr ≤ 35 (losing pattern)        → size × 0.80
+        //   wr ≤ 25 (strong loser)          → size × 0.60
+        //   else (35..55)                   → 1.00 (no opinion)
+        //
+        // Bounded floor 0.01 SOL; never blocks. Fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
+                val entryPhase = ts.phase.ifBlank { "idle" }.uppercase()
+                val patternType = "${entryPhase}_${tradingMode}"
+                val discoverySource = ts.source.ifBlank { "UNKNOWN" }
+                val liquidityBucket = when {
+                    ts.lastLiquidityUsd < 5_000 -> "MICRO"
+                    ts.lastLiquidityUsd < 25_000 -> "SMALL"
+                    ts.lastLiquidityUsd < 100_000 -> "MID"
+                    else -> "LARGE"
+                }
+                val emaTrend = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
+
+                val pattern = com.lifecyclebot.collective.CollectiveLearning.getPatternStats(
+                    patternType = patternType,
+                    discoverySource = discoverySource,
+                    liquidityBucket = liquidityBucket,
+                    emaTrend = emaTrend,
+                )
+
+                if (pattern != null && pattern.isReliable) {
+                    val wr = pattern.winRate
+                    val collectiveMult = when {
+                        wr >= 65.0 -> 1.20
+                        wr >= 55.0 -> 1.10
+                        wr <= 25.0 -> 0.60
+                        wr <= 35.0 -> 0.80
+                        else        -> 1.00
+                    }
+                    if (collectiveMult != 1.00) {
+                        val originalSize = finalSize
+                        finalSize = (finalSize * collectiveMult).coerceIn(0.01, 1.0)
+                        val direction = if (collectiveMult > 1.0) "boosted" else "reduced"
+                        tags.add("size_${direction}_collective")
+                        checks.add(
+                            GateCheck(
+                                "collective_brain",
+                                true,
+                                "Swarm $direction ${originalSize.format(3)} → ${finalSize.format(3)} " +
+                                "(wr=${wr.format(0)}% n=${pattern.totalTrades} sig=$patternType/$discoverySource/$liquidityBucket/$emaTrend)"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — collective is soft-shape only */ }
+
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
 
