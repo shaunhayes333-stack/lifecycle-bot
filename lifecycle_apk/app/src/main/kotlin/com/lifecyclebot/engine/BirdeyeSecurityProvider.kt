@@ -129,9 +129,9 @@ object BirdeyeSecurityProvider {
         val jupStrict: Boolean,
     )
 
-    private fun fetchAndScore(mint: String): CachedSecurity? {
+    private fun fetchAndScore(mint: String, apiKey: String): CachedSecurity? {
         val url = "https://public-api.birdeye.so/defi/token_security?address=$mint"
-        val req = Request.Builder().url(url)
+        val reqBuilder = Request.Builder().url(url)
             .header("x-chain", "solana")
             .header("accept", "application/json")
             .header(
@@ -139,7 +139,10 @@ object BirdeyeSecurityProvider {
                 "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
                     "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
             )
-            .build()
+        if (apiKey.isNotBlank()) {
+            reqBuilder.header("X-API-KEY", apiKey)
+        }
+        val req = reqBuilder.build()
 
         val body = try {
             http.newCall(req).execute().use { resp ->
