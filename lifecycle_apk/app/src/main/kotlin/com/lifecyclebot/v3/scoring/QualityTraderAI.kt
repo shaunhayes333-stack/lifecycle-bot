@@ -563,7 +563,12 @@ object QualityTraderAI {
         // ═══════════════════════════════════════════════════════════════════
         
         // Take profit
-        if (pnlPct >= pos.takeProfitPct) {
+        // V5.9.900: skip hard-TP once partial ladder has fired. Pre-fix,
+        // bootstrap TP=+15% killed runners BEFORE rung #1 at +20% could fire;
+        // mature TP=+50% caught runners between rung #1 (+20%) and rung #2
+        // (+50%). Mirrors V5.9.899 fix for BlueChip/Manipulated/ShitCoin and
+        // matches Moonshot's already-correct ladder-only design.
+        if (pos.partialRungsTaken == 0 && pnlPct >= pos.takeProfitPct) {
             ErrorLogger.info(TAG, "✅ QUALITY TP: ${pos.symbol} | +${pnlPct.toInt()}%")
             return ExitSignal.TAKE_PROFIT
         }
