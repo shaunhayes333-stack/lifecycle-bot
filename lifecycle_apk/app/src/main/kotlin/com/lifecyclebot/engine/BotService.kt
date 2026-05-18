@@ -448,6 +448,31 @@ class BotService : Service() {
      *  status.running == true AND live mode AND open live positions exist.
      *  Cancelled by stopBot via reconcilerJob?.cancel(). */
     private var reconcilerJob: Job? = null
+
+    /** V5.9.905 — HIGH-FREQUENCY EXIT MANAGER.
+     *
+     * Operator V5.9.899 forensics: MOON peaked at +169% then round-tripped
+     * to -27.8% in 3 minutes. PURPLECUP at -45.1% with no STRICT_SL fire.
+     * TRUE at -23.8% past the -20% SL still open. Root cause: the bot
+     * loop completed only 4 ticks across 319s of uptime (avg cycle 8.1s,
+     * max 14.1s) because degraded API keys (birdeye blank, helius
+     * placeholder) blew up per-token feature fetches. With the loop
+     * stalled, sweepUniversalExits — the only place that calls
+     * executor.runManageOnly for STRICT_SL / partial ladder / profit
+     * lock / peak drawdown — only fired 4 times in 5 minutes.
+     *
+     * The doctrine fix: exit management MUST NOT depend on scanner
+     * throughput. This dedicated coroutine ticks every 2s on its own
+     * IO dispatcher slot. It only walks open positions and invokes
+     * executor.runManageOnly on each. NO scanner work, NO feature
+     * fetches, NO entry decisions. Reads ts.lastPrice from the shared
+     * TokenState (updated in parallel by scanner / WS feeds) and lets
+     * the executor's own getActualPrice resolver decide what's actionable.
+     *
+     * Cancelled in stopBot() / startBot crash paths.
+     */
+    private var hotExitJob: Job? = null
+
     private var notifIdCounter = 100
 
     override fun onCreate() {
@@ -2883,7 +2908,54 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
-        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
+        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines
+
+        // V5.9.905 — HIGH-FREQUENCY EXIT MANAGER LOOP.
+        // Independent of scanner throughput. Ticks every 2s, walks every
+        // open position, runs the in-position management triad (STRICT_SL
+        // floor, partial sell ladder, profit lock, peak drawdown).
+        // Doctrine: exit safety must NOT depend on scanner cycle time.
+        // See hotExitJob field doc for full root-cause analysis.
+        try { hotExitJob?.cancel() } catch (_: Throwable) {}
+        hotExitJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) {}
+            var tick = 0L
+            while (status.running) {
+                tick++
+                try {
+                    val curWallet = WalletManager.getWallet()
+                    val curSol = status.getEffectiveBalance(cfg.paperMode)
+                    val openTokens = synchronized(status.tokens) {
+                        status.tokens.values.filter { it.position.isOpen }.toList()
+                    }
+                    if (openTokens.isNotEmpty()) {
+                        openTokens.forEach { ts ->
+                            try {
+                                executor.runManageOnly(ts, curWallet, curSol)
+                            } catch (e: Exception) {
+                                ErrorLogger.debug(
+                                    "BotService",
+                                    "hotExit(${ts.symbol}): ${e.message}",
+                                )
+                            }
+                        }
+                        if (tick % 30L == 0L) {
+                            try {
+                                ForensicLogger.phase(
+                                    ForensicLogger.PHASE.EXIT_GATE,
+                                    "_hotExit",
+                                    "tick=$tick managed=${openTokens.size} openMints",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "hotExit tick error: ${e.message}")
+                }
+                try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) { break }
+            }
+            ErrorLogger.info("BotService", "hotExitJob loop exited (status.running=${status.running})")
+        }        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
         // watchdog. Runs every 10s in LIVE mode only; scans the host
         // wallet's open tracked positions, force-releases stale sell
         // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
@@ -4358,6 +4430,9 @@ class BotService : Service() {
         // V5.9.756 — Emergent ticket item #4: stop the periodic reconciler.
         try { reconcilerJob?.cancel() } catch (_: Throwable) {}
         reconcilerJob = null
+        // V5.9.905 — stop the high-frequency exit manager loop.
+        try { hotExitJob?.cancel() } catch (_: Throwable) {}
+        hotExitJob = null
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
