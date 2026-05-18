@@ -4863,7 +4863,29 @@ class Executor(
                 com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
             } catch (_: Throwable) { 1.0 }
             val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult
-            if (_held > _effectiveMaxHold) {
+            // V5.9.901 — RUNNER BYPASS for mode_maxhold.
+            // PRE-FIX: SNIPE=30min, COPY=20min, DEFENSIVE=45min etc capped
+            // every winner at mode-specific time even if +200% and still
+            // climbing. Regime mult only goes to ×2 (STRONG_BULL) which
+            // SNIPE → 60min still kills any genuine runner.
+            // FIX: skip timeout while peakGainPct ≥ 20% AND currentPnl is
+            // within 30% of peak (trend intact). Hard ceiling at 4× the
+            // effective maxHold to prevent zombies on a runner that died.
+            val _curPnl = if (ts.position.entryPrice > 0.0)
+                ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            else 0.0
+            val _peakGain = ts.position.peakGainPct
+            val _runnerHwGate = _peakGain >= 20.0
+            val _runnerTrendIntact = _peakGain > 0.0 && _curPnl >= _peakGain * 0.70
+            val _runnerBypass = _runnerHwGate && _runnerTrendIntact
+            val _hardCeiling = _effectiveMaxHold * 4.0
+            val _shouldForceExit = when {
+                _held > _hardCeiling           -> true   // zombie catch
+                _runnerBypass                  -> false  // keep riding
+                _held > _effectiveMaxHold      -> true   // legacy cap
+                else                            -> false
+            }
+            if (_shouldForceExit) {
                 // V5.9.676 — surface the actual mode + held time + threshold
                 // into the sell reason. V5.9.822 adds regime multiplier so
                 // operator can see why a position held longer/shorter than
@@ -4873,10 +4895,11 @@ class Executor(
                         .get(java.util.Calendar.HOUR_OF_DAY)
                 } catch (_: Throwable) { -1 }
                 val _modeNameLc = modeConfig.mode.name.lowercase()
-                val _reason = "mode_maxhold_${_modeNameLc} held=${_held.toInt()}m max=${_effectiveMaxHold.toInt()}m regime×${"%.2f".format(_regimeHoldMult)} utc=${_utcHour}h"
+                val _zombie = if (_held > _hardCeiling) "_zombie" else ""
+                val _reason = "mode_maxhold${_zombie}_${_modeNameLc} held=${_held.toInt()}m max=${_effectiveMaxHold.toInt()}m peak=+${_peakGain.toInt()}% pnl=${"%+.0f".format(_curPnl)}% regime×${"%.2f".format(_regimeHoldMult)} utc=${_utcHour}h"
                 ErrorLogger.info(
                     "Executor",
-                    "🚪 mode_maxhold: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${_effectiveMaxHold.toInt()}min (regime×${"%.2f".format(_regimeHoldMult)}) utc=${_utcHour}:00"
+                    "🚪 mode_maxhold${_zombie}: ${ts.symbol} mode=${modeConfig.mode.name} held=${_held.toInt()}min > ${_effectiveMaxHold.toInt()}min peak=+${_peakGain.toInt()}% pnl=${"%+.0f".format(_curPnl)}% (regime×${"%.2f".format(_regimeHoldMult)}) utc=${_utcHour}:00"
                 )
                 doSell(ts, _reason, wallet, walletSol); return
             }
@@ -5349,15 +5372,34 @@ class Executor(
                     com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
                 } catch (_: Throwable) { 1.0 }
                 val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2
-                if (held > effectiveMaxHold2) {
+                // V5.9.901 — SIBLING-DRIFT FIX (memory #3 rule 8): mirror the
+                // runner bypass applied to the primary mode_maxhold gate at
+                // ~line 4865. Without this, the v3 decision path would still
+                // kill runners while the v8 path correctly let them ride.
+                val _curPnl2 = if (ts.position.entryPrice > 0.0)
+                    ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                else 0.0
+                val _peakGain2 = ts.position.peakGainPct
+                val _runnerHwGate2 = _peakGain2 >= 20.0
+                val _runnerTrendIntact2 = _peakGain2 > 0.0 && _curPnl2 >= _peakGain2 * 0.70
+                val _runnerBypass2 = _runnerHwGate2 && _runnerTrendIntact2
+                val _hardCeiling2 = effectiveMaxHold2 * 4.0
+                val _shouldForceExit2 = when {
+                    held > _hardCeiling2          -> true
+                    _runnerBypass2                -> false
+                    held > effectiveMaxHold2      -> true
+                    else                           -> false
+                }
+                if (_shouldForceExit2) {
                     val _utcHour2 = try {
                         java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
                             .get(java.util.Calendar.HOUR_OF_DAY)
                     } catch (_: Throwable) { -1 }
-                    val _reason2 = "mode_maxhold_${modeConfig.mode.name.lowercase()} held=${held.toInt()}m max=${effectiveMaxHold2.toInt()}m regime×${"%.2f".format(regimeHoldMult2)} utc=${_utcHour2}h"
+                    val _zombie2 = if (held > _hardCeiling2) "_zombie" else ""
+                    val _reason2 = "mode_maxhold${_zombie2}_${modeConfig.mode.name.lowercase()} held=${held.toInt()}m max=${effectiveMaxHold2.toInt()}m peak=+${_peakGain2.toInt()}% pnl=${"%+.0f".format(_curPnl2)}% regime×${"%.2f".format(regimeHoldMult2)} utc=${_utcHour2}h"
                     ErrorLogger.info(
                         "Executor",
-                        "🚪 mode_maxhold(v3): ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${effectiveMaxHold2.toInt()}min (regime×${"%.2f".format(regimeHoldMult2)}) utc=${_utcHour2}:00"
+                        "🚪 mode_maxhold(v3)${_zombie2}: ${ts.symbol} mode=${modeConfig.mode.name} held=${held.toInt()}min > ${effectiveMaxHold2.toInt()}min peak=+${_peakGain2.toInt()}% pnl=${"%+.0f".format(_curPnl2)}% (regime×${"%.2f".format(regimeHoldMult2)}) utc=${_utcHour2}:00"
                     )
                     doSell(ts, _reason2, wallet, walletSol, identity)
                     return
