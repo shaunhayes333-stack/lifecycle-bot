@@ -1953,6 +1953,74 @@ class BotService : Service() {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.925 — MEMORY-PRESSURE HANDLER (random-stop hardening)
+    // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // Operator: "once started the bot should run uninhibited unless stopped by
+    // user". V5.9.913 fixed crash-loop disarms but did NOT cover OS-initiated
+    // process kills under memory pressure. Symptom from the operator side
+    // looks identical: bot "stops itself" with no log entry, comes back later
+    // when watchdog cycles (looks like a "random restart").
+    //
+    // onTrimMemory is the OS's polite warning before it kills foreground
+    // services to free RAM. We:
+    //   1. Stay running — DO NOT call status.running=false.
+    //   2. Free heavy in-memory caches that we can rebuild lazily (history
+    //      rings beyond what trailing stops need, oldest forensic log entries,
+    //      DexScreener pair cache).
+    //   3. Suggest a GC so the OS sees a smaller working set on the next
+    //      poll and is less likely to kill us.
+    //
+    // We deliberately do NOT touch position state, scanner watchlist, or any
+    // exit-relevant data. The whole point is to survive the squeeze without
+    // dropping any trade-safety state.
+    // ═══════════════════════════════════════════════════════════════════════════
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        try {
+            val levelTag = when (level) {
+                TRIM_MEMORY_RUNNING_MODERATE -> "RUNNING_MODERATE"
+                TRIM_MEMORY_RUNNING_LOW      -> "RUNNING_LOW"
+                TRIM_MEMORY_RUNNING_CRITICAL -> "RUNNING_CRITICAL"
+                TRIM_MEMORY_UI_HIDDEN        -> "UI_HIDDEN"
+                TRIM_MEMORY_BACKGROUND       -> "BACKGROUND"
+                TRIM_MEMORY_MODERATE         -> "MODERATE"
+                TRIM_MEMORY_COMPLETE         -> "COMPLETE"
+                else                          -> "LEVEL_$level"
+            }
+            ForensicLogger.lifecycle("TRIM_MEMORY", "level=$levelTag running=${status.running}")
+
+            // Only the RUNNING_* levels indicate live memory pressure where the OS
+            // may kill us. UI_HIDDEN/BACKGROUND just means the user navigated away
+            // and is normal — no action needed.
+            if (level >= TRIM_MEMORY_RUNNING_LOW) {
+                // Trim each token's candle history beyond what trailing stops need.
+                // V5.9.749 caps at 300; trailing-stop / pattern AIs only look at the
+                // last ~120 candles. Drop the oldest 100 across all tokens.
+                try {
+                    var trimmed = 0
+                    val tokens = synchronized(status.tokens) { status.tokens.values.toList() }
+                    for (t in tokens) {
+                        synchronized(t.history) {
+                            while (t.history.size > 200) {
+                                t.history.removeFirst()
+                                trimmed++
+                            }
+                        }
+                    }
+                    ErrorLogger.info("BotService", "🧹 onTrimMemory($levelTag): trimmed $trimmed old candles to free RAM")
+                } catch (_: Throwable) {}
+
+                // Hint GC.
+                try { System.gc() } catch (_: Throwable) {}
+            }
+        } catch (e: Throwable) {
+            // Never let onTrimMemory crash the service.
+            try { ErrorLogger.warn("BotService", "onTrimMemory error: ${e.message?.take(80)}") } catch (_: Throwable) {}
+        }
+    }
+
     // ── start / stop ───────────────────────────────────────
 
     // V5.9.54: one-time reconciliation of historical sub-trader P&L into

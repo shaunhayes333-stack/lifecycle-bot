@@ -760,7 +760,13 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 vm.ui.collect { state ->
                     updateUi(state)
-                    kotlinx.coroutines.delay(500)
+                    // V5.9.925 — was 500ms (2 Hz). updateUi is a 1007-line method that
+                    // setTexts ~50 TextViews + rebuilds card chrome every call. At 2 Hz
+                    // that was a sustained main-thread cost ≈40-60ms per tick → ANR storm
+                    // when concurrent with renderOpenPositions / pipelineTileRefresh.
+                    // 1 Hz halves the cost. Price tick freshness still comes from
+                    // BotService.openPositionTickLoop (1 Hz) so visual lag is identical.
+                    kotlinx.coroutines.delay(1_000)
                 }
             }
             
@@ -885,7 +891,9 @@ class MainActivity : AppCompatActivity() {
                     })
                 }
             } catch (_: Throwable) { /* never let UI tick crash main */ }
-            pipelineTileHandler.postDelayed(this, 3_000L)
+            // V5.9.925 — was 3_000L. The ANR/EXEC counters move slowly enough
+            // that a 5s cadence is plenty; cuts main-thread snapshot reads by 40%.
+            pipelineTileHandler.postDelayed(this, 5_000L)
         }
     }
 
