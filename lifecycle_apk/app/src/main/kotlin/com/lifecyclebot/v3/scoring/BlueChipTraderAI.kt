@@ -433,7 +433,11 @@ object BlueChipTraderAI {
             entryScore    = pos.entryScore.toDouble(),
             // V5.9.896 — promote from lite→rich so BehaviorLearning stops
             // dropping every BlueChip sample at line 880.
+            // V5.9.897 — add real liq/mcap buckets so AdaptiveLearningEngine
+            // pattern keys partition BlueChip samples by actual size band.
             entryPattern  = "BLUECHIP_ENTRY",
+            liqBucket     = com.lifecyclebot.engine.CanonicalPublishHelper.liqBucketFromUsd(pos.liquidityUsd),
+            mcapBucket    = com.lifecyclebot.engine.CanonicalPublishHelper.mcapBucketFromUsd(pos.marketCapUsd),
         )
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).

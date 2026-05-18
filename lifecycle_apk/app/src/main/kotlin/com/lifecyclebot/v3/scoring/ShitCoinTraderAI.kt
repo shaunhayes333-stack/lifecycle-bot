@@ -567,7 +567,10 @@ object ShitCoinTraderAI {
             assetClass    = com.lifecyclebot.engine.AssetClass.MEME,
             entryScore    = pos.entryScore.toDouble(),
             // V5.9.896 — promote lite→rich for BehaviorLearning.
+            // V5.9.897 — add real liq/mcap buckets.
             entryPattern  = "SHITCOIN_ENTRY",
+            liqBucket     = com.lifecyclebot.engine.CanonicalPublishHelper.liqBucketFromUsd(pos.liquidityUsd),
+            mcapBucket    = com.lifecyclebot.engine.CanonicalPublishHelper.mcapBucketFromUsd(pos.marketCapUsd),
         )
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).

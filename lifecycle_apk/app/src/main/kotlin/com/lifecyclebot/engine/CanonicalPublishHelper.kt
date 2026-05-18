@@ -157,4 +157,37 @@ object CanonicalPublishHelper {
             ErrorLogger.debug("CanonicalPublishHelper", "publish failed: ${e.message?.take(80)}")
         }
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // V5.9.897 — Public bucket helpers (centralised so every lane's
+    // lite→rich publish uses the same convention as
+    // CanonicalFeaturesBuilder.liqBucket/mcapBucket. Replicating thresholds
+    // would risk drift — make them shared.)
+    // ──────────────────────────────────────────────────────────────────────
+    fun liqBucketFromUsd(liqUsd: Double): String = when {
+        liqUsd <= 0.0       -> "LIQ_DUST"
+        liqUsd < 2_000.0    -> "LIQ_TINY"
+        liqUsd < 20_000.0   -> "LIQ_LOW"
+        liqUsd < 50_000.0   -> "LIQ_MED"
+        liqUsd < 100_000.0  -> "LIQ_GOOD"
+        else                -> "LIQ_DEEP"
+    }
+
+    fun mcapBucketFromUsd(mcapUsd: Double): String = when {
+        mcapUsd <= 0.0       -> "MCAP_MICRO"
+        mcapUsd < 20_000.0   -> "MCAP_MICRO"
+        mcapUsd < 50_000.0   -> "MCAP_TINY"
+        mcapUsd < 100_000.0  -> "MCAP_SMALL"
+        mcapUsd < 500_000.0  -> "MCAP_MED"
+        else                 -> "MCAP_LARGE"
+    }
+
+    fun ageBucketFromMs(ageMs: Long): String = when {
+        ageMs <= 0L            -> "UNDER_24H"
+        ageMs < 2 * 60_000L    -> "UNDER_2M"
+        ageMs < 10 * 60_000L   -> "UNDER_10M"
+        ageMs < 60 * 60_000L   -> "UNDER_1H"
+        ageMs < 24 * 3600_000L -> "UNDER_24H"
+        else                   -> "OLDER"
+    }
 }
