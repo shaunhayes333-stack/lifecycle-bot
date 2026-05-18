@@ -483,11 +483,21 @@ class WalletManager private constructor(private val ctx: Context) {
                 .readTimeout(8,  java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             val solMint = "So11111111111111111111111111111111111111112"
+            // V5.9.861 — health-aware execute
+            val origUrl = "https://lite-api.jup.ag/price/v3?ids=$solMint"
+            val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(origUrl) } catch (_: Throwable) { origUrl }
             val req = okhttp3.Request.Builder()
-                .url("https://lite-api.jup.ag/price/v3?ids=$solMint")
+                .url(effectiveUrl)
                 .header("Accept", "application/json")
                 .build()
-            val resp = http.newCall(req).execute()
+            val jupStart = System.currentTimeMillis()
+            val resp = try {
+                http.newCall(req).execute()
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("jupiter", e.message) } catch (_: Throwable) {}
+                throw e
+            }
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record("jupiter", resp.code, System.currentTimeMillis() - jupStart) } catch (_: Throwable) {}
             val body = resp.body?.string() ?: return 0.0
             val json = org.json.JSONObject(body)
             // V3 shape (flat, no data wrapper)

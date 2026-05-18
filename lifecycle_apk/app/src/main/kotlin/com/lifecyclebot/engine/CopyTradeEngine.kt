@@ -265,9 +265,23 @@ class CopyTradeEngine(
     }
 
     private fun get(url: String): String? = try {
-        val req  = Request.Builder().url(url)
+        // V5.9.861 — health-aware: AutoEndpointMigrator.rewrite + ApiHealthMonitor.record
+        val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
+        val host = when {
+            effectiveUrl.contains("pump.fun")     -> "pumpfun"
+            effectiveUrl.contains("dexscreener")  -> "dexscreener"
+            effectiveUrl.contains("jup.ag")       -> "jupiter"
+            effectiveUrl.contains("helius")       -> "helius"
+            else                                  -> "copytrade_other"
+        }
+        val req  = Request.Builder().url(effectiveUrl)
             .header("Accept", "application/json").build()
+        val start = System.currentTimeMillis()
         val resp = http.newCall(req).execute()
+        try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, System.currentTimeMillis() - start) } catch (_: Throwable) {}
         if (resp.isSuccessful) resp.body?.string() else null
-    } catch (_: Exception) { null }
+    } catch (e: Exception) {
+        try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("copytrade_other", e.message) } catch (_: Throwable) {}
+        null
+    }
 }

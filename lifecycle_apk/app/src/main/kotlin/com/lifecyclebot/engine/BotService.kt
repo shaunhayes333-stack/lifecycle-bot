@@ -15533,10 +15533,20 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
+                // V5.9.861 — health-aware execute: auto-migrate dead hosts + record telemetry
+                val originalUrl = "https://frontend-api-v3.pump.fun/coins/$mint"
+                val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(originalUrl) } catch (_: Throwable) { originalUrl }
                 val request = okhttp3.Request.Builder()
-                    .url("https://frontend-api-v3.pump.fun/coins/$mint")
+                    .url(effectiveUrl)
                     .header("Accept", "application/json").build()
-                val response = client.newCall(request).execute()
+                val pumpStart = System.currentTimeMillis()
+                val response = try {
+                    client.newCall(request).execute()
+                } catch (e: Exception) {
+                    try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("pumpfun", e.message) } catch (_: Throwable) {}
+                    throw e
+                }
+                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pumpfun", response.code, System.currentTimeMillis() - pumpStart) } catch (_: Throwable) {}
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     if (body != null) {
