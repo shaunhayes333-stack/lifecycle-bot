@@ -103,8 +103,25 @@ class AATEApp : Application() {
         // Set up global uncaught exception handler
         setupCrashHandler()
         
-        // Initialize ServiceWatchdog if bot was supposed to be running
-        // This ensures the watchdog is scheduled even after app restart
+        // V5.9.913 — RESURRECTION-IN-APPLICATION-ONCREATE.
+        //
+        // Previous code only scheduled the 15-minute periodic WorkManager
+        // watchdog when the app process re-launched after a kill. That
+        // meant after an OS kill, the bot stayed dead for up to 15 MINUTES
+        // even though the app process is already alive at this moment —
+        // we should restart the service NOW.
+        //
+        // Additionally, Application.onCreate is one of the few places we
+        // CAN start a foreground service from a background context with
+        // confidence — it runs on the system's app-launch path, which is
+        // exempt from background FGS restrictions.
+        //
+        // Strategy:
+        //   1. Check wasRunning && !manualStop (existing condition).
+        //   2. Schedule the WorkManager watchdog (existing).
+        //   3. ALSO immediately start the service via startForegroundService.
+        //   4. If the direct start throws, fall back to a 1s setAlarmClock
+        //      (same trick used by WatchdogWorker — bypasses bg restrictions).
         try {
             val prefs = getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE)
             val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
@@ -112,6 +129,52 @@ class AATEApp : Application() {
             if (wasRunning && !manualStop) {
                 ServiceWatchdog.schedule(this)
                 ErrorLogger.info("App", "ServiceWatchdog scheduled (bot was running)")
+
+                // V5.9.913 — immediately resurrect the BotService rather than
+                // waiting 15 minutes for the first WorkManager check.
+                val startIntent = android.content.Intent(this, BotService::class.java).apply {
+                    action = BotService.ACTION_START
+                }
+                var directOk = false
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(startIntent)
+                    } else {
+                        startService(startIntent)
+                    }
+                    directOk = true
+                    ErrorLogger.info("App", "BotService resurrected via direct startForegroundService")
+                } catch (fgsBlocked: Throwable) {
+                    ErrorLogger.warn(
+                        "App",
+                        "Direct FGS start from onCreate failed (${fgsBlocked.javaClass.simpleName}: ${fgsBlocked.message}) — falling through to AlarmClock"
+                    )
+                }
+                if (!directOk) {
+                    try {
+                        val am = getSystemService(android.app.AlarmManager::class.java)
+                        if (am != null) {
+                            val pi = android.app.PendingIntent.getService(
+                                this, 9902, startIntent,
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                            )
+                            val showPi = android.app.PendingIntent.getActivity(
+                                this, 9903,
+                                android.content.Intent(this, com.lifecyclebot.ui.MainActivity::class.java),
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                            )
+                            am.setAlarmClock(
+                                android.app.AlarmManager.AlarmClockInfo(
+                                    System.currentTimeMillis() + 1_000L, showPi
+                                ),
+                                pi
+                            )
+                            ErrorLogger.info("App", "BotService resurrection scheduled via 1s AlarmClock fallback")
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.error("App", "Resurrection AlarmClock fallback failed: ${e.message}", e)
+                    }
+                }
             }
         } catch (e: Exception) {
             ErrorLogger.error("App", "Failed to schedule watchdog: ${e.message}", e)

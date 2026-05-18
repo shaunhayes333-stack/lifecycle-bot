@@ -204,18 +204,78 @@ object ServiceWatchdog {
                         .putLong(KEY_LAST_RESTART_TIME, System.currentTimeMillis())
                         .apply()
                     
-                    // Start the service
+                    // V5.9.913 — RESURRECTION REWRITE.
+                    //
+                    // The old code unconditionally called startForegroundService()
+                    // from this Worker. On Android 12+ (S, API 31+) that throws
+                    // ForegroundServiceStartNotAllowedException whenever the app
+                    // is in the background — which is EXACTLY when the watchdog
+                    // fires. The exception was caught by the outer catch and
+                    // logged as "Watchdog error", returning Result.retry(), so
+                    // WorkManager bounced the same broken path with exponential
+                    // backoff and eventually gave up.
+                    //
+                    // New strategy: try the direct FGS start, but if it fails
+                    // (which it will on backgrounded apps on API 31+), fall
+                    // through to scheduling a 1-second setAlarmClock — which
+                    // IS allowed to start foreground services from the
+                    // background because it is a user-facing alarm.
+                    //
+                    // setAlarmClock with a 1-second deadline acts like an
+                    // "immediate FGS start" that is exempted from Android's
+                    // background-start restrictions.
                     val intent = Intent(context, BotService::class.java).apply {
                         action = BotService.ACTION_START
                     }
                     
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
+                    var directStartWorked = false
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(intent)
+                        } else {
+                            context.startService(intent)
+                        }
+                        directStartWorked = true
+                        ErrorLogger.info("ServiceWatchdog", "Restart #${currentCount + 1} initiated (direct FGS start)")
+                    } catch (fgsBlocked: Throwable) {
+                        // Android 12+ ForegroundServiceStartNotAllowedException
+                        // or SecurityException from background restrictions.
+                        ErrorLogger.warn(
+                            "ServiceWatchdog",
+                            "Direct FGS start blocked (${fgsBlocked.javaClass.simpleName}: ${fgsBlocked.message}) — falling through to setAlarmClock"
+                        )
                     }
                     
-                    ErrorLogger.info("ServiceWatchdog", "Restart #${currentCount + 1} initiated")
+                    if (!directStartWorked) {
+                        try {
+                            val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                            if (am != null) {
+                                val pi = PendingIntent.getService(
+                                    context, ALARM_REQUEST_CODE, intent,
+                                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                )
+                                val showPi = PendingIntent.getActivity(
+                                    context, ALARM_REQUEST_CODE + 2,
+                                    Intent(context, com.lifecyclebot.ui.MainActivity::class.java),
+                                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                                )
+                                // 1-second deadline + setAlarmClock = effective immediate FGS start
+                                // that is exempt from background-start restrictions.
+                                am.setAlarmClock(
+                                    AlarmManager.AlarmClockInfo(System.currentTimeMillis() + 1_000L, showPi),
+                                    pi
+                                )
+                                ErrorLogger.info(
+                                    "ServiceWatchdog",
+                                    "Restart #${currentCount + 1} scheduled via 1s AlarmClock fallback"
+                                )
+                            } else {
+                                ErrorLogger.error("ServiceWatchdog", "AlarmManager unavailable — cannot schedule resurrection")
+                            }
+                        } catch (e: Throwable) {
+                            ErrorLogger.error("ServiceWatchdog", "AlarmClock fallback also failed: ${e.message}", e)
+                        }
+                    }
                 } else {
                     // Service is healthy, record it
                     recordHealthy(context)

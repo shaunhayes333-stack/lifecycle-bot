@@ -4203,27 +4203,116 @@ class BotService : Service() {
             android.util.Log.e("BotService", "startBot CRASH", e)
             e.printStackTrace()
             status.running = false
-            // V5.9.495z11 — RANDOM RESTART FIX. If startBot crashes mid-flight
-            // we MUST clear `was_running_before_shutdown` so ServiceWatchdog
-            // does not see it 15 min later and re-fire ACTION_START in a loop.
-            // Without this, a crash here causes the bot to "randomly start
-            // on its own" every 15 minutes.
-            try {
+
+            // V5.9.913 — AUTO-RECOVERY REWRITE for "bot keeps stopping itself".
+            //
+            // Operator (2026-05-18): "the bot keeps stopping self completely.
+            // you go back in everything is off. also randomly restarts to match.
+            // this is a persisting issue. once started the bot should run
+            // uninhibited unless stopped by user!!!"
+            //
+            // Root cause (pre-913): V5.9.495z11 disarmed the ENTIRE recovery
+            // chain on ANY startBot crash:
+            //   - was_running = false   → watchdog skips
+            //   - ServiceWatchdog.cancel → 15-min worker gone
+            //   - cancelKeepAliveAlarm   → 60s alarm gone
+            //   - stopForeground(REMOVE) → notification gone, OS more
+            //     aggressive about killing the process
+            //
+            // For DETERMINISTIC crashes (NPE on uninitialised lateinit, parse
+            // error in saved state) this prevents a 15-min crash loop. Good.
+            // For TRANSIENT crashes (network blip on wallet connect, scanner
+            // JSONException on a malformed Birdeye response, RPC timeout,
+            // OOM during init, race condition) this PERMANENTLY KILLS the
+            // bot — the operator sees "everything off" with no path back
+            // until they manually tap Start. The bot may then partially
+            // come back via a stale alarm hours later, looking like a
+            // "random restart" → exactly the reported symptom pair.
+            //
+            // V5.9.913 fix: track crash count + last-crash-time. If we're in
+            // a tight crash loop (3+ failures in 5 minutes), disarm to
+            // protect operator from a runaway. Otherwise: KEEP was_running
+            // alive, KEEP the watchdog, KEEP the keep-alive chain, and
+            // schedule a FAST 60s ACTION_START retry alarm so transient
+            // errors self-heal within a minute. The notification is
+            // DETACHED (kept visible) rather than REMOVED — operator sees
+            // "bot recovering" instead of "bot vanished", and the OS is
+            // less aggressive about killing the process.
+            val crashPrefs = try {
                 getSharedPreferences("bot_runtime", android.content.Context.MODE_PRIVATE)
-                    .edit().putBoolean("was_running_before_shutdown", false).apply()
-            } catch (_: Exception) {}
-            try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
-            try { cancelKeepAliveAlarm() } catch (_: Exception) {}
-            // V5.9.675 — cancel Doze-proof loop heartbeat alarm. The
-            // V5.9.674b coroutine job is also nulled below for any code
-            // path that may still reference it (e.g. an in-flight start
-            // that crashed mid-launch before the alarm was scheduled).
-            try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
-            try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
-            loopHeartbeatJob = null
+            } catch (_: Exception) { null }
+            val now = System.currentTimeMillis()
+            val lastCrashMs = crashPrefs?.getLong("last_startbot_crash_ms", 0L) ?: 0L
+            val priorCount = crashPrefs?.getInt("startbot_crash_count_5min", 0) ?: 0
+            // Reset crash counter if last crash was >5 min ago (fresh failure window).
+            val crashCount = if (now - lastCrashMs > 5 * 60_000L) 1 else priorCount + 1
             try {
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                crashPrefs?.edit()
+                    ?.putLong("last_startbot_crash_ms", now)
+                    ?.putInt("startbot_crash_count_5min", crashCount)
+                    ?.apply()
             } catch (_: Exception) {}
+
+            val runawayLoop = crashCount >= 3
+            ForensicLogger.lifecycle(
+                "STARTBOT_CRASH",
+                "exception=${e.javaClass.simpleName} crashCount5min=$crashCount runawayLoop=$runawayLoop"
+            )
+
+            if (runawayLoop) {
+                // Genuine crash loop — preserve V5.9.495z11 disarm behaviour.
+                addLog("🛑 Bot start crashed ${crashCount}x in 5 min — disarming auto-recovery to prevent loop. Tap Start to retry.")
+                ErrorLogger.error(
+                    "BotService",
+                    "startBot crashed $crashCount times in 5min — disarming auto-recovery (V5.9.495z11)"
+                )
+                try {
+                    crashPrefs?.edit()?.putBoolean("was_running_before_shutdown", false)?.apply()
+                } catch (_: Exception) {}
+                try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+                try { cancelKeepAliveAlarm() } catch (_: Exception) {}
+                try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
+                try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
+                loopHeartbeatJob = null
+                try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+            } else {
+                // Transient crash — KEEP recovery armed and schedule fast retry.
+                addLog("⚠️ Bot start failed (${e.javaClass.simpleName}) — auto-retrying in 60s. Crash $crashCount/3 in 5min window.")
+                ErrorLogger.warn(
+                    "BotService",
+                    "startBot transient crash ($crashCount/3 in 5min) — auto-retry in 60s"
+                )
+                // was_running stays TRUE so watchdog and resurrection paths see "should be running".
+                // Schedule a single-shot ACTION_START alarm in 60s — fast self-heal.
+                try {
+                    val retryIntent = Intent(applicationContext, BotService::class.java).apply {
+                        action = ACTION_START
+                    }
+                    val pi = android.app.PendingIntent.getService(
+                        this, 9913, retryIntent,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    )
+                    val am = getSystemService(android.app.AlarmManager::class.java)
+                    am?.setExactAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis() + 60_000L,
+                        pi
+                    )
+                    ForensicLogger.lifecycle("STARTBOT_RETRY_SCHEDULED", "delayMs=60000 crashCount=$crashCount")
+                } catch (ex: Exception) {
+                    ErrorLogger.error("BotService", "Failed to schedule 60s retry alarm: ${ex.message}", ex)
+                }
+                // Keep loop heartbeat infrastructure ARMED for next attempt.
+                try { cancelLoopHeartbeatAlarm() } catch (_: Throwable) {}
+                try { loopHeartbeatJob?.cancel() } catch (_: Throwable) {}
+                loopHeartbeatJob = null
+                // STOP_FOREGROUND_DETACH keeps the notification visible so the OS knows
+                // we're still a "user-facing" service → less aggressive kill behaviour.
+                // The notification text will be updated on next successful start.
+                try { stopForeground(android.app.Service.STOP_FOREGROUND_DETACH) } catch (_: Exception) {
+                    try { stopForeground(STOP_FOREGROUND_REMOVE) } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -5151,27 +5240,49 @@ class BotService : Service() {
             am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, now + 120_000L, backupPi)
         } catch (_: Exception) {}
 
-        // Doze-bypass: only when device is actually idle (no status-bar spam during normal use)
+        // V5.9.913 — FGS-BYPASS AlarmClock arm (UNCONDITIONAL).
+        //
+        // Previous logic only armed the setAlarmClock backup when
+        // pm.isDeviceIdleMode() returned true. The operator reports
+        // the bot self-stopping and the screenshots show no clock-icon
+        // in the status bar, so the inDoze branch is mostly never
+        // taking effect — meaning the only restart path is the 60s
+        // setExactAndAllowWhileIdle primary, which DOES fire but
+        // when delivered to a backgrounded app on Android 12+ throws
+        // ForegroundServiceStartNotAllowedException (silently
+        // swallowed in BotService.onStartCommand error paths).
+        //
+        // New behaviour: ALWAYS arm the setAlarmClock cousin at +75s.
+        // setAlarmClock IS exempt from background-start FGS
+        // restrictions because it's classified as a user-facing
+        // alarm. The status-bar icon is a small cost to pay for
+        // a bot that actually stays alive — and modern setAlarmClock
+        // on most OEMs no longer shows the persistent clock icon
+        // (only on the lockscreen at the wake time).
+        //
+        // This forms a triple-redundant keep-alive: primary (60s
+        // setExactAndAllowWhileIdle), backup (120s setExactAndAllowWhileIdle),
+        // FGS-safe (75s setAlarmClock). At least one of these
+        // SHALL deliver an ACTION_START that successfully starts
+        // the service.
         try {
-            val pm = getSystemService(android.os.PowerManager::class.java)
-            val inDoze = pm?.isDeviceIdleMode ?: false
-            if (inDoze) {
-                val showPi = android.app.PendingIntent.getActivity(
-                    this, 996,
-                    Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                )
-                val dozePi = android.app.PendingIntent.getService(
-                    this, 998, restartIntent,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-                )
-                am.setAlarmClock(
-                    android.app.AlarmManager.AlarmClockInfo(now + 70_000L, showPi),
-                    dozePi
-                )
-                ErrorLogger.info("BotService", "Doze-bypass AlarmClock armed (device in Doze)")
-            }
-        } catch (_: Exception) {}
+            val showPi = android.app.PendingIntent.getActivity(
+                this, 996,
+                Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val safePi = android.app.PendingIntent.getService(
+                this, 998, restartIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setAlarmClock(
+                android.app.AlarmManager.AlarmClockInfo(now + 75_000L, showPi),
+                safePi
+            )
+            ErrorLogger.info("BotService", "FGS-bypass AlarmClock armed (75s — unconditional)")
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "FGS-bypass AlarmClock arm failed: ${e.message}")
+        }
 
         // Start self-healing diagnostics (runs every 3 hours)
         try {
