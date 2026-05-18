@@ -10394,27 +10394,55 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // Rule: if ANY open position shares a case-insensitive normalised
     // root (first 4+ chars stripped of special chars) with this token,
     // skip it UNLESS we have no open position at all for this mint.
+    //
+    // V5.9.923 — EXTEND DEDUP TO UNION OF ALL LANE STORES.
+    // Operator V5.9.922 screenshots: two open Luisa positions (one on
+    // meme card mintA @ $0.00000264 entered 02:11, one on Treasury
+    // Scalps card mintB @ $0.00000236 entered 02:12). Same risk with
+    // FFD, Tiko. Root cause: the V5.9.690 loop scanned only
+    // status.tokens.values for ts.position.isOpen. CashGenerationAI /
+    // BlueChip / Moonshot / ShitCoin / Quality / Manipulated /
+    // ProjectSniper all keep their own position maps; those lanes were
+    // invisible to the family-dedup, so an already-held Luisa via the
+    // Treasury private store did not block a second meme-lane Luisa
+    // entry (or vice-versa). UnifiedPositionRegistry flattens every
+    // lane store into a single read so we catch all variants.
+    //
+    // Same-mint check is also strengthened: a mint we hold via any
+    // private lane store must not get a second open via another lane,
+    // even if the symbol root differs.
     // ═══════════════════════════════════════════════════════════════════
     if (!ts.position.isOpen) {
-        val thisRoot = identity.symbol.uppercase().replace(Regex("[^A-Z0-9]"), "").take(4)
-        if (thisRoot.length >= 3) {
-            val familyConflict = try {
-                status.tokens.values.any { other ->
-                    other.position.isOpen &&
-                    other.mint != identity.mint &&
-                    run {
-                        val otherRoot = other.symbol.uppercase()
-                            .replace(Regex("[^A-Z0-9]"), "").take(4)
-                        otherRoot.length >= 3 && otherRoot == thisRoot
-                    }
-                }
-            } catch (_: Throwable) { false }
-            if (familyConflict) {
+        // V5.9.923 — same-mint guard across every lane store.
+        try {
+            if (UnifiedPositionRegistry.isMintHeldAnywhere(identity.mint, excludeLane = null)) {
                 ErrorLogger.debug("BotService",
-                    "⏭️ SYMBOL_FAMILY_DEDUP: ${identity.symbol} | root=$thisRoot | same-family already open → skip")
+                    "⏭️ CROSS_LANE_MINT_DEDUP: ${identity.symbol} | ${identity.mint.take(8)} already held by another lane → skip")
+                try {
+                    ForensicLogger.lifecycle(
+                        "CROSS_LANE_MINT_DEDUP",
+                        "mint=${identity.mint.take(10)} symbol=${identity.symbol}",
+                    )
+                } catch (_: Throwable) {}
                 return
             }
-        }
+        } catch (_: Throwable) {}
+
+        // V5.9.923 — family dedup now scans the union of all lane stores.
+        try {
+            if (UnifiedPositionRegistry.isFamilyHeldAnywhere(identity.symbol, identity.mint)) {
+                val thisRoot = identity.symbol.uppercase().replace(Regex("[^A-Z0-9]"), "").take(4)
+                ErrorLogger.debug("BotService",
+                    "⏭️ SYMBOL_FAMILY_DEDUP: ${identity.symbol} | root=$thisRoot | same-family already open in some lane → skip")
+                try {
+                    ForensicLogger.lifecycle(
+                        "SYMBOL_FAMILY_DEDUP",
+                        "mint=${identity.mint.take(10)} symbol=${identity.symbol} root=$thisRoot",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+        } catch (_: Throwable) {}
     }
 
     // FATAL SUPPRESSION: Only rugged/honeypot/unsellable blocks

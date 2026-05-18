@@ -3448,6 +3448,31 @@ for legal compliance.
         }
         lastOpenPosHash = openHash
         lastOpenPosRenderMs = nowMs
+        // V5.9.923 — DUP-SYMBOL DISAMBIGUATION. Operator screenshots show
+        // two open "Luisa" positions (on different mints, different lanes,
+        // different entry prices). Symbol alone is no longer unique — add a
+        // mint-suffix in the row title whenever the same symbol appears on
+        // multiple positions in this render set. Includes lane-private
+        // stores via UnifiedPositionRegistry so the suffix appears even
+        // when the duplicate lives on the Treasury / Moonshot / etc. card.
+        val duplicateSymbols: Set<String> = try {
+            val symbolToMints = HashMap<String, HashSet<String>>(16)
+            // Open Positions card contents:
+            for (t in positions) {
+                if (t.symbol.isNotBlank()) {
+                    symbolToMints.getOrPut(t.symbol.uppercase()) { HashSet() }.add(t.mint)
+                }
+            }
+            // Plus everything in private lane stores:
+            try {
+                for (snap in com.lifecyclebot.engine.UnifiedPositionRegistry.snapshotAllOpen()) {
+                    if (snap.symbol.isNotBlank()) {
+                        symbolToMints.getOrPut(snap.symbol.uppercase()) { HashSet() }.add(snap.mint)
+                    }
+                }
+            } catch (_: Throwable) {}
+            symbolToMints.entries.filter { it.value.size >= 2 }.map { it.key }.toSet()
+        } catch (_: Throwable) { emptySet() }
         llOpenPositions.removeAllViews()
         // V5.9.495z37 — operator-reported confusion: tSpaceX / TCLAW /
         // TripleT / GMAR / MAGA / ROAF appear in lane cards (Blue Chip
@@ -3584,8 +3609,16 @@ for legal compliance.
             // in the row title so the open-positions card can never be
             // mistaken for a live wallet view.
             val paperBadge = if (pos.isPaperPosition) " 📝" else ""
+            // V5.9.923 — append mint suffix when symbol is duplicated across
+            // the rendered set, so two "Luisa" positions on different mints
+            // are visually distinguishable.
+            val mintSuffix = if (ts.symbol.isNotBlank() &&
+                duplicateSymbols.contains(ts.symbol.uppercase()) &&
+                ts.mint.length >= 4) {
+                " ·${ts.mint.takeLast(4)}"
+            } else ""
             info.addView(TextView(this).apply {
-                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}$paperBadge"
+                text = "$modeEmoji ${ts.symbol.ifBlank { ts.mint.take(8) }}$mintSuffix$paperBadge"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(if (pos.isPaperPosition) 0xFFB58CFF.toInt() else white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
