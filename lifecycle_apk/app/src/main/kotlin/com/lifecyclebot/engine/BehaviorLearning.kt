@@ -100,6 +100,30 @@ object BehaviorLearning {
             return "${setupQuality}_${tradingMode}_${liquidityBucket}_${entryPhase}_${volumeSignal}"
         }
 
+        // V5.9.871 — RICH SIGNATURE: pattern-clustering layer that finally
+        // incorporates marketSentiment (the symbolic verdict V5.9.810 Push 6
+        // wired through FDG → CanonicalFeatures → BehaviorLearning) and
+        // volatilityLevel + holderConcentration. These 3 fields were already
+        // being computed and stored on every BehaviorPattern record since
+        // V5.9.745+, but no signature method ever consumed them — so the
+        // entire downstream lookup ladder (goodStats / badStats lookup at
+        // L353-354 / L470) never grouped patterns by symbolic verdict or
+        // volatility regime. Soft-shape per doctrine #86: clustering only
+        // tightens the lookup precision, never adds a veto.
+        //
+        // Producer writes ALL FOUR shapes for every trade (rich + fine +
+        // exact + broad) so the consumer ladder falls through cleanly when
+        // the rich grouping hasn't accumulated enough samples yet.
+        fun getRichSignature(): String {
+            // marketSentiment carries the symbolic-verdict string (e.g.
+            // PUMPLIKELY, RUGPRONE, EARLYALPHA). volatilityLevel is HIGH /
+            // MED / LOW. holderConcentration is CONC / DIST / UNKNOWN.
+            val verdict = if (marketSentiment.isBlank()) "NOVERDICT" else marketSentiment
+            val vol = if (volatilityLevel.isBlank()) "VOL?" else volatilityLevel
+            val hc = if (holderConcentration.isBlank()) "HC?" else holderConcentration
+            return "${setupQuality}_${tradingMode}_${liquidityBucket}_${entryPhase}_${volumeSignal}_${verdict}_${vol}_${hc}"
+        }
+
         fun getSignature(): String {
             return "${setupQuality}_${tradingMode}_${liquidityBucket}"
         }
@@ -271,11 +295,13 @@ object BehaviorLearning {
                 outcomeCategory = outcomeCategory,
             )
 
-            val fineSignature  = pattern.getFineSignature()    // V5.9.832 (A3) finest
+            val richSignature  = pattern.getRichSignature()    // V5.9.871 — rich (8-comp, incl. symbolic verdict)
+            val fineSignature  = pattern.getFineSignature()    // V5.9.832 (A3) finest (5-comp)
             val exactSignature = pattern.getSignature()        // legacy 3-component
             val broadSignature = pattern.getBroadSignature()   // broadest 2-component
 
             if (isWin) {
+                recordGoodPattern(pattern, richSignature)    // V5.9.871 (rich)
                 recordGoodPattern(pattern, fineSignature)    // V5.9.832 (A3)
                 recordGoodPattern(pattern, exactSignature)
                 recordGoodPattern(pattern, broadSignature)
@@ -285,6 +311,7 @@ object BehaviorLearning {
                     ErrorLogger.info(TAG, "✅ BIG WIN pattern recorded: $fineSignature | +${pnlPct.toInt()}%")
                 }
             } else {
+                recordBadPattern(pattern, richSignature)    // V5.9.871 (rich)
                 recordBadPattern(pattern, fineSignature)    // V5.9.832 (A3)
                 recordBadPattern(pattern, exactSignature)
                 recordBadPattern(pattern, broadSignature)
@@ -350,8 +377,9 @@ object BehaviorLearning {
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val goodMatch = goodStats[fineSignature] ?: goodStats[exactSignature] ?: goodStats[broadSignature]
-            val badMatch  = badStats[fineSignature]  ?: badStats[exactSignature]  ?: badStats[broadSignature]
+            val richSig    = pattern.getRichSignature()    // V5.9.871 — top of ladder
+            val goodMatch = goodStats[richSig] ?: goodStats[fineSignature] ?: goodStats[exactSignature] ?: goodStats[broadSignature]
+            val badMatch  = badStats[richSig]  ?: badStats[fineSignature]  ?: badStats[exactSignature]  ?: badStats[broadSignature]
 
             var scoreAdjust = 0.0
             var confidence = 0.0
@@ -467,7 +495,7 @@ object BehaviorLearning {
             val exactSignature = "${setupQuality}_${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
             val broadSignature = "${tradingMode}_${getLiquidityBucket(liquidityUsd)}"
 
-            val badMatch = badStats[fineSignature] ?: badStats[exactSignature] ?: badStats[broadSignature]
+            val badMatch = badStats[pattern.getRichSignature()] ?: badStats[fineSignature] ?: badStats[exactSignature] ?: badStats[broadSignature]    // V5.9.871
             if (badMatch != null && badMatch.isReliable && badMatch.confidence >= 0.8) {
                 val lossRate = 100.0 - badMatch.winRate
                 if (lossRate >= 80.0 && badMatch.occurrences >= 5) {
