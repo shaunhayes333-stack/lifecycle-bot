@@ -942,6 +942,110 @@ object BehaviorLearning {
      * which is nowhere near enough for meme/pump trading — bonding-curve pumps,
      * migrated PumpSwap, raydium-graduated, etc. all collided under one key.
      */
+    /**
+     * V5.9.873 — RICH-TIER LOOKUP (canonical-bus key vocabulary).
+     *
+     * Since V5.9.782, the canonical-bus subscriber writes pattern records keyed
+     * by a 14-component pipe-delimited signature (richSignature(features) below).
+     * But ALL consumer paths (evaluate, shouldHardBlock, getScoreAdjustment) look
+     * up by underscore-delimited fine/exact/broad keys. Result: 100% miss rate on
+     * rich-tier lookup for ~80 versions. Every canonical-bus settlement wrote to
+     * goodStats[pipeKey] / badStats[pipeKey], but nobody ever queried those keys.
+     *
+     * This helper reconstructs the same pipe-delimited key from a TokenState +
+     * routing context (mode/source/env) + symbolic verdict, then queries the
+     * rich-tier records directly. Returns (scoreAdjustment, confidence, sampleSize)
+     * — caller is responsible for blending with the legacy fine/exact/broad path.
+     *
+     * Failure-soft: any throw returns ZeroAdjustment so the legacy ladder still
+     * works. Per operator doctrine #86, this is observation-only — score
+     * adjustment is bounded by the same coerceIn that evaluate() applies.
+     *
+     * IMPORTANT: this lookup only works on records written through the canonical
+     * bus (V5.9.782+). Pre-V5.9.782 records (legacy direct recordTrade) used a
+     * different key shape and are not queryable through this path.
+     */
+    data class RichLookupResult(
+        val scoreAdjustment: Int,
+        val confidence: Double,
+        val sampleSize: Int,
+        val winRate: Double,
+        val matchedKey: String,
+    ) {
+        companion object {
+            val NONE = RichLookupResult(0, 0.0, 0, 0.0, "")
+        }
+    }
+
+    fun lookupRichTier(
+        ts: com.lifecyclebot.data.TokenState,
+        mode: com.lifecyclebot.engine.TradeMode,
+        source: com.lifecyclebot.engine.TradeSource,
+        env: com.lifecyclebot.engine.TradeEnvironment,
+        symbolicVerdict: String = "",
+    ): RichLookupResult {
+        return try {
+            // Synthesize a minimal Trade for the builder — only routing/identity
+            // fields contribute to the rich signature (richSignature below uses
+            // CandidateFeatures fields only, never anything from Trade). Mode/sol/
+            // price/ts are required by the Trade constructor but have no effect
+            // on the resulting pipe key.
+            val syntheticTrade = com.lifecyclebot.data.Trade(
+                side = "BUY",
+                mode = env.name.lowercase(),
+                sol = 0.0,
+                price = 0.0,
+                ts = System.currentTimeMillis(),
+                mint = ts.mint,
+            )
+            val (features, _) = com.lifecyclebot.engine.CanonicalFeaturesBuilder.fromTokenState(
+                ts = ts,
+                trade = syntheticTrade,
+                mode = mode,
+                source = source,
+                env = env,
+                symbolicVerdict = symbolicVerdict,
+            )
+            val richKey = richSignature(features)
+            val broadKey = broadSignature(features)
+
+            val good = goodStats[richKey] ?: goodStats[broadKey]
+            val bad = badStats[richKey] ?: badStats[broadKey]
+
+            // Combine signals — boost on good match, penalty on bad match.
+            val goodOcc = good?.occurrences ?: 0
+            val badOcc = bad?.occurrences ?: 0
+            val total = goodOcc + badOcc
+            if (total < 3) return RichLookupResult.NONE  // sample-too-thin
+
+            val winRate = if (total > 0) (goodOcc.toDouble() / total.toDouble()) * 100.0 else 50.0
+            val confidence = (total.toDouble() / 20.0).coerceIn(0.0, 1.0)  // 20+ samples = full confidence
+
+            val rawAdjustment = when {
+                winRate >= 70.0 -> 10   // strong winner — boost
+                winRate >= 55.0 -> 5
+                winRate <= 30.0 -> -10  // strong loser — penalty
+                winRate <= 45.0 -> -5
+                else -> 0
+            }
+            val matchedKey = when {
+                good != null && goodOcc >= badOcc -> richKey
+                bad != null -> richKey
+                else -> broadKey
+            }
+            RichLookupResult(
+                scoreAdjustment = rawAdjustment,
+                confidence = confidence,
+                sampleSize = total,
+                winRate = winRate,
+                matchedKey = matchedKey,
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.debug(TAG, "lookupRichTier error: ${t.message?.take(80)}")
+            RichLookupResult.NONE
+        }
+    }
+
     private fun richSignature(f: CandidateFeatures): String {
         return buildString {
             append(f.assetClass.ifBlank { "?" }); append('|')
