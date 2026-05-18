@@ -841,7 +841,49 @@ object BlueChipTraderAI {
                 positionSol += compoundBonus
             }
         }
-        
+
+        // ── V5.9.879 — BehaviorAI sizing wire-up for BLUECHIP lane ──
+        // Sibling commit to V5.9.878 (Quality) and V5.9.817 (Meme path).
+        // BlueChip lane was sizing through confScale + compounding bonus
+        // but never consulting BehaviorAI's adaptive aggression level.
+        // After a loss streak, the global BehaviorAI auto-deescalates
+        // aggression 5→2 (V5.9.816), but BlueChip kept sizing at full
+        // confScale*compounding output — exactly the lane to protect
+        // first during tilt because BlueChip uses LARGER positions
+        // (BASE 0.15 vs Quality 0.10 vs Meme ~0.05).
+        //
+        // Composition order: confScale → compounding → BehaviorAI → cap
+        // The cap (coerceIn 0.05..MAX_POSITION_SOL below) is the final
+        // safety. Behavior multiplier sits BETWEEN compounding (which
+        // can blow the size up) and the cap (which clamps it down).
+        //
+        // Per doctrine #86: bounded soft-shape, fail-open.
+        var behaviorSizeMult = 1.0
+        var behaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            behaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+
+            // Infer setup quality from blueChipScore (0-100 BlueChip scale).
+            // Higher bar than Quality because BlueChip is bigger size + LIVE-eligible:
+            //   85+ = A, 70+ = B, 55+ = C, else D.
+            val inferredGrade = when {
+                blueChipScore >= 85 -> "A"
+                blueChipScore >= 70 -> "B"
+                blueChipScore >= 55 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val gradeOrder = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candidateRank = gradeOrder[inferredGrade] ?: 3
+            val minRank = gradeOrder[minGrade.uppercase()] ?: 3
+            if (candidateRank < minRank) {
+                behaviorGradeMult = 0.7
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        positionSol *= (behaviorSizeMult * behaviorGradeMult)
+
         // Cap at max
         positionSol = positionSol.coerceIn(0.05, MAX_POSITION_SOL)
         
