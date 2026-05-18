@@ -1770,6 +1770,68 @@ object FinalDecisionGate {
                     volumeSignal = volumeSignal,
                 )
 
+                // V5.9.874 — RICH-TIER OBSERVATION (no behavioral influence).
+                // The legacy fine/exact/broad shouldHardBlock above queries
+                // underscore-delimited keys that have ZERO writes (legacy path
+                // gated off since V5.9.790). The canonical bus writes pipe-
+                // delimited rich keys that nobody queries (V5.9.873 finding).
+                //
+                // This block calls lookupRichTier() with the same TokenState
+                // and the prior FDG verdict (if any) from SymbolicVerdictRegistry,
+                // and logs the result for telemetry. Score-influence stays OFF
+                // until V5.9.875 confirms the rich tier finds real samples.
+                try {
+                    val priorVerdict = try {
+                        com.lifecyclebot.engine.SymbolicVerdictRegistry.peek(ts.mint) ?: ""
+                    } catch (_: Throwable) { "" }
+                    val obsSource = when (tradingModeTag?.name) {
+                        "SHITCOIN" -> com.lifecyclebot.engine.TradeSource.SHITCOIN
+                        "MOONSHOT" -> com.lifecyclebot.engine.TradeSource.MOONSHOT
+                        "MANIP" -> com.lifecyclebot.engine.TradeSource.MANIP
+                        "EXPRESS" -> com.lifecyclebot.engine.TradeSource.EXPRESS
+                        "CYCLIC" -> com.lifecyclebot.engine.TradeSource.CYCLIC
+                        "COPY_TRADE", "COPYTRADE" -> com.lifecyclebot.engine.TradeSource.COPYTRADE
+                        "TREASURY" -> com.lifecyclebot.engine.TradeSource.TREASURY
+                        "BLUECHIP" -> com.lifecyclebot.engine.TradeSource.BLUECHIP
+                        "ALTTRADER", "MARKETS" -> com.lifecyclebot.engine.TradeSource.MARKETS
+                        else -> com.lifecyclebot.engine.TradeSource.V3
+                    }
+                    val obsMode = try {
+                        com.lifecyclebot.engine.TradeMode.valueOf(tradingModeTag?.name ?: "STANDARD")
+                    } catch (_: Throwable) {
+                        com.lifecyclebot.engine.TradeMode.STANDARD
+                    }
+                    val obsEnv = if (config.paperMode)
+                        com.lifecyclebot.engine.TradeEnvironment.PAPER
+                    else
+                        com.lifecyclebot.engine.TradeEnvironment.LIVE
+                    val richObs = BehaviorLearning.lookupRichTier(
+                        ts = ts,
+                        mode = obsMode,
+                        source = obsSource,
+                        env = obsEnv,
+                        symbolicVerdict = priorVerdict,
+                    )
+                    if (richObs.sampleSize > 0) {
+                        ErrorLogger.info(
+                            "FDG",
+                            "🔬 RICH-OBS ${ts.symbol}: n=${richObs.sampleSize} " +
+                            "wr=${richObs.winRate.toInt()}% adj=${richObs.scoreAdjustment} " +
+                            "conf=${(richObs.confidence * 100).toInt()}% " +
+                            "legacy=${if (behaviorBlock != null) "BLOCK" else "OK"} " +
+                            "verdict=${priorVerdict.take(20)}"
+                        )
+                    } else {
+                        // log misses sparsely (1 in 50) to confirm path is firing
+                        if ((System.currentTimeMillis() % 50L) == 0L) {
+                            ErrorLogger.debug("FDG", "RICH-OBS ${ts.symbol}: no rich sample yet (sample<3)")
+                        }
+                    }
+                } catch (t: Throwable) {
+                    ErrorLogger.debug("FDG", "rich-obs error: ${t.message?.take(80)}")
+                }
+
+
                 if (behaviorBlock != null) {
                     val is100PctLoss = behaviorBlock.contains("100%")
                     val sampleCountMatch = Regex("\\((\\d+) trades?\\)").find(behaviorBlock)
