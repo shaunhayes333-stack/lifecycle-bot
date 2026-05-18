@@ -2549,6 +2549,29 @@ class LifecycleStrategy(
             }
         }
 
+        // ── V5.9.888 — meta signal integration for launch entry scoring ──
+        // Audit found 'meta: StrategyMeta' was accepted by calcLaunchEntryScore
+        // but NEVER consumed. The struct carries multiple high-signal fields
+        // that calcRangeEntryScore DOES use (posInRange) but the launch
+        // scorer dropped on the floor. Wiring 3 most reliable fields:
+        //   velocityScore   — explosive launches show velocity 60+
+        //   chartPattern    — BULL_FLAG / CUP_HANDLE = launch continuation
+        //   holderConcentration — toxic >75% concentration = SOFT penalty
+        if (meta.velocityScore >= 80.0) s += 8.0
+        else if (meta.velocityScore >= 60.0) s += 5.0
+        else if (meta.velocityScore in 1.0..30.0) s -= 3.0
+
+        if (meta.chartPatternConf >= 60.0) {
+            s += when (meta.chartPattern.uppercase()) {
+                "BULL_FLAG", "ASCENDING_TRIANGLE", "CUP_HANDLE" -> 6.0
+                "BEAR_FLAG", "DESCENDING_TRIANGLE", "HEAD_SHOULDERS" -> -8.0
+                else -> 0.0
+            }
+        }
+
+        if (meta.holderConcentration >= 90.0) s -= 12.0
+        else if (meta.holderConcentration >= 75.0) s -= 6.0
+
         return s.coerceIn(0.0, 100.0)
     }
 
