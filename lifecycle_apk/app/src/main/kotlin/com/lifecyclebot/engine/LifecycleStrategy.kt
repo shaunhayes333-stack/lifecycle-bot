@@ -3559,6 +3559,41 @@ class LifecycleStrategy(
         val prePumpFresh  = phase == "pre_pump"
         val strongReclaim = phase == "strong_reclaim"  // v4
 
+        // ── V5.9.889 — hist param finally consumed in re-entry decision ──
+        // Audit found 'hist: List<Candle>' was accepted but NEVER read.
+        // Re-entries were greenlit by phase/whale/curve alone — meaning
+        // a dead-cat bounce on a bullish-LABELED phase could trigger
+        // re-entry even if the LAST FEW CANDLES were trending down.
+        //
+        // Soft confirmation gate: if the recent candle action is showing
+        // active distribution (sells dominate buys 2:1 over last 3
+        // candles AND price slope is negative), block re-entry.
+        // This is a SAFETY veto — distribution-into-our-re-entry is
+        // exactly the 'stupid decision' category per doctrine #86.
+        // Whale/curve/pre_pump can still override if signal is strong.
+        var distributionVeto = false
+        try {
+            val recent = hist.takeLast(3).filter { it.priceUsd > 0 }
+            if (recent.size >= 3) {
+                val totalBuys = recent.sumOf { it.buysH1.toDouble() }
+                val totalSells = recent.sumOf { it.sellsH1.toDouble() }
+                val priceSlope = recent.last().priceUsd - recent.first().priceUsd
+                // 2:1 sell dominance + downward price = active distribution
+                if (totalSells >= totalBuys * 2.0 && priceSlope < 0.0 &&
+                    totalSells >= 6) {  // require min sample (6 sells) to avoid noise
+                    distributionVeto = true
+                }
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
+        // Strong whale signal can override distribution (smart money buying
+        // INTO retail selling is the classic accumulation pattern). Curve
+        // graduating override too — that's a structural event, not noise.
+        if (distributionVeto && !(whale.hasWhaleActivity && whale.whaleScore >= 70)
+                             && curve.stage != BondingCurveTracker.CurveStage.GRADUATING) {
+            return false
+        }
+
         return whaleConfirm || curveConfirm || prePumpFresh || strongReclaim
     }
 
