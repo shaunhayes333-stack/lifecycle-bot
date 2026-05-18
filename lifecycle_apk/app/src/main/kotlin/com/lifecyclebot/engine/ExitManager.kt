@@ -224,13 +224,36 @@ object ExitManager {
                 60_000L,
                 (config.maxHoldMinsHard * 60_000L * modeMultipliers.maxHoldMultiplier).toLong()
             )
-            if (holdTimeMs >= maxHoldMs && pnlPct > -5.0) {
+            // V5.9.902 — RUNNER BYPASS for MAX_HOLD_TIME (mirrors Executor V5.9.901
+            // and Cyclic V5.9.898). Pre-fix, ExitManager force-closed any winner
+            // at maxHoldMs * mult regardless of trajectory — a +300% position at
+            // minute 121 of a 120min cap got hard-closed even though every other
+            // exit gate (SL/trail/floor) would have held. The pnlPct > -5 gate
+            // was the ONLY thing preventing this for losers; nothing protected
+            // runners.
+            // Runner-bypass: peakGain ≥ 20% AND currentPnl within 30% of peak.
+            // Hard ceiling at 4× maxHoldMs prevents zombies.
+            val _emPeakGain = if (entryPriceUsd > 0.0)
+                ((highPriceUsd - entryPriceUsd) / entryPriceUsd) * 100.0
+            else 0.0
+            val _emRunnerHwGate = _emPeakGain >= 20.0
+            val _emRunnerTrendIntact = _emPeakGain > 0.0 && pnlPct >= _emPeakGain * 0.70
+            val _emRunnerBypass = _emRunnerHwGate && _emRunnerTrendIntact
+            val _emHardCeiling = maxHoldMs * 4L
+            val _emShouldExit = when {
+                holdTimeMs >= _emHardCeiling           -> true   // zombie catch
+                _emRunnerBypass                         -> false  // riding
+                holdTimeMs >= maxHoldMs && pnlPct > -5.0 -> true   // legacy cap
+                else                                    -> false
+            }
+            if (_emShouldExit) {
+                val _emZombieTag = if (holdTimeMs >= _emHardCeiling) " [ZOMBIE]" else ""
                 decisions.add(
                     ExitDecision(
                         shouldExit = true,
                         priority = ExitPriority.HIGH,
                         reason = ExitReason.MAX_HOLD_TIME,
-                        details = "Max hold time reached: ${holdTimeMs / 60_000}min",
+                        details = "Max hold time reached: ${holdTimeMs / 60_000}min peak=+${_emPeakGain.toInt()}% pnl=${"%+.0f".format(pnlPct)}%${_emZombieTag}",
                         sellFraction = 1.0,
                         urgency = 70,
                     )
