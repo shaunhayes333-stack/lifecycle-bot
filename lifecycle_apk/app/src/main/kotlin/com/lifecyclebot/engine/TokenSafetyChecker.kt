@@ -165,6 +165,20 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         private const val LIQUIDITY_CONFLICT_THRESHOLD = 0.15
         private const val MIN_LIQUIDITY_FOR_CONFLICT_CHECK = 3_000.0
 
+        // V5.9.939 — static cache mirror so FDG/other-callers can peek
+        // the last known LP-lock pct for a mint without holding an instance
+        // reference. Populated whenever check() resolves a SafetyReport.
+        // Bounded growth: ConcurrentHashMap relies on the same upstream
+        // dedup as the instance cache. Returns -1.0 if unknown.
+        private val staticLpLockCache = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
+        fun peekLpLockPct(mint: String): Double = staticLpLockCache[mint] ?: -1.0
+
+        internal fun recordLpLockPct(mint: String, pct: Double) {
+            if (mint.isBlank()) return
+            if (pct >= 0.0) staticLpLockCache[mint] = pct
+        }
+
         fun isWhitelisted(mint: String): Boolean = mint in WHITELISTED_MINTS
         fun getWhitelistedMints(): Set<String> = WHITELISTED_MINTS
     }
@@ -430,7 +444,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 val market = markets.optJSONObject(0)
                 val lp = market?.optJSONObject("lp")
                 val locked = lp?.optDouble("lpLockedPct", -1.0) ?: -1.0
-                if (locked >= 0) lpLockPct = locked
+                if (locked >= 0) {
+                    lpLockPct = locked
+                    // V5.9.939 Phase 5 — mirror to static cache for FDG tier-safety shape
+                    recordLpLockPct(mint, locked)
+                }
             }
 
             val topHolders = rugcheck.optJSONObject("topHolders")

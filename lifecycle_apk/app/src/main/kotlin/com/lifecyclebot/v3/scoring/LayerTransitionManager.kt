@@ -319,6 +319,10 @@ object LayerTransitionManager {
             TradingLayer.SHITCOIN     -> 30 to 25   // loose — learning + churn
             TradingLayer.TREASURY     -> 50 to 45
             TradingLayer.ORBITAL      -> 40 to 35
+            // Planetary scale lanes (LUNAR/MARS/JUPITER) — large-cap territory.
+            TradingLayer.LUNAR        -> 55 to 50
+            TradingLayer.MARS         -> 60 to 55
+            TradingLayer.JUPITER      -> 65 to 60
         }
     }
 

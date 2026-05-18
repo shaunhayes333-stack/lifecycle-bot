@@ -2827,6 +2827,51 @@ object FinalDecisionGate {
         } catch (_: Throwable) { /* fail-open — startup coordinator is soft-shape only */ }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.9.939 — TIER-MODULATED SOFT-SHAPE HELPER.
+        //
+        // The 5 Birdeye soft-shapes (V5.9.937-938) below all use a baseMult
+        // computed from raw signal data. Pre-V5.9.939 the baseMult was
+        // applied identically across tiers — a volatility-INSANE shape of
+        // 0.60 hit a $500 micro the same as a $500M chip. That's wrong:
+        //
+        //   On a MICRO ($500-$50K): high volatility is EXPECTED. Damp the
+        //   penalty. No social? Memes don't need socials. Damp the penalty.
+        //
+        //   On a SCALED+ ($50M+): high volatility is CATASTROPHE. Amplify
+        //   the penalty. No social? Massive red flag. Amplify the penalty.
+        //
+        // tierShape(baseMult, mcapUsd):
+        //   - For penalty shapes (baseMult < 1.0):
+        //       MICRO     → softer penalty   (mult moves toward 1.0)
+        //       STANDARD  → 0.85× of penalty distance
+        //       GROWTH    → exact baseMult (neutral)
+        //       SCALED    → 1.15× of penalty distance
+        //       BLUECHIP  → 1.30× of penalty distance (mult further from 1.0)
+        //
+        //   - For bonus shapes (baseMult > 1.0):
+        //       MICRO     → mild dampening  (rapid-pump bonuses are dime-a-dozen)
+        //       BLUECHIP  → amplified       (rare high-quality survivors deserve more)
+        //
+        // Floor 0.40, ceiling 1.30 to keep composed product safe under
+        // multiple stacked penalties on the same token.
+        // ═══════════════════════════════════════════════════════════════════
+        val candidateMcap = ts.lastMcap
+        fun tierShape(baseMult: Double, mcap: Double): Double {
+            if (mcap <= 0.0) return baseMult            // unknown, no opinion
+            val tierBias = when {
+                mcap <      50_000.0 -> 0.55            // MICRO   dampen 45%
+                mcap <     500_000.0 -> 0.85            // STANDARD dampen 15%
+                mcap <   5_000_000.0 -> 1.00            // GROWTH  neutral
+                mcap <  50_000_000.0 -> 1.15            // SCALED  amplify 15%
+                else                 -> 1.30            // BLUE    amplify 30%
+            }
+            // distance from 1.0 (penalty if neg, bonus if pos)
+            val delta = baseMult - 1.0
+            val scaled = delta * tierBias
+            return (1.0 + scaled).coerceIn(0.40, 1.30)
+        }
+
+                // ═══════════════════════════════════════════════════════════════════
         // V5.9.937 — BIRDEYE SECURITY TRUST soft-shape (5th dormant subsystem).
         //
         // Operator upgraded to Birdeye Starter ($99/mo) 2026-05-19, which
@@ -2867,10 +2912,11 @@ object FinalDecisionGate {
                     trust >= 0.65 -> 0.80
                     else          -> 0.60
                 }
-                if (secMult != 1.00) {
+                val tieredSecMult = tierShape(secMult, candidateMcap)
+                if (tieredSecMult != 1.00) {
                     val originalSize = finalSize
-                    finalSize = (finalSize * secMult).coerceIn(0.01, 1.0)
-                    val direction = if (secMult > 1.0) "boosted" else "reduced"
+                    finalSize = (finalSize * tieredSecMult).coerceIn(0.01, 1.0)
+                    val direction = if (tieredSecMult > 1.0) "boosted" else "reduced"
                     tags.add("size_${direction}_birdeye_security")
                     val flags = buildList {
                         if (secSnapshot.freezeAuth) add("freeze")
@@ -2925,10 +2971,11 @@ object FinalDecisionGate {
                         buyRatio <= 0.40 -> 0.85
                         else             -> 1.00
                     }
-                    if (flowMult != 1.00) {
+                    val tieredFlowMult = tierShape(flowMult, candidateMcap)
+                    if (tieredFlowMult != 1.00) {
                         val originalSize = finalSize
-                        finalSize = (finalSize * flowMult).coerceIn(0.01, 1.0)
-                        val direction = if (flowMult > 1.0) "boosted" else "reduced"
+                        finalSize = (finalSize * tieredFlowMult).coerceIn(0.01, 1.0)
+                        val direction = if (tieredFlowMult > 1.0) "boosted" else "reduced"
                         tags.add("size_${direction}_flow_imbalance")
                         checks.add(
                             GateCheck(
@@ -2962,10 +3009,11 @@ object FinalDecisionGate {
             val statsSnap = com.lifecyclebot.engine.BirdeyePriceStatsProvider.peekCached(ts.mint)
             if (statsSnap != null) {
                 val (regime, volMult) = statsSnap.volatilityRegime()
-                if (volMult != 1.00 && regime != "UNKNOWN") {
+                val tieredVolMult = tierShape(volMult, candidateMcap)
+                if (tieredVolMult != 1.00 && regime != "UNKNOWN") {
                     val originalSize = finalSize
-                    finalSize = (finalSize * volMult).coerceIn(0.01, 1.0)
-                    val direction = if (volMult > 1.0) "boosted" else "reduced"
+                    finalSize = (finalSize * tieredVolMult).coerceIn(0.01, 1.0)
+                    val direction = if (tieredVolMult > 1.0) "boosted" else "reduced"
                     tags.add("size_${direction}_volatility_${regime.lowercase()}")
                     checks.add(
                         GateCheck(
@@ -3008,10 +3056,11 @@ object FinalDecisionGate {
                         ageH < 72.0 -> 1.05
                         else        -> 1.10
                     }
-                    if (ageMult != 1.00) {
+                    val tieredAgeMult = tierShape(ageMult, candidateMcap)
+                    if (tieredAgeMult != 1.00) {
                         val originalSize = finalSize
-                        finalSize = (finalSize * ageMult).coerceIn(0.01, 1.0)
-                        val direction = if (ageMult > 1.0) "boosted" else "reduced"
+                        finalSize = (finalSize * tieredAgeMult).coerceIn(0.01, 1.0)
+                        val direction = if (tieredAgeMult > 1.0) "boosted" else "reduced"
                         tags.add("size_${direction}_age_${ageH.toInt()}h")
                         checks.add(
                             GateCheck(
@@ -3050,10 +3099,11 @@ object FinalDecisionGate {
                     sc == 1         -> 0.95
                     else            -> 0.85
                 }
-                if (socialMult != 1.00) {
+                val tieredSocialMult = tierShape(socialMult, candidateMcap)
+                if (tieredSocialMult != 1.00) {
                     val originalSize = finalSize
-                    finalSize = (finalSize * socialMult).coerceIn(0.01, 1.0)
-                    val direction = if (socialMult > 1.0) "boosted" else "reduced"
+                    finalSize = (finalSize * tieredSocialMult).coerceIn(0.01, 1.0)
+                    val direction = if (tieredSocialMult > 1.0) "boosted" else "reduced"
                     val tagFlag = if (meta.isListed()) "listed" else "${sc}ch"
                     tags.add("size_${direction}_social_$tagFlag")
                     checks.add(
@@ -3066,6 +3116,82 @@ object FinalDecisionGate {
                 }
             }
         } catch (_: Throwable) { /* fail-open — social shape is advisory only */ }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.939 PHASE 5 — TIER-AWARE SAFETY SOFT-SHAPE.
+        //
+        // ScalingMode.Tier defines per-tier safety requirements:
+        //   MICRO         rugcheck 70, no LP-lock req, no CG-listed req
+        //   STANDARD      rugcheck 72, no LP-lock req, no CG-listed req
+        //   GROWTH        rugcheck 80, LP-locked required, top-holder<30%
+        //   SCALED        rugcheck 85, LP-locked + CG-listed required
+        //   INSTITUTIONAL rugcheck 90, LP-locked + CG-listed required
+        //
+        // Pre-V5.9.939 these per-tier requirements were INERT — defined in
+        // ScalingMode but never enforced anywhere. Hard-vetoing them now
+        // would violate doctrine #86 ("help, don't hinder"). Instead we
+        // apply them as size-dampening SOFT-SHAPES — a token that should
+        // be tier GROWTH but lacks LP-lock gets a smaller position, not
+        // a veto. This matches existing FDG soft-shape pattern.
+        //
+        // Fail-open per FDG doctrine.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            val tier = com.lifecyclebot.engine.ScalingMode.tierForToken(
+                liquidityUsd = ts.lastLiquidityUsd,
+                mcapUsd = candidateMcap,
+            )
+            val tierSafetyPenalties = mutableListOf<String>()
+            var tierSafetyMult = 1.0
+
+            // LP-lock requirement (GROWTH+)
+            if (tier.requireLpLock90) {
+                val lpOk = try {
+                    val lpPct = com.lifecyclebot.engine.TokenSafetyChecker.peekLpLockPct(ts.mint)
+                    lpPct >= 90.0
+                } catch (_: Throwable) { true /* fail-open */ }
+                if (!lpOk) {
+                    tierSafetyMult *= 0.75
+                    tierSafetyPenalties.add("LP_NOT_LOCKED")
+                }
+            }
+
+            // CoinGecko-listed requirement (SCALED+)
+            if (tier.requireCoinGeckoListed) {
+                val cgListed = try {
+                    com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(ts.mint)?.isListed() == true
+                } catch (_: Throwable) { true /* fail-open */ }
+                if (!cgListed) {
+                    tierSafetyMult *= 0.70
+                    tierSafetyPenalties.add("NOT_CG_LISTED")
+                }
+            }
+
+            // Top-holder concentration (GROWTH+)
+            if (tier.requireTopHolder30) {
+                val topConcOk = try {
+                    val sec = com.lifecyclebot.engine.BirdeyeSecurityProvider.peekCached(ts.mint)
+                    sec == null || sec.top10Pct <= 0.30
+                } catch (_: Throwable) { true /* fail-open */ }
+                if (!topConcOk) {
+                    tierSafetyMult *= 0.80
+                    tierSafetyPenalties.add("TOP_HOLDERS_>30%")
+                }
+            }
+
+            if (tierSafetyMult < 1.0 && tierSafetyPenalties.isNotEmpty()) {
+                val originalSize = finalSize
+                finalSize = (finalSize * tierSafetyMult).coerceIn(0.01, 1.0)
+                tags.add("size_reduced_tier_safety_${tier.label.lowercase()}")
+                checks.add(
+                    GateCheck(
+                        "tier_safety",
+                        true,
+                        "Tier=${tier.label} (${tier.icon}) penalties=${tierSafetyPenalties.joinToString(",")} — size reduced ${originalSize.format(3)} → ${finalSize.format(3)} (×${"%.2f".format(tierSafetyMult)})"
+                    )
+                )
+            }
+        } catch (_: Throwable) { /* fail-open — tier-safety shape is advisory only */ }
 
         if (blockReason == null && useKellySizing && evResult != null && !config.paperMode) {
             val kellyRecommendedSize = evResult.kellyFraction * kellyFraction
