@@ -11056,12 +11056,16 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // Unconditional emit even when mcap is out of range, so the
             // counter shows lane coverage and the brain learns "this token
             // was not Quality-eligible".
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.QualityTraderAI.isEnabled()) {
-                ForensicLogger.phase(
-                    ForensicLogger.PHASE.LANE_EVAL,
-                    ts.symbol,
-                    "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
-                )
+            // V5.9.921 — QualityTraderAI is always-on (no isEnabled toggle); only
+            // gated by mcap downstream. Drop the isEnabled call (it does not exist).
+            if (!ts.position.isOpen) {
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
+                    )
+                } catch (_: Throwable) {}
             }
             if (!ts.position.isOpen && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
