@@ -2292,11 +2292,29 @@ class Executor(
                     else com.lifecyclebot.engine.ExecutionResult.UNKNOWN
                     val rawMode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { ts.position.tradingMode }
                     val modeEnum = com.lifecyclebot.engine.CanonicalOutcomeNormalizer.normalizeMode(rawMode)
+                    // V5.9.853 — operator audit F4: source enum mistag.
+                    // Executor.recordTrade default-mapped every non-flag position
+                    // to TradeSource.V3, which clobbered MOONSHOT/MANIP/COPY/
+                    // EXPRESS/CYCLIC attribution. Position.tradingMode carries
+                    // the actual ExtendedMode tag set at open ("MOONSHOT",
+                    // "MANIP", "COPY_TRADE", etc); consult it before falling
+                    // back to V3. Keeps TradeSource bucket counters honest so
+                    // BehaviorLearning + AdaptiveLearning can stratify accuracy
+                    // by lane instead of dumping everything into the V3 bucket.
                     val sourceEnum = when {
                         ts.position.isShitCoinPosition -> com.lifecyclebot.engine.TradeSource.SHITCOIN
                         ts.position.isBlueChipPosition -> com.lifecyclebot.engine.TradeSource.BLUECHIP
                         ts.position.isTreasuryPosition -> com.lifecyclebot.engine.TradeSource.TREASURY
-                        else -> com.lifecyclebot.engine.TradeSource.V3
+                        else -> when (ts.position.tradingMode.uppercase()) {
+                            "MOONSHOT"                                       -> com.lifecyclebot.engine.TradeSource.MOONSHOT
+                            "MANIP", "MANIPULATED"                           -> com.lifecyclebot.engine.TradeSource.MANIP
+                            "COPY", "COPY_TRADE", "COPYTRADE"                -> com.lifecyclebot.engine.TradeSource.COPYTRADE
+                            "EXPRESS", "PUMP_SNIPER", "EXPRESS_LAUNCH"       -> com.lifecyclebot.engine.TradeSource.EXPRESS
+                            "CYCLIC", "CYCLIC_TRADE"                         -> com.lifecyclebot.engine.TradeSource.CYCLIC
+                            "MARKETS", "CRYPTOALT", "CRYPTO_ALT"             -> com.lifecyclebot.engine.TradeSource.MARKETS
+                            "MANUAL", "USER", "USER_MANUAL"                  -> com.lifecyclebot.engine.TradeSource.MANUAL
+                            else                                             -> com.lifecyclebot.engine.TradeSource.V3
+                        }
                     }
                     val assetClassEnum = when (sourceEnum) {
                         com.lifecyclebot.engine.TradeSource.BLUECHIP -> com.lifecyclebot.engine.AssetClass.BLUECHIP
