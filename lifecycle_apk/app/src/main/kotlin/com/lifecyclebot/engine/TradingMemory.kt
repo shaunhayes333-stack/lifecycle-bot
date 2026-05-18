@@ -25,6 +25,7 @@ object TradingMemory {
     private const val KEY_RUG_PATTERNS = "rug_patterns"
     private const val KEY_WIN_PATTERNS = "win_patterns"
     private const val KEY_CREATOR_BLACKLIST = "creator_blacklist"
+    private const val KEY_FEATURE_LOSS_WEIGHTS = "feature_loss_weights"  // V5.9.895
     
     // In-memory caches
     private val badTokenFeatures = ConcurrentHashMap<String, TokenFeatureRecord>()
@@ -32,7 +33,24 @@ object TradingMemory {
     private val rugPatterns = ConcurrentHashMap<String, RugPatternRecord>()
     private val winPatterns = ConcurrentHashMap<String, WinPatternRecord>()
     private val creatorBlacklist = ConcurrentHashMap<String, CreatorRecord>()
-    
+
+    // V5.9.895 — PER-FEATURE LOSS WEIGHTS (the missing 'step #3' learning).
+    // learnFromBadTrade() runs three steps:
+    //   #1 record bad token features (mint-keyed)
+    //   #2 record bad trade pattern (phase+ema+src-keyed)
+    //   #3 learn feature correlations  ← was a stub for ~700 versions
+    // Steps 1+2 are mint/pattern-keyed: they die the moment the meme cycle
+    // rotates and a new generation of tokens floods the scanner. Step 3
+    // accumulates per-FEATURE-BUCKET severity ("pumpFun=true average loss
+    // -34% across 47 losses", "holderConc>50 average loss -41% across 23")
+    // so the bot keeps an opinion on dangerous feature combinations even
+    // when the specific mints are long forgotten.
+    //
+    // Key: bucket label (e.g. "pumpFun=true", "liq<5k", "holderConc>50",
+    //                    "devHold>20", "ageHrs<2", "noSocials", "volRatio>5")
+    // Value: FeatureBucketStat with count + avgLossPct (running mean).
+    private val featureLossWeights = ConcurrentHashMap<String, FeatureBucketStat>()
+
     private var ctx: Context? = null
     private var isLoaded = false
 
@@ -98,6 +116,14 @@ object TradingMemory {
         val rugCount: Int,
         val tokens: List<String>,          // Mints created by this wallet
         val lastSeen: Long,
+    )
+
+    // V5.9.895 — per-feature-bucket rolling severity (paired with featureLossWeights).
+    data class FeatureBucketStat(
+        val bucket: String,        // e.g. "pumpFun=true", "holderConc>50"
+        val lossCount: Int,        // number of losing trades that hit this bucket
+        val avgLossPct: Double,    // running mean of lossPct for this bucket (negative)
+        val lastUpdated: Long,     // ms epoch of last update
     )
 
     // ═══════════════════════════════════════════════════════════════════
@@ -395,9 +421,34 @@ object TradingMemory {
                 matchCount++
             }
         }
-        
-        // Average across matches, cap at 100
-        return if (matchCount > 0) minOf(riskScore / matchCount, 100) else 0
+
+        // Average across mint records, cap at 100
+        val mintBased = if (matchCount > 0) minOf(riskScore / matchCount, 100) else 0
+
+        // V5.9.895 — blend in PER-FEATURE-BUCKET risk (cross-mint memory).
+        // Pre-fix: mint-keyed riskScore only. When the meme cycle rotates
+        // and a fresh wave of tokens floods the scanner, getTokenRiskScore
+        // returned 0 (no mint match) even if every dangerous FEATURE bucket
+        // was lit up by historic losses. Adding the cross-mint feature
+        // memory closes that hole.
+        //
+        // Composition: max() of the two — feature memory can SHARPEN mint
+        // memory's verdict but never overrides a higher mint-record signal.
+        // This keeps the doctrine: a specific bad mint still dominates.
+        val featureBased = try {
+            getFeatureBucketRisk(
+                liquidity = liquidity,
+                mcap = mcap,
+                holderConcentration = holderConcentration,
+                devHoldingPct = devHoldingPct,
+                ageHours = ageHours,
+                hadSocials = hadSocials,
+                isPumpFun = isPumpFun,
+                priceVolatility = 0.0,  // not in getTokenRiskScore signature; safe default
+                volumeToLiqRatio = volumeToLiqRatio,
+            )
+        } catch (_: Throwable) { 0 }
+        return maxOf(mintBased, featureBased).coerceAtMost(100)
     }
 
     /**
@@ -521,9 +572,160 @@ object TradingMemory {
         return "$liqBucket+$priceBucket+$timeBucket+$vol"
     }
 
+    // V5.9.895 — REAL per-feature loss-correlation learning.
+    // Pre-fix: stub. Steps 1-2 of learnFromBadTrade record by mint and by
+    // pattern, both of which die when memes rotate. This step accumulates
+    // per-FEATURE severity across the whole loss history so the bot keeps
+    // a stable opinion on dangerous feature buckets independent of which
+    // mints carried them.
+    //
+    // Bucketing rationale (matches getTokenRiskScore's existing similarity
+    // checks so the learned weights line up with how risk is later read):
+    //   • pumpFun=true / =false
+    //   • liq<5k / 5k-50k / 50k-500k / >=500k
+    //   • mcap<50k / 50k-500k / 500k-5M / >=5M
+    //   • holderConc>50 / 30-50 / 15-30 / <15
+    //   • devHold>20 / 5-20 / <5
+    //   • ageHrs<2 / 2-12 / >=12
+    //   • noSocials / hadSocials
+    //   • volRatio>5 / 1-5 / <1
+    //   • volatility>30 / 10-30 / <10
+    //
+    // Running mean update: avgLoss' = (avgLoss*n + lossPct) / (n+1)
+    // Bounded growth: lossCount caps at 1000 (after that we use exp moving
+    // average style decay — but capping is simpler and sufficient for the
+    // doctrine.) Each call is O(buckets) which is small constant.
     private fun learnBadFeatureCorrelations(features: TokenFeatures, lossPct: Double) {
-        // This could be expanded to use ML, but for now we just track in the records
-        // The getTokenRiskScore function uses these correlations
+        if (!lossPct.isFinite()) return
+        if (lossPct >= 0.0) return  // only LOSSES contribute (positive lossPct = win, skip)
+        val buckets = featureBuckets(features)
+        val now = System.currentTimeMillis()
+        for (bucket in buckets) {
+            val existing = featureLossWeights[bucket]
+            val newCount = ((existing?.lossCount ?: 0) + 1).coerceAtMost(1000)
+            val newAvg = if (existing != null) {
+                (existing.avgLossPct * existing.lossCount + lossPct) / newCount
+            } else lossPct
+            featureLossWeights[bucket] = FeatureBucketStat(
+                bucket = bucket,
+                lossCount = newCount,
+                avgLossPct = newAvg,
+                lastUpdated = now,
+            )
+        }
+    }
+
+    /**
+     * V5.9.895 — Bucket a TokenFeatures into discrete labels matching
+     * getTokenRiskScore's similarity bands. Each token contributes to
+     * exactly one bucket per dimension (9 buckets per loss).
+     */
+    private fun featureBuckets(f: TokenFeatures): List<String> {
+        val out = mutableListOf<String>()
+        out += "pumpFun=" + f.pumpFunToken.toString()
+        out += "hadSocials=" + f.hadSocials.toString()
+        out += when {
+            f.initialLiquidity <= 0    -> "liq=unknown"
+            f.initialLiquidity < 5_000 -> "liq<5k"
+            f.initialLiquidity < 50_000 -> "liq:5k-50k"
+            f.initialLiquidity < 500_000 -> "liq:50k-500k"
+            else                       -> "liq>=500k"
+        }
+        out += when {
+            f.initialMcap <= 0    -> "mcap=unknown"
+            f.initialMcap < 50_000 -> "mcap<50k"
+            f.initialMcap < 500_000 -> "mcap:50k-500k"
+            f.initialMcap < 5_000_000 -> "mcap:500k-5M"
+            else                  -> "mcap>=5M"
+        }
+        out += when {
+            f.holderConcentration <= 0   -> "holderConc=unknown"
+            f.holderConcentration >= 50  -> "holderConc>=50"
+            f.holderConcentration >= 30  -> "holderConc:30-50"
+            f.holderConcentration >= 15  -> "holderConc:15-30"
+            else                         -> "holderConc<15"
+        }
+        out += when {
+            f.devHoldingPct <= 0   -> "devHold=unknown"
+            f.devHoldingPct >= 20  -> "devHold>=20"
+            f.devHoldingPct >= 5   -> "devHold:5-20"
+            else                   -> "devHold<5"
+        }
+        out += when {
+            f.ageHoursAtEntry <= 0  -> "ageHrs=unknown"
+            f.ageHoursAtEntry < 2   -> "ageHrs<2"
+            f.ageHoursAtEntry < 12  -> "ageHrs:2-12"
+            else                    -> "ageHrs>=12"
+        }
+        out += when {
+            f.volumeToLiqRatio <= 0  -> "volRatio=unknown"
+            f.volumeToLiqRatio >= 5  -> "volRatio>=5"
+            f.volumeToLiqRatio >= 1  -> "volRatio:1-5"
+            else                     -> "volRatio<1"
+        }
+        out += when {
+            f.priceVolatility <= 0   -> "vol=unknown"
+            f.priceVolatility >= 30  -> "vol>=30"
+            f.priceVolatility >= 10  -> "vol:10-30"
+            else                     -> "vol<10"
+        }
+        return out
+    }
+
+    /**
+     * V5.9.895 — Compute a feature-bucket risk adjustment for a candidate.
+     * Returns 0..40 — a soft RISK BOOST to add to getTokenRiskScore's mint-
+     * record output, ONLY when feature buckets have learned meaningful
+     * severity (>=5 losses) AND average loss is meaningful (worse than -7%).
+     *
+     * Doctrine: bounded contribution. Never blocks, never vetoes — just
+     * sharpens the existing riskScore with cross-mint feature memory.
+     * Returns 0 when memory is too thin to be trustworthy (cold start safe).
+     */
+    fun getFeatureBucketRisk(
+        liquidity: Double,
+        mcap: Double,
+        holderConcentration: Double,
+        devHoldingPct: Double,
+        ageHours: Double,
+        hadSocials: Boolean,
+        isPumpFun: Boolean,
+        priceVolatility: Double,
+        volumeToLiqRatio: Double,
+    ): Int {
+        val features = TokenFeatures(
+            initialLiquidity = liquidity,
+            initialMcap = mcap,
+            holderConcentration = holderConcentration,
+            devHoldingPct = devHoldingPct,
+            ageHoursAtEntry = ageHours,
+            hadSocials = hadSocials,
+            pumpFunToken = isPumpFun,
+            priceVolatility = priceVolatility,
+            volumeToLiqRatio = volumeToLiqRatio,
+        )
+        val buckets = featureBuckets(features)
+        var totalSeverity = 0.0
+        var hitCount = 0
+        for (bucket in buckets) {
+            val stat = featureLossWeights[bucket] ?: continue
+            if (stat.lossCount < 5) continue                  // thin sample → ignore
+            if (stat.avgLossPct > -7.0) continue              // mild losses → ignore
+            // Severity: magnitude of average loss, clamped 7-60% range.
+            val mag = (-stat.avgLossPct).coerceIn(7.0, 60.0)  // 7..60
+            // Confidence: lossCount-based, capped at 1.0 by lossCount=50
+            val confidence = (stat.lossCount / 50.0).coerceAtMost(1.0)
+            totalSeverity += mag * confidence
+            hitCount++
+        }
+        if (hitCount == 0) return 0
+        // Average severity per matching bucket, then map to risk-score units.
+        // Each matching bucket contributes up to ~5 risk points (60mag * 1.0conf
+        // ≈ 60, scaled by /12 = 5). Bounded 0..40 so even all 9 buckets matching
+        // worst-case can't dominate the riskScore.
+        val avgSeverity = totalSeverity / hitCount
+        val raw = (avgSeverity / 12.0 * hitCount).toInt()
+        return raw.coerceIn(0, 40)
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -540,6 +742,7 @@ object TradingMemory {
                 putString(KEY_RUG_PATTERNS, serializeRugPatterns())
                 putString(KEY_WIN_PATTERNS, serializeWinPatterns())
                 putString(KEY_CREATOR_BLACKLIST, serializeCreatorBlacklist())
+                putString(KEY_FEATURE_LOSS_WEIGHTS, serializeFeatureLossWeights())  // V5.9.895
                 apply()
             }
         } catch (e: Exception) {
@@ -556,6 +759,7 @@ object TradingMemory {
             deserializeRugPatterns(prefs.getString(KEY_RUG_PATTERNS, null))
             deserializeWinPatterns(prefs.getString(KEY_WIN_PATTERNS, null))
             deserializeCreatorBlacklist(prefs.getString(KEY_CREATOR_BLACKLIST, null))
+            deserializeFeatureLossWeights(prefs.getString(KEY_FEATURE_LOSS_WEIGHTS, null))  // V5.9.895
         } catch (e: Exception) {
             ErrorLogger.error("TradingMemory", "Load error: ${e.message}")
         }
@@ -770,6 +974,41 @@ object TradingMemory {
             ErrorLogger.error("TradingMemory", "deserializeCreatorBlacklist error: ${e.message}")
         }
     }
+
+    // V5.9.895 — featureLossWeights persistence
+    private fun serializeFeatureLossWeights(): String {
+        val arr = JSONArray()
+        for (record in featureLossWeights.values) {
+            val obj = JSONObject().apply {
+                put("bucket", record.bucket)
+                put("lossCount", record.lossCount)
+                put("avgLossPct", record.avgLossPct)
+                put("lastUpdated", record.lastUpdated)
+            }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun deserializeFeatureLossWeights(json: String?) {
+        if (json.isNullOrBlank()) return
+        try {
+            val arr = JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val record = FeatureBucketStat(
+                    bucket = obj.getString("bucket"),
+                    lossCount = obj.getInt("lossCount"),
+                    avgLossPct = obj.getDouble("avgLossPct"),
+                    lastUpdated = obj.optLong("lastUpdated", 0L),
+                )
+                featureLossWeights[record.bucket] = record
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("TradingMemory", "deserializeFeatureLossWeights error: ${e.message}")
+        }
+    }
+
 
     // ═══════════════════════════════════════════════════════════════════
     // Stats & Debug
