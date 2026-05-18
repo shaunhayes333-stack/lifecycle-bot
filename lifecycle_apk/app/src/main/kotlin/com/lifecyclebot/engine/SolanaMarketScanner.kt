@@ -668,6 +668,7 @@ class SolanaMarketScanner(
         DEX_BOOSTED,
         BIRDEYE_TRENDING,
         BIRDEYE_MEME_LIST,  // V5.9.906 — birdeye v3 meme/list, no API key required
+        BIRDEYE_MARKETS,    // V5.9.907 — birdeye v2 markets, no API key required, exposes trade+wallet velocity
         COINGECKO_TRENDING,
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
@@ -688,6 +689,18 @@ class SolanaMarketScanner(
         val priceChangeH1: Double,
         val txCountH1: Int,
         val score: Double,
+        // V5.9.907 — Velocity signals from birdeye v2 markets. Default 0.0 so
+        // every existing call site stays source-compatible. Lanes that don't
+        // expose velocity simply contribute zero. Used by the SCANNER itself
+        // (not the downstream callback) to apply a soft-shape boost to
+        // `score` before emit(), so the boundary callback signature stays
+        // unchanged. Per doctrine memory #87 #1: dropped signal = dropped
+        // AGI sample. These values flow through the boost path so the
+        // ScannerLearning + AISourceBoost layers see them indirectly via
+        // the boosted score, then SourceTimingRegistry can correlate.
+        val tradeVelocity24h: Double = 0.0,    // (trade24hChangePercent)
+        val walletVelocity24h: Double = 0.0,   // (uniqueWallet24hChangePercent)
+        val uniqueWallet24h: Int = 0,          // raw distinct wallets, anti-bot signal
     )
 
     private val http = SharedHttpClient.builder()
@@ -1139,6 +1152,14 @@ class SolanaMarketScanner(
                     // counts, holder count, creator wallet, real liquidity)
                     // even when the operator hasn't configured a birdeye key.
                     runScan("scanBirdeyeMemeList") { scanBirdeyeMemeList() }
+                    delay(200)
+                    // V5.9.907 — birdeye v2 markets. NO API key required.
+                    // Top liquidity pools across Solana. Critically exposes
+                    // trade_velocity_24h and wallet_velocity_24h — signals
+                    // unavailable anywhere else in the intake. Skip stable-
+                    // stable and LST pools (mature, low-EV); score-boost
+                    // pools showing accelerating engagement.
+                    runScan("scanBirdeyeMarkets") { scanBirdeyeMarkets() }
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
@@ -2220,6 +2241,170 @@ class SolanaMarketScanner(
         }
     }
 
+    /**
+     * V5.9.907 — BIRDEYE v2 MARKETS (no API key required).
+     *
+     * Endpoint:
+     *   GET https://public-api.birdeye.so/defi/v2/markets
+     *       ?sort_type=desc&sort_by=liquidity&offset=N&limit=50
+     *   Headers: x-chain: solana
+     *
+     * Operator verified (V5.9.907 paste) the endpoint returns full pool
+     * data WITHOUT an API key, total=1523 markets available.
+     *
+     * Critical fields harvested:
+     *   • base.address (mint) + base.symbol
+     *   • quote.address (SOL/USDC filter)
+     *   • liquidity (USD, real pool depth)
+     *   • volume24h (USD)
+     *   • trade24h + trade24hChangePercent  ← TRADE VELOCITY
+     *   • uniqueWallet24h + uniqueWallet24hChangePercent  ← WALLET VELOCITY
+     *   • createdAt (ISO timestamp, true pool age)
+     *   • source (DEX label: Raydium, Meteora, Orca, Stake Pool, etc)
+     *
+     * Filtering:
+     *   - SKIP if quote is not SOL/WSOL/USDC (we only buy mint-vs-quote pairs)
+     *   - SKIP if source == "Stake Pool" (LST pools, not where we trade)
+     *   - SKIP if base is in known-stable allowlist (USDC/USDT/USDH/etc)
+     *   - SKIP if liquidity < \$5000 (too thin)
+     *
+     * Pagination: pulls 2 pages (offset 0, 50) = up to 100 markets/cycle.
+     * Cap of 40 emissions per cycle to avoid swamping downstream queues.
+     *
+     * Velocity is plumbed via the new ScannedToken.tradeVelocity24h /
+     * walletVelocity24h fields, then consumed inside emit() as a
+     * soft-shape additive score bump. Boundary callback unchanged.
+     *
+     * Memory #20 compliance: ADDS intake source; does not prune existing
+     * pool. Caps per cycle prevent queue overrun.
+     */
+    private suspend fun scanBirdeyeMarkets() {
+        val SOL = "So11111111111111111111111111111111111111112"
+        val USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        val USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+        val USDH = "USDH1SM1ojwWUga67PGrgFWUHibbjqMvuMaDkRJTgkX"
+        val stableSet = setOf(SOL, USDC, USDT, USDH)
+        val acceptedQuotes = setOf(SOL, USDC)
+
+        var totalEmitted = 0
+        var pageScanned = 0
+        var skippedNonSolQuote = 0
+        var skippedLstSource = 0
+        var skippedStableBase = 0
+        var skippedSeen = 0
+        var skippedFilter = 0
+        var skippedThin = 0
+
+        try {
+            // Two pages × 50 markets = 100 per cycle
+            for (offset in listOf(0, 50)) {
+                if (totalEmitted >= 40) break
+                val url = "https://public-api.birdeye.so/defi/v2/markets?" +
+                    "sort_type=desc&sort_by=liquidity&offset=$offset&limit=50"
+                val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: continue
+
+                val root = JSONObject(body)
+                if (!root.optBoolean("success", false)) continue
+                val items = root.optJSONObject("data")?.optJSONArray("items") ?: continue
+                pageScanned += items.length()
+
+                for (i in 0 until items.length()) {
+                    if (totalEmitted >= 40) break
+                    val item = items.optJSONObject(i) ?: continue
+
+                    val baseObj = item.optJSONObject("base") ?: continue
+                    val quoteObj = item.optJSONObject("quote") ?: continue
+                    val quoteAddr = quoteObj.optString("address", "")
+                    if (quoteAddr !in acceptedQuotes) { skippedNonSolQuote++; continue }
+
+                    val source = item.optString("source", "")
+                    if (source.contains("Stake Pool", ignoreCase = true) ||
+                        source.contains("Stable", ignoreCase = true)) {
+                        skippedLstSource++
+                        continue
+                    }
+
+                    val mint = baseObj.optString("address", "")
+                    if (mint.isBlank() || mint in stableSet) { skippedStableBase++; continue }
+                    if (isSeen(mint)) { skippedSeen++; continue }
+
+                    val symbol = baseObj.optString("symbol", "")
+                    val name = item.optString("name", symbol)
+
+                    val liqUsd = item.optDouble("liquidity", 0.0).let { if (it.isFinite()) it else 0.0 }
+                    if (liqUsd < 5000.0) { skippedThin++; continue }
+
+                    val vol24h = item.optDouble("volume24h", 0.0).let { if (it.isFinite()) it else 0.0 }
+                    val tradeVelocity = item.optDouble("trade24hChangePercent", 0.0)
+                        .let { if (it.isFinite()) it else 0.0 }
+                    val walletVelocity = item.optDouble("uniqueWallet24hChangePercent", 0.0)
+                        .let { if (it.isFinite()) it else 0.0 }
+                    val uniqueWallets = item.optInt("uniqueWallet24h", 0)
+                    val trade24h = item.optInt("trade24h", 0)
+
+                    // True pool age from ISO timestamp
+                    val createdAtStr = item.optString("createdAt", "")
+                    val ageHours = if (createdAtStr.isNotBlank()) {
+                        try {
+                            val ms = java.time.Instant.parse(createdAtStr).toEpochMilli()
+                            ((System.currentTimeMillis() - ms) / 3_600_000.0).coerceAtLeast(0.0)
+                        } catch (_: Exception) { 24.0 }
+                    } else 24.0
+
+                    // Estimate volH1 from vol24h (best available; markets endpoint
+                    // doesn't expose H1 directly). Conservative /24 split.
+                    val volH1Est = vol24h / 24.0
+
+                    val baseScore = scoreToken(liqUsd, volH1Est, trade24h / 24, 0.0, 0.0, ageHours)
+
+                    val token = ScannedToken(
+                        mint = mint,
+                        symbol = symbol,
+                        name = name,
+                        source = TokenSource.BIRDEYE_MARKETS,
+                        liquidityUsd = liqUsd,
+                        volumeH1 = volH1Est,
+                        mcapUsd = 0.0,  // markets endpoint doesn't expose mcap directly
+                        pairCreatedHoursAgo = ageHours,
+                        dexId = source.lowercase().replace(" ", "_"),
+                        priceChangeH1 = 0.0,
+                        txCountH1 = (trade24h / 24).coerceAtLeast(0),
+                        score = baseScore,
+                        tradeVelocity24h = tradeVelocity,
+                        walletVelocity24h = walletVelocity,
+                        uniqueWallet24h = uniqueWallets,
+                    )
+
+                    if (passesFilter(token)) {
+                        emitWithRugcheck(token)
+                        totalEmitted++
+                    } else {
+                        skippedFilter++
+                    }
+                }
+            }
+
+            if (totalEmitted > 0) {
+                ErrorLogger.info(
+                    "Scanner",
+                    "🌊 scanBirdeyeMarkets: emitted $totalEmitted from $pageScanned markets " +
+                    "(non-sol-quote=$skippedNonSolQuote, lst=$skippedLstSource, " +
+                    "stable=$skippedStableBase, seen=$skippedSeen, thin=$skippedThin, filter=$skippedFilter)"
+                )
+            } else {
+                ErrorLogger.debug(
+                    "Scanner",
+                    "scanBirdeyeMarkets: 0 emitted from $pageScanned (non-sol-quote=$skippedNonSolQuote, " +
+                    "lst=$skippedLstSource, stable=$skippedStableBase, seen=$skippedSeen, thin=$skippedThin)"
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanBirdeyeMarkets error: ${e.message}")
+        }
+    }
+
     private suspend fun scanRaydiumNewPools() {
         // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
         try {
@@ -2897,7 +3082,27 @@ class SolanaMarketScanner(
             ageHours = if (token.pairCreatedHoursAgo > 0) token.pairCreatedHoursAgo else 1.0
         )
 
-        val totalBoost = aiBoost + scannerLearningBoost
+        // V5.9.907 — VELOCITY BOOST.
+        // Soft-shape additive score bump for tokens showing accelerating
+        // engagement on both trade-count AND distinct-wallet axes. Either
+        // signal alone is noisy; both together is the viral-takeoff signature.
+        // Capped at +10 to compose multiplicatively with other boosts.
+        // Default 0.0 means lanes without velocity data contribute zero,
+        // and the existing scoring pipeline is unchanged.
+        val velocityBoost = run {
+            val tv = token.tradeVelocity24h
+            val wv = token.walletVelocity24h
+            // Both must be positive AND meaningful (>= 25%) to count
+            if (tv >= 25.0 && wv >= 25.0) {
+                // Linear scale: tv+wv = 50 → +2.5, = 200 → +10
+                ((tv + wv) / 20.0).coerceAtMost(10.0)
+            } else if (tv >= 50.0 || wv >= 50.0) {
+                // Either-or strong move → smaller bump
+                2.5
+            } else 0.0
+        }
+
+        val totalBoost = aiBoost + scannerLearningBoost + velocityBoost
         val adjustedScore = (token.score + totalBoost).coerceIn(0.0, 100.0)
         val adjustedToken = token.copy(score = adjustedScore)
 
