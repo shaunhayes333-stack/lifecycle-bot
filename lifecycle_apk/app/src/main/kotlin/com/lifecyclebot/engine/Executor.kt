@@ -1781,11 +1781,32 @@ class Executor(
             // Both already clamped: behaviorSizeMult ∈ [0.5, 1.5],
             // behaviorGradeMult ∈ {0.7, 1.0}.
             // V5.9.824 — also compose narrativeSizeMult into the envelope.
-            val finalSol = result.solAmount * patternSizeMult * brakeMult *
-                           behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
-                           symbolicSizeMult * timeSizeMult * momentumSizeMult *
-                           narrativeSizeMult * sellPressureSizeMult * trend1hSizeMult *
-                           rateLimitSizeMult   // V5.9.834 (B8) — EmergentGuardrails
+            //
+            // V5.9.867 — COMPOSED-PRODUCT FLOOR.
+            // Audit showed worst-case product across 10 multipliers can reach
+            // 0.0141 (1.4% of base). In a bad regime that pushes a 0.05 SOL
+            // base buy to ~0.0007 SOL, well below the 0.001 dust floor at
+            // line 5108/5456 — which silently rejects the trade.
+            //
+            // Doctrine #20: bot must keep training at 500+ trades/day.
+            // Doctrine #86: every soft-shaper must HELP, not effectively veto.
+            // Soft-shape spirit: composed product floored at 0.25 so the
+            // bot still trades at ~25% of base size in the absolute worst
+            // case (enough to clear dust + produce learning signal) but
+            // still feels the full directional pressure of the stack.
+            // Upper end stays unclamped — best-case ~4.7x is fine because
+            // SmartSizer already caps absolute SOL exposure upstream.
+            val rawMultProduct = patternSizeMult * brakeMult *
+                                 behaviorSizeMult * behaviorGradeMult * regimeSizeMult *
+                                 symbolicSizeMult * timeSizeMult * momentumSizeMult *
+                                 narrativeSizeMult * sellPressureSizeMult * trend1hSizeMult *
+                                 rateLimitSizeMult
+            val composedMult = rawMultProduct.coerceAtLeast(0.25)
+            if (rawMultProduct < 0.25) {
+                onLog("🪂 Composed mult floor: raw=${"%.4f".format(rawMultProduct)}x → 0.25x " +
+                      "(stack was about to size-zero — keeping bot trading per doctrine)", "sizing")
+            }
+            val finalSol = result.solAmount * composedMult   // V5.9.867 floor applied
             if (patternSizeMult != 1.0) {
                 onLog("🧠 Pattern mult: ${"%.2f".format(patternSizeMult)}x " +
                       "(${result.solAmount.fmt(4)} → ${finalSol.fmt(4)} SOL)", "sizing")
