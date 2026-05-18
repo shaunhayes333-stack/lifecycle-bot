@@ -194,10 +194,34 @@ object FinalExecutionPermit {
             )
         }
 
-        // V5.2.6: PAPER MODE BYPASS - Allow all layers to trade independently
-        // This is critical for learning - each layer needs its own trade data
+        // V5.9.876 — REPLACE blanket PAPER_MODE_BYPASS with structured paper path.
+        //
+        // PRIOR BEHAVIOR: paper mode short-circuited BEFORE V3 rejection cooldown
+        // and BEFORE pending-execution race guard. This meant:
+        //   (a) V3-rejected tokens could be retried by every other layer within
+        //       the cooldown window — learning signal was scrambled because the
+        //       same mint was getting outcomes from multiple lanes on the same
+        //       cycle, contaminating the per-lane WR.
+        //   (b) Race conditions between Treasury / ShitCoin / BlueChip all
+        //       trying to buy the same mint simultaneously were not arbitrated,
+        //       leading to duplicate paper entries in the journal.
+        //
+        // NEW BEHAVIOR (operator audit + GPT external review V5.9.809 critique):
+        //   - Open-position check still blocks (correct).
+        //   - V3 rejection cooldown becomes a TELEMETRY LABEL in paper mode
+        //     (rather than allowing the trade to slip through unrecorded). The
+        //     trade is permitted but the reason carries a "PAPER_TELEMETRY:
+        //     V3_REJECTED_LAST_CYCLE" tag so the learning bus can label it
+        //     accordingly and downstream learners can soft-down-weight.
+        //   - Pending-execution race STILL blocks even in paper mode — we
+        //     don't want two layers racing for the same mint with duplicate
+        //     journal entries, that's not learning, that's noise.
+        //
+        // Per doctrine #86: no new hard veto, no scoring impact, just clean
+        // up the duplicate-trade noise + label the soft signals so learners
+        // can use them. Live mode is unaffected.
         if (isPaperMode) {
-            // In paper mode, only block if position is already open
+            // Position-open still blocks (duplicates are not learning).
             if (hasOpenPosition) {
                 return PermitResult(
                     allowed = false,
@@ -205,10 +229,32 @@ object FinalExecutionPermit {
                     blockingLayer = "POSITION",
                 )
             }
-            // Allow all other trades for learning
+            // Pending-execution race STILL blocks (same-mint dup-buy noise).
+            val pendingPaper = pendingExecutions[mint]
+            if (pendingPaper != null && pendingPaper.layer != requestingLayer) {
+                val elapsedP = now - pendingPaper.timestamp
+                if (elapsedP < EXECUTION_COOLDOWN_MS) {
+                    return PermitResult(
+                        allowed = false,
+                        reason = "PENDING_EXECUTION: ${pendingPaper.layer} already executing (${elapsedP/1000}s ago)",
+                        blockingLayer = pendingPaper.layer,
+                    )
+                }
+            }
+            // V3 rejection cooldown becomes a telemetry label, not a block.
+            val rejectionP = v3Rejections[mint]
+            val telemetryTag: String? = if (rejectionP != null) {
+                val elapsedR = now - rejectionP.timestamp
+                if (elapsedR < REJECTION_COOLDOWN_MS) {
+                    "PAPER_TELEMETRY:V3_REJECTED_LAST_CYCLE(${rejectionP.rejectedBy},${elapsedR/1000}s)"
+                } else {
+                    v3Rejections.remove(mint)
+                    null
+                }
+            } else null
             return PermitResult(
                 allowed = true,
-                reason = "PAPER_MODE_BYPASS",
+                reason = telemetryTag ?: "PAPER_PERMITTED",
                 blockingLayer = null,
             )
         }
