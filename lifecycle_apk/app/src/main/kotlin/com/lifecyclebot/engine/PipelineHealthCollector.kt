@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.677 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.859"
+    private const val BUILD_TAG = "V5.9.860"
 
     data class Event(
         val tsMs: Long,
@@ -1055,6 +1055,62 @@ object PipelineHealthCollector {
         val v3Skipped = s.phaseBlock["V3"] ?: 0L
         if (v3Skipped > 0)
             sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
+
+        // ── V5.9.860 — Self-healing tier surface (H1+H2+H3) ──────────────
+        // Show operator: which API hosts are healthy, which keys are flagged
+        // DEAD, and how many times AutoEndpointMigrator has fired. This is
+        // the ONE place to look when "why is intake stalled?" comes up.
+        try {
+            val apiSnap = ApiHealthMonitor.snapshot()
+            if (apiSnap.isNotEmpty()) {
+                sb.append("\n===== API health (V5.9.856 ApiHealthMonitor) =====\n")
+                val sorted = apiSnap.entries.sortedBy { it.key }
+                for ((host, st) in sorted) {
+                    val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
+                    if (total == 0) continue
+                    val sr = (st.successRate() * 100).toInt()
+                    val avg = st.avgLatencyMs().toInt()
+                    val icon = when {
+                        sr >= 90 -> "✅"
+                        sr >= 60 -> "🟡"
+                        else     -> "🔴"
+                    }
+                    sb.append(String.format(
+                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d\n",
+                        icon, host, sr, avg,
+                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get()
+                    ))
+                    val lastErr = st.lastErrorMessage.get()
+                    if (lastErr != null && st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get() > 0) {
+                        sb.append("       last_err: ").append(lastErr.take(120)).append('\n')
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* observability never fails dumpText */ }
+
+        try {
+            val keySnap = KeyValidator.snapshot()
+            if (keySnap.isNotEmpty()) {
+                sb.append("\n===== Key verdicts (V5.9.855 KeyValidator) =====\n")
+                for ((svc, t) in keySnap.entries.sortedBy { it.key }) {
+                    val (isLive, http, err) = t
+                    val icon = if (isLive) "✅" else "🔴"
+                    sb.append(String.format("  %s %-10s live=%-5s  http=%-4d  %s\n",
+                        icon, svc, isLive.toString(), http, (err ?: "").take(80)))
+                }
+            }
+        } catch (_: Throwable) {}
+
+        try {
+            val migSnap = AutoEndpointMigrator.snapshot()
+            if (migSnap.isNotEmpty()) {
+                sb.append("\n===== Endpoint migrations (V5.9.857 AutoEndpointMigrator) =====\n")
+                for ((dead, pair) in migSnap.entries.sortedBy { it.key }) {
+                    val (live, count) = pair
+                    sb.append(String.format("  ↪ %-32s → %-32s  (rewrites=%d)\n", dead, live, count))
+                }
+            }
+        } catch (_: Throwable) {}
 
         return sb.toString()
     }
