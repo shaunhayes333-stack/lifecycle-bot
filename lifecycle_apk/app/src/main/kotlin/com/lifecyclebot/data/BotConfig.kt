@@ -51,7 +51,7 @@ data class BotConfig(
     val momentumExitCandles: Int = 3,
     val entryCooldownSec: Int = 120,
     // polling
-    val pollSeconds: Int = 8,
+    val pollSeconds: Int = 5,  // V5.9.959: 8→5s — operator: 'bot cycle should be every 5 seconds'. With V5.9.958 chunk-level timeout capping supervisor at ~2.4s, 5s gives ~2.5s of network/exit-sweep headroom per cycle. Old 8s default left 5+s idle every loop.
     // sentiment
     val telegramBotToken: String = "",
     val telegramChannels: List<String> = emptyList(),
@@ -505,7 +505,7 @@ object ConfigStore {
             exitScoreThreshold          = p.getFloat("exit_score_threshold", 58.0f).toDouble(),
             momentumExitCandles         = p.getInt("momentum_exit_candles", 3),
             entryCooldownSec            = p.getInt("entry_cooldown_sec", 120),
-            pollSeconds                 = p.getInt("poll_seconds", 8),
+            pollSeconds                 = p.getInt("poll_seconds", 5),  // V5.9.959: default flipped 8→5
             telegramBotToken            = s.getString("telegram_bot_token", "") ?: "",
             telegramChatId              = s.getString("telegram_chat_id", "") ?: "",
             telegramTradeAlerts         = p.getBoolean("telegram_trade_alerts", false),
