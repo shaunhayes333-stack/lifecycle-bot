@@ -93,6 +93,19 @@ object LearningPersistence {
             try { putBlob("CANONICAL_COUNTERS", com.lifecyclebot.engine.CanonicalLearningCounters.exportState()) } catch (_: Throwable) {}
             try { putBlob("CREATOR_HISTORY", com.lifecyclebot.network.HeliusCreatorHistory.exportState()) } catch (_: Throwable) {}
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
+            // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
+            // Pre-V5.9.964 these had save()/restore() defined and init() wired
+            // so restore() ran at boot, but save() was NEVER called. Lifetime
+            // milestones (10x/100x/1000x counts, lifetime PnL, learning
+            // progress) accumulated in memory and died on every restart.
+            // Force=true bypasses the per-trader throttle so we always flush
+            // alongside the global save cadence.
+            try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.save(force = true) } catch (_: Throwable) {}
+            try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.save(force = true) } catch (_: Throwable) {}
+            try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.save(force = true) } catch (_: Throwable) {}
+            try { com.lifecyclebot.v3.scoring.ProjectSniperAI.save(force = true) } catch (_: Throwable) {}
+            try { com.lifecyclebot.v3.scoring.ShitCoinExpress.save(force = true) } catch (_: Throwable) {}
+            try { com.lifecyclebot.v3.scoring.QualityTraderAI.save(force = true) } catch (_: Throwable) {}
             d.setTransactionSuccessful()
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveAll error: ${e.message}")
