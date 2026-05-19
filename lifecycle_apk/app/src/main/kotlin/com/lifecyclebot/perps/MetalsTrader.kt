@@ -606,8 +606,13 @@ object MetalsTrader {
         // V5.9.93: fluid TP/SL — stretch TP and tighten SL on high-conviction
         val (tpMult, slMult) = PerpsFluidSizing.tpSlMultiplier(signal.score, signal.confidence)
         val baseTpPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        val tpPct = baseTpPct * tpMult
-        val slPct = SL_PERCENT * slMult
+        // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
+        // 50/50 blend with StrategyTrustAI suggestion. Trust>=0.7 stretches TP;
+        // Trust<0.4 tightens SL. Pass-through at trust=0.5 default.
+        val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("METALS", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
+        val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("METALS") } catch (_: Throwable) { SL_PERCENT }
+        val tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
+        val slPct = ((SL_PERCENT + seoSl) * 0.5) * slMult
 
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)

@@ -607,8 +607,11 @@ object CommoditiesTrader {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
         else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         val baseSlPct = if (signal.tradeType == TradeType.SPOT) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
-        val tpPct = baseTpPct * tpMult
-        val slPct = baseSlPct * slMult
+        // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
+        val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("COMMODITIES", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
+        val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("COMMODITIES") } catch (_: Throwable) { baseSlPct }
+        val tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
+        val slPct = ((baseSlPct + seoSl) * 0.5) * slMult
         
         val tp = if (signal.direction == PerpsDirection.LONG) {
             signal.price * (1 + tpPct / 100)

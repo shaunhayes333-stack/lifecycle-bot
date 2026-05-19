@@ -1109,11 +1109,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             if (isSpot) com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
             else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
         }
-        val slPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
+        val rawSlPct = if (riskInsights.source == "MEME_CROSS_LEARN") {
             if (isSpot) riskInsights.suggestedStopLossPct * 0.6 else riskInsights.suggestedStopLossPct
         } else {
             if (isSpot) 3.0 else 4.0  // Defaults: SPOT 3%, LEV 4%
         }
+        // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
+        val seoTpStock = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("STOCKS", 0.0, 0.0) } catch (_: Throwable) { tpPct }
+        val seoSlStock = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("STOCKS") } catch (_: Throwable) { rawSlPct }
+        val slPct = (rawSlPct + seoSlStock) * 0.5
+        // Note: tpPct blend deferred — already complex pathway with HiveTpAdj downstream.
+        val _seoTpStockUsed = seoTpStock  // suppress unused
         val leverage = if (isSpot) 1.0 else signal.leverage
         
         // V5.9.171 — match the other perps traders: apply the same fluid

@@ -640,8 +640,11 @@ object ForexTrader {
             slPct = com.lifecyclebot.perps.strategy.ForexStrategy.pipsToPct(
                 signal.market.symbol, strategySetup.slPips, signal.price)
         } else {
-            tpPct = baseTpPct * tpMult
-            slPct = SL_PERCENT * slMult
+            // V5.9.983 — SmartExitOptimizer trust-aware blend (was DORMANT).
+            val seoTp = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedTpPct("FOREX", 0.0, 0.0) } catch (_: Throwable) { baseTpPct }
+            val seoSl = try { com.lifecyclebot.engine.SmartExitOptimizer.getSuggestedSlPct("FOREX") } catch (_: Throwable) { SL_PERCENT }
+            tpPct = ((baseTpPct + seoTp) * 0.5) * tpMult
+            slPct = ((SL_PERCENT + seoSl) * 0.5) * slMult
         }
 
         val tp = if (signal.direction == PerpsDirection.LONG) {
