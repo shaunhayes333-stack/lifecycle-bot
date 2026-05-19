@@ -167,7 +167,7 @@ internal suspend fun BotService.runFreezeDetectorTick(
         val memePending = BotService.status.tokens.values.count { ts ->
             try { ts.position.pendingVerify && ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
         }
-        val memeCap = if (BotService.cfg.paperMode) BotService.cfg.maxConcurrentPositions else BotService.cfg.maxConcurrentLivePositions
+        val memeCap = if (cfg.paperMode) cfg.maxConcurrentPositions else cfg.maxConcurrentLivePositions
         val cbState = try {
             if (::securityGuard.isInitialized) securityGuard.getCircuitBreakerState() else null
         } catch (_: Throwable) { null }
@@ -208,9 +208,9 @@ internal suspend fun BotService.runFreezeDetectorTick(
             try {
                 if (::securityGuard.isInitialized) {
                     val cb = securityGuard.getCircuitBreakerState()
-                    if (BotService.cb.isHalted) {
+                    if (cb.isHalted) {
                         ErrorLogger.warn("BotService",
-                            "🔓 FREEZE_DETECTOR: SecurityGuard halted (${BotService.cb.haltReason}) — clearing halt")
+                            "🔓 FREEZE_DETECTOR: SecurityGuard halted (${cb.haltReason}) — clearing halt")
                         securityGuard.clearHalt()
                     }
                 }
@@ -223,7 +223,7 @@ internal suspend fun BotService.runFreezeDetectorTick(
             // 5) Bump the AntiChokeManager.
             try {
                 com.lifecyclebot.engine.AntiChokeManager.tick(
-                    isPaperMode = BotService.cfg.paperMode,
+                    isPaperMode = cfg.paperMode,
                     wallet      = wallet,
                     tokens      = BotService.status.tokens,
                     loopCount   = loopCount,
@@ -241,7 +241,7 @@ internal fun BotService.runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wa
     try {
         val price = ts.lastPrice
         if (price <= 0.0 || ts.position.entryPrice <= 0.0) return
-        val effectiveBalance = BotService.status.getEffectiveBalance(BotService.cfg.paperMode)
+        val effectiveBalance = BotService.status.getEffectiveBalance(cfg.paperMode)
 
         // V5.9.678 — emit PHASE.EXIT forensic so the funnel counter
         // EXIT in the Pipeline Health dump finally reflects reality.
