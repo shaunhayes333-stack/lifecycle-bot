@@ -1312,11 +1312,16 @@ class Executor(
     private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
         val stateReason = HostWalletTokenTracker.sellBlockReason(ts.mint)
         if (stateReason != null && !com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason)) {
-            LiveTradeLogStore.log(
-                tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
-                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                "SELL_BLOCKED_ALREADY_IN_PROGRESS state=$stateReason reason=$reason", traderTag = "MEME",
-            )
+            // V5.9.967 — z43-D SellSpamGuard: suppress duplicate blocked-log
+            // floods. Higher-priority reasons (rug/manual/hard_stop) punch
+            // through immediately; lower-priority (trail/partial) cool down 30s.
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {
+                LiveTradeLogStore.log(
+                    tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                    ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "SELL_BLOCKED_ALREADY_IN_PROGRESS state=$stateReason reason=$reason", traderTag = "MEME",
+                )
+            }
             return true
         }
         // V5.9.775 — EMERGENT MEME stale-lock auto-recovery.
@@ -1329,11 +1334,14 @@ class Executor(
         // operator can spot churn.
         if (com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint)) {
             val ageMs = com.lifecyclebot.engine.sell.SellExecutionLocks.ageMs(ts.mint) ?: 0L
-            LiveTradeLogStore.log(
-                tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
-                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                "SELL_BLOCKED_ALREADY_IN_PROGRESS lock=true ageMs=$ageMs reason=$reason", traderTag = "MEME",
-            )
+            // V5.9.967 — z43-D SellSpamGuard wrap.
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {
+                LiveTradeLogStore.log(
+                    tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                    ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "SELL_BLOCKED_ALREADY_IN_PROGRESS lock=true ageMs=$ageMs reason=$reason", traderTag = "MEME",
+                )
+            }
             return true
         }
         return false
@@ -3285,6 +3293,8 @@ class Executor(
         val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
         if (blockIfSellInFlight(ts, reason, sellTradeKey)) return
         if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
+            // V5.9.967 — z43-D SellSpamGuard wrap.
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -8275,9 +8285,11 @@ class Executor(
                 val lockTradeKeyPre = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
                 if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) return
                 if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
-                    LiveTradeLogStore.log(lockTradeKeyPre, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                        "SELL_BLOCKED_ALREADY_IN_PROGRESS partial reason=$reason", traderTag = "MEME")
+                    // V5.9.967 — z43-D SellSpamGuard wrap.
+                    if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
+                        LiveTradeLogStore.log(lockTradeKeyPre, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                            "SELL_BLOCKED_ALREADY_IN_PROGRESS partial reason=$reason", traderTag = "MEME")
                     return
                 }
                 // V5.6.27: Implement actual partial sell for LIVE mode
@@ -8722,10 +8734,12 @@ class Executor(
                 return SellResult.FAILED_RETRYABLE
             }
             if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
-                LiveTradeLogStore.log(
-                    LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime), ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                    "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$reason", traderTag = "MEME")
+                // V5.9.967 — z43-D SellSpamGuard wrap.
+                if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
+                    LiveTradeLogStore.log(
+                        LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime), ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                        "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$reason", traderTag = "MEME")
                 return SellResult.FAILED_RETRYABLE
             }
             onLog("💰 Routing to liveSell", tradeId.mint)
