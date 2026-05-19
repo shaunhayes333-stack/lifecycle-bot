@@ -86,6 +86,12 @@ object LearningPersistence {
             // V5.9.439 — generic brain-state blobs.
             putBlob("FLUID_LEARNING", com.lifecyclebot.v3.scoring.FluidLearningAI.exportState())
             putBlob("SENTIENCE",      com.lifecyclebot.engine.SentienceOrchestrator.exportState())
+            // V5.9.949 — persist the rest of the brain. Each was previously
+            // wiped on every restart, forcing the bot to relearn from zero.
+            try { putBlob("BEHAVIOR_LEARNING", com.lifecyclebot.engine.BehaviorLearning.exportState()) } catch (_: Throwable) {}
+            try { putBlob("LAYER_READINESS",   com.lifecyclebot.engine.LayerReadinessRegistry.exportState()) } catch (_: Throwable) {}
+            try { putBlob("CANONICAL_COUNTERS", com.lifecyclebot.engine.CanonicalLearningCounters.exportState()) } catch (_: Throwable) {}
+            try { putBlob("CREATOR_HISTORY", com.lifecyclebot.network.HeliusCreatorHistory.exportState()) } catch (_: Throwable) {}
             d.setTransactionSuccessful()
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveAll error: ${e.message}")
@@ -103,6 +109,11 @@ object LearningPersistence {
         // V5.9.439 — restore every brain-state blob.
         getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) }
         getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
+        // V5.9.949 — restore the rest of the brain.
+        try { getBlob("BEHAVIOR_LEARNING")?.let { com.lifecyclebot.engine.BehaviorLearning.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("CANONICAL_COUNTERS")?.let { com.lifecyclebot.engine.CanonicalLearningCounters.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("CREATOR_HISTORY")?.let { com.lifecyclebot.network.HeliusCreatorHistory.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

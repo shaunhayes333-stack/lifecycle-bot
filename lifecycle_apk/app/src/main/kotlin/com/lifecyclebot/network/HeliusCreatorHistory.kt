@@ -30,8 +30,12 @@ class HeliusCreatorHistory(private val apiKey: String) {
         .build()
 
     private val JSON = "application/json".toMediaType()
-    // Cache: wallet → result
-    private val cache = mutableMapOf<String, CreatorReport>()
+    // V5.9.949 — shared static cache. Was per-instance, which meant every
+    // DataOrchestrator reboot started cold and re-paid ~11 round-trips
+    // (Helius DAS + up to 10 rugcheck queries) per dev wallet. Now backed
+    // by a companion-scope ConcurrentHashMap so an instance switch keeps
+    // the cache hot, and LearningPersistence persists it across restarts.
+    private val cache get() = sharedCache
 
     data class CreatorReport(
         val walletAddress: String,
@@ -199,4 +203,56 @@ class HeliusCreatorHistory(private val apiKey: String) {
             }
         } catch (_: Exception) { null }
     }
+
+    companion object {
+        // V5.9.949 — process-wide shared cache + persistence hooks.
+        // Used by LearningPersistence to mirror creator-history reports
+        // across restarts. Cache grows unbounded by design — rug history
+        // is FOREVER true; a wallet that rugged 3 times in 2024 will
+        // still have rugged 3 times next year. We never need to re-pay
+        // those API round-trips.
+        private val sharedCache =
+            java.util.concurrent.ConcurrentHashMap<String, CreatorReport>()
+
+        fun exportState(): String {
+            val arr = org.json.JSONArray()
+            for ((wallet, r) in sharedCache) {
+                arr.put(org.json.JSONObject().apply {
+                    put("wallet", wallet)
+                    put("tokens", r.tokensCreated)
+                    put("rugged", r.ruggedTokens)
+                    put("suspicious", r.suspiciousTokens)
+                    put("avgRug", r.avgRugcheckScore)
+                    put("rugRate", r.rugRate)
+                    put("knownRugger", r.isKnownRugger)
+                    put("checkedAt", r.checkedAt)
+                    // previousTokens omitted — large + reconstructible
+                })
+            }
+            return arr.toString()
+        }
+
+        fun importState(json: String) {
+            try {
+                val arr = org.json.JSONArray(json)
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val w = o.optString("wallet", "")
+                    if (w.isBlank()) continue
+                    sharedCache[w] = CreatorReport(
+                        walletAddress = w,
+                        tokensCreated = o.optInt("tokens", 0),
+                        ruggedTokens = o.optInt("rugged", 0),
+                        suspiciousTokens = o.optInt("suspicious", 0),
+                        avgRugcheckScore = o.optDouble("avgRug", -1.0),
+                        rugRate = o.optDouble("rugRate", 0.0),
+                        isKnownRugger = o.optBoolean("knownRugger", false),
+                        previousTokens = emptyList(),
+                        checkedAt = o.optLong("checkedAt", System.currentTimeMillis()),
+                    )
+                }
+            } catch (_: Throwable) { /* fail-open */ }
+        }
+    }
+
 }

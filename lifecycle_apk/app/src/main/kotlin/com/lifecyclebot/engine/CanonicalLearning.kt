@@ -365,6 +365,55 @@ object CanonicalLearningCounters {
         "executionOnlyOutcomes" to executionOnlyOutcomes.get(),
         "bcSimOnlyOutcomes" to bcSimOnlyOutcomes.get(),
     )
+
+    // V5.9.949 — persistence hooks. Counters drive WR + dashboard health
+    // and represent the LIFETIME total of every settled outcome the bot
+    // has ever produced. Wiping them on restart was equivalent to giving
+    // the bot retrograde amnesia. Wired into LearningPersistence.
+    fun exportState(): String {
+        return org.json.JSONObject().apply {
+            put("canonicalOutcomesTotal", canonicalOutcomesTotal.get())
+            put("liveOutcomesTotal", liveOutcomesTotal.get())
+            put("paperOutcomesTotal", paperOutcomesTotal.get())
+            put("shadowOutcomesTotal", shadowOutcomesTotal.get())
+            put("executedTradesTotal", executedTradesTotal.get())
+            put("failedExecutionsTotal", failedExecutionsTotal.get())
+            put("settledWins", settledWins.get())
+            put("settledLosses", settledLosses.get())
+            put("openTrades", openTrades.get())
+            put("inconclusiveTrades", inconclusiveTrades.get())
+            put("recoveredTrades", recoveredTrades.get())
+            put("rejectedBadLabels", rejectedBadLabels.get())
+            put("incompleteFeatureOutcomes", incompleteFeatureOutcomes.get())
+            put("richFeatureOutcomes", richFeatureOutcomes.get())
+            put("strategyTrainableOutcomes", strategyTrainableOutcomes.get())
+            put("executionOnlyOutcomes", executionOnlyOutcomes.get())
+            put("bcSimOnlyOutcomes", bcSimOnlyOutcomes.get())
+        }.toString()
+    }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            canonicalOutcomesTotal.set(o.optLong("canonicalOutcomesTotal", 0L))
+            liveOutcomesTotal.set(o.optLong("liveOutcomesTotal", 0L))
+            paperOutcomesTotal.set(o.optLong("paperOutcomesTotal", 0L))
+            shadowOutcomesTotal.set(o.optLong("shadowOutcomesTotal", 0L))
+            executedTradesTotal.set(o.optLong("executedTradesTotal", 0L))
+            failedExecutionsTotal.set(o.optLong("failedExecutionsTotal", 0L))
+            settledWins.set(o.optLong("settledWins", 0L))
+            settledLosses.set(o.optLong("settledLosses", 0L))
+            // openTrades intentionally NOT restored — must reconcile from on-chain truth.
+            inconclusiveTrades.set(o.optLong("inconclusiveTrades", 0L))
+            recoveredTrades.set(o.optLong("recoveredTrades", 0L))
+            rejectedBadLabels.set(o.optLong("rejectedBadLabels", 0L))
+            incompleteFeatureOutcomes.set(o.optLong("incompleteFeatureOutcomes", 0L))
+            richFeatureOutcomes.set(o.optLong("richFeatureOutcomes", 0L))
+            strategyTrainableOutcomes.set(o.optLong("strategyTrainableOutcomes", 0L))
+            executionOnlyOutcomes.set(o.optLong("executionOnlyOutcomes", 0L))
+            bcSimOnlyOutcomes.set(o.optLong("bcSimOnlyOutcomes", 0L))
+        } catch (_: Throwable) { /* fail-open */ }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -797,6 +846,44 @@ object LayerReadinessRegistry {
         val s = states[layer] ?: return Triple(0L, 0L, 0L)
         return Triple(s.settledOutcomes, s.richEducationCount, s.incompleteEducationCount)
     }
+    // V5.9.949 — persistence hooks. LayerReadinessRegistry drives the
+    // FDG bootstrap gate ("AI degraded" soft-shaper) by aggregating every
+    // layer's lifetime education count + positive-EV samples. Losing this
+    // on restart re-deadlocked the bot at the 32% FDG floor every time
+    // (until V5.9.947's paper-mode learning tier). Persisting it locks
+    // in the AGI training that's already happened. Wired into LearningPersistence.
+    fun exportState(): String {
+        val arr = org.json.JSONArray()
+        for ((layer, st) in states) {
+            arr.put(org.json.JSONObject().apply {
+                put("layer", layer)
+                put("settled", st.settledOutcomes)
+                put("posEv", st.positiveEvSamples)
+                put("lastEdMs", st.lastEducationMs)
+                put("rich", st.richEducationCount)
+                put("incomplete", st.incompleteEducationCount)
+            })
+        }
+        return arr.toString()
+    }
+
+    fun importState(json: String) {
+        try {
+            val arr = org.json.JSONArray(json)
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val layer = o.optString("layer", "")
+                if (layer.isBlank()) continue
+                val s = states.getOrPut(layer) { State() }
+                s.settledOutcomes = o.optLong("settled", 0L)
+                s.positiveEvSamples = o.optLong("posEv", 0L)
+                s.lastEducationMs = o.optLong("lastEdMs", 0L)
+                s.richEducationCount = o.optLong("rich", 0L)
+                s.incompleteEducationCount = o.optLong("incomplete", 0L)
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+    }
+
 }
 
 // ─────────────────────────────────────────────────────────────────────

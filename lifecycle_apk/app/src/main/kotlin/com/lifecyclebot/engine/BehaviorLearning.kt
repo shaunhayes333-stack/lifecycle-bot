@@ -736,6 +736,17 @@ object BehaviorLearning {
         )
     }
 
+    // V5.9.949 — persistence hooks for LearningPersistence. Wraps the
+    // existing toJson()/fromJson() (which shipped in V5.9.745 but were
+    // never wired into the lifecycle). Pattern memory is the bot's
+    // single richest learnt asset — losing goodStats/badStats on every
+    // restart was throwing away weeks of pattern attribution. Now persists.
+    fun exportState(): String = try { toJson().toString() } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try { fromJson(org.json.JSONObject(json)) } catch (_: Throwable) { /* fail-open */ }
+    }
+
     fun toJson(): JSONObject {
         return try {
             JSONObject().apply {
