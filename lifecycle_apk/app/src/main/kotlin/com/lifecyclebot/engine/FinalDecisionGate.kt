@@ -1723,6 +1723,20 @@ object FinalDecisionGate {
         var behaviorSizeMultiplier = 1.0
         var behaviorProbe = false
 
+        // V5.9.970 — z V5.9.911 TokenSocialScorer revival (was file-dead).
+        // Composes a soft-shape trust multiplier in [0.85, 1.05] from
+        // DexScreener-seeded socials/websites cached in BirdeyeMetaDataProvider.
+        // Asymmetric: missing socials = mild penalty, rich socials = mild boost.
+        // Fail-open (1.0) when no meta cached for the mint.
+        try {
+            val socialTrust = com.lifecyclebot.engine.TokenSocialScorer.getTrustForMint(ts.mint)
+            if (socialTrust != 1.0) {
+                sizeMultiplier *= socialTrust
+                tags.add("social_trust_${"%.2f".format(socialTrust)}")
+                if (socialTrust < 0.95) softPenaltyScore += 5
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // V5.6.9 FIX: Apply RSI penalties to soft score and size
         val rsiPenalty = when {
             currentRsi > 90.0 && config.paperMode -> {

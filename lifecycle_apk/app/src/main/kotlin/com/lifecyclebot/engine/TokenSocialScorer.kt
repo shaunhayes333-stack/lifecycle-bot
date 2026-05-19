@@ -107,6 +107,38 @@ object TokenSocialScorer {
     }
 
     /**
+     * V5.9.970 — convenience for callers that don't have a PairInfo handy.
+     * Falls back to BirdeyeMetaDataProvider's cached meta, which is seeded
+     * from DexScreener's info.socials/.websites via BotService scanner intake.
+     * Returns 1.0 (neutral) when no metadata is cached for the mint.
+     */
+    fun getTrustForMint(mint: String): Double {
+        if (mint.isBlank()) return 1.0
+        val meta = try {
+            com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)
+        } catch (_: Throwable) { null } ?: return 1.0
+
+        // Synthesise a PairInfo just rich enough for getTrust() to grade.
+        val socials = buildList {
+            if (meta.twitter.isNotBlank())  add("twitter")
+            if (meta.telegram.isNotBlank()) add("telegram")
+            if (meta.discord.isNotBlank())  add("discord")
+        }
+        val websites = if (meta.website.isNotBlank()) listOf(meta.website) else emptyList()
+        val synthetic = com.lifecyclebot.network.PairInfo(
+            pairAddress = "",
+            baseSymbol = meta.symbol,
+            baseName = meta.name,
+            url = "",
+            candle = com.lifecyclebot.data.Candle(0L, 0.0, 0.0, 0.0, 0.0),
+            socials = socials,
+            websites = websites,
+            hasImage = false,
+        )
+        return getTrust(synthetic)
+    }
+
+    /**
      * Returns a human-readable summary of the social presence for logging
      * / telemetry. Format: "tw,tg,dc|web|img" or "—" if signal-poor.
      */
