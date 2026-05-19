@@ -7400,6 +7400,90 @@ class BotService : Service() {
         }
     }
 
+    // V5.9.962 — extracted from botLoop to keep that method under the JVM
+    // 64KB bytecode cap. V5.9.960 inline run{} added ~3KB of bytecode and
+    // V5.9.961 added another ~1.5KB. Together they tripped Back-end (JVM)
+    // Internal error: Couldn't transform method node. Moving the selection
+    // into its own method costs ONE JVM method dispatch per cycle (~50ns)
+    // and frees ~5KB inside botLoop. Same selection logic — fresh + unseen
+    // + cold rotation with stale eviction.
+    private fun selectOrderedMintsForCycle(
+        forcedOpenMints: List<String>,
+        otherMints: List<String>,
+        orderedMintsRaw: List<String>,
+    ): List<String> {
+        val nowMs = System.currentTimeMillis()
+        val FRESH_WINDOW_MS = 60_000L
+        val PER_CYCLE_CAP = 96
+        val STALE_PROCESS_COUNT_THRESHOLD = 12
+
+        val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
+                .associateBy { it.mint }
+        } catch (_: Throwable) { emptyMap() }
+
+        val mustInclude = forcedOpenMints.toMutableList()
+        val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
+        if (budget == 0 || otherMints.isEmpty()) {
+            try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
+            return mustInclude.distinct()
+        }
+
+        val fresh = mutableListOf<String>()
+        val unseen = mutableListOf<String>()
+        val cold = mutableListOf<Pair<String, Long>>()
+        otherMints.forEach { mint ->
+            val entry = entriesByMint[mint]
+            when {
+                entry == null -> unseen.add(mint)
+                (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
+                entry.processCount == 0 -> unseen.add(mint)
+                else -> cold.add(mint to entry.lastProcessedAt)
+            }
+        }
+
+        // V5.9.961 stale eviction
+        val staleEvict = mutableListOf<String>()
+        val coldFiltered = cold.filter { (mint, _) ->
+            val entry = entriesByMint[mint] ?: return@filter true
+            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
+                staleEvict.add(mint)
+                false
+            } else true
+        }
+        if (staleEvict.isNotEmpty()) {
+            staleEvict.forEach { mint ->
+                try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_PROCESS_COUNT")
+                } catch (_: Throwable) {}
+            }
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WATCHLIST_STALE_EVICT",
+                    "evicted=${staleEvict.size} threshold=$STALE_PROCESS_COUNT_THRESHOLD"
+                )
+            } catch (_: Throwable) {}
+        }
+
+        val coldMutable = coldFiltered.toMutableList()
+        coldMutable.sortBy { it.second }
+
+        val picked = mutableListOf<String>()
+        picked.addAll(fresh.take(budget))
+        if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
+        if (picked.size < budget) picked.addAll(coldMutable.map { it.first }.take(budget - picked.size))
+
+        try {
+            emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "WATCHLIST_RR",
+                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
+            )
+        } catch (_: Throwable) {}
+
+        return (mustInclude + picked).distinct()
+    }
+
     private fun emitWatchlistCapTrace(cap: Int, total: Int, forcedOpen: Int) {
         // V5.9.659 — extracted helper. Single forensic line whenever the
         // per-tick watchlist iteration is capped.
@@ -9260,99 +9344,7 @@ val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
 //
 // Result: ~5-8s round-trip cycle, fresh mints every tick, full
 // watchlist covered every 2-3 ticks.
-val orderedMints: List<String> = run {
-    val nowMs = System.currentTimeMillis()
-    val FRESH_WINDOW_MS = 60_000L  // < 60s = fresh
-    val PER_CYCLE_CAP = 96         // one chunk worth — leaves room in maxBatchMillis
-
-    // Build a quick lookup of WatchlistEntry metadata for ranking.
-    val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
-        com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
-            .associateBy { it.mint }
-    } catch (_: Throwable) { emptyMap() }
-
-    // forcedOpenMints ALWAYS in. They are non-negotiable (open positions).
-    val mustInclude = forcedOpenMints.toMutableList()
-
-    // Remaining budget for the otherMints rotation.
-    val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
-    if (budget == 0 || otherMints.isEmpty()) {
-        // Either watchlist is all open positions, or no spare slots.
-        // Emit trace for visibility into the chosen window.
-        try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
-        mustInclude.distinct()
-    } else {
-        // Split otherMints into three priority tiers.
-        val fresh = mutableListOf<String>()
-        val unseen = mutableListOf<String>()
-        val cold = mutableListOf<Pair<String, Long>>()  // (mint, lastProcessedAt) — older first
-
-        otherMints.forEach { mint ->
-            val entry = entriesByMint[mint]
-            when {
-                entry == null -> {
-                    // No metadata — treat as unseen so we evaluate it once.
-                    unseen.add(mint)
-                }
-                (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
-                entry.processCount == 0 -> unseen.add(mint)
-                else -> cold.add(mint to entry.lastProcessedAt)
-            }
-        }
-
-        // V5.9.961 — EARLY-STALE EVICTION. Operator: 'stale tokens need to
-        // be dropped from the watchlist fast.' Any cold mint that has been
-        // processed 12+ times by the bot loop and STILL hasn't graduated to
-        // an open position or a lane evaluation is dead weight. The default
-        // WatchlistTtlPolicy gives normal-mode mints 1800s (30 min) which is
-        // way too long for meme tokens. processCount >= 12 at 5s cadence =
-        // 60+ seconds of attention with no signal = drop. Frees a slot
-        // every cycle for a fresh candidate.
-        val STALE_PROCESS_COUNT_THRESHOLD = 12
-        val staleEvict = mutableListOf<String>()
-        val coldFiltered = cold.filter { (mint, _) ->
-            val entry = entriesByMint[mint] ?: return@filter true
-            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
-                staleEvict.add(mint)
-                false
-            } else true
-        }
-        if (staleEvict.isNotEmpty()) {
-            staleEvict.forEach { mint ->
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_PROCESS_COUNT")
-                } catch (_: Throwable) {}
-            }
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "WATCHLIST_STALE_EVICT",
-                    "evicted=${staleEvict.size} threshold=$STALE_PROCESS_COUNT_THRESHOLD"
-                )
-            } catch (_: Throwable) {}
-        }
-
-        // Sort cold by oldest lastProcessedAt first (least recently processed wins).
-        val coldMutable = coldFiltered.toMutableList()
-        coldMutable.sortBy { it.second }
-
-        // Fill budget: fresh → unseen → cold rotation.
-        val picked = mutableListOf<String>()
-        picked.addAll(fresh.take(budget))
-        if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
-        if (picked.size < budget) picked.addAll(coldMutable.map { it.first }.take(budget - picked.size))
-
-        // Emit a trace so operator can see the cut.
-        try {
-            emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
-            )
-        } catch (_: Throwable) {}
-
-        (mustInclude + picked).distinct()
-    }
-}
+val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMints, orderedMintsRaw)
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
