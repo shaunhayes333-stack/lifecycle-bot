@@ -2080,6 +2080,75 @@ class Executor(
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
 
+        // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
+        // learners actually learn). Audit (V5.9.962→994 sweep) found
+        // OnDeviceMLEngine.predict() was called by FinalDecisionGate on every
+        // entry, but OnDeviceMLEngine.recordTrade() / TradeHistoryStore.
+        // recordTradeForML had ZERO callers — the on-device ML loop was
+        // predicting on stale shipped weights and never training on outcomes.
+        // Wire the SELL closeout to feed the ML engine with the exit context.
+        // Entry-time fields come from Position snapshots (entryLiquidityUsd);
+        // exit-time fields come from current TokenState. Field mapping mirrors
+        // FinalDecisionGate.predict() so train+predict feature sets align.
+        // Fail-open: any exception is swallowed — never block the sell finalize.
+        try {
+            if (tradeWithMint.side == "SELL") {
+                val recent = ts.history.takeLast(30)
+                val entryWindow = ts.history.takeLast(60).take(30)
+                val isRug = tradeWithMint.reason.uppercase().let { r ->
+                    r.contains("RUG") || r.contains("ML_RUG") || tradeWithMint.pnlPct <= -50.0
+                }
+                val entryLiq = if (ts.position.entryLiquidityUsd > 0.0)
+                    ts.position.entryLiquidityUsd else ts.lastLiquidityUsd
+                val exitLiq = ts.lastLiquidityUsd
+                val holders = ts.history.lastOrNull()?.holderCount ?: 0
+                TradeHistoryStore.recordTradeForML(
+                    trade              = tradeWithMint,
+                    candlesAtEntry     = entryWindow,
+                    candlesAtExit      = recent,
+                    liquidityAtEntry   = entryLiq,
+                    liquidityAtExit    = exitLiq,
+                    holdersAtEntry     = holders,
+                    holdersAtExit      = holders,
+                    rugcheckScore      = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,
+                    mintRevoked        = ts.safety.mintAuthorityDisabled ?: false,
+                    freezeRevoked      = ts.safety.freezeAuthorityDisabled ?: false,
+                    topHolderPct       = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0),
+                    rsi                = ts.meta.rsi,
+                    emaAlignment       = ts.meta.emafanAlignment,
+                    wasRug             = isRug,
+                )
+            }
+        } catch (_: Throwable) {}
+
+        // V5.9.994 — KILL SWITCH FEED (Doctrine #4 — safety guard must be fed).
+        // Audit found KillSwitch.recordTrade() had ZERO callers. The kill
+        // switch initializes in BotService and has onKillTriggered + onWarning
+        // callbacks wired, but no trade outcome flow → it would never trigger
+        // in live mode. KillSwitch.recordTrade short-circuits in paper mode
+        // (returns true immediately), so this is fail-safe for paper trading
+        // but actually arms the safety guard for live. Fail-open: any
+        // exception swallowed — never block sell finalize.
+        try {
+            if (tradeWithMint.side == "SELL") {
+                // BotService.instance?.applicationContext — same pattern as
+                // GeminiCopilot.kt:595. solBalance comes from the canonical
+                // WalletManager state — same accessor as BotService.kt:3874
+                // (live currentBalance for kill-switch decisions).
+                val appCtx = com.lifecyclebot.engine.BotService.instance?.applicationContext
+                val currentSol = try {
+                    com.lifecyclebot.engine.BotService.walletManager.state.value.solBalance
+                } catch (_: Throwable) { 0.0 }
+                if (appCtx != null && currentSol > 0.0) {
+                    com.lifecyclebot.engine.KillSwitch.recordTrade(
+                        context        = appCtx,
+                        pnlPct         = tradeWithMint.pnlPct,
+                        currentBalance = currentSol,
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.69 PatternClassifier hooks — continuous-feature online learner.
         // BUY: stash features. SELL: run one SGD step on the outcome.
         try {
