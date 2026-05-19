@@ -1106,10 +1106,25 @@ class LifecycleStrategy(
             ts.lastLiquidityUsd >= 2_000.0 &&
             result.entryScore >= 40.0
         val bootstrapPass = hasStrongFreshLaunchSignals || hasPaperLearningSignals
-        if ((hist.size < 3 && !bootstrapPass) ||
-            result.phase in listOf("bootstrap", "thin_market")) {
+        // V5.9.1002-FIX — bootstrapPass must also protect the result.phase branch.
+        // V5.9.947 added bootstrapPass to bypass hist.size<3, but the condition:
+        //   (hist.size < 3 && !bootstrapPass) || result.phase in ["bootstrap","thin_market"]
+        // still blocks unconditionally via the right-side OR when result.phase=="bootstrap".
+        // result.phase is set to "bootstrap" by LifecycleStrategy.evaluate() when
+        // hist.size < minCandles (paper mode: minCandles=1, so hist.size=0 fires it).
+        // Fresh PumpPortal tokens always have hist.size=0 on first intake → phase="bootstrap"
+        // → blocked even with bootstrapPass=true → 0 FDG allow, 0 execs, bot starved.
+        // FIX: if bootstrapPass is true, skip the phase check entirely.
+        if (!bootstrapPass && result.phase in listOf("bootstrap", "thin_market")) {
             val decision = CandidateDecision.blocked(
                 reason = "Insufficient data: ${result.phase}",
+                meta = result.meta
+            )
+            return result to decision
+        }
+        if (hist.size < 3 && !bootstrapPass) {
+            val decision = CandidateDecision.blocked(
+                reason = "Insufficient data: thin_data hist=${hist.size}",
                 meta = result.meta
             )
             return result to decision
