@@ -9307,10 +9307,27 @@ supervisorScope {
                     (batchDeadline - System.currentTimeMillis()).coerceAtLeast(500L)
                 )
 
+                // V5.9.958 — wrap the non-suspend processTokenCycle in
+                // withContext(IO) so kotlin coroutine cancellation actually
+                // dispatches against a thread that can be released. The
+                // bare withTimeoutOrNull around a non-suspend body cannot
+                // interrupt blocking RPC calls, so when one token's RPC
+                // wedged the entire chunk's awaitAll() stalled for
+                // 100+ seconds (operator V5.9.957 dump: 3 cycles in 155s,
+                // phase=SUPERVISOR sinceLastTick=109s).
+                //
+                // withContext(Dispatchers.IO) ensures the blocking work
+                // runs on an IO thread that the runtime can reclaim, and
+                // because the WHOLE inner block is now suspendable, the
+                // outer withTimeoutOrNull's cancellation will fire at the
+                // first suspension point — which is the withContext
+                // call itself completing.
                 val completed = withTimeoutOrNull(tokenBudget) {
-                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-                    try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
-                    true
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                        try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                        true
+                    }
                 } ?: false
 
                 if (!completed) {
@@ -9324,7 +9341,28 @@ supervisorScope {
             }
         }
 
-        jobs.awaitAll().forEach { completed ->
+        // V5.9.958 — CHUNK-LEVEL TIMEOUT. The per-token withTimeoutOrNull
+        // above protects each async{} but awaitAll() itself waits for the
+        // SLOWEST job. If a single token's processTokenCycle blocks on a
+        // non-suspendable network call, the per-token timeout silently
+        // fails to fire and awaitAll() hangs for the duration of the
+        // blocking call. Wrapping awaitAll itself in a chunk-level
+        // timeout (perTokenTimeoutMs * 2) ensures the whole supervisor
+        // pass cannot exceed the batch budget, even if every per-token
+        // timeout misfires. Hung jobs get cancelled at the next
+        // suspension point and their slots are recorded as deferred.
+        val chunkBudgetMs = (perTokenTimeoutMs * 2L).coerceAtLeast(2_500L)
+        val chunkResults: List<Boolean> = withTimeoutOrNull(chunkBudgetMs) {
+            jobs.awaitAll()
+        } ?: run {
+            ErrorLogger.warn(
+                "BotService",
+                "Chunk-level timeout fired after ${chunkBudgetMs}ms — cancelling ${jobs.size} stragglers"
+            )
+            jobs.forEach { j -> try { j.cancel() } catch (_: Throwable) {} }
+            List(jobs.size) { false }
+        }
+        chunkResults.forEach { completed ->
             if (completed) {
                 processedCount++
             } else {
