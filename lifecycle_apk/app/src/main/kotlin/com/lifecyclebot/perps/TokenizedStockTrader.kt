@@ -1060,6 +1060,19 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     
     // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
+        // V5.9.953 — DO NOT open stock positions outside extended trading
+        // hours. Pre-V5.9.953 behaviour: stock signals fired 24/7. Pyth
+        // returned last-close prices through off-hours, the bot opened
+        // positions, held them for 30 minutes seeing zero movement, then
+        // TIME_FLUSH_30MIN_FLAT'd them at -0.003 to -0.009 SOL each via
+        // fees + slippage. With 21 stocks looping all night that was a
+        // sustained ~0.10 SOL/hour bleed for zero signal. The market-hours
+        // gate already existed (isStockMarketOpen, line 69) but was never
+        // wired into execution. Wiring it in now.
+        if (!isStockMarketOpen()) {
+            ErrorLogger.debug(TAG, "📉 ${signal.market.symbol}: stock market CLOSED — refusing to open (would flush flat at 30m)")
+            return
+        }
         // V5.9.114: UNIFIED paper + live pipeline.
         // Per user policy — live must behave exactly like paper. All
         // sizing, meme-cross-learn TP/SL, hive modifiers, sanity checks
@@ -1249,13 +1262,20 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 // stalls at analyzed=0 indefinitely.
                 //  - 2h hard cap: always exit (take whatever P&L we have)
                 //  - 45min + negative: cut losers early, recycle capital
-                //  - 30min + <1% gain: stale flat position, flush it
+                //  - 30min + <1% gain: stale flat position, flush it (ONLY during market hours)
                 // V5.9.221 time exits — call closePosition then continue to next position
+                // V5.9.953 — DO NOT 30min-flush when market is CLOSED. Off-hours
+                // prices are stale by design — flushing at "0% PnL" just burns
+                // fees + slippage to re-buy the same position when the market
+                // reopens. The dump showed 30+ stocks getting flushed at near-zero
+                // PnL during off-hours = pure fee bleed. Hard-cap (2h) and loss-cut
+                // (45min negative) still fire — those protect from real risk.
+                val marketOpen = isStockMarketOpen()
                 var timeExited = false
                 when {
                     holdSec > 7200 -> { closePosition(id, "TIME_CAP_2H: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
                     holdSec > 2700 && pnlPct < 0.0 -> { closePosition(id, "TIME_CUT_45MIN_LOSS: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
-                    holdSec > 1800 && pnlPct < 1.0 -> { closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
+                    holdSec > 1800 && pnlPct < 1.0 && marketOpen -> { closePosition(id, "TIME_FLUSH_30MIN_FLAT: pnl=${"%.2f".format(pnlPct)}%"); timeExited = true }
                 }
                 if (timeExited) continue
 

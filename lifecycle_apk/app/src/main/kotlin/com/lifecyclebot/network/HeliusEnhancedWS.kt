@@ -165,8 +165,21 @@ object HeliusEnhancedWS {
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            ErrorLogger.warn(TAG, "❌ failure: ${t.message?.take(100)} — will reconnect")
-            scheduleReconnect()
+            val msg = t.message ?: ""
+            // V5.9.953 — auth-fatal detection. 403 Forbidden means the API
+            // key is wrong/restricted; reconnecting every 30s for hours
+            // (operator dump: attempt 222 in 6700s) burns battery + log
+            // noise for zero recovery chance. Detect 401/403 and back off
+            // to 10 minutes — gives the operator time to rotate the key
+            // without spamming.
+            val isAuthFatal = msg.contains("403") || msg.contains("401")
+            if (isAuthFatal) {
+                ErrorLogger.warn(TAG, "🛑 AUTH-FATAL failure: ${msg.take(100)} — backing off 10min (rotate Helius key)")
+                scheduleReconnect(forceDelayMs = 600_000L)
+            } else {
+                ErrorLogger.warn(TAG, "❌ failure: ${msg.take(100)} — will reconnect")
+                scheduleReconnect()
+            }
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -174,10 +187,14 @@ object HeliusEnhancedWS {
         }
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnect(forceDelayMs: Long = -1L) {
         if (!running.get()) return
         val attempt = reconnectAttempt.incrementAndGet()
-        val delayMs = (1000L * (1 shl (attempt.coerceAtMost(5).toInt()))).coerceAtMost(30_000L)
+        val delayMs = if (forceDelayMs > 0L) {
+            forceDelayMs
+        } else {
+            (1000L * (1 shl (attempt.coerceAtMost(5).toInt()))).coerceAtMost(30_000L)
+        }
         Thread {
             try { Thread.sleep(delayMs) } catch (_: InterruptedException) { return@Thread }
             connect()

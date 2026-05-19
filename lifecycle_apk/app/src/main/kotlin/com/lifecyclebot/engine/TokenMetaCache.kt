@@ -316,9 +316,22 @@ class TokenMetaCache private constructor(ctx: Context) :
             if (existing != null) return existing
             return synchronized(this) {
                 val again = INSTANCE
-                if (again != null) again else {
+                if (again != null) {
+                    again
+                } else {
                     val fresh = TokenMetaCache(ctx)
                     INSTANCE = fresh
+                    // V5.9.953 — eager warmStart on first get(). Pre-V5.9.953 the
+                    // BotService kicked warmStart on an async Thread, but by the
+                    // time the thread won the SQLite read race, ~1600 scanner-side
+                    // lookups had already missed and re-paid CU+latency on data
+                    // we already had on disk. The pipeline-health dump showed
+                    // 0% hit rate / 1607 misses / 3390 writes — pure churn.
+                    // Eager warm: idempotent (loaded.compareAndSet), 50-200ms cold
+                    // SQLite open, runs ONCE on first get() call (which is off
+                    // the main thread because it's invoked from the BotService
+                    // coroutine context). Acceptable trade for permanent persistence.
+                    try { fresh.warmStart() } catch (_: Throwable) { /* fail-open */ }
                     fresh
                 }
             }

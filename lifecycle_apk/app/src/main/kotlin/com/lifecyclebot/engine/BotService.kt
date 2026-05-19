@@ -6531,14 +6531,35 @@ class BotService : Service() {
                     // tick at ingest and keep the last real price. If the
                     // move is genuine the next clean quote will confirm
                     // it. If it was a feed glitch we never acted on it.
+                    // V5.9.953 — bounded reject streak. If 50+ consecutive
+                    // ticks fail the filter at the same anchor, the ANCHOR is
+                    // the glitch (basis-switch, stale BC quote), not the
+                    // incoming data. Accept and reset; otherwise the position
+                    // is frozen forever at a fake price. Operator dump showed
+                    // GOOOOAL stuck at prev=6.169E-4 while every Pump.fun WS
+                    // tick at ~2E-6 got rejected — that's a real basis switch
+                    // (BC → graduated) that the filter mistakenly treats as a
+                    // glitch indefinitely.
                     val prev = ts.lastPrice
                     if (prev > 0.0) {
                         val jumpMult = priceUsd / prev
                         if (jumpMult > 100.0 || jumpMult < 0.01) {
-                            ErrorLogger.warn("BotService",
-                                "🚫 WS_TICK_FILTER rejected ${ts.symbol} OPEN: prev=$prev → new=$priceUsd " +
-                                "(jump=${"%.1f".format(jumpMult)}x) — feed glitch, position holds at last real price")
-                            continue
+                            ts.wsTickRejectStreak += 1
+                            if (ts.wsTickRejectStreak >= 50) {
+                                ErrorLogger.warn("BotService",
+                                    "🟢 WS_TICK_FILTER recovery for ${ts.symbol}: " +
+                                    "${ts.wsTickRejectStreak} consecutive rejects at prev=$prev — " +
+                                    "anchor is the glitch, accepting new=$priceUsd as truth")
+                                ts.wsTickRejectStreak = 0
+                                // fall through to accept the new price
+                            } else {
+                                ErrorLogger.warn("BotService",
+                                    "🚫 WS_TICK_FILTER rejected ${ts.symbol} OPEN: prev=$prev → new=$priceUsd " +
+                                    "(jump=${"%.1f".format(jumpMult)}x streak=${ts.wsTickRejectStreak}) — feed glitch, position holds")
+                                continue
+                            }
+                        } else {
+                            ts.wsTickRejectStreak = 0  // healthy tick — reset
                         }
                     }
 

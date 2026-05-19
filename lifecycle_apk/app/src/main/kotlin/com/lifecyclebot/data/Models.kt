@@ -246,6 +246,13 @@ data class TokenState(
     var lastPriceSource: String = "",  // pricing source of most recent ts.lastPrice write
     var lastPricePoolAddr: String = "",  // pool address backing the current quote (Raydium/Bonk/PumpFun pool id)
     var lastPriceDex: String = "",       // DEX label (RAYDIUM/BONK/PUMP_FUN/METEORA/ORCA/UNKNOWN)
+    // V5.9.953 — WS_TICK_FILTER recovery counter. When the filter rejects a
+    // tick because the prev→new jump exceeds 100x or drops below 0.01x, we
+    // bump this. After N consecutive rejects at the same anchor, the anchor
+    // itself is the glitch (basis-switch, stale BC quote, etc.) and we must
+    // accept the new tick as truth. Without this, a position can be frozen
+    // forever at a stale lastPrice while every fresh quote gets rejected.
+    var wsTickRejectStreak: Int = 0,
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk
     var lastFdv: Double = 0.0,             // fully diluted valuation

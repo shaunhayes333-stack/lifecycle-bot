@@ -105,7 +105,13 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 running      = status.running,
                 walletSol    = status.walletSol,
                 activeToken  = active,
-                tokens       = status.tokens.toMap(),
+                // V5.9.953 — pollLoop ANR fix. status.tokens is a ConcurrentHashMap
+                // (Models.kt:309). It's weakly-consistent — never throws CME on
+                // iteration. The .toMap() copy was paranoia from the LinkedHashMap
+                // era; with ~13K intakes it locks the main thread for 50+ seconds
+                // every 2.5s tick. Pass the live map directly. UI consumers
+                // (renderWatchlist, openPositions, etc.) iterate it safely.
+                tokens       = status.tokens,
                 logs         = synchronized(status.logs) { status.logs.toList().takeLast(200) },
                 config       = cfg,
                 walletState    = wm.state.value,
