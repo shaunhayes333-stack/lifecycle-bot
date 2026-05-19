@@ -30,7 +30,13 @@ object MemeWREmergencyBrake {
 
     private const val TAG = "MemeWRBrake"
 
-    private const val MIN_LIFETIME_TRADES = 500
+    // V5.9.986 — Performance Doctrine alignment: bootstrap phase is <5000 lifetime
+    // meme closes (WR 20-35% is THE EXPECTED RANGE per Doctrine #4). The brake
+    // was engaging at 500 trades with <30% WR, which is the literal middle of
+    // the bootstrap doctrine band — choking the bot during its learning phase.
+    // Raised to 5000 so the brake only activates once the bot enters the
+    // mature-phase WR target (50-89%) and a sub-30% reading is actually anomalous.
+    private const val MIN_LIFETIME_TRADES = 5000
     private const val WINDOW_SIZE         = 200
     private const val ENGAGE_WR_PCT       = 30.0
     private const val RELEASE_WR_PCT      = 35.0   // hysteresis
@@ -121,8 +127,13 @@ object MemeWREmergencyBrake {
         return Status(engaged, wrPct, window.size, now)
     }
 
-    /** Is the brake currently active? Hot-path safe. */
-    fun isEngaged(): Boolean = status().engaged
+    /** Is the brake currently active? Hot-path safe.
+     *  V5.9.986 — paper bypass (doctrine #1: paper is the learning lab).
+     *  Live mode keeps the brake intact for capital protection. */
+    fun isEngaged(): Boolean {
+        try { if (com.lifecyclebot.engine.KillSwitch.isPaperMode) return false } catch (_: Throwable) {}
+        return status().engaged
+    }
 
     /** Add to score threshold when engaged, else 0. */
     fun scoreBoost(): Int = if (status().engaged) SCORE_BOOST else 0
