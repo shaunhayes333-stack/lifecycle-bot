@@ -10288,6 +10288,28 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             )
         } catch (_: Throwable) { /* never let logging stop the cycle */ }
 
+        // V5.9.982 — z31/z32 SnipeAgeGate telemetry wire (was DORMANT).
+        // Operator spec z32: "we shouldn't block at 39% confidence we should
+        // wait to see if it changes. we block far too quickly and purge tokens
+        // way too quickly". This call is TELEMETRY-ONLY — it records a
+        // BACKGROUND_CLASSED event via DeferActivityTracker when a token
+        // exceeds the 15-min snipe threshold AND snipeMode is on. It NEVER
+        // purges or skips. Default snipeMode=false preserves current behavior;
+        // the gate only fires when operator flips the flag.
+        try {
+            val ts = status.tokens[mint]
+            if (ts != null && cfg.snipeMode) {
+                val ageMin = if (ts.addedToWatchlistAt > 0) {
+                    (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60000L
+                } else 0L
+                com.lifecyclebot.engine.SnipeAgeGate.evaluateAndTrack(
+                    symbol = ts.symbol,
+                    ageMinutes = ageMin,
+                    snipeModeOn = true,
+                )
+            }
+        } catch (_: Throwable) { /* telemetry must never break the cycle */ }
+
         // V5.9.750 — keep PipelineHealthCollector.modeSnapshot fresh so
         // onGate/onExec can split per-mode counters. One @Volatile write
         // per cycle; negligible cost. Truth source: cfg.paperMode.

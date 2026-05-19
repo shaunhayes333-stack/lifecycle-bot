@@ -27,6 +27,8 @@ data class BotConfig(
     val rpcUrl: String = "",  // User provides their own RPC URL in settings (Helius, QuickNode, etc.)
     // mode
     val paperMode: Boolean = true,
+    val snipeMode: Boolean = false,  // V5.9.982 — z31/z32 SnipeAgeGate enable. Default OFF (preserves current behavior). When ON, tokens >15min get shunted to BACKGROUND lane (NEVER purged — operator override z32).
+
     val shadowPaperEnabled: Boolean = false,  // V5.9.773 — was true. Default-on shadow paper bled paper trades into LIVE UI (Open Positions, Treasury Scalps, Project Sniper all polluted). Operator must explicitly opt in.
     val moonshotOverrideEnabled: Boolean = true,  // In paper/shadow mode, execute LIVE buys for moonshots (score>=85, quality A/B)
     val fluidLearningEnabled: Boolean = true,  // Enable fluid scaling & all profit tools in paper/shadow mode
