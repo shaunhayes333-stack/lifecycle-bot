@@ -11020,6 +11020,59 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     } catch (e: Exception) {
         ErrorLogger.debug("BotService", "MomentumPredictorAI record error: ${e.message}")
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.978 — TIER 1 FEEDER-CONSUMER ASYMMETRY FIX
+    // Three V3 scoring layers (OrderFlowImbalanceAI, SmartMoneyDivergenceAI,
+    // VolatilityRegimeAI) had dormant analyze() feeders — their score()
+    // methods were aggregating neutral defaults forever, diluting real
+    // layers. Doctrine #31: scoring layers without feeders are dead weight.
+    // Feed them all from the candle history at the same tick frequency
+    // as MomentumPredictorAI.
+    // ═══════════════════════════════════════════════════════════════════
+    try {
+        val hist = ts.history
+        if (hist.size >= 5) {
+            // Take last 20 candles — enough for ATR(14) + flow window
+            val window = hist.takeLast(20)
+
+            // OrderFlowImbalanceAI: needs buy/sell volume + price series
+            try {
+                val buyVols  = window.map { it.vol * it.buyRatio }
+                val sellVols = window.map { it.vol * (1.0 - it.buyRatio) }
+                val prices   = window.map { it.priceUsd }
+                com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.analyze(
+                    mint = mint, symbol = ts.symbol,
+                    buyVolumes = buyVols, sellVolumes = sellVols, prices = prices,
+                )
+            } catch (_: Throwable) {}
+
+            // SmartMoneyDivergenceAI: needs price series + whale recommendation
+            try {
+                val prices = window.map { it.priceUsd }
+                com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.analyze(
+                    mint = mint, symbol = ts.symbol,
+                    recentPrices = prices,
+                    whaleRecommendation = null,  // analyze() looks it up if null
+                    topHolderPctChange = 0.0,
+                    holderCountChange = 0,
+                )
+            } catch (_: Throwable) {}
+
+            // VolatilityRegimeAI: needs OHLC arrays for ATR
+            try {
+                val highs  = window.map { if (it.highUsd > 0) it.highUsd else it.priceUsd }
+                val lows   = window.map { if (it.lowUsd  > 0) it.lowUsd  else it.priceUsd }
+                val closes = window.map { it.priceUsd }
+                com.lifecyclebot.v3.scoring.VolatilityRegimeAI.analyze(
+                    mint = mint, symbol = ts.symbol,
+                    recentHighs = highs, recentLows = lows, recentCloses = closes,
+                )
+            } catch (_: Throwable) {}
+        }
+    } catch (e: Exception) {
+        ErrorLogger.debug("BotService", "V3-scorer feeder error: ${e.message}")
+    }
     
     val modeConfForEval = if (cfg.autoMode) modeConf else null
     // V5.9.58: Gentle self-heal if the scanner has choked itself off.
