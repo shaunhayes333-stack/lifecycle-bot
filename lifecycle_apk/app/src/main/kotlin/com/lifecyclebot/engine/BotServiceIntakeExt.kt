@@ -71,8 +71,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import com.lifecyclebot.data.BotConfig
+import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.engine.solana.SolanaWallet
+import com.lifecyclebot.network.SolanaWallet
 
 // V5.9.962 — extracted from botLoop to keep that method under the JVM
 // 64KB bytecode cap. V5.9.960 inline run{} added ~3KB of bytecode and
@@ -167,14 +168,14 @@ internal fun BotService.selectOrderedMintsForCycle(
 internal fun BotService.runScannerHeartbeat() {
     try {
         val sc = marketScanner
-        if (BotService.sc == null) {
+        if (sc == null) {
             ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${BotService.status.running} watch=${GlobalTradeRegistry.size()}")
             if (BotService.status.running) {
                 addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
                 bootMemeScanner(reason = "HEARTBEAT_NULL")
             }
         } else {
-            val snap = try { BotService.sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
+            val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
             if (snap != null) {
                 ErrorLogger.info(
                     "BotService",
