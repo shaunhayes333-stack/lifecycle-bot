@@ -1083,9 +1083,30 @@ class LifecycleStrategy(
         // is still enforced for thin/low-score tokens where lifecycle phase
         // genuinely matters; fresh, large, well-scored tokens go straight to
         // the hard-block gate below.
+        //
+        // V5.9.947 — PAPER-MODE LEARNING TIER. Operator V5.9.946 dump showed
+        // FDG blocking 32/36 evals with "Insufficient" because PUMP_FUN_NEW
+        // tokens with liq $2K-$15K and score 42-87 (CONDUIT, APR, TROLLGE,
+        // 1billion, etc.) were getting bootstrap-rejected. The $15K liquidity
+        // floor is correct for LIVE money (don't trade dust with real SOL)
+        // but in PAPER it kills the AGI sample stream — exactly the failure
+        // mode doctrine #87.1 ("dropped signal = dropped AGI sample") warns
+        // against.
+        //
+        // PAPER tier: pass if EITHER
+        //   • Strong fresh launch ($15K liq + score 30)  [pre-existing]
+        //   • Decent learning sample ($2K liq + score 40) [new — paper only]
+        // The pre-existing $15K live-grade gate is unchanged for live mode.
+        // Hard blocks (rug/freeze/SL/MLrug) still fire on this path; we're
+        // only relaxing the bootstrap-data gate, not the safety gates.
         val hasStrongFreshLaunchSignals =
             ts.lastLiquidityUsd >= 15_000.0 && result.entryScore >= 30.0
-        if ((hist.size < 3 && !hasStrongFreshLaunchSignals) ||
+        val hasPaperLearningSignals =
+            isPaperMode &&
+            ts.lastLiquidityUsd >= 2_000.0 &&
+            result.entryScore >= 40.0
+        val bootstrapPass = hasStrongFreshLaunchSignals || hasPaperLearningSignals
+        if ((hist.size < 3 && !bootstrapPass) ||
             result.phase in listOf("bootstrap", "thin_market")) {
             val decision = CandidateDecision.blocked(
                 reason = "Insufficient data: ${result.phase}",
