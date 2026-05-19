@@ -302,4 +302,127 @@ object TradeLessonRecorder {
             ErrorLogger.debug(TAG, "Save trust to Turso failed: ${e.message}")
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.991 — LOCAL PERSISTENCE (Doctrine #25 amnesia close)
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Pre-V5.9.991 the only persistence was Turso (cloud). On startup
+    // restoreFromTurso() loads the last 500 lessons IF the device is online
+    // AND the Turso client is configured. If either fails, the entire
+    // causal-chain learning corpus starts cold every restart — exactly the
+    // amnesia pattern the doctrine forbids.
+    //
+    // This commit adds a local blob persistence path so the lessons survive
+    // restarts even with no network / no Turso. Turso remains the canonical
+    // cross-device sync layer; LearningPersistence is the local fallback.
+    //
+    // Strategy: serialize allLessons (the master list); per-lane indexes
+    // are derived state, rebuilt on import via the same addToLane() helper
+    // used by record(). This avoids duplicating the same lesson 6× across
+    // 6 lane blobs.
+
+    fun exportState(): String {
+        return try {
+            val snapshot = synchronized(allLessons) { allLessons.toList() }
+            val arr = org.json.JSONArray()
+            for (lesson in snapshot) {
+                val o = org.json.JSONObject()
+                o.put("id", lesson.id)
+                o.put("strategy", lesson.strategy)
+                o.put("market", lesson.market)
+                o.put("symbol", lesson.symbol)
+                o.put("entryRegime", lesson.entryRegime.name)
+                o.put("entrySession", lesson.entrySession.name)
+                o.put("trustScore", lesson.trustScore)
+                o.put("fragilityScore", lesson.fragilityScore)
+                o.put("narrativeHeat", lesson.narrativeHeat)
+                o.put("portfolioHeat", lesson.portfolioHeat)
+                o.put("leverageUsed", lesson.leverageUsed)
+                o.put("executionConfidence", lesson.executionConfidence)
+                if (lesson.leadSource != null) o.put("leadSource", lesson.leadSource)
+                if (lesson.expectedDelaySec != null) o.put("expectedDelaySec", lesson.expectedDelaySec)
+                o.put("outcomePct", lesson.outcomePct)
+                o.put("mfePct", lesson.mfePct)
+                o.put("maePct", lesson.maePct)
+                o.put("holdSec", lesson.holdSec)
+                o.put("exitReason", lesson.exitReason)
+                o.put("expectedFillPrice", lesson.expectedFillPrice)
+                o.put("actualFillPrice", lesson.actualFillPrice)
+                o.put("slippagePct", lesson.slippagePct)
+                o.put("executionRoute", lesson.executionRoute)
+                o.put("timestamp", lesson.timestamp)
+                arr.put(o)
+            }
+            val root = org.json.JSONObject()
+            root.put("v", 1)
+            root.put("lessons", arr)
+            root.toString()
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "exportState failed: ${e.message}")
+            "{}"
+        }
+    }
+
+    fun importState(json: String) {
+        try {
+            val root = org.json.JSONObject(json)
+            val arr = root.optJSONArray("lessons") ?: return
+            var restored = 0
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val lesson = try {
+                    TradeLesson(
+                        id = o.optString("id", ""),
+                        strategy = o.optString("strategy", "UNKNOWN"),
+                        market = o.optString("market", "MEME"),
+                        symbol = o.optString("symbol", "?"),
+                        entryRegime = try { GlobalRiskMode.valueOf(o.optString("entryRegime", "CRUISE")) }
+                                      catch (_: Throwable) { GlobalRiskMode.values().first() },
+                        entrySession = try { SessionContext.valueOf(o.optString("entrySession", "UNKNOWN")) }
+                                        catch (_: Throwable) { SessionContext.values().first() },
+                        trustScore = o.optDouble("trustScore", 0.5),
+                        fragilityScore = o.optDouble("fragilityScore", 0.5),
+                        narrativeHeat = o.optDouble("narrativeHeat", 0.5),
+                        portfolioHeat = o.optDouble("portfolioHeat", 0.0),
+                        leverageUsed = o.optDouble("leverageUsed", 1.0),
+                        executionConfidence = o.optDouble("executionConfidence", 0.5),
+                        leadSource = if (o.has("leadSource")) o.optString("leadSource", null) else null,
+                        expectedDelaySec = if (o.has("expectedDelaySec")) o.optInt("expectedDelaySec") else null,
+                        outcomePct = o.optDouble("outcomePct", 0.0),
+                        mfePct = o.optDouble("mfePct", 0.0),
+                        maePct = o.optDouble("maePct", 0.0),
+                        holdSec = o.optInt("holdSec", 0),
+                        exitReason = o.optString("exitReason", "UNKNOWN"),
+                        expectedFillPrice = o.optDouble("expectedFillPrice", 0.0),
+                        actualFillPrice = o.optDouble("actualFillPrice", 0.0),
+                        slippagePct = o.optDouble("slippagePct", 0.0),
+                        executionRoute = o.optString("executionRoute", "UNKNOWN"),
+                        timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                    )
+                } catch (_: Throwable) { continue }
+
+                synchronized(allLessons) {
+                    allLessons.add(lesson)
+                    if (allLessons.size > MAX_LESSONS_PER_LANE * 6) allLessons.removeAt(0)
+                }
+                // Rebuild per-lane indexes
+                addToLane(strategyLane, lesson.strategy, lesson)
+                addToLane(regimeLane, lesson.entryRegime.name, lesson)
+                addToLane(executionLane, lesson.executionRoute, lesson)
+                val levKey = when {
+                    lesson.leverageUsed <= 1.0 -> "SPOT"
+                    lesson.leverageUsed <= 2.0 -> "LOW_LEV"
+                    lesson.leverageUsed <= 5.0 -> "MED_LEV"
+                    else -> "HIGH_LEV"
+                }
+                addToLane(leverageLane, levKey, lesson)
+                if (lesson.leadSource != null) addToLane(rotationLane, lesson.leadSource, lesson)
+                restored++
+            }
+            ErrorLogger.info(TAG, "importState: restored $restored lessons from blob")
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "importState failed: ${e.message}")
+        }
+    }
 }

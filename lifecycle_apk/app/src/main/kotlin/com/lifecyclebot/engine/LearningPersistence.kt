@@ -108,6 +108,8 @@ object LearningPersistence {
             try { putBlob("SHADOW_LEARNING",   com.lifecyclebot.engine.ShadowLearningEngine.exportState()) } catch (_: Throwable) {}
             try { putBlob("EFFICIENCY_LAYER",  com.lifecyclebot.engine.EfficiencyLayer.exportState()) } catch (_: Throwable) {}
             try { putBlob("PERPS_REPLAY",      com.lifecyclebot.perps.PerpsAutoReplayLearner.exportState()) } catch (_: Throwable) {}
+            // V5.9.991 — TradeLessonRecorder causal-chain learning corpus
+            try { putBlob("TRADE_LESSONS",     com.lifecyclebot.v4.meta.TradeLessonRecorder.exportState()) } catch (_: Throwable) {}
             // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
             // Pre-V5.9.964 these had save()/restore() defined and init() wired
             // so restore() ran at boot, but save() was NEVER called. Lifetime
@@ -156,6 +158,8 @@ object LearningPersistence {
         try { getBlob("SHADOW_LEARNING")?.let  { com.lifecyclebot.engine.ShadowLearningEngine.importState(it) } } catch (_: Throwable) {}
         try { getBlob("EFFICIENCY_LAYER")?.let { com.lifecyclebot.engine.EfficiencyLayer.importState(it) } } catch (_: Throwable) {}
         try { getBlob("PERPS_REPLAY")?.let     { com.lifecyclebot.perps.PerpsAutoReplayLearner.importState(it) } } catch (_: Throwable) {}
+        // V5.9.991 — TradeLessonRecorder causal-chain learning corpus
+        try { getBlob("TRADE_LESSONS")?.let    { com.lifecyclebot.v4.meta.TradeLessonRecorder.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════
