@@ -9031,8 +9031,52 @@ class Executor(
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
             }
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, bluechipSignal)
-            
-            ErrorLogger.debug("Executor", "✅ Closed all layer positions for ${ts.symbol}")
+
+            // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell win/loss path).
+            // Pre-fix only CashGen/ShitCoin/BlueChip got closePosition() here.
+            // The other 6 sub-traders (Moonshot, Quality, Manipulated, DipHunter,
+            // ProjectSniper, ShitCoinExpress) retained the entry in their private
+            // activePositions map forever. After ts.position was zeroed below,
+            // rapidStopLossMonitor's V5.9.721 sub-trader sweep kept finding the
+            // zombie entry, fired requestSell -> acquireSellLock -> ALREADY_CLOSED
+            // -> releaseSellLock at ~3 calls/sec for 2+ minutes per dead mint.
+            // V5.9.962 forensics: 417 SELL_LOCK_SET for 3 real sells.
+            try {
+                val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
+                          else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, mEx)
+            } catch (_: Exception) {}
+            try {
+                val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
+                          else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, price, qEx)
+            } catch (_: Exception) {}
+            try {
+                val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
+                            else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, price, manEx)
+            } catch (_: Exception) {}
+            try {
+                val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
+                            else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(ts.mint, price, dipEx)
+            } catch (_: Exception) {}
+            try {
+                val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
+                    shouldExit = true,
+                    exitPct = 100,
+                    reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",
+                    rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
+                )
+                com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(ts.mint, price, snEx)
+            } catch (_: Exception) {}
+            try {
+                val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
+                            else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, price, expEx)
+            } catch (_: Exception) {}
+
+            ErrorLogger.debug("Executor", "✅ Closed all 9 sub-trader positions for ${ts.symbol}")
         } catch (e: Exception) {
             ErrorLogger.error("Executor", "Error closing layer positions: ${e.message}")
         }
@@ -9770,7 +9814,49 @@ class Executor(
             }
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, price, blueChipExitSignal)
         } catch (_: Exception) {}
-        
+
+        // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell reason-keyword path).
+        // Same fix as the win/loss block above. Without this, an exit via
+        // STRICT_SL_-10, RAPID_HARD_FLOOR_STOP, TIME_EXIT etc. leaves
+        // Moonshot/Quality/Manipulated/DipHunter/ProjectSniper/ShitCoinExpress
+        // private positions live -> sub-trader sweep zombies.
+        val r6 = reason.lowercase()
+        val isProfit6 = r6.contains("profit") || r6.contains("target") || r6.contains("take_profit")
+        try {
+            val mEx = if (isProfit6) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
+                      else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, price, mEx)
+        } catch (_: Exception) {}
+        try {
+            val qEx = if (isProfit6) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
+                      else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
+            com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, price, qEx)
+        } catch (_: Exception) {}
+        try {
+            val manEx = if (isProfit6) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
+                        else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
+            com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, price, manEx)
+        } catch (_: Exception) {}
+        try {
+            val dipEx = if (isProfit6) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
+                        else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
+            com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(tradeId.mint, price, dipEx)
+        } catch (_: Exception) {}
+        try {
+            val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
+                shouldExit = true,
+                exitPct = 100,
+                reason = if (isProfit6) "TAKE_PROFIT" else "STOP_LOSS",
+                rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
+            )
+            com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(tradeId.mint, price, snEx)
+        } catch (_: Exception) {}
+        try {
+            val expEx = if (isProfit6) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
+                        else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
+            com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, price, expEx)
+        } catch (_: Exception) {}
+
         ts.position         = Position()
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
@@ -11889,7 +11975,45 @@ class Executor(
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.STOP_LOSS
             }
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal)
-            
+
+            // V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (liveSell path).
+            // Same fix as paperSell: close the 6 missing sub-trader maps so
+            // rapidStopLossMonitor's sub-trader sweep can't find zombies.
+            try {
+                val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT
+                          else com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, exitPrice, mEx)
+            } catch (_: Exception) {}
+            try {
+                val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT
+                          else com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, exitPrice, qEx)
+            } catch (_: Exception) {}
+            try {
+                val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT
+                            else com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, exitPrice, manEx)
+            } catch (_: Exception) {}
+            try {
+                val dipEx = if (isWin) com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.RECOVERY_TARGET
+                            else com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.DipHunterAI.closeDip(tradeId.mint, exitPrice, dipEx)
+            } catch (_: Exception) {}
+            try {
+                val snEx = com.lifecyclebot.v3.scoring.ProjectSniperAI.ExitSignal(
+                    shouldExit = true,
+                    exitPct = 100,
+                    reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",
+                    rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
+                )
+                com.lifecyclebot.v3.scoring.ProjectSniperAI.completeMission(tradeId.mint, exitPrice, snEx)
+            } catch (_: Exception) {}
+            try {
+                val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30
+                            else com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.STOP_LOSS
+                com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, exitPrice, expEx)
+            } catch (_: Exception) {}
+
             TradeAuthorizer.releasePosition(
                 mint = tradeId.mint,
                 reason = "SELL_$reason",
