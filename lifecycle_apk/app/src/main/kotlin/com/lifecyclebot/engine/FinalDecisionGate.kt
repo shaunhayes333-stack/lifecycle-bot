@@ -692,6 +692,23 @@ object FinalDecisionGate {
             if (v3Score >= 0) com.lifecyclebot.engine.WrRecoveryPartial.recordV3Score(v3Score)
         } catch (_: Throwable) {}
 
+        // V5.9.973 — z DGradeLooperTracker revival (was 0-caller).
+        // TELEMETRY ONLY (no veto, no soft-shape yet). Records every
+        // candidate so operator can see if D-grade looper churn is a
+        // real volume/WR drag. Tag added when a D-grade mint has been
+        // re-proposed >MAX times in the 2-minute window; FDG continues
+        // to evaluate normally — block decision deferred until operator
+        // confirms the signal is worth acting on.
+        try {
+            val q = candidate.setupQuality
+            val cf = candidate.aiConfidence.toInt()
+            com.lifecyclebot.v3.eligibility.DGradeLooperTracker.recordProposal(ts.mint, q, cf)
+            if (com.lifecyclebot.v3.eligibility.DGradeLooperTracker
+                    .shouldBlockDGradeLooper(ts.mint, q, cf)) {
+                tags.add("d_grade_looper")
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.766 — EMERGENT priority 3: upstream SafetyReady gate.
         // Operator forensics_20260515_161017 showed 17 BUY_FAILED
         // LIVE_BUY_BLOCKED_RISK[liveBuy.main] SAFETY_DATA_MISSING events

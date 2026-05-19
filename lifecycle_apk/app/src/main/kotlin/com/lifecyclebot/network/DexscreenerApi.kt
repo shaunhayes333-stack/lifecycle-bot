@@ -243,7 +243,15 @@ class DexscreenerApi {
     private fun get(url: String): String? = try {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0").build()
-        val resp = http.newCall(req).execute()
+        // V5.9.974 — route via HealthAwareHttp so AutoEndpointMigrator
+        // can swap dead hosts and ApiHealthMonitor records per-host
+        // latency/error stats. Fail-open: any wrapper throw drops back
+        // to raw newCall via the catch path below.
+        val resp = try {
+            com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "dexscreener")
+        } catch (_: Throwable) {
+            http.newCall(req).execute()
+        }
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (e: Exception) { null }
 
