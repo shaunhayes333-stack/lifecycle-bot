@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.975"
+    private const val BUILD_TAG = "V5.9.976"
 
     data class Event(
         val tsMs: Long,
@@ -860,12 +860,12 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
 
         // ── PerformanceAnalytics block ─────────────────────────────
-        // V5.9.975 — z PerformanceAnalytics revival (was 0-caller).
+        // V5.9.976 — z PerformanceAnalytics revival (was 0-caller).
         // Pulls last 1000 closed trades via TradeDatabase.getAllTrades()
         // and produces a Sharpe/drawdown/profit-factor/expectancy block.
         // Wrapped in try because tradeDb may be null during early boot.
         try {
-            val db = BotService.tradeDb
+            val db = BotService.instance?.tradeDb
             if (db != null) {
                 val trades = db.getAllTrades()
                 if (trades.isNotEmpty()) {

@@ -69,7 +69,7 @@ object PositionSizing {
 
     private fun computeGlobalStats(): GlobalStats? {
         return try {
-            val db = com.lifecyclebot.engine.BotService.tradeDb ?: return null
+            val db = com.lifecyclebot.engine.BotService.instance?.tradeDb ?: return null
             val trades = db.getAllTrades()
             if (trades.size < STATS_MIN_SAMPLES) return null
             val closed = trades.filter { it.tsExit > 0L }
