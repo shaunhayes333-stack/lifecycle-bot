@@ -149,15 +149,15 @@ internal suspend fun BotService.runReconcileSweep() {
  */
 internal suspend fun BotService.runFreezeDetectorTick(
     loopCount: Int,
-    BotService.cfg: com.lifecyclebot.data.BotConfig,
+    cfg: com.lifecyclebot.data.BotConfig,
 ) {
     try {
-        val BotService.now = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
         val curExec = com.lifecyclebot.engine.CanonicalLearningCounters
             .executedTradesTotal.get()
         if (curExec != freezeLastExecCount) {
             freezeLastExecCount = curExec
-            freezeLastExecChangeMs = BotService.now
+            freezeLastExecChangeMs = now
         }
 
         // ── Cap diagnostics: per-lane open count + caps ────────
@@ -177,19 +177,19 @@ internal suspend fun BotService.runFreezeDetectorTick(
             cbState.consecutiveLosses>=3 -> " · streak=${cbState.consecutiveLosses}"
             else                         -> ""
         }
-        val freezeAgeSec = (BotService.now - freezeLastExecChangeMs) / 1000
+        val freezeAgeSec = (now - freezeLastExecChangeMs) / 1000
         val capLine = "🪪 caps: meme=$memeOpen/$memeCap (pending=$memePending) · execAge=${freezeAgeSec}s · execTotal=$curExec$haltedTag"
         ErrorLogger.info("BotService", capLine)
         addLog(capLine)
 
         // ── Freeze detector ────────────────────────────────────
-        val staleMs = BotService.now - freezeLastExecChangeMs
+        val staleMs = now - freezeLastExecChangeMs
         val scannerAlive = marketScanner != null
         val haveOpens = memeOpen > 0
-        val canFireAgain = (BotService.now - freezeRecoveryFiredAt) > 5 * 60_000L
+        val canFireAgain = (now - freezeRecoveryFiredAt) > 5 * 60_000L
         val freezeStaleThresholdMs = 3 * 60_000L
         if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain) {
-            freezeRecoveryFiredAt = BotService.now
+            freezeRecoveryFiredAt = now
             ErrorLogger.error("BotService",
                 "🔓 FREEZE_DETECTOR: 0 executions in ${staleMs/1000}s while scanner alive + memeOpen=$memeOpen — running auto-unfreeze")
             addLog("🔓 FREEZE_DETECTOR fired (${staleMs/1000}s stale) — auto-unfreezing")
@@ -207,7 +207,7 @@ internal suspend fun BotService.runFreezeDetectorTick(
             //    don't want a permanent stuck halt blocking buys.
             try {
                 if (::securityGuard.isInitialized) {
-                    val BotService.cb = securityGuard.getCircuitBreakerState()
+                    val cb = securityGuard.getCircuitBreakerState()
                     if (BotService.cb.isHalted) {
                         ErrorLogger.warn("BotService",
                             "🔓 FREEZE_DETECTOR: SecurityGuard halted (${BotService.cb.haltReason}) — clearing halt")
@@ -339,7 +339,7 @@ internal fun BotService.runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wa
 }
 
 internal fun BotService.sweepUniversalExits(
-    BotService.cfg: com.lifecyclebot.data.BotConfig,
+    cfg: com.lifecyclebot.data.BotConfig,
     wallet: com.lifecyclebot.network.SolanaWallet?,
     effectiveBalance: Double,
 ) {
