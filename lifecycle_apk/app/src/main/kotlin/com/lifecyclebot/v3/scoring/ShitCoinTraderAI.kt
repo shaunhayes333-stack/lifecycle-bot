@@ -1616,7 +1616,13 @@ object ShitCoinTraderAI {
         val brakeBoost = try {
             if (com.lifecyclebot.engine.MemeWREmergencyBrake.isEngaged()) 2 else 0
         } catch (_: Throwable) { 0 }
-        return (baseConf + boost).toInt() + brakeBoost
+        val raw = (baseConf + boost).toInt() + brakeBoost
+        // V5.9.966 — apply z38 LiveLayerGateRelaxer (was file-dead). Live
+        // mode multiplies the floor by 0.85 so the lane can actually fire
+        // in live where paper-tuned thresholds were starving it.
+        return try {
+            com.lifecyclebot.engine.LiveLayerGateRelaxer.relaxFloor(raw, "SHITCOIN", !isPaperMode)
+        } catch (_: Throwable) { raw }
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
     fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
