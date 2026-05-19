@@ -321,6 +321,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLogPhase: TextView
     private lateinit var tvLogSignal: TextView
     private lateinit var tvLogEntry: TextView
+    // V5.9.992 — ScoreBarView visual bars (parallel to text rows)
+    private var barLogEntry: com.lifecyclebot.ui.ScoreBarView? = null
+    private var barLogVol:   com.lifecyclebot.ui.ScoreBarView? = null
+    private var barLogPress: com.lifecyclebot.ui.ScoreBarView? = null
+    private var barLogMom:   com.lifecyclebot.ui.ScoreBarView? = null
     private lateinit var tvLogExit: TextView
     private lateinit var tvLogVol: TextView
     private lateinit var tvLogPress: TextView
@@ -1503,6 +1508,17 @@ for legal compliance.
         tvLogPhase    = try { findViewById(R.id.tvLogPhase)  } catch (_: Exception) { TextView(this) }
         tvLogSignal   = try { findViewById(R.id.tvLogSignal) } catch (_: Exception) { TextView(this) }
         tvLogEntry    = try { findViewById(R.id.tvLogEntry)  } catch (_: Exception) { TextView(this) }
+        // V5.9.992 — visual bars
+        barLogEntry = try { findViewById(R.id.barLogEntry) } catch (_: Exception) { null }
+        barLogVol   = try { findViewById(R.id.barLogVol)   } catch (_: Exception) { null }
+        barLogPress = try { findViewById(R.id.barLogPress) } catch (_: Exception) { null }
+        barLogMom   = try { findViewById(R.id.barLogMom)   } catch (_: Exception) { null }
+        try {
+            barLogEntry?.label = "ENTRY"; barLogEntry?.barColor = 0xFF9945FF.toInt()
+            barLogVol?.label   = "VOL";   barLogVol?.barColor   = 0xFF3B82F6.toInt()
+            barLogPress?.label = "BUY%";  barLogPress?.barColor = 0xFF10B981.toInt()
+            barLogMom?.label   = "MOM";   barLogMom?.barColor   = 0xFFF59E0B.toInt()
+        } catch (_: Throwable) {}
         tvLogExit     = try { findViewById(R.id.tvLogExit)   } catch (_: Exception) { TextView(this) }
         tvLogVol      = try { findViewById(R.id.tvLogVol)    } catch (_: Exception) { TextView(this) }
         tvLogPress    = try { findViewById(R.id.tvLogPress)  } catch (_: Exception) { TextView(this) }
@@ -6681,6 +6697,13 @@ This cannot be undone!
         tvLogVol.text    = "VOL    ${meta.volScore.toInt()}"
         tvLogPress.text  = "BUY%%   ${meta.pressScore.toInt()}"
         tvLogMom.text    = "MOM    ${meta.momScore.toInt()}"
+        // V5.9.992 — mirror to visual bars
+        try {
+            barLogEntry?.value = ts.entryScore.toInt()
+            barLogVol?.value   = meta.volScore.toInt()
+            barLogPress?.value = meta.pressScore.toInt()
+            barLogMom?.value   = meta.momScore.toInt()
+        } catch (_: Throwable) {}
         tvLogEmaFan.text = "EMA FAN  ${meta.emafanAlignment.ifBlank { "—" }}"
 
         // Active flag pills — shows which v4 signals fired this tick
