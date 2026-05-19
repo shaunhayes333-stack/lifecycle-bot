@@ -10927,11 +10927,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         //   Level 1 (500-1000):       $500  — soft filter starts
         //   Level 2 (1000-3000):     $1000  — growing selectivity
         //   Level 3+ (3000+):        $2000  — experienced bot, high bar
+        // V5.9.954 — THROUGHPUT FIX. The $2000 floor at guardLvl 3+ was killing
+        // 17% of V3 candidates (operator dump: 64 V3_SKIPPED of 379 intakes).
+        // PERFORMANCE_DOCTRINE band requires 500-1000 trades/day to climb the
+        // WR curve; the bot doesn't reach that throughput with a $2000 vol1h
+        // hard veto on every fresh launch. Mature-band floor stays sane at
+        // $750 (still 7.5x level-0). This is a tighten-NOT-loosen for pure
+        // mature operation but doctrine #86 (help, don't hinder) trumps elite
+        // selectivity until the bot consistently sustains the volume band.
         val minVolumeH1  = when {
             guardLvl == 0       -> 100.0
-            guardLvl == 1       -> 500.0
-            guardLvl == 2       -> 1_000.0
-            else                -> 2_000.0
+            guardLvl == 1       -> 300.0
+            guardLvl == 2       -> 500.0
+            else                -> 750.0
         }
         if (lastVolumeH1 < minVolumeH1) {
             // V5.9.672 — restore LIVE-mode VOL_GATE bypass. V5.9.606 only
@@ -10945,8 +10953,14 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // unknownVolumeButTradable: bypass vol gate for fresh listings (vol=0 but liq/mcap ok).
             // Keep this bypass for all guard levels — a token with no vol history but
             // solid liquidity is a legitimate fresh launch, not a dead token.
+            // V5.9.954 — relax bypass thresholds. Fresh Pump.fun launches average
+            // $500-$1500 liq and $3k-$15k mcap. The old $2k/$10k thresholds dropped
+            // the early-pump phase where 10x runners are caught. Per doctrine #86,
+            // shrink the veto cone; downstream V3 + FDG soft-shapers still decide
+            // if the token is worth real size. A $600-liq fresh meme is a learning
+            // sample either way (W or L).
             val unknownVolumeButTradable = lastVolumeH1 <= 0.0 &&
-                (ts.lastLiquidityUsd >= 2_000.0 || ts.lastMcap >= 10_000.0)
+                (ts.lastLiquidityUsd >= 500.0 || ts.lastMcap >= 3_000.0)
             if (!unknownVolumeButTradable) {
                 ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
                 // V5.9.672 — funnel visibility for the second pre-V3 silent
