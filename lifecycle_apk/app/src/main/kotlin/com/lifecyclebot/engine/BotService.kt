@@ -11221,18 +11221,19 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         val lossBlockUntil = MemeLossStreakGuard.blockedUntilMs(ts.mint)
         if (guardLvl >= 1 && lossBlockUntil > 0L) {
             val remainingMin = (lossBlockUntil - System.currentTimeMillis()) / 60_000L
-            ErrorLogger.debug("BotService", "🛑 [LOSS_STREAK] ${identity.symbol} | SKIP | 3-loss streak — blocked ${remainingMin}min more")
-            // V5.9.672 — surface the silent drop in the pipeline funnel so the
-            // operator can see exactly how many SAFETY-allowed candidates die
-            // here. Reuses the V3 phase bucket since this is a pre-V3 reject.
+            // V5.9.1005 — PERFORMANCE_DOCTRINE: loss streak is NOT an original
+            // hard veto. It can inform scoring, but it must not short-circuit
+            // lane candidates before FDG. The snapshot showed LANE_EVAL=49,
+            // FDG=0, V3_SKIPPED=12 — this return was one of the pre-FDG choke
+            // points. Keep visibility, allow the candidate downstream.
+            ErrorLogger.debug("BotService", "🟡 [LOSS_STREAK_SOFT] ${identity.symbol} | ${remainingMin}min left — FDG still evaluates")
             try {
                 ForensicLogger.gate(
                     ForensicLogger.PHASE.V3, ts.symbol,
-                    allow = false,
-                    reason = "V3_SKIPPED loss_streak | ${remainingMin}min left | src=${ts.source}"
+                    allow = true,
+                    reason = "V3_SOFT_SHAPED loss_streak | ${remainingMin}min left | src=${ts.source}"
                 )
             } catch (_: Throwable) {}
-            return
         }
 
         // 2. VOLUME GATE — no volume = dead token, don't buy
@@ -11278,19 +11279,21 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             val unknownVolumeButTradable = lastVolumeH1 <= 0.0 &&
                 (ts.lastLiquidityUsd >= 500.0 || ts.lastMcap >= 3_000.0)
             if (!unknownVolumeButTradable) {
-                ErrorLogger.debug("BotService", "🔇 [VOL_GATE] ${identity.symbol} | SKIP | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} (dead token)")
-                // V5.9.672 — funnel visibility for the second pre-V3 silent
-                // drop. Same justification as the LOSS_STREAK gate above.
+                // V5.9.1005 — PERFORMANCE_DOCTRINE: volume floor is a soft
+                // quality signal, not an execution veto. Hard-returning here
+                // starved FDG entirely (snapshot: SAFETY=28, LANE_EVAL=49,
+                // FDG=0). Let FDG/lane scorers size or reject downstream.
+                ErrorLogger.debug("BotService", "🟡 [VOL_GATE_SOFT] ${identity.symbol} | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} — FDG still evaluates")
                 try {
                     ForensicLogger.gate(
                         ForensicLogger.PHASE.V3, ts.symbol,
-                        allow = false,
-                        reason = "V3_SKIPPED vol_gate | h1vol=\$${lastVolumeH1.toInt()} < \$${minVolumeH1.toInt()} | liq=\$${ts.lastLiquidityUsd.toInt()}"
+                        allow = true,
+                        reason = "V3_SOFT_SHAPED vol_gate | h1vol=\$${lastVolumeH1.toInt()} < \$${minVolumeH1.toInt()} | liq=\$${ts.lastLiquidityUsd.toInt()}"
                     )
                 } catch (_: Throwable) {}
-                return
+            } else {
+                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
             }
-            ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
         }
     }
 
