@@ -173,7 +173,15 @@ object WrRecoveryPartial {
 
     /** Three rung trigger pcts for the active band. */
     private fun rungsFor(band: Band): Triple<Double, Double, Double> = when (band) {
-        Band.AGGRESSIVE -> Triple(18.0, 35.0, 60.0)
+        // V5.9.956 — operator active instruction: "Activate WrRecoveryPartial
+        // logic when currentWR < phaseTargetWR * 0.85, using a 9% trigger for
+        // the first partial sell only." The old 18% rung1 was a spec
+        // violation that left a deep-deficit bot bleeding past +9% into
+        // micro-cap chop without ever locking the first win tick.
+        // Forensic 2026-05-19 17:35: PTROLL +9.3% sat open with no partial
+        // sell — exactly the scenario operator wrote the rule for.
+        // R2/R3 unchanged (35/60) so the ladder still spaces out properly.
+        Band.AGGRESSIVE -> Triple(9.0, 35.0, 60.0)
         Band.MODERATE   -> Triple(25.0, 45.0, 80.0)
         Band.FLUID      -> Triple(30.0, 60.0, 120.0)
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
