@@ -243,8 +243,8 @@ data class BotConfig(
     val v3MinScoreToTrade: Int = 20,                // V3.2: Lowered from 55 - minimum unified score to consider trade
     val v3MaxExposurePct: Double = 70.0,            // Max wallet exposure in V3 mode
     val v3ConservativeMode: Boolean = false,        // More conservative scoring thresholds
-    val classicScoringMode: Boolean = true,          // V5.9.326: Use build ~1920 classic scorer (20 inner layers, no outer ring, no TrustNet/MuteBoost/genEq/CrossTalk/approvalMemory)
-    val unifiedScoringMode: Boolean = false,         // V5.9.813: Opt-in 44-layer UNIFIED scorer. When true, takes precedence over classicScoringMode. Default false — operator opt-in only.
+    val classicScoringMode: Boolean = false,         // V5.9.957: DEFAULT FLIPPED. Was true. UnifiedScorer is now the default. Set true only to roll back to legacy 20-layer scorer.
+    val unifiedScoringMode: Boolean = true,          // V5.9.957: DEFAULT FLIPPED. Was false. 44-layer UNIFIED scorer is now the default — operator directive after 5h of symptom-chasing on the legacy classic path. Takes precedence over classicScoringMode.
     // V5.7.3: Network Signal Auto-Buy ─────────────────────────────────────
     // Auto-buy from network signals (Copy Trade from Hive)
     val autoTradeNetworkSignals: Boolean = false,   // DISABLED by default - user must opt-in
@@ -651,9 +651,9 @@ object ConfigStore {
             cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", true),  // V5.9.222: default on
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
             // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
-            classicScoringMode          = p.getBoolean("classic_scoring_mode", true),
+            classicScoringMode          = p.getBoolean("classic_scoring_mode", false),  // V5.9.957: default flipped
             // V5.9.813: unified scoring mode (opt-in, default false)
-            unifiedScoringMode          = p.getBoolean("unified_scoring_mode", false),
+            unifiedScoringMode          = p.getBoolean("unified_scoring_mode", true),  // V5.9.957: default flipped
         ).also {
             // V5.9.495z31 — bootstrap RuntimeModeAuthority on load.
             com.lifecyclebot.engine.RuntimeModeAuthority.publishConfig(

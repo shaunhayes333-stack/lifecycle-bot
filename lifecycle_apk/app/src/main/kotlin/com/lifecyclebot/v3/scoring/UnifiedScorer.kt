@@ -47,7 +47,7 @@ class UnifiedScorer(
          * true  = build ~1920 pipeline (20 layers, no outer ring, no TrustNet/MuteBoost)
          * false = full modern stack (V5.9.123+ outer ring, TrustNet, MuteBoost, genEq)
          */
-        @Volatile var classicMode: Boolean = true
+        @Volatile var classicMode: Boolean = false  // V5.9.957: default flipped — was true
 
         /**
          * V5.9.813 — UNIFIED scorer flag. When unifiedMode=true the scorer
@@ -60,7 +60,7 @@ class UnifiedScorer(
          * until operator confirms unifiedMode delivers ≥ CLASSIC volume + WR
          * on a paper run. takes precedence over classicMode when true.
          */
-        @Volatile var unifiedMode: Boolean = false
+        @Volatile var unifiedMode: Boolean = true  // V5.9.957: default flipped — was false. UnifiedScorer is now production.
 
         /**
          * V5.9.781 — operator audit item H: surface current scoring mode to UI/log
