@@ -10978,6 +10978,18 @@ class Executor(
                         )
                         // V5.9.767 — terminal FAILED_FINAL state.
                         try { com.lifecyclebot.engine.sell.SellJobRegistry.transitionTo(ts.mint, com.lifecyclebot.engine.sell.SellJobStatus.FAILED_FINAL) } catch (_: Throwable) {}
+                        // V5.9.968 — z43-F SellFailureHistory record (was file-dead).
+                        // Operator spec: caller MUST consult before retry; if last
+                        // entry is TX_PARSE_OK_BUT_ROUTE_FAILED do not retry blindly.
+                        try {
+                            com.lifecyclebot.engine.sell.SellFailureHistory.record(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_AFTER_BROADCAST,
+                                reason = "FAILED_CONFIRMED: meta.err=${vsr.txErr}",
+                                sig = sig,
+                            )
+                        } catch (_: Throwable) {}
                         TradeVerifier.endSell(ts.mint)
                         throw RuntimeException("Sell failed on-chain: ${vsr.txErr}")
                     }
@@ -12799,6 +12811,15 @@ class Executor(
                 com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
                     mint = ts.mint, symbol = ts.symbol, labelTag = labelTag,
                 )
+                // V5.9.968 — z43-F SellFailureHistory record.
+                try {
+                    com.lifecyclebot.engine.sell.SellFailureHistory.record(
+                        mint = ts.mint, symbol = ts.symbol,
+                        kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_NO_SIGNATURE,
+                        reason = "PUMPPORTAL_PARTIAL_BLOCKED label=$labelTag",
+                        sig = null,
+                    )
+                } catch (_: Throwable) {}
                 return null
             }
             // V5.9.495z43 operator spec item B — even for "full exit" labels,
