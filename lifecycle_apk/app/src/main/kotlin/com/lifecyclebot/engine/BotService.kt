@@ -6681,6 +6681,41 @@ class BotService : Service() {
                     try {
                         com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(mint, priceUsd)
                     } catch (_: Throwable) {}
+                    // V5.9.965 — FEED THE DORMANT SCORERS (audit V5.9.962 Tier 1).
+                    // OrderFlowImbalanceAI / SmartMoneyDivergenceAI /
+                    // VolatilityRegimeAI all had .score() wired into
+                    // UnifiedScorer but .analyze() had ZERO callers — so
+                    // their internal state never updated and they reported
+                    // neutral votes forever, diluting genuine layer signals.
+                    // We have fresh ts.history here; pull the last ~30
+                    // candles and feed each feeder. Each analyze() call is
+                    // cheap (math on ≤30 doubles) and fail-open.
+                    try {
+                        val hist = synchronized(ts.history) { ts.history.toList() }
+                        if (hist.size >= 5) {
+                            val recent = hist.takeLast(30)
+                            val highs   = recent.map { it.highUsd }
+                            val lows    = recent.map { it.lowUsd }
+                            val closes  = recent.map { it.priceUsd }
+                            val buys    = recent.map { it.buysH1.toDouble() }
+                            val sells   = recent.map { it.sellsH1.toDouble() }
+                            try {
+                                com.lifecyclebot.v3.scoring.VolatilityRegimeAI.analyze(
+                                    mint, ts.symbol, highs, lows, closes
+                                )
+                            } catch (_: Throwable) {}
+                            try {
+                                com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.analyze(
+                                    mint, ts.symbol, buys, sells, closes
+                                )
+                            } catch (_: Throwable) {}
+                            try {
+                                com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.analyze(
+                                    mint, ts.symbol, closes
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    } catch (_: Throwable) { /* never break the tick loop */ }
                     updated++
                 }
 
