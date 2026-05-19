@@ -92,6 +92,7 @@ object LearningPersistence {
             try { putBlob("LAYER_READINESS",   com.lifecyclebot.engine.LayerReadinessRegistry.exportState()) } catch (_: Throwable) {}
             try { putBlob("CANONICAL_COUNTERS", com.lifecyclebot.engine.CanonicalLearningCounters.exportState()) } catch (_: Throwable) {}
             try { putBlob("CREATOR_HISTORY", com.lifecyclebot.network.HeliusCreatorHistory.exportState()) } catch (_: Throwable) {}
+            try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
             d.setTransactionSuccessful()
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "saveAll error: ${e.message}")
@@ -114,6 +115,7 @@ object LearningPersistence {
         try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}
         try { getBlob("CANONICAL_COUNTERS")?.let { com.lifecyclebot.engine.CanonicalLearningCounters.importState(it) } } catch (_: Throwable) {}
         try { getBlob("CREATOR_HISTORY")?.let { com.lifecyclebot.network.HeliusCreatorHistory.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("META_COGNITION")?.let { com.lifecyclebot.v3.scoring.MetaCognitionAI.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

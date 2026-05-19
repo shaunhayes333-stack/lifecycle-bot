@@ -978,6 +978,19 @@ object MetaCognitionAI {
     // JSON PERSISTENCE
     // -------------------------------------------------------------------------
 
+    // V5.9.950 — persistence hooks for LearningPersistence. Wraps the
+    // existing saveToJson()/loadFromJson() which fully serialize layer-
+    // performance + win/loss pattern memory + meta calibration but had
+    // never been wired into the lifecycle. MetaCognitionAI is the bot's
+    // self-reflection layer (how well does each AI layer's predictions
+    // actually correlate with outcomes); losing it on restart meant the
+    // bot forgot WHICH OF ITS OWN BRAINS TO TRUST.
+    fun exportState(): String = try { saveToJson().toString() } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try { loadFromJson(org.json.JSONObject(json)) } catch (_: Throwable) { /* fail-open */ }
+    }
+
     fun saveToJson(): JSONObject {
         val root = JSONObject()
 
