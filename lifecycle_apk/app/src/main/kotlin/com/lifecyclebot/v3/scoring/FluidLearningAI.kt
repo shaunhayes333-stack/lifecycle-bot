@@ -438,7 +438,20 @@ object FluidLearningAI {
         val symMult = try {
             com.lifecyclebot.engine.SymbolicContext.getSizeAdjustment()
         } catch (_: Exception) { 1.0 }
-        return (baseMult * symMult).coerceIn(0.05, 1.25)
+        val raw = (baseMult * symMult).coerceIn(0.05, 1.25)
+        // V5.9.980 — z45 SeedingPhaseGuard consumer (was DORMANT).
+        // Operator screenshot showed FluidLearning emitting size multipliers
+        // catastrophically large during SEEDING. Phase-cap on the way out:
+        //   SEEDING  -> [0.10, 0.60]
+        //   LEARNING -> [0.10, 1.00]
+        //   else     -> pass-through
+        // Use BehaviorLearning.getHealthStatus().status as canonical phase
+        // (BOOTSTRAP < MIN_TRADES_FOR_HEALTH maps to SEEDING semantically).
+        return try {
+            val rawStatus = com.lifecyclebot.engine.BehaviorLearning.getHealthStatus().status
+            val phase = if (rawStatus == "BOOTSTRAP") "SEEDING" else rawStatus
+            com.lifecyclebot.engine.SeedingPhaseGuard.capSizeMultForPhase(raw, phase)
+        } catch (_: Throwable) { raw }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
