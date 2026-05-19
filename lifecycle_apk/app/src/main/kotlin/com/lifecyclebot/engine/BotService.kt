@@ -6628,6 +6628,48 @@ class BotService : Service() {
                     )
                 } catch (_: Throwable) {}
 
+                // ═══════════════════════════════════════════════════════════════
+                // V5.9.955 — TICK-LOOP EXIT SWEEP (P0 doctrine fix).
+                // ───────────────────────────────────────────────────────────────
+                // Problem: ALL exit decisions (Treasury TP/SL, V3 lane checkExit,
+                // -15% hard floor, trailing stops) lived only inside the slow
+                // bot loop which was taking 50-60s per cycle (operator forensic
+                // dump 2026-05-19 17:28: BOT_LOOP_TICK=3 in 187s = ~62s/cycle).
+                // Meanwhile prices were updating every ~660ms via this very
+                // loop. Net result: LLORT bled to -49% before the next exit
+                // sweep fired; Torqa ran past +4% target all the way to +32%
+                // before a sell could be triggered; PTROLL +9.3% sat open with
+                // lock +7% but no execution.
+                //
+                // Fix: now that we have fresh prices in ts.lastPrice (and we've
+                // just broadcast them to every lane-private store), run the
+                // canonical exit sweep here at ~2s cadence. This is 30x faster
+                // than the bot loop and respects Prime Doctrine #11:
+                //   "Exit safety NOT dependent on scanner throughput."
+                //
+                // Throttled to every 2s (not every tick) so we don't burn CPU
+                // and so the bot-loop EXIT_SWEEP continues to serve as the
+                // authoritative path for orphan/edge-case positions.
+                try {
+                    val nowSweepMs = System.currentTimeMillis()
+                    if (nowSweepMs - lastTickExitSweepMs >= 2_000L) {
+                        lastTickExitSweepMs = nowSweepMs
+                        val cfgTick = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                        val walletTick = try { walletManager.getWallet() } catch (_: Throwable) { null }
+                        if (cfgTick != null) {
+                            // Part 1: Treasury TP/SL/Trail (CashGenerationAI.checkAllPositionsForExit)
+                            // Part 2: V3 lane fallback (ShitCoin/Moonshot/Quality/BlueChip via runFallbackSafetyExit)
+                            // Both are already implemented as fan-out sweeps; we just call them more often.
+                            try { sweepUniversalExits(cfgTick, walletTick, status.getEffectiveBalance(cfgTick.paperMode)) } catch (e: Throwable) {
+                                ErrorLogger.debug("BotService", "tick sweepUniversalExits err: ${e.message}")
+                            }
+                            try { runUniversalSlSafetyNetSweep(cfgTick, walletTick) } catch (e: Throwable) {
+                                ErrorLogger.debug("BotService", "tick runUniversalSlSafetyNetSweep err: ${e.message}")
+                            }
+                        }
+                    }
+                } catch (_: Throwable) { /* never break the tick loop */ }
+
                 kotlinx.coroutines.delay(TICK_MS)
 
             } catch (ce: kotlinx.coroutines.CancellationException) {
@@ -7184,6 +7226,12 @@ class BotService : Service() {
      * size, open position count, paper/live mode, V3 toggle, etc.
      */
     private var lastBotLoopTickMs: Long = System.currentTimeMillis()
+
+    // V5.9.955 — TICK-LOOP EXIT SWEEP throttle. Exits now fire from the
+    // fast 1Hz open-position tick loop (not the slow 8s+ bot loop), so
+    // hard floors / TP / trailing stops engage 30x faster. Throttled to
+    // every 2s so we don't burn CPU on every 1Hz tick.
+    private var lastTickExitSweepMs: Long = 0L
 
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
