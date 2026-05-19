@@ -1272,7 +1272,34 @@ object ShitCoinTraderAI {
         
         // Cap at max
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
-        
+
+        // V5.9.990 — BehaviorAI wire-in (Doctrine #86 bounded soft-shape, fail-open).
+        // ShitCoin was one of three meme lanes silently skipping BehaviorAI's
+        // sizing + min-quality-grade signals while every other V3 lane consumed
+        // them. Loss-streak / overtrading detection now feeds back into ShitCoin
+        // sizing too. Shitcoin score scale 0-100 mapped to grade:
+        //   80+ = A, 65+ = B, 50+ = C, else D (lower bar than Quality because
+        //   shitcoins are higher-risk lower-bar entries by design).
+        var shitBehaviorSizeMult = 1.0
+        var shitBehaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            shitBehaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+            val inferredGrade = when {
+                shitScore >= 80 -> "A"
+                shitScore >= 65 -> "B"
+                shitScore >= 50 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val order = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candRank = order[inferredGrade] ?: 3
+            val minRank  = order[minGrade.uppercase()] ?: 3
+            if (candRank < minRank) shitBehaviorGradeMult = 0.7
+        } catch (_: Throwable) { /* fail-open */ }
+        positionSol *= (shitBehaviorSizeMult * shitBehaviorGradeMult)
+        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+
         // V4.20: Apply AutoCompoundEngine global size multiplier
         // This multiplier grows as the compound pool accumulates from winning trades
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()

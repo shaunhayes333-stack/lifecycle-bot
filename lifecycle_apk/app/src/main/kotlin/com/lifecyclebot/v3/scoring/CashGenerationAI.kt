@@ -805,6 +805,32 @@ object CashGenerationAI {
         val maxWithCompounding = MAX_POSITION_SOL * walletScaleFactor
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
+        // V5.9.990 — BehaviorAI wire-in (Doctrine #86 bounded soft-shape, fail-open).
+        // CashGen was the third meme lane silently skipping BehaviorAI's sizing
+        // + min-quality-grade signals while every other V3 lane consumed them.
+        // Treasury score scale 0-100 mapped to grade:
+        //   75+ = A, 60+ = B, 45+ = C, else D (Treasury bar is wider because
+        //   Treasury already runs its own min-score+mode-based gating earlier).
+        var treasuryBehaviorSizeMult = 1.0
+        var treasuryBehaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            treasuryBehaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+            val inferredGrade = when {
+                treasuryScore >= 75 -> "A"
+                treasuryScore >= 60 -> "B"
+                treasuryScore >= 45 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val order = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candRank = order[inferredGrade] ?: 3
+            val minRank  = order[minGrade.uppercase()] ?: 3
+            if (candRank < minRank) treasuryBehaviorGradeMult = 0.7
+        } catch (_: Throwable) { /* fail-open */ }
+        positionSol *= (treasuryBehaviorSizeMult * treasuryBehaviorGradeMult)
+        positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
+
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
         if (globalMultiplier > 1.0) {
             positionSol *= globalMultiplier

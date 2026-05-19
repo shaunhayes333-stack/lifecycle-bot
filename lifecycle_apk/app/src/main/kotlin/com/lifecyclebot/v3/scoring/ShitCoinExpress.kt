@@ -531,6 +531,30 @@ object ShitCoinExpress {
             else -> 0.0
         }
         
+        // V5.9.990 — BehaviorAI wire-in (Doctrine #86 bounded soft-shape, fail-open).
+        // Express was missing BehaviorAI's sizing + min-quality-grade signals
+        // while every other V3 lane consumed them. Express score scale 0-30
+        // mapped to grade: 25+ = A, 20+ = B, 15+ = C, else D (Express bar is
+        // wider because the express criteria already require momentum/buy-pressure).
+        var expressBehaviorSizeMult = 1.0
+        var expressBehaviorGradeMult = 1.0
+        try {
+            val rawSize = com.lifecyclebot.v3.scoring.BehaviorAI.getSizingMultiplier()
+            expressBehaviorSizeMult = rawSize.coerceIn(0.5, 1.5)
+            val inferredGrade = when {
+                expressScore >= 25 -> "A"
+                expressScore >= 20 -> "B"
+                expressScore >= 15 -> "C"
+                else -> "D"
+            }
+            val minGrade = com.lifecyclebot.v3.scoring.BehaviorAI.getMinQualityGrade()
+            val order = mapOf("A" to 5, "B" to 4, "C" to 3, "D" to 2, "F" to 1)
+            val candRank = order[inferredGrade] ?: 3
+            val minRank  = order[minGrade.uppercase()] ?: 3
+            if (candRank < minRank) expressBehaviorGradeMult = 0.7
+        } catch (_: Throwable) { /* fail-open */ }
+        positionSol *= (expressBehaviorSizeMult * expressBehaviorGradeMult)
+
         // V5.9.989 — Doctrine #87.15: every lane must consume
         // AutoCompoundEngine.getSizeMultiplier(). Express was the only meme
         // lane silently bypassing this — its sizes never reflected lifetime
