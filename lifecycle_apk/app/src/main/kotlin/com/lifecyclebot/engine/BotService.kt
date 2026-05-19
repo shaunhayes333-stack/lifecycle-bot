@@ -507,6 +507,34 @@ class BotService : Service() {
             // mirror + LayerReadinessRegistry samples to the canonical bus.
             CanonicalSubscribers.registerAll()
 
+            // V5.9.948 — TokenMetaCache warm boot. Hydrates persisted token
+            // metadata (symbol/pair/logo/pool/dex/last-snapshot) from disk
+            // so the bot doesn't re-pay CU + latency to rediscover tokens
+            // it's seen before. Best-effort: failure here never blocks
+            // anything downstream. Runs off the main thread because cold
+            // SQLite open can touch disk; main-thread anchor is the
+            // foreground-service requirement, not this cache.
+            try {
+                val cacheCtx = applicationContext
+                Thread {
+                    try {
+                        val cache = com.lifecyclebot.engine.TokenMetaCache.get(cacheCtx)
+                        val n = cache.warmStart()
+                        ErrorLogger.info("BotService", "TokenMetaCache warmStart hydrated=$n rows")
+                        // Schedule periodic flush + prune.
+                        Thread {
+                            while (true) {
+                                try { Thread.sleep(60_000L) } catch (_: InterruptedException) { return@Thread }
+                                try { cache.flushNow() } catch (_: Throwable) {}
+                            }
+                        }.apply { name = "TokenMetaCache-flush"; isDaemon = true }.start()
+                    } catch (t: Throwable) {
+                        ErrorLogger.warn("BotService", "TokenMetaCache warmStart failed: ${t.message}")
+                    }
+                }.apply { name = "TokenMetaCache-warm"; isDaemon = true }.start()
+            } catch (_: Throwable) { /* fail-open */ }
+
+
             // V5.9.855 — passive API key validator. Flags known dead defaults
             // (Emergent Gemini placeholder + Helius "hive-pattern-learn") so
             // consumers gate off cleanly instead of burning a 401 RTT every
@@ -1684,6 +1712,13 @@ class BotService : Service() {
 
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
+
+        // V5.9.948 — TokenMetaCache shutdown checkpoint. Cheap + idempotent.
+        try {
+            val flushed = com.lifecyclebot.engine.TokenMetaCache
+                .get(applicationContext).flushNow()
+            ErrorLogger.info("BotService", "TokenMetaCache shutdown flushed=$flushed dirty rows")
+        } catch (_: Throwable) { /* shutdown best-effort */ }
         
         // V5.9.673 — DO NOT attempt to liquidate positions on a SYSTEM-INITIATED
         // destroy. The V5.9.661 mandate ("every stop MUST close all positions")
@@ -6742,17 +6777,38 @@ class BotService : Service() {
         try {
             synchronized(status.tokens) {
                 val ts = status.tokens.getOrPut(mint) {
+                    // V5.9.948 — warm-boot hydration from disk-backed cache.
+                    // If we've seen this mint before, restore the
+                    // static-ish fields (symbol/pair/logo/dex/poolAddr) +
+                    // the slow-moving last-snapshot (mcap/liq/fdv/price).
+                    // Skips a Birdeye + DexScreener round-trip per restart.
+                    val cached = try {
+                        com.lifecyclebot.engine.TokenMetaCache
+                            .get(applicationContext).lookup(mint)
+                    } catch (_: Throwable) { null }
                     com.lifecyclebot.data.TokenState(
                         mint = mint,
-                        symbol = symbol.ifBlank { mint.take(6) },
-                        name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
+                        symbol = symbol.ifBlank { cached?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6) },
+                        name = name.ifBlank { cached?.name?.takeIf { it.isNotBlank() } ?: symbol.ifBlank { mint.take(6) } },
+                        pairAddress = cached?.pairAddress ?: "",
+                        pairUrl = cached?.pairUrl ?: "",
                         candleTimeframeMinutes = 1,
                         source = joinedSources,
-                        // V5.9.642 — no-logo intake. Missing/broken token images
-                        // must never be part of the scanner/watchlist contract.
-                        // UI placeholders handle logos; execution only needs mint.
-                        logoUrl = "",
-                    )
+                        logoUrl = cached?.logoUrl ?: "",
+                    ).also { fresh ->
+                        if (cached != null) {
+                            // Warm slow-moving snapshot fields. These are SAFE
+                            // to seed because every fresh tick will overwrite
+                            // them; they only matter for the first few seconds
+                            // post-boot when the scanner hasn't ticked yet.
+                            if (cached.lastPrice > 0.0) fresh.lastPrice = cached.lastPrice
+                            if (cached.lastMcap > 0.0) fresh.lastMcap = cached.lastMcap
+                            if (cached.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = cached.lastLiquidityUsd
+                            if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
+                            if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
+                            if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
+                        }
+                    }
                 }
                 // symbol/name are immutable identity fields on TokenState; the
                 // getOrPut initializer above is the authority for first hydrate.
@@ -6846,6 +6902,19 @@ class BotService : Service() {
                     source = joinedSources,
                 )
             } catch (_: Throwable) {}
+
+            // V5.9.948 — write-through to TokenMetaCache so a future warm boot
+            // can hydrate without round-tripping any API. Cheap: pure memory
+            // mutation, the next 60s flush ticks it to SQLite.
+            try {
+                com.lifecyclebot.engine.TokenMetaCache.get(applicationContext).register(
+                    mint = mint,
+                    symbol = symbol.ifBlank { null },
+                    name = name.ifBlank { null },
+                    lastMcap = marketCapUsd.takeIf { it > 0.0 },
+                    lastLiquidityUsd = liquidityUsd.takeIf { it > 0.0 },
+                )
+            } catch (_: Throwable) { /* best-effort */ }
 
             try { orchestrator?.onTokenAdded(mint, symbol.ifBlank { mint.take(6) }) } catch (_: Throwable) {}
         } catch (e: Throwable) {

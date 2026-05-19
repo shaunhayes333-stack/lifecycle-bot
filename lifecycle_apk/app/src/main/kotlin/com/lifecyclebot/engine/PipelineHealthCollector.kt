@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.944"
+    private const val BUILD_TAG = "V5.9.948"
 
     data class Event(
         val tsMs: Long,
@@ -1076,6 +1076,27 @@ object PipelineHealthCollector {
         // Show operator: which API hosts are healthy, which keys are flagged
         // DEAD, and how many times AutoEndpointMigrator has fired. This is
         // the ONE place to look when "why is intake stalled?" comes up.
+
+        // V5.9.948 — TokenMetaCache snapshot. Surfaces how much the
+        // disk-backed metadata cache is saving the bot. High hit rate =
+        // restarts cheap; low hit rate = either fresh device or cache
+        // pruning too aggressively. Read-only telemetry; never gates.
+        try {
+            // V5.9.948 — TokenMetaCache may not be initialized yet on a
+            // pre-startup snapshot. snapshotIfPresent() returns null in that
+            // case and we silently skip the section.
+            val cacheSnap = com.lifecyclebot.engine.TokenMetaCache.snapshotIfPresent()
+            if (cacheSnap != null) {
+            sb.append("\n===== Token meta cache (V5.9.948) =====\n")
+            sb.append("  live rows:       ${cacheSnap.liveRows}\n")
+            sb.append("  dirty rows:      ${cacheSnap.dirtyRows}\n")
+            sb.append("  read hits:       ${cacheSnap.totalReadHits}\n")
+            sb.append("  read misses:     ${cacheSnap.totalReadMisses}\n")
+            sb.append("  total writes:    ${cacheSnap.totalWrites}\n")
+            sb.append("  hit rate:        ${"%.1f".format(cacheSnap.hitRatePct)}%\n")
+            }
+        } catch (_: Throwable) { /* best-effort telemetry */ }
+
         try {
             val apiSnap = ApiHealthMonitor.snapshot()
             if (apiSnap.isNotEmpty()) {
