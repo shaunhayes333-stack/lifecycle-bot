@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.950"
+    private const val BUILD_TAG = "V5.9.951"
 
     data class Event(
         val tsMs: Long,
@@ -1071,6 +1071,68 @@ object PipelineHealthCollector {
         val v3Skipped = s.phaseBlock["V3"] ?: 0L
         if (v3Skipped > 0)
             sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.951 — THROUGHPUT CHOKE AUDIT
+        //
+        // The PERFORMANCE_DOCTRINE requires 500-1000 trades/day. When volume
+        // is below target this section tells you EXACTLY where the funnel is
+        // collapsing — which gate is silently eating the most candidates.
+        // Numbers are lifetime-since-restart; pair with TradeDatabase counts
+        // to see persisted volume.
+        // ═══════════════════════════════════════════════════════════════════
+        sb.append("\n===== Throughput choke audit (V5.9.951) =====\n")
+        val totalIntake = s.intakeBySource.values.sum()
+        val totalLaneEval = s.laneEvalCounts.values.sum()
+        val totalVerdicts = s.verdictCounts.values.sum()
+        val v3Allow = s.phaseAllow["V3"] ?: 0L
+        val execGateAllow = s.phaseAllow["EXEC_GATE"] ?: 0L
+        val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L
+        val recentExecCount = s.recentExecs.size.toLong()
+        sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
+        sb.append("  lane evaluations:     $totalLaneEval\n")
+        sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
+        sb.append("    ├─ V3 allow:        $v3Allow\n")
+        sb.append("    └─ V3 skip:         $v3Skipped\n")
+        sb.append("  verdicts produced:    $totalVerdicts\n")
+        sb.append("  EXEC_GATE allow:      $execGateAllow\n")
+        sb.append("  EXEC_GATE block:      $execGateBlock\n")
+        sb.append("  recent execs in ring: $recentExecCount\n")
+        // Conversion ratios — operator can see where the funnel is hemorrhaging.
+        if (totalIntake > 0L) {
+            val intakeToEval = (totalLaneEval.toDouble() / totalIntake * 100.0)
+            sb.append("  intake → lane eval:   ${"%.1f".format(intakeToEval)}%  (target >40%)\n")
+        }
+        if (totalLaneEval > 0L) {
+            val evalToV3 = ((v3Allow + v3Skipped).toDouble() / totalLaneEval * 100.0)
+            sb.append("  lane eval → V3:       ${"%.1f".format(evalToV3)}%  (target >20%)\n")
+        }
+        val v3Total = v3Allow + v3Skipped
+        if (v3Total > 0L) {
+            val v3AllowPct = (v3Allow.toDouble() / v3Total * 100.0)
+            sb.append("  V3 allow rate:        ${"%.1f".format(v3AllowPct)}%  (target >30%; <15% = audit V3_SKIPPED reasons below)\n")
+        }
+        // Top 5 block reasons — usually one or two dominate.
+        val topBlocks = s.blockReasonCounts.entries.sortedByDescending { it.value }.take(5)
+        if (topBlocks.isNotEmpty()) {
+            sb.append("  top block reasons:\n")
+            for ((reason, n) in topBlocks) {
+                sb.append("    • $reason: $n\n")
+            }
+        }
+        // Throughput rate — if bot has been running long enough, project to /day
+        val uptimeMs = (s.nowMs - s.startedAtMs).coerceAtLeast(1L)
+        val uptimeHr = uptimeMs / 3_600_000.0
+        if (uptimeHr >= 0.1 && recentExecCount > 0) {
+            val execsPerHour = recentExecCount / uptimeHr
+            val execsPerDay = execsPerHour * 24.0
+            val band = when {
+                execsPerDay >= 500.0 -> "✅ ON TARGET (500-1000/day band)"
+                execsPerDay >= 200.0 -> "⚠ BELOW TARGET (need 500+/day; audit V3 allow rate)"
+                else -> "🛑 CRITICAL (need 500+/day; check FGS lifecycle + scanner pool)"
+            }
+            sb.append("  projected execs/day:  ${"%.0f".format(execsPerDay)}  $band\n")
+        }
 
         // ── V5.9.915 — Self-healing tier surface (H1+H2+H3) ──────────────
         // Show operator: which API hosts are healthy, which keys are flagged
