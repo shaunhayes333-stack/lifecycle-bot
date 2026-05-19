@@ -78,5 +78,41 @@ object BirdeyeCreationInfoProvider {
         }
     }
 
+    /**
+     * V5.9.945 — Seed cache from FREE source (DexScreener PairInfo).
+     *
+     * DexScreener already returns pairCreatedAtMs on every getBestPair()
+     * call. We were paying Birdeye to get the same data. This seeder lets
+     * the prefetch path populate creation info from the free source so the
+     * FDG deploy-age soft-shape still fires without burning any Birdeye CU.
+     *
+     * Lower fidelity than Birdeye:
+     *   - creatorAddress: unknown (we don't get it from DexScreener)
+     *   - creationTx: unknown
+     *   - createdSlot: unknown
+     *   - createdAtMs: ACCURATE (from pair creation time)
+     *
+     * The FDG consumer only uses createdAtMs via ageHours() so the lower
+     * fidelity doesn't change behavior at the gate.
+     *
+     * If Birdeye later populates the cache via maybePrefetch(), it
+     * overwrites this seed with the full data — best of both worlds.
+     */
+    fun seedFromFreeSource(mint: String, createdAtMs: Long) {
+        if (mint.isBlank() || createdAtMs <= 0L) return
+        // Don't overwrite an existing Birdeye-sourced entry that has a real creator
+        val existing = cache[mint]
+        if (existing != null && existing.info.creatorAddress.isNotBlank()) return
+        cache[mint] = Cached(
+            Info(
+                creatorAddress = "",
+                createdAtMs = createdAtMs,
+                creationTx = "",
+                createdSlot = 0L,
+            ),
+            System.currentTimeMillis(),
+        )
+    }
+
     fun cacheSize(): Int = cache.size
 }

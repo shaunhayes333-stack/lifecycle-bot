@@ -81,5 +81,54 @@ object BirdeyeMetaDataProvider {
         }
     }
 
+    /**
+     * V5.9.945 — Seed cache from FREE source (DexScreener socials/websites).
+     *
+     * DexScreener returns info.socials (twitter/telegram/discord platform
+     * markers) and info.websites in every pair payload. We already parse
+     * these into PairInfo.socials + PairInfo.websites (V5.9.911 social
+     * harvest). We were paying Birdeye to get the same fields.
+     *
+     * This seeder populates the cache from those free fields so the FDG
+     * social-depth soft-shape fires without burning any Birdeye CU.
+     *
+     * Lower fidelity than Birdeye:
+     *   - coingeckoId: empty (DexScreener doesn't tell us if CG-listed)
+     *     → isListed() always false from free-seed → FDG +10% boost
+     *       for CG-listed unavailable. Operator can still upgrade
+     *       via maybePrefetch() if budget allows.
+     *   - description: empty (we don't need it)
+     *   - name/symbol: from PairInfo
+     *   - twitter/telegram/discord/website: HEURISTIC — DexScreener
+     *     gives platform TYPES (e.g. "twitter","telegram") rather than
+     *     handles. We map presence-of-type → "present" so
+     *     socialChannelCount() works correctly.
+     */
+    fun seedFromFreeSource(
+        mint: String,
+        symbol: String,
+        socialTypes: List<String>,
+        websites: List<String>,
+    ) {
+        if (mint.isBlank()) return
+        val existing = cache[mint]
+        // Don't overwrite an entry with a real CG-listing
+        if (existing != null && existing.meta.coingeckoId.isNotBlank()) return
+        val lowerSet = socialTypes.map { it.lowercase() }.toSet()
+        cache[mint] = Cached(
+            Meta(
+                name = symbol,
+                symbol = symbol,
+                twitter  = if ("twitter"  in lowerSet) "present" else "",
+                telegram = if ("telegram" in lowerSet) "present" else "",
+                discord  = if ("discord"  in lowerSet) "present" else "",
+                website  = if (websites.isNotEmpty()) websites.first() else "",
+                coingeckoId = "",
+                description = "",
+            ),
+            System.currentTimeMillis(),
+        )
+    }
+
     fun cacheSize(): Int = cache.size
 }

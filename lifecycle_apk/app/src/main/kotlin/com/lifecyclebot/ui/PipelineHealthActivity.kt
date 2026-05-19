@@ -155,7 +155,9 @@ class PipelineHealthActivity : AppCompatActivity() {
             // main means the TextView just installs already-measured layout
             // data — O(1) on main instead of O(N) where N = char count.
             val precomputed = try {
-                val params = androidx.core.text.PrecomputedTextCompat.getTextMetricsParams(dumpText)
+                // V5.9.944 fix: getTextMetricsParams lives on TextViewCompat,
+                // not PrecomputedTextCompat. Returns PrecomputedTextCompat.Params.
+                val params = androidx.core.widget.TextViewCompat.getTextMetricsParams(dumpText)
                 androidx.core.text.PrecomputedTextCompat.create(dump, params)
             } catch (_: Throwable) { null }
 

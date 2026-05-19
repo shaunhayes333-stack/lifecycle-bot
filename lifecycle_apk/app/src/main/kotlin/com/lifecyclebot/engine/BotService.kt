@@ -10960,52 +10960,123 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         // total across both endpoints × 25 CU avg = 5K CU/hour. Starter
         // budget is 5M CU/month = ~6.9K CU/hour. Fits with headroom.
         // ═══════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.945 — FREE-SOURCE-FIRST PREFETCH + GLOBAL CU BUDGET.
+        //
+        // BACKGROUND
+        //   V5.9.937-942 lit up 6 Birdeye prefetch endpoints PER token, on EVERY
+        //   SCAN_CB. After scanner expansion (6+ new sources, NARRATIVE_SCAN
+        //   etc), this cost ballooned to ~5.4M CU/day, eating the entire
+        //   5M/month Starter quota in 10 hours.
+        //
+        // STRATEGY: COMBINE FREE SOURCES, ESCALATE TO BIRDEYE ONLY WHEN NEEDED
+        //
+        //   FREE SEED (zero Birdeye cost — DexScreener-cached 45s):
+        //     • Creation age (pair.pairCreatedAtMs)     — used to fire deploy-age FDG shape
+        //     • Socials/websites (pair.socials/.websites) — used to fire social-depth FDG shape
+        //
+        //   BIRDEYE PREMIUM (only the signals DexScreener can't supply):
+        //     • Security (honeypot/freezeAuth/top10Pct)  — REAL VALUE, keep
+        //     • Trade-data (buy/sell flow imbalance)     — REAL VALUE, keep
+        //     • Price-stats (volatility regime)          — REAL VALUE, keep
+        //     • Whale feeder (wallet activity)           — REAL VALUE, keep
+        //
+        //   PREMIUM PREFETCH IS GATED BY:
+        //     1. TRADABILITY — liq ≥ \$2K AND mcap ≥ \$5K (skip dust)
+        //     2. GLOBAL CU BUDGET — BirdeyeBudgetGate (default 150K CU/day)
+        //
+        // EXPECTED IMPACT
+        //   Before: 6 Birdeye calls × ~1500 unique mints/h = 9000 calls/h
+        //   After:  4 Birdeye calls × ~200 tradable mints/h = 800 calls/h
+        //                                                    ↓ 11× reduction
+        //   At 25 CU/call avg: 20K CU/h = 480K CU/day = ~14.4M CU/month
+        //   (still over budget — BirdeyeBudgetGate brings it under cap).
+        //
+        // DOCTRINE
+        //   #87.1 'Dropped signal = dropped AGI sample' — we don't drop ANY
+        //     signal. DexScreener pair fields were ALREADY being parsed for
+        //     other paths; we're just reusing them to seed Birdeye caches.
+        //   #87.12 'Free data on wire = dropped if not parsed' — same idea
+        //     applied: free signals on wire = wasted if we still pay
+        //     premium for equivalents.
+        // ═══════════════════════════════════════════════════════════════════
         try {
             val beKey = cfg.birdeyeApiKey
-            if (beKey.isNotBlank()) {
+            val liqUsd = ts.lastLiquidityUsd
+            val mcapUsd = ts.lastMcap
+
+            // STEP 1: FREE SEED — populate Creation+Meta caches from DexScreener.
+            // DexScreener pair lookup is 45s-cached and already used heavily; warm
+            // hit-rate is high. Even a fresh fetch is "free" (no quota cost).
+            scope.launch {
+                try {
+                    val needsCreation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(ts.mint) == null
+                    val needsMeta     = com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(ts.mint) == null
+                    if (needsCreation || needsMeta) {
+                        val pair = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.lifecyclebot.network.DexscreenerApi().getBestPair(ts.mint)
+                        }
+                        if (pair != null) {
+                            if (needsCreation && pair.pairCreatedAtMs > 0L) {
+                                com.lifecyclebot.engine.BirdeyeCreationInfoProvider
+                                    .seedFromFreeSource(ts.mint, pair.pairCreatedAtMs)
+                            }
+                            if (needsMeta) {
+                                com.lifecyclebot.engine.BirdeyeMetaDataProvider
+                                    .seedFromFreeSource(
+                                        mint = ts.mint,
+                                        symbol = identity.symbol,
+                                        socialTypes = pair.socials,
+                                        websites = pair.websites,
+                                    )
+                            }
+                        }
+                    }
+                } catch (_: Throwable) { /* fail-open — seed is advisory only */ }
+            }
+
+            // STEP 2: BIRDEYE PREMIUM — gated by tradability + budget.
+            val tradable = liqUsd >= 2_000.0 && mcapUsd >= 5_000.0
+            val budgetOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(4)
+            if (beKey.isNotBlank() && tradable && budgetOk) {
                 scope.launch {
                     try {
-                        // Trust provider: cached 30min, hits /defi/token_security
                         com.lifecyclebot.engine.BirdeyeSecurityProvider.getTrust(ts.mint, beKey)
+                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
                 scope.launch {
                     try {
-                        // Trade-data provider: cached 15min, hits /defi/v3/token/trade-data/single
                         com.lifecyclebot.engine.BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey)
+                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
-                // V5.9.938 — extended prefetch set
                 scope.launch {
                     try {
-                        // Price stats: 30min cache, used for volatility-regime FDG soft-shape
                         com.lifecyclebot.engine.BirdeyePriceStatsProvider.maybePrefetch(ts.mint, beKey)
+                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
                 scope.launch {
                     try {
-                        // Creation info: 24h cache (immutable), feeds age + creator-history
-                        com.lifecyclebot.engine.BirdeyeCreationInfoProvider.maybePrefetch(ts.mint, beKey)
-                    } catch (_: Throwable) { /* fail-open */ }
-                }
-                scope.launch {
-                    try {
-                        // Token metadata: 24h cache, richer socials than DexScreener
-                        com.lifecyclebot.engine.BirdeyeMetaDataProvider.maybePrefetch(ts.mint, beKey)
-                    } catch (_: Throwable) { /* fail-open */ }
-                }
-                scope.launch {
-                    try {
-                        // Whale feeder: 60min cache, real wallet activity → WhaleTrackerAI
                         com.lifecyclebot.engine.BirdeyeWhaleFeeder.maybeFeed(
                             mint = ts.mint,
                             symbol = identity.symbol,
                             apiKey = beKey,
                             currentPriceUsd = ts.lastPrice,
                         )
+                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
+            } else if (beKey.isNotBlank() && !budgetOk) {
+                com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
             }
+            // Note: BirdeyeCreationInfo + BirdeyeMetaData PREMIUM prefetch is
+            // DROPPED entirely (free seed above covers the FDG consumer needs).
+            // If a token reaches FDG and has a high-confidence buy signal, the
+            // operator can manually trigger maybePrefetch() to get the full
+            // Birdeye-grade data, but the bot's autonomous loop no longer
+            // burns CU on it.
         } catch (_: Throwable) { /* fail-open — prefetch is purely advisory */ }
 
         try {
