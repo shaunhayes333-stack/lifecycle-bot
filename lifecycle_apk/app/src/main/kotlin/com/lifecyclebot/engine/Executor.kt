@@ -1945,10 +1945,37 @@ class Executor(
                 onLog("⏱️ 1hTrend: $arrow${"%.1f".format(ch)}% size×${"%.2f".format(trend1hSizeMult)}", "sizing")
             }
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
-            return finalSol
+            // V5.9.972 — Kelly soft-cap from global lifetime stats.
+            // Only ever shrinks. Skipped when <200 settled trades.
+            val finalSolCapped = applyKellyCap(finalSol, walletSol, adjustedConfidence)
+            return finalSolCapped
         }
 
-        return result.solAmount
+        // V5.9.972 — same Kelly cap on the non-logging path.
+        val resultSolCapped = applyKellyCap(result.solAmount, walletSol, adjustedConfidence)
+        return resultSolCapped
+    }
+
+    /**
+     * V5.9.972 — z PositionSizing.kellyCapFromGlobalStats revival.
+     * Reads lifetime win/loss stats from TradeDatabase and applies a
+     * Kelly-from-history clamp. NEVER enlarges. Allows 1.5× headroom
+     * above raw Kelly so high-conviction AI sizing isn't crippled.
+     */
+    private fun applyKellyCap(size: Double, walletSol: Double, confidence: Double): Double {
+        return try {
+            val kellyCap = com.lifecyclebot.engine.PositionSizing.kellyCapFromGlobalStats(
+                walletSol = walletSol,
+                config = cfg(),
+                modeMultiplier = 1.0,
+                confidence = confidence,
+            ) ?: return size  // null = stats too thin → no-op
+            val cap = kellyCap * 1.5
+            if (size > cap) {
+                onLog("📐 KellyCap: ${"%.4f".format(size)} → ${"%.4f".format(cap)} SOL (lifetime Kelly+50% headroom)", "sizing")
+                cap
+            } else size
+        } catch (_: Throwable) { size }
     }
     
     /**

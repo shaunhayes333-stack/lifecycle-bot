@@ -16,6 +16,79 @@ import com.lifecyclebot.data.BotConfig
 object PositionSizing {
     
     private const val TAG = "PositionSizing"
+
+    // V5.9.972 — cached global stats for Kelly-from-history.
+    // Refreshed lazily (≤1× per 60s) so we don't hammer TradeDatabase
+    // on every buySizeSol call. Returns null if stats are too thin
+    // (<200 settled trades) — caller should skip Kelly clamp.
+    private data class GlobalStats(
+        val winRate: Double,
+        val avgWinPct: Double,
+        val avgLossPct: Double,
+        val sampleSize: Int,
+        val computedAtMs: Long,
+    )
+    @Volatile private var cachedStats: GlobalStats? = null
+    private const val STATS_TTL_MS = 60_000L
+    private const val STATS_MIN_SAMPLES = 200
+
+    /**
+     * V5.9.972 — global Kelly cap.
+     * Returns a SOFT CAP in SOL based on lifetime stats, or null if
+     * stats are too thin. Caller multiplies their existing-computed
+     * size by min(1.0, kellyCap/size) — never enlarges.
+     */
+    fun kellyCapFromGlobalStats(
+        walletSol: Double,
+        config: BotConfig,
+        modeMultiplier: Double = 1.0,
+        confidence: Double = 50.0,
+    ): Double? {
+        val now = System.currentTimeMillis()
+        val cached = cachedStats
+        val stats = if (cached != null && (now - cached.computedAtMs) < STATS_TTL_MS) {
+            cached
+        } else {
+            val refreshed = computeGlobalStats() ?: return null
+            cachedStats = refreshed
+            refreshed
+        }
+        if (stats.sampleSize < STATS_MIN_SAMPLES) return null
+        return try {
+            calculateKellySize(
+                walletSol = walletSol,
+                winRate = stats.winRate,
+                avgWinPct = stats.avgWinPct,
+                avgLossPct = stats.avgLossPct,
+                config = config,
+                modeMultiplier = modeMultiplier,
+                confidence = confidence,
+            )
+        } catch (_: Throwable) { null }
+    }
+
+    private fun computeGlobalStats(): GlobalStats? {
+        return try {
+            val db = com.lifecyclebot.engine.BotService.tradeDb ?: return null
+            val trades = db.getAllTrades()
+            if (trades.size < STATS_MIN_SAMPLES) return null
+            val closed = trades.filter { it.tsExit > 0L }
+            val wins = closed.filter { it.pnlPct >= 0.5 }
+            val losses = closed.filter { it.pnlPct <= -2.0 }
+            val decisive = wins.size + losses.size
+            if (decisive < STATS_MIN_SAMPLES) return null
+            val avgWin = if (wins.isNotEmpty()) wins.map { it.pnlPct }.average() else 0.0
+            val avgLoss = if (losses.isNotEmpty()) Math.abs(losses.map { it.pnlPct }.average()) else 0.0
+            val winRate = wins.size.toDouble() / decisive.toDouble()
+            GlobalStats(
+                winRate = winRate,
+                avgWinPct = avgWin,
+                avgLossPct = avgLoss,
+                sampleSize = decisive,
+                computedAtMs = System.currentTimeMillis(),
+            )
+        } catch (_: Throwable) { null }
+    }
     
     /**
      * Calculate optimal position size using Kelly Criterion with safety caps.
