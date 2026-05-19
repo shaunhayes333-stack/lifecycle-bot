@@ -171,7 +171,7 @@ object ChartHistoryFetcher {
             .header("accept", "application/json")
             .header("user-agent", "Mozilla/5.0 (Android) AATE/5.9")
             .build()
-        http.newCall(req).execute().use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "chart_history").use { resp ->
             if (resp.isSuccessful) resp.body?.string() else null
         }
     } catch (_: Exception) { null }

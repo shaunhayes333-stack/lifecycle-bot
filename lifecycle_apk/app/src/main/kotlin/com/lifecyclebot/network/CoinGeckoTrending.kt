@@ -111,7 +111,7 @@ class CoinGeckoTrending {
         val req  = Request.Builder().url(url)
             .header("Accept", "application/json")
             .build()
-        val resp = http.newCall(req).execute()
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "coingecko")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 }

@@ -672,7 +672,7 @@ class JupiterApi(private val apiKey: String = "") {
                 .post(payload.toRequestBody(JSON))
                 .build()
 
-            http.newCall(req).execute().use { resp ->
+            com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
                 val body = resp.body?.string()
                 val elapsed = System.currentTimeMillis() - startMs
 
@@ -741,7 +741,7 @@ class JupiterApi(private val apiKey: String = "") {
         for (attempt in 0..2) {
             if (attempt > 0) Thread.sleep(1500L * attempt)
             try {
-                http.newCall(req).execute().use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
@@ -783,7 +783,7 @@ class JupiterApi(private val apiKey: String = "") {
         for (attempt in 0..2) {
             if (attempt > 0) Thread.sleep(1500L * attempt)
             try {
-                http.newCall(req).execute().use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {

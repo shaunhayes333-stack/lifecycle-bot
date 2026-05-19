@@ -224,14 +224,14 @@ class TelegramScraper(private val botToken: String = "") {
         val req  = Request.Builder().url(url)
             .header("User-Agent", "Mozilla/5.0 (compatible; AATE/1.0)")
             .build()
-        val resp = http.newCall(req).execute()
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "telegram")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 
     private fun post(url: String, json: String): String? = try {
         val body = json.toRequestBody("application/json".toMediaType())
         val req  = Request.Builder().url(url).post(body).build()
-        val resp = http.newCall(req).execute()
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "telegram")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 }

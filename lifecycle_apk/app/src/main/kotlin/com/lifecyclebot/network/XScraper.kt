@@ -195,7 +195,7 @@ class XScraper {
             .header("User-Agent", "Mozilla/5.0 (compatible; bot/1.0)")
             .header("Accept",     "text/html,application/json")
             .build()
-        val resp = http.newCall(req).execute()
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "x")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 

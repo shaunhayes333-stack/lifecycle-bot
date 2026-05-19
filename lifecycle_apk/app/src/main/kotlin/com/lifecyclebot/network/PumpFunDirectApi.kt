@@ -120,7 +120,7 @@ object PumpFunDirectApi {
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT BUY → mint=${mint.take(8)}… sol=${"%.4f".format(solAmount)} slip=$slip%")
 
-        httpClient.newCall(req).execute().use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pumpfun").use { resp ->
             val body = resp.body
                 ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
@@ -208,7 +208,7 @@ object PumpFunDirectApi {
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=$amountField pool=$pool slip=$slip%")
 
-        httpClient.newCall(req).execute().use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pumpfun").use { resp ->
             val body = resp.body
             if (body == null) {
                 throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")

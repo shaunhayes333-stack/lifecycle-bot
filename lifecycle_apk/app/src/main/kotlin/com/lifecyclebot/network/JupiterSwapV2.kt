@@ -84,7 +84,7 @@ object JupiterSwapV2 {
             .header("Accept", "application/json")
             .get()
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "jupiter_swap").use { resp ->
             val body = resp.body?.string().orEmpty()
             if (!resp.isSuccessful) {
                 ErrorLogger.warn(TAG, "Jupiter v2 /order HTTP ${resp.code}: ${body.take(300)}")
@@ -127,7 +127,7 @@ object JupiterSwapV2 {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "jupiter_swap").use { resp ->
             val body = resp.body?.string().orEmpty()
             val json = try { JSONObject(body) } catch (_: Throwable) {
                 throw RuntimeException("Jupiter v2 /execute non-JSON body: ${body.take(180)}")

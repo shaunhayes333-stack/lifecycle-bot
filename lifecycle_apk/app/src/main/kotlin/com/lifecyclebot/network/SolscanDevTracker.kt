@@ -148,7 +148,7 @@ class SolscanDevTracker {
             .header("accept", "application/json")
             .header("User-Agent", "AATE/1.0")
             .build()
-        val resp = http.newCall(req).execute()
+        val resp = com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "solscan")
         if (resp.isSuccessful) resp.body?.string() else null
     } catch (_: Exception) { null }
 
