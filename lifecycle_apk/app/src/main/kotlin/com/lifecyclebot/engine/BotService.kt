@@ -4687,6 +4687,13 @@ class BotService : Service() {
                 // even if the process is killed during the slow paperSell loop,
                 // persistence is already wiped so the next start can't restore
                 // ghosts.
+                // V5.9.1003-FIX: Clear in-memory tokens early (UI fast-clear) but
+                // do NOT clear PositionPersistence until AFTER closeAllPositions.
+                // Treasury live positions: if PositionPersistence.clear() fires first
+                // and the process is killed mid-close, the positions are orphaned on-chain
+                // (persistence wiped → next boot restorePositions finds nothing).
+                // Keep positions in persistence until the sell loop completes so the
+                // next-boot reconciler can adopt any that didn't close cleanly.
                 run {
                     try {
                         synchronized(status.tokens) {
@@ -4700,12 +4707,7 @@ class BotService : Service() {
                     } catch (e: Throwable) {
                         ErrorLogger.warn("BotService", "early tokens clear: ${e.message}")
                     }
-                    try {
-                        PositionPersistence.clear()
-                        ForensicLogger.lifecycle("STOP_EARLY_PERSIST_CLEARED", "ok=true")
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "early persist clear: ${e.message}")
-                    }
+                    // PositionPersistence.clear() intentionally moved AFTER closeAllPositions below.
                 }
 
                 val closedCount = executor.closeAllPositions(
@@ -4717,6 +4719,15 @@ class BotService : Service() {
                 
                 if (closedCount > 0) {
                     addLog("✅ Closed $closedCount position(s) before shutdown")
+                }
+
+                // V5.9.1003-FIX: Clear persistence AFTER close loop so treasury/live
+                // positions aren't orphaned if the process dies mid-sell.
+                try {
+                    PositionPersistence.clear()
+                    ForensicLogger.lifecycle("STOP_PERSIST_CLEARED_POST_CLOSE", "closedCount=$closedCount")
+                } catch (e: Throwable) {
+                    ErrorLogger.warn("BotService", "post-close persist clear: ${e.message}")
                 }
 
                 // ═══════════════════════════════════════════════════════════════════

@@ -204,9 +204,14 @@ object V3EngineManager {
     }
 
     /**
-     * Check if V3 engine is ready.
+     * V5.9.1003 — FLUID READINESS: V3 is always considered ready.
+     * The old hard-gate (initialized && orchestrator != null) would return false
+     * after any init failure or race condition, silently killing 100% of lane
+     * evaluations. The bot should trade from trade 1 in all layers.
+     * If orchestrator is null, processToken returns WATCH (soft pass-through)
+     * so FDG + legacy lane scoring still governs — nothing is hard-blocked.
      */
-    fun isReady(): Boolean = initialized && orchestrator != null
+    fun isReady(): Boolean = true
 
     /**
      * Get current V3 mode.
@@ -278,13 +283,17 @@ object V3EngineManager {
         marketRegime: String = "NEUTRAL",
         isAIDegraded: Boolean = false
     ): V3Decision {
-        if (!isReady()) {
-            return V3Decision.notReady("V3 Engine not initialized")
+        // V5.9.1003 — FLUID: never hard-block. If orchestrator not ready,
+        // return WATCH so FDG + legacy lane scoring still decides the trade.
+        // The bot trades in all layers from trade 1, no gate required.
+        if (orchestrator == null) {
+            // V5.9.1003 — FLUID: orchestrator warming, return WATCH so FDG decides.
+            return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
         }
 
         return try {
-            val currentContext = context ?: return V3Decision.notReady("V3 context missing")
-            val currentBotConfig = botConfig ?: return V3Decision.notReady("V3 config missing")
+            val currentContext = context ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
+            val currentBotConfig = botConfig ?: return V3Decision.watch(score = ts.entryScore.toInt().coerceIn(0, 100), confidence = 50)
 
             // V4.0 layer routing
             val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0L) {
