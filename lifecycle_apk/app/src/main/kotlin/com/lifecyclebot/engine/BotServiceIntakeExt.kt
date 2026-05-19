@@ -49,12 +49,12 @@ package com.lifecyclebot.engine
 //   [3] Zero external call sites (verified across app/src/main and
 //       app/src/test trees) — every caller is inside BotService.kt.
 //   [4] No test-tree imports broken (Hard Rule #32 verified clean).
-//   [5] Brace-balance delta in BotService.kt: maintained at b=14 baseline.
+//   [5] Brace-balance delta in kt: maintained at b=14 baseline.
 //   [6] No code-logic changes — every line preserves the same expressions,
 //       branches, side effects. Pure file-move.
 //
 // NET SIZE CHANGE EXPECTED:
-//   BotService.kt: ~17,284 → ~16,860 lines (−424 net, incl. 7 stub markers)
+//   kt: ~17,284 → ~16,860 lines (−424 net, incl. 7 stub markers)
 //   New file:      ~480 lines (incl. this header)
 //
 // AFTER THIS LANDS GREEN:
