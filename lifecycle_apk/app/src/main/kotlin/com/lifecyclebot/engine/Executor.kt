@@ -2149,6 +2149,34 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
+        // V5.9.996 — COPY-TRADE OUTCOME LOOP step 2/2 (Doctrine #4 —
+        // genuine learning). Audit found CopyTradeEngine.recordResult had
+        // ZERO callers across all .kt files (main + test trees). The
+        // engine tracks per-wallet wins/losses/PnL and auto-pauses bad
+        // copy wallets via the winRate threshold at recordResult line
+        // 122 — but with no outcome flow the stats stay at zero forever
+        // and auto-pause never triggers. Without this, the bot follows
+        // unprofitable copy wallets indefinitely.
+        //
+        // Attribution: Position.copyWallet was stamped at entry (step
+        // 1/2 above). If blank, this isn't a copy trade — skip silently.
+        // CopyTradeEngine is a lateinit on BotService.instance, same
+        // access pattern as autoMode (BotViewModel.kt:119).
+        //
+        // Fail-open: any exception swallowed — never block sell finalize.
+        try {
+            if (tradeWithMint.side == "SELL"
+                && ts.position.copyWallet.isNotBlank()
+            ) {
+                com.lifecyclebot.engine.BotService.instance
+                    ?.copyTradeEngine
+                    ?.recordResult(
+                        wallet = ts.position.copyWallet,
+                        pnlSol = tradeWithMint.pnlSol,
+                    )
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.69 PatternClassifier hooks — continuous-feature online learner.
         // BUY: stash features. SELL: run one SGD step on the outcome.
         try {
@@ -6513,6 +6541,31 @@ class Executor(
         val finalEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji
                          else com.lifecyclebot.engine.HoldingLogicLayer.getModeEmoji(finalMode)
 
+        // V5.9.996 — COPY-TRADE OUTCOME LOOP step 1/2 (Doctrine #4 —
+        // genuine learning). Audit found Position.copyWallet has ZERO set
+        // sites and ZERO read sites across the whole codebase — it is a
+        // phantom field. CopyTradeEngine.recordResult needs a wallet
+        // address to attribute the SELL outcome to. Without this stamp
+        // the SELL hook (step 2/2 below) has nothing to attribute, the
+        // engine's win/loss/PnL stats stay at zero forever, and the
+        // auto-pause heuristic (recordResult line 122) never fires —
+        // meaning unprofitable copy wallets are followed indefinitely.
+        //
+        // Read autoMode through BotService.instance (same accessor
+        // pattern used by BotViewModel.kt:119). BotMode is nested in
+        // AutoModeEngine (verified against ModeSpecificGates.kt:337
+        // which uses AutoModeEngine.BotMode.COPY).
+        //
+        // Fail-open: any exception → blank wallet → no copy attribution
+        // (same effect as a non-copy trade), never blocks position open.
+        val copyWalletAtEntry: String = try {
+            val am = com.lifecyclebot.engine.BotService.instance?.autoMode
+            if (am != null
+                && am.currentMode == com.lifecyclebot.engine.AutoModeEngine.BotMode.COPY
+                && am.copyTriggerMint == ts.mint
+            ) am.copyTriggerWallet else ""
+        } catch (_: Throwable) { "" }
+
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
             entryPrice   = effectivePrice,
@@ -6530,6 +6583,8 @@ class Executor(
             tradingModeEmoji = finalEmoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
+            // V5.9.996 — copy-trade attribution for CopyTradeEngine.recordResult
+            copyWallet   = copyWalletAtEntry,
         )
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
