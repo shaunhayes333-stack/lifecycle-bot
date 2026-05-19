@@ -2091,33 +2091,53 @@ class Executor(
         // exit-time fields come from current TokenState. Field mapping mirrors
         // FinalDecisionGate.predict() so train+predict feature sets align.
         // Fail-open: any exception is swallowed — never block the sell finalize.
+        //
+        // V5.9.998 — operator triage: bot loop was dying after ~3 trade rounds
+        // because this block (and the KillSwitch block below) ran SYNCHRONOUSLY
+        // on the same thread as the bot loop's tick. Each sell finalize blocked
+        // 100-500ms for the ML feature build + SQLite write; with 30+ sells/min
+        // the cycle time exploded past the heartbeat timeout. Moved to a
+        // background IO coroutine — ML still trains on every outcome, but no
+        // longer wedges the sell path. Snapshot inputs into immutable locals
+        // BEFORE launch so the coroutine has stable values (no race on ts).
         try {
             if (tradeWithMint.side == "SELL") {
-                val recent = ts.history.takeLast(30)
-                val entryWindow = ts.history.takeLast(60).take(30)
-                val isRug = tradeWithMint.reason.uppercase().let { r ->
-                    r.contains("RUG") || r.contains("ML_RUG") || tradeWithMint.pnlPct <= -50.0
+                val tradeSnap     = tradeWithMint
+                val recentSnap    = ts.history.takeLast(30).toList()
+                val entryWindow   = ts.history.takeLast(60).take(30).toList()
+                val isRug = tradeSnap.reason.uppercase().let { r ->
+                    r.contains("RUG") || r.contains("ML_RUG") || tradeSnap.pnlPct <= -50.0
                 }
                 val entryLiq = if (ts.position.entryLiquidityUsd > 0.0)
                     ts.position.entryLiquidityUsd else ts.lastLiquidityUsd
                 val exitLiq = ts.lastLiquidityUsd
                 val holders = ts.history.lastOrNull()?.holderCount ?: 0
-                TradeHistoryStore.recordTradeForML(
-                    trade              = tradeWithMint,
-                    candlesAtEntry     = entryWindow,
-                    candlesAtExit      = recent,
-                    liquidityAtEntry   = entryLiq,
-                    liquidityAtExit    = exitLiq,
-                    holdersAtEntry     = holders,
-                    holdersAtExit      = holders,
-                    rugcheckScore      = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50,
-                    mintRevoked        = ts.safety.mintAuthorityDisabled ?: false,
-                    freezeRevoked      = ts.safety.freezeAuthorityDisabled ?: false,
-                    topHolderPct       = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0),
-                    rsi                = ts.meta.rsi,
-                    emaAlignment       = ts.meta.emafanAlignment,
-                    wasRug             = isRug,
-                )
+                val rugScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 50
+                val mintRev  = ts.safety.mintAuthorityDisabled ?: false
+                val freezeRev= ts.safety.freezeAuthorityDisabled ?: false
+                val topHold  = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0)
+                val rsiSnap  = ts.meta.rsi
+                val emaSnap  = ts.meta.emafanAlignment
+                GlobalScope.launch(Dispatchers.IO) {
+                    try {
+                        TradeHistoryStore.recordTradeForML(
+                            trade              = tradeSnap,
+                            candlesAtEntry     = entryWindow,
+                            candlesAtExit      = recentSnap,
+                            liquidityAtEntry   = entryLiq,
+                            liquidityAtExit    = exitLiq,
+                            holdersAtEntry     = holders,
+                            holdersAtExit      = holders,
+                            rugcheckScore      = rugScore,
+                            mintRevoked        = mintRev,
+                            freezeRevoked      = freezeRev,
+                            topHolderPct       = topHold,
+                            rsi                = rsiSnap,
+                            emaAlignment       = emaSnap,
+                            wasRug             = isRug,
+                        )
+                    } catch (_: Throwable) { /* fail-open background */ }
+                }
             }
         } catch (_: Throwable) {}
 
@@ -2129,6 +2149,12 @@ class Executor(
         // (returns true immediately), so this is fail-safe for paper trading
         // but actually arms the safety guard for live. Fail-open: any
         // exception swallowed — never block sell finalize.
+        //
+        // V5.9.998 — operator triage: also moved to background IO coroutine
+        // (see ML block above). KillSwitch.recordTrade touches SharedPrefs
+        // and a rolling buffer; cheap individually but with 30+ sells/min
+        // it added cumulative latency to the bot tick. Async = never blocks
+        // the loop, still arms the kill switch in live mode within ms.
         try {
             if (tradeWithMint.side == "SELL") {
                 // BotService.instance?.applicationContext — same pattern as
@@ -2140,11 +2166,16 @@ class Executor(
                     com.lifecyclebot.engine.BotService.walletManager.state.value.solBalance
                 } catch (_: Throwable) { 0.0 }
                 if (appCtx != null && currentSol > 0.0) {
-                    com.lifecyclebot.engine.KillSwitch.recordTrade(
-                        context        = appCtx,
-                        pnlPct         = tradeWithMint.pnlPct,
-                        currentBalance = currentSol,
-                    )
+                    val pnlSnap = tradeWithMint.pnlPct
+                    GlobalScope.launch(Dispatchers.IO) {
+                        try {
+                            com.lifecyclebot.engine.KillSwitch.recordTrade(
+                                context        = appCtx,
+                                pnlPct         = pnlSnap,
+                                currentBalance = currentSol,
+                            )
+                        } catch (_: Throwable) { /* fail-open background */ }
+                    }
                 }
             }
         } catch (_: Throwable) {}

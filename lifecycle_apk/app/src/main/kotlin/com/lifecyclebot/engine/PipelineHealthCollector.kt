@@ -106,6 +106,12 @@ object PipelineHealthCollector {
     private val execPaperBuyOk   = AtomicLong(0L)
     private val execPaperSellOk  = AtomicLong(0L)
 
+    /** V5.9.998 — operator triage: cache the PerformanceAnalytics block.
+     *  db.getAllTrades() + analyze() takes 100-500 ms on a hot DB; we don't
+     *  need real-time analytics in the pipeline dump. 30-s stale is fine. */
+    @Volatile private var perfAnalyticsCache: String? = null
+    @Volatile private var perfAnalyticsCacheAt: Long = 0L
+
     /** V5.9.915 — per-symbol intake counter (top-10 surfaced in dump). */
     private val symbolIntakeCounts = ConcurrentHashMap<String, AtomicLong>()
 
@@ -868,15 +874,37 @@ object PipelineHealthCollector {
         // Pulls last 1000 closed trades via TradeDatabase.getAllTrades()
         // and produces a Sharpe/drawdown/profit-factor/expectancy block.
         // Wrapped in try because tradeDb may be null during early boot.
+        //
+        // V5.9.998 — operator triage: this block was sitting INSIDE the
+        // synchronous dumpText() path which gets invoked from the bot
+        // loop's pipeline-snapshot logging. db.getAllTrades() pulls up
+        // to 1000 rows from SQLite + PerformanceAnalytics.analyze() does
+        // Sharpe/drawdown/profit-factor (5-50 ms each). When the loop is
+        // running fast and dump fires multiple times per cycle this added
+        // 100-500 ms per tick — enough to push cycle time past 5 s and
+        // trip the heartbeat watchdog. Cached now: only refresh the
+        // analytics block every 30 s, serve a cached string the rest of
+        // the time. Stale-by-30 s is fine — diagnostic only.
         try {
-            val db = BotService.instance?.tradeDb
-            if (db != null) {
-                val trades = db.getAllTrades()
-                if (trades.isNotEmpty()) {
-                    val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(trades)
-                    sb.append("\n===== Performance analytics (last 1000 closed) =====\n")
-                    sb.append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
-                    sb.append('\n')
+            val cached = perfAnalyticsCache
+            val now = System.currentTimeMillis()
+            if (cached != null && (now - perfAnalyticsCacheAt) < 30_000L) {
+                sb.append(cached)
+            } else {
+                val db = BotService.instance?.tradeDb
+                if (db != null) {
+                    val trades = db.getAllTrades()
+                    if (trades.isNotEmpty()) {
+                        val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(trades)
+                        val block = buildString {
+                            append("\n===== Performance analytics (last 1000 closed) =====\n")
+                            append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
+                            append('\n')
+                        }
+                        perfAnalyticsCache   = block
+                        perfAnalyticsCacheAt = now
+                        sb.append(block)
+                    }
                 }
             }
         } catch (_: Throwable) { /* fail-open — diagnostic only */ }
