@@ -628,7 +628,18 @@ object AICrossTalk {
     }
 
     fun getConfidenceBoost(mint: String, symbol: String, isOpenPosition: Boolean): Double {
-        return analyzeCrossTalk(mint, symbol, isOpenPosition).confidenceBoost
+        val raw = analyzeCrossTalk(mint, symbol, isOpenPosition).confidenceBoost
+        // V5.9.981 — z45 SeedingPhaseGuard.capConfBoostForPhase consumer (was DORMANT).
+        // Operator screenshot showed +2500% conf boost during SEEDING. Cap here at
+        // the single emission chokepoint:
+        //   SEEDING  -> [-5, +5]
+        //   LEARNING -> [-15, +15]
+        //   else     -> pass-through
+        return try {
+            val rawStatus = com.lifecyclebot.engine.BehaviorLearning.getHealthStatus().status
+            val phase = if (rawStatus == "BOOTSTRAP") "SEEDING" else rawStatus
+            com.lifecyclebot.engine.SeedingPhaseGuard.capConfBoostForPhase(raw, phase)
+        } catch (_: Throwable) { raw }
     }
 
     fun getSizeMultiplier(mint: String, symbol: String): Double {
