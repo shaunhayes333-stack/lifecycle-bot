@@ -6822,14 +6822,75 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
+
+        // V5.9.961 — PROBATION TIER ROUTING (was dormant pre-V5.9.961).
+        // Operator: 'we did have a probation section that never gets used can
+        // we use that to help the bot loop as well?' The probation system in
+        // GlobalTradeRegistry was fully implemented but no intake path ever
+        // routed tokens to it — every mint went straight to the main watchlist
+        // and got polled every cycle by processTokenCycle. That bloats the
+        // watchlist with low-quality candidates and starves the bot loop.
+        //
+        // ROUTING RULE — token goes to probation if:
+        //   1. confidence < PROBATION_CONF_THRESHOLD (50 live / 22 paper), AND
+        //   2. single-source (allSources.size == 1), AND
+        //   3. NOT a USER add, NOT from MEME_REGISTRY_RESTORE (already vetted)
+        //
+        // Probation has its own cheap promote/reject lifecycle:
+        //   - Multi-scanner confirm → promote
+        //   - Price up 5% → promote
+        //   - Price down 20% → reject
+        //   - 5min timeout → reject
+        //   - RC score >= 2 → promote
+        //
+        // None of those gates require the bot loop to poll the token —
+        // they're driven by future scanner hits and price ticks the WS feeds
+        // already deliver. So probation tokens cost ZERO bot-loop cycles
+        // until they either prove themselves and get promoted, or they age
+        // out and get auto-rejected.
+        val isProbationEligible = run {
+            val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { true }
+            val confThreshold = if (isPaper) 22 else 50
+            val isLowConf = confidence < confThreshold
+            val isSingleSrc = allSources.size <= 1
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED")
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            isLowConf && isSingleSrc && !isUserAdded && !isRestoredVetted
+        }
+
         val addResult = try {
-            GlobalTradeRegistry.addToWatchlist(
-                mint = mint,
-                symbol = symbol.ifBlank { mint.take(6) },
-                addedBy = source,
-                source = joinedSources,
-                initialMcap = marketCapUsd,
-            )
+            if (isProbationEligible) {
+                // Send to probation. If it gets multi-scanner-confirmed or
+                // its price action proves out, processProbation() will
+                // promote it and the existing PROMOTED handler at line ~7039
+                // calls admitProtectedMemeIntake(source="PROBATION") which
+                // bypasses this gate (isRestoredVetted=true).
+                try {
+                    val probSym = if (symbol.isBlank()) mint.take(6) else symbol
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PROBATION_ROUTED",
+                        "symbol=$probSym src=$source conf=$confidence liq=$liquidityUsd"
+                    )
+                } catch (_: Throwable) {}
+                GlobalTradeRegistry.addWithProbation(
+                    mint = mint,
+                    symbol = symbol.ifBlank { mint.take(6) },
+                    addedBy = source,
+                    source = joinedSources,
+                    initialMcap = marketCapUsd,
+                    liquidityUsd = liquidityUsd,
+                    confidence = confidence,
+                    isMultiSource = allSources.size > 1,
+                )
+            } else {
+                GlobalTradeRegistry.addToWatchlist(
+                    mint = mint,
+                    symbol = symbol.ifBlank { mint.take(6) },
+                    addedBy = source,
+                    source = joinedSources,
+                    initialMcap = marketCapUsd,
+                )
+            }
         } catch (e: Throwable) {
             ErrorLogger.error("BotService", "Protected intake registry add failed for ${symbol.ifBlank { mint.take(6) }}: ${e.message}", e)
             null
@@ -9239,14 +9300,46 @@ val orderedMints: List<String> = run {
             }
         }
 
+        // V5.9.961 — EARLY-STALE EVICTION. Operator: 'stale tokens need to
+        // be dropped from the watchlist fast.' Any cold mint that has been
+        // processed 12+ times by the bot loop and STILL hasn't graduated to
+        // an open position or a lane evaluation is dead weight. The default
+        // WatchlistTtlPolicy gives normal-mode mints 1800s (30 min) which is
+        // way too long for meme tokens. processCount >= 12 at 5s cadence =
+        // 60+ seconds of attention with no signal = drop. Frees a slot
+        // every cycle for a fresh candidate.
+        val STALE_PROCESS_COUNT_THRESHOLD = 12
+        val staleEvict = mutableListOf<String>()
+        val coldFiltered = cold.filter { (mint, _) ->
+            val entry = entriesByMint[mint] ?: return@filter true
+            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
+                staleEvict.add(mint)
+                false
+            } else true
+        }
+        if (staleEvict.isNotEmpty()) {
+            staleEvict.forEach { mint ->
+                try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_PROCESS_COUNT")
+                } catch (_: Throwable) {}
+            }
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WATCHLIST_STALE_EVICT",
+                    "evicted=${staleEvict.size} threshold=$STALE_PROCESS_COUNT_THRESHOLD"
+                )
+            } catch (_: Throwable) {}
+        }
+
         // Sort cold by oldest lastProcessedAt first (least recently processed wins).
-        cold.sortBy { it.second }
+        val coldMutable = coldFiltered.toMutableList()
+        coldMutable.sortBy { it.second }
 
         // Fill budget: fresh → unseen → cold rotation.
         val picked = mutableListOf<String>()
         picked.addAll(fresh.take(budget))
         if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
-        if (picked.size < budget) picked.addAll(cold.map { it.first }.take(budget - picked.size))
+        if (picked.size < budget) picked.addAll(coldMutable.map { it.first }.take(budget - picked.size))
 
         // Emit a trace so operator can see the cut.
         try {
