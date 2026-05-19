@@ -10055,7 +10055,29 @@ class Executor(
             )
             return SellResult.FAILED_RETRYABLE
         }
-        
+
+        // V5.9.977 — z43-F SellFailureHistory.shouldBlockNextRetry consumer
+        // (was DORMANT despite record() being wired in V5.9.968).
+        // Operator spec: "If TX_PARSE_OK_BUT_ROUTE_FAILED proves tokens were
+        // consumed by a previous route, do not keep retrying the same sell."
+        // Manual emergencies (MANUAL/RUG/DRAIN/CATASTROPHE) punch through —
+        // they may need to fire even after a parse-OK failure for safety.
+        try {
+            if (!com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason) &&
+                !com.lifecyclebot.engine.sell.SellSafetyPolicy.isHardRug(reason) &&
+                com.lifecyclebot.engine.sell.SellFailureHistory.shouldBlockNextRetry(ts.mint)) {
+                val last = com.lifecyclebot.engine.sell.SellFailureHistory.latest(ts.mint)
+                onLog("🛑 SELL BLOCKED_BY_FAILURE_HISTORY: ${ts.symbol} | last=${last?.kind} sig=${last?.sigOrNull?.take(16)} | refusing retry until reconciler confirms balance moved.", ts.mint)
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "🛑 BLOCKED_BY_FAILURE_HISTORY: last=${last?.kind} — do not retry until reconciler.",
+                    sig = last?.sigOrNull, traderTag = "MEME",
+                )
+                return SellResult.FAILED_RETRYABLE
+            }
+        } catch (_: Throwable) {}
+
         onLog("🔄 SELL START: ${ts.symbol} | reason=$reason | pos.isOpen=${pos.isOpen} | pos.qtyToken=${pos.qtyToken} | pos.costSol=${pos.costSol}", tradeId.mint)
         LiveTradeLogStore.log(
             sellTradeKey, ts.mint, ts.symbol, "SELL",
