@@ -133,6 +133,12 @@ data class Position(
     // profit-floor-regression WARN has been logged for this position so
     // we don't spam the log. Intentionally var/transient — not persisted.
     var profitFloorRegressionLogged: Boolean = false,
+    // V5.9.996 — COPY-TRADE OUTCOME ATTRIBUTION. Carries the source wallet
+    // address when this position was opened in AutoModeEngine.BotMode.COPY
+    // so the SELL hook in Executor.recordTrade can feed
+    // CopyTradeEngine.recordResult(wallet, pnlSol). Blank for non-copy
+    // trades. Not persisted (in-memory only, like other transient flags).
+    val copyWallet: String = "",
 ) {
     // V5.9.290: isOpen — tokens exist AND not in the short verify window.
     // V5.9.315: REMOVED 120s auto-promote. Previously, if pendingVerify stayed
