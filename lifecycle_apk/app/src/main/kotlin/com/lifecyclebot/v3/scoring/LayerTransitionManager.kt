@@ -309,7 +309,7 @@ object LayerTransitionManager {
      * BLUE_CHIP gets tighter floors (only A+ entries make sense).
      */
     fun tierFloorsFor(layer: TradingLayer): Pair<Int, Int> {
-        return when (layer) {
+        val base = when (layer) {
             TradingLayer.BLUE_CHIP    -> 65 to 60   // strict — only A+ for $1M+
             TradingLayer.QUALITY      -> 50 to 45
             TradingLayer.DIP_HUNTER   -> 45 to 40
@@ -324,6 +324,31 @@ object LayerTransitionManager {
             TradingLayer.MARS         -> 60 to 55
             TradingLayer.JUPITER      -> 65 to 60
         }
+        // V5.9.979 — z38 LiveLayerGateRelaxer consumer (was file-dead).
+        // Operator spec: "gates need to be relaxed in live trading to
+        // allow all the layers to trade." We apply BOTH paper+live to
+        // preserve paper/live symmetry (Prime Doctrine #2) — paper is
+        // our AGI training set so it must mirror live thresholds.
+        // Multipliers in [0.5, 1.5] coerced inside Relaxer.setMultiplier.
+        val tag = when (layer) {
+            TradingLayer.BLUE_CHIP  -> "BLUECHIP"
+            TradingLayer.QUALITY    -> "QUALITY"
+            TradingLayer.DIP_HUNTER -> "QUALITY"
+            TradingLayer.MOONSHOT   -> "MOONSHOT"
+            TradingLayer.V3_QUALITY -> "QUALITY"
+            TradingLayer.EXPRESS    -> "EXPRESS"
+            TradingLayer.SHITCOIN   -> "SHITCOIN"
+            TradingLayer.TREASURY   -> "TREASURY"
+            TradingLayer.ORBITAL    -> "MEME"
+            TradingLayer.LUNAR      -> "BLUECHIP"
+            TradingLayer.MARS       -> "BLUECHIP"
+            TradingLayer.JUPITER    -> "BLUECHIP"
+        }
+        return try {
+            val m = com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier(tag)
+            if (m == 1.0) base
+            else ((base.first  * m).toInt() to (base.second * m).toInt())
+        } catch (_: Throwable) { base }
     }
 
     fun isV3QualityCandidate(
