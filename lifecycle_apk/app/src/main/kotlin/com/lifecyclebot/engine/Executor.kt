@@ -6391,6 +6391,32 @@ class Executor(
             }
         }
         
+        // V5.9.969 — z-spec HoldingLogicLayer.recommendInitialMode() revival.
+        // Was fully dormant; now consulted when no explicit layerTag is set
+        // and currentMode would default to STANDARD. The function picks
+        // among PRESALE_SNIPE / PUMP_SNIPER / MICRO_CAP / SLEEPER / REVIVAL /
+        // BLUE_CHIP / LONG_HOLD / MOMENTUM_SWING / STANDARD based on
+        // (liquidity, mcap, age, volScore, source). The downstream HoldingLogic
+        // evaluatePosition path (already wired) uses tradingMode to pick
+        // mode-specific TP/SL/trail params — so this finally lights up.
+        val smartMode = try {
+            com.lifecyclebot.engine.HoldingLogicLayer.recommendInitialMode(
+                liquidity = ts.lastLiquidityUsd,
+                mcap      = ts.lastMcap,
+                age       = System.currentTimeMillis() - ts.addedToWatchlistAt,
+                volScore  = ts.meta.volScore,
+                source    = ts.source,
+            )
+        } catch (_: Throwable) { "" }
+
+        val finalMode = when {
+            layerTag.isNotBlank()                              -> layerTag
+            smartMode.isNotBlank() && smartMode != "STANDARD"  -> smartMode
+            else                                               -> currentMode.name
+        }
+        val finalEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji
+                         else com.lifecyclebot.engine.HoldingLogicLayer.getModeEmoji(finalMode)
+
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
             entryPrice   = effectivePrice,
@@ -6402,11 +6428,10 @@ class Executor(
             entryLiquidityUsd = ts.lastLiquidityUsd,
             entryMcap    = ts.lastMcap,
             isPaperPosition = true,
-            // V5.9.386 — use sub-trader tag when provided; caller still may
-            // overwrite ts.position.tradingMode post-buy (e.g., Quality path
-            // overrides "BLUE_CHIP" → "QUALITY"), but default is now correct.
-            tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
-            tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+            // V5.9.969 — finalMode picks the richer HoldingLogicLayer label
+            // when no sub-trader tag is set and would otherwise be STANDARD.
+            tradingMode  = finalMode,
+            tradingModeEmoji = finalEmoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
         )
