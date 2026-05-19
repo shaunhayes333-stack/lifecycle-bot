@@ -1435,9 +1435,14 @@ object ShitCoinTraderAI {
         }
         
         // V5.2 FIX: HARD FLOOR STOP - ABSOLUTE MAXIMUM LOSS
-        // V5.9.449: revert V5.9.446 → V5.9.316/build-1941 value (-20).
-        // Wide hard floor lets wicks recover instead of killing winners.
-        val HARD_FLOOR_STOP_PCT = -20.0
+        // V5.9.989: -20 → -15 (operator standing instruction: "Hard floor
+        // stop-loss at -15% must remain unconditional for all open positions").
+        // Pre-V5.9.989: ShitCoin alone allowed positions to drag to -20%
+        // before forced exit, inconsistent with the rest of the meme stack
+        // (Moonshot -15, Express -15) and a violation of the doctrine.
+        // BotService global watchdog still backstops at -15% (RAPID_HARD_FLOOR_STOP)
+        // but lane-local floor is the canonical authority and must match.
+        val HARD_FLOOR_STOP_PCT = -15.0
         if (pnlPct <= HARD_FLOOR_STOP_PCT) {
             ErrorLogger.warn(TAG, "💩🛑 HARD FLOOR: ${pos.symbol} | ${pnlPct.toInt()}% - EMERGENCY EXIT!")
             return ExitSignal.STOP_LOSS

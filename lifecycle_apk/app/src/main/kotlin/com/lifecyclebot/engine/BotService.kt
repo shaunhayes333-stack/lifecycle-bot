@@ -3121,7 +3121,13 @@ class BotService : Service() {
                         val price = resolveLivePrice(ts)
                         if (price <= 0.0) continue
                         val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
-                        if (pnlPct <= -20.0) {
+                        // V5.9.989 — sweep threshold aligned to operator-mandated -15%
+                        // hard floor. Pre-V5.9.989: on cold-start, recovered positions
+                        // sitting between -15% and -20% were NOT swept here (the only
+                        // sweep above -20% was the global watchdog loop, which doesn't
+                        // run until the bot fully boots — leaving a window where a
+                        // -17% position survived restart un-stopped).
+                        if (pnlPct <= -15.0) {
                             ErrorLogger.warn("BotService",
                                 "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% — closing stale underwater position")
                             addLog("🛑 STARTUP SWEEP: ${ts.symbol} ${pnlPct.toInt()}% — forced exit")

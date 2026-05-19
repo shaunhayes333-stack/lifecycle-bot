@@ -531,6 +531,17 @@ object ShitCoinExpress {
             else -> 0.0
         }
         
+        // V5.9.989 — Doctrine #87.15: every lane must consume
+        // AutoCompoundEngine.getSizeMultiplier(). Express was the only meme
+        // lane silently bypassing this — its sizes never reflected lifetime
+        // P&L compounding while the other 7 lanes did, breaking sizing
+        // symmetry across the meme stack. Apply BEFORE the max cap so the
+        // cap continues to act as a hard ceiling.
+        val autoCompoundMult = try {
+            com.lifecyclebot.engine.AutoCompoundEngine.getSizeMultiplier()
+        } catch (_: Throwable) { 1.0 } // fail-open per FDG doctrine
+        positionSol *= autoCompoundMult
+
         // Cap at max
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
