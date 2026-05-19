@@ -416,6 +416,12 @@ object BirdeyeOracle {
      * Get price from Birdeye by token address
      */
     suspend fun getPriceByAddress(address: String): Double? = withContext(Dispatchers.IO) {
+        // V5.9.952 — Birdeye budget gate. Jupiter/DexScreener cover price for free; this path only matters when those fail.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
+            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+            return@withContext null
+        }
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         try {
             val request = Request.Builder()
                 .url("${BIRDEYE_API}?address=${address}")

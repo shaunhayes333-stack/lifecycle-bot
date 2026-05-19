@@ -550,6 +550,12 @@ class BirdeyeApi(private val apiKey: String = "") {
     // ── HTTP helper ───────────────────────────────────────────────────
 
     private fun get(url: String): String? {
+        // V5.9.952 — global budget gate. Every BirdeyeApi call routes here.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
+            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+            return null
+        }
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         // V5.9.866 — KeyValidator entry gate. Birdeye is key-auth-class API.
         // (Converted from expression body — early returns aren't legal there.)
         if (apiKey.isBlank()) return null

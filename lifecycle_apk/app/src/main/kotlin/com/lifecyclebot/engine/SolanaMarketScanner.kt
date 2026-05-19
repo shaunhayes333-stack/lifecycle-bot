@@ -1131,7 +1131,10 @@ class SolanaMarketScanner(
                     delay(200)
                     runScan("scanDexGainers") { scanDexGainers() }
                     delay(200)
-                    runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                    // V5.9.952 — gate Birdeye scanner lanes; free-source equivalents cover 90% of data
+                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+                        runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                    }
                     delay(200)
                     runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
                     delay(200)
@@ -1152,7 +1155,9 @@ class SolanaMarketScanner(
                     // Returns rich per-token data (multi-TF volume, buy/sell
                     // counts, holder count, creator wallet, real liquidity)
                     // even when the operator hasn't configured a birdeye key.
-                    runScan("scanBirdeyeMemeList") { scanBirdeyeMemeList() }
+                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+                        runScan("scanBirdeyeMemeList") { scanBirdeyeMemeList() }
+                    }
                     delay(200)
                     // V5.9.907 — birdeye v2 markets. NO API key required.
                     // Top liquidity pools across Solana. Critically exposes
@@ -1160,20 +1165,26 @@ class SolanaMarketScanner(
                     // unavailable anywhere else in the intake. Skip stable-
                     // stable and LST pools (mature, low-EV); score-boost
                     // pools showing accelerating engagement.
-                    runScan("scanBirdeyeMarkets") { scanBirdeyeMarkets() }
+                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+                        runScan("scanBirdeyeMarkets") { scanBirdeyeMarkets() }
+                    }
                     delay(200)
                     // V5.9.908 — birdeye v2 new_listing (earliest possible signal).
                     // Runs TWO variants in succession:
                     //   1) non-meme platform (raydium-direct launches that skip pump.fun)
                     //   2) meme platform enabled (pump.fun graduates)
                     // Both queries use limit=50, freshness gated to <= 6h old.
-                    runScan("scanBirdeyeNewListing") { scanBirdeyeNewListing() }
+                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+                        runScan("scanBirdeyeNewListing") { scanBirdeyeNewListing() }
+                    }
                     delay(200)
                     // V5.9.942 — Birdeye searchTokens narrative scan.
                     // Activates the previously-INERT NARRATIVE_SCAN TokenSource.
                     // Rotates through 14 hot keywords; ~520K CU/month worst case.
                     // Per V5.9.941 Phase 6: GROWTH-tier-fit by source whitelist.
-                    runScan("scanBirdeyeNarratives") { scanBirdeyeNarratives() }
+                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+                        runScan("scanBirdeyeNarratives") { scanBirdeyeNarratives() }
+                    }
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
@@ -1960,6 +1971,7 @@ class SolanaMarketScanner(
         if (c.birdeyeApiKey.isBlank()) return
 
         val url = "https://public-api.birdeye.so/defi/token_trending?sort_by=rank&sort_type=asc&offset=0&limit=50"
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         val body = getWithRetry(url, apiKey = c.birdeyeApiKey) ?: return
 
         try {
@@ -2164,6 +2176,7 @@ class SolanaMarketScanner(
         try {
             val url = "https://public-api.birdeye.so/defi/v3/token/meme/list?" +
                 "sort_by=progress_percent&sort_type=desc&source=all&offset=0&limit=100"
+            com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
             val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: run {
                 ErrorLogger.debug("Scanner", "scanBirdeyeMemeList: no response")
                 return
@@ -2315,6 +2328,7 @@ class SolanaMarketScanner(
                 if (totalEmitted >= 40) break
                 val url = "https://public-api.birdeye.so/defi/v2/markets?" +
                     "sort_type=desc&sort_by=liquidity&offset=$offset&limit=50"
+                com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                 val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: continue
 
                 val root = JSONObject(body)
@@ -2480,6 +2494,7 @@ class SolanaMarketScanner(
 
                 val url = "https://public-api.birdeye.so/defi/v2/tokens/new_listing?" +
                     "limit=50&meme_platform_enabled=$includeMeme"
+                com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                 val body = getWithRetry(url, extraHeaders = mapOf("x-chain" to "solana")) ?: continue
 
                 val root = JSONObject(body)

@@ -162,6 +162,11 @@ object BirdeyeSecurityProvider {
     )
 
     private fun fetchAndScore(mint: String, apiKey: String): CachedSecurity? {
+        // V5.9.952 — even safety calls bow to monthly LOCKDOWN (>80% burn)
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordSafety()) {
+            return null
+        }
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         val url = "https://public-api.birdeye.so/defi/token_security?address=$mint"
         val reqBuilder = Request.Builder().url(url)
             .header("x-chain", "solana")

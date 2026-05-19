@@ -306,7 +306,12 @@ object HistoricalChartScanner {
      */
     private suspend fun fetchBirdeyeNewTokens(hoursBack: Int): List<String> {
         val tokens = mutableListOf<String>()
-        
+        // V5.9.952 — historical chart scanner is non-safety; gate it
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
+            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+            return tokens
+        }
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
         try {
             val url = "$BIRDEYE_BASE/defi/tokenlist?sort_by=v24hChangePercent&sort_type=desc&offset=0&limit=100"
             val connection = URL(url).openConnection()
@@ -370,6 +375,12 @@ object HistoricalChartScanner {
      * Fetch history from Birdeye.
      */
     private suspend fun fetchBirdeyeHistory(mint: String): JSONObject? {
+        // V5.9.952 — OHLCV history is a heavy call (~30 CU); gate it strictly
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(2)) {
+            com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+            return null
+        }
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(2)
         return try {
             // OHLCV data
             val url = "$BIRDEYE_BASE/defi/ohlcv?address=$mint&type=15m&time_from=${System.currentTimeMillis()/1000 - 86400}&time_to=${System.currentTimeMillis()/1000}"

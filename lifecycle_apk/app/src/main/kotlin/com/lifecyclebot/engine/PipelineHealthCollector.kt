@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.951"
+    private const val BUILD_TAG = "V5.9.952"
 
     data class Event(
         val tsMs: Long,
@@ -1156,6 +1156,21 @@ object PipelineHealthCollector {
             sb.append("  read misses:     ${cacheSnap.totalReadMisses}\n")
             sb.append("  total writes:    ${cacheSnap.totalWrites}\n")
             sb.append("  hit rate:        ${"%.1f".format(cacheSnap.hitRatePct)}%\n")
+            }
+        } catch (_: Throwable) { /* best-effort telemetry */ }
+
+        // V5.9.952 — Birdeye budget surfacing. Operator burned 5M Starter cap
+        // in 19 days because 5 of 7 call sites bypassed the gate. This section
+        // makes the burn rate visible so it never happens silently again.
+        try {
+            val bsnap = com.lifecyclebot.engine.BirdeyeBudgetGate.snapshot()
+            sb.append("\n===== Birdeye budget (V5.9.952) =====\n")
+            sb.append("  daily calls:     ${bsnap.callsToday}\n")
+            sb.append("  daily CU:        ${bsnap.cuToday}/${bsnap.dailyCap} (${"%.1f".format(bsnap.pctUsed)}%)\n")
+            sb.append("  monthly CU:      ${bsnap.cuThisMonth}/5,000,000 (${"%.1f".format(bsnap.monthlyPctUsed)}%)\n")
+            sb.append("  lockdown:        ${if (bsnap.lockedDown) "🛑 ACTIVE — only safety calls allowed" else "✅ off"}\n")
+            if (bsnap.monthlyPctUsed >= 60.0 && !bsnap.lockedDown) {
+                sb.append("  ⚠ scanner-lane throttle active (every 5min instead of every 8s)\n")
             }
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
