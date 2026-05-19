@@ -6336,6 +6336,8 @@ class BotService : Service() {
     // V5.9.924 — per-mint cooldown for Birdeye fallback in openPositionTickLoop.
     // Prevents hammering /defi/price for permanently-rugged mints.
     private val openPosFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // V5.9.946 — track first-miss timestamp per mint so chronic DS-misses (>60s) get a 60s backoff
+    private val openPosFallbackFirstMiss = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         private suspend fun openPositionTickLoop() {
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
@@ -6383,19 +6385,64 @@ class BotService : Service() {
                 // hammer the API every tick.
                 val missing = openMints.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
+                    // ═══════════════════════════════════════════════════════════════
+                    // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
+                    //
+                    // Operator V5.9.945 dump revealed THIS loop was the dominant
+                    // CU burn source — not the V5.9.937-942 prefetch. With 55
+                    // open positions and ~30 DS-missing mints per tick (mostly
+                    // fresh PUMP_FUN_NEW with liq=$0.0 that DS hasn't indexed),
+                    // this loop was firing ~30 Birdeye calls every 5s = ~360/min
+                    // × 60min × 5CU = ~108K CU/hour, ~2.6M CU/day. Combined
+                    // with prefetch = 75% monthly burn in 10 hours.
+                    //
+                    // The V5.9.924 cost-comment ("8 positions, 3-4 DS misses,
+                    // ≤4 calls/sec") rotted as position cap grew and PUMP_FUN
+                    // intake exploded. Same anti-pattern as V5.9.945 #87.23.
+                    //
+                    // Three discipline knobs:
+                    //   1. BUDGET GATE — respect BirdeyeBudgetGate. If we're
+                    //      at the daily cap, fall back to last known price
+                    //      (will trip a hard SL eventually).
+                    //   2. CHRONIC-MISS BACKOFF — if a mint has been DS-missing
+                    //      for >60s, it's almost certainly rugged or DS-unindexed.
+                    //      Slow retry to once every 60s instead of 5s. Saves
+                    //      ~10× on the chronic offenders.
+                    //   3. PER-TICK CAP — never burn more than 5 Birdeye calls
+                    //      from a single tick. If 30 mints are missing, we'll
+                    //      cycle through them across multiple ticks.
+                    // ═══════════════════════════════════════════════════════════════
                     val cfg2 = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                     val key = cfg2?.birdeyeApiKey
                     if (!key.isNullOrBlank()) {
                         val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }
                         if (birdeye != null) {
                             val nowMs = System.currentTimeMillis()
+                            var burnedThisTick = 0
+                            val perTickCap = 5
                             for (mint in missing) {
+                                if (burnedThisTick >= perTickCap) break
                                 val lastFb = openPosFallbackLastAttempt[mint] ?: 0L
-                                if (nowMs - lastFb < 5_000L) continue   // 5s cooldown per mint
+                                val firstMiss = openPosFallbackFirstMiss.getOrPut(mint) { nowMs }
+                                val chronicMs = nowMs - firstMiss
+                                // Cooldown: 5s normally, 60s for chronic (>60s missing)
+                                val cooldownMs = if (chronicMs > 60_000L) 60_000L else 5_000L
+                                if (nowMs - lastFb < cooldownMs) continue
+                                // Budget gate — if we're at cap, skip. Open-position
+                                // safety still has hard-SL via the position's last
+                                // known price (price will go stale → SL trips later).
+                                if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
+                                    com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
+                                    break
+                                }
                                 openPosFallbackLastAttempt[mint] = nowMs
+                                burnedThisTick++
+                                com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                                 val price = try { birdeye.getTokenPrice(mint) } catch (_: Throwable) { null }
                                 if (price != null && price > 0.0) {
                                     priceMap[mint] = price
+                                    // Reset chronic counter on success
+                                    openPosFallbackFirstMiss.remove(mint)
                                     val tsRef = status.tokens[mint]
                                     if (tsRef != null) {
                                         synchronized(tsRef) {
@@ -6408,6 +6455,8 @@ class BotService : Service() {
                             }
                         }
                     }
+                    // Clean up tracking for mints no longer in our open set
+                    openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())
                 }
 
                 if (priceMap.isEmpty()) {
