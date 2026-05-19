@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine.sell
 
-import com.lifecyclebot.network.PumpPortalSellRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -76,30 +75,17 @@ class SellExecutionOverhaulTest {
     }
 
     // ── Item 2 ──────────────────────────────────────────────────────────
-
-    @Test
-    fun item2_pumpportal_percent_and_amount_are_disjoint() {
-        val pct = PumpPortalSellRequest.Percent(
-            mint = "MINT_TEST_A", percentage = 25,
-            slippagePercent = 5, priorityFeeSol = 0.0001,
-        )
-        val raw = PumpPortalSellRequest.RawAmount(
-            mint = "MINT_TEST_A",
-            amountRaw = BigInteger.valueOf(123_456_000L), decimals = 6,
-            slippagePercent = 5, priorityFeeSol = 0.0001,
-        )
-        assertEquals("25%", pct.toApiAmountField())
-        assertEquals("123.456", raw.toApiAmountField())
-        assertNotEquals(pct.javaClass, raw.javaClass)
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun item2_pumpportal_rejects_zero_percent() {
-        PumpPortalSellRequest.Percent(
-            mint = "MINT_TEST_A", percentage = 0,
-            slippagePercent = 5,
-        )
-    }
+    // V5.9.993 — RETIRED. The PumpPortalSellRequest sealed class (Percent /
+    // RawAmount) was redundant against the inline 95%-fraction guard +
+    // label-based partial ban that lives in Executor.tryPumpPortalSell. The
+    // disjoint-type invariant the original Item 2 tests verified is now
+    // enforced at the call site (PumpFunDirectApi.buildSellTx), making the
+    // wrapper a dead abstraction. The two acceptance tests below
+    // (item2_pumpportal_percent_and_amount_are_disjoint, item2_pumpportal_
+    // rejects_zero_percent) are intentionally absent — V5.9.495z39 spec
+    // Item 2 is now satisfied by call-site enforcement, not type-system
+    // enforcement. The behavioural guarantee (Percent xor Amount) survives;
+    // the implementation moved one layer down.
 
     // ── Item 3 ──────────────────────────────────────────────────────────
 

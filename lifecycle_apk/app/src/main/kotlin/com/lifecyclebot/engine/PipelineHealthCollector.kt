@@ -179,7 +179,7 @@ object PipelineHealthCollector {
     // V5.9.915 — bumped each release. Printed verbatim at top of every
     // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
     // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.994"
+    private const val BUILD_TAG = "V5.9.995"
 
     data class Event(
         val tsMs: Long,
@@ -642,7 +642,7 @@ object PipelineHealthCollector {
         sb.append("  Captured at:           ${df.format(Date(s.nowMs))}\n")
         sb.append("  Uptime since start:    ${uptimeSec}s\n")
         sb.append("  Forensic logging:      ${if (ForensicLogger.enabled) "ON" else "OFF"}\n")
-        // V5.9.994 — surface LiveLayerGateRelaxer (z38) state to operator.
+        // V5.9.995 — surface LiveLayerGateRelaxer (z38) state to operator.
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
         } catch (_: Throwable) {}
@@ -864,7 +864,7 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
 
         // ── PerformanceAnalytics block ─────────────────────────────
-        // V5.9.994 — z PerformanceAnalytics revival (was 0-caller).
+        // V5.9.995 — z PerformanceAnalytics revival (was 0-caller).
         // Pulls last 1000 closed trades via TradeDatabase.getAllTrades()
         // and produces a Sharpe/drawdown/profit-factor/expectancy block.
         // Wrapped in try because tradeDb may be null during early boot.
