@@ -93,6 +93,8 @@ object LearningPersistence {
             try { putBlob("CANONICAL_COUNTERS", com.lifecyclebot.engine.CanonicalLearningCounters.exportState()) } catch (_: Throwable) {}
             try { putBlob("CREATOR_HISTORY", com.lifecyclebot.network.HeliusCreatorHistory.exportState()) } catch (_: Throwable) {}
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
+            // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
+            try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
             // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
             // Pre-V5.9.964 these had save()/restore() defined and init() wired
             // so restore() ran at boot, but save() was NEVER called. Lifetime
@@ -129,6 +131,7 @@ object LearningPersistence {
         try { getBlob("CANONICAL_COUNTERS")?.let { com.lifecyclebot.engine.CanonicalLearningCounters.importState(it) } } catch (_: Throwable) {}
         try { getBlob("CREATOR_HISTORY")?.let { com.lifecyclebot.network.HeliusCreatorHistory.importState(it) } } catch (_: Throwable) {}
         try { getBlob("META_COGNITION")?.let { com.lifecyclebot.v3.scoring.MetaCognitionAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("COLLECTIVE_INTEL")?.let { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

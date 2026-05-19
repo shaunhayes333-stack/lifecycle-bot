@@ -975,4 +975,37 @@ object CollectiveIntelligenceAI {
             else -> "WHALE"
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.9.984 — PERSISTENCE (was AMNESIA — Doctrine #25)
+    // Persists the cross-restart counters + dynamic thresholds. In-memory
+    // caches stay ephemeral (rehydrated from CollectiveLearning on demand).
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    fun exportState(): String {
+        return try {
+            val o = org.json.JSONObject()
+            o.put("patternsAnalyzed",   patternsAnalyzed.get())
+            o.put("patternsPruned",     patternsPruned.get())
+            o.put("anomaliesDetected",  anomaliesDetected.get())
+            o.put("dynConfThreshold",   dynamicConfidenceThreshold)
+            o.put("dynScoreThreshold",  dynamicScoreThreshold)
+            o.put("lastMaintenanceMs",  lastMaintenanceMs.get())
+            o.put("lastRefreshMs",      lastRefreshMs.get())
+            o.toString()
+        } catch (_: Throwable) { "{}" }
+    }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            patternsAnalyzed.set(o.optInt("patternsAnalyzed", 0))
+            patternsPruned.set(o.optInt("patternsPruned", 0))
+            anomaliesDetected.set(o.optInt("anomaliesDetected", 0))
+            dynamicConfidenceThreshold = o.optInt("dynConfThreshold", 70)
+            dynamicScoreThreshold      = o.optInt("dynScoreThreshold", 35)
+            lastMaintenanceMs.set(o.optLong("lastMaintenanceMs", 0L))
+            lastRefreshMs.set(o.optLong("lastRefreshMs", 0L))
+        } catch (_: Throwable) { /* corrupt blob — start fresh */ }
+    }
 }
