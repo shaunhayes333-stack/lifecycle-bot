@@ -160,9 +160,16 @@ object FinalDecisionGate {
     // #50+. Re-baselined to bootstrap=0-1000, learning=1000-3000, mature=3000+
     // matching FluidLearningAI.BOOTSTRAP_PHASE_END / MATURE_PHASE_END /
     // EXPERT_PHASE_END so the two systems agree on phase boundaries.
-    private const val FDG_BOOTSTRAP_END = 1000
-    private const val FDG_LEARNING_END = 3000
-    private const val FDG_EXPERT_END = 5000
+    // V5.9.987 — aligned to Performance Doctrine #4: bootstrap is <5000
+    // lifetime trades, mature is >5000. Old boundaries (BOOTSTRAP_END=1000,
+    // MATURE@3000) flipped the bot into MATURE-phase gating (evGating ON,
+    // confidence floor 60%, rugcheck min 12, edge floors at mature peak)
+    // at 3000 lifetime trades — 2000 trades INSIDE the doctrine bootstrap
+    // band. That activated steep choke points during the doctrine-permitted
+    // learning phase, capping volume below the 500-1000/day target.
+    private const val FDG_BOOTSTRAP_END = 2000
+    private const val FDG_LEARNING_END = 5000
+    private const val FDG_EXPERT_END = 8000
 
     fun getLearningPhase(tradeCount: Int): LearningPhase = when {
         tradeCount <= FDG_BOOTSTRAP_END -> LearningPhase.BOOTSTRAP

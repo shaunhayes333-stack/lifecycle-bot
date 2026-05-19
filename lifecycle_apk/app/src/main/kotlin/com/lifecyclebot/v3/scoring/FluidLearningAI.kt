@@ -161,9 +161,13 @@ object FluidLearningAI {
     // "scaling to 80% theoretical rate past 10,000 trades". Bootstrap
     // extended 3× so 50 trades is <2% progress (deep bootstrap), mature
     // (80%+) lands at the 10,000-trade target the user specified.
-    private const val BOOTSTRAP_PHASE_END = 1000  // V5.9.217: restored — bootstrap is 0-1000 trades
-    private const val MATURE_PHASE_END = 3000   // V5.9.217: restored — learning is 1000-3000 trades
-    private const val EXPERT_PHASE_END = 5000   // V5.9.217: restored — maturity at 5000+ trades
+    // V5.9.987 — phase boundaries aligned to Performance Doctrine #4
+    // (bootstrap <5000, mature >5000). Old values (1000/3000/5000) flipped
+    // the system into mature-phase gating ~2000 trades inside the doctrine
+    // bootstrap band. FDG mirrors these via FDG_BOOTSTRAP_END/etc.
+    private const val BOOTSTRAP_PHASE_END = 2000  // early exploration
+    private const val MATURE_PHASE_END = 5000   // doctrine bootstrap ends here
+    private const val EXPERT_PHASE_END = 8000   // expert tier, well beyond bootstrap
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
