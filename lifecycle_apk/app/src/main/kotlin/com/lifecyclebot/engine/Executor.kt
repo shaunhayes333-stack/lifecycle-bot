@@ -1042,7 +1042,7 @@ class Executor(
         if (wallet == null) return false
         val mint = ts.mint
         val accounts = try {
-            wallet.getTokenAccountsWithDecimals()
+            wallet.getTokenAccountsWithDecimalsBounded()
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "rehydrateFromWallet: getTokenAccounts failed: ${e.message}")
             return false
@@ -1185,7 +1185,7 @@ class Executor(
         // come back proportionally large → fake +62000% gains in journal.
         // Cap the sell qty at whatever the wallet ACTUALLY holds so we
         // never sell phantom inventory.
-        val walletAccounts = try { wallet?.getTokenAccountsWithDecimals() } catch (_: Exception) { null }
+        val walletAccounts = try { wallet?.getTokenAccountsWithDecimalsBounded() } catch (_: Exception) { null }
         val walletEntry = walletAccounts?.get(mint)
         val walletQty = walletEntry?.first ?: 0.0
         val cappedQty = if (walletQty > 0.0 && walletQty < qty) {
@@ -1217,7 +1217,7 @@ class Executor(
         traderTag: String = "MEME",
     ): ConfirmedSellAmount? {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
-        val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (e: Exception) {
+        val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
             ErrorLogger.warn("Executor", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
             null
         }
@@ -6002,7 +6002,7 @@ class Executor(
             // V5.9.603 — live top-ups must be wallet-delta verified before
             // local qty/cost is inflated. Otherwise a confirmed tx with no
             // token arrival creates a fake larger bag and corrupts PnL/exits.
-            val preTopUpQty = try { wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
+            val preTopUpQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
             // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
             // Same universal-auto routing the entry/exit ladder uses.
             val ppResult = tryPumpPortalBuy(
@@ -6051,7 +6051,7 @@ class Executor(
                 var delta = 0.0
                 for (attempt in 0 until 5) {
                     if (attempt > 0) Thread.sleep(2_000)
-                    val cur = wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                    val cur = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
                     delta = (cur - preTopUpQty).coerceAtLeast(0.0)
                     if (delta > 0.0) break
                 }
@@ -7952,7 +7952,7 @@ class Executor(
                         if (sigQty != null && sigQty == 0.0) sigParseConfirmedZero = true
 
                         // Fallback: legacy ATA poll
-                        val balances = verifyWallet.getTokenAccountsWithDecimals()
+                        val balances = verifyWallet.getTokenAccountsWithDecimalsBounded()
                         val tokenData = balances[verifyMint]
                         val qty = tokenData?.first ?: 0.0
                         LiveTradeLogStore.log(
@@ -8072,7 +8072,7 @@ class Executor(
                         // arrival is verified. This keeps pool/price data from
                         // being stamped onto ghost buys that never hit wallet.
                         try {
-                            val decimals = verifyWallet.getTokenAccountsWithDecimals()[verifyMint]?.second ?: 9
+                            val decimals = verifyWallet.getTokenAccountsWithDecimalsBounded()[verifyMint]?.second ?: 9
                             val entryRaw = if (decimals > 0)
                                 java.math.BigDecimal(verifiedQty).movePointRight(decimals).toBigInteger()
                             else java.math.BigInteger.ZERO
@@ -8135,7 +8135,7 @@ class Executor(
                     // wipe). If non-empty and the mint truly is absent
                     // → real phantom.
                     val lastChanceBalances: Map<String, Pair<Double, Int>>? = try {
-                        verifyWallet.getTokenAccountsWithDecimals()
+                        verifyWallet.getTokenAccountsWithDecimalsBounded()
                     } catch (_: Throwable) { null }
                     val lastChanceQty: Double = lastChanceBalances?.get(verifyMint)?.first ?: 0.0
                     val lastChanceMapEmpty = lastChanceBalances?.isEmpty() == true
@@ -10352,7 +10352,7 @@ class Executor(
         // V5.9.458 — SELL LATENCY FIX (operator directive: 'meme trader
         // should make live sells as fast as it makes live buys').
         // Buys go straight to quote; sells previously did a synchronous
-        // wallet.getTokenAccountsWithDecimals() network call first and,
+        // wallet.getTokenAccountsWithDecimalsBounded() network call first and,
         // on a stale RPC indexer, silently bailed via the zero-balance
         // gate — turning a TP/SL trigger into an orphan loop.
         //
@@ -10375,32 +10375,23 @@ class Executor(
             // V5.9.751 — `var` so the RPC-RECOVERY refresh below can rebind
             // if the first read returned an empty map.
             //
-            // V5.9.999 — operator triage: bot loop death root cause.
-            // wallet.getTokenAccountsWithDecimals() is a SYNCHRONOUS RPC
-            // with no internal timeout. Under Helius/Triton overload the
-            // call can hang for 60-180 s, blocking this thread AND holding
-            // the sell lock so subsequent sells queue indefinitely. After
-            // 4 such hangs Dispatchers.IO threads are exhausted and the
-            // bot loop appears dead. Bound the wait to 5 s via a JVM
-            // Future + cancel(true). On timeout we treat the RPC as
-            // having returned empty — the existing RPC-EMPTY rescue path
-            // (mapEmpty branch below) takes over and the sell can proceed
-            // with the tracker qty. The orphaned background thread will
-            // eventually return or die when the HTTP layer times out;
-            // meanwhile the lock IS released because doSell continues
-            // through its finally block.
-            val rpcFuture = try {
-                java.util.concurrent.CompletableFuture.supplyAsync<Map<String, Pair<Double, Int>>> {
-                    wallet.getTokenAccountsWithDecimals()
-                }
-            } catch (_: Throwable) { null }
+            // V5.9.999b — operator triage: bot-loop-death root cause.
+            // The synchronous RPC + retries inside the parent
+            // getTokenAccountsWithDecimals() can hang for 60-180 s on a
+            // Helius/Triton stall, wedging this coroutine AND holding the
+            // sell lock so subsequent sells queue indefinitely. After a few
+            // such hangs Dispatchers.IO is exhausted and the bot loop
+            // appears dead. The bounded wrapper (SolanaWallet.kt) offloads
+            // the call to a dedicated daemon pool with a hard 5 s ceiling;
+            // on timeout it returns emptyMap and the existing RPC-EMPTY
+            // rescue path (mapEmpty branch below) takes over so the sell
+            // proceeds with the tracker qty.
             var onChainBalances: Map<String, Pair<Double, Int>> = try {
-                rpcFuture?.get(5, java.util.concurrent.TimeUnit.SECONDS) ?: emptyMap()
-            } catch (_: java.util.concurrent.TimeoutException) {
-                onLog("⏱ SELL RPC TIMEOUT: getTokenAccountsWithDecimals exceeded 5s — proceeding via RPC-EMPTY rescue", tradeId.mint)
-                try { rpcFuture?.cancel(true) } catch (_: Throwable) {}
-                emptyMap()
+                wallet.getTokenAccountsWithDecimalsBounded(5_000L)
             } catch (_: Throwable) { emptyMap() }
+            if (onChainBalances.isEmpty()) {
+                onLog("⏱ SELL RPC EMPTY/TIMEOUT: getTokenAccountsWithDecimals — proceeding via RPC-EMPTY rescue", tradeId.mint)
+            }
             var tokenData = onChainBalances[ts.mint]
             var mapEmpty = onChainBalances.isEmpty()
 
@@ -10442,7 +10433,7 @@ class Executor(
                 var recovered = false
                 try {
                     Thread.sleep(150)  // brief breathing room before re-poll
-                    val retryBalances = wallet.getTokenAccountsWithDecimals()
+                    val retryBalances = wallet.getTokenAccountsWithDecimalsBounded()
                     if (retryBalances.isNotEmpty()) {
                         // Rebind so the rest of this block sees the recovered map.
                         onChainBalances = retryBalances
@@ -11267,7 +11258,7 @@ class Executor(
                     onLog("✅ FULL SELL VERIFIED VIA TX-PARSE: ${ts.symbol} sig=${sig.take(20)}…", tradeId.mint)
                 } else {
                     Thread.sleep(1500)
-                val postSellBalances = wallet.getTokenAccountsWithDecimals()
+                val postSellBalances = wallet.getTokenAccountsWithDecimalsBounded()
                 val postSellMapEmpty = postSellBalances.isEmpty()
                 val remainingTokens = postSellBalances[ts.mint]?.first ?: 0.0
 
@@ -11377,7 +11368,7 @@ class Executor(
                             onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
                             
                             Thread.sleep(1500)
-                            val finalBalances = wallet.getTokenAccountsWithDecimals()
+                            val finalBalances = wallet.getTokenAccountsWithDecimalsBounded()
                             val finalRemaining = finalBalances[ts.mint]?.first ?: 0.0
                             onLog("🧹 DUST-BUSTER: Final balance = $finalRemaining tokens", tradeId.mint)
                         } catch (dustEx: Exception) {
@@ -11419,7 +11410,7 @@ class Executor(
                 
                 try {
                     Thread.sleep(2000)
-                    val retryBalances = wallet.getTokenAccountsWithDecimals()
+                    val retryBalances = wallet.getTokenAccountsWithDecimalsBounded()
                     val retryRemaining = retryBalances[ts.mint]?.first ?: 0.0
                     
                     if (retryRemaining > pos.qtyToken * 0.01) {
@@ -12558,7 +12549,7 @@ class Executor(
             var result: Map<String, Pair<Double, Int>>? = null
             for (attempt in 1..3) {
                 try {
-                    result = wallet.getTokenAccountsWithDecimals()
+                    result = wallet.getTokenAccountsWithDecimalsBounded()
                     break
                 } catch (e: Exception) {
                     lastErr = e
@@ -13087,7 +13078,7 @@ class Executor(
             // exact-in even when HostTracker had authoritative qty).
             if (tokenUnits != null && tokenUnits > 0L) {
                 val verifiedRaw: java.math.BigInteger = try {
-                    val bal = wallet.getTokenAccountsWithDecimals()[ts.mint]
+                    val bal = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]
                     val ui = bal?.first ?: 0.0
                     val dec = bal?.second ?: 9
                     if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
@@ -13144,7 +13135,7 @@ class Executor(
             // tokens. We now read the WHOLE map separately, detect
             // emptiness, and bail/proceed accordingly.
             val preBalances: Map<String, Pair<Double, Int>>? = try {
-                wallet.getTokenAccountsWithDecimals()
+                wallet.getTokenAccountsWithDecimalsBounded()
             } catch (_: Throwable) { null }
             val preBalancesEmpty = preBalances?.isEmpty() == true
             val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
@@ -13300,7 +13291,7 @@ class Executor(
                         poll++
                         val curSol = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
                         val curTok = try {
-                            wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                            wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
                         } catch (_: Throwable) { -1.0 }
                         if (!seenTokenGone && preTokenQty > 0.0 && curTok in 0.0..(preTokenQty * 0.05)) {
                             seenTokenGone = true
@@ -13412,7 +13403,7 @@ class Executor(
             // watcher logs BUY_VERIFIED_LANDED when the chain catches up.
             val preWalletSol: Double = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
             val preTokenQty: Double = try {
-                wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
             } catch (_: Throwable) { 0.0 }
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
@@ -13521,7 +13512,7 @@ class Executor(
             // buys/min that's 25% of the loop wasted in sleep. Removed;
             // the watchdog (below) handles the RPC-lag case anyway.
             val firstReadQty: Double = try {
-                val cur = wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                val cur = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
                 (cur - preTokenQty).coerceAtLeast(0.0)
             } catch (_: Throwable) { 0.0 }
 
@@ -13568,7 +13559,7 @@ class Executor(
                         kotlinx.coroutines.delay(3_000)
                         poll++
                         val curTok = try {
-                            wallet.getTokenAccountsWithDecimals()[ts.mint]?.first ?: 0.0
+                            wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0
                         } catch (_: Throwable) { 0.0 }
                         val curSol = try { wallet.getSolBalance() } catch (_: Throwable) { -1.0 }
                         val tokenDelta = curTok - preTokenQty

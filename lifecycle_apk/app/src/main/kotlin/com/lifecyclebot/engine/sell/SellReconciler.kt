@@ -143,7 +143,7 @@ object SellReconciler {
 
         // One wallet read for the whole pass (cheaper than per-mint queries).
         val tokens = withContext(Dispatchers.IO) {
-            try { w.getTokenAccountsWithDecimals() } catch (_: Throwable) { emptyMap() }
+            try { w.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
         }
 
         // V5.9.765 — EMERGENT priority 2: live price hydration for every

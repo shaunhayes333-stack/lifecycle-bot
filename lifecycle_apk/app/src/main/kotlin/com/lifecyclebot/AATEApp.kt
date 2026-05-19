@@ -100,6 +100,29 @@ class AATEApp : Application() {
             ErrorLogger.error("App", "Paper wallet recovery check failed: ${e.message}", e)
         }
         
+        // V5.9.999b — SharedPreferences PREWARM.
+        //
+        // Operator ANR dump V5.9.999 showed 758 ms freezes on
+        // CurrencyManager.selectedCurrency and similar SP reads from the
+        // UI thread. SharedPreferencesImpl loads its XML file lazily via
+        // awaitLoadedLocked() on first read — that load is what was
+        // blocking. Trigger every hot-path SP file on a background thread
+        // NOW so the disk parse is done before any Activity reads them.
+        // Each getSharedPreferences().all forces the load to finish.
+        Thread({
+            val files = listOf(
+                "currency_prefs",
+                "bot_paper_wallet",
+                "fluid_learning",
+                "position_persistence_v1",
+                BotService.RUNTIME_PREFS,
+            )
+            for (f in files) {
+                try { getSharedPreferences(f, MODE_PRIVATE).all }
+                catch (_: Throwable) {}
+            }
+        }, "SP-prewarm").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+
         // Set up global uncaught exception handler
         setupCrashHandler()
         

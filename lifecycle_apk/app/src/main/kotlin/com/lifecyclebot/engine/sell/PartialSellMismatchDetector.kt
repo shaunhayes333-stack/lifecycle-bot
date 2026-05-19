@@ -66,7 +66,7 @@ object PartialSellMismatchDetector {
         try { Thread.sleep(2_000) } catch (_: InterruptedException) { return false }
 
         val postUiAndDec: Pair<Double, Int>? = try {
-            w.getTokenAccountsWithDecimals()[mint]
+            w.getTokenAccountsWithDecimalsBounded()[mint]
         } catch (_: Throwable) { null }
         if (postUiAndDec == null) {
             // RPC blip — operator spec: empty map MUST be UNKNOWN, not zero.

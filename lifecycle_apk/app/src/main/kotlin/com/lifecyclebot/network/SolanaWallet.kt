@@ -68,6 +68,37 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     private val JSON_MT = "application/json".toMediaType()
     private val idGen   = AtomicLong(1)
 
+    companion object {
+        // V5.9.999b — Dedicated daemon executor for bounded RPC wrappers.
+        //
+        // Why a separate pool (not ForkJoinPool.commonPool nor Dispatchers.IO):
+        //   * ForkJoinPool.commonPool is shared with Kotlin parallel collections
+        //     and `parallelStream`; a hung RPC starves them too.
+        //   * Dispatchers.IO threads are scarce (default 64) and feed the bot
+        //     loop, exit sweep, persistence saves, etc. If a 60-180s RPC hang
+        //     parked one of those threads we'd lose work-slicing capacity for
+        //     OTHER coroutines.
+        // This pool's only job is to host orphan RPC threads after a timeout
+        // fires. Daemon threads let JVM exit cleanly even if a thread is
+        // still blocked in OkHttp socket read.
+        @Volatile private var rpcBoundedExec: java.util.concurrent.ExecutorService? = null
+        private fun boundedRpcExecutor(): java.util.concurrent.ExecutorService {
+            rpcBoundedExec?.let { return it }
+            synchronized(this) {
+                rpcBoundedExec?.let { return it }
+                val tf = java.util.concurrent.ThreadFactory { r ->
+                    Thread(r, "SolanaWallet-RPC-bounded").apply {
+                        isDaemon = true
+                        priority = Thread.NORM_PRIORITY
+                    }
+                }
+                val ex = java.util.concurrent.Executors.newCachedThreadPool(tf)
+                rpcBoundedExec = ex
+                return ex
+            }
+        }
+    }
+
     // ── balance ────────────────────────────────────────────
 
     fun getSolBalance(): Double {
@@ -545,6 +576,54 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             }
         }
         return out
+    }
+
+    /**
+     * V5.9.999b — BOUNDED variant of getTokenAccountsWithDecimals.
+     *
+     * The synchronous parent method can hang for 60-180 s when Helius / Triton
+     * is overloaded (3 retries × 2 token programs × OkHttp 25 s timeout + the
+     * 300/600 ms backoffs). Operator triage of the V5.9.998 bot-loop death
+     * proved this single call site (per-tick pendingVerify watchdog in
+     * BotService.botLoop @ ~line 7904) is enough to wedge the whole bot loop
+     * coroutine — and there's no way to wrap botLoop in withTimeoutOrNull
+     * because the method body is already at the JVM 64 KB cap.
+     *
+     * This wrapper offloads the call to a dedicated daemon executor (NOT
+     * Dispatchers.IO — we don't want a single hung RPC to consume an IO
+     * worker that the bot loop, sweepers, or persistence rely on) and
+     * applies a hard `Future.get(timeoutMs)` ceiling. On timeout we:
+     *   1. Cancel the orphan future (best-effort interrupt of OkHttp read)
+     *   2. Return `emptyMap()` — semantically identical to "RPC returned 0
+     *      accounts", which every existing caller already handles via the
+     *      V5.9.467 RPC-EMPTY rescue path (falls back to tracker qty).
+     *
+     * Default ceiling is 5 s: balances tolerance for normal RPC latency
+     * against the desire to keep the bot loop ticking. Critical sell paths
+     * can pass a tighter budget, treasury sweeps a looser one.
+     */
+    fun getTokenAccountsWithDecimalsBounded(
+        timeoutMs: Long = 5_000L
+    ): Map<String, Pair<Double, Int>> {
+        val fut: java.util.concurrent.Future<Map<String, Pair<Double, Int>>> = try {
+            boundedRpcExecutor().submit(java.util.concurrent.Callable {
+                getTokenAccountsWithDecimals()
+            })
+        } catch (_: Throwable) {
+            return emptyMap()
+        }
+        return try {
+            fut.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.TimeoutException) {
+            try { fut.cancel(true) } catch (_: Throwable) {}
+            android.util.Log.w(
+                "SolanaWallet",
+                "getTokenAccountsWithDecimalsBounded: RPC exceeded ${timeoutMs} ms — returning empty map (RPC-EMPTY rescue path)"
+            )
+            emptyMap()
+        } catch (_: Throwable) {
+            emptyMap()
+        }
     }
 
     /**

@@ -115,7 +115,7 @@ object RecoveryExecutionLoop {
     ): Boolean {
         // Re-read live intermediate balance — the originally-recorded raw amount
         // may have been partially consumed or be stale.
-        val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (_: Exception) { emptyMap() }
+        val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Exception) { emptyMap() }
         val midUi = accounts[rec.intermediateMint]?.first ?: 0.0
         val midDecimals = accounts[rec.intermediateMint]?.second ?: 6
         val midRaw = (midUi * Math.pow(10.0, midDecimals.toDouble())).toLong()
@@ -162,7 +162,7 @@ object RecoveryExecutionLoop {
         rec: IntermediateAssetRecovery.Record,
     ) {
         // Re-read live intermediate balance.
-        val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (_: Exception) { emptyMap() }
+        val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Exception) { emptyMap() }
         val midUi = accounts[rec.intermediateMint]?.first ?: 0.0
         val midDecimals = accounts[rec.intermediateMint]?.second ?: 6
         val midRaw = (midUi * Math.pow(10.0, midDecimals.toDouble())).toLong()

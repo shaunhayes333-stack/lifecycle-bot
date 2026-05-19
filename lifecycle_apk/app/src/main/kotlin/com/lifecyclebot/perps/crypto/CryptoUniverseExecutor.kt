@@ -234,7 +234,7 @@ object CryptoUniverseExecutor {
     }
 
     private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? = try {
-        wallet.getTokenAccountsWithDecimals()[mint]?.first ?: 0.0
+        wallet.getTokenAccountsWithDecimalsBounded()[mint]?.first ?: 0.0
     } catch (_: Throwable) { null }
 
     private suspend fun verifyWalletDelta(

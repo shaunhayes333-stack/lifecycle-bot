@@ -461,7 +461,7 @@ object TokenLifecycleTracker {
             var lastSawEmpty = false
             for (attempt in 1..WALLET_RECONCILE_RETRIES) {
                 try {
-                    val map = w.getTokenAccountsWithDecimals()
+                    val map = w.getTokenAccountsWithDecimalsBounded()
                     if (map.isEmpty()) {
                         // Either RPC blip or wallet truly has no SPL tokens.
                         // Distinguish by retrying — a healthy wallet WITH a

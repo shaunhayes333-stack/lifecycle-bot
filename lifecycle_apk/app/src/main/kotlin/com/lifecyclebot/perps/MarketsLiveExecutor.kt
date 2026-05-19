@@ -89,7 +89,7 @@ object MarketsLiveExecutor {
     // ═══════════════════════════════════════════════════════════════════
     private fun readTokenUi(wallet: SolanaWallet, mint: String): Double? {
         return try {
-            wallet.getTokenAccountsWithDecimals()[mint]?.first ?: 0.0
+            wallet.getTokenAccountsWithDecimalsBounded()[mint]?.first ?: 0.0
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "  RPC read failed for ${mint.take(6)}…: ${e.message}")
             null  // null = inconclusive (RPC error), not zero
@@ -1331,7 +1331,7 @@ object MarketsLiveExecutor {
             (market.isStock || market.isCommodity || market.isMetal || market.isForex || market.isCrypto)
 
         val (inputMint, amountUnits) = try {
-            val balances = wallet.getTokenAccountsWithDecimals()
+            val balances = wallet.getTokenAccountsWithDecimalsBounded()
             // V5.9.475 — RPC RESCUE for Markets close path (mirrors V5.9.467
             // in Executor.liveSell). Operator: 'stocks land in host wallet
             // but never complete a sell.' When DexScreener/Triton/Helius

@@ -136,7 +136,7 @@ object PositionWalletReconciler {
         if (sources.isEmpty()) return
 
         val walletMints: Map<String, Pair<Double, Int>> = try {
-            wallet.getTokenAccountsWithDecimals()
+            wallet.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
             ErrorLogger.debug(TAG, "wallet snapshot failed: ${e.message} — skipping tick")
             return

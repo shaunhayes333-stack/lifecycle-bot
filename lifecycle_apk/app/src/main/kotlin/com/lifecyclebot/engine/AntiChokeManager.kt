@@ -198,7 +198,7 @@ object AntiChokeManager {
 
         var walletMap: Map<String, Pair<Double, Int>>? = null
         if (!isPaperMode && wallet != null) {
-            walletMap = withTimeoutOrNull(7_000L) { wallet.getTokenAccountsWithDecimals() }
+            walletMap = withTimeoutOrNull(7_000L) { wallet.getTokenAccountsWithDecimalsBounded() }
             if (walletMap == null) return 0
             if (walletMap.isEmpty()) {
                 // Empty token-account maps are ambiguous: could be a truly empty

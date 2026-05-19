@@ -7901,7 +7901,7 @@ class BotService : Service() {
                     val w = wallet
                     // For live mode, fetch on-chain balances once for all stuck positions.
                     val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {
-                        try { w.getTokenAccountsWithDecimals() } catch (e: Exception) {
+                        try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
                             ErrorLogger.warn("BotService", "🔧 [VERIFY_WATCHDOG] RPC failed; will retry next tick: ${e.message}")
                             null
                         }
@@ -7955,7 +7955,7 @@ class BotService : Service() {
                                         // to 0.0 if w were somehow null here, which leaves the
                                         // position pendingVerify (correct behaviour).
                                         val perMintQty: Double = try {
-                                            w?.getTokenAccountsWithDecimals()?.get(ts.mint)?.first ?: 0.0
+                                            w?.getTokenAccountsWithDecimalsBounded()?.get(ts.mint)?.first ?: 0.0
                                         } catch (_: Exception) { 0.0 }
                                         if (perMintQty > 0.0) {
                                             ErrorLogger.warn("BotService",
@@ -8071,7 +8071,7 @@ class BotService : Service() {
                             // Sweep against the live wallet balance and
                             // remove anything no-longer-owned.
                             try {
-                                val accounts = w.getTokenAccountsWithDecimals()
+                                val accounts = w.getTokenAccountsWithDecimalsBounded()
                                 val walletMints = accounts
                                     .filter { (_, v) -> v.first > 0.0 }
                                     .keys

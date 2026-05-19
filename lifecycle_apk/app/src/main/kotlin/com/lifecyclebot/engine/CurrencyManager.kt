@@ -79,8 +79,23 @@ class CurrencyManager(private val ctx: Context) {
     @Volatile private var ethUsd    = 0.0
     @Volatile private var lastFetch = 0L
 
-    private val prefs: SharedPreferences =
+    // V5.9.999b — SharedPreferences cold-load fix.
+    //
+    // Pre-V5.9.999b: this val was eagerly initialised at CurrencyManager
+    // construction time. The first .getString() call from the UI then
+    // triggered SharedPreferencesImpl.awaitLoadedLocked() which blocks
+    // until the XML file is parsed from disk — measured at 758 ms in the
+    // operator's ANR dump. Since CurrencyManager is constructed in
+    // MainActivity.onCreate, JournalActivity.onCreate, etc., every cold
+    // launch ate that hit on the UI thread.
+    //
+    // by lazy { } defers the getSharedPreferences() call until first
+    // access AND we now prewarm it on a background thread from
+    // AATEApp.onCreate (see AATEApp.kt), so by the time the UI first
+    // reads selectedCurrency the XML is already in memory.
+    private val prefs: SharedPreferences by lazy {
         ctx.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+    }
 
     // ── Selected currency ─────────────────────────────────────────────
 

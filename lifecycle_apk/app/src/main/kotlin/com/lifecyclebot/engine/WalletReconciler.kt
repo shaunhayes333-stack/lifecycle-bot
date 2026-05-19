@@ -51,7 +51,7 @@ object WalletReconciler {
         if (!lastRunMs.compareAndSet(prev, now)) return 0
 
         val walletMints: Map<String, Pair<Double, Int>> = try {
-            wallet.getTokenAccountsWithDecimals()
+            wallet.getTokenAccountsWithDecimalsBounded()
         } catch (t: Throwable) {
             ErrorLogger.debug(TAG, "wallet read failed: ${t.message?.take(80)}")
             return 0

@@ -130,7 +130,7 @@ object UniversalBridgeEngine {
 
         try {
             // SPL tokens
-            val tokens = wallet.getTokenAccountsWithDecimals()
+            val tokens = wallet.getTokenAccountsWithDecimalsBounded()
             tokens.forEach { (mint, pair) ->
                 val (amount, _) = pair
                 if (amount > 0.000001) {
@@ -181,7 +181,7 @@ object UniversalBridgeEngine {
         if (sourceMint == USDC_MINT) {
             // Already USDC — just confirm balance is enough
             val usdcBal = try {
-                wallet.getTokenAccountsWithDecimals()[USDC_MINT]?.first ?: 0.0
+                wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0
             } catch (_: Exception) { 0.0 }
 
             if (usdcBal >= sizeUsd * 0.99) {
@@ -212,7 +212,7 @@ object UniversalBridgeEngine {
         if (sourceMint == SOL_MINT) {
             sourceAmountRaw = (sourceAmount * 1_000_000_000L).toLong()
         } else {
-            val balance = try { wallet.getTokenAccountsWithDecimals()[sourceMint] } catch (_: Exception) { null }
+            val balance = try { wallet.getTokenAccountsWithDecimalsBounded()[sourceMint] } catch (_: Exception) { null }
             if (balance == null || balance.first < sourceAmount * 0.95) {
                 return@withContext BridgeResult(false, sourceMint, USDC_MINT, 0, 0.0, null,
                     "Insufficient ${mintLabel(sourceMint)}: have ${balance?.first ?: 0.0}, need $sourceAmount")
@@ -288,7 +288,7 @@ object UniversalBridgeEngine {
 
         // Step 4: if source == USDC, single hop USDC → target
         if (src == USDC_MINT) {
-            val usdcBal = try { wallet.getTokenAccountsWithDecimals()[USDC_MINT]?.first ?: 0.0 } catch (_: Exception) { 0.0 }
+            val usdcBal = try { wallet.getTokenAccountsWithDecimalsBounded()[USDC_MINT]?.first ?: 0.0 } catch (_: Exception) { 0.0 }
             val usdcRaw  = (minOf(usdcBal, sizeUsd) * 1_000_000).toLong()
 
             if (usdcRaw <= 0) return@withContext BridgeResult(false, USDC_MINT, targetMint, 0, 0.0, null, "No USDC available")
@@ -350,7 +350,7 @@ object UniversalBridgeEngine {
 
         // Pre-trade target balance — used to verify the swap actually delivered.
         val preTargetBal: Double = try {
-            wallet.getTokenAccountsWithDecimals()[targetMint]?.first ?: 0.0
+            wallet.getTokenAccountsWithDecimalsBounded()[targetMint]?.first ?: 0.0
         } catch (_: Exception) { 0.0 }
 
         com.lifecyclebot.engine.execution.Forensics.log(
@@ -431,7 +431,7 @@ object UniversalBridgeEngine {
                 kotlinx.coroutines.delay(backoffsMs[attempt])
                 attempt++
                 val postEntry: Pair<Double, Int>? = try {
-                    wallet.getTokenAccountsWithDecimals()[targetMint]
+                    wallet.getTokenAccountsWithDecimalsBounded()[targetMint]
                 } catch (_: Exception) { null }
                 val postTargetBal = postEntry?.first ?: 0.0
                 targetDecimals = postEntry?.second ?: targetDecimals
@@ -455,7 +455,7 @@ object UniversalBridgeEngine {
             // route, but we double-check the wallet for residual USDC/USDT
             // and create an IntermediateAssetRecovery so the orphan asset is
             // tracked, not silently ignored.
-            val accounts = try { wallet.getTokenAccountsWithDecimals() } catch (_: Exception) { emptyMap() }
+            val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Exception) { emptyMap() }
             val usdcUi = accounts[USDC_MINT]?.first ?: 0.0
             val usdtUi = accounts[USDT_MINT]?.first ?: 0.0
             if (targetMint != USDC_MINT && usdcUi > 0.001) {
@@ -542,7 +542,7 @@ object UniversalBridgeEngine {
 
         // Get actual balance of the target token
         val balRaw: Long = try {
-            val accounts = wallet.getTokenAccountsWithDecimals()
+            val accounts = wallet.getTokenAccountsWithDecimalsBounded()
             val entry    = accounts[targetMint]
             if (entry != null) {
                 val (amount, decimals) = entry

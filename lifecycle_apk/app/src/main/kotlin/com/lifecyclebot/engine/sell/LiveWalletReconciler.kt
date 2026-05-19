@@ -166,7 +166,7 @@ object LiveWalletReconciler {
         totalRuns.incrementAndGet()
         lastRunMs.set(System.currentTimeMillis())
         val balances: Map<String, Pair<Double, Int>> = try {
-            wallet.getTokenAccountsWithDecimals()
+            wallet.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "wallet read failed during reconcile: ${e.message}")
             return 0

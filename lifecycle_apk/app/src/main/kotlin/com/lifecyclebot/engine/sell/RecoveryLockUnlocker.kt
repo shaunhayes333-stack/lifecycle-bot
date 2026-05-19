@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Algorithm (every ATTEMPT_INTERVAL_MS per mint):
  *   1. Read TokenLifecycleTracker.getEntryMetadata(mint) for
  *      entrySolSpent + entryTokenRawConfirmed. Both must be > 0.
- *   2. Read wallet.getTokenAccountsWithDecimals() to get the current
+ *   2. Read wallet.getTokenAccountsWithDecimalsBounded() to get the current
  *      on-chain raw balance. Must be > 0.
  *   3. Quote a full-balance sell via Jupiter (advisory, non-binding).
  *   4. Pass entrySolSpent / entryTokenRaw / currentWalletRaw /
@@ -113,7 +113,7 @@ object RecoveryLockUnlocker {
         }
 
         // Step 2 — chain wallet balance.
-        val balances = try { wallet.getTokenAccountsWithDecimals() } catch (_: Throwable) { emptyMap() }
+        val balances = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
         val (uiAmount, decimals) = balances[mint] ?: (0.0 to 0)
         val effectiveDecimals = if (decimals > 0) decimals else meta.entryDecimals.coerceAtLeast(6)
         val currentRaw: BigInteger = if (uiAmount > 0.0 && effectiveDecimals > 0) {

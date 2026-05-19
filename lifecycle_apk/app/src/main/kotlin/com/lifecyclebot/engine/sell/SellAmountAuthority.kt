@@ -83,7 +83,7 @@ object SellAmountAuthority {
         // Source 1+2 fused: getTokenAccountsByOwner is what SolanaWallet
         // already exposes. EMPTY MAP MUST mean UNKNOWN (operator spec).
         val balances: Map<String, Pair<Double, Int>> = try {
-            w.getTokenAccountsWithDecimals()
+            w.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "wallet RPC threw for mint ${mint.take(8)}…: ${e.message}")
             emptyMap()
