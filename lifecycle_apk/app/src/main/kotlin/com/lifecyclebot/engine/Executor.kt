@@ -10374,7 +10374,33 @@ class Executor(
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             // V5.9.751 — `var` so the RPC-RECOVERY refresh below can rebind
             // if the first read returned an empty map.
-            var onChainBalances = wallet.getTokenAccountsWithDecimals()
+            //
+            // V5.9.999 — operator triage: bot loop death root cause.
+            // wallet.getTokenAccountsWithDecimals() is a SYNCHRONOUS RPC
+            // with no internal timeout. Under Helius/Triton overload the
+            // call can hang for 60-180 s, blocking this thread AND holding
+            // the sell lock so subsequent sells queue indefinitely. After
+            // 4 such hangs Dispatchers.IO threads are exhausted and the
+            // bot loop appears dead. Bound the wait to 5 s via a JVM
+            // Future + cancel(true). On timeout we treat the RPC as
+            // having returned empty — the existing RPC-EMPTY rescue path
+            // (mapEmpty branch below) takes over and the sell can proceed
+            // with the tracker qty. The orphaned background thread will
+            // eventually return or die when the HTTP layer times out;
+            // meanwhile the lock IS released because doSell continues
+            // through its finally block.
+            val rpcFuture = try {
+                java.util.concurrent.CompletableFuture.supplyAsync<Map<String, Pair<Double, Int>>> {
+                    wallet.getTokenAccountsWithDecimals()
+                }
+            } catch (_: Throwable) { null }
+            var onChainBalances: Map<String, Pair<Double, Int>> = try {
+                rpcFuture?.get(5, java.util.concurrent.TimeUnit.SECONDS) ?: emptyMap()
+            } catch (_: java.util.concurrent.TimeoutException) {
+                onLog("⏱ SELL RPC TIMEOUT: getTokenAccountsWithDecimals exceeded 5s — proceeding via RPC-EMPTY rescue", tradeId.mint)
+                try { rpcFuture?.cancel(true) } catch (_: Throwable) {}
+                emptyMap()
+            } catch (_: Throwable) { emptyMap() }
             var tokenData = onChainBalances[ts.mint]
             var mapEmpty = onChainBalances.isEmpty()
 

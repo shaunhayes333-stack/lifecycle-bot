@@ -3,6 +3,11 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
@@ -68,10 +73,34 @@ object LearningPersistence {
      * SAVE_EVERY_N we flush all trackers to disk. Non-blocking for
      * callers beyond the occasional SQLite write (millisecond-scale).
      */
+    /**
+     * V5.9.999 — operator triage: ANR storm fix.
+     * Pre-V5.9.999 onRecord() called saveAll() synchronously on the caller's
+     * thread. Every Nth record this would:
+     *   - 27 exportState() calls (JSON serialize each AI's brain state)
+     *   - 27 putBlob() SQLite writes inside a transaction
+     *   - Plus 6 sub-trader save(force=true) calls
+     * The pipeline dump captured this taking 682 ms on the main thread alone,
+     * driving the operator's 33-ANR storm + 'stopBot did not complete in 30s'
+     * timeout. saveAll IS already fail-safe (try/catch + endTransaction in
+     * finally) so it is safe to dispatch to a background IO coroutine. The
+     * shutdownSave() path (called from BotService.stopBot) intentionally
+     * still calls saveAll() directly so persistence completes before exit.
+     */
+    private val saveMutex = Mutex()
     fun onRecord() {
         val n = recordCounter.incrementAndGet()
         if (n % SAVE_EVERY_N == 0) {
-            try { saveAll() } catch (_: Exception) {}
+            GlobalScope.launch(Dispatchers.IO) {
+                if (saveMutex.tryLock()) {
+                    try { saveAll() } catch (_: Throwable) {}
+                    finally { saveMutex.unlock() }
+                }
+                // If a save is already in flight we just skip this tick;
+                // the next Nth record will catch up. Prevents overlapping
+                // SQLite transactions if onRecord fires faster than the
+                // background save can finish.
+            }
         }
     }
 
