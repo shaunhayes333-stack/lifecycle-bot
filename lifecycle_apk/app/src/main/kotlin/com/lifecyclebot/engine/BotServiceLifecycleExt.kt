@@ -118,9 +118,9 @@ internal fun BotService.synthesizeTreasuryTokenState(mint: String): com.lifecycl
     )
     ts.lastPrice = if (pos.currentPrice > 0) pos.currentPrice else pos.entryPrice
     ts.lastPriceSource = "POSITION_REHYDRATE"  // V5.9.744
-    synchronized(status.tokens) {
-        if (!status.tokens.containsKey(mint)) {
-            status.tokens[mint] = ts
+    synchronized(BotService.status.tokens) {
+        if (!BotService.status.tokens.containsKey(mint)) {
+            BotService.status.tokens[mint] = ts
         }
     }
     return ts
@@ -142,7 +142,7 @@ internal fun BotService.synthesizeTreasuryTokenState(mint: String): com.lifecycl
 //     never rate-limited because OS treats it as a user alarm).
 internal fun BotService.scheduleLoopHeartbeatAlarm() {
     val hbIntent = Intent(applicationContext, BotService::class.java).apply {
-        action = ACTION_LOOP_HEARTBEAT
+        action = BotService.ACTION_LOOP_HEARTBEAT
     }
     val fastPi = android.app.PendingIntent.getService(
         this, 6, hbIntent,
@@ -181,7 +181,7 @@ internal fun BotService.scheduleLoopHeartbeatAlarm() {
 
 internal fun BotService.cancelLoopHeartbeatAlarm() {
     val hbIntent = Intent(applicationContext, BotService::class.java).apply {
-        action = ACTION_LOOP_HEARTBEAT
+        action = BotService.ACTION_LOOP_HEARTBEAT
     }
     val am = getSystemService(android.app.AlarmManager::class.java) ?: return
     for (rc in intArrayOf(6, 7)) {
@@ -198,7 +198,7 @@ internal fun BotService.cancelLoopHeartbeatAlarm() {
 
 internal fun BotService.cancelAllRestartAlarms() {
     val restartIntent = Intent(applicationContext, BotService::class.java).apply {
-        action = ACTION_START
+        action = BotService.ACTION_START
     }
     val am = getSystemService(android.app.AlarmManager::class.java)
     for (requestCode in intArrayOf(1, 2, 3, 996, 997, 998, 999)) { // V5.9.714: added 996,998 (Doze-bypass PIs)
