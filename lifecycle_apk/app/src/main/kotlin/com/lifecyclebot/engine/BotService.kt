@@ -9176,16 +9176,90 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 // the last change. let's lower the watchlist size to 250.'
 // Watchlist cap dropped from 300 → 250 in the next block.
 val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
-// V5.9.659b — cap per-tick iteration to keep loop responsive (full
-// rationale in emitWatchlistCapTrace docstring). Single-line form to
-// minimize bytecode in this method body — botLoop is at the JVM 64KB
-// limit and any addition trips it.
-// V5.9.663d — operator: 'lets lower the watchlist size to 250'.
-// Reduced from 300 to give the loop more headroom on devices that
-// were tripping ANR on V5.9.663c.
-val orderedMints = if (orderedMintsRaw.size > 250) {
-    emitWatchlistCapTrace(250, orderedMintsRaw.size, forcedOpenMints.size); orderedMintsRaw.take(250)
-} else orderedMintsRaw
+
+// V5.9.960 — SMART WATCHLIST ROUND-ROBIN.
+//
+// Operator (2026-05-19): 'bot cycle should be every 5 seconds.' With
+// 250 mints × ~250ms per processTokenCycle network call and 96-way
+// parallelism, the SUPERVISOR floor is ~7s even with V5.9.958 chunk
+// timeouts. To hit a real 5s round-trip we must EVALUATE FEWER MINTS
+// PER CYCLE — but not blindly: meme alpha lives in the freshly-listed
+// tokens, so those must be evaluated every tick. The cold tail
+// rotates so it gets covered every 2-3 cycles instead of every cycle.
+//
+// Selection priority (in order, capped at 96 = one chunk = ~2.4s):
+//   1. forcedOpenMints — ALL open positions always evaluated (was
+//      already true). These are the mints with skin in the game.
+//   2. Fresh mints (addedAt < 60s ago) — pump.fun graduations and
+//      newly-trending tokens. This is where the entry alpha lives.
+//   3. Never-processed mints (processCount == 0) — first-evaluation
+//      priority so we don't sit on stale candidates.
+//   4. Stale mints (oldest lastProcessedAt) — round-robin coverage of
+//      the cold tail. ~1/3 of the tail per cycle.
+//
+// Result: ~5-8s round-trip cycle, fresh mints every tick, full
+// watchlist covered every 2-3 ticks.
+val orderedMints: List<String> = run {
+    val nowMs = System.currentTimeMillis()
+    val FRESH_WINDOW_MS = 60_000L  // < 60s = fresh
+    val PER_CYCLE_CAP = 96         // one chunk worth — leaves room in maxBatchMillis
+
+    // Build a quick lookup of WatchlistEntry metadata for ranking.
+    val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
+        com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
+            .associateBy { it.mint }
+    } catch (_: Throwable) { emptyMap() }
+
+    // forcedOpenMints ALWAYS in. They are non-negotiable (open positions).
+    val mustInclude = forcedOpenMints.toMutableList()
+
+    // Remaining budget for the otherMints rotation.
+    val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
+    if (budget == 0 || otherMints.isEmpty()) {
+        // Either watchlist is all open positions, or no spare slots.
+        // Emit trace for visibility into the chosen window.
+        try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
+        mustInclude.distinct()
+    } else {
+        // Split otherMints into three priority tiers.
+        val fresh = mutableListOf<String>()
+        val unseen = mutableListOf<String>()
+        val cold = mutableListOf<Pair<String, Long>>()  // (mint, lastProcessedAt) — older first
+
+        otherMints.forEach { mint ->
+            val entry = entriesByMint[mint]
+            when {
+                entry == null -> {
+                    // No metadata — treat as unseen so we evaluate it once.
+                    unseen.add(mint)
+                }
+                (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
+                entry.processCount == 0 -> unseen.add(mint)
+                else -> cold.add(mint to entry.lastProcessedAt)
+            }
+        }
+
+        // Sort cold by oldest lastProcessedAt first (least recently processed wins).
+        cold.sortBy { it.second }
+
+        // Fill budget: fresh → unseen → cold rotation.
+        val picked = mutableListOf<String>()
+        picked.addAll(fresh.take(budget))
+        if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
+        if (picked.size < budget) picked.addAll(cold.map { it.first }.take(budget - picked.size))
+
+        // Emit a trace so operator can see the cut.
+        try {
+            emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "WATCHLIST_RR",
+                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
+            )
+        } catch (_: Throwable) {}
+
+        (mustInclude + picked).distinct()
+    }
+}
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
