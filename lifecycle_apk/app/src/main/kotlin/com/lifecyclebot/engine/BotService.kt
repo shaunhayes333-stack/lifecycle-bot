@@ -372,7 +372,7 @@ class BotService : Service() {
     }
 
     private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
-    private val dex    = DexscreenerApi()
+    internal val dex    = DexscreenerApi()
     private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var wallet: SolanaWallet? = null
@@ -387,7 +387,7 @@ class BotService : Service() {
     private lateinit var safetyChecker: TokenSafetyChecker
     private lateinit var securityGuard: SecurityGuard
     private var orchestrator: DataOrchestrator? = null
-    private var marketScanner: SolanaMarketScanner? = null
+    internal var marketScanner: SolanaMarketScanner? = null
 
     // V5.9.634c — freeze-detector state. Lives on the class (not as botLoop
     // locals) so the detector body can be extracted into runFreezeDetectorTick
@@ -2452,7 +2452,7 @@ class BotService : Service() {
      *
      * Returns true if a scanner is alive after this call, false on failure.
      */
-    private fun bootMemeScanner(reason: String): Boolean {
+    internal fun bootMemeScanner(reason: String): Boolean {
         // V5.9.651 — forensic heal entry
         ForensicLogger.phase(ForensicLogger.PHASE.SCANNER_HEAL, "_scanner", "reason=$reason existing=${marketScanner != null}")
         val existing = marketScanner
@@ -5585,12 +5585,7 @@ class BotService : Service() {
         }
     }
     
-    // V5.9.1000 — cancelAllRestartAlarms() extracted to BotServiceLifecycleExt.kt
-
-    private fun cancelKeepAliveAlarm() {
-        cancelAllRestartAlarms()
-        ErrorLogger.info("BotService", "Keep-alive alarms cancelled")
-    }
+    // V5.9.1001 — cancelKeepAliveAlarm() extracted to BotServiceIntakeExt.kt
 
     // V5.9.1000 — scheduleLoopHeartbeatAlarm() extracted to BotServiceLifecycleExt.kt
 
@@ -6737,7 +6732,7 @@ class BotService : Service() {
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val intakeDedupTtlMs: Long = 30_000L
 
-    private fun admitProtectedMemeIntake(
+    internal fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
         name: String = symbol,
@@ -7089,72 +7084,7 @@ class BotService : Service() {
         return added
     }
 
-    private fun processTokenMergeQueue(loopCount: Int) {
-        val mergedTokens = TokenMergeQueue.processQueue()
-        for (merged in mergedTokens) {
-            val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
-            val scannersInfo = if (merged.allScanners.size > 1)
-                " (${merged.allScanners.joinToString("+")})" else ""
-
-            val added = admitProtectedMemeIntake(
-                mint = merged.mint,
-                symbol = merged.symbol,
-                name = merged.symbol,
-                source = merged.primaryScanner,
-                marketCapUsd = merged.marketCapUsd,
-                liquidityUsd = merged.liquidityUsd,
-                volumeH1 = merged.volumeH1,
-                confidence = merged.confidence,
-                allSources = merged.allScanners,
-                playSound = true,
-                operatorLog = true,
-            )
-
-            if (added) {
-                try { com.lifecyclebot.engine.WatchlistTtlPolicy.mark(merged.symbol, merged.confidence) } catch (_: Throwable) {}
-                TradeLifecycle.watchlisted(merged.mint, GlobalTradeRegistry.size(), "merged: ${merged.primaryScanner}$scannersInfo$boostLabel")
-            }
-        }
-
-        val probationResults = GlobalTradeRegistry.processProbation()
-        for (result in probationResults) {
-            when (result.action) {
-                "PROMOTED" -> {
-                    addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
-                    soundManager.playNewToken()
-                    try {
-                        val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
-                        admitProtectedMemeIntake(
-                            mint = result.mint,
-                            symbol = result.symbol,
-                            name = result.symbol,
-                            source = "PROBATION",
-                            marketCapUsd = probEntry?.initialMcap ?: 0.0,
-                            liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
-                            confidence = 50,
-                            allSources = setOf("PROBATION"),
-                            playSound = false,
-                            operatorLog = false,
-                        )
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")
-                    }
-                }
-                "REJECTED" -> {
-                    // V5.9.626 — probation rejection is execution memory only;
-                    // protected intake must not shrink or hide the universe.
-                    ErrorLogger.debug("BotService", "🛡 PROBATION_SHADOW: ${result.symbol} | ${result.reason}")
-                }
-            }
-        }
-
-        if (loopCount % 30 == 0 && TokenMergeQueue.getPendingCount() > 0) {
-            addLog("🔀 ${TokenMergeQueue.getStats()}")
-        }
-        if (loopCount % 30 == 0 && GlobalTradeRegistry.probationSize() > 0) {
-            addLog("⏳ ${GlobalTradeRegistry.getProbationStats()}")
-        }
-    }
+    // V5.9.1001 — processTokenMergeQueue() extracted to BotServiceIntakeExt.kt
 
     // V5.9.1000 — runRegimePulse() extracted to BotServiceLifecycleExt.kt
 
@@ -7389,91 +7319,9 @@ class BotService : Service() {
         }
     }
 
-    // V5.9.962 — extracted from botLoop to keep that method under the JVM
-    // 64KB bytecode cap. V5.9.960 inline run{} added ~3KB of bytecode and
-    // V5.9.961 added another ~1.5KB. Together they tripped Back-end (JVM)
-    // Internal error: Couldn't transform method node. Moving the selection
-    // into its own method costs ONE JVM method dispatch per cycle (~50ns)
-    // and frees ~5KB inside botLoop. Same selection logic — fresh + unseen
-    // + cold rotation with stale eviction.
-    private fun selectOrderedMintsForCycle(
-        forcedOpenMints: List<String>,
-        otherMints: List<String>,
-        orderedMintsRaw: List<String>,
-    ): List<String> {
-        val nowMs = System.currentTimeMillis()
-        val FRESH_WINDOW_MS = 60_000L
-        val PER_CYCLE_CAP = 96
-        val STALE_PROCESS_COUNT_THRESHOLD = 12
+    // V5.9.1001 — selectOrderedMintsForCycle() extracted to BotServiceIntakeExt.kt
 
-        val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
-            com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
-                .associateBy { it.mint }
-        } catch (_: Throwable) { emptyMap() }
-
-        val mustInclude = forcedOpenMints.toMutableList()
-        val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
-        if (budget == 0 || otherMints.isEmpty()) {
-            try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
-            return mustInclude.distinct()
-        }
-
-        val fresh = mutableListOf<String>()
-        val unseen = mutableListOf<String>()
-        val cold = mutableListOf<Pair<String, Long>>()
-        otherMints.forEach { mint ->
-            val entry = entriesByMint[mint]
-            when {
-                entry == null -> unseen.add(mint)
-                (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
-                entry.processCount == 0 -> unseen.add(mint)
-                else -> cold.add(mint to entry.lastProcessedAt)
-            }
-        }
-
-        // V5.9.961 stale eviction
-        val staleEvict = mutableListOf<String>()
-        val coldFiltered = cold.filter { (mint, _) ->
-            val entry = entriesByMint[mint] ?: return@filter true
-            if (entry.processCount >= STALE_PROCESS_COUNT_THRESHOLD) {
-                staleEvict.add(mint)
-                false
-            } else true
-        }
-        if (staleEvict.isNotEmpty()) {
-            staleEvict.forEach { mint ->
-                try {
-                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_PROCESS_COUNT")
-                } catch (_: Throwable) {}
-            }
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "WATCHLIST_STALE_EVICT",
-                    "evicted=${staleEvict.size} threshold=$STALE_PROCESS_COUNT_THRESHOLD"
-                )
-            } catch (_: Throwable) {}
-        }
-
-        val coldMutable = coldFiltered.toMutableList()
-        coldMutable.sortBy { it.second }
-
-        val picked = mutableListOf<String>()
-        picked.addAll(fresh.take(budget))
-        if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
-        if (picked.size < budget) picked.addAll(coldMutable.map { it.first }.take(budget - picked.size))
-
-        try {
-            emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
-            )
-        } catch (_: Throwable) {}
-
-        return (mustInclude + picked).distinct()
-    }
-
-    private fun emitWatchlistCapTrace(cap: Int, total: Int, forcedOpen: Int) {
+    internal fun emitWatchlistCapTrace(cap: Int, total: Int, forcedOpen: Int) {
         // V5.9.659 — extracted helper. Single forensic line whenever the
         // per-tick watchlist iteration is capped.
         try {
@@ -7501,36 +7349,7 @@ class BotService : Service() {
         } catch (_: Throwable) {}
     }
 
-    /**
-     * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB
-     * method size limit. Same cadence (every 6 loops, ~30s), same
-     * behavior. Operator-facing visibility line for silent scanner
-     * failures + auto-recovery if marketScanner went null while running.
-     */
-    private fun runScannerHeartbeat() {
-        try {
-            val sc = marketScanner
-            if (sc == null) {
-                ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${status.running} watch=${GlobalTradeRegistry.size()}")
-                if (status.running) {
-                    addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
-                    bootMemeScanner(reason = "HEARTBEAT_NULL")
-                }
-            } else {
-                val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
-                if (snap != null) {
-                    ErrorLogger.info(
-                        "BotService",
-                        "🩺 SCANNER_HEARTBEAT: alive=${snap.alive} ageSec=${snap.ageSec} src=${snap.src} ok=${snap.ok} err=${snap.err} raw=${snap.raw} enq=${snap.enq} cd=${snap.cd} liqRej=${snap.liqRej} watch=${GlobalTradeRegistry.size()}"
-                    )
-                } else {
-                    ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: snapshot=null watch=${GlobalTradeRegistry.size()}")
-                }
-            }
-        } catch (e: Throwable) {
-            ErrorLogger.debug("BotService", "Scanner heartbeat tick error: ${e.message}")
-        }
-    }
+    // V5.9.1001 — runScannerHeartbeat() extracted to BotServiceIntakeExt.kt
 
     /**
      * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB
@@ -10143,7 +9962,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
      * Process a single token's full cycle - price fetch, evaluation, trading decisions.
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
-    private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
+    internal fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
         // V5.9.657 — operator triage round 3: the outer try-catch at the
         // bottom of this 5000-line function does ONLY:
         //     ts.lastError = e.message
@@ -16549,7 +16368,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
     // lastSeenPrice / lastPriceUpdateMs never got touched even when Birdeye
     // or pump.fun had fresh data. Each updateLivePrice is a no-op for
     // traders that don't hold the mint, so it's safe to fan out blindly.
-    private fun broadcastFallbackPrice(mint: String, priceUsd: Double) {
+    internal fun broadcastFallbackPrice(mint: String, priceUsd: Double) {
         if (priceUsd <= 0) return
         try { com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
@@ -16719,196 +16538,9 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         }
     }
 
-    /**
-     * V5.9.615 — Build a synthetic PairInfo from already-populated TokenState
-     * fallback data (pump.fun API / Birdeye delivered price+mcap+liquidity into
-     * ts.lastPrice / ts.lastMcap / ts.lastLiquidityUsd, but DexScreener has no
-     * pair). This lets processTokenCycle continue into V3/ShitCoin entry
-     * evaluation instead of returning early. Pre-graduation pump.fun tokens
-     * are the ShitCoin lane's designed target market.
-     *
-     * Field semantics:
-     *  - candle: synthetic 1-tick candle at current fallback price+mcap.
-     *    Volume / buys / sells default to 0 — downstream scorers already
-     *    handle "no data yet" via FluidLearningAI bootstrap heuristics.
-     *  - liquidity / fdv: copied from ts. For pump.fun bonding-curve tokens
-     *    this is mcap * 0.85 (set by tryFallbackPriceData seed path).
-     *  - url: tagged so downstream source-detection sees pump.fun, which
-     *    correctly routes the token into ShitCoinTraderAI.LaunchPlatform.PUMP_FUN.
-     */
-    private fun synthesizeFallbackPair(ts: com.lifecyclebot.data.TokenState): com.lifecyclebot.network.PairInfo? {
-        if (ts.lastPrice <= 0.0) return null
-        val nowMs = System.currentTimeMillis()
-        val candle = com.lifecyclebot.data.Candle(
-            ts = nowMs,
-            priceUsd = ts.lastPrice,
-            marketCap = ts.lastMcap.coerceAtLeast(0.0),
-            volumeH1 = 0.0,
-            volume24h = 0.0,
-            buysH1 = 0,
-            sellsH1 = 0,
-            highUsd = ts.lastPrice,
-            lowUsd = ts.lastPrice,
-            openUsd = ts.lastPrice,
-        )
-        // URL hint so processTokenCycle's source-inference still tags pump.fun
-        // correctly when ts.source is empty (the WS feed sets PUMP_PORTAL_WS,
-        // but defense-in-depth: anything else lands here too).
-        val url = if (ts.source.contains("PUMP", ignoreCase = true)) {
-            "https://pump.fun/${ts.mint}"
-        } else {
-            ""
-        }
-        return com.lifecyclebot.network.PairInfo(
-            pairAddress = "",                              // no on-chain pair yet (bonding curve)
-            baseSymbol = ts.symbol.ifBlank { ts.mint.take(6) },
-            baseName = ts.name.ifBlank { ts.symbol.ifBlank { ts.mint.take(6) } },
-            url = url,
-            candle = candle,
-            pairCreatedAtMs = ts.addedToWatchlistAt.takeIf { it > 0 } ?: nowMs,
-            liquidity = ts.lastLiquidityUsd.coerceAtLeast(0.0),
-            fdv = ts.lastFdv.takeIf { it > 0 } ?: ts.lastMcap.coerceAtLeast(0.0),
-            baseTokenAddress = ts.mint,
-        )
-    }
+    // V5.9.1001 — synthesizeFallbackPair() extracted to BotServiceIntakeExt.kt
 
-    private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // Try Birdeye first
-        try {
-            val cfg2 = ConfigStore.load(applicationContext)
-            val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
-            if (ov != null && ov.priceUsd > 0) {
-                synchronized(ts) {
-                    ts.lastPrice = ov.priceUsd
-                    ts.lastPriceUpdate = System.currentTimeMillis()
-                    ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
-                    ts.lastLiquidityUsd = ov.liquidity
-                    ts.lastMcap = ov.marketCap
-                    ts.lastFdv = ov.marketCap
-                    val syntheticCandle = com.lifecyclebot.data.Candle(
-                        ts = System.currentTimeMillis(), priceUsd = ov.priceUsd,
-                        marketCap = ov.marketCap, volumeH1 = 0.0, volume24h = 0.0,
-                        buysH1 = 0, sellsH1 = 0, highUsd = ov.priceUsd,
-                        lowUsd = ov.priceUsd, openUsd = ov.priceUsd,
-                    )
-                    synchronized(ts.history) {
-                        ts.history.addLast(syntheticCandle)
-                        if (ts.history.size > 300) ts.history.removeFirst()
-                    }
-                }
-                broadcastFallbackPrice(mint, ov.priceUsd)   // V5.9.423
-                addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
-                return true
-            }
-        } catch (_: Exception) {}
-
-        // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
-        // different endpoint, different cache). When the pair-based call fails
-        // this token-address call often still returns — DexScreener caches
-        // token-level and pair-level data independently.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
-                }
-                if (priceUsd != null && priceUsd > 0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
-        // used above, which is overview-focused; this one is price-focused and
-        // hits a separate rate-limit bucket).
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
-                }
-                if (priceUsd != null && priceUsd > 0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // Try pump.fun API
-        // V5.9.423 — also retry pump.fun if the last successful price is >120s
-        // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
-        // was only consulted on brand-new holds that had never been priced.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val client = com.lifecyclebot.network.SharedHttpClient.builder()
-                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
-                // V5.9.861 — health-aware execute: auto-migrate dead hosts + record telemetry
-                val originalUrl = "https://frontend-api-v3.pump.fun/coins/$mint"
-                val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(originalUrl) } catch (_: Throwable) { originalUrl }
-                val request = okhttp3.Request.Builder()
-                    .url(effectiveUrl)
-                    .header("Accept", "application/json").build()
-                val pumpStart = System.currentTimeMillis()
-                val response = try {
-                    client.newCall(request).execute()
-                } catch (e: Exception) {
-                    try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("pumpfun", e.message) } catch (_: Throwable) {}
-                    throw e
-                }
-                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pumpfun", response.code, System.currentTimeMillis() - pumpStart) } catch (_: Throwable) {}
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        val json = org.json.JSONObject(body)
-                        val mcap = json.optDouble("usd_market_cap", 0.0)
-                        // NOTE: pump.fun API's "price" field is in SOL (not USD), so we
-                        // compute a correct USD price from usd_market_cap / total_supply.
-                        // Pump.fun tokens always have 1B token supply as their standard.
-                        val totalSupply = json.optDouble("total_supply", 1_000_000_000.0)
-                            .let { if (it <= 0) 1_000_000_000.0 else it }
-                        val priceUsd = if (mcap > 0 && totalSupply > 0) mcap / totalSupply else 0.0
-                        if (mcap > 0) {
-                            synchronized(ts) {
-                                ts.lastPrice = priceUsd
-                                ts.lastPriceUpdate = System.currentTimeMillis()
-                                ts.lastPriceSource = "PUMP_FUN_FRONTEND_API"  // V5.9.744
-                                ts.lastPriceDex = "PUMP_FUN"
-                                ts.lastMcap = mcap
-                                ts.lastFdv = mcap
-                                ts.lastLiquidityUsd = mcap * 0.1
-                                val syntheticCandle = com.lifecyclebot.data.Candle(
-                                    ts = System.currentTimeMillis(), priceUsd = priceUsd,
-                                    marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,
-                                    buysH1 = 0, sellsH1 = 0, highUsd = priceUsd,
-                                    lowUsd = priceUsd, openUsd = priceUsd,
-                                )
-                                synchronized(ts.history) {
-                                    ts.history.addLast(syntheticCandle)
-                                    if (ts.history.size > 300) ts.history.removeFirst()
-                                }
-                            }
-                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
-                            broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
-                            return true
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-        return false
-    }
+    // V5.9.1001 — tryFallbackPriceData() extracted to BotServiceIntakeExt.kt
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SHITCOIN LAYER HELPERS
@@ -16984,7 +16616,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         return false
     }
 
-    private fun addLog(msg: String, mint: String = "") {
+    internal fun addLog(msg: String, mint: String = "") {
         val ts   = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
             .format(java.util.Date())
         val pfx  = if (mint.isNotBlank()) "[${mint.take(6)}] " else ""
@@ -17134,60 +16766,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         }
     }
     
-    /**
-     * Periodic orphan scan during runtime.
-     * Catches tokens that failed to sell and are stuck in wallet.
-     */
-    private fun scanAndSellOrphans(w: SolanaWallet) {
-        try {
-            val tokenAccounts = w.getTokenAccounts()
-            val trackedMints = synchronized(status.tokens) {
-                status.tokens.values
-                    .filter { it.position.isOpen }
-                    .map { it.mint }
-                    .toSet()
-            }
-            
-            var orphansFound = 0
-            var orphansSold = 0
-            
-            tokenAccounts.forEach { (mint, qty) ->
-                // Skip actual dust (less than $0.01 value typically)
-                // For meme tokens, even 0.5 could be significant
-                // Better: Skip if qty is essentially zero
-                if (qty < 0.0000001) return@forEach
-                // Skip tracked positions
-                if (mint in trackedMints) return@forEach
-                // Skip SOL
-                if (mint == "So11111111111111111111111111111111111111112") return@forEach
-                
-                orphansFound++
-                val symbol = status.tokens[mint]?.symbol ?: mint.take(8)
-                addLog("🧹 ORPHAN FOUND: $symbol | qty=$qty | mint=${mint.take(12)}...")
-                
-                try {
-                    val sold = executor.sellOrphanedToken(mint, qty, w)
-                    if (sold) {
-                        orphansSold++
-                        addLog("✅ ORPHAN SOLD: $symbol")
-                    } else {
-                        addLog("⚠️ ORPHAN SELL FAILED: $symbol - sell manually via Jupiter")
-                    }
-                } catch (e: Exception) {
-                    addLog("❌ ORPHAN ERROR: $symbol - ${e.message}")
-                }
-            }
-            
-            if (orphansFound > 0) {
-                addLog("🧹 Orphan scan: found $orphansFound, sold $orphansSold")
-            } else {
-                addLog("✅ No orphaned tokens found")
-            }
-        } catch (e: Exception) {
-            addLog("⚠️ Orphan scan failed: ${e.message}")
-            ErrorLogger.error("BotService", "Orphan scan error: ${e.message}", e)
-        }
-    }
+    // V5.9.1001 — scanAndSellOrphans() extracted to BotServiceIntakeExt.kt
     
     /**
      * Calculate a raw signal score for bootstrap entry decisions.
