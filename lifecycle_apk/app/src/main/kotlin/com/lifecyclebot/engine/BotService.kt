@@ -1601,18 +1601,24 @@ class BotService : Service() {
                             lastRescuePhase = phase
 
                             if (consecutiveSamePhaseRescues >= 2) {
+                                // V5.9.1006 — DO NOT SELF-STOP.
+                                // The operator's snapshot shows the bot can look stalled in
+                                // POST_SUPERVISOR while scanner/intake/exit ticks are still alive.
+                                // This branch was literally flipping status.running=false and
+                                // cancelling loopJob after two same-phase rescues, creating the
+                                // "bot stops itself" failure. A watchdog may rescue/relaunch;
+                                // it must never become an autonomous STOP button.
                                 ErrorLogger.error(
                                     "BotService",
-                                    "🛑 BOT WEDGED — same phase=$phase deadlocked $consecutiveSamePhaseRescues times within 120s. Auto-stopping to prevent zombie state."
+                                    "🛟 BOT REDEADLOCK — same phase=$phase $consecutiveSamePhaseRescues times within 120s. Forcing rescue; NOT auto-stopping."
                                 )
                                 ForensicLogger.lifecycle(
-                                    "BOT_AUTO_STOPPED_REDEADLOCK",
-                                    "phase=$phase consecutiveRescues=$consecutiveSamePhaseRescues sincePrevSec=${sincePrevRescueMs/1000}"
+                                    "BOT_REDEADLOCK_RESCUE_NO_AUTOSTOP",
+                                    "phase=$phase consecutiveRescues=$consecutiveSamePhaseRescues sincePrevSec=${sincePrevRescueMs/1000} running=${status.running}"
                                 )
-                                try { addLog("🛑 Bot wedged in $phase — auto-stopped (operator: restart from UI)") } catch (_: Throwable) {}
-                                try { status.running = false } catch (_: Throwable) {}
-                                try { loopJob?.cancel() } catch (_: Throwable) {}
+                                try { addLog("🛟 Loop wedged in $phase — forcing rescue, bot remains running") } catch (_: Throwable) {}
                                 consecutiveSamePhaseRescues = 0
+                                performServiceScopeRescue(lj, phase, progressGapMs)
                             } else {
                                 performServiceScopeRescue(lj, phase, progressGapMs)
                             }
