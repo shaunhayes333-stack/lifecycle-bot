@@ -540,4 +540,26 @@ object SolanaArbAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
+
+    // V5.9.985 — PERSISTENCE (was AMNESIA — Doctrine #25)
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        o.put("dailyPnlUsdBps",   dailyPnlUsdBps.get())
+        o.put("dailyTrades",      dailyTrades.get())
+        o.put("dailyWins",        dailyWins.get())
+        o.put("dailyLosses",      dailyLosses.get())
+        o.put("consecutiveLosses", consecutiveLosses.get())
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            dailyPnlUsdBps.set(o.optLong("dailyPnlUsdBps", 0L))
+            dailyTrades.set(o.optInt("dailyTrades", 0))
+            dailyWins.set(o.optInt("dailyWins", 0))
+            dailyLosses.set(o.optInt("dailyLosses", 0))
+            consecutiveLosses.set(o.optInt("consecutiveLosses", 0))
+        } catch (_: Throwable) { /* corrupt — start fresh */ }
+    }
 }

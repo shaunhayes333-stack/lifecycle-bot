@@ -95,6 +95,9 @@ object LearningPersistence {
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
             try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
+            // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
+            try { putBlob("DIP_HUNTER",     com.lifecyclebot.v3.scoring.DipHunterAI.exportState()) } catch (_: Throwable) {}
+            try { putBlob("SOLANA_ARB",     com.lifecyclebot.v3.scoring.SolanaArbAI.exportState()) } catch (_: Throwable) {}
             // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
             // Pre-V5.9.964 these had save()/restore() defined and init() wired
             // so restore() ran at boot, but save() was NEVER called. Lifetime
@@ -132,6 +135,8 @@ object LearningPersistence {
         try { getBlob("CREATOR_HISTORY")?.let { com.lifecyclebot.network.HeliusCreatorHistory.importState(it) } } catch (_: Throwable) {}
         try { getBlob("META_COGNITION")?.let { com.lifecyclebot.v3.scoring.MetaCognitionAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("COLLECTIVE_INTEL")?.let { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("DIP_HUNTER")?.let     { com.lifecyclebot.v3.scoring.DipHunterAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("SOLANA_ARB")?.let     { com.lifecyclebot.v3.scoring.SolanaArbAI.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

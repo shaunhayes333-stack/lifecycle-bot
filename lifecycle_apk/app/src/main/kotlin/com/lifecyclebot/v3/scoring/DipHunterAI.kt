@@ -694,4 +694,26 @@ object DipHunterAI {
     
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
     private fun Double.fmtPrice(): String = if (this < 0.01) String.format("%.8f", this) else String.format("%.6f", this)
+
+    // V5.9.985 — PERSISTENCE (was AMNESIA — Doctrine #25)
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        o.put("dailyPnlSolBps",  dailyPnlSolBps.get())
+        o.put("dailyHunts",      dailyHunts.get())
+        o.put("dailyWins",       dailyWins.get())
+        o.put("dailyLosses",     dailyLosses.get())
+        o.put("dipBalanceBps",   dipBalanceBps.get())
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            dailyPnlSolBps.set(o.optLong("dailyPnlSolBps", 0L))
+            dailyHunts.set(o.optInt("dailyHunts", 0))
+            dailyWins.set(o.optInt("dailyWins", 0))
+            dailyLosses.set(o.optInt("dailyLosses", 0))
+            dipBalanceBps.set(o.optLong("dipBalanceBps", 100L))
+        } catch (_: Throwable) { /* corrupt — start fresh */ }
+    }
 }
