@@ -583,4 +583,28 @@ object EfficiencyLayer {
         discoveryProcessed.set(0)
         ErrorLogger.info(TAG, "Efficiency layer reset")
     }
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.988 — PERSISTENCE (Doctrine #25)
+    // EfficiencyLayer's `seenTokens` map and liquidity snapshots rebuild
+    // naturally from scanner intake — we DO NOT persist them (would force
+    // false dedup on a fresh restart). We persist only the lifetime
+    // discovery counters because they're the only state operators consume
+    // via PipelineHealthCollector and they must accumulate across restarts
+    // for honest reporting.
+    // ═══════════════════════════════════════════════════════════════════════
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        o.put("discoverySkipped",   discoverySkipped.get())
+        o.put("discoveryProcessed", discoveryProcessed.get())
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            discoverySkipped.set(o.optLong("discoverySkipped", 0L))
+            discoveryProcessed.set(o.optLong("discoveryProcessed", 0L))
+        } catch (_: Throwable) { /* keep defaults */ }
+    }
+
 }

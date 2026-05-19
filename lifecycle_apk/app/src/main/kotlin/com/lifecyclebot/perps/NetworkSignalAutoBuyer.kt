@@ -445,4 +445,45 @@ object NetworkSignalAutoBuyer {
     fun getConfig(): AutoBuyerConfig = config
     
     fun getDailyRemaining(): Int = config.maxDailyAutoBuys - dailyAutoBuys.get()
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.988 — PERSISTENCE (Doctrine #25 + Hard Rule #3.36 SAFETY-FIRST)
+    //
+    // SAFETY STATE: `dailyAutoBuys` is part of the daily auto-buy budget
+    // cap. Without persistence, a process restart silently resets the
+    // counter to 0 → the bot could exceed the daily auto-buy budget by
+    // restarting (e.g. crash recovery). That's the Doctrine #3.36 class
+    // of safety bug — restart silently bypasses a budget gate.
+    //
+    // We also persist lastDayReset so the next start respects the same
+    // 24h window the previous process was operating in.
+    //
+    // Cooldown maps (tokenCooldowns / executedSignals) are not persisted
+    // — they expire naturally within 15s-60min and would block legitimate
+    // signals on a cold start if restored.
+    // ═══════════════════════════════════════════════════════════════════════
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        // SAFETY counters first (Doctrine #3.36)
+        o.put("dailyAutoBuys",  dailyAutoBuys.get())
+        o.put("lastDayReset",   lastDayReset.get())
+        // Telemetry counters
+        o.put("totalAutoBuys",  totalAutoBuys.get())
+        o.put("successfulBuys", successfulBuys.get())
+        o.put("failedBuys",     failedBuys.get())
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            // SAFETY: restore daily cap counter BEFORE other state so any
+            // start-time auto-buy attempt sees the prior-process budget.
+            dailyAutoBuys.set(o.optInt("dailyAutoBuys", 0))
+            lastDayReset.set(o.optLong("lastDayReset", 0L))
+            totalAutoBuys.set(o.optInt("totalAutoBuys", 0))
+            successfulBuys.set(o.optInt("successfulBuys", 0))
+            failedBuys.set(o.optInt("failedBuys", 0))
+        } catch (_: Throwable) { /* keep defaults */ }
+    }
+
 }

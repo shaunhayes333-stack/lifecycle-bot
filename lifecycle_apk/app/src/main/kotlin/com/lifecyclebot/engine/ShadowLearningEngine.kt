@@ -1061,4 +1061,32 @@ object ShadowLearningEngine {
     fun getStatus(): String {
         return if (isEnabled) "🟢 Active" else "❌ Disabled"
     }
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.988 — PERSISTENCE (Doctrine #25: nothing learnt should clear unless actioned)
+    // Persists blocked-trade outcome counters (the actual learning corpus).
+    // Variant-level shadow performance is too volatile to disk-persist — it
+    // rebuilds from live trades within minutes. We persist only the
+    // cross-restart counters that drive future block decisions.
+    // ═══════════════════════════════════════════════════════════════════════
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        o.put("blockedTradesTracked", blockedTradesTracked)
+        o.put("blockedWouldHaveWon",  blockedWouldHaveWon)
+        o.put("blockedWouldHaveLost", blockedWouldHaveLost)
+        o.put("blockedCorrectBlocks", blockedCorrectBlocks)
+        o.put("blockedMissedWins",    blockedMissedWins)
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            blockedTradesTracked = o.optInt("blockedTradesTracked", 0)
+            blockedWouldHaveWon  = o.optInt("blockedWouldHaveWon", 0)
+            blockedWouldHaveLost = o.optInt("blockedWouldHaveLost", 0)
+            blockedCorrectBlocks = o.optInt("blockedCorrectBlocks", 0)
+            blockedMissedWins    = o.optInt("blockedMissedWins", 0)
+        } catch (_: Throwable) { /* keep defaults */ }
+    }
+
 }

@@ -98,6 +98,16 @@ object LearningPersistence {
             // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
             try { putBlob("DIP_HUNTER",     com.lifecyclebot.v3.scoring.DipHunterAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("SOLANA_ARB",     com.lifecyclebot.v3.scoring.SolanaArbAI.exportState()) } catch (_: Throwable) {}
+
+            // V5.9.988 — final amnesia close: 5 learners (Doctrine #25)
+            // SentienceHooks + NetworkSignalAutoBuyer are SAFETY-FIRST per
+            // Doctrine #3.36 (paused-strategy list + daily auto-buy budget
+            // must survive process restarts).
+            try { putBlob("SENTIENCE_HOOKS",   com.lifecyclebot.engine.SentienceHooks.exportState()) } catch (_: Throwable) {}
+            try { putBlob("NET_AUTO_BUYER",    com.lifecyclebot.perps.NetworkSignalAutoBuyer.exportState()) } catch (_: Throwable) {}
+            try { putBlob("SHADOW_LEARNING",   com.lifecyclebot.engine.ShadowLearningEngine.exportState()) } catch (_: Throwable) {}
+            try { putBlob("EFFICIENCY_LAYER",  com.lifecyclebot.engine.EfficiencyLayer.exportState()) } catch (_: Throwable) {}
+            try { putBlob("PERPS_REPLAY",      com.lifecyclebot.perps.PerpsAutoReplayLearner.exportState()) } catch (_: Throwable) {}
             // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
             // Pre-V5.9.964 these had save()/restore() defined and init() wired
             // so restore() ran at boot, but save() was NEVER called. Lifetime
@@ -137,6 +147,15 @@ object LearningPersistence {
         try { getBlob("COLLECTIVE_INTEL")?.let { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("DIP_HUNTER")?.let     { com.lifecyclebot.v3.scoring.DipHunterAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SOLANA_ARB")?.let     { com.lifecyclebot.v3.scoring.SolanaArbAI.importState(it) } } catch (_: Throwable) {}
+
+        // V5.9.988 — SAFETY-FIRST restore order (Doctrine #3.36):
+        // Pause list + daily auto-buy budget restored BEFORE other learners
+        // so any start-time decision path sees the prior-process safety state.
+        try { getBlob("SENTIENCE_HOOKS")?.let  { com.lifecyclebot.engine.SentienceHooks.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("NET_AUTO_BUYER")?.let   { com.lifecyclebot.perps.NetworkSignalAutoBuyer.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("SHADOW_LEARNING")?.let  { com.lifecyclebot.engine.ShadowLearningEngine.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("EFFICIENCY_LAYER")?.let { com.lifecyclebot.engine.EfficiencyLayer.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("PERPS_REPLAY")?.let     { com.lifecyclebot.perps.PerpsAutoReplayLearner.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

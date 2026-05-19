@@ -399,4 +399,62 @@ object SentienceHooks {
         val pending = synchronized(recentLosers) { recentLosers.size }
         return "biases=[$biases] losersBuffered=$pending paused=${pausedStrategies.size} hint=${lastPostMortemHint.take(40)}"
     }
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.988 — PERSISTENCE (Doctrine #25 + Hard Rule #3.36 SAFETY-FIRST)
+    //
+    // SAFETY STATE: `pausedStrategies` is an LLM-nominated pause list —
+    // strategies that have been distrusted and temporarily benched. Without
+    // persistence, a restart silently reactivates the paused strategy,
+    // bypassing the LLM's distrust verdict. That's the Doctrine #3.36
+    // class of safety bug (restart silently bypasses a gate).
+    //
+    // crossEngineBias is also persisted — it's the cross-engine learnt
+    // bias that drives sizing decisions. Losing it on restart forces the
+    // bot to re-learn the biases it already paid for.
+    //
+    // vetoCache/exitCache/sizeCache are ttl-bounded short-term caches and
+    // not persisted.
+    // ═══════════════════════════════════════════════════════════════════════
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        // SAFETY first (Doctrine #3.36)
+        o.put("pausedStrategies", org.json.JSONArray(pausedStrategies.toList()))
+        // Learnt biases
+        val bias = org.json.JSONObject()
+        crossEngineBias.forEach { (k, v) -> bias.put(k, v) }
+        o.put("crossEngineBias", bias)
+        // Rate-limit timers
+        o.put("lastPostMortemMs",     lastPostMortemMs)
+        o.put("lastAutoTuneMs",       lastAutoTuneMs.get())
+        o.put("lastDistrustNominateMs", lastDistrustNominateMs.get())
+        o.put("lastPostMortemHint",   lastPostMortemHint)
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            // SAFETY: restore paused strategies BEFORE any decision path
+            // can query nominatedPauseList().
+            val arr = o.optJSONArray("pausedStrategies")
+            if (arr != null) {
+                val s = mutableSetOf<String>()
+                for (i in 0 until arr.length()) s.add(arr.optString(i))
+                pausedStrategies = s.toSet()
+            }
+            val bias = o.optJSONObject("crossEngineBias")
+            if (bias != null) {
+                val it = bias.keys()
+                while (it.hasNext()) {
+                    val k = it.next()
+                    crossEngineBias[k] = bias.optDouble(k, 0.0)
+                }
+            }
+            lastPostMortemMs = o.optLong("lastPostMortemMs", 0L)
+            lastAutoTuneMs.set(o.optLong("lastAutoTuneMs", 0L))
+            lastDistrustNominateMs.set(o.optLong("lastDistrustNominateMs", 0L))
+            lastPostMortemHint = o.optString("lastPostMortemHint", "")
+        } catch (_: Throwable) { /* keep defaults */ }
+    }
+
 }

@@ -703,4 +703,34 @@ object PerpsAutoReplayLearner {
     )
     
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.988 — PERSISTENCE (Doctrine #25)
+    // Persists cross-restart lifetime counters. Pattern lists themselves
+    // (winningPatterns/losingPatterns) rebuild on first replay sweep from
+    // live trade history — persisting their full graph is heavyweight and
+    // not the actual learning corpus (which lives in TradeDatabase).
+    // ═══════════════════════════════════════════════════════════════════════
+    fun exportState(): String = try {
+        val o = org.json.JSONObject()
+        o.put("totalReplays",        totalReplays.get())
+        o.put("patternsIdentified",  patternsIdentified.get())
+        o.put("layerAdjustments",    layerAdjustments.get())
+        o.put("lastReplayTime",      lastReplayTime.get())
+        o.put("winPatternCount",     synchronized(winningPatterns) { winningPatterns.size })
+        o.put("losePatternCount",    synchronized(losingPatterns)  { losingPatterns.size })
+        o.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val o = org.json.JSONObject(json)
+            totalReplays.set(o.optInt("totalReplays", 0))
+            patternsIdentified.set(o.optInt("patternsIdentified", 0))
+            layerAdjustments.set(o.optInt("layerAdjustments", 0))
+            lastReplayTime.set(o.optLong("lastReplayTime", 0L))
+            // pattern lists rebuild from trade history — counters above
+            // are the only durable state we restore.
+        } catch (_: Throwable) { /* keep defaults */ }
+    }
+
 }
