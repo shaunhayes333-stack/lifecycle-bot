@@ -921,7 +921,7 @@ class MainActivity : AppCompatActivity() {
                 topUpMaxCount         = etTopUpMaxCount.text.toString().toIntOrNull() ?: state.config.topUpMaxCount,
                 topUpMaxTotalSol      = etTopUpMaxSol.text.toString().toDoubleOrNull() ?: state.config.topUpMaxTotalSol,
             )
-            vm.saveConfig(cfg)
+            vm.saveConfig(cfg, allowRestart = false)
         } catch (_: Exception) {}
     }
 

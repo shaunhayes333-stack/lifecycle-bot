@@ -191,18 +191,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveConfig(cfg: BotConfig) {
+    fun saveConfig(cfg: BotConfig, allowRestart: Boolean = true) {
         // V5.9.702 — ANR FIX: saveConfig was called from MainActivity.onPause/onStop
         // (main thread). The previous body did runBlocking { withContext(IO) { load() } }
         // which parked the main thread for the full disk-read duration — observed up to
         // 12 seconds of stall in ANR traces (106 consecutive samples at BotViewModel.saveConfig).
         // ConfigStore.save() is also synchronous disk I/O on the main thread.
         //
-        // Fix: move ALL blocking work (load + save + restart decision) onto a
-        // viewModelScope coroutine dispatched to IO. The caller (onPause/onStop) returns
-        // immediately. The BotService runs independently in a foreground service and
-        // outlives the Activity, so the async write + conditional restart is safe to
-        // fire-and-forget from a lifecycle callback.
+        // Fix: move ALL blocking work (load + save) onto a viewModelScope coroutine
+        // dispatched to IO. V5.9.1015 adds allowRestart=false for lifecycle autosaves:
+        // onPause/onStop must persist UI fields but MUST NOT stop/restart the bot,
+        // because restart closes all open positions with reason=bot_shutdown.
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 // Load previous config on IO thread — no longer blocks main thread.
@@ -223,8 +222,10 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 // Always save the config on IO thread (no longer blocks main thread).
                 ConfigStore.save(ctx, cfg)
 
-                // Only restart if important settings changed (not just watchlist).
-                if (settingsChanged && _ui.value.running) {
+                // Only restart if this is an explicit settings apply. Lifecycle autosaves
+                // (MainActivity.onPause/onStop) pass allowRestart=false so navigating
+                // between screens can never trigger ACTION_STOP / bot_shutdown liquidation.
+                if (settingsChanged && _ui.value.running && allowRestart) {
                     com.lifecyclebot.engine.ErrorLogger.info("BotViewModel",
                         "RESTART TRIGGERED: paperMode=${cfg.paperMode != currentCfg.paperMode} " +
                         "autoTrade=${cfg.autoTrade != currentCfg.autoTrade} " +
@@ -275,6 +276,11 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     }
 
                     startBot()
+                } else if (settingsChanged && _ui.value.running && !allowRestart) {
+                    com.lifecyclebot.engine.ErrorLogger.info(
+                        "BotViewModel",
+                        "AUTOSAVE_NO_RESTART: settingsChanged=true but allowRestart=false; bot remains running"
+                    )
                 }
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.error("BotViewModel", "saveConfig async failed: ${e.message}", e)
