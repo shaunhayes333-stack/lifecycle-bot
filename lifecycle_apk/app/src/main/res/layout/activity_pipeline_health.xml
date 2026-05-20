@@ -202,6 +202,49 @@
         </LinearLayout>
     </LinearLayout>
 
+
+    <!-- SECTION PAGER: full report stays available without one giant TextView layout -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="6dp">
+
+        <Button
+            android:id="@+id/prevSectionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="◀"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:background="#1F2937"/>
+
+        <TextView
+            android:id="@+id/sectionLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="Section 1/1"
+            android:textColor="#D1D5DB"
+            android:textSize="12sp"
+            android:typeface="monospace"/>
+
+        <Button
+            android:id="@+id/nextSectionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="▶"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:background="#1F2937"/>
+    </LinearLayout>
+
     <!-- BODY: monospace dump in scroll view -->
     <ScrollView
         android:layout_width="match_parent"
@@ -228,7 +271,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="8dp"
-        android:text="Auto-refreshes every 2s. Tap Copy to put the full dump on your clipboard for sharing."
+        android:text="Full report is sectioned on-screen to prevent UI choke. Use ◀/▶ to view every section; Copy exports the exact full dump."
         android:textColor="#6B7280"
         android:textSize="11sp"
         android:gravity="center"/>

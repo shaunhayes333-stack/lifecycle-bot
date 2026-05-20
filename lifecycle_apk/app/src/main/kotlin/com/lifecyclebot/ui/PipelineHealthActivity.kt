@@ -44,6 +44,13 @@ class PipelineHealthActivity : AppCompatActivity() {
     private lateinit var statJrnl: TextView
     private lateinit var statMaxFrame: TextView
     private lateinit var anrBadge: TextView
+    private lateinit var sectionLabel: TextView
+    private lateinit var prevSectionButton: Button
+    private lateinit var nextSectionButton: Button
+
+    @Volatile private var fullDumpCache: String = ""
+    private var reportSections: List<String> = emptyList()
+    private var currentSectionIndex: Int = 0
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -58,7 +65,7 @@ class PipelineHealthActivity : AppCompatActivity() {
     }
     private val bgHandler: Handler by lazy { Handler(bgThread.looper) }
 
-    private val refreshIntervalMs = 4_000L  // V5.9.916 — 2s → 4s: halves dumpText.setText main-thread cost
+    private val refreshIntervalMs = 12_000L  // V5.9.1018 — full report stays, but current section refreshes only every 12s
     private val refreshRunnable = object : Runnable {
         override fun run() {
             renderSnapshotAsync()
@@ -80,12 +87,17 @@ class PipelineHealthActivity : AppCompatActivity() {
         statJrnl      = findViewById(R.id.statJrnl)
         statMaxFrame  = findViewById(R.id.statMaxFrame)
         anrBadge      = findViewById(R.id.anrBadge)
+        sectionLabel = findViewById(R.id.sectionLabel)
+        prevSectionButton = findViewById(R.id.prevSectionButton)
+        nextSectionButton = findViewById(R.id.nextSectionButton)
 
         findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
 
         findViewById<Button>(R.id.copyButton).setOnClickListener { copyToClipboardAsync() }
 
-        findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync() }
+        findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = true) }
+        prevSectionButton.setOnClickListener { moveSection(-1) }
+        nextSectionButton.setOnClickListener { moveSection(1) }
 
         findViewById<Button>(R.id.resetButton).setOnClickListener {
             // V5.9.904 — reset must run on bg too, then refresh from bg.
@@ -124,10 +136,11 @@ class PipelineHealthActivity : AppCompatActivity() {
      * updates post back to the main looper. This eliminates the
      * 250ms+ frame stalls every 2s observed in the V5.9.899 dump.
      */
-    private fun renderSnapshotAsync() {
+    private fun renderSnapshotAsync(forceFull: Boolean = false) {
         bgHandler.post {
             val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { return@post }
             val dump = try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
+            val sections = splitDumpIntoSections(dump)
             val loop = snap.phaseCounts["SCAN_CB"]
                 ?: snap.labelCounts["BOT_LOOP_TICK"]
                 ?: 0L
@@ -136,50 +149,69 @@ class PipelineHealthActivity : AppCompatActivity() {
             val maxFrameTxt = "${snap.maxFrameGapMs} ms"
             val anrTxt = "ANR: ${snap.anrHints}"
             val anrColor = when {
-                snap.anrHints == 0  -> 0xFF10B981.toInt() // green
-                snap.anrHints < 5   -> 0xFFF59E0B.toInt() // amber
-                else                -> 0xFFEF4444.toInt() // red
+                snap.anrHints == 0  -> 0xFF10B981.toInt()
+                snap.anrHints < 5   -> 0xFFF59E0B.toInt()
+                else                -> 0xFFEF4444.toInt()
             }
 
-            // V5.9.944 — PRECOMPUTE TEXT MEASUREMENT OFF-MAIN.
-            // The previous implementation built `dump` async but then assigned
-            // it to dumpText.text on the main thread. That assignment triggers
-            // StaticLayout.generate() — text measurement for tens of thousands
-            // of glyphs — synchronously on main. Operator pipeline-health
-            // snapshots showed 35-55 second main-thread blocks while the
-            // dump was being measured (top frame: StaticLayout.generate from
-            // PipelineHealthActivity.renderSnapshotAsync$lambda).
-            //
-            // PrecomputedText.create() does ALL the heavy measurement work on
-            // whichever thread calls it. Posting the precomputed object to
-            // main means the TextView just installs already-measured layout
-            // data — O(1) on main instead of O(N) where N = char count.
-            val precomputed = try {
-                // V5.9.944 fix: getTextMetricsParams lives on TextViewCompat,
-                // not PrecomputedTextCompat. Returns PrecomputedTextCompat.Params.
-                val params = androidx.core.widget.TextViewCompat.getTextMetricsParams(dumpText)
-                androidx.core.text.PrecomputedTextCompat.create(dump, params)
-            } catch (_: Throwable) { null }
-
             mainHandler.post {
+                fullDumpCache = dump
+                reportSections = sections
+                if (reportSections.isEmpty()) reportSections = listOf(dump)
+                if (forceFull) currentSectionIndex = 0
+                if (currentSectionIndex !in reportSections.indices) currentSectionIndex = 0
                 statLoop.text     = formatBig(loop)
                 statExec.text     = formatBig(exec)
                 statJrnl.text     = formatBig(jrnl)
                 statMaxFrame.text = maxFrameTxt
                 anrBadge.text     = anrTxt
                 anrBadge.setTextColor(anrColor)
-                if (precomputed != null) {
-                    try {
-                        androidx.core.widget.TextViewCompat.setPrecomputedText(dumpText, precomputed)
-                    } catch (_: Throwable) {
-                        // Fallback if TextView config doesn't match (e.g. textSize changed)
-                        dumpText.text = dump
-                    }
-                } else {
-                    dumpText.text = dump
-                }
+                renderCurrentSection()
             }
         }
+    }
+
+    /**
+     * V5.9.1018 — FULL REPORT, SECTIONED RENDER.
+     * The complete dump remains generated and copyable, but the screen only
+     * lays out one section at a time. The previous all-in-one TextView forced
+     * Android StaticLayout/TextView to measure tens of thousands of characters
+     * every refresh and could choke bot loop scheduling when Pipeline was open.
+     */
+    private fun splitDumpIntoSections(dump: String): List<String> {
+        if (dump.isBlank()) return listOf("(empty report)")
+        val parts = mutableListOf<StringBuilder>()
+        var current = StringBuilder()
+        dump.lineSequence().forEach { line ->
+            val isHeader = line.startsWith("=====") && line.endsWith("=====")
+            if (isHeader && current.isNotEmpty()) {
+                parts.add(current)
+                current = StringBuilder()
+            }
+            current.append(line).append('
+')
+        }
+        if (current.isNotEmpty()) parts.add(current)
+        return parts.map { it.toString().trimEnd() }.filter { it.isNotBlank() }
+    }
+
+    private fun renderCurrentSection() {
+        val sections = reportSections.ifEmpty { listOf(fullDumpCache.ifBlank { "(report loading…)" }) }
+        val idx = currentSectionIndex.coerceIn(0, sections.lastIndex)
+        currentSectionIndex = idx
+        val section = sections[idx]
+        val title = section.lineSequence().firstOrNull()?.removePrefix("=====")?.removeSuffix("=====")?.trim()
+            ?.takeIf { it.isNotBlank() } ?: "Pipeline section"
+        sectionLabel.text = "Section ${idx + 1}/${sections.size}: $title"
+        prevSectionButton.isEnabled = idx > 0
+        nextSectionButton.isEnabled = idx < sections.lastIndex
+        dumpText.text = section
+    }
+
+    private fun moveSection(delta: Int) {
+        if (reportSections.isEmpty()) return
+        currentSectionIndex = (currentSectionIndex + delta).coerceIn(0, reportSections.lastIndex)
+        renderCurrentSection()
     }
 
     /**
@@ -190,7 +222,7 @@ class PipelineHealthActivity : AppCompatActivity() {
      */
     private fun copyToClipboardAsync() {
         bgHandler.post {
-            val text = try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
+            val text = try { fullDumpCache.ifBlank { PipelineHealthCollector.dumpText() } } catch (_: Throwable) { "(render error)" }
             mainHandler.post {
                 val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("AATE Pipeline Health", text))
