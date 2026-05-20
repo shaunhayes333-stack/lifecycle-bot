@@ -6887,23 +6887,25 @@ class BotService : Service() {
         }
 
         // V5.9.1035 — PART 2 (D): ZERO-LIQUIDITY INTAKE REJECT.
-        // Operator V5.9.1034b dump showed pump.fun spam landing with liq=$0 +
-        // mcap=$0 + single-source + no user/restore attribution. Those are
-        // guaranteed dust mints — no executable pool, no FDG signal, just
-        // memory + scanner cycles burned. Probation routing only stops the
-        // bot-loop poll cost; the API quota is still spent fetching them on
-        // intake. Reject at the door so the watchlist + intake-dedupe maps
-        // never see them.
+        // V5.9.1036 — TIGHTENED: dropped the single-source guard. Operator
+        // V5.9.1034b dump showed pump.fun spam landing with liq=$0 + mcap=$0
+        // + sources=2 (DATA_ORCHESTRATOR injects every emission with 2
+        // scanners already attributed, and the MULTI-SCANNER BYPASS path
+        // queues $0-liq tokens through the watchlist floor regardless of
+        // source count). Source count doesn't redeem a dust mint — no
+        // executable pool, no FDG signal, just memory + scanner cycles
+        // burned. Reject on liq+mcap alone unless user/restore attributed.
         run {
-            val isZeroLiq = liquidityUsd <= 0.0 && marketCapUsd <= 0.0
-            val isSingleSrc = allSources.size <= 1
+            // V5.9.1036 — pure-zero ALSO covers sub-cent dust (no executable
+            // pool, no realistic FDG signal). liq<$1 + mcap<$10 is dust.
+            val isDustLiq = liquidityUsd < 1.0 && marketCapUsd < 10.0
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            if (isZeroLiq && isSingleSrc && !isUserAdded && !isRestoredVetted) {
+            if (isDustLiq && !isUserAdded && !isRestoredVetted) {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_LIQ_ZERO_REJECT",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(marketCapUsd)}",
                     )
                 } catch (_: Throwable) {}
                 return false
@@ -8045,6 +8047,191 @@ class BotService : Service() {
         return true
     }
 
+    /**
+     * V5.9.1036 — Extracted from botLoop() to reduce JVM bytecode pressure
+     * (botLoop was ~10800 bytes pre-extraction; the 64KB cap previously
+     * blocked V5.9.1029 until catastropheThreshold was lifted out). This
+     * watchdog is invoked roughly every pendingVerifyWatchdogIntervalMs to
+     * promote/wipe stuck pendingVerify positions via on-chain RE-CHECK.
+     * Logic identical to pre-extraction; uses Service-level state directly.
+     */
+    private fun runPendingVerifyWatchdog(wallet: SolanaWallet?) {
+        try {
+            val now = System.currentTimeMillis()
+            var clearedCount = 0
+            var phantomCount = 0
+            val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
+            val w = wallet
+            val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {
+                try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
+                    ErrorLogger.warn("BotService", "🔧 [VERIFY_WATCHDOG] RPC failed; will retry next tick: ${e.message}")
+                    null
+                }
+            } else null
+            val mapLooksEmpty = isLive && onChainBalances != null && onChainBalances.isEmpty()
+            if (mapLooksEmpty) {
+                ErrorLogger.warn(
+                    "BotService",
+                    "🔧 [VERIFY_WATCHDOG] RPC returned EMPTY map — treating as inconclusive (not wiping)."
+                )
+            }
+            status.tokens.values.forEach { ts ->
+                val pos = ts.position
+                if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
+                    val ageMs = now - pos.entryTime
+                    if (ageMs >= 120_000L) {
+                        if (isLive) {
+                            if (onChainBalances == null) {
+                                return@forEach
+                            }
+                            val onChainQty = onChainBalances[ts.mint]?.first ?: 0.0
+                            if (onChainQty > 0.0) {
+                                ErrorLogger.warn("BotService",
+                                    "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED on-chain (qty=$onChainQty). Promoting to open.")
+                                synchronized(ts) {
+                                    ts.position = pos.copy(qtyToken = onChainQty, pendingVerify = false)
+                                }
+                                try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                clearedCount++
+                            } else if (mapLooksEmpty) {
+                                val perMintQty: Double = try {
+                                    w?.getTokenAccountsWithDecimalsBounded()?.get(ts.mint)?.first ?: 0.0
+                                } catch (_: Exception) { 0.0 }
+                                if (perMintQty > 0.0) {
+                                    ErrorLogger.warn("BotService",
+                                        "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED via per-mint RETRY (qty=$perMintQty) after empty bulk map. Promoting.")
+                                    synchronized(ts) {
+                                        ts.position = pos.copy(qtyToken = perMintQty, pendingVerify = false)
+                                    }
+                                    try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                    clearedCount++
+                                } else {
+                                    ErrorLogger.warn("BotService",
+                                        "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — empty bulk + per-mint retry inconclusive. Keeping pendingVerify; will retry next tick.")
+                                }
+                            } else {
+                                ErrorLogger.warn("BotService",
+                                    "👻 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — GHOST POSITION confirmed (non-empty wallet map, mint absent). Wiping.")
+                                synchronized(ts) {
+                                    ts.position = com.lifecyclebot.data.Position()
+                                    ts.lastExitTs = now
+                                }
+                                try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+                                phantomCount++
+                            }
+                        } else {
+                            synchronized(ts) {
+                                ts.position = pos.copy(pendingVerify = false)
+                            }
+                            clearedCount++
+                        }
+                    }
+                }
+            }
+            if (clearedCount > 0 || phantomCount > 0) {
+                ErrorLogger.warn("BotService",
+                    "🔧 [VERIFY_WATCHDOG] Promoted=$clearedCount, Wiped(ghosts)=$phantomCount")
+                if (clearedCount > 0) addLog("🔧 Watchdog: promoted $clearedCount verified position(s)")
+                if (phantomCount > 0) addLog("👻 Watchdog: wiped $phantomCount ghost position(s) — no tokens on-chain")
+            }
+        } catch (wdEx: Exception) {
+            ErrorLogger.warn("BotService", "PendingVerify watchdog error: ${wdEx.message}")
+        }
+    }
+
+    /**
+     * V5.9.1036 — Extracted from botLoop() to reduce JVM bytecode (was 109
+     * lines of inline scope.launch lambda body). Runs the every-180-ticks
+     * (~15min) telemetry refresh: TokenWinMemory force-save + pattern
+     * summary, hivemind reconnect/upload, throughput floor heartbeat,
+     * CollectiveLearning sync, CollectiveIntelligenceAI refresh, and V3
+     * vs FDG comparison log. Fire-and-forget on the service scope so
+     * botLoop sees only a function-call overhead.
+     */
+    private fun run180TickTelemetry(cfg: BotConfig) {
+        scope.launch {
+            try {
+                TokenWinMemory.forceSave()
+                val summary = TokenWinMemory.getPatternSummary()
+                if (summary.isNotBlank()) {
+                    addLog("📊 Pattern refresh: $summary")
+                    ErrorLogger.info("TokenWinMemory", "📊 15min refresh: $summary")
+                }
+                if (!com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                    try {
+                        val reconnected = com.lifecyclebot.collective.CollectiveLearning.ensureConnected()
+                        if (reconnected) {
+                            addLog("🌐 Hivemind reconnected")
+                            ErrorLogger.info("BotService", "CollectiveLearning auto-reconnect succeeded")
+                        } else {
+                            addLog("🌐 Hivemind offline — running solo")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "Hivemind reconnect attempt failed: ${e.message}")
+                    }
+                }
+                try {
+                    val throughputMsg = com.lifecyclebot.v3.scoring.MemeEdgeAI.throughputStatus()
+                    ErrorLogger.info("BotService", "📊 $throughputMsg")
+                    if (throughputMsg.startsWith("ALERT")) {
+                        addLog("📊 $throughputMsg")
+                    }
+                } catch (_: Exception) {}
+                if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
+                    try {
+                        val botPrefs = getSharedPreferences("bot_service", android.content.Context.MODE_PRIVATE)
+                        val instanceId = botPrefs.getString("instance_id", null)
+                            ?: java.util.UUID.randomUUID().toString().also {
+                                botPrefs.edit().putString("instance_id", it).apply()
+                            }
+                        val localStats = TradeHistoryStore.getStats()
+                        val pnl24hPct = if (localStats.trades24h > 0) {
+                            (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
+                        } else 0.0
+                        val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+                        com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
+                            instanceId = instanceId,
+                            appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                            paperMode = currentConfig.paperMode,
+                            trades24h = localStats.trades24h,
+                            pnl24hPct = pnl24hPct
+                        )
+                        val modeStats = ModeLearning.getAllModeStats()
+                        val snapshots = modeStats.mapValues { (_, stats) ->
+                            com.lifecyclebot.collective.CollectiveLearning.ModeStatSnapshot(
+                                totalTrades = stats.totalTrades,
+                                wins = stats.wins,
+                                losses = stats.losses,
+                                avgPnlPct = stats.avgPnlPct,
+                                avgHoldMins = stats.avgHoldMins,
+                                marketCondition = "NEUTRAL",
+                                liquidityBucket = "MID"
+                            )
+                        }
+                        com.lifecyclebot.collective.CollectiveLearning.syncModeLearning(snapshots)
+                        val collectiveInsights = com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary()
+                        addLog("🌐 $collectiveInsights")
+                        if (cfg.v3EngineEnabled) {
+                            val v3Comparison = com.lifecyclebot.v3.V3EngineManager.getComparisonSummary()
+                            addLog("⚡ $v3Comparison")
+                            ErrorLogger.info("V3Comparison", v3Comparison)
+                        }
+                        try {
+                            com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.refresh()
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "CollectiveAI refresh error: ${e.message}")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.debug("BotService", "Collective sync error: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.debug("BotService", "TokenWinMemory refresh error: ${e.message}")
+            }
+        }
+    }
+
+
     private suspend fun botLoop() {
         // V5.9.919 — FIRST ACTION on botLoop entry: clear RESCUE_LAUNCHING
         // phase by stamping progress. Operator V5.9.916 freeze showed phase
@@ -8212,114 +8399,9 @@ class BotService : Service() {
             // This eliminates GHOST POSITIONS (Models.kt isOpen no longer auto-promotes after 120s).
             if (System.currentTimeMillis() - lastPendingVerifyWatchdogAt > pendingVerifyWatchdogIntervalMs) {
                 lastPendingVerifyWatchdogAt = System.currentTimeMillis()
-                try {
-                    val now = System.currentTimeMillis()
-                    var clearedCount = 0
-                    var phantomCount = 0
-                    val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
-                    val w = wallet
-                    // For live mode, fetch on-chain balances once for all stuck positions.
-                    val onChainBalances: Map<String, Pair<Double, Int>>? = if (isLive && w != null) {
-                        try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
-                            ErrorLogger.warn("BotService", "🔧 [VERIFY_WATCHDOG] RPC failed; will retry next tick: ${e.message}")
-                            null
-                        }
-                    } else null
-                    // V5.9.739 — operator screenshot 2026-05-14 18:43 showed
-                    // 4 live positions sitting on-chain (BULLISH, MEMEART,
-                    // MTFR, NVDAx) that never appeared in the bot UI. Root
-                    // cause: a single empty-map RPC response was being
-                    // treated as "all tokens absent" and wiping every stuck
-                    // position as a ghost. An empty map almost never means
-                    // an empty wallet — it means the indexer hadn't caught
-                    // up. Treat it as RPC failure, not a clean zero.
-                    val mapLooksEmpty = isLive && onChainBalances != null && onChainBalances.isEmpty()
-                    if (mapLooksEmpty) {
-                        ErrorLogger.warn(
-                            "BotService",
-                            "🔧 [VERIFY_WATCHDOG] RPC returned EMPTY map — treating as inconclusive (not wiping)."
-                        )
-                    }
-                    status.tokens.values.forEach { ts ->
-                        val pos = ts.position
-                        if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
-                            val ageMs = now - pos.entryTime
-                            if (ageMs >= 120_000L) {
-                                if (isLive) {
-                                    if (onChainBalances == null) {
-                                        // RPC failed this tick — leave pendingVerify=true, retry later
-                                        return@forEach
-                                    }
-                                    val onChainQty = onChainBalances[ts.mint]?.first ?: 0.0
-                                    if (onChainQty > 0.0) {
-                                        // Tokens really did land — adopt real qty and promote
-                                        ErrorLogger.warn("BotService",
-                                            "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED on-chain (qty=$onChainQty). Promoting to open.")
-                                        synchronized(ts) {
-                                            ts.position = pos.copy(qtyToken = onChainQty, pendingVerify = false)
-                                        }
-                                        try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                                        clearedCount++
-                                    } else if (mapLooksEmpty) {
-                                        // V5.9.739 — bulk RPC returned empty map. Do NOT wipe.
-                                        // The indexer is lagging or the RPC is having a moment.
-                                        // Try a per-mint retry as a last resort before giving up
-                                        // this tick — the per-mint path uses a different RPC
-                                        // method that sometimes works when the bulk one doesn't.
-                                        // V5.9.741 — null-safe call. SolanaWallet? was
-                                        // already guarded by `isLive && w != null` at the top of
-                                        // the watchdog, but Kotlin's smart-cast doesn't carry
-                                        // through this many levels of nesting, so the compiler
-                                        // rightfully rejects the direct call. Safe call collapses
-                                        // to 0.0 if w were somehow null here, which leaves the
-                                        // position pendingVerify (correct behaviour).
-                                        val perMintQty: Double = try {
-                                            w?.getTokenAccountsWithDecimalsBounded()?.get(ts.mint)?.first ?: 0.0
-                                        } catch (_: Exception) { 0.0 }
-                                        if (perMintQty > 0.0) {
-                                            ErrorLogger.warn("BotService",
-                                                "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — tokens VERIFIED via per-mint RETRY (qty=$perMintQty) after empty bulk map. Promoting.")
-                                            synchronized(ts) {
-                                                ts.position = pos.copy(qtyToken = perMintQty, pendingVerify = false)
-                                            }
-                                            try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                                            clearedCount++
-                                        } else {
-                                            ErrorLogger.warn("BotService",
-                                                "🔧 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — empty bulk + per-mint retry inconclusive. Keeping pendingVerify; will retry next tick.")
-                                        }
-                                    } else {
-                                        // RPC succeeded with a non-empty map and this specific
-                                        // mint is genuinely absent → real phantom. Wipe.
-                                        ErrorLogger.warn("BotService",
-                                            "👻 [VERIFY_WATCHDOG] ${ts.symbol} | ${ageMs / 1000}s — GHOST POSITION confirmed (non-empty wallet map, mint absent). Wiping.")
-                                        synchronized(ts) {
-                                            ts.position = com.lifecyclebot.data.Position()
-                                            ts.lastExitTs = now
-                                        }
-                                        try { com.lifecyclebot.engine.PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                                        phantomCount++
-                                    }
-                                } else {
-                                    // Paper mode never sets pendingVerify=true normally, but if it
-                                    // somehow did, just clear it — paper has no on-chain truth.
-                                    synchronized(ts) {
-                                        ts.position = pos.copy(pendingVerify = false)
-                                    }
-                                    clearedCount++
-                                }
-                            }
-                        }
-                    }
-                    if (clearedCount > 0 || phantomCount > 0) {
-                        ErrorLogger.warn("BotService",
-                            "🔧 [VERIFY_WATCHDOG] Promoted=$clearedCount, Wiped(ghosts)=$phantomCount")
-                        if (clearedCount > 0) addLog("🔧 Watchdog: promoted $clearedCount verified position(s)")
-                        if (phantomCount > 0) addLog("👻 Watchdog: wiped $phantomCount ghost position(s) — no tokens on-chain")
-                    }
-                } catch (wdEx: Exception) {
-                    ErrorLogger.warn("BotService", "PendingVerify watchdog error: ${wdEx.message}")
-                }
+                // V5.9.1036 — extracted to runPendingVerifyWatchdog(wallet)
+                // to reduce botLoop bytecode (was 110 lines of inline body).
+                runPendingVerifyWatchdog(wallet)
             }
 
             // V5.9.103: periodic reconcile (was live-mode-only)
@@ -9024,114 +9106,10 @@ class BotService : Service() {
             // This ensures bad tokens and patterns are integrated into decisions
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 180 == 0) {
-                scope.launch {
-                    try {
-                        // Force save current state
-                        TokenWinMemory.forceSave()
-                        
-                        // Log summary of learned patterns
-                        val summary = TokenWinMemory.getPatternSummary()
-                        if (summary.isNotBlank()) {
-                            addLog("📊 Pattern refresh: $summary")
-                            ErrorLogger.info("TokenWinMemory", "📊 15min refresh: $summary")
-                        }
-                        
-                        // ═══════════════════════════════════════════════════════════════════
-                        // COLLECTIVE LEARNING SYNC - Share local knowledge with hive mind
-                        // Uploads mode performance stats to Turso for all instances to learn
-                        // ═══════════════════════════════════════════════════════════════════
-                        // V5.9.617: Auto-reconnect if hivemind dropped — was silent before.
-                        if (!com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
-                            try {
-                                val reconnected = com.lifecyclebot.collective.CollectiveLearning.ensureConnected()
-                                if (reconnected) {
-                                    addLog("🌐 Hivemind reconnected")
-                                    ErrorLogger.info("BotService", "CollectiveLearning auto-reconnect succeeded")
-                                } else {
-                                    addLog("🌐 Hivemind offline — running solo")
-                                }
-                            } catch (e: Exception) {
-                                ErrorLogger.debug("BotService", "Hivemind reconnect attempt failed: ${e.message}")
-                            }
-                        }
-
-                        // V5.9.619 — throughput-floor heartbeat. Operator-facing tripwire so
-                        // any choke that drags the bot below 500 trades/24h is visible
-                        // immediately. Pure telemetry — never blocks anything.
-                        try {
-                            val throughputMsg = com.lifecyclebot.v3.scoring.MemeEdgeAI.throughputStatus()
-                            ErrorLogger.info("BotService", "📊 $throughputMsg")
-                            if (throughputMsg.startsWith("ALERT")) {
-                                addLog("📊 $throughputMsg")
-                            }
-                        } catch (_: Exception) {}
-                        if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
-                            try {
-                                // V3.2: Upload instance heartbeat for active instance counting
-                                val botPrefs = getSharedPreferences("bot_service", android.content.Context.MODE_PRIVATE)
-                                val instanceId = botPrefs.getString("instance_id", null) 
-                                    ?: java.util.UUID.randomUUID().toString().also { 
-                                        botPrefs.edit().putString("instance_id", it).apply() 
-                                    }
-                                val localStats = TradeHistoryStore.getStats()
-                                val pnl24hPct = if (localStats.trades24h > 0) {
-                                    (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
-                                } else 0.0
-                                
-                                // Get paperMode from config
-                                val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-                                
-                                com.lifecyclebot.collective.CollectiveLearning.uploadHeartbeat(
-                                    instanceId = instanceId,
-                                    appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
-                                    paperMode = currentConfig.paperMode,
-                                    trades24h = localStats.trades24h,
-                                    pnl24hPct = pnl24hPct
-                                )
-                                
-                                // Sync mode learning stats to collective
-                                val modeStats = ModeLearning.getAllModeStats()
-                                val snapshots = modeStats.mapValues { (_, stats) ->
-                                    com.lifecyclebot.collective.CollectiveLearning.ModeStatSnapshot(
-                                        totalTrades = stats.totalTrades,
-                                        wins = stats.wins,
-                                        losses = stats.losses,
-                                        avgPnlPct = stats.avgPnlPct,
-                                        avgHoldMins = stats.avgHoldMins,
-                                        marketCondition = "NEUTRAL",
-                                        liquidityBucket = "MID"
-                                    )
-                                }
-                                com.lifecyclebot.collective.CollectiveLearning.syncModeLearning(snapshots)
-                                
-                                // Log collective status
-                                val collectiveInsights = com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary()
-                                addLog("🌐 $collectiveInsights")
-                                
-                                // Log V3 vs FDG comparison
-                                if (cfg.v3EngineEnabled) {
-                                    val v3Comparison = com.lifecyclebot.v3.V3EngineManager.getComparisonSummary()
-                                    addLog("⚡ $v3Comparison")
-                                    ErrorLogger.info("V3Comparison", v3Comparison)
-                                }
-                                
-                                // ═══════════════════════════════════════════════════════════════════
-                                // COLLECTIVE INTELLIGENCE AI - Refresh cache every 180 loops (~15 min)
-                                // Analyzes patterns, aggregates mode stats, synthesizes consensus
-                                // ═══════════════════════════════════════════════════════════════════
-                                try {
-                                    com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.refresh()
-                                } catch (e: Exception) {
-                                    ErrorLogger.debug("BotService", "CollectiveAI refresh error: ${e.message}")
-                                }
-                            } catch (e: Exception) {
-                                ErrorLogger.debug("BotService", "Collective sync error: ${e.message}")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("BotService", "TokenWinMemory refresh error: ${e.message}")
-                    }
-                }
+                // V5.9.1036 — extracted from botLoop to reduce JVM bytecode
+                // (was 109 lines of inline scope.launch body). Telemetry
+                // is fire-and-forget; this returns immediately.
+                run180TickTelemetry(cfg)
             }
             
             // Decay pattern weights every 720 loops (~1 hour)

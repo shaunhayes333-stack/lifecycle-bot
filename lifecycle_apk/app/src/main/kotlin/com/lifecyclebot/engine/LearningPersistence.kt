@@ -59,12 +59,26 @@ object LearningPersistence {
 
     /** Init DB and restore every tracker's rolling window state. */
     fun init(ctx: Context) {
+        // V5.9.1036 — operator V5.9.1034b ANR triage: top main-thread offender
+        // (14 ANR samples, ~3000-lesson JSON parse) was TradeLessonRecorder
+        // .importState called synchronously from loadAll() during onCreate.
+        // Split open-DB (synchronous, ~5-10ms — required so callers' putBlob
+        // /getBlob calls work immediately) from loadAll() (background — every
+        // brain consumer guards a not-yet-loaded state via try/?.let so
+        // missing blobs return empty defaults until restoration completes).
         try {
             db = KvHelper(ctx).writableDatabase
-            loadAll()
-            ErrorLogger.info(TAG, "✅ Learning persistence ready — trackers restored from disk.")
         } catch (e: Exception) {
-            ErrorLogger.warn(TAG, "init error: ${e.message}")
+            ErrorLogger.warn(TAG, "init db error: ${e.message}")
+            return
+        }
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                loadAll()
+                ErrorLogger.info(TAG, "✅ Learning persistence ready — trackers restored from disk (off-main).")
+            } catch (e: Exception) {
+                ErrorLogger.warn(TAG, "init loadAll error: ${e.message}")
+            }
         }
     }
 

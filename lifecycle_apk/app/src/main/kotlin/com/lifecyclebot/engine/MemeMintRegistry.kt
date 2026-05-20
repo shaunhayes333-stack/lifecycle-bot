@@ -67,9 +67,23 @@ object MemeMintRegistry {
 
     /** Hydrate from disk on bot start. Idempotent. */
     fun init(context: Context) {
+        // V5.9.1036 — operator V5.9.1034b ANR triage: restoreFromDisk parses
+        // the persisted 2500+ mint registry (511KB JSON) on the caller's
+        // thread and was the #2 main-thread blocker at boot (2185ms ANR
+        // sample). Hydrate the appCtx synchronously (required for the
+        // synchronous-touch APIs to schedule saves) but parse the registry
+        // off-main. isKnown / touch / touchBulk all guard against a missing
+        // ConcurrentHashMap entry by behaving as a fresh first-sighting, so
+        // pre-restore scanner ticks degrade safely to "unknown mint".
         appCtx = context.applicationContext
-        restoreFromDisk()
-        ErrorLogger.info(TAG, "init: ${registry.size} meme mints loaded from persistent registry")
+        scope.launch {
+            try {
+                restoreFromDisk()
+                ErrorLogger.info(TAG, "init: ${registry.size} meme mints loaded from persistent registry (off-main)")
+            } catch (e: Throwable) {
+                ErrorLogger.warn(TAG, "init restoreFromDisk error: ${e.message}")
+            }
+        }
     }
 
     fun count(): Int = registry.size
