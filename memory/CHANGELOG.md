@@ -5,6 +5,126 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1037 — SILENT SUPERVISOR (fire-and-forget; bot loop never awaits) (Feb 2026, CI ⏳)
+
+Operator V5.9.1036 snapshot showed bot loop wedged 14-20s per cycle on
+`SUPERVISOR_CHUNK_TIMEOUT` (23 chunk timeouts in 150s), with EVERY cycle
+logging `processed=0 deferred=96` despite trades still executing via the
+SCAN_CB direct path.
+
+Root cause: legacy `runSupervisorPhase` chunks the watchlist into groups
+of 32, spawns `GlobalScope.async` workers, then awaits each chunk via
+`withTimeoutOrNull(4.5s) { jobs.awaitAll() }`. If even ONE worker blocks
+past 4.5s the await trips, ALL 32 jobs get cancelled, and the bot logs
+`SUPERVISOR_CHUNK_TIMEOUT`. With 96 mints × 3 chunks × 4.5s = ~14s per
+cycle wasted in pure dead waiting.
+
+Critical insight: the per-worker side effect (`processTokenCycle` +
+`markProcessed`) already runs on detached `GlobalScope.async(IO)` — the
+bot loop's await was burning cycles to populate `processed/deferred`
+counts that ONLY feed forensic log strings. No downstream control flow
+depends on them. So the await is pure dead waiting.
+
+Fixed:
+- New `fireSupervisorWorkers` helper: spawns workers via
+  `GlobalScope.launch` (no `async`, no `awaitAll`, no `withTimeoutOrNull`).
+- Bounded in-flight concurrency via `supervisorActive` AtomicInteger
+  with `SUPERVISOR_MAX_INFLIGHT=48` cap (mints over cap are skipped and
+  re-evaluated next cycle from a fresh ordering).
+- Atomic counters surface lifetime supervisor health:
+  `supervisorLifetimeSpawned / Processed / Skipped`.
+- OkHttp dispatcher's `maxRequestsPerHost=16` (V5.9.1032) remains the
+  real API rate-limit floor.
+- New `SUPERVISOR_INFLIGHT_CAP` forensic event fires when skip>0.
+- `runSupervisorPhase` kept as dead code for rollback safety.
+
+Expected impact:
+- Cycles drop from ~15-20s to ~2-5s (bot loop now sees ~0ms supervisor cost)
+- `SUPERVISOR_CHUNK_TIMEOUT` events drop to zero
+- SCAN_CB / V3 / FDG / EXEC counters ramp 3-5×
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1036 — ANR fixes (onCreate off-main) + botLoop bytecode reclaim + tighter dust gate (Feb 2026, CI ✅ green, deployed)
+
+Operator V5.9.1034b snapshot showed 29.9% main-thread stall with
+maxFrameGap=32570ms and `TradeLessonRecorder.exportState` topping the ANR
+chart (14 samples). `botLoop` also approaching JVM 64KB cap again
+(V5.9.1035 release passed but DEBUG smoke failed with `Couldn't transform
+method node: botLoop`).
+
+Fixed:
+
+1. `LearningPersistence.init` — split synchronous DB open (fast, required
+   for putBlob/getBlob immediately) from `loadAll()` (background IO). The
+   ~3000-lesson `TradeLessonRecorder.importState` JSON parse (1934ms ANR)
+   plus 12 other brain-state blob restores now run off-main. Kills the
+   #1 ANR offender.
+
+2. `MemeMintRegistry.init` — `restoreFromDisk` (2185ms ANR parsing 2557
+   mints / 511KB JSON) moved to background scope. `appCtx` stays sync
+   so `touch()` / `scheduleSave()` work immediately.
+
+3. `BotService.botLoop` reclaim — extracted two large inline blocks:
+   - `runPendingVerifyWatchdog(wallet)`     → -110 lines of bytecode
+   - `run180TickTelemetry(cfg)`             → -109 lines of bytecode
+   Net: ~219 lines reclaimed inside botLoop's outer try{}.
+
+4. Intake dust gate tightened — V5.9.1035's INTAKE_LIQ_ZERO_REJECT
+   required strictly liq=$0 && mcap=$0 && single-source. Operator
+   snapshot showed pump.fun spam landing with liq=$0.001 mcap=$0.01
+   sources=2 via the MULTI-SCANNER BYPASS path. Tightened to liq<$1 &&
+   mcap<$10 (no source restriction).
+
+Operator V5.9.1036 verified:
+- ANR stall 29.9% → 8.7% (3.4× better)
+- maxFrameGap 32570ms → 9106ms
+- INTAKE_LIQ_ZERO_REJECT=120 / INTAKE_BURST_REJECT=3 firing correctly
+  (HENRY caught at 5 distinct mints/60s — clone-storm hard reject)
+- TradeLessonRecorder.exportState + MemeMintRegistry.restoreFromDisk
+  both gone from ANR top-N list
+- Trading active: EXEC_BUY=3, EXEC_SELL=99, 165 journal writes
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1035 — counter-drift fix + lite-rich legacy bridge + Part 2 intake spam filter (Feb 2026, Build ✅ Smoke ❌ [JVM 64KB, fixed in V5.9.1036])
+
+Operator screenshot showed `AdaptiveLearning Δ=-424` and `BehaviorLearning
+Δ=-414` against the canonical settled baseline (427 trades) — strategy
+learning "useless". Combined with the user's standing Part 2 mandate to
+hard-reject intake spam at the door.
+
+Fixed:
+
+1. Counter drift display — `LearningCounterActivity` now reads
+   `AdaptiveLearningEngine.getTradeCount()` and
+   `BehaviorLearning.getCanonicalAlignedTradeCount()` (both already
+   canonical-aligned to settledWins+settledLosses). Previous display
+   read session-only / feature-gated raw counters that lag by design.
+
+2. Lite-rich legacy bridge — `publishFromLegacyTrade` now builds a
+   minimal `CandidateFeatures` from the Trade record alone (mode-derived
+   trader/venue/route/assetClass) and emits `featuresIncomplete=false`
+   for any known mode. Strategy learners (AdaptiveLearning,
+   BehaviorLearning) finally train on every settled trade instead of
+   skipping 97% of them.
+
+3. `inferAssetClassAndSource` extended: STANDARD / PROJECT_SNIPER /
+   DIP_HUNTER / COMMUNITY → (MEME, TradeSource.V3) so the venue/route
+   fallback resolves to PUMP_FUN_BONDING/PUMP_NATIVE instead of UNKNOWN.
+
+4. Part 2 intake filter:
+   - INTAKE_LIQ_ZERO_REJECT: hard-reject liq=$0 + mcap=$0 + single-source
+     + not user/restore (later tightened to liq<$1 mcap<$10 in V5.9.1036).
+   - INTAKE_BURST_REJECT: hard-reject when ≥5 DIFFERENT mints land with
+     the same symbol in <60s (clone-storm guaranteed rugs).
+
+Known regression: DEBUG-compile botLoop hit the JVM 64KB method size
+cap. Fixed in V5.9.1036 by extracting `runPendingVerifyWatchdog` and
+`run180TickTelemetry` helpers (-219 lines of botLoop bytecode).
+
+
+
 ## V5.9.1034b — Fix cap-evict to drain unseen pool (the real overflow) (Feb 2026, CI ⏳)
 
 Operator V5.9.1034 snapshot (build 2995, tag V5.9.1034) verified two wins:
