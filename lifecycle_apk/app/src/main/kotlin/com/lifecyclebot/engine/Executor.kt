@@ -2105,8 +2105,14 @@ class Executor(
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
-        // Ensure trade has mint set
-        val tradeWithMint = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
+        // V5.9.1038 — operator V5.9.1037 triage: some exit paths
+        // (sweepUniversalExits, rapid-monitor closes) construct Trade objects
+        // without populating tradingMode, leaving downstream learners with
+        // source=UNKNOWN. Inherit pos.tradingMode whenever Trade's is blank.
+        val tradeWithMint = trade.copy(
+            mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
+            tradingMode = if (trade.tradingMode.isBlank()) ts.position.tradingMode else trade.tradingMode,
+        )
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
 

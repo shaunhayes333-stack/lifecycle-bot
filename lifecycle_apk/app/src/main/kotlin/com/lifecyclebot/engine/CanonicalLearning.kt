@@ -600,7 +600,38 @@ object CanonicalOutcomeBus {
         // V5.9.495z9 — skip if a feature-rich publish from the trade-close
         // emit site already covered this tradeId (no double counting).
         if (isRichPublished(tradeId)) return
-        val mode = CanonicalOutcomeNormalizer.normalizeMode(trade.tradingMode)
+        // V5.9.1038 — operator V5.9.1037 triage: 64% of canonical outcomes
+        // were still featuresIncomplete because some exit paths (notably
+        // sweepUniversalExits + rapid-monitor closes) create Trade objects
+        // with reason="MOONSHOT_STOP_LOSS" but blank tradingMode. The
+        // V5.9.1035 lite-rich bridge requires a non-blank tradingMode to
+        // build the rich CandidateFeatures. Infer the mode from the close
+        // reason as a fallback so these trades still resolve to a real
+        // strategy bin instead of UNKNOWN.
+        val effectiveModeName: String = if (trade.tradingMode.isBlank() && trade.reason.isNotBlank()) {
+            val r = trade.reason.uppercase()
+            when {
+                r.contains("MOONSHOT") -> "MOONSHOT"
+                r.contains("SHITCOIN") -> "SHITCOIN"
+                r.contains("CASHGEN") -> "CASHGEN"
+                r.contains("TREASURY") -> "TREASURY"
+                r.contains("BLUECHIP") -> "BLUECHIP"
+                r.contains("BLUE_CHIP") -> "BLUECHIP"
+                r.contains("QUALITY") -> "QUALITY"
+                r.contains("MANIP") -> "MANIPULATED"
+                r.contains("EXPRESS") -> "EXPRESS"
+                r.contains("CYCLIC") -> "CYCLIC"
+                r.contains("COPY") -> "COPYTRADE"
+                r.contains("SNIPER") || r.contains("PROJECT_SNIPER") -> "PROJECT_SNIPER"
+                r.contains("DIP_HUNTER") || r.contains("DIP") -> "DIP_HUNTER"
+                r.contains("LONG_HOLD") -> "LONG_HOLD"
+                r.contains("MOMENTUM") -> "MOMENTUM_SWING"
+                r.contains("PRESALE") -> "PRESALE_SNIPE"
+                r.contains("RAPID_") || r.contains("FLUID") -> "STANDARD"
+                else -> trade.tradingMode
+            }
+        } else trade.tradingMode
+        val mode = CanonicalOutcomeNormalizer.normalizeMode(effectiveModeName)
         val (assetClass, source) = inferAssetClassAndSource(mode)
         val env = if (trade.mode.equals("paper", true)) TradeEnvironment.PAPER else TradeEnvironment.LIVE
         val pnlPct = trade.pnlPct

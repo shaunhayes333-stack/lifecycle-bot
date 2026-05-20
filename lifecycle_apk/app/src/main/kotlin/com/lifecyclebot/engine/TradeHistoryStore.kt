@@ -326,17 +326,97 @@ object TradeHistoryStore {
         }
     }
 
+    // V5.9.1038 — choke-point dedupe (operator V5.9.1037 triage). Same meme
+    // position was being recorded TWICE per close: Path 1 (Executor.recordTrade
+    // for TREASURY_TIME_EXIT) + Path 2 (CashGenAI → V3JournalRecorder for
+    // CASHGEN_TIME_EXIT). The PositionExitArbiter (Executor.kt) only sees the
+    // Executor path; V3JournalRecorder's 5s dedup only sees the V3 path. This
+    // LRU sits at the choke point and catches duplicates from ALL paths.
+    // Key = "${mint}_${ts}_${side}" so two genuinely different closes for the
+    // same mint at different milliseconds are NOT deduped (legitimate close,
+    // reopen, close again sequence). 5-second TTL window matches V3JournalRecorder.
+    private val recordTradeRecentLru: MutableMap<String, Long> = java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, Long>(256, 0.75f, false) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+                return size > 1024
+            }
+        }
+    )
+    private val RECORD_TRADE_DEDUPE_WINDOW_MS: Long = 5_000L
+
+    /**
+     * V5.9.1038 — canonicalize tradingMode at the choke point so the
+     * StrategyTelemetry bins (BLUECHIP / BLUE_CHIP / STANDARD) collapse into
+     * one. The same trade was getting double-binned because Executor copies
+     * `pos.tradingMode = "BLUE_CHIP"` while V3JournalRecorder sets
+     * `tradingMode = layer = "BLUECHIP"`.
+     */
+    private fun normalizeTradeModeName(raw: String): String {
+        val upper = raw.trim().uppercase().replace("[^A-Z0-9]".toRegex(), "")
+        return when {
+            upper.isBlank() -> ""
+            upper.contains("BLUECHIP") -> "BLUECHIP"
+            upper.contains("CASHGEN") -> "CASHGEN"
+            upper.contains("SHITCOIN") -> "SHITCOIN"
+            upper.contains("MOONSHOT") -> "MOONSHOT"
+            upper.contains("TREASURY") -> "TREASURY"
+            upper.contains("MANIP") -> "MANIPULATED"
+            upper.contains("EXPRESS") -> "EXPRESS"
+            upper.contains("CYCLIC") -> "CYCLIC"
+            upper.contains("COPYTRADE") || upper.contains("COPY") -> "COPYTRADE"
+            upper.contains("PROJECTSNIPER") || upper.contains("SNIPER") -> "PROJECT_SNIPER"
+            upper.contains("DIPHUNTER") -> "DIP_HUNTER"
+            upper.contains("MOMENTUM") -> "MOMENTUM_SWING"
+            upper.contains("PRESALE") -> "PRESALE_SNIPE"
+            upper.contains("LONGHOLD") -> "LONG_HOLD"
+            upper.contains("COMMUNITY") -> "COMMUNITY"
+            upper.contains("ALT") && upper.contains("TRADER") -> "ALTTRADER"
+            upper == "STANDARD" -> "STANDARD"
+            else -> raw.trim()  // preserve unrecognized names verbatim
+        }
+    }
+
     fun recordTrade(trade: Trade) {
         ensureInitialized()
+        // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
+        // not double-fired — only SELL exits go through both paths).
+        if (trade.side.equals("SELL", ignoreCase = true)) {
+            val key = "${trade.mint}_${trade.ts}_SELL"
+            val now = System.currentTimeMillis()
+            val prior = synchronized(recordTradeRecentLru) {
+                val p = recordTradeRecentLru[key]
+                if (p == null || (now - p) > RECORD_TRADE_DEDUPE_WINDOW_MS) {
+                    recordTradeRecentLru[key] = now
+                    null
+                } else {
+                    p
+                }
+            }
+            if (prior != null) {
+                try {
+                    ErrorLogger.info(
+                        "TradeHistoryStore",
+                        "📓 TRADEJRNL_DEDUP_SKIP mint=${trade.mint.take(8)} ts=${trade.ts} side=SELL reason='${trade.reason}' priorAgeMs=${now - prior}",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+        }
+        // V5.9.1038 — canonicalize mode-name to collapse bin fragmentation
+        // (BLUE_CHIP vs BLUECHIP vs CashGen vs CASHGEN). Operator triage showed
+        // strategy expectancy bins double-counting because Executor and
+        // V3JournalRecorder set inconsistent casing on the same trade.
+        val normalizedMode = normalizeTradeModeName(trade.tradingMode)
+        val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
         synchronized(lock) {
-            trades.add(trade)
+            trades.add(tradeToStore)
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
             if (trades.size > MAX_IN_MEMORY_TRADES) {
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
             }
         }
-        bumpLifetimeFor(trade)
-        insertTradeAsync(trade)
+        bumpLifetimeFor(tradeToStore)
+        insertTradeAsync(tradeToStore)
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
         // bot is clearly trading (875 24h trades, 15 open positions)." Emit a
         // structured INFO log on every recordTrade so the operator can grep
@@ -349,25 +429,25 @@ object TradeHistoryStore {
         try {
             ErrorLogger.info(
                 "TradeHistoryStore",
-                "📓 TRADEJRNL_REC side=${trade.side} mode=${trade.mode} sym=${trade.mint.take(6)} sol=${"%.3f".format(trade.sol)} pnl=${"%.3f".format(trade.pnlSol)} reason=${trade.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
+                "📓 TRADEJRNL_REC side=${tradeToStore.side} mode=${tradeToStore.mode} sym=${tradeToStore.mint.take(6)} sol=${"%.3f".format(tradeToStore.sol)} pnl=${"%.3f".format(tradeToStore.pnlSol)} reason=${tradeToStore.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
             )
             PipelineHealthCollector.onTradeJournal()
             // V5.9.670 — also record into the recent-executions ring so the
             // Pipeline Health dump can surface the last 30 trades verbatim.
             PipelineHealthCollector.recordExec(
-                side    = trade.side,
-                mode    = trade.mode,
-                symbol  = trade.mint.take(6),
-                sizeSol = trade.sol,
-                pnlSol  = trade.pnlSol,
-                reason  = trade.reason,
+                side    = tradeToStore.side,
+                mode    = tradeToStore.mode,
+                symbol  = tradeToStore.mint.take(6),
+                sizeSol = tradeToStore.sol,
+                pnlSol  = tradeToStore.pnlSol,
+                reason  = tradeToStore.reason,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
         try {
-            if (trade.side.equals("SELL", true) && trade.mint.isNotBlank()) {
-                MemeLossStreakGuard.recordOutcome(trade.mint, isWin = trade.pnlSol > 0.0)
+            if (tradeToStore.side.equals("SELL", true) && tradeToStore.mint.isNotBlank()) {
+                MemeLossStreakGuard.recordOutcome(tradeToStore.mint, isWin = tradeToStore.pnlSol > 0.0)
             }
         } catch (_: Exception) { /* non-fatal */ }
         // V5.9.495z7 — operator spec: every closed trade publishes a canonical
@@ -375,7 +455,7 @@ object TradeHistoryStore {
         // etc.), bumps counters, and routes to consumer layers. SELL only —
         // buys are open-events that the SELL supersedes.
         try {
-            CanonicalOutcomeBus.publishFromLegacyTrade(trade)
+            CanonicalOutcomeBus.publishFromLegacyTrade(tradeToStore)
         } catch (_: Throwable) { /* non-fatal — never break the trade record path */ }
     }
 
