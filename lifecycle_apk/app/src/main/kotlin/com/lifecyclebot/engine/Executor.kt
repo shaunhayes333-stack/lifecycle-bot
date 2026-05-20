@@ -515,16 +515,46 @@ class Executor(
         // CASHGEN_STOP_LOSS and STALE_LIVE_PRICE_RUG_ESCAPE fire simultaneously
         // for the same paper position. Both see isOpen=true before either closes it.
         private val paperSellLocks = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()
-        fun acquirePaperSellLock(mint: String): Boolean =
-            paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }
+        // V5.9.1022 — POST-SELL COOLDOWN. Operator V5.9.1021 snapshot showed
+        // same mint (4vRgJ7) recorded TWO SELL trades within 118 ms:
+        //   21:47:37.057  SELL  RAPID_CATASTROPHE_STOP  sol=0.275 pnl=-0.056
+        //   21:47:37.175  SELL  CASHGEN_STOP_LOSS       sol=0.661 pnl=-0.030
+        // The lock prevents concurrent execution but releases on completion;
+        // a second sell arriving 118 ms after release re-acquires cleanly
+        // because acquirePaperSellLock removes the entry on release (line 522).
+        // The position may also be partially-updated mid-fanout (V5.9.1011 async
+        // journal/learning), so pos.isOpen can read stale-true for a small
+        // window after release.
+        //
+        // This cooldown map records the last completed-sell timestamp per mint.
+        // Any new paperSell within 2 s of the prior completion returns
+        // ALREADY_CLOSED without recording — eliminating the duplicate trade
+        // and the credit burn from its downstream learning fanout.
+        private val lastPaperSellCompletedMs = ConcurrentHashMap<String, Long>()
+        private const val PAPER_SELL_COOLDOWN_MS = 2_000L
+        fun acquirePaperSellLock(mint: String): Boolean {
+            // Cooldown gate fires BEFORE the AtomicBoolean dance so the same
+            // mint can't reuse a freshly-vacated lock slot inside 2 s.
+            val lastDoneMs = lastPaperSellCompletedMs[mint]
+            if (lastDoneMs != null && (System.currentTimeMillis() - lastDoneMs) < PAPER_SELL_COOLDOWN_MS) {
+                return false
+            }
+            return paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }
                 .compareAndSet(false, true)
+        }
         fun releasePaperSellLock(mint: String) {
+            // Record completion timestamp BEFORE removing the lock so the
+            // cooldown gate sees it on the very next acquire attempt.
+            lastPaperSellCompletedMs[mint] = System.currentTimeMillis()
             paperSellLocks.remove(mint)
         }
         /** V5.9.720: force-clear ALL paper sell locks — called on bot stop so shutdown
-         *  close can never be blocked by a stale lock from a crashed sell path. */
+         *  close can never be blocked by a stale lock from a crashed sell path.
+         *  V5.9.1022: also clear the post-sell cooldown so bot-restart can sell
+         *  the same mints immediately. */
         fun clearAllPaperSellLocks() {
             paperSellLocks.clear()
+            lastPaperSellCompletedMs.clear()
         }
         // V5.7.3: Dual wallet fee system
         private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
@@ -11640,7 +11670,14 @@ class Executor(
             val trade = Trade(
                 side = "SELL", 
                 mode = "live", 
-                sol = pos.costSol, 
+                // V5.9.1022 — same fix as V5.9.1018c paperSell line 9131. The
+                // live SELL Trade was also recording COST BASIS (pos.costSol)
+                // as the `sol` field, contradicting the proceeds semantic used
+                // by every other SELL row and by CanonicalLearning.exitSol.
+                // V5.9.1018c only fixed the paper path. solBack here is the
+                // actual SOL received from Jupiter (post-slippage gross
+                // proceeds), which is what the field should represent.
+                sol = solBack,
                 price = price,
                 ts = System.currentTimeMillis(), 
                 reason = reason, 

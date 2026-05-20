@@ -5770,11 +5770,20 @@ class BotService : Service() {
                         heliusApiKey = cfg.heliusApiKey,
                         watchAccounts = whaleAddrs,
                     ) { sig, accounts, _ ->
-                        // Touch the existing tracker so its UI stats keep
-                        // ticking. Real-time tx interpretation is left to the
-                        // existing REST-based scanForSignals() pass — this WS
-                        // is a fast notifier so the bot doesn't sleep on a
-                        // whale move while waiting for the next 5-min poll.
+                        // V5.9.1022 — CRITICAL COST FIX.
+                        // Operator V5.9.1021 snapshot showed 200+ "🐳 PUSH: whale tx X… (0 accounts)"
+                        // events in 4 seconds. Every event was logged AND triggered a
+                        // scanForSignals() call — even with ZERO matching whale accounts.
+                        // The Helius subscription is firing on ALL mainnet txns (filter
+                        // probably mis-attached at WS layer or the parser stopped finding
+                        // accountKeys after key rotation). Each spurious scanForSignals()
+                        // call hits Birdeye+DexScreener+Helius → direct paid-tier credit
+                        // burn (operator just lost $300 AUD this way).
+                        //
+                        // Fix: early-return on empty accounts. The scan ONLY fires when
+                        // at least one of our tracked whale wallets is actually in the
+                        // tx payload. Log is silenced too so logcat is readable.
+                        if (accounts.isEmpty()) return@start
                         try {
                             ErrorLogger.info("BotService",
                                 "🐳 PUSH: whale tx ${sig.take(10)}… (${accounts.size} accounts)")
@@ -6052,7 +6061,19 @@ class BotService : Service() {
                         // — duplicate cascades that used to fire CASHGEN+STRICT_SL+CATASTROPHE
                         // on the same position now collide at the arbiter and only the first
                         // (typically -9% to -14% range) wins.
-                        val isCatastrophe = pnlPct <= -14.0
+                        //
+                        // V5.9.1022 — PAPER-MODE CATASTROPHE THRESHOLD WIDENED.
+                        // Operator V5.9.1021 snapshot showed RAPID_CATASTROPHE_STOP firing
+                        // at 30-53 s after BUY on fresh pump.fun launches — these tokens
+                        // have wild price quantization (8.3E-5 → 1E-4 = +20% instant) and
+                        // paper-mode adds ~18% simulated slippage on top. The -14% trigger
+                        // catches NORMAL noise, not catastrophes. 30-loss streak + 6.3% WR
+                        // is the symptom: bot buys → noise dump → -14% → SL → re-buy → repeat.
+                        // Paper threshold widened to -25% (the pre-V5.9.791 value) to give
+                        // mean-reversion room. Live mode keeps the -14% tight stop because
+                        // live slippage is real money, not simulated.
+                        val catastropheThreshold = if (cfg.paperMode) -25.0 else -14.0
+                        val isCatastrophe = pnlPct <= catastropheThreshold
                         val peakGainPct   = ts.position.peakGainPct
                         val drawdownFromPeak = peakGainPct - pnlPct
                         val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
