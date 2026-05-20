@@ -24,6 +24,7 @@ import com.lifecyclebot.network.SolanaWallet
 import com.lifecyclebot.ui.MainActivity
 import com.lifecyclebot.v3.scoring.BehaviorAI
 import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicBoolean
 
 class BotService : Service() {
 
@@ -6700,9 +6701,7 @@ class BotService : Service() {
                             // Part 1: Treasury TP/SL/Trail (CashGenerationAI.checkAllPositionsForExit)
                             // Part 2: V3 lane fallback (ShitCoin/Moonshot/Quality/BlueChip via runFallbackSafetyExit)
                             // Both are already implemented as fan-out sweeps; we just call them more often.
-                            try { sweepUniversalExits(cfgTick, walletTick, status.getEffectiveBalance(cfgTick.paperMode)) } catch (e: Throwable) {
-                                ErrorLogger.debug("BotService", "tick sweepUniversalExits err: ${e.message}")
-                            }
+                            launchExitSweepAsync("OPEN_POSITION_TICK")
                             try { runUniversalSlSafetyNetSweep(cfgTick, walletTick) } catch (e: Throwable) {
                                 ErrorLogger.debug("BotService", "tick runUniversalSlSafetyNetSweep err: ${e.message}")
                             }
@@ -7299,6 +7298,11 @@ class BotService : Service() {
     // hard floors / TP / trailing stops engage 30x faster. Throttled to
     // every 2s so we don't burn CPU on every 1Hz tick.
     private var lastTickExitSweepMs: Long = 0L
+
+    // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
+    // learning/closeout fanout previously parked the main cycle in
+    // POST_SUPERVISOR and stopped BOT_LOOP_TICK after ~3 iterations.
+    private val exitSweepInFlight = AtomicBoolean(false)
 
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
@@ -9592,15 +9596,19 @@ try {
     )
 } catch (_: Throwable) {}
 
-// V5.9.494 — UNIVERSAL EXIT SWEEP (every loop, last-resort safety).
-// Runs AFTER per-token cycles. Catches Treasury / sub-trader exits that
-// processTokenCycle missed (e.g. mint dropped off DexScreener feed,
-// scanner deferred the mint due to load, or sub-trader keeps the
-// position outside status.tokens). Operator forensics: VENIS Treasury
-// sat at +161% (target +4%) and never exited. This sweep guarantees
-// any open Treasury / sub-trader position is checked every loop,
-// independent of scanner visibility.
-sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
+// V5.9.1009 — UNIVERSAL EXIT SWEEP enqueue only.
+// Main botLoop must never block on exits. The previous synchronous call here
+// entered sweepUniversalExits() → executor.requestSell()/runManageOnly() →
+// paperSell() heavy learning fanout, parking the cycle in POST_SUPERVISOR.
+// openPositionTickLoop owns exit management; botLoop only requests a
+// single-flight async sweep and immediately continues toward CYCLE_EXIT.
+try {
+    ForensicLogger.lifecycle(
+        "POST_SUPERVISOR/EXIT_SWEEP_ENQUEUED",
+        "loop=$loopCount reason=POST_SUPERVISOR"
+    )
+} catch (_: Throwable) {}
+launchExitSweepAsync("POST_SUPERVISOR")
 
             // V5.9.495z6 — WALLET RECONCILIATION (operator spec May 2026).
             // After all sub-trader cycles + universal exit sweep, sync the
@@ -9634,6 +9642,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             // HOT MODE SWITCH: Detect paperMode changes and propagate to all subsystems
             // This fixes the ghost-town bug where switching PAPER→LIVE left all
             // singletons still believing they were in paper mode.
+            try { markProgress("POST_SUPERVISOR/CONFIG_RELOAD") } catch (_: Throwable) {}
             val loopCfg = ConfigStore.load(applicationContext)
             RuntimeModeAuthority.publishConfig(loopCfg.paperMode, loopCfg.autoTrade)
             val loopIsPaper = loopCfg.paperMode
@@ -9717,6 +9726,7 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
             if (loopCount % 10 == 0) {
                 maybeTickCyclicTradeEngine(wallet)
             }
+            try { markProgress("POST_SUPERVISOR/CYCLIC_CHECK") } catch (_: Throwable) {}
 
             // V5.9.676 — final phase breadcrumb. If the loop wedges
             // here we'll see the last lifecycle event was CYCLE_EXIT,
@@ -9931,6 +9941,44 @@ sweepUniversalExits(cfg, wallet, status.getEffectiveBalance(cfg.paperMode))
         }
     }
 
+
+    private fun launchExitSweepAsync(reason: String) {
+        if (!exitSweepInFlight.compareAndSet(false, true)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "EXIT_SWEEP_SKIPPED",
+                    "reason=$reason alreadyRunning=true"
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+
+        val cfgSnapshot = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+        val walletSnapshot = try { walletManager.getWallet() } catch (_: Throwable) { null }
+        val balanceSnapshot = try { cfgSnapshot?.let { status.getEffectiveBalance(it.paperMode) } ?: 0.0 } catch (_: Throwable) { 0.0 }
+
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason")
+                if (cfgSnapshot == null) {
+                    ForensicLogger.lifecycle("EXIT_SWEEP_SKIPPED", "reason=$reason cfg=null")
+                    return@launch
+                }
+                val completed = withTimeoutOrNull(2_500L) {
+                    sweepUniversalExits(cfgSnapshot, walletSnapshot, balanceSnapshot)
+                    true
+                } ?: false
+                if (!completed) {
+                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500")
+                }
+            } catch (t: Throwable) {
+                ErrorLogger.warn("BotService", "exit sweep async error: ${t.message}")
+            } finally {
+                exitSweepInFlight.set(false)
+                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason")
+            }
+        }
+    }
 
     private fun sweepUniversalExits(
         cfg: com.lifecyclebot.data.BotConfig,
