@@ -5,7 +5,39 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1024 — Reactive per-host backoff (ApiBackoff) on 4xx/5xx (Feb 2026, CI ⏳)
+## V5.9.1025 — Harvest completed supervisor work on chunk timeout (Feb 2026, CI ⏳)
+
+V5.9.1024 ApiBackoff worked beautifully — DexScreener went from 49% SR →
+99% SR, API_BACKOFF_ARMED fired 4×, paid-tier credit burn ended. But the
+operator V5.9.1024 snapshot still showed `processed=0 deferred=96` on
+EVERY supervisor cycle, with the watchlist exploding to 720 tokens
+NEVER getting re-evaluated.
+
+Root cause: the supervisor chunk failure path discarded ALL 96 jobs'
+work when ANY job ran past the 2.5s chunk budget. Specifically:
+
+```kotlin
+withTimeoutOrNull(chunkBudgetMs) { jobs.awaitAll() } ?: List(jobs.size) { false }
+```
+
+`awaitAll()` is all-or-nothing — if even ONE job wedges past the timeout,
+it returns null and we mark ALL 96 as deferred. With 96 parallel
+`processTokenCycle` calls (each doing V3 + FDG + lane eval + safety +
+network), losing the whole chunk to one straggler is the default state.
+Result: watchlist of 720 tokens never re-evaluated by supervisor (only
+freshly-discovered tokens via SCAN_CB direct path got any attention).
+
+Fix: harvest each job's completion state independently AFTER the bulk
+timeout. Completed jobs contribute their `await()` result (counted as
+`processed`). Cancelled jobs are deferred. Stragglers still active get
+canceled and marked deferred. Even if 1 job wedges and 95 complete, we
+now report `processed=95 deferred=1` instead of `processed=0 deferred=96`.
+
+Touched: `BotService.kt` runSupervisorPhase chunk loop (~L10110).
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1024 — Reactive per-host backoff (ApiBackoff) on 4xx/5xx (Feb 2026, CI ✅✅)
 
 V5.9.1023 fix worked — bot is alive (82 BOT_LOOP_TICK in 311s uptime, normal
 phase cycling, zero RESCUE_LAUNCHING wedge). But operator V5.9.1023 snapshot

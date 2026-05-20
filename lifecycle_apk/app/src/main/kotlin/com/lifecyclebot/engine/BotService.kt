@@ -10107,13 +10107,35 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     (perTokenTimeoutMs * 2L).coerceAtLeast(2_500L),
                     (batchDeadline - System.currentTimeMillis()).coerceAtLeast(750L)
                 )
-                val chunkResults: List<Boolean> = kotlinx.coroutines.withTimeoutOrNull(chunkBudgetMs) {
+                // V5.9.1025 — HARVEST COMPLETED WORK ON CHUNK TIMEOUT.
+                //
+                // Operator V5.9.1024 snapshot showed processed=0 deferred=96
+                // EVERY supervisor cycle, even though DexScreener was at 99%
+                // SR and individual `processTokenCycle` calls were obviously
+                // fast (trades were happening via the SCAN_CB direct path).
+                //
+                // Old failure path: `withTimeoutOrNull { jobs.awaitAll() } ?:
+                // List(jobs.size) { false }` — if even ONE of 96 jobs wedged
+                // past the 2.5s budget, awaitAll() returned null and ALL 96
+                // were marked deferred, throwing away the 95+ that actually
+                // completed. With 720 tokens in the watchlist, NONE were
+                // ever re-evaluated by the supervisor — every chunk lost
+                // 100% of its work to a single straggler.
+                //
+                // New: still bound the chunk by withTimeoutOrNull, but after
+                // it returns (success OR timeout) iterate jobs and harvest
+                // each one's completion state independently. Completed jobs
+                // contribute their bool result (processed++). Cancelled jobs
+                // count as deferred. Stragglers still active after the
+                // timeout get cancelled + marked deferred.
+                val chunkTimedOut: Boolean = kotlinx.coroutines.withTimeoutOrNull(chunkBudgetMs) {
                     jobs.awaitAll()
-                } ?: run {
+                } == null
+                if (chunkTimedOut) {
                     val activeStragglers = try { jobs.count { it.isActive } } catch (_: Throwable) { -1 }
                     ErrorLogger.warn(
                         "BotService",
-                        "Supervisor detached chunk timeout after ${chunkBudgetMs}ms — abandoning ${activeStragglers} straggler(s)"
+                        "Supervisor detached chunk timeout after ${chunkBudgetMs}ms — abandoning $activeStragglers straggler(s); harvesting completed"
                     )
                     try {
                         ForensicLogger.lifecycle(
@@ -10121,8 +10143,16 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             "loop=$loopCount chunk=${chunk.size} active=$activeStragglers budgetMs=$chunkBudgetMs"
                         )
                     } catch (_: Throwable) {}
-                    jobs.forEach { j -> try { j.cancel(kotlinx.coroutines.CancellationException("supervisor chunk timeout")) } catch (_: Throwable) {} }
-                    List(jobs.size) { false }
+                }
+                val chunkResults: List<Boolean> = jobs.map { j ->
+                    when {
+                        j.isCancelled -> false
+                        j.isCompleted -> try { j.await() } catch (_: Throwable) { false }
+                        else -> {
+                            try { j.cancel(kotlinx.coroutines.CancellationException("supervisor chunk timeout")) } catch (_: Throwable) {}
+                            false
+                        }
+                    }
                 }
                 chunkResults.forEach { ok ->
                     if (ok) processed++ else deferred++
