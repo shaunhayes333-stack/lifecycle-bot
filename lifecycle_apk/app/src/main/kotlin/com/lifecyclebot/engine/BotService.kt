@@ -7607,18 +7607,33 @@ class BotService : Service() {
         }
 
         // V5.9.1034 — HARD CAP enforcement at 250 active watchlist entries.
-        // Operator mandate: "the watch list is now obviously way too big as
-        // well... reduce the watchlist size to 250". Open positions
-        // (forcedOpenMints) always exempt — the cap only evicts cold dormant
-        // tokens, never anything actively being traded. Eviction order:
-        // oldest lastProcessedAt first.
+        // V5.9.1034b — Bugfix: original cap-evict pulled only from `cold`.
+        // Operator snapshot (build 2995, watchlist 1693): cap-evict fired
+        // (evicted=31 cap=250 sizeBefore=1694) but watchlist still rose
+        // because the overflow lives in `unseen=1649`, not `cold=0`. Pump.fun
+        // spam keeps adding processCount=0 mints faster than the supervisor
+        // can graduate them to cold, so cold stays near-empty while unseen
+        // pile up.
+        //
+        // Fix: include `unseen` in the eviction candidate pool. Sort by
+        // entry.addedAt ASC (oldest unseen go first) so newly-arrived
+        // tokens still get a chance to be picked up. Open positions
+        // (forcedOpenMints) and the fresh-60s window remain exempt.
         val currentActiveSize = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries().size
         } catch (_: Throwable) { coldAfterTime.size + fresh.size + unseen.size + forcedOpenMints.size }
         var coldAfterCap = coldAfterTime
         if (currentActiveSize > MAX_ACTIVE_WATCHLIST) {
             val excess = currentActiveSize - MAX_ACTIVE_WATCHLIST
-            val capEvict = coldAfterTime
+            // Build a unified eviction pool with (mint, sortKey) tuples.
+            // For cold entries we use lastProcessedAt; for unseen we use
+            // addedAt (since they've never been processed). Mints without
+            // entries fall back to 0L = evict first.
+            val unseenForEviction: List<Pair<String, Long>> = unseen.map { mint ->
+                val entry = entriesByMint[mint]
+                mint to (entry?.addedAt ?: 0L)
+            }
+            val capEvict = (coldAfterTime + unseenForEviction)
                 .filterNot { it.first in forcedOpenMints }
                 .sortedBy { it.second }
                 .take(excess)
@@ -7635,7 +7650,10 @@ class BotService : Service() {
                     )
                 } catch (_: Throwable) {}
                 val evictedSet = capEvict.map { it.first }.toSet()
+                // Drop evicted from BOTH pools so picker doesn't try to
+                // process tokens we just removed.
                 coldAfterCap = coldAfterTime.filterNot { it.first in evictedSet }
+                unseen.removeAll(evictedSet)
             }
         }
 
