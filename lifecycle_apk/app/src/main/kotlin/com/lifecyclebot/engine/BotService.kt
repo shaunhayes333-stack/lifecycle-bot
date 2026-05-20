@@ -9439,50 +9439,53 @@ try {
   )
 } catch (_: Throwable) {}
 
-run {
-    // V5.9.1014 — NON-STRUCTURED SUPERVISOR BOUNDARY.
-    // V5.9.1013 still showed a 418s cycle and heartbeat rescue in phase=SUPERVISOR.
-    // Per-token workers are already detached, but the surrounding supervisorScope
-    // still gives structured concurrency a chance to wait for children/ticker state.
-    // Use a plain run block plus a detached ticker so this section can never be
-    // held hostage by supervisor child ownership. Chunk deadlines remain the hard
-    // runtime boundary; stragglers are abandoned/cancelled and the loop proceeds.
+// V5.9.1020 — HARD OUTER TIMEOUT WRAPPER + KILL THE LYING PROGRESS TICKER.
+//
+// Operator V5.9.1018c+V5.9.1019 snapshot (build 2974, uptime 563 s) STILL
+// showed botLoop wedged in phase=SUPERVISOR for 652 s straight — no full
+// cycle in 10+ minutes, no trades despite 350+ tokens in the watchlist
+// and intake firing every few seconds.
+//
+// Root cause (triage agent confirmed):
+//   1. The V5.9.935 progressTicker fires markProgress("SUPERVISOR") every
+//      10 s UNCONDITIONALLY. This kept heartbeat's progressGap pinned at
+//      5-9 s while the ACTUAL cycle stalled for 600+ s. The freeze
+//      detector was LIED TO by the ticker — heartbeat rescue never fired
+//      because by its measurement the loop looked alive.
+//   2. The supervisorAbort check at the OLD line 9489 (`if elapsedMs >
+//      maxBatchMillis + 2000 → abort`) lived INSIDE the chunk forEach.
+//      If the FIRST chunk hangs (which it does when Helius is 403'ed and
+//      OkHttp blocks in JNI socket-read — withTimeoutOrNull cannot
+//      interrupt native blocking calls), the forEach never advances to
+//      the second iteration, so the abort check NEVER runs again.
+//   3. V5.9.1012's detached GlobalScope.async workers don't help here:
+//      jobs.awaitAll() inside withTimeoutOrNull DOES wake up on chunk
+//      timeout BUT the cleanup path returns and the outer forEach
+//      iterates to the next chunk only after the chunk's own try/finally
+//      completes. If processTokenCycle is stuck in a non-cancellable
+//      OkHttp socketRead, the Deferred's cancel() is a no-op until the
+//      JVM gives up the native call. Net result: the forEach iteration
+//      itself is blocked.
+//
+// Fix:
+//   a. Wrap the entire SUPERVISOR run block in withTimeoutOrNull
+//      (maxBatchMillis + 5_000L). This is a HARD UPPER BOUND — no matter
+//      what happens inside, the bot loop is GUARANTEED to advance to
+//      POST_SUPERVISOR within ~20 s. When the timeout fires, the
+//      progressTicker is cancelled and the abandoned in-flight token
+//      workers finish whenever they finish (they're detached, no
+//      structured concurrency dependency).
+//   b. Kill the progressTicker entirely. With (a) in place, heartbeat's
+//      2-minute rescue ceiling now becomes the AUTHORITATIVE freeze
+//      detector — if SUPERVISOR genuinely wedges, progressGap will
+//      climb and heartbeat will fire rescue. No more lying.
+//   c. Move the supervisorAbort elapsed check to the TOP of each
+//      forEach iteration so it fires even if previous chunks took
+//      multiple seconds each.
+val supervisorOuterBudget = maxBatchMillis + 5_000L
+val supervisorCompleted = kotlinx.coroutines.withTimeoutOrNull(supervisorOuterBudget) {
     markProgress("SUPERVISOR")
-
-    // V5.9.935 — INNER PROGRESS TICKER.
-    // Operator dump 2026-05-19 03:50:54 confirmed the per-chunk
-    // markProgress refresh (V5.9.914) was insufficient: when ONE token
-    // inside a single chunk hangs on a non-cancellable synchronous
-    // call (the per-token withTimeoutOrNull cannot interrupt a non-
-    // suspend processTokenCycle), the entire awaitAll() blocks and
-    // markProgress never refreshes for the duration. progressGap then
-    // climbed to 600s+ and the bot died.
-    //
-    // This ticker pings markProgress every 15s independently of chunk
-    // completion. Combined with the V5.9.935 ceiling tightening
-    // (10min → 5min), legitimate supervisor work always stays under
-    // the ceiling, and anything that exceeds it IS genuinely wedged.
-    //
-    // V5.9.1014 — ticker is detached, not a child of the supervisor block.
-    // It is cancelled in finally, but even if cancellation is late it can only
-    // stamp progress; it cannot keep botLoop inside SUPERVISOR.
-    val progressTicker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-        try {
-            while (isActive) {
-                // V5.9.936 — tightened 15s → 10s to match the 2-min ceiling.
-                // Need to refresh frequently enough that legitimate work never
-                // approaches the ceiling. 10s gives 12 refreshes per 2min.
-                kotlinx.coroutines.delay(10_000L)
-                try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
-            }
-        } catch (_: kotlinx.coroutines.CancellationException) { /* normal */ }
-    }
-
-    // V5.9.1008 — Harden V5.9.1007 with structural try/finally.
-    // progressTicker is an infinite child of supervisorScope. Its cancel must
-    // be impossible to skip from any future return/throw inside the body.
-    try {
-        var supervisorAbort = false
+    var supervisorAbort = false
         orderedMints.chunked(maxParallel).forEach { chunk ->
         if (supervisorAbort) return@forEach
         val supervisorElapsedMs = System.currentTimeMillis() - _cycleStartMs
@@ -9582,11 +9585,29 @@ run {
         // token hangs the whole chunk.
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
-    } finally {
-        // V5.9.1014 — cancel detached progress ticker. It is not a child of
-        // this block, so failure/latency here cannot pin botLoop in SUPERVISOR.
-        try { progressTicker.cancel() } catch (_: Throwable) {}
-    }
+    // V5.9.1020 — return Unit from inner lambda so withTimeoutOrNull resolves
+    // to non-null on normal completion. The outer `?: run { … }` only fires
+    // if the hard 20s wrapper budget was exceeded.
+    Unit
+}
+// V5.9.1020 — Hard-timeout path. If the entire SUPERVISOR phase couldn't
+// finish in ~maxBatchMillis+5s, FORCE the loop forward. Any in-flight token
+// workers were already detached GlobalScope.async — they keep running and
+// finish (or get GC'd) on their own. The loop MUST advance to POST_SUPERVISOR
+// so FDG/EXEC/exit sweep can run on the NEXT cycle.
+if (supervisorCompleted == null) {
+    val elapsed = System.currentTimeMillis() - _cycleStartMs
+    deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
+    try {
+        ForensicLogger.lifecycle(
+            "SUPERVISOR_HARD_TIMEOUT",
+            "loop=$loopCount elapsedMs=$elapsed budgetMs=$supervisorOuterBudget processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
+        )
+    } catch (_: Throwable) {}
+    ErrorLogger.warn(
+        "BotService",
+        "🚨 SUPERVISOR hard-timeout after ${elapsed}ms (budget=${supervisorOuterBudget}ms) — forcing cycle advance; ${orderedMints.size - processedCount} token(s) deferred"
+    )
 }
 
 if (deferredCount > 0) {
