@@ -9043,6 +9043,7 @@ class Executor(
         // Without this, a crash mid-sell leaves the lock set forever, causing
         // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
         try {
+        try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
         val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
@@ -9138,6 +9139,7 @@ class Executor(
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
+        try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason") } catch (_: Throwable) {}
         
         EmergentGuardrails.unregisterPosition(tradeId.mint)
         // V5.9.385 — match the BUY-side registerPosition by closing the
@@ -10079,6 +10081,7 @@ class Executor(
         } catch (_: Exception) {}
 
         ts.position         = Position()
+        try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason") } catch (_: Throwable) {}
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP
@@ -10180,11 +10183,13 @@ class Executor(
         
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
+        try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
 
         return SellResult.PAPER_CONFIRMED
         } finally {
             // V5.9.720: release under ALL exit paths (normal + exception + shutdown)
             releasePaperSellLock(ts.mint)
+            try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         }
     }
 

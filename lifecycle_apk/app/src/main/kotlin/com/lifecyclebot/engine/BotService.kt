@@ -9957,26 +9957,41 @@ launchExitSweepAsync("POST_SUPERVISOR")
         val walletSnapshot = try { walletManager.getWallet() } catch (_: Throwable) { null }
         val balanceSnapshot = try { cfgSnapshot?.let { status.getEffectiveBalance(it.paperMode) } ?: 0.0 } catch (_: Throwable) { 0.0 }
 
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // V5.9.1010 — HARD TIMEOUT WATCHDOG.
+        // withTimeoutOrNull around sweepUniversalExits() is not enough because
+        // paperSell()/learning fanout contains non-suspend synchronous work. If
+        // that work blocks an IO worker, coroutine cancellation is cooperative
+        // and the finally block may never run, leaving exitSweepInFlight=true
+        // forever. Run the sweep worker separately and release the single-flight
+        // gate from an independent watchdog after 2500ms. The stuck worker may
+        // finish later, but botLoop/openPositionTickLoop can keep requesting
+        // future sweeps instead of silently disabling exit management.
+        val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason")
                 if (cfgSnapshot == null) {
                     ForensicLogger.lifecycle("EXIT_SWEEP_SKIPPED", "reason=$reason cfg=null")
                     return@launch
                 }
-                val completed = withTimeoutOrNull(2_500L) {
-                    sweepUniversalExits(cfgSnapshot, walletSnapshot, balanceSnapshot)
-                    true
-                } ?: false
-                if (!completed) {
-                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500")
-                }
+                sweepUniversalExits(cfgSnapshot, walletSnapshot, balanceSnapshot)
             } catch (t: Throwable) {
                 ErrorLogger.warn("BotService", "exit sweep async error: ${t.message}")
             } finally {
-                exitSweepInFlight.set(false)
-                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason")
+                if (exitSweepInFlight.compareAndSet(true, false)) {
+                    ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason")
+                } else {
+                    ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason")
+                }
             }
+        }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                kotlinx.coroutines.delay(2_500L)
+                if (worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
+                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500 action=gate_released")
+                    try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
         }
     }
 
