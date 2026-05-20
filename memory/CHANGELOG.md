@@ -5,7 +5,33 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1025 — Harvest completed supervisor work on chunk timeout (Feb 2026, CI ⏳)
+## V5.9.1026 — Cap supervisor parallelism 96→32 to escape IO-pool contention (Feb 2026, CI ⏳)
+
+V5.9.1025 harvest fix landed but operator snapshot still showed
+processed=0 deferred=96 every cycle. The new ForensicLog message
+"abandoning 96 straggler(s); harvesting completed" CONFIRMED the harvest
+path ran — but `active=96` at every timeout meant NO worker completed
+within the 2.5s chunk budget.
+
+Root cause: 96 parallel async workers launched on `Dispatchers.IO`
+contend for only 64 default IO threads + OkHttp's per-host connection
+pool (~10/host). Many workers can't even START running within 2.5s.
+V5.9.175 set this to 96 assuming a 50-100 token watchlist, but the
+operator snapshot shows 1056 tokens (PumpPortal "egg" spam — 14×
+intaken in 7 seconds, EGG 12×, Sharpton 9×).
+
+Fix: cap maxParallel at 32 in memeBootstrap mode (was 96).
+- 32 fits inside the IO thread pool
+- 32 fits inside per-host OkHttp connection budgets
+- Each worker now has resources to complete a real `processTokenCycle`
+  (Birdeye + Helius + V3 + lane evals ≈ 1.5-2s) inside the 2.5s budget
+- 96 tokens → 3 chunks of 32 ≈ 7.5s, well inside the 15s paper-mode batch deadline
+
+Touched: BotService.kt L9495 — the bootstrap-tier when{} mapping.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1025 — Harvest completed supervisor work on chunk timeout (Feb 2026, CI ✅✅)
 
 V5.9.1024 ApiBackoff worked beautifully — DexScreener went from 49% SR →
 99% SR, API_BACKOFF_ARMED fired 4×, paid-tier credit burn ended. But the

@@ -9493,12 +9493,31 @@ val memeBootstrap = try {
 // new caps target EVERY token evaluated EVERY tick so fluid exits don't miss
 // intra-tick moves on fast-moving micro-caps.
 val maxParallel = if (memeBootstrap) {
+    // V5.9.1026 — CAP AT 32 IN BOOTSTRAP MODE.
+    //
+    // V5.9.175 raised this to 96 when the design assumed a 50-100 token
+    // watchlist. Operator V5.9.1025 snapshot showed the watchlist had
+    // exploded to 1056 tokens (PumpPortal spam — e.g. 14× "egg" intaken
+    // in 7 seconds, EGG 12×, Sharpton 9×) and EVERY supervisor chunk
+    // reported processed=0 deferred=96.
+    //
+    // Root cause: 96 parallel async workers on Dispatchers.IO contend
+    // for only 64 default IO threads, plus OkHttp's per-host connection
+    // pool (~10). Many workers never even start running before the
+    // 2.5s chunk budget expires — the harvest fix in V5.9.1025 confirmed
+    // active=96 at every timeout (none completed).
+    //
+    // 32 parallel is plenty: 32 fits inside the IO pool, fits inside
+    // typical OkHttp connection budgets, and lets each worker complete
+    // a real processTokenCycle (Birdeye+Helius+V3+lane evals ≈ 1.5-2s)
+    // inside the chunk budget. 96 tokens → 3 chunks of 32 = ~7.5s,
+    // well within the 15s paper-mode batch deadline.
     when {
-        orderedMints.size >= 80 -> 96
-        orderedMints.size >= 60 -> 72
-        orderedMints.size >= 40 -> 48
-        orderedMints.size >= 20 -> 32
-        orderedMints.size >= 12 -> 20
+        orderedMints.size >= 80 -> 32
+        orderedMints.size >= 60 -> 28
+        orderedMints.size >= 40 -> 24
+        orderedMints.size >= 20 -> 20
+        orderedMints.size >= 12 -> 16
         orderedMints.size >= 6  -> 12
         else -> 6
     }
