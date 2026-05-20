@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.os.Handler
+import android.os.Looper
 import android.os.HandlerThread
 import android.os.Process
 import com.lifecyclebot.data.Trade
@@ -96,15 +97,60 @@ object TradeHistoryStore {
     // V5.9.706 — cache full StatsSnapshot to avoid O(N) list iterations on the main thread every 2.5s
     @Volatile private var cachedStatsSnapshot: StatsSnapshot? = null
     @Volatile private var cachedStatsSnapshotMs: Long = 0L
+    @Volatile private var statsRefreshInFlight: Boolean = false
     private const val STATS_SNAPSHOT_CACHE_MS = 3_000L
 
     fun getStatsCached(): StatsSnapshot {
         val now = System.currentTimeMillis()
         cachedStatsSnapshot?.let { if (now - cachedStatsSnapshotMs < STATS_SNAPSHOT_CACHE_MS) return it }
+
+        // V5.9.1011 — NEVER recompute heavy stats on the UI thread. Snapshot
+        // showed MainActivity.updateUi blocked in TradeHistoryStore.getSells24h
+        // for ~8s. If cache is stale on main, return stale/default immediately
+        // and refresh on TradeHistoryIO. Non-main callers may still compute sync.
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            scheduleStatsRefresh()
+            return cachedStatsSnapshot ?: StatsSnapshot(
+                trades24h = 0,
+                winRate24h = 0,
+                pnl24hSol = 0.0,
+                totalStoredTrades = lifetimeSells,
+                totalTrades = lifetimeWins + lifetimeLosses,
+                totalWins = lifetimeWins,
+                totalLosses = lifetimeLosses,
+                totalScratches = lifetimeScratches,
+                totalPnlSol = lifetimeRealizedPnlSol,
+            )
+        }
+
         val fresh = getStats()
         cachedStatsSnapshot = fresh
         cachedStatsSnapshotMs = now
         return fresh
+    }
+
+    private fun scheduleStatsRefresh() {
+        if (statsRefreshInFlight) return
+        statsRefreshInFlight = true
+        val r = Runnable {
+            try {
+                val fresh = getStats()
+                cachedStatsSnapshot = fresh
+                cachedStatsSnapshotMs = System.currentTimeMillis()
+            } catch (_: Throwable) {
+            } finally {
+                statsRefreshInFlight = false
+            }
+        }
+        try {
+            // Do not call ensureInitialized() from a main-thread cache miss;
+            // lazy init may open SQLite/load rows. If the IO handler is not ready,
+            // use a standalone background thread instead.
+            ioHandler?.post(r) ?: Thread(r, "TradeStatsRefresh").start()
+        } catch (_: Throwable) {
+            try { Thread(r, "TradeStatsRefresh").start() } catch (_: Throwable) { statsRefreshInFlight = false }
+        }
     }
 
     fun invalidateStatsCache() {

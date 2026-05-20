@@ -9137,9 +9137,33 @@ class Executor(
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
         )
-        recordTrade(ts, trade)
-        security.recordTrade(trade)
-        try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason") } catch (_: Throwable) {}
+        // V5.9.1011 — PAPER SELL FAST PATH.
+        // Snapshot before closing the real position, then move canonical journal
+        // + security + ML/learning fanout off this sell thread. V5.9.1010
+        // proved paperSell was stalling between PAPER_SELL_START and
+        // PAPER_SELL_JOURNAL_DONE, i.e. inside synchronous recordTrade()/
+        // TradeHistoryStore/SecurityGuard work. Closing the position and
+        // releasing locks must not wait for that fanout.
+        val tradeSnap = if (trade.mint.isBlank()) trade.copy(mint = ts.mint) else trade
+        val tsLearningSnap = try {
+            ts.copy(
+                position = pos.copy(),
+                trades = mutableListOf(),
+                recentEntryTimes = ts.recentEntryTimes.toMutableList(),
+            )
+        } catch (_: Throwable) { ts }
+        try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                recordTrade(tsLearningSnap, tradeSnap)
+                try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason}") } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                ErrorLogger.warn("Executor", "paperSell async journal error: ${t.message}")
+                try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_ASYNC_ERR", "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+            }
+        }
+        try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         
         EmergentGuardrails.unregisterPosition(tradeId.mint)
         // V5.9.385 — match the BUY-side registerPosition by closing the

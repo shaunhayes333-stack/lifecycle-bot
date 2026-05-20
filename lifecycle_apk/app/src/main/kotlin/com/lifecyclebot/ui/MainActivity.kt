@@ -518,8 +518,13 @@ class MainActivity : AppCompatActivity() {
         try {
             com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
             com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized")
-            // V5.9.438 — persist outcome-learning trackers across restarts.
-            com.lifecyclebot.engine.LearningPersistence.init(applicationContext)
+            // V5.9.1011 — LearningPersistence.loadAll/importState can parse
+            // thousands of lessons. Snapshot showed MainActivity.onCreate ANR
+            // frames inside LearningPersistence.getBlob/TradeLessonRecorder.importState.
+            // BotService also initializes it; warm it from IO here, never on main.
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
+            }
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore init failed: ${e.message}")
         }
