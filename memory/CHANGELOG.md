@@ -5,6 +5,65 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1030 — Un-choke OkHttp dispatcher + fail-fast read timeouts (Feb 2026, CI ⏳)
+
+Operator V5.9.1029 snapshot (build 5.0.2988, tag V5.9.1029 — bumped correctly
+this time): the V5.9.1029 chunk-budget widening (2.5s → 4.5s) didn't help.
+SUPERVISOR_CHUNK_TIMEOUT still fired every chunk with `active=32 budgetMs=4800`,
+processed=0 deferred=96 EVERY cycle. The 32 workers were genuinely blocking
+past 4.8s — but not for any compute reason.
+
+**Q1 — Root cause: OkHttp Dispatcher.maxRequestsPerHost = 5 (default)**
+
+`SharedHttpClient.base` used the OkHttpClient default Dispatcher. Its
+defaults:
+  • `maxRequests = 64`
+  • `maxRequestsPerHost = 5`
+
+The supervisor launches 32 parallel `processTokenCycle` workers; each
+calls `dex.getBestPair(mint)` (DexScreener) and Birdeye lookups. With
+maxRequestsPerHost=5, ONLY 5 of 32 workers' HTTP requests run truly
+in parallel against api.dexscreener.com — the other 27 queue inside
+OkHttp's dispatcher. Add a 4-7% timeout tail (Birdeye SR=93%, DS SR=96%)
+where one stuck socket blocks for up to 15s (readTimeout) and every
+worker that needs that host wedges behind it.
+
+**Fix A — Install a shared Dispatcher with higher concurrency**
+
+  `Dispatcher().apply { maxRequests = 128; maxRequestsPerHost = 32 }`
+
+Installed in `SharedHttpClient.base`. Every existing call site that
+uses `SharedHttpClient.builder()` inherits the bump automatically —
+DexScreener, Birdeye, Jupiter, Helius, pump.fun WS, etc. The operator
+is on paid DexScreener / Birdeye tiers, so concurrent-request quota
+is no longer the binding constraint.
+
+**Fix B — readTimeout: fail fast or never finish at all**
+
+  • `DexscreenerApi`  readTimeout 15s → 4s  (connectTimeout 10s → 5s)
+  • `BirdeyeApi`      readTimeout 12s → 4s  (connectTimeout 8s → 5s)
+
+A single 15s-stuck socket is enough to wedge every supervisor worker
+that touches that host. 4s gives ample room for healthy 300-400ms
+responses while ensuring no worker can stay past the 4.5s chunk
+budget. Cache layers (DexScreener 45s TTL + ApiBackoff) make dropped
+fetches recoverable on the next cycle.
+
+**Expected dump deltas**
+
+  • SUPERVISOR_CHUNK_TIMEOUT: should drop from ~28/cycle to near-zero.
+  • POST_SUPERVISOR processed:  0 → 90+ (the 96 mints actually get
+    re-evaluated each cycle).
+  • Watchlist of 545 tokens gets full coverage every 6 cycles instead
+    of never. Fluid stops + telemetry get fresh price updates.
+
+Touched: `network/SharedHttpClient.kt`, `network/DexscreenerApi.kt`,
+`network/BirdeyeApi.kt`.
+
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1029 → V5.9.1030.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1029 — Supervisor un-choke + Debug compile fit + lane re-enable (Feb 2026, CI ⏳)
 
 Operator V5.9.1028b snapshot (build 5.0.2987, tag V5.9.1018 stale): bot

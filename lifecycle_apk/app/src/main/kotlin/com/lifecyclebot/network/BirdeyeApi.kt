@@ -30,8 +30,13 @@ import java.util.concurrent.TimeUnit
 class BirdeyeApi(private val apiKey: String = "") {
 
     private val http = SharedHttpClient.builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        // V5.9.1030 — readTimeout shrunk 12s → 4s. Same rationale as
+        // DexscreenerApi: a single wedged Birdeye socket can't be
+        // allowed to tie up a supervisor chunk worker past the 4.5s
+        // budget. Cached candle history makes a dropped fetch
+        // recoverable on the next cycle.
+        .readTimeout(4, TimeUnit.SECONDS)
         .build()
 
     private val BASE = "https://public-api.birdeye.so"

@@ -33,8 +33,12 @@ data class PairInfo(
 class DexscreenerApi {
 
     private val http = SharedHttpClient.builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        // V5.9.1030 — readTimeout shrunk 15s → 4s so a wedged DexScreener
+        // socket can't tie up a supervisor chunk worker past the 4.5s
+        // budget. Cache TTL of 45s + stale-tolerance of 135s mean any
+        // dropped fetch is recovered on the next cycle.
+        .readTimeout(4, TimeUnit.SECONDS)
         .build()
     
     // Simple cache for getBestPair results - avoids repeated API calls
