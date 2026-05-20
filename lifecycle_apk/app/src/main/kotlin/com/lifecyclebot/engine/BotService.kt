@@ -6147,12 +6147,9 @@ class BotService : Service() {
                         // as well. everything is meant to be." Route the
                         // catastrophe floor through FluidLearningAI so
                         // bootstrap protects with -15% and matures to the
-                        // lane's true catastrophe band. Paper-mode base
-                        // value stays -25% (slippage allowance), live keeps
-                        // -14% (real money tight). Both get lerp'd toward
-                        // the bootstrap floor while the bot is still
-                        // learning. Falls open to the hardcoded value on any
-                        // failure so the safety net is never lost.
+                        // lane's true catastrophe band. Falls open to the
+                        // hardcoded value on any failure so the safety net
+                        // is never lost.
                         val rawCatastrophe = if (cfg.paperMode) -25.0 else -14.0
                         val catastropheThreshold = try {
                             com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(rawCatastrophe)
@@ -6163,29 +6160,8 @@ class BotService : Service() {
                         val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
                         val neverWinner      = peakGainPct < 20.0
 
-                        // V5.9.1028 — PAPER-MODE SETTLE-IN GATE FOR CATASTROPHE.
-                        // paperBuy applies +12% entry slippage and paperSell applies
-                        // -18% exit slippage on <$5k pools → round-trip cost is
-                        // -26.8% the moment a position opens, BEFORE any price
-                        // movement. That immediately trips the -25% catastrophe
-                        // gate, gutting MOONSHOT / SHITCOIN / TREASURY positions
-                        // within 1s and corrupting learning data. In paper mode
-                        // ONLY, suppress catastrophe + give-back for a per-lane
-                        // settle-in window (FluidLearningAI.getFluidMinHoldMinutes,
-                        // minimum 30s) so the slippage band can mean-revert. Live
-                        // mode untouched — real slippage is real cost.
-                        val paperSettleInActiveCatastrophe = run {
-                            if (!cfg.paperMode) return@run false
-                            val entryMs = ts.position.entryTime
-                            if (entryMs <= 0L) return@run false
-                            val ageMs = System.currentTimeMillis() - entryMs
-                            val lane = ts.position.tradingMode.ifBlank { "V3" }
-                            val settleInMinutes = try {
-                                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidMinHoldMinutes(lane)
-                            } catch (_: Throwable) { 0.5 }
-                            val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)
-                            ageMs < settleInMs
-                        }
+                        // V5.9.1028 — Paper-mode settle-in (see isInPaperSettleIn doc).
+                        val paperSettleInActiveCatastrophe = isInPaperSettleIn(ts, cfg.paperMode)
 
                         when {
                             paperSettleInActiveCatastrophe -> {
@@ -7815,6 +7791,31 @@ class BotService : Service() {
      * under the JVM 64KB cap (same reason V5.9.1021 split out
      * runSupervisorPhase).
      */
+    /**
+     * V5.9.1028 — PAPER-MODE SETTLE-IN CHECK FOR STOPS.
+     *
+     * Returns true if the position is currently within its lane's settle-in
+     * window — used by both STRICT_SL and RAPID_CATASTROPHE_STOP paths to
+     * suppress kneejerk exits caused by paper-mode slippage simulation
+     * (paperBuy +12% / paperSell -18% on <$5k pools = -26.8% birth tax).
+     *
+     * NOTE: extracted from botLoop() to keep that method's bytecode under
+     * the JVM 64KB cap (same reason V5.9.1021 split out runSupervisorPhase
+     * and V5.9.1027b split out checkBotLoopOrphan).
+     */
+    private fun isInPaperSettleIn(ts: TokenState, paperMode: Boolean): Boolean {
+        if (!paperMode) return false
+        val entryMs = ts.position.entryTime
+        if (entryMs <= 0L) return false
+        val ageMs = System.currentTimeMillis() - entryMs
+        val lane = ts.position.tradingMode.ifBlank { "V3" }
+        val settleInMinutes = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidMinHoldMinutes(lane)
+        } catch (_: Throwable) { 0.5 }
+        val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)
+        return ageMs < settleInMs
+    }
+
     private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {
         val canonical = loopJob
         if (myJob == null || canonical == null || canonical === myJob) return false
