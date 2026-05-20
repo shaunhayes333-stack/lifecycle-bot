@@ -36,8 +36,22 @@ import java.util.concurrent.TimeUnit
 object SharedHttpClient {
     /** Shared dispatcher — single instance, configured once, reused by every client. */
     private val sharedDispatcher: Dispatcher = Dispatcher().apply {
-        maxRequests = 128                 // was OkHttp default 64
-        maxRequestsPerHost = 32           // was OkHttp default 5 — main supervisor un-choke
+        // V5.9.1032 — RATE-LIMIT BALANCE.
+        //
+        // V5.9.1030 raised maxRequestsPerHost 5 → 32 to un-choke the
+        // supervisor. The fix worked (processed went 0 → 7 of 96) BUT
+        // operator V5.9.1031 snapshot exposed the next stair: Birdeye SR
+        // crashed from 99% → 56% (424 × 4xx rate-limit responses) and
+        // DexScreener went 99% → 71% (37 × 4xx). With Birdeye throttling,
+        // 86% of FDG rejections are now low/zero liquidity (the bot can't
+        // see liquidity data → rejects every candidate).
+        //
+        // Drop to 16 per host. Still 3× OkHttp's default of 5, so the
+        // supervisor stays un-choked, but half the per-minute burden on
+        // Birdeye's free-tier cap (100 RPM @ ~400ms avg latency).
+        // maxRequests scaled proportionally.
+        maxRequests = 64
+        maxRequestsPerHost = 16
     }
 
     val base: OkHttpClient = OkHttpClient.Builder()

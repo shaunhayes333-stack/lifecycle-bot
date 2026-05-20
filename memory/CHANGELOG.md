@@ -5,6 +5,48 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1032 — Rate-limit balance after dispatcher un-choke (Feb 2026, CI ⏳)
+
+V5.9.1030's `maxRequestsPerHost=32` worked — operator V5.9.1031 snapshot
+showed supervisor `processed=7 of 96` (was permanently 0/96), TokenMetaCache
+hit rate 0% → 59.7%. **BUT** we over-hammered the upstream APIs:
+
+  • Birdeye:     SR 99% → 56%   (424 × 4xx rate-limit responses in 99s)
+  • DexScreener: SR 99% → 71%   (37  × 4xx)
+
+Cascade: with Birdeye throttling, the bot can't fetch liquidity data, so
+86% of FDG rejections are now `low_liquidity` or `zero_liquidity`
+(RejectStats 5m: 62 + 49 of 129).
+
+Fix: dial `maxRequestsPerHost` 32 → 16 (and `maxRequests` 128 → 64).
+Still 3× the OkHttp default of 5, so the supervisor stays un-choked,
+but half the per-minute burden on Birdeye's free-tier 100 RPM cap.
+
+Expected dump deltas:
+  • Birdeye SR: 56% → 90%+
+  • DexScreener SR: 71% → 95%+
+  • SUPERVISOR processed: 7/96 stays the same or improves (per-host
+    queue still 3× larger than the original V5.9.1029 baseline)
+  • low/zero_liquidity reject rate: 86% → 30-40%
+
+Touched: `network/SharedHttpClient.kt` (per-host dispatcher cap).
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1031 → V5.9.1032.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1031b — Fix CI: hoist HARD_FLOOR_STOP_PCT inside helper (Feb 2026, CI ⏳)
+
+V5.9.1031 introduced `evaluateRapidMonitorExit` but referenced
+`HARD_FLOOR_STOP_PCT` — a function-local val declared inside the
+parent `rapidStopLossMonitor()`. The helper lost access to that
+scope → `Unresolved reference: HARD_FLOOR_STOP_PCT` at BotService.kt:7834.
+
+Fix: declare a local mirror `val HARD_FLOOR_STOP_PCT_CONST = 15.0`
+inside the helper — exact same numeric value the original block
+compared against. Behaviour-preserving.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1031 — Extract rapid-monitor exit block to fit Debug 64KB cap (Feb 2026, CI ⏳)
 
 V5.9.1030 Build APK ✅ but Runtime Smoke Test ❌ (Debug compile JVM 64KB cap
