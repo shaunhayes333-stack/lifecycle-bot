@@ -5,6 +5,36 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1031 — Extract rapid-monitor exit block to fit Debug 64KB cap (Feb 2026, CI ⏳)
+
+V5.9.1030 Build APK ✅ but Runtime Smoke Test ❌ (Debug compile JVM 64KB cap
+on `botLoop` STILL exceeded). V5.9.1029's `getCatastropheThreshold` extraction
+was not enough — the 4-branch `when` block with 3 suspending
+`executor.requestSell` call sites kept botLoop's coroutine state machine
+over the cap on Debug builds (Release strips coroutine debug info more
+aggressively).
+
+Fix: extract the entire rapid-monitor exit ladder into a new private
+suspend helper:
+
+  `evaluateRapidMonitorExit(ts, pnlPct, cfg, wallet, effectiveBalance): Boolean`
+
+The 3 `executor.requestSell` suspension points + the `isCatastrophe` /
+`giveBackTrigger` / `hardFloor` decision logic now live in the helper.
+Caller pattern collapses to:
+
+  `if (evaluateRapidMonitorExit(...)) continue`
+
+Behaviour identical to V5.9.1030 (settle-in → skip; catastrophe →
+RAPID_CATASTROPHE_STOP; give-back → RAPID_DRAWDOWN_FROM_PEAK_STOP;
+hard floor → RAPID_HARD_FLOOR_STOP). Removed the unreferenced
+`neverWinner` local variable (legacy from pre-V5.9.687 — was only
+computed, never gated against).
+
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1030 → V5.9.1031.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1030 — Un-choke OkHttp dispatcher + fail-fast read timeouts (Feb 2026, CI ⏳)
 
 Operator V5.9.1029 snapshot (build 5.0.2988, tag V5.9.1029 — bumped correctly

@@ -6154,72 +6154,12 @@ class BotService : Service() {
                         // Paper threshold widened to -25% (the pre-V5.9.791 value) to give
                         // mean-reversion room. Live mode keeps the -14% tight stop because
                         // live slippage is real money, not simulated.
-                        // V5.9.1028 — AI-FLUID CATASTROPHE THRESHOLD.
-                        // V5.9.1029 — extracted to getCatastropheThreshold()
-                        // to keep botLoop bytecode under the JVM 64KB cap on
-                        // Debug compile (Release strips coroutine state-machine
-                        // debug info more aggressively, Debug doesn't).
-                        val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
-                        val isCatastrophe = pnlPct <= catastropheThreshold
-                        val peakGainPct   = ts.position.peakGainPct
-                        val drawdownFromPeak = peakGainPct - pnlPct
-                        val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
-                        val neverWinner      = peakGainPct < 20.0
-
-                        // V5.9.1028 — Paper-mode settle-in (see isInPaperSettleIn doc).
-                        val paperSettleInActiveCatastrophe = isInPaperSettleIn(ts, cfg.paperMode)
-
-                        when {
-                            paperSettleInActiveCatastrophe -> {
-                                // Settle-in active — let dynamic / fluid stops handle
-                                // any real rugs via their own paths. We do NOT exit
-                                // here; we just skip the catastrophe ladder for this
-                                // tick. The token still gets evaluated by every other
-                                // stop and exit mechanism.
-                            }
-                            isCatastrophe -> {
-                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
-                                addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-                                executor.requestSell(
-                                    ts = ts, reason = "RAPID_CATASTROPHE_STOP",
-                                    wallet = wallet, walletSol = effectiveBalance
-                                )
-                                TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
-                                continue // V5.9.706 — skip dynamic stop (position already closed)
-                            }
-                            giveBackTrigger -> {
-                                // Peaked +20% or higher and gave back ≥25 points.
-                                // Exit immediately — lock whatever's left of the win.
-                                ErrorLogger.warn("BotService",
-                                    "🚨 DRAWDOWN_FROM_PEAK: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% drawdown=${drawdownFromPeak.toInt()}pts")
-                                addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
-                                executor.requestSell(
-                                    ts = ts, reason = "RAPID_DRAWDOWN_FROM_PEAK_STOP",
-                                    wallet = wallet, walletSol = effectiveBalance
-                                )
-                                TradeStateMachine.startCooldown(ts.mint)
-                                continue // V5.9.706 — skip dynamic stop (position already closed)
-                            }
-                            pnlPct <= -HARD_FLOOR_STOP_PCT -> {
-                                // V5.9.687 — removed neverWinner gate.
-                                // Previously -15% hard floor only fired when peak < 20%.
-                                // A token that briefly touched +1% then collapsed to -24.9%
-                                // bypassed BOTH hard-floor (neverWinner=false) AND catastrophe
-                                // (-25% threshold) — no exit fired in the -15% to -25% range.
-                                // This dead zone caused -23%, -27%, -28% stop-loss executions
-                                // in the main loop because the rapid monitor never caught them.
-                                // Now: any position hitting -15% exits unconditionally. Drawdown
-                                // from peak (requires peak >= 20%) is a separate earlier tier.
-                                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
-                                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-                                executor.requestSell(
-                                    ts = ts, reason = "RAPID_HARD_FLOOR_STOP",
-                                    wallet = wallet, walletSol = effectiveBalance
-                                )
-                                TradeStateMachine.startCooldown(ts.mint)
-                                continue // V5.9.706 — skip dynamic stop (position already closed)
-                            }
-                            else -> { /* let dynamic/trailing stop below handle it */ }
+                        // V5.9.1031 — Rapid monitor extracted into evaluateRapidMonitorExit
+                        // to shrink botLoop bytecode under the JVM 64KB cap on Debug compile.
+                        // The when-block held 4 suspending executor.requestSell call sites;
+                        // moving them into a helper collapses 4 state-machine slots into 1.
+                        if (evaluateRapidMonitorExit(ts, pnlPct, cfg, wallet, effectiveBalance)) {
+                            continue
                         }
                         
                         // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)
@@ -7839,6 +7779,67 @@ class BotService : Service() {
         return try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(raw)
         } catch (_: Throwable) { raw }
+    }
+
+    /**
+     * V5.9.1031 — RAPID MONITOR EXIT EVALUATOR.
+     *
+     * Returns true if a sell was issued and caller should `continue` to the
+     * next token.
+     *
+     * Ladder (in order):
+     *   1. Paper-mode settle-in window → skip (return false)
+     *   2. Catastrophe threshold (AI-fluid) → RAPID_CATASTROPHE_STOP
+     *   3. Drawdown-from-peak (peak ≥20% AND give-back ≥25pts) →
+     *      RAPID_DRAWDOWN_FROM_PEAK_STOP
+     *   4. Hard floor (pnl ≤ -HARD_FLOOR_STOP_PCT) → RAPID_HARD_FLOOR_STOP
+     *
+     * Extracted from botLoop() to keep that method's bytecode under the
+     * JVM 64KB cap on Debug compile. The when-block held 4 suspending
+     * executor.requestSell call sites; moving them into a helper
+     * collapses 4 coroutine state-machine slots into 1.
+     */
+    private suspend fun evaluateRapidMonitorExit(
+        ts: TokenState,
+        pnlPct: Double,
+        cfg: com.lifecyclebot.data.BotConfig,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        effectiveBalance: Double,
+    ): Boolean {
+        if (isInPaperSettleIn(ts, cfg.paperMode)) {
+            return false
+        }
+        val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
+        val peakGainPct = ts.position.peakGainPct
+        val drawdownFromPeak = peakGainPct - pnlPct
+        val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
+        return when {
+            pnlPct <= catastropheThreshold -> {
+                ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
+                addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
+                executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
+                TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+                true
+            }
+            giveBackTrigger -> {
+                ErrorLogger.warn(
+                    "BotService",
+                    "🚨 DRAWDOWN_FROM_PEAK: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% drawdown=${drawdownFromPeak.toInt()}pts"
+                )
+                addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
+                executor.requestSell(ts, "RAPID_DRAWDOWN_FROM_PEAK_STOP", wallet, effectiveBalance)
+                TradeStateMachine.startCooldown(ts.mint)
+                true
+            }
+            pnlPct <= -HARD_FLOOR_STOP_PCT -> {
+                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
+                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
+                executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
+                TradeStateMachine.startCooldown(ts.mint)
+                true
+            }
+            else -> false
+        }
     }
 
     private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {
