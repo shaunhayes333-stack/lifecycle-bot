@@ -5,6 +5,34 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1027 — Orphan bot-loop exit (kill duplicate post-rescue coroutines) (Feb 2026, CI ⏳)
+
+V5.9.1026 cap landed (chunk=32 confirmed in operator snapshot) but the
+new snapshot revealed something deeper: loop=17 fired SEVEN
+SUPERVISOR_CHUNK_TIMEOUTs and TWO POST_SUPERVISOR events. Cycle-ms
+pattern was strictly alternating short/long
+(`[12282, 675, 12545, 80, 12800, 180, 12421, 806, 11973, 694]`) — proof
+that TWO botLoop coroutines were running concurrently on the dedicated
+single-thread dispatcher, alternating at every suspension.
+
+Root cause: V5.9.1023 rescue uses `observedDeadJob?.cancel(...)` which
+is cooperative. A corpse wedged in a non-cancellable JNI socket-read
+keeps running. When it unwedges later it resumes its botLoop alongside
+the replacement — two concurrent supervisors, two PRE/POST_SUPERVISOR
+pairs per "loopCount", chunks scheduled twice → throughput halved and
+results discarded twice.
+
+Fix: at botLoop boot, capture `currentCoroutineContext()[Job]` as
+`myJob`. At the top of every while iteration, compare against the
+canonical `loopJob` field. If they differ, emit `BOTLOOP_ORPHAN_EXIT`
+and `return`. The fresh replacement is the sole authority; corpses
+yield at their next safe checkpoint.
+
+Touched: BotService.kt around L7745 (botLoop entry) and L7807 (while
+loop top).
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1026 — Cap supervisor parallelism 96→32 to escape IO-pool contention (Feb 2026, CI ✅✅)
 
 V5.9.1025 harvest fix landed but operator snapshot still showed
