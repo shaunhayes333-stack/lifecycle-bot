@@ -9128,7 +9128,16 @@ class Executor(
         val trade = Trade(
             side = "SELL", 
             mode = "paper", 
-            sol = pos.costSol, 
+            // V5.9.1018c — operator triage bug: this was `sol = pos.costSol`,
+            // which records the COST BASIS (with all top-ups summed in) as
+            // the SELL row's `sol` field. Every other SELL constructor in
+            // this file — live sells, partial sells, profit-lock, capital
+            // recovery — uses GROSS PROCEEDS. The mismatch made operator
+            // see `BUY sol=0.685` → `SELL sol=1.370 pnl=-1.115` (a buy that
+            // top-upped to 1.370 cost basis then dumped) and read it as
+            // "98% loss in seconds for no reason". It also fed cost basis
+            // into CanonicalLearning.exitSol = trade.sol — corrupt learning.
+            sol = value,
             price = price,
             ts = System.currentTimeMillis(), 
             reason = reason, 

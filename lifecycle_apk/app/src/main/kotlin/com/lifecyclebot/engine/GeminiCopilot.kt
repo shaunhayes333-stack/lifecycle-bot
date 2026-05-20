@@ -1156,7 +1156,16 @@ Not one sentence unless the moment truly calls for it.
         return if (fallback.isNotEmpty()) fallback else null
     }
 
-    @Synchronized
+    // V5.9.1018c — operator ANR triage. This method was @Synchronized AND
+    // contained Thread.sleep() inside the monitor (line below). Any other
+    // thread calling a @Synchronized method on this singleton (like
+    // resetAllProviderState() during BotService.startBot) would block on
+    // the monitor for the full sleep duration. The watchdog sampler caught
+    // the main thread frozen in resetAllProviderState 14× per session
+    // because of exactly this. lastCallTimeByProvider is a ConcurrentHashMap,
+    // so the read-then-write is already thread-safe enough for spacing
+    // (worst case is two concurrent callers both sleep, which is fine —
+    // they both wake at the right time and each updates the timestamp).
     private fun enforceCallSpacing(providerName: String) {
         val now = System.currentTimeMillis()
         val last = lastCallTimeByProvider[providerName] ?: 0L
@@ -1193,7 +1202,13 @@ Not one sentence unless the moment truly calls for it.
         rateLimitedUntilByProvider[providerName] = 0L
     }
 
-    @Synchronized
+    // V5.9.1018c — was @Synchronized. Removed because:
+    //  • all 3 maps are ConcurrentHashMap (their .clear() is atomic).
+    //  • lastBlipDiagnostic is @Volatile (the pointer assignment is atomic).
+    // Holding the singleton monitor here added zero safety AND forced this
+    // method to wait for any other @Synchronized method (e.g. the pre-fix
+    // enforceCallSpacing) which could be in a Thread.sleep — directly
+    // causing the operator's 14× ANR sampler hits on this exact method.
     private fun resetAllProviderState() {
         lastCallTimeByProvider.clear()
         rateLimitedUntilByProvider.clear()
