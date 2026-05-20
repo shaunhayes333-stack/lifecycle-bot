@@ -45,6 +45,7 @@ class BotService : Service() {
         // restarts the loop coroutine if it has gone silent for >180s.
         const val ACTION_LOOP_HEARTBEAT = "com.lifecyclebot.LOOP_HEARTBEAT"
         const val EXTRA_USER_REQUESTED = "com.lifecyclebot.USER_REQUESTED"
+        const val EXTRA_STOP_SOURCE = "com.lifecyclebot.STOP_SOURCE"
         const val RUNTIME_PREFS = "bot_runtime"
         const val KEY_WAS_RUNNING_BEFORE_SHUTDOWN = "was_running_before_shutdown"
         const val KEY_MANUAL_STOP_REQUESTED = "manual_stop_requested"
@@ -1467,6 +1468,8 @@ class BotService : Service() {
                 }
             }
             ACTION_STOP  -> {
+                val stopSource = intent.getStringExtra(EXTRA_STOP_SOURCE) ?: "unknown_action_stop"
+                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)}") } catch (_: Throwable) {}
                 // V5.9.609 — make user Stop authoritative immediately. The old
                 // code only cleared was_running, while already-scheduled alarms
                 // (90s/3m keep-alive, onDestroy, onTaskRemoved) could still fire
@@ -1482,7 +1485,7 @@ class BotService : Service() {
                 status.running = false
                 cancelAllRestartAlarms()
                 try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
-                scope.launch { stopBot() }
+                scope.launch { stopBot(stopSource) }
             }
             ACTION_LOOP_HEARTBEAT -> {
                 // V5.9.762 — EMERGENT CRITICAL #1: HEARTBEAT REWRITE.
@@ -4785,10 +4788,11 @@ class BotService : Service() {
         }
     }
 
-    fun stopBot() {
+    fun stopBot(source: String = "direct_call_unknown") {
         isShuttingDown = true  // V5.9.721: signal all traders to use fast-close path
-        // V5.9.651 — forensic stop marker
-        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
+        // V5.9.1016 — forensic stop source marker. Report/navigation bugs must
+        // never be allowed to hide behind a generic BOT_STOP_REQUESTED again.
+        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "source=$source loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true

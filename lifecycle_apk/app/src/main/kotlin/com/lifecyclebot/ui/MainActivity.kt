@@ -772,9 +772,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Auto-save settings when app goes to background
-        saveCurrentSettings()
-        // V5.9.666 — pause Pipeline tile badge refresher
+        // V5.9.1016 — NEVER autosave settings during in-app navigation.
+        // Opening PipelineHealthActivity pauses MainActivity; autosave was writing
+        // transient/stale settings and previously could restart/stop the bot. Settings
+        // are now saved only by explicit Apply/Save actions.
         try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
     }
     
@@ -894,8 +895,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Auto-save settings when app is stopped
-        saveCurrentSettings()
+        // V5.9.1016 — no lifecycle autosave. Reports/dialogs/other activities must
+        // not mutate runtime config or trigger any bot lifecycle side effect.
     }
 
     /** Save current settings from UI fields */
@@ -7198,7 +7199,7 @@ This cannot be undone!
                 else -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
             }
             setOnClickListener {
-                vm.saveConfig(state.config.copy(activeToken = ts.mint))
+                vm.saveConfig(state.config.copy(activeToken = ts.mint), allowRestart = false)
                 etActiveToken.setText(ts.mint)
                 settingsPopulated = false
             }
@@ -7279,7 +7280,7 @@ This cannot be undone!
         val cfg = ConfigStore.load(this)
         val wl  = cfg.watchlist.toMutableList()
         if (mint !in wl) wl.add(mint)
-        vm.saveConfig(cfg.copy(watchlist = wl))
+        vm.saveConfig(cfg.copy(watchlist = wl), allowRestart = false)
         etAddMint.setText("")
         Toast.makeText(this, "Added to watchlist", Toast.LENGTH_SHORT).show()
     }

@@ -165,10 +165,11 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         ctx.startForegroundService(intent)
     }
 
-    fun stopBot() {
+    fun stopBot(source: String = "ui_stop_button") {
         val intent = Intent(ctx, BotService::class.java).apply {
             action = BotService.ACTION_STOP
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
+            putExtra(BotService.EXTRA_STOP_SOURCE, source)
         }
         BotService.status.running = false
         _ui.value = _ui.value.copy(running = false)
@@ -251,7 +252,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     // for the service to ENTER stopInProgress=true (proves ACTION_STOP was received)
                     // and then EXIT stopInProgress=false (proves teardown completed). Only then do we
                     // fire startBot() so ACTION_START arrives into a clean state.
-                    stopBot()
+                    stopBot(source = "config_restart")
 
                     // Phase 1: wait up to 2s for the service to enter stopInProgress=true.
                     // This proves ACTION_STOP was delivered and accepted.
