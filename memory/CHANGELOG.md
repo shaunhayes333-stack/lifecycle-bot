@@ -5,6 +5,52 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1024 — Reactive per-host backoff (ApiBackoff) on 4xx/5xx (Feb 2026, CI ⏳)
+
+V5.9.1023 fix worked — bot is alive (82 BOT_LOOP_TICK in 311s uptime, normal
+phase cycling, zero RESCUE_LAUNCHING wedge). But operator V5.9.1023 snapshot
+exposed the next blocker:
+
+```
+SUPERVISOR_CHUNK_TIMEOUT firing every cycle, processed=0 deferred=96
+dexscreener sr= 49%  4xx=406    (paid-tier rate-limit storm)
+groq        sr=  0%  4xx=13
+TokenMetaCache hit rate: 33.0%
+```
+
+Every supervisor chunk launches 96 parallel processTokenCycle workers; each
+hits DexScreener. With DS at 49% success the chunk's 2.5s budget expires
+before any of the 96 finish. Result: watchlist of 314 tokens NEVER scored
+by the supervisor (trades trickle through only via SCAN_CB direct intake).
+
+Existing RateLimiter is PROACTIVE only — it counts our own requests in a
+sliding window but does NOT react to actual 429/403 responses. We keep
+hammering the rate-limited endpoint, burning paid credits.
+
+**Fix — ApiBackoff (new file)**
+
+New `engine/ApiBackoff.kt`:
+- Per-host consecutive-failure counter + lockout timestamp.
+- Backoff schedule: 5s → 15s → 30s → 60s → 120s → 300s cap (consecutive).
+- 429 and 403 jump to ≥30s on first occurrence (paid-tier / auth refused
+  are the strongest "stop calling me" signals).
+- 2xx success resets the counter immediately.
+- Forensic events: `API_BACKOFF_ARMED`, `API_BACKOFF_CLEARED`.
+
+**Wire — HealthAwareHttp.kt**
+
+All keyless REST calls already route through `HealthAwareHttp.execute()`.
+One edit covers DexScreener, PumpFun, Birdeye REST, Jupiter, and any
+future host:
+- Before sending: short-circuit with synthetic 503 if locked out (callers
+  already handle `!resp.isSuccessful` as null → no call-site changes).
+- 2xx → `ApiBackoff.markSuccess(host)`.
+- 4xx/5xx → `ApiBackoff.markFailure(host, code)`.
+
+Touched: `engine/HealthAwareHttp.kt`, NEW `engine/ApiBackoff.kt`.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1023 — Dedicated bot-loop dispatcher + stale-price PnL corroboration (Feb 2026, CI ✅✅)
 
 Operator V5.9.1022 snapshot showed the bot completely dead — phase wedged
