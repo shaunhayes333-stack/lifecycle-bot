@@ -9885,18 +9885,22 @@ val supervisorOuterBudget = maxBatchMillis + 5_000L
 // + hard-timeout-log pushed botLoop OVER the cap (release compile failed
 // 'Method code too large'). The whole SUPERVISOR body now lives in a
 // separate JVM method so its bytecode doesn't count toward botLoop's quota.
-val supRes = runSupervisorPhase(
+// V5.9.1037 — SILENT SUPERVISOR. The legacy runSupervisorPhase awaits
+// per-chunk withTimeoutOrNull which was burning ~14s per cycle on
+// SUPERVISOR_CHUNK_TIMEOUT (operator V5.9.1036 snapshot: 23 chunk timeouts
+// in 150s, processed=0 deferred=96 every cycle). Workers ALREADY run on
+// detached GlobalScope.async(Dispatchers.IO) — the bot loop's await was
+// pure dead waiting, since `processed/deferred` only feed log strings and
+// no downstream control flow depends on them. fireSupervisorWorkers spawns
+// workers via GlobalScope.launch (no await), bounds in-flight concurrency
+// via supervisorActive counter, and returns immediately. Workers complete
+// in their own time silently. The bot loop now sees ~0ms supervisor cost.
+val supRes = fireSupervisorWorkers(
     orderedMints = orderedMints,
-    maxParallel = maxParallel,
-    perTokenTimeoutMs = perTokenTimeoutMs,
-    maxBatchMillis = maxBatchMillis,
-    supervisorOuterBudget = supervisorOuterBudget,
-    batchDeadline = batchDeadline,
-    cycleStartMs = _cycleStartMs,
-    loopCount = loopCount,
     cfg = cfg,
     wallet = wallet,
     lastSuccessfulPollMs = lastSuccessfulPollMs,
+    loopCount = loopCount,
 )
 processedCount += supRes.processed
 deferredCount += supRes.deferred
@@ -10505,6 +10509,85 @@ launchExitSweepAsync("POST_SUPERVISOR")
         val deferred: Int,
         val hardTimedOut: Boolean,
     )
+
+    // V5.9.1037 — SILENT SUPERVISOR concurrency state. Workers tally
+    // themselves via these atomics; the bot loop no longer awaits.
+    private val supervisorActive = java.util.concurrent.atomic.AtomicInteger(0)
+    private val supervisorLifetimeSpawned = java.util.concurrent.atomic.AtomicLong(0)
+    private val supervisorLifetimeProcessed = java.util.concurrent.atomic.AtomicLong(0)
+    private val supervisorLifetimeSkipped = java.util.concurrent.atomic.AtomicLong(0)
+    private val SUPERVISOR_MAX_INFLIGHT: Int = 48
+
+    /**
+     * V5.9.1037 — fire-and-forget supervisor. Replaces the chunk-await
+     * loop in runSupervisorPhase. Each mint that fits within the
+     * SUPERVISOR_MAX_INFLIGHT budget gets a detached GlobalScope.launch
+     * worker on Dispatchers.IO; the rest are dropped (re-attempted next
+     * cycle's fresh ordering). The bot loop returns immediately — no
+     * chunked await, no per-chunk timeout, no SUPERVISOR_CHUNK_TIMEOUT
+     * forensic noise. Worker concurrency is bounded by the AtomicInteger
+     * gate AND the existing OkHttp dispatcher (maxRequestsPerHost=16 per
+     * V5.9.1032), so we cannot blast Birdeye/DexScreener.
+     *
+     * The returned SupervisorPhaseResult.processed is "spawned this tick",
+     * not "completed this tick". For long-tail telemetry, audit
+     * supervisorLifetimeProcessed / supervisorLifetimeSpawned counters.
+     */
+    private fun fireSupervisorWorkers(
+        orderedMints: List<String>,
+        cfg: com.lifecyclebot.data.BotConfig,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        lastSuccessfulPollMs: Long,
+        loopCount: Int,
+    ): SupervisorPhaseResult {
+        if (!status.running) return SupervisorPhaseResult(0, orderedMints.size, false)
+        var spawned = 0
+        var skipped = 0
+        try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
+        for (mint in orderedMints) {
+            if (!status.running) break
+            val nowInFlight = supervisorActive.get()
+            if (nowInFlight >= SUPERVISOR_MAX_INFLIGHT) {
+                skipped++
+                continue
+            }
+            // Bump count BEFORE launching so two near-simultaneous launches
+            // can't both observe a below-cap value (best-effort cap; minor
+            // overshoot is fine — OkHttp dispatcher provides the real
+            // backpressure floor).
+            supervisorActive.incrementAndGet()
+            supervisorLifetimeSpawned.incrementAndGet()
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    if (!status.running) return@launch
+                    if (orchestrator?.shouldPoll(mint) == false) return@launch
+                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                    try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                    supervisorLifetimeProcessed.incrementAndGet()
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    // benign — service shutting down
+                } catch (t: Throwable) {
+                    ErrorLogger.debug(
+                        "BotService",
+                        "Silent supervisor worker failed ${mint.take(8)}: ${t.message}",
+                    )
+                } finally {
+                    supervisorActive.decrementAndGet()
+                }
+            }
+            spawned++
+        }
+        if (skipped > 0) supervisorLifetimeSkipped.addAndGet(skipped.toLong())
+        if (skipped > 0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_INFLIGHT_CAP",
+                    "loop=$loopCount spawned=$spawned skipped=$skipped active=${supervisorActive.get()} cap=$SUPERVISOR_MAX_INFLIGHT",
+                )
+            } catch (_: Throwable) {}
+        }
+        return SupervisorPhaseResult(processed = spawned, deferred = skipped, hardTimedOut = false)
+    }
 
     /**
      * V5.9.1019 — UNIVERSAL SL SWEEP, async + single-flight.
