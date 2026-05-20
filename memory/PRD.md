@@ -6,6 +6,17 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## Latest Build — V5.9.1023 (Feb 2026, CI ✅✅)
+- Dedicated single-thread bot-loop dispatcher (`AATE-BotLoop-Dedicated`)
+  to escape `Dispatchers.IO` thread-pool starvation when supervisor-pool
+  OkHttp workers wedge in uncancellable JNI socket reads. Previously
+  every rescue queued a new botLoop that NEVER ran (`phase=RESCUE_LAUNCHING`
+  loop for 10+ minutes, zero trades).
+- STALE_LIVE_PRICE_RUG_ESCAPE now requires last-known PnL ≤ 0 to fire.
+  Dark-feed positions that were green when the feed died are no longer
+  nuked at phantom -24% to -74% losses; they emit
+  `STALE_LIVE_PRICE_HOLD_WINNER` and ride out the dark period.
+
 ## Architecture (Key Files)
 - engine/BotService.kt              — central engine, watchlist tick cadence (V5.9.663c)
 - engine/Executor.kt                — buy/sell, closeAllPositions, liveSweepWalletTokens

@@ -5,7 +5,7 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1023 — Dedicated bot-loop dispatcher + stale-price PnL corroboration (Feb 2026, CI ⏳)
+## V5.9.1023 — Dedicated bot-loop dispatcher + stale-price PnL corroboration (Feb 2026, CI ✅✅)
 
 Operator V5.9.1022 snapshot showed the bot completely dead — phase wedged
 in `RESCUE_LAUNCHING` for the entire 10-minute log window. Every 180s the
