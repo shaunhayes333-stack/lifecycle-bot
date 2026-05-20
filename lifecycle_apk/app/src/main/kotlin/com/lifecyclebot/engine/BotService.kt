@@ -2605,6 +2605,19 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
 
+            // V5.9.1029 — Clear any stale auto-disabled strategies on every
+            // bot start. The V5.9.806 telemetry auto-retires strategies with
+            // ≥50 trades AND meanPnl ≤ -5%; once V5.9.1028 stopped paper-mode
+            // slippage from poisoning learning data with phantom -10% losses,
+            // any prior retirements were based on bad data. Clean slate per
+            // start lets SHITCOIN / TREASURY / PRESALE_SNIPE re-prove on
+            // honest fluid stops. clearDisabled() is idempotent — safe to
+            // call when nothing is disabled.
+            try {
+                com.lifecyclebot.engine.StrategyTelemetry.clearDisabled()
+                ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=fresh_start")
+            } catch (_: Throwable) {}
+
             // ═══════════════════════════════════════════════════════════════
             // V5.9.934 — Surface AIStartupCoordinator state to operator at
             // bot-start. Pre-934 the coordinator's verdict was completely
@@ -6142,18 +6155,11 @@ class BotService : Service() {
                         // mean-reversion room. Live mode keeps the -14% tight stop because
                         // live slippage is real money, not simulated.
                         // V5.9.1028 — AI-FLUID CATASTROPHE THRESHOLD.
-                        // Operator V5.9.1027b mandate: "the strict and rapid
-                        // stops are still meant to be a fluid learnt thing
-                        // as well. everything is meant to be." Route the
-                        // catastrophe floor through FluidLearningAI so
-                        // bootstrap protects with -15% and matures to the
-                        // lane's true catastrophe band. Falls open to the
-                        // hardcoded value on any failure so the safety net
-                        // is never lost.
-                        val rawCatastrophe = if (cfg.paperMode) -25.0 else -14.0
-                        val catastropheThreshold = try {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(rawCatastrophe)
-                        } catch (_: Throwable) { rawCatastrophe }
+                        // V5.9.1029 — extracted to getCatastropheThreshold()
+                        // to keep botLoop bytecode under the JVM 64KB cap on
+                        // Debug compile (Release strips coroutine state-machine
+                        // debug info more aggressively, Debug doesn't).
+                        val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
                         val isCatastrophe = pnlPct <= catastropheThreshold
                         val peakGainPct   = ts.position.peakGainPct
                         val drawdownFromPeak = peakGainPct - pnlPct
@@ -7814,6 +7820,25 @@ class BotService : Service() {
         } catch (_: Throwable) { 0.5 }
         val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)
         return ageMs < settleInMs
+    }
+
+    /**
+     * V5.9.1029 — AI-FLUID CATASTROPHE THRESHOLD HELPER.
+     *
+     * Returns the catastrophe stop threshold (negative pct) for the active
+     * mode, routed through FluidLearningAI.getFluidStopLoss so bootstrap
+     * protects with -15% and matures to the lane's true catastrophe band.
+     * Falls open to the hardcoded raw value on any failure so the safety
+     * net is never lost.
+     *
+     * NOTE: extracted from botLoop() to keep that method's bytecode under
+     * the JVM 64KB cap (same reason V5.9.1021/1027b/1028b split out helpers).
+     */
+    private fun getCatastropheThreshold(paperMode: Boolean): Double {
+        val raw = if (paperMode) -25.0 else -14.0
+        return try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(raw)
+        } catch (_: Throwable) { raw }
     }
 
     private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {
@@ -10216,7 +10241,20 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     }
                 }
                 val chunkBudgetMs = minOf(
-                    (perTokenTimeoutMs * 2L).coerceAtLeast(2_500L),
+                    // V5.9.1029 — WIDEN CHUNK BUDGET to fix supervisor freeze.
+                    // Operator V5.9.1028b snapshot showed processed=0 deferred=96
+                    // on EVERY supervisor cycle (237× SUPERVISOR_CHUNK_TIMEOUT in
+                    // 1041s) — the harvest fix from V5.9.1025 wasn't enough because
+                    // the 2.5s floor was simply TOO TIGHT for 32 parallel workers
+                    // each running processTokenCycle (V3 + safety + lane evals +
+                    // sometimes a 300-700ms network call). Every chunk hit
+                    // active=32 (no worker completed in 2.5s) → harvest returned 0.
+                    //
+                    // Widened to 4.5s floor (was 2.5s). At maxBatchMillis=15s
+                    // (paper) we still fit 3 chunks × 4.5s = 13.5s inside the
+                    // batch deadline. perTokenTimeoutMs * 4 = 4800ms (paper) /
+                    // 10000ms (live) as the multiplier-driven ceiling.
+                    (perTokenTimeoutMs * 4L).coerceAtLeast(4_500L),
                     (batchDeadline - System.currentTimeMillis()).coerceAtLeast(750L)
                 )
                 // V5.9.1025 — HARVEST COMPLETED WORK ON CHUNK TIMEOUT.

@@ -5,6 +5,70 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1029 — Supervisor un-choke + Debug compile fit + lane re-enable (Feb 2026, CI ⏳)
+
+Operator V5.9.1028b snapshot (build 5.0.2987, tag V5.9.1018 stale): bot
+"frozen" — zero trades for 16 minutes despite bot-loop ticking healthily
+at 12s cycles. Three problems, one surgical push.
+
+**Q1 (the freeze — supervisor never harvests work)**
+
+Every cycle: `SUPERVISOR_CHUNK_TIMEOUT loop=N chunk=32 active=32 budgetMs=2500`
+followed by `POST_SUPERVISOR processed=0 deferred=96 total=96`. The V5.9.1025
+harvest fix correctly walks each Deferred after timeout, but `active=32`
+means NO worker has completed when the budget expires — there's nothing
+to harvest. With 580 tokens in the watchlist and supervisor delivering 0
+processed per cycle, only the SCAN_CB direct intake path (~6 evals/cycle)
+fed FDG, and recent pump.fun spam (PUMP/OPAI/Veil ~$2K liq) fails the
+quality floor. Net: bot looks dead.
+
+Root cause: `chunkBudgetMs = min(perTokenTimeoutMs * 2L = 2400, remaining)
+                              .coerceAtLeast(2_500L)`
+With paper-mode `perTokenTimeoutMs = 1200`, the floor pins the budget at
+2.5s. That's not enough for 32 parallel workers each running a real
+`processTokenCycle` (V3 + safety + lane evals + a 300-700ms network call).
+
+Fix: widen to `(perTokenTimeoutMs * 4L).coerceAtLeast(4_500L)` = 4.5s
+floor (was 2.5s). 3 chunks × 4.5s = 13.5s fits inside `maxBatchMillis=15s`
+paper deadline with margin.
+
+Touched: BotService.kt L10218-L10221 (runSupervisorPhase chunkBudgetMs).
+
+**Q2 (Debug compile JVM 64KB cap)**
+
+V5.9.1028b Build APK ✅ but Runtime Smoke Test ❌:
+  `e: Back-end (JVM) Internal error: Couldn't transform method node: botLoop`
+
+The Debug compile (assembleDebug used by the smoke test) keeps Kotlin
+coroutine state-machine debug info that the Release build strips, and
+V5.9.1028's inline `rawCatastrophe + try/catch` for the AI-fluid
+catastrophe threshold pushed botLoop's bytecode over the cap again.
+
+Fix: extract to `private fun getCatastropheThreshold(paperMode): Double`
+helper. Call site collapses from a 5-line try/catch to a single
+INVOKESPECIAL (~10 bytes). Same behaviour as V5.9.1028.
+
+Touched: BotService.kt L6144-L6156 (botLoop call site) + L7818 (new helper).
+
+**Q3 (lane re-enable — option c)**
+
+Operator confirmed "and c" — clear stale auto-disabled strategies. The
+V5.9.806 telemetry auto-retires strategies with ≥50 trades AND mean PnL
+≤ -5%; ANY retirements made BEFORE V5.9.1028's fluid-stop fix were based
+on phantom losses from paper-mode slippage. Clean slate per start lets
+SHITCOIN / TREASURY / PRESALE_SNIPE re-prove themselves on honest data.
+
+Fix: call `StrategyTelemetry.clearDisabled()` at the top of every
+`startBot()`. Idempotent — safe to call when nothing is disabled.
+Emits `STRATEGY_TELEMETRY_DISABLED_CLEARED reason=fresh_start` forensic.
+
+Touched: BotService.kt startBot() L2604.
+
+Plus: bumped `PipelineHealthCollector.BUILD_TAG` V5.9.1018 → V5.9.1029
+so future snapshots show the actual installed build.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1028 — Paper settle-in restored + AI-fluid STRICT_SL & catastrophe thresholds (Feb 2026, CI ⏳)
 
 V5.9.1027b operator snapshot: every paper trade exits within 350-1000ms
