@@ -482,7 +482,7 @@ class MainActivity : AppCompatActivity() {
     // (mint + cost + paper flag + qty) for the rebuild path and a
     // minimum 2s interval throttle. Pure price drift no longer rebuilds.
     private var lastOpenPosRenderMs: Long = 0L
-    private val OPEN_POS_MIN_RENDER_INTERVAL_MS: Long = 2_000L
+    private val OPEN_POS_MIN_RENDER_INTERVAL_MS: Long = 8_000L
     private var lastMoonshotHash: Int = -1
     private var lastNetworkSigRenderMs: Long = 0L
     // V5.9.1013 — first-frame/navigation guard. Optional heavy panels and
@@ -497,6 +497,9 @@ class MainActivity : AppCompatActivity() {
     private var lastCryptoAltsRenderMs: Long = 0L  // V5.9.730 ANR debounce
     private var lastBlueChipHash: Int = -1
     private var lastQualityHash: Int = -1
+    private var lastShitCoinHash: Int = -1
+    private var lastAiStatusRenderMs: Long = 0L
+    private var lastTradesRenderMs: Long = 0L
 
         private val green   = 0xFF10B981.toInt()
     private val red     = 0xFFEF4444.toInt()
@@ -757,9 +760,9 @@ class MainActivity : AppCompatActivity() {
                     // setTexts ~50 TextViews + rebuilds card chrome every call. At 2 Hz
                     // that was a sustained main-thread cost ≈40-60ms per tick → ANR storm
                     // when concurrent with renderOpenPositions / pipelineTileRefresh.
-                    // 1 Hz halves the cost. Price tick freshness still comes from
-                    // BotService.openPositionTickLoop (1 Hz) so visual lag is identical.
-                    kotlinx.coroutines.delay(1_000)
+                    // V5.9.1017 — 1 Hz was still saturating main with large card rebuilds.
+                    // Runtime trade management is independent of this dashboard paint loop.
+                    kotlinx.coroutines.delay(2_500)
                 }
             }
             
@@ -3174,7 +3177,7 @@ for legal compliance.
         val structuralChange = openCountWl != lastWatchlistOpenCount ||
             activeMintWl != lastWatchlistActiveMint
         val timeElapsed = (nowWl - lastWatchlistRenderMs) >= 12_000L  // V5.9.726 — was 6s, doubled to halve buildTokenCard burden
-        if (structuralChange || timeElapsed || lastWatchlistRenderMs == 0L) {
+        if (nowWl - activityCreatedAtMs >= 20_000L && (structuralChange || timeElapsed || lastWatchlistRenderMs == 0L)) {
             renderWatchlist(state)
             lastWatchlistRenderMs = nowWl
             lastWatchlistOpenCount = openCountWl
@@ -3504,14 +3507,8 @@ for legal compliance.
                     symbolToMints.getOrPut(t.symbol.uppercase()) { HashSet() }.add(t.mint)
                 }
             }
-            // Plus everything in private lane stores:
-            try {
-                for (snap in com.lifecyclebot.engine.UnifiedPositionRegistry.snapshotAllOpen()) {
-                    if (snap.symbol.isNotBlank()) {
-                        symbolToMints.getOrPut(snap.symbol.uppercase()) { HashSet() }.add(snap.mint)
-                    }
-                }
-            } catch (_: Throwable) {}
+            // V5.9.1017 — do NOT call UnifiedPositionRegistry.snapshotAllOpen()
+            // from the UI render path. Snapshot showed it on the main-thread ANR stack.
             symbolToMints.entries.filter { it.value.size >= 2 }.map { it.key }.toSet()
         } catch (_: Throwable) { emptySet() }
         llOpenPositions.removeAllViews()
@@ -3581,7 +3578,7 @@ for legal compliance.
         // Cap rendered rows at 25 (newest-by-entry first) so a
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = 25
+        val RENDER_CAP = 8
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
@@ -3998,7 +3995,7 @@ for legal compliance.
     // V4.0: Render Blue Chip positions
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         // V5.9.709 — skip re-render if blue chip list unchanged
-        val bcHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.isPaper}" }.hashCode()
+        val bcHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
         if (bcHash == lastBlueChipHash) return 0.0
         lastBlueChipHash = bcHash
         llBlueChipPositions.removeAllViews()
@@ -4006,7 +4003,7 @@ for legal compliance.
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         
-        positions.forEach { pos ->
+        positions.take(4).forEach { pos ->
             // V5.8: Use live token price from BotService (consistent with other windows)
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = try {
@@ -4109,7 +4106,7 @@ for legal compliance.
     // Render Quality positions ($100K-$1M mcap)
     private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>): Double {
         // V5.9.709 — skip re-render if quality list unchanged
-        val qpHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.entryScore}" }.hashCode()
+        val qpHash = positions.map { "${it.mint}|${it.entrySol}|${it.entryScore}" }.hashCode()
         if (qpHash == lastQualityHash) return 0.0
         lastQualityHash = qpHash
         llQualityPositions.removeAllViews()
@@ -4117,7 +4114,7 @@ for legal compliance.
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
 
-        positions.forEach { pos ->
+        positions.take(4).forEach { pos ->
             // V5.9.411/415 — true-freshness display. We declare a row stale
             // ONLY when no tick has arrived recently (>60s since the last
             // updateLivePrice / checkExit) AND the scanner has no entry for
@@ -4237,12 +4234,15 @@ for legal compliance.
 
     // V4.0: Render ShitCoin Positions with platform icons
     private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>): Double {
+        val scHash = positions.map { "${it.mint}|${it.entrySol}|${it.launchPlatform}" }.hashCode()
+        if (scHash == lastShitCoinHash) return 0.0
+        lastShitCoinHash = scHash
         llShitCoinPositions.removeAllViews()
         val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         
-        positions.forEach { pos ->
+        positions.take(4).forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val currentPrice = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
@@ -4582,12 +4582,12 @@ for legal compliance.
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
         // V5.9.709 — skip render if moonshot positions unchanged
-        val moonHash = positions.map { "${it.mint}${it.lastSeenPrice}${it.isPaperMode}" }.hashCode()
+        val moonHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaperMode}" }.hashCode()
         if (moonHash == lastMoonshotHash) return
         lastMoonshotHash = moonHash
         llMoonshotPositions.removeAllViews()
         
-        for (pos in positions) {
+        for (pos in positions.take(4)) {
             // V5.9.302: Guard against dead price feed (ref=0 when token rugs/dies).
             // Without guard: pnlPct = (0 - entryPrice)/entryPrice*100 = -100% even though
             // the engine hasn't closed it. Show ~0% instead while RUG_SAFETY_NET fires.
@@ -5052,6 +5052,10 @@ for legal compliance.
     
     // V4.0: Update AI Status Panel with live data
     private fun updateAiStatusPanel(ts: TokenState?) {
+        val nowAi = System.currentTimeMillis()
+        if (nowAi - activityCreatedAtMs < 25_000L) return
+        if (nowAi - lastAiStatusRenderMs < 20_000L && lastAiStatusRenderMs > 0L) return
+        lastAiStatusRenderMs = nowAi
         try {
             // ═══════════════════════════════════════════════════════════════
             // V5.2: EMERGENT PATCH - Add RunTracker30D metrics to AI panel
@@ -6457,14 +6461,16 @@ This cannot be undone!
     private fun renderTrades(trades: List<Trade>) {
         // V5.9.709 — skip if trade list unchanged
         val rtHash = (trades.size.toString() + trades.lastOrNull()?.let { it.mint + it.side } ?: "").hashCode()
-        if (rtHash == lastTradesRenderHash) return
+        val nowTrades = System.currentTimeMillis()
+        if (rtHash == lastTradesRenderHash || (nowTrades - lastTradesRenderMs < 12_000L && lastTradesRenderMs > 0L)) return
         lastTradesRenderHash = rtHash
+        lastTradesRenderMs = nowTrades
         llTradeList.removeAllViews()
         val sdf = SimpleDateFormat("HH:mm:ss", Locale.US)
         val tradeTextSp = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
         val tradeSubSp  = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
 
-        trades.reversed().take(8).forEach { t ->
+        trades.reversed().take(3).forEach { t ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 10, 0, 10)
@@ -6969,9 +6975,9 @@ This cannot be undone!
         // theme/attribute parsing. Operator dump showed 62% main-thread stall
         // pinned to buildTokenCard. The header still surfaces the full count.
         val maxWatchlistRows = when (columnCount) {
-            3 -> 16
-            2 -> 20
-            else -> 24
+            3 -> 6
+            2 -> 8
+            else -> 10
         }
         val activeVisible = activeTokens
             .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
@@ -6996,7 +7002,7 @@ This cannot be undone!
             llIdleList.visibility = android.view.View.VISIBLE
             tvIdleHeader.text = "Idle (${idleTokens.size})"
             
-            val maxIdleRows = 12
+            val maxIdleRows = 4
             val idleVisible = idleTokens
                 .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd }
                     .thenByDescending { it.entryScore })
