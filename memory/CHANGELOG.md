@@ -5,6 +5,45 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1019 — Structural: async universal SL sweep + deferred MainActivity UI (Feb 2026, CI ✅ build, smoke pending)
+
+Operator V5.9.1018(c) snapshot symptoms:
+  - Bot loop cycles oscillating [237, 8, 11531, 179, 18790, 54, 22674, 14, 44108, 575]ms
+  - LOOP_HEARTBEAT_ALARM sinceLastTickSec=142 s
+  - MainActivity.onCreate dominant ANR (11/20 samples) — 757-2154ms sub-frames
+  - "Going into Pipeline still freezes the bot"
+  - User mandate: "non-patchwork real fixes only"
+
+**Fix A — async-ify runUniversalSlSafetyNetSweep**
+
+Per-cycle universal SL safety-net sweep at end of botLoop was running
+SYNCHRONOUSLY. For each open position it can invoke executor.requestSell()
+→ paperSell() → full learning fanout. 5-10 open positions × ~5s each =
+30-50 s sync work — matches the 44s max cycle exactly. Next cycle finds
+positions closed → 8 ms — matches the alternation.
+
+New `slSafetyNetInFlight: AtomicBoolean` + `launchUniversalSlSweepAsync()`
+helper modelled exactly on V5.9.1010's `launchExitSweepAsync`: coroutine
+worker on Dispatchers.IO, single-flight gate, 3 s hard watchdog releasing
+the gate even if paperSell IO is blocked. New events:
+UNIVERSAL_SL_SWEEP_START/_DONE/_SKIPPED/_TIMEOUT/_LATE_DONE.
+
+**Fix B — Defer heavy MainActivity UI setup past first frame**
+
+Extracted from sync onCreate path:
+  - setupChartControls (1321 ms ANR — setOnClickListener → ImeFocusController)
+  - setupApiKeyHelpLinks
+  - setupChart (2154 ms — chart Matrix init via Cleaner.create)
+  - setupSettings
+
+Now run inside the existing `window.decorView.post {}` block after
+bindViews() (which stays sync because it does cheap findViewById and
+downstream code reads `chart`/button fields). decorView.post yields one
+vsync (~16 ms) so the initial frame draws first, then heavy work runs
+while user is still in the splash → main transition.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1018c — Triage round 3: PNL display bug + GeminiCopilot ANR (Feb 2026, CI ✅✅)
 
 Operator V5.9.1017 snapshot complaints:
