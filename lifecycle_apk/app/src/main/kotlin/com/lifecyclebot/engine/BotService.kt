@@ -9423,10 +9423,14 @@ try {
   )
 } catch (_: Throwable) {}
 
-supervisorScope {
-    // V5.9.762 — supervisor is the long-running per-token network
-    // section. The heartbeat must NOT cancel us while we're here even
-    // if a single token's RPC stalls. SUPERVISOR is in activePhaseSet.
+run {
+    // V5.9.1014 — NON-STRUCTURED SUPERVISOR BOUNDARY.
+    // V5.9.1013 still showed a 418s cycle and heartbeat rescue in phase=SUPERVISOR.
+    // Per-token workers are already detached, but the surrounding supervisorScope
+    // still gives structured concurrency a chance to wait for children/ticker state.
+    // Use a plain run block plus a detached ticker so this section can never be
+    // held hostage by supervisor child ownership. Chunk deadlines remain the hard
+    // runtime boundary; stragglers are abandoned/cancelled and the loop proceeds.
     markProgress("SUPERVISOR")
 
     // V5.9.935 — INNER PROGRESS TICKER.
@@ -9443,9 +9447,10 @@ supervisorScope {
     // (10min → 5min), legitimate supervisor work always stays under
     // the ceiling, and anything that exceeds it IS genuinely wedged.
     //
-    // Ticker is launched on the supervisorScope so it auto-cancels when
-    // the supervisor block exits.
-    val progressTicker = launch {
+    // V5.9.1014 — ticker is detached, not a child of the supervisor block.
+    // It is cancelled in finally, but even if cancellation is late it can only
+    // stamp progress; it cannot keep botLoop inside SUPERVISOR.
+    val progressTicker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
         try {
             while (isActive) {
                 // V5.9.936 — tightened 15s → 10s to match the 2-min ceiling.
@@ -9464,6 +9469,18 @@ supervisorScope {
         var supervisorAbort = false
         orderedMints.chunked(maxParallel).forEach { chunk ->
         if (supervisorAbort) return@forEach
+        val supervisorElapsedMs = System.currentTimeMillis() - _cycleStartMs
+        if (supervisorElapsedMs > maxBatchMillis + 2_000L) {
+            deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
+            supervisorAbort = true
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_OUTER_TIMEOUT",
+                    "loop=$loopCount elapsedMs=$supervisorElapsedMs processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
+                )
+            } catch (_: Throwable) {}
+            return@forEach
+        }
         if (!status.running) {
             supervisorAbort = true
             return@forEach
@@ -9550,11 +9567,8 @@ supervisorScope {
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
     } finally {
-        // V5.9.1008 — MUST run before supervisorScope can complete. If the
-        // infinite ticker remains a live child, supervisorScope waits forever
-        // and botLoop parks in SUPERVISOR after a few ticks. Keep all aborts
-        // inside this try as supervisorAbort + return@forEach; never use
-        // return@supervisorScope after progressTicker is launched.
+        // V5.9.1014 — cancel detached progress ticker. It is not a child of
+        // this block, so failure/latency here cannot pin botLoop in SUPERVISOR.
         try { progressTicker.cancel() } catch (_: Throwable) {}
     }
 }
