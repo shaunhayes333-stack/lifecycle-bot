@@ -7742,6 +7742,45 @@ class BotService : Service() {
         }
     }
 
+    /**
+     * V5.9.1027 — ORPHAN BOT-LOOP EXIT CHECK.
+     *
+     * Operator V5.9.1026 snapshot showed loop=17 firing SEVEN
+     * SUPERVISOR_CHUNK_TIMEOUTs and TWO POST_SUPERVISOR events. Cycle ms
+     * strictly alternated short/long ([12282, 675, 12545, 80, 12800,
+     * 180, ...]) — proof that TWO botLoop coroutines were running
+     * concurrently on the dedicated single-thread dispatcher, alternating
+     * at every suspension.
+     *
+     * Root cause: V5.9.1023 rescue calls `observedDeadJob?.cancel(...)`
+     * which is cooperative. A corpse wedged in non-cancellable JNI
+     * socket-read keeps running. When it unwedges, it resumes its
+     * botLoop() body alongside the freshly launched replacement — two
+     * concurrent supervisors, two PRE_SUPERVISOR/POST_SUPERVISOR pairs
+     * per "loopCount".
+     *
+     * This helper is called at the top of every botLoop iteration.
+     * Compares the caller's own Job reference (captured at entry) to
+     * the canonical `loopJob` field. If they differ, the caller is the
+     * orphan; emit a forensic event and return true so the caller's
+     * `while` loop exits.
+     *
+     * NOTE: extracted out of botLoop() to keep that method's bytecode
+     * under the JVM 64KB cap (same reason V5.9.1021 split out
+     * runSupervisorPhase).
+     */
+    private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {
+        val canonical = loopJob
+        if (myJob == null || canonical == null || canonical === myJob) return false
+        try {
+            ForensicLogger.lifecycle(
+                "BOTLOOP_ORPHAN_EXIT",
+                "myJob≠loopJob loop=$loopCount — corpse coroutine yielding to replacement"
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     private suspend fun botLoop() {
         // V5.9.919 — FIRST ACTION on botLoop entry: clear RESCUE_LAUNCHING
         // phase by stamping progress. Operator V5.9.916 freeze showed phase
@@ -7753,29 +7792,7 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "botLoop() started")
         ForensicLogger.lifecycle("BOTLOOP_STARTED", "scope.active=${scope.coroutineContext[kotlinx.coroutines.Job]?.isActive}")
 
-        // V5.9.1027 — ORPHAN BOT-LOOP EXIT.
-        //
-        // Operator V5.9.1026 snapshot showed loop=17 firing SEVEN
-        // SUPERVISOR_CHUNK_TIMEOUTs and TWO POST_SUPERVISOR events. Cycle
-        // ms pattern was strictly alternating short/long
-        // ([12282, 675, 12545, 80, 12800, 180, ...]) — proof that TWO
-        // botLoop coroutines were running concurrently on the dedicated
-        // single-thread dispatcher, alternating at every suspension.
-        //
-        // Root cause: the V5.9.1023 rescue path calls
-        // `observedDeadJob?.cancel(...)` cooperatively. If the corpse is
-        // wedged in a non-cancellable JNI socket-read, the cancellation
-        // request is marked but the coroutine keeps running. When it
-        // eventually unwedges, it resumes its botLoop() body alongside
-        // the freshly launched replacement — two concurrent supervisors,
-        // two PRE_SUPERVISOR/POST_SUPERVISOR pairs per "loopCount".
-        //
-        // Fix: capture this coroutine's own Job reference at boot. At
-        // the top of every iteration, compare against the canonical
-        // `loopJob` field. If they no longer match, this coroutine is
-        // the orphan (rescue has replaced it) → emit a forensic event
-        // and `return` cleanly. The freshly launched replacement is the
-        // sole authority.
+        // V5.9.1027 — orphan exit. See checkBotLoopOrphan() doc.
         val myJob: kotlinx.coroutines.Job? = try {
             currentCoroutineContext()[kotlinx.coroutines.Job]
         } catch (_: Throwable) { null }
@@ -7832,19 +7849,8 @@ class BotService : Service() {
         // V5.9.660 — lastTickStartMs removed; emitBotLoopTick tracks its
         // own prev-cycle delta via class field lastBotLoopTickMs.
         while (status.running) {
-          // V5.9.1027 — orphan exit. If `loopJob` no longer points to our
-          // Job, the rescue path has replaced us with a fresh botLoop
-          // coroutine. Stop running so we don't double the supervisor.
-          val canonical = loopJob
-          if (myJob != null && canonical != null && canonical !== myJob) {
-            try {
-              ForensicLogger.lifecycle(
-                "BOTLOOP_ORPHAN_EXIT",
-                "myJob≠loopJob loop=$loopCount — corpse coroutine yielding to replacement"
-              )
-            } catch (_: Throwable) {}
-            return
-          }
+          // V5.9.1027 — orphan exit (see checkBotLoopOrphan doc).
+          if (checkBotLoopOrphan(myJob, loopCount)) return
           try {
             loopCount++
 
