@@ -7806,6 +7806,12 @@ class BotService : Service() {
         wallet: com.lifecyclebot.network.SolanaWallet?,
         effectiveBalance: Double,
     ): Boolean {
+        // V5.9.1031b — local mirror of the legacy HARD_FLOOR_STOP_PCT
+        // constant declared inside rapidStopLossMonitor(). The original
+        // val was function-scoped (val HARD_FLOOR_STOP_PCT = 15.0) so it
+        // isn't visible from this helper. Behaviour-preserving copy of
+        // the same 15.0 hard floor.
+        val HARD_FLOOR_STOP_PCT_CONST = 15.0
         if (isInPaperSettleIn(ts, cfg.paperMode)) {
             return false
         }
@@ -7831,7 +7837,7 @@ class BotService : Service() {
                 TradeStateMachine.startCooldown(ts.mint)
                 true
             }
-            pnlPct <= -HARD_FLOOR_STOP_PCT -> {
+            pnlPct <= -HARD_FLOOR_STOP_PCT_CONST -> {
                 ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
                 addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
                 executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
