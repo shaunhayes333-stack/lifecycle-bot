@@ -5,7 +5,7 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1026 — Cap supervisor parallelism 96→32 to escape IO-pool contention (Feb 2026, CI ⏳)
+## V5.9.1026 — Cap supervisor parallelism 96→32 to escape IO-pool contention (Feb 2026, CI ✅✅)
 
 V5.9.1025 harvest fix landed but operator snapshot still showed
 processed=0 deferred=96 every cycle. The new ForensicLog message
