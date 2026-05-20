@@ -485,6 +485,10 @@ class MainActivity : AppCompatActivity() {
     private val OPEN_POS_MIN_RENDER_INTERVAL_MS: Long = 2_000L
     private var lastMoonshotHash: Int = -1
     private var lastNetworkSigRenderMs: Long = 0L
+    // V5.9.1013 — first-frame/navigation guard. Optional heavy panels and
+    // disk/network warmups wait until MainActivity has had a chance to draw.
+    private var activityCreatedAtMs: Long = 0L
+    private var postFirstFrameWarmupQueued: Boolean = false
     private var lastDecisionLogHash: Int = -1
     private var lastTradesRenderHash: Int = -1
     private var lastWatchlistRenderHash: Int = -1
@@ -502,6 +506,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activityCreatedAtMs = System.currentTimeMillis()
+        lastNetworkSigRenderMs = activityCreatedAtMs
         
         // Ensure ErrorLogger is initialized (backup - App class should have done this)
         try {
@@ -511,32 +517,9 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.e("MainActivity", "ErrorLogger init failed: ${e.message}")
         }
         
-        // ════════════════════════════════════════════════════════════════════════════
-        // FIX: Initialize TradeHistoryStore EARLY, BEFORE BotService starts
-        // This ensures Quick Stats persist across app restarts even if bot not running
-        // ════════════════════════════════════════════════════════════════════════════
-        try {
-            com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
-            com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized")
-            // V5.9.1011 — LearningPersistence.loadAll/importState can parse
-            // thousands of lessons. Snapshot showed MainActivity.onCreate ANR
-            // frames inside LearningPersistence.getBlob/TradeLessonRecorder.importState.
-            // BotService also initializes it; warm it from IO here, never on main.
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
-            }
-        } catch (e: Exception) {
-            com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore init failed: ${e.message}")
-        }
-        
-        // ════════════════════════════════════════════════════════════════════════════
-        // V5.7.7: Eagerly fetch SOL price so USD values display correctly immediately
-        // ════════════════════════════════════════════════════════════════════════════
-        try {
-            com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly()
-        } catch (e: Exception) {
-            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Eager SOL price fetch error: ${e.message}")
-        }
+        // V5.9.1013 — first frame before warmups. Do not load SQLite, parse
+        // learning blobs, fetch SOL price, or restore paper wallet before
+        // setContentView(); those were visible as 10-15s black-screen stalls.
         
         try {
             setContentView(R.layout.activity_main)
@@ -553,7 +536,7 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 com.lifecyclebot.engine.CurrencyManager(applicationContext)
             }
-            hydratePaperWalletForColdOpen("onCreate")
+            queuePostFirstFrameWarmups("onCreate")
             
             // Refresh currency rates immediately
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -806,7 +789,9 @@ class MainActivity : AppCompatActivity() {
                 com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "onResume refresh error: ${e.message}")
             }
         }
-        hydratePaperWalletForColdOpen("onResume")
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            hydratePaperWalletForColdOpen("onResume")
+        }
         // Update currency selector text (user may have changed currency)
         updateCurrencySelectorText()
         // V5.9.666 — start Pipeline tile badge refresher (every 3s).
@@ -1731,6 +1716,33 @@ for legal compliance.
         candleChart.invalidate()
     }
 
+    private fun queuePostFirstFrameWarmups(reason: String) {
+        if (postFirstFrameWarmupQueued) return
+        postFirstFrameWarmupQueued = true
+        try {
+            window.decorView.post {
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
+                        com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized post-frame ($reason)")
+                    } catch (e: Throwable) {
+                        com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore post-frame init failed: ${e.message}")
+                    }
+                    try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly() } catch (_: Throwable) {}
+                    hydratePaperWalletForColdOpen(reason)
+                }
+            }
+        } catch (_: Throwable) {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try { com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly() } catch (_: Throwable) {}
+                hydratePaperWalletForColdOpen(reason)
+            }
+        }
+    }
+
     /**
      * V5.9.630 — Cold-open paper balance hydration.
      * MainActivity can render before BotService.startBot() restores the paper wallet,
@@ -1826,8 +1838,7 @@ for legal compliance.
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
         val balSol = if (config.paperMode) {
             val livePaper = com.lifecyclebot.engine.BotService.status.paperWalletSol
-            if (livePaper > 0.001) livePaper
-            else com.lifecyclebot.engine.PaperWalletStore.restore(applicationContext, config).balanceSol
+            if (livePaper > 0.001) livePaper else ws.solBalance
         } else {
             ws.solBalance
         }
@@ -4669,9 +4680,11 @@ for legal compliance.
     
     // V5.6.29d: Render Network Signals from Collective Intelligence
     private fun renderNetworkSignals() {
-        // V5.9.709 — network signal panel doesn't change faster than 3s; skip if too soon
+        // V5.9.1013 — optional panel; skip during Activity transition. Snapshot
+        // showed black-screen stalls in renderNetworkSignals -> TextView/Layout.
         val now = System.currentTimeMillis()
-        if (now - lastNetworkSigRenderMs < 8_000L) return  // V5.9.726 — was 3s, raised to 8s
+        if (now - activityCreatedAtMs < 12_000L) return
+        if (now - lastNetworkSigRenderMs < 12_000L) return
         lastNetworkSigRenderMs = now
         try {
             val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
@@ -4714,7 +4727,7 @@ for legal compliance.
             val sortedSignals = signals.sortedWith(compareBy(
                 { when (it.signalType) { "MEGA_WINNER" -> 0; "HOT_TOKEN" -> 1; "AVOID" -> 2; else -> 3 } },
                 { -it.pnlPct }
-            )).take(10)  // Show max 10 signals
+            )).take(4)  // V5.9.1013: cap rows to reduce transition/layout work
             
             for (signal in sortedSignals) {
                 val row = LinearLayout(this).apply {
