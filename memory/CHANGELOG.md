@@ -5,6 +5,55 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1033 — Reliable Stop button: hard-cancel loopJob + abort in-flight HTTP (Feb 2026, CI ⏳)
+
+**P0 — Operator emergency**: V5.9.1031 snapshot showed `ACTION_STOP_RECEIVED
+source=ui_stop_button` at 04:03:26 but bot kept running 10+ minutes after.
+Stop button effectively dead. Start button also unresponsive (because the
+previous loopJob was still wedged).
+
+Root cause: `stopBot()` ONLY set `status.running = false`. That flag is
+read at the TOP of the next `botLoop` iteration. With supervisor cycles
+running 22-28s (95%+ chunks timing out at 4.8s each) and 32 OkHttp
+workers per chunk blocked inside synchronous `.execute()` which does
+NOT honour coroutine cancellation, stop was invisible to the user
+for an entire cycle PLUS however long it takes 32 sockets to time
+out (4s readTimeout + connect). Worst-case: 30-60 seconds. Operator
+hit a wedged variant (sockets stuck in CONNECT_WAIT for 10+ min).
+
+**Fix**:
+
+1. `stopBot()` now also calls:
+   ```kotlin
+   loopJob?.cancel(CancellationException("stopBot:$source"))
+   SharedHttpClient.cancelAllRequests()
+   ```
+   `loopJob.cancel()` wakes any suspended state-machine branch at its
+   next suspension point. `SharedHttpClient.cancelAllRequests()`
+   delegates to `Dispatcher.cancelAll()` — **every** in-flight AND
+   queued OkHttp call across the shared dispatcher is interrupted
+   immediately. The supervisor's `awaitAll()` returns within ms with
+   IOException("Canceled") instead of waiting for socket timeouts.
+
+2. New `SharedHttpClient.cancelAllRequests()` helper:
+   ```kotlin
+   fun cancelAllRequests() {
+       try { sharedDispatcher.cancelAll() } catch (_: Throwable) {}
+   }
+   ```
+   Idempotent, swallows throwables. Existing callers in flight see
+   `IOException("Canceled")` and unwind their try/catch normally.
+
+Net effect: pressing Stop reacts inside ~200ms instead of ~30-60s
+(or ∞ in the wedged variant). The startBot V5.9.730 STUCK-LOOP RESCUE
+path remains as a fallback if a stale loopJob ever lingers.
+
+Touched: `engine/BotService.kt:4848` (stopBot escape hatch),
+`network/SharedHttpClient.kt` (new `cancelAllRequests` helper).
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1032 → V5.9.1033.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1032 — Rate-limit balance after dispatcher un-choke (Feb 2026, CI ⏳)
 
 V5.9.1030's `maxRequestsPerHost=32` worked — operator V5.9.1031 snapshot

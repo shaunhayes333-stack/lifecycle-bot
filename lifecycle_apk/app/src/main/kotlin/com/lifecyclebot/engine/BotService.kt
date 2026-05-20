@@ -4844,6 +4844,29 @@ class BotService : Service() {
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
         status.running = false  // visible immediately; stopInProgress remains the cleanup truth
+
+        // V5.9.1033 — HARD-CANCEL ESCAPE HATCH.
+        //
+        // Operator V5.9.1031 freeze: pressed Stop, bot didn't react for
+        // 10+ minutes. Root cause: status.running=false only gets read
+        // at the TOP of the next botLoop iteration. With supervisor
+        // cycles taking 22-28s (95%+ chunks timing out at 4.8s each)
+        // and 32 OkHttp workers per chunk blocked inside synchronous
+        // .execute() that does NOT honour coroutine cancellation,
+        // stopBot effectively has to wait for every socket to time out.
+        //
+        // 1. Cancel loopJob explicitly — any suspended state-machine
+        //    branch wakes up at its next suspension point and exits.
+        // 2. SharedHttpClient.cancelAllRequests() aborts every in-flight
+        //    AND queued OkHttp call across the shared dispatcher. The
+        //    supervisor's awaitAll() returns within ms with IOException
+        //    instead of waiting 4.8s budget × 3 chunks = 14.4s drain.
+        try {
+            loopJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source"))
+        } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.network.SharedHttpClient.cancelAllRequests()
+        } catch (_: Throwable) {}
         try {
             try {
                 getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)

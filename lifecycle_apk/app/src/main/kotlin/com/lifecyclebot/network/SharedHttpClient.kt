@@ -61,6 +61,22 @@ object SharedHttpClient {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * V5.9.1033 — HARD-CANCEL escape hatch for stopBot().
+     *
+     * Aborts every in-flight OkHttp call AND every queued one on the
+     * shared dispatcher RIGHT NOW. Used by stopBot() so a wedged
+     * supervisor chunk (32 workers blocked inside .execute()) doesn't
+     * stretch UI stop response from "instant" to "30-60 seconds".
+     *
+     * Safe to call any time — idempotent, swallows all throwables.
+     * Existing calls already in flight will see IOException("Canceled")
+     * and unwind their callers normally.
+     */
+    fun cancelAllRequests() {
+        try { sharedDispatcher.cancelAll() } catch (_: Throwable) {}
+    }
+
     /** Returns a new builder backed by the shared connection pool/dispatcher. */
     fun builder(): OkHttpClient.Builder = base.newBuilder()
 }
