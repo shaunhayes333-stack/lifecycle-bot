@@ -9453,14 +9453,12 @@ supervisorScope {
         } catch (_: kotlinx.coroutines.CancellationException) { /* normal */ }
     }
 
-    // V5.9.1007 — DO NOT return out of supervisorScope before the
-    // progressTicker cleanup runs. return@supervisorScope skips the
-    // progressTicker.cancel() line below; because that ticker is a child
-    // of this supervisorScope and loops forever, the scope then waits on
-    // its own ticker forever. Symptom: exactly a few BOT_LOOP_TICKs, then
-    // phase=SUPERVISOR forever while scanner side-jobs keep logging.
-    var supervisorAbort = false
-    orderedMints.chunked(maxParallel).forEach { chunk ->
+    // V5.9.1008 — Harden V5.9.1007 with structural try/finally.
+    // progressTicker is an infinite child of supervisorScope. Its cancel must
+    // be impossible to skip from any future return/throw inside the body.
+    try {
+        var supervisorAbort = false
+        orderedMints.chunked(maxParallel).forEach { chunk ->
         if (supervisorAbort) return@forEach
         if (!status.running) {
             supervisorAbort = true
@@ -9562,11 +9560,14 @@ supervisorScope {
         // token hangs the whole chunk.
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
-    // V5.9.1007 — MUST run before supervisorScope can complete. If this is
-    // skipped by an early return, the infinite ticker remains a live child and
-    // supervisorScope never exits. Keep all supervisor aborts as return@forEach
-    // + supervisorAbort, never return@supervisorScope above this line.
-    try { progressTicker.cancel() } catch (_: Throwable) {}
+    } finally {
+        // V5.9.1008 — MUST run before supervisorScope can complete. If the
+        // infinite ticker remains a live child, supervisorScope waits forever
+        // and botLoop parks in SUPERVISOR after a few ticks. Keep all aborts
+        // inside this try as supervisorAbort + return@forEach; never use
+        // return@supervisorScope after progressTicker is launched.
+        try { progressTicker.cancel() } catch (_: Throwable) {}
+    }
 }
 
 if (deferredCount > 0) {
