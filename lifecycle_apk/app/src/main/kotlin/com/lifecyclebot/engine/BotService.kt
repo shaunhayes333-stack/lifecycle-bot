@@ -7523,6 +7523,11 @@ class BotService : Service() {
         val FRESH_WINDOW_MS = 60_000L
         val PER_CYCLE_CAP = 96
         val STALE_PROCESS_COUNT_THRESHOLD = 12
+        // V5.9.1034 — Operator mandate: cap watchlist at 250, prune stale
+        // tokens after 5 minutes idle. "we are burning a lot of data there
+        // on every loop". Open positions are always exempt (see forcedOpenMints).
+        val STALE_AGE_MS = 5L * 60_000L              // 5 minutes since last touch
+        val MAX_ACTIVE_WATCHLIST = 250
 
         val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
@@ -7572,7 +7577,69 @@ class BotService : Service() {
             } catch (_: Throwable) {}
         }
 
-        val coldMutable = coldFiltered.toMutableList()
+        // V5.9.1034 — TIME-BASED stale eviction (5 minutes idle).
+        // Operator mandate: "prune stale or non moving tokens after 5 minutes".
+        // Applies only to tokens that have been processed at least once and
+        // aren't open positions (forcedOpenMints set is the protection list).
+        // This complements the existing process-count-based eviction; together
+        // they drain the dormant pool without the operator-flagged loop burn.
+        val timeStaleEvict = mutableListOf<String>()
+        val coldAfterTime = coldFiltered.filter { (mint, lastTouch) ->
+            if (mint in forcedOpenMints) return@filter true
+            val entry = entriesByMint[mint] ?: return@filter true
+            if (entry.processCount >= 1 && (nowMs - lastTouch) > STALE_AGE_MS) {
+                timeStaleEvict.add(mint)
+                false
+            } else true
+        }
+        if (timeStaleEvict.isNotEmpty()) {
+            timeStaleEvict.forEach { mint ->
+                try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "STALE_5MIN")
+                } catch (_: Throwable) {}
+            }
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WATCHLIST_STALE_EVICT_TIME",
+                    "evicted=${timeStaleEvict.size} ageMs=$STALE_AGE_MS"
+                )
+            } catch (_: Throwable) {}
+        }
+
+        // V5.9.1034 — HARD CAP enforcement at 250 active watchlist entries.
+        // Operator mandate: "the watch list is now obviously way too big as
+        // well... reduce the watchlist size to 250". Open positions
+        // (forcedOpenMints) always exempt — the cap only evicts cold dormant
+        // tokens, never anything actively being traded. Eviction order:
+        // oldest lastProcessedAt first.
+        val currentActiveSize = try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries().size
+        } catch (_: Throwable) { coldAfterTime.size + fresh.size + unseen.size + forcedOpenMints.size }
+        var coldAfterCap = coldAfterTime
+        if (currentActiveSize > MAX_ACTIVE_WATCHLIST) {
+            val excess = currentActiveSize - MAX_ACTIVE_WATCHLIST
+            val capEvict = coldAfterTime
+                .filterNot { it.first in forcedOpenMints }
+                .sortedBy { it.second }
+                .take(excess)
+            capEvict.forEach { (mint, _) ->
+                try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "CAP_${MAX_ACTIVE_WATCHLIST}")
+                } catch (_: Throwable) {}
+            }
+            if (capEvict.isNotEmpty()) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "WATCHLIST_CAP_EVICT",
+                        "evicted=${capEvict.size} cap=$MAX_ACTIVE_WATCHLIST sizeBefore=$currentActiveSize"
+                    )
+                } catch (_: Throwable) {}
+                val evictedSet = capEvict.map { it.first }.toSet()
+                coldAfterCap = coldAfterTime.filterNot { it.first in evictedSet }
+            }
+        }
+
+        val coldMutable = coldAfterCap.toMutableList()
         coldMutable.sortBy { it.second }
 
         val picked = mutableListOf<String>()

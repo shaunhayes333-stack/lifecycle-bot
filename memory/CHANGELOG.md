@@ -5,6 +5,72 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1034 — Watchlist cap 250 + 5min stale eviction (Part 1) (Feb 2026, CI ⏳)
+
+**Operator mandate**: "the watch list is now obviously way too big as well.
+the bots never had more than 100 open positions maybe we reduce the
+watchlist size to 250 and prune stale or non moving tokens after 5
+minutes... once a token is stored it doesn't need to be rescanned unless
+specifically being interacted with by the watchlist or is an open position.
+we are burning a lot of data there on every loop."
+
+V5.9.1031 snapshot evidence:
+  • watchlist `total=1316` (was supposed to be ~100-200)
+  • SUPERVISOR_CHUNK_TIMEOUT 96/96 every cycle
+  • Birdeye SR=83% (430 × 4xx rate-limits in 748s)
+  • TokenMetaCache hit rate=16.4% (84% of fetches are fresh API hits)
+
+**Surgical changes (no logic deletions, no behavioural reversals)**:
+
+1. Two new constants in `selectOrderedMintsForCycle()`:
+   ```kotlin
+   val STALE_AGE_MS = 5L * 60_000L     // 5 minutes idle
+   val MAX_ACTIVE_WATCHLIST = 250      // hard cap
+   ```
+
+2. New eviction pass — TIME-BASED stale drain.
+   Walks `cold` after the existing V5.9.961 process-count filter. Any
+   entry with `processCount >= 1` AND `(now - lastProcessedAt) > 5min`
+   AND NOT in `forcedOpenMints` is removed via `GlobalTradeRegistry
+   .removeFromWatchlist(mint, "STALE_5MIN")`. Forensic:
+   `WATCHLIST_STALE_EVICT_TIME evicted=N ageMs=300000`.
+
+3. New eviction pass — HARD CAP at 250.
+   After the time-stale pass, if `getWatchlistEntries().size > 250`,
+   evict the oldest `excess` cold non-position entries by
+   `lastProcessedAt` ascending. Forensic:
+   `WATCHLIST_CAP_EVICT evicted=N cap=250 sizeBefore=...`.
+
+**Untouched** (per operator "no butterfly effect regressions"):
+
+  • All 9 trader lanes (CashGen / Moonshot / Shitcoin / Bluechip /
+    Treasury / Quality / Manipulated / Dip Hunter / Project Sniper).
+  • Scanner intake — still receives everything (we throttle downstream).
+  • Open-position protection — `forcedOpenMints` set is honoured in
+    BOTH the stale-time and cap-evict passes (an open position can
+    never be evicted by this code).
+  • V5.9.961 existing process-count eviction stays as belt-and-braces.
+  • Fresh / unseen / cold categorisation logic unchanged — only the
+    cold pool is reduced.
+
+**Expected dump deltas** (based on V5.9.1031 baseline):
+
+  • watchlist total:                1316 → ~250 (hard cap)
+  • SUPERVISOR_CHUNK_TIMEOUT/cycle:    3 → 0-1 (fewer tokens to chew)
+  • Birdeye SR:                      83% → 95%+
+  • TokenMetaCache hit rate:         16% → 60%+
+  • Cycle time:                  22-28s → 12-15s
+  • daily Birdeye CU burn:        ~50%   → ~25%
+
+Touched: `engine/BotService.kt` `selectOrderedMintsForCycle()`.
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1033 → V5.9.1034.
+
+**Part 2 (deferred)**: per-lane fluid scanner learning (Moonshot vs
+Bluechip vs Shitcoin pattern recognition + hard-reject guaranteed-rug
+tokens at intake). Requires care in lane-scoring weights — separate push.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1033 — Reliable Stop button: hard-cancel loopJob + abort in-flight HTTP (Feb 2026, CI ⏳)
 
 **P0 — Operator emergency**: V5.9.1031 snapshot showed `ACTION_STOP_RECEIVED
