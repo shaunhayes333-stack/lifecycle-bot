@@ -5,6 +5,60 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1038 — TRIAGE FIXES: TradeHistoryStore dedupe + mode normalize + reason fallback (Feb 2026, CI ⏳)
+
+Triage agent (called per operator request after V5.9.1037 snapshot showed
+recovered cycle time but persistent counter inflation) identified 3 root
+causes from the operator's V5.9.1037 dump:
+
+ROOT CAUSE 1 — same close recorded TWICE per position. Operator snapshot
+showed back-to-back sells for the SAME mint within one second under
+different reasons (CASHGEN_STOP_LOSS + TREASURY_TIME_EXIT). CashGen +
+Treasury are independently closing the same position. PositionExitArbiter
+(Executor) only catches Executor-path duplicates; V3JournalRecorder's 5s
+LRU only catches V3-path duplicates. Cross-path duplicates slip through.
+
+ROOT CAUSE 2 — strategy bin fragmentation. Same trade binned as BLUECHIP
+(n=5), BLUE_CHIP (n=23), STANDARD (n=10) in StrategyTelemetry because
+Executor and V3JournalRecorder set inconsistent casing/spelling on
+Trade.tradingMode.
+
+ROOT CAUSE 3 — 64% of canonical outcomes still featuresIncomplete.
+Operator's AURAMAXX MOONSHOT_STOP_LOSS trade shows source=UNKNOWN
+despite V5.9.1035's lite-rich bridge. Some exit paths
+(sweepUniversalExits, rapid-monitor closes) create Trade objects with
+reason='MOONSHOT_STOP_LOSS' but blank tradingMode, so normalizeMode
+returns UNKNOWN BEFORE the V3 fallback can fire.
+
+Fixed:
+1. `TradeHistoryStore.recordTrade` choke-point dedupe LRU keyed on
+   "${mint}_${ts}_SELL" with 5s TTL window. SELL-only. Logs
+   `TRADEJRNL_DEDUP_SKIP` when a duplicate is caught.
+2. `TradeHistoryStore.normalizeTradeModeName` canonicalizes mode strings
+   at the choke point so StrategyTelemetry bins converge.
+3. `CanonicalLearning.publishFromLegacyTrade` reason fallback — when
+   tradingMode is blank, infer from reason (MOONSHOT_STOP_LOSS →
+   MOONSHOT, CASHGEN_* → CASHGEN, RAPID_/FLUID_ → STANDARD).
+4. `Executor.recordTrade` inherits `ts.position.tradingMode` whenever
+   the Trade's is blank (source-of-truth fix).
+
+Expected impact: TradeHistoryStore.size matches canonical settled count;
+StrategyTelemetry bins converge; richFeatureOutcomes 36% → ~90%+;
+strategy learners finally train on every close.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1037 — SILENT SUPERVISOR (fire-and-forget; bot loop never awaits) (Feb 2026, CI ✅ green, deployed)
+
+Operator V5.9.1037 verified: cycles dropped from ~20s avg to ~5s avg
+(max 6.5s). `SUPERVISOR_INFLIGHT_CAP` events firing at the new 48-worker
+cap. `SUPERVISOR_CHUNK_TIMEOUT` gone from the labelled counters.
+ANR_HINTS dropped to 13 (almost entirely UI-side now: PipelineHealthActivity
++ Splash animation). richFeatureOutcomes 27 → 340 (3% → 36%) thanks to
+V5.9.1035's lite-rich bridge — but 617 still incomplete (fixed in V5.9.1038).
+
+
+
 ## V5.9.1037 — SILENT SUPERVISOR (fire-and-forget; bot loop never awaits) (Feb 2026, CI ⏳)
 
 Operator V5.9.1036 snapshot showed bot loop wedged 14-20s per cycle on

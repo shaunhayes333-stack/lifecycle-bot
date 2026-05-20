@@ -6,7 +6,14 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1026 (Feb 2026, CI ✅✅)
+## Latest Build — V5.9.1038 (Feb 2026, CI ✅✅)
+- **Silent supervisor (V5.9.1037)**: bot loop fires workers via `GlobalScope.launch` (no async/awaitAll/withTimeoutOrNull). Cycle time dropped from ~20s to ~5s. SUPERVISOR_CHUNK_TIMEOUT events gone.
+- **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU (kills cross-path duplicates from Treasury+CashGen closing same position), normalizeTradeModeName collapses BLUECHIP/BLUE_CHIP/STANDARD into canonical bins, CanonicalLearning.publishFromLegacyTrade reason-fallback infers MOONSHOT/CASHGEN/etc from close reason when tradingMode is blank, Executor.recordTrade inherits pos.tradingMode.
+- **ANR fixes (V5.9.1036)**: LearningPersistence.loadAll + MemeMintRegistry.restoreFromDisk moved off-main → ANR stall 29.9% → 8.7%.
+- **Intake Part 2 (V5.9.1035-36)**: INTAKE_LIQ_ZERO_REJECT (dust liq<$1 mcap<$10), INTAKE_BURST_REJECT (≥5 distinct mints/symbol/60s clone-storms) — both confirmed firing in operator dumps.
+- **Lite-rich bridge (V5.9.1035)**: publishFromLegacyTrade builds source-derived CandidateFeatures so strategy learners actually train.
+
+## Previous Build — V5.9.1026 (Feb 2026, CI ✅✅)
 - **Bot is alive & trading.** V5.9.1023 added a dedicated bot-loop dispatcher (escapes Dispatchers.IO starvation when supervisor JNI socket-reads wedge); V5.9.1024 added reactive `ApiBackoff` on 4xx/5xx (DexScreener went 49%→99% SR); V5.9.1025 harvests completed supervisor work on chunk timeout; V5.9.1026 caps supervisor parallelism at 32 (was 96) so workers actually fit the IO-pool + OkHttp connection budgets and complete inside the 2.5s chunk budget.
 - STALE_LIVE_PRICE_RUG_ESCAPE now requires last-known PnL ≤ 0 to fire (no more phantom-rug nukes on dark-feed winners).
 
