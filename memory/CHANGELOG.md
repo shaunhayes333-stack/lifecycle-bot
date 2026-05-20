@@ -5,6 +5,61 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1023 — Dedicated bot-loop dispatcher + stale-price PnL corroboration (Feb 2026, CI ⏳)
+
+Operator V5.9.1022 snapshot showed the bot completely dead — phase wedged
+in `RESCUE_LAUNCHING` for the entire 10-minute log window. Every 180s the
+heartbeat fired `HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT` → `performService
+ScopeRescue` → `scope.launch(Dispatchers.IO) { botLoop() }` with
+`newJobActive=true`. But botLoop's FIRST line — `markProgress("BOTLOOP_
+BOOT")` — never ran. No `BOTLOOP_STARTED`, no `BOTLOOP_RESCUE_THREW`. The
+coroutine was queued but never got CPU time. CryptoAltTrader and the
+PumpPortal WS kept running fine because they live on independent scopes.
+
+**Q1 (THE bug — bot completely dead)**
+
+Root cause: `Dispatchers.IO` thread-pool starvation. The supervisor phase
+launches up to 96 parallel OkHttp `.execute()` calls on Dispatchers.IO.
+When Helius/Birdeye/DexScreener wedge in JNI socket reads, those threads
+ignore `cancel()` (native code is uncancellable). Each 2-min rescue
+cancels the corpse and launches a NEW botLoop on the SAME saturated
+pool. After 2-3 rescues all 64 default IO threads are wedged and new
+launches queue indefinitely.
+
+Fix: dedicated OS thread via `Executors.newSingleThreadExecutor`
+wrapped as a `CoroutineDispatcher`. The thread is daemon + named
+`AATE-BotLoop-Dedicated` + priority NORM+1. It is exclusive to botLoop
+dispatch (startBot AND rescue paths). Even if every Dispatchers.IO
+thread is wedged in JNI, this thread is alive and ready to execute the
+first `markProgress("BOTLOOP_BOOT")` within milliseconds.
+
+Note: `Dispatchers.IO.limitedParallelism(1)` was the troubleshoot-agent's
+initial suggestion but does NOT solve the problem — that view shares
+the underlying IO scheduler workers, so when the scheduler is saturated
+the limited view also has zero free threads.
+
+Touched: BotService.kt L376 (field decl), L3211 (startBot launch),
+L7502 (rescue launch).
+
+**Q2 (stale-price phantom-rug nukes)**
+
+Operator V5.9.1022 also reported "first 60 trades are instant death".
+Snapshot showed `STALE_LIVE_PRICE_RUG_ESCAPE` firing on positions where
+the API feed went dark for 90-180s — DexScreener at 48% HTTP success
+rate, Birdeye/Helius hitting paid-tier limits. A dark feed alone is
+NOT a rug.
+
+Comment block at L5971-5987 already documented the intended TWO-condition
+rule: `(a) price age threshold AND (b) PnL from last-known price is NOT
+actively winning`. But the actual code only checked (a). Added the (b)
+gate: if last-known PnL > 0 (we were green before the feed died), the
+rug hypothesis is weaker than the API-throttle hypothesis — emit
+`STALE_LIVE_PRICE_HOLD_WINNER` forensic and ride out the dark period.
+
+Touched: BotService.kt around L5993.
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1022 — Triage round 4: whale spam + catastrophe + double-sell + live-sol (Feb 2026, CI ✅ build, smoke pending)
 
 Operator V5.9.1021 install (build 2976, latest green APK). Bot finally

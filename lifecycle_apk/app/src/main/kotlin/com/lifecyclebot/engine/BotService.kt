@@ -374,6 +374,40 @@ class BotService : Service() {
     }
 
     private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
+
+    // V5.9.1023 — DEDICATED BOT-LOOP DISPATCHER.
+    //
+    // Operator V5.9.1022 snapshot showed the bot completely dead, stuck in
+    // phase=RESCUE_LAUNCHING for 10+ minutes. Every 180s the heartbeat fired
+    // a new performServiceScopeRescue → scope.launch(Dispatchers.IO) → newJob
+    // active=true, but botLoop's FIRST line (markProgress("BOTLOOP_BOOT"))
+    // never ran. No BOTLOOP_STARTED, no BOTLOOP_RESCUE_THREW — the coroutine
+    // was queued but never got CPU time.
+    //
+    // Root cause: Dispatchers.IO thread-pool starvation. The supervisor phase
+    // launches up to 96 parallel OkHttp .execute() blocking calls. When
+    // Helius/Birdeye/DexScreener wedge in JNI socket-reads, those calls
+    // ignore cancel() (native code is uncancellable). Each rescue cancels
+    // the corpse and launches a NEW botLoop on the SAME saturated pool;
+    // after a few rescues all 64 default IO threads are wedged and new
+    // launches queue indefinitely.
+    //
+    // Fix: a dedicated OS thread that NEVER shares with Dispatchers.IO. Even
+    // if all 64 IO threads are wedged in JNI socket-reads, this thread is
+    // alive and ready to execute botLoop. The thread is daemon (won't keep
+    // the JVM alive) and exclusive to botLoop/rescue dispatch. Note:
+    // Dispatchers.IO.limitedParallelism(1) would NOT suffice — it shares the
+    // underlying scheduler and would also stall when the parent pool is
+    // wedged. We need a separate OS thread to guarantee liveness.
+    private val botLoopExecutor: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "AATE-BotLoop-Dedicated").apply {
+                isDaemon = true
+                priority = Thread.NORM_PRIORITY + 1   // mild boost so it preempts cheap IO chatter
+            }
+        }
+    private val botLoopDispatcher: CoroutineDispatcher = botLoopExecutor.asCoroutineDispatcher()
+
     private val dex    = DexscreenerApi()
     private var wakeLock: PowerManager.WakeLock? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -3174,7 +3208,7 @@ class BotService : Service() {
         botStartTimeMs = System.currentTimeMillis()
 
         addLog("✓ Starting bot loop...")
-        loopJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { botLoop() } // V5.9.721-FIX: IO dispatcher prevents Default pool saturation from zombie coroutines
+        loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
 
         // V5.9.905 — HIGH-FREQUENCY EXIT MANAGER LOOP.
         // Independent of scanner throughput. Ticks every 2s, walks every
@@ -5963,9 +5997,44 @@ class BotService : Service() {
                                 if (posAgeForStale > 60_000L) 90_000L else 120_000L       // 90s / 120s in LIVE (real money)
                             }
                             if (livePriceAgeMs > staleLivePriceThreshMs && ts.position.isOpen) {
+                                // V5.9.1023 — PNL CORROBORATION GATE.
+                                //
+                                // Operator V5.9.1022 snapshot: "first 60 trades are instant
+                                // death" — bot was force-exiting tokens at phantom -24% to
+                                // -74% losses purely because DexScreener/Birdeye/Helius hit
+                                // rate limits and the price feed went dark for 90-180s. A
+                                // dark feed alone is NOT a rug. The comment block at L5971
+                                // documented the intended TWO-condition rule but the
+                                // implementation only ever checked condition (a).
+                                //
+                                // Required gates:
+                                //   (a) livePriceAgeMs > staleLivePriceThreshMs  (already)
+                                //   (b) last-known PnL is NOT in profit  (NEW)
+                                //
+                                // Reasoning: a real rug happens AFTER the last price tick,
+                                // so lastKnown PnL is ~entry-flat or slightly negative when
+                                // the feed dies — that's still allowed to fire. But if we
+                                // were already up +20% before the feed went dark, the rug
+                                // hypothesis is much weaker than the "API rate-limited"
+                                // hypothesis and we should ride out the dark period rather
+                                // than nuke a winner. Operator words: "stale-feed AND
+                                // last-known PnL is already in the red".
+                                val lastKnownPnlPct = if (ts.position.entryPrice > 0 && ts.lastPrice > 0)
+                                    ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                                else 0.0
+                                val pnlCorroborates = lastKnownPnlPct <= 0.0
+                                if (!pnlCorroborates) {
+                                    try {
+                                        ForensicLogger.lifecycle(
+                                            "STALE_LIVE_PRICE_HOLD_WINNER",
+                                            "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} ageS=${livePriceAgeMs/1000} — feed dark but position green, riding out"
+                                        )
+                                    } catch (_: Throwable) {}
+                                    continue
+                                }
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), force-exit")
-                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s — assume rug", ts.mint)
+                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, force-exit")
+                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
                                 // V5.9.715-FIX: same as STALE_PRICE_RUG_ESCAPE — paper mode
@@ -7430,7 +7499,7 @@ class BotService : Service() {
             lastProgressAtMs = nowMs
             currentPhase = "RESCUE_LAUNCHING"
 
-            val newJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val newJob = scope.launch(botLoopDispatcher) {
                 try { botLoop() } catch (t: Throwable) {
                     ErrorLogger.error("BotService", "rescued botLoop threw: ${t.message}", t)
                     ForensicLogger.lifecycle(
