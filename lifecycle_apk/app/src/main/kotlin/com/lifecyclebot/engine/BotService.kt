@@ -6838,6 +6838,14 @@ class BotService : Service() {
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val intakeDedupTtlMs: Long = 30_000L
 
+    // V5.9.1035 — Part 2 (C): symbol-burst spam tracker. Per-symbol
+    // sliding window of recent (mint, timestamp) admits; if >5 distinct
+    // mints land for the same symbol inside 60s the rest are rejected
+    // at the door (clone-storm guaranteed rugs).
+    private val symbolBurstWindow = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedDeque<Pair<String, Long>>>()
+    private val SYMBOL_BURST_WINDOW_MS: Long = 60_000L
+    private val SYMBOL_BURST_MAX_MINTS: Int = 5
+
     private fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
@@ -6876,6 +6884,75 @@ class BotService : Service() {
                 )
             } catch (_: Throwable) {}
             return false
+        }
+
+        // V5.9.1035 — PART 2 (D): ZERO-LIQUIDITY INTAKE REJECT.
+        // Operator V5.9.1034b dump showed pump.fun spam landing with liq=$0 +
+        // mcap=$0 + single-source + no user/restore attribution. Those are
+        // guaranteed dust mints — no executable pool, no FDG signal, just
+        // memory + scanner cycles burned. Probation routing only stops the
+        // bot-loop poll cost; the API quota is still spent fetching them on
+        // intake. Reject at the door so the watchlist + intake-dedupe maps
+        // never see them.
+        run {
+            val isZeroLiq = liquidityUsd <= 0.0 && marketCapUsd <= 0.0
+            val isSingleSrc = allSources.size <= 1
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED")
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            if (isZeroLiq && isSingleSrc && !isUserAdded && !isRestoredVetted) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_LIQ_ZERO_REJECT",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
+
+        // V5.9.1035 — PART 2 (C): SYMBOL-BURST HARD REJECT.
+        // Pump.fun spam clone-storms (5+ different mints with the same
+        // symbol in <60s) are guaranteed rugs — bot-name patterns being
+        // mass-deployed by orchestrators. Per-mint dedupe doesn't catch
+        // them (different mints) and family-dedup runs much later (only
+        // on open positions). Track recent admit timestamps per
+        // case-insensitive symbol key; if 5+ DISTINCT mints land in 60s,
+        // reject the rest. User/restore paths exempt. Sliding-window list
+        // is pruned-on-write so the map cannot grow unbounded.
+        run {
+            val sym = symbol.trim().lowercase()
+            if (sym.isBlank()) return@run
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED")
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            if (isUserAdded || isRestoredVetted) return@run
+            val burst = symbolBurstWindow.getOrPut(sym) { java.util.concurrent.ConcurrentLinkedDeque() }
+            val cutoff = System.currentTimeMillis() - SYMBOL_BURST_WINDOW_MS
+            // Prune stale entries.
+            while (true) {
+                val head = burst.peekFirst() ?: break
+                if (head.second < cutoff) burst.pollFirst() else break
+            }
+            // Count distinct mints in the live window (excluding this mint).
+            val distinctMints = burst.asSequence().map { it.first }.distinct().count { it != mint }
+            if (distinctMints >= SYMBOL_BURST_MAX_MINTS) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_BURST_REJECT",
+                        "symbol=$sym distinctMints=$distinctMints windowMs=$SYMBOL_BURST_WINDOW_MS src=$source thisMint=${mint.take(10)}",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+            burst.addLast(mint to System.currentTimeMillis())
+            // Opportunistic outer-map prune. Keeps total entries bounded
+            // across long sessions without scanning every tick.
+            if (symbolBurstWindow.size > 512) {
+                val it = symbolBurstWindow.entries.iterator()
+                while (it.hasNext()) {
+                    val e = it.next()
+                    if (e.value.isEmpty() || (e.value.peekLast()?.second ?: 0L) < cutoff) it.remove()
+                }
+            }
         }
 
         // V5.9.768 — per-mint intake dedupe (see field-doc above).

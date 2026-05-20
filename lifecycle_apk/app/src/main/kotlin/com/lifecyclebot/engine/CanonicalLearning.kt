@@ -612,6 +612,24 @@ object CanonicalOutcomeBus {
         val executionResult = if (trade.sig.isNotBlank() || env == TradeEnvironment.PAPER)
             ExecutionResult.EXECUTED else ExecutionResult.UNKNOWN
 
+        // V5.9.1035 — LITE-RICH LEGACY BRIDGE. Pre-V5.9.1035 every legacy
+        // bridge publish defaulted featuresIncomplete=true → BehaviorLearning
+        // + AdaptiveLearningEngine skipped 97% of outcomes (operator V5.9.1034b
+        // dump: rich=27 incomplete=826, strategy-trainable=14 of 514). Strategy
+        // learning was effectively useless. The Trade record doesn't carry
+        // TokenState, so we can't reproduce the full CanonicalFeaturesBuilder
+        // payload — but we DO have authoritative mode + source mapping, which
+        // already gives us trader/venue/route/assetClass at lane granularity.
+        // For any known mode (non-UNKNOWN), build a lite-rich CandidateFeatures
+        // with the inferable fields populated and use "LIQ_UNKNOWN"/"MCAP_UNKNOWN"
+        // markers for buckets we lack (the bucket→numeric helpers in
+        // AdaptiveLearningEngine already have safe `else ->` defaults). Pattern
+        // signatures collide a bit more than the rich Executor.recordTrade path,
+        // but the brains actually LEARN from every settled trade now instead of
+        // 3% of them. Modes that normalise to UNKNOWN (very rare — only happens
+        // when Trade.tradingMode is blank/garbage) stay incomplete.
+        val (liteCandidate, liteIncomplete) = buildLiteLegacyCandidate(trade, mode, source, assetClass, env)
+
         val outcome = CanonicalTradeOutcome(
             tradeId = tradeId,
             mint = trade.mint,
@@ -634,8 +652,73 @@ object CanonicalOutcomeBus {
             result = result,
             executionResult = executionResult,
             closeReason = trade.reason.ifBlank { null },
+            candidate = liteCandidate,
+            featuresIncomplete = liteIncomplete,
         )
         publish(outcome)
+    }
+
+    /**
+     * V5.9.1035 — Build a LITE-RICH CandidateFeatures payload from a Trade
+     * record alone (no TokenState available). Populates the fields whose
+     * absence triggers the "missing" check in CanonicalFeaturesBuilder
+     * (trader, venue, route, assetClass, runtimeMode, liqBucket, mcapBucket).
+     * Returns (candidate, isIncomplete) — incomplete only when mode is
+     * UNKNOWN (i.e., Trade.tradingMode was blank or unrecognised).
+     */
+    private fun buildLiteLegacyCandidate(
+        trade: Trade,
+        mode: TradeMode,
+        source: TradeSource,
+        assetClass: AssetClass,
+        env: TradeEnvironment,
+    ): Pair<CandidateFeatures?, Boolean> {
+        if (mode == TradeMode.UNKNOWN) return null to true
+        val venue: String = when (source) {
+            TradeSource.SHITCOIN, TradeSource.MOONSHOT, TradeSource.MANIP,
+            TradeSource.EXPRESS, TradeSource.CYCLIC, TradeSource.COPYTRADE -> "PUMP_FUN_BONDING"
+            TradeSource.BLUECHIP -> "JUPITER"
+            TradeSource.TREASURY -> "JUPITER"
+            TradeSource.MARKETS -> "JUPITER"
+            TradeSource.V3 -> "PUMP_FUN_BONDING"
+            else -> "UNKNOWN"
+        }
+        if (venue == "UNKNOWN") return null to true
+        val route: String = when (venue) {
+            "PUMP_FUN_BONDING" -> "PUMP_NATIVE"
+            "PUMPSWAP" -> "PUMPPORTAL"
+            else -> "JUPITER"
+        }
+        val cand = CandidateFeatures(
+            assetClass = assetClass.name,
+            runtimeMode = env.name,
+            trader = mode.name,
+            venue = venue,
+            route = route,
+            bondingCurveActive = venue == "PUMP_FUN_BONDING",
+            migrated = false,
+            ageBucket = "",                 // unknown from Trade record alone
+            liqBucket = "LIQ_UNKNOWN",      // marker — bucket→numeric helpers default-safe
+            mcapBucket = "MCAP_UNKNOWN",
+            volVelocity = "",
+            buyPressure = "",
+            sellPressure = "",
+            holderGrowth = "",
+            holderConcentration = "",
+            rugTier = "",
+            safetyTier = "",
+            mintAuthority = "",
+            freezeAuthority = "",
+            slippageBucket = "",
+            entryPattern = "LEGACY_LITE",
+            bubbleClusterPattern = "",
+            fdgReasonFamily = "",
+            symbolicVerdict = "",
+            exitReasonFamily = trade.reason.ifBlank { "" },
+            holdBucket = "",
+            manualOrExternalClose = false,
+        )
+        return cand to false
     }
 
     private fun inferAssetClassAndSource(mode: TradeMode): Pair<AssetClass, TradeSource> = when (mode) {
@@ -648,6 +731,17 @@ object CanonicalOutcomeBus {
         TradeMode.ALTTRADER -> AssetClass.CRYPTO_ALT_SPOT to TradeSource.MARKETS
         TradeMode.CYCLIC -> AssetClass.MEME to TradeSource.CYCLIC
         TradeMode.COPY_TRADE -> AssetClass.MEME to TradeSource.COPYTRADE
+        // V5.9.1035 — Trade.tradingMode defaults to "STANDARD" so most
+        // meme closes (Quality lane, default ShitCoin sub-lane) used to
+        // normalise to TradeMode.STANDARD and then collapse here to
+        // (UNKNOWN, UNKNOWN) — collapsing strategy learning. Route
+        // STANDARD/PROJECT_SNIPER/DIP_HUNTER/COMMUNITY into the MEME
+        // bucket via TradeSource.V3 (which already maps to
+        // PUMP_FUN_BONDING in CanonicalFeaturesBuilder).
+        TradeMode.STANDARD,
+        TradeMode.PROJECT_SNIPER,
+        TradeMode.DIP_HUNTER,
+        TradeMode.COMMUNITY -> AssetClass.MEME to TradeSource.V3
         else -> AssetClass.UNKNOWN to TradeSource.UNKNOWN
     }
 }
