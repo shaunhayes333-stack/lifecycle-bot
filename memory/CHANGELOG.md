@@ -5,7 +5,40 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1034 — Watchlist cap 250 + 5min stale eviction (Part 1) (Feb 2026, CI ⏳)
+## V5.9.1034b — Fix cap-evict to drain unseen pool (the real overflow) (Feb 2026, CI ⏳)
+
+Operator V5.9.1034 snapshot (build 2995, tag V5.9.1034) verified two wins:
+  • WATCHLIST_CAP_EVICT firing correctly (evicted=31 sizeBefore=1694, etc)
+  • ANR_HINTS=0 Stall=0% (was 13.1% — UI is healthy again)
+  • TokenMetaCache hit rate 16.4% → 50.6%
+
+But the cap wasn't actually enforcing: watchlist still climbed back to
+1693 after the evictions. Why?
+
+Root cause: the V5.9.1034 cap-evict pool scanned ONLY `cold`. Operator
+dump showed `cold=0 unseen=1649`. Pump.fun spam adds processCount=0
+mints faster than the supervisor can graduate them to cold (supervisor
+itself is wedged on 4.8s chunk timeouts), so cold stays near-empty
+while unseen pile up. The cap loop had nothing to evict.
+
+**Surgical fix**: extend the eviction pool to include `unseen` too.
+Sort by lastProcessedAt (cold) + addedAt (unseen) ASC, take oldest
+`excess` count. Drop evicted mints from BOTH `coldAfterCap` AND
+`unseen` so the picker doesn't try to process tokens we just removed.
+
+forcedOpenMints (open positions) and fresh-60s window remain exempt.
+
+Also: V5.9.1034 unexpectedly fixed the Runtime Smoke Test 🟢 — the
+extra helper code in selectOrderedMintsForCycle freed enough botLoop
+bytecode that the Debug JVM 64KB cap is no longer hit. First green
+smoke since V5.9.1027b.
+
+Touched: `engine/BotService.kt` (selectOrderedMintsForCycle cap-evict).
+Bumped: `PipelineHealthCollector.BUILD_TAG` V5.9.1034 → V5.9.1034b.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1034 — Watchlist cap 250 + 5min stale eviction (Part 1) (Feb 2026, CI ✅)
 
 **Operator mandate**: "the watch list is now obviously way too big as well.
 the bots never had more than 100 open positions maybe we reduce the
