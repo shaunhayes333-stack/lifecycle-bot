@@ -5,7 +5,80 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1019 — Structural: async universal SL sweep + deferred MainActivity UI (Feb 2026, CI ✅ build, smoke pending)
+## V5.9.1022 — Triage round 4: whale spam + catastrophe + double-sell + live-sol (Feb 2026, CI ✅ build, smoke pending)
+
+Operator V5.9.1021 install (build 2976, latest green APK). Bot finally
+trading after V5.9.1021 SUPERVISOR fix, BUT three severe new symptoms:
+
+**Q3 (HIGHEST PRIORITY — direct credit-burn driver)**
+
+Whale-tx WS firehose at BotService.kt:5778. Operator log dump showed 200+
+'🐳 PUSH: whale tx X… (0 accounts)' events in 4 s — EVERY ONE with zero
+matching accounts. Each event ran InsiderWalletTracker.scanForSignals()
+which hits Birdeye + DexScreener + Helius. Direct paid-tier drain
+(operator burned $300 AUD this way). Fix: early-return on
+accounts.isEmpty().
+
+**Q1 (rapid-catastrophe firing on noise)**
+
+BotService.kt:6072 catastropheThreshold was -14% for all modes. Operator
+saw RAPID_CATASTROPHE_STOP firing 30-53 s after BUY on pump.fun launches
+(price quantization 8.3E-5 → 1E-4 = +20% instant + paper-mode 18%
+simulated slippage = -14% reached by pure noise). 31-loss cold streak.
+Fix: paper-mode → -25%; live keeps tight -14%.
+
+**Q2 (double-sell race)**
+
+Executor.kt:519 — same mint 4vRgJ7 sold twice within 118 ms via
+RAPID_CATASTROPHE_STOP then CASHGEN_STOP_LOSS. Lock releases on
+completion + getOrPut creates fresh AtomicBoolean; second sell 118 ms
+later re-acquires cleanly. Fix: new lastPaperSellCompletedMs
+ConcurrentHashMap + 2 s cooldown. acquirePaperSellLock checks cooldown
+FIRST. releasePaperSellLock writes timestamp BEFORE removing the lock.
+
+**Q4 (bonus — live sol semantic)**
+
+Executor.kt:11643 — V5.9.1018c fixed paperSell's `sol = pos.costSol` to
+proceeds. The LIVE sell at line 11643 had the SAME bug. Fixed: sol =
+solBack (Jupiter actual proceeds). Caught before going live.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1021 — extract runSupervisorPhase to free botLoop 64KB cap (Feb 2026, CI ✅✅)
+
+V5.9.1020's inline withTimeoutOrNull + hard-timeout-log pushed botLoop
+OVER the JVM 64 KB method-size cap (RELEASE compile: 'Method code too
+large'). Extracted the entire V5.9.1020 SUPERVISOR body into private
+suspend fun runSupervisorPhase(...). Returns SupervisorPhaseResult
+(processed, deferred, hardTimedOut). botLoop now contains a 20-line call
+site. Zero behaviour change vs V5.9.1020; only bytecode layout differs.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1020 — kill lying progressTicker + hard 20s SUPERVISOR outer timeout (Feb 2026, RELEASE compile FAILED → V5.9.1021)
+
+Operator V5.9.1018c+V5.9.1019 snapshot showed botLoop stuck in
+phase=SUPERVISOR for 652 s straight — no cycle in 10+ min, no trades.
+ANR was solved but bot wedged.
+
+Root cause (triage agent):
+  1. progressTicker fired markProgress("SUPERVISOR") every 10 s
+     UNCONDITIONALLY → freeze detector was LIED TO; heartbeat rescue
+     never triggered.
+  2. supervisorAbort elapsed-check lived INSIDE the chunk forEach. When
+     the FIRST chunk hangs (Helius RPC dead, OkHttp blocks in JNI
+     socket-read — withTimeoutOrNull cannot interrupt native), the
+     forEach never advances → abort check never re-runs.
+  3. V5.9.1012 detached workers + V5.9.1014 non-supervisorScope: each
+     necessary but insufficient. No outer time fence stopped the forEach.
+
+Fix: HARD outer time fence (withTimeoutOrNull maxBatchMillis+5s),
+killed progressTicker, SUPERVISOR_HARD_TIMEOUT forensic event.
+Behaviour-equivalent re-landed in V5.9.1021.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1019 — Structural: async universal SL sweep + deferred MainActivity UI (Feb 2026, CI ✅ build)
 
 Operator V5.9.1018(c) snapshot symptoms:
   - Bot loop cycles oscillating [237, 8, 11531, 179, 18790, 54, 22674, 14, 44108, 575]ms
