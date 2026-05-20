@@ -9483,132 +9483,26 @@ try {
 //      forEach iteration so it fires even if previous chunks took
 //      multiple seconds each.
 val supervisorOuterBudget = maxBatchMillis + 5_000L
-val supervisorCompleted = kotlinx.coroutines.withTimeoutOrNull(supervisorOuterBudget) {
-    markProgress("SUPERVISOR")
-    var supervisorAbort = false
-        orderedMints.chunked(maxParallel).forEach { chunk ->
-        if (supervisorAbort) return@forEach
-        val supervisorElapsedMs = System.currentTimeMillis() - _cycleStartMs
-        if (supervisorElapsedMs > maxBatchMillis + 2_000L) {
-            deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
-            supervisorAbort = true
-            try {
-                ForensicLogger.lifecycle(
-                    "SUPERVISOR_OUTER_TIMEOUT",
-                    "loop=$loopCount elapsedMs=$supervisorElapsedMs processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
-                )
-            } catch (_: Throwable) {}
-            return@forEach
-        }
-        if (!status.running) {
-            supervisorAbort = true
-            return@forEach
-        }
-
-        val timeLeft = batchDeadline - System.currentTimeMillis()
-        if (timeLeft <= 250L) {
-            deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
-            supervisorAbort = true
-            return@forEach
-        }
-
-        // V5.9.1012 — DETACHED SUPERVISOR WORKERS.
-        // V5.9.1011 snapshot still parked at phase=SUPERVISOR after 7 cycles.
-        // Root cause: these token jobs were children of supervisorScope. If a
-        // processTokenCycle call blocks in non-cooperative IO/RPC, cancelling the
-        // Deferred does not necessarily let supervisorScope complete; the scope
-        // still waits for the stuck child. That makes the bot appear to stop even
-        // though scanner/intake/exit side loops continue.
-        //
-        // Run token work as detached IO Deferreds and await them only through the
-        // chunk hard boundary. A poisoned token/RPC may finish late, but it can no
-        // longer hold botLoop inside SUPERVISOR. This preserves throughput: the
-        // next cycle can continue while stragglers are abandoned/cancelled.
-        val jobs = chunk.map { mint ->
-            kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    if (!status.running) return@async false
-                    if (orchestrator?.shouldPoll(mint) == false) return@async false
-                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-                    try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
-                    true
-                } catch (ce: kotlinx.coroutines.CancellationException) {
-                    false
-                } catch (t: Throwable) {
-                    ErrorLogger.debug("BotService", "Supervisor token worker failed ${mint.take(8)}: ${t.message}")
-                    false
-                }
-            }
-        }
-
-        val chunkBudgetMs = minOf(
-            (perTokenTimeoutMs * 2L).coerceAtLeast(2_500L),
-            (batchDeadline - System.currentTimeMillis()).coerceAtLeast(750L)
-        )
-        val chunkResults: List<Boolean> = withTimeoutOrNull(chunkBudgetMs) {
-            jobs.awaitAll()
-        } ?: run {
-            val activeStragglers = try { jobs.count { it.isActive } } catch (_: Throwable) { -1 }
-            ErrorLogger.warn(
-                "BotService",
-                "Supervisor detached chunk timeout after ${chunkBudgetMs}ms — abandoning ${activeStragglers} straggler(s)"
-            )
-            try {
-                ForensicLogger.lifecycle(
-                    "SUPERVISOR_CHUNK_TIMEOUT",
-                    "loop=$loopCount chunk=${chunk.size} active=$activeStragglers budgetMs=$chunkBudgetMs"
-                )
-            } catch (_: Throwable) {}
-            jobs.forEach { j -> try { j.cancel(kotlinx.coroutines.CancellationException("supervisor chunk timeout")) } catch (_: Throwable) {} }
-            List(jobs.size) { false }
-        }
-        chunkResults.forEach { completed ->
-            if (completed) {
-                processedCount++
-            } else {
-                deferredCount++
-            }
-        }
-        // V5.9.914 — refresh progress AFTER each chunk completes so the
-        // heartbeat knows the supervisor is alive. Previously markProgress
-        // fired once at SUPERVISOR entry and was never refreshed during
-        // the inner loop. Operator dump 2026-05-18 21:00:59 showed
-        // progressGapSec=1920 (32 min) while supervisor was actively
-        // chewing through chunks — heartbeat then suppressed rescue
-        // because phase=SUPERVISOR was in activePhaseSet. Refreshing
-        // here means the progressGap measures TIME-SINCE-LAST-CHUNK
-        // rather than TIME-SINCE-SUPERVISOR-ENTRY, which is the
-        // semantically correct signal for "is the loop wedged?".
-        //
-        // V5.9.935 — supplemented by inner ticker (15s, independent of
-        // chunk completion) for the case where a single non-cancellable
-        // token hangs the whole chunk.
-        try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
-    }
-    // V5.9.1020 — return Unit from inner lambda so withTimeoutOrNull resolves
-    // to non-null on normal completion. The outer `?: run { … }` only fires
-    // if the hard 20s wrapper budget was exceeded.
-    Unit
-}
-// V5.9.1020 — Hard-timeout path. If the entire SUPERVISOR phase couldn't
-// finish in ~maxBatchMillis+5s, FORCE the loop forward. Any in-flight token
-// workers were already detached GlobalScope.async — they keep running and
-// finish (or get GC'd) on their own. The loop MUST advance to POST_SUPERVISOR
-// so FDG/EXEC/exit sweep can run on the NEXT cycle.
-if (supervisorCompleted == null) {
-    val elapsed = System.currentTimeMillis() - _cycleStartMs
-    deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
-    try {
-        ForensicLogger.lifecycle(
-            "SUPERVISOR_HARD_TIMEOUT",
-            "loop=$loopCount elapsedMs=$elapsed budgetMs=$supervisorOuterBudget processed=$processedCount deferred=$deferredCount total=${orderedMints.size}"
-        )
-    } catch (_: Throwable) {}
-    ErrorLogger.warn(
-        "BotService",
-        "🚨 SUPERVISOR hard-timeout after ${elapsed}ms (budget=${supervisorOuterBudget}ms) — forcing cycle advance; ${orderedMints.size - processedCount} token(s) deferred"
-    )
-}
+// V5.9.1021 — SUPERVISOR phase extracted into runSupervisorPhase() to free
+// botLoop's JVM 64 KB method-size budget. V5.9.1020's inline withTimeoutOrNull
+// + hard-timeout-log pushed botLoop OVER the cap (release compile failed
+// 'Method code too large'). The whole SUPERVISOR body now lives in a
+// separate JVM method so its bytecode doesn't count toward botLoop's quota.
+val supRes = runSupervisorPhase(
+    orderedMints = orderedMints,
+    maxParallel = maxParallel,
+    perTokenTimeoutMs = perTokenTimeoutMs,
+    maxBatchMillis = maxBatchMillis,
+    supervisorOuterBudget = supervisorOuterBudget,
+    batchDeadline = batchDeadline,
+    cycleStartMs = _cycleStartMs,
+    loopCount = loopCount,
+    cfg = cfg,
+    wallet = wallet,
+    lastSuccessfulPollMs = lastSuccessfulPollMs,
+)
+processedCount += supRes.processed
+deferredCount += supRes.deferred
 
 if (deferredCount > 0) {
     addLog("⏰ Watchlist load high - deferred $deferredCount token(s) to next cycle")
@@ -10040,6 +9934,137 @@ launchExitSweepAsync("POST_SUPERVISOR")
             } catch (_: Throwable) {}
         }
     }
+
+    /**
+     * V5.9.1021 — SUPERVISOR phase extracted from botLoop to free its
+     * JVM 64 KB method-size budget. V5.9.1020's inline withTimeoutOrNull
+     * + hard-timeout-log pushed botLoop OVER the cap (release compile
+     * failed with 'Method code too large'). The whole SUPERVISOR body
+     * now lives in a separate JVM method.
+     *
+     * Behaviour-equivalent to the V5.9.1020 inline block:
+     *   • Hard outer time fence via withTimeoutOrNull(supervisorOuterBudget)
+     *     guarantees botLoop advances within ~maxBatchMillis+5s.
+     *   • Chunked iteration with detached GlobalScope.async per-token
+     *     workers (V5.9.1012) and per-chunk withTimeoutOrNull (V5.9.914).
+     *   • Per-iteration supervisorAbort elapsed check (V5.9.1020 fix).
+     *   • markProgress("SUPERVISOR") between chunks (no lying progress
+     *     ticker, V5.9.1020).
+     *   • Forensic events: SUPERVISOR_OUTER_TIMEOUT, SUPERVISOR_CHUNK_TIMEOUT,
+     *     SUPERVISOR_HARD_TIMEOUT.
+     *
+     * Returns SupervisorPhaseResult(processed, deferred, hardTimedOut).
+     */
+    private suspend fun runSupervisorPhase(
+        orderedMints: List<String>,
+        maxParallel: Int,
+        perTokenTimeoutMs: Long,
+        maxBatchMillis: Long,
+        supervisorOuterBudget: Long,
+        batchDeadline: Long,
+        cycleStartMs: Long,
+        loopCount: Int,
+        cfg: com.lifecyclebot.data.BotConfig,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        lastSuccessfulPollMs: Long,
+    ): SupervisorPhaseResult {
+        var processed = 0
+        var deferred = 0
+        val completed = kotlinx.coroutines.withTimeoutOrNull(supervisorOuterBudget) {
+            markProgress("SUPERVISOR")
+            var supervisorAbort = false
+            orderedMints.chunked(maxParallel).forEach inner@ { chunk ->
+                if (supervisorAbort) return@inner
+                val supervisorElapsedMs = System.currentTimeMillis() - cycleStartMs
+                if (supervisorElapsedMs > maxBatchMillis + 2_000L) {
+                    deferred += (orderedMints.size - processed - deferred).coerceAtLeast(0)
+                    supervisorAbort = true
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SUPERVISOR_OUTER_TIMEOUT",
+                            "loop=$loopCount elapsedMs=$supervisorElapsedMs processed=$processed deferred=$deferred total=${orderedMints.size}"
+                        )
+                    } catch (_: Throwable) {}
+                    return@inner
+                }
+                if (!status.running) {
+                    supervisorAbort = true
+                    return@inner
+                }
+                val timeLeft = batchDeadline - System.currentTimeMillis()
+                if (timeLeft <= 250L) {
+                    deferred += (orderedMints.size - processed - deferred).coerceAtLeast(0)
+                    supervisorAbort = true
+                    return@inner
+                }
+                val jobs = chunk.map { mint ->
+                    kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            if (!status.running) return@async false
+                            if (orchestrator?.shouldPoll(mint) == false) return@async false
+                            processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                            try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                            true
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            false
+                        } catch (t: Throwable) {
+                            ErrorLogger.debug("BotService", "Supervisor token worker failed ${mint.take(8)}: ${t.message}")
+                            false
+                        }
+                    }
+                }
+                val chunkBudgetMs = minOf(
+                    (perTokenTimeoutMs * 2L).coerceAtLeast(2_500L),
+                    (batchDeadline - System.currentTimeMillis()).coerceAtLeast(750L)
+                )
+                val chunkResults: List<Boolean> = kotlinx.coroutines.withTimeoutOrNull(chunkBudgetMs) {
+                    jobs.awaitAll()
+                } ?: run {
+                    val activeStragglers = try { jobs.count { it.isActive } } catch (_: Throwable) { -1 }
+                    ErrorLogger.warn(
+                        "BotService",
+                        "Supervisor detached chunk timeout after ${chunkBudgetMs}ms — abandoning ${activeStragglers} straggler(s)"
+                    )
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SUPERVISOR_CHUNK_TIMEOUT",
+                            "loop=$loopCount chunk=${chunk.size} active=$activeStragglers budgetMs=$chunkBudgetMs"
+                        )
+                    } catch (_: Throwable) {}
+                    jobs.forEach { j -> try { j.cancel(kotlinx.coroutines.CancellationException("supervisor chunk timeout")) } catch (_: Throwable) {} }
+                    List(jobs.size) { false }
+                }
+                chunkResults.forEach { ok ->
+                    if (ok) processed++ else deferred++
+                }
+                try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
+            }
+            Unit
+        }
+        val hardTimedOut = (completed == null)
+        if (hardTimedOut) {
+            val elapsed = System.currentTimeMillis() - cycleStartMs
+            deferred += (orderedMints.size - processed - deferred).coerceAtLeast(0)
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_HARD_TIMEOUT",
+                    "loop=$loopCount elapsedMs=$elapsed budgetMs=$supervisorOuterBudget processed=$processed deferred=$deferred total=${orderedMints.size}"
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.warn(
+                "BotService",
+                "🚨 SUPERVISOR hard-timeout after ${elapsed}ms (budget=${supervisorOuterBudget}ms) — forcing cycle advance; ${orderedMints.size - processed} token(s) deferred"
+            )
+        }
+        return SupervisorPhaseResult(processed, deferred, hardTimedOut)
+    }
+
+    /** V5.9.1021 — result of runSupervisorPhase. */
+    private data class SupervisorPhaseResult(
+        val processed: Int,
+        val deferred: Int,
+        val hardTimedOut: Boolean,
+    )
 
     /**
      * V5.9.1019 — UNIVERSAL SL SWEEP, async + single-flight.
