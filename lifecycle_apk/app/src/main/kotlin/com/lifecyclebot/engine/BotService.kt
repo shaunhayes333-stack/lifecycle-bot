@@ -7308,6 +7308,18 @@ class BotService : Service() {
     // POST_SUPERVISOR and stopped BOT_LOOP_TICK after ~3 iterations.
     private val exitSweepInFlight = AtomicBoolean(false)
 
+    // V5.9.1019 — Operator V5.9.1018 snapshot showed cycles alternating
+    // between fast (sub-200ms) and slow (11-44s). Forensic trace pinned
+    // it on runUniversalSlSafetyNetSweep at line ~9763: it ran synchronously
+    // on the bot loop thread at the end of EVERY cycle, iterating ALL open
+    // positions and calling executor.requestSell() per match. With 5-10
+    // open positions and paperSell's heavy learning fanout (~3-5s each),
+    // one cycle could burn 30-50s blocking the loop. Next cycle finds the
+    // positions closed → fast → and so on. Async-ify with the same pattern
+    // as launchExitSweepAsync (V5.9.1010) — single-flight + worker + hard
+    // timeout watchdog so the gate can never get stuck.
+    private val slSafetyNetInFlight = AtomicBoolean(false)
+
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
         // method size. Tracks its own prev-cycle delta via class field.
@@ -9759,8 +9771,18 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // The sweep below runs once per cycle on ALL open positions
             // regardless of feed state. Kept OUT of processTokenCycle to
             // avoid blowing that function's JVM 64KB method-size cap.
+            // V5.9.1019 — UNIVERSAL SL SWEEP MOVED OFF BOT LOOP THREAD.
+            // The previous synchronous call iterated all open positions and
+            // could trigger executor.requestSell() per match, dragging in
+            // paperSell's full learning fanout. With 5-10 open positions
+            // this could burn 30-50s of bot loop time PER CYCLE, matching
+            // exactly the alternation pattern in operator V5.9.1018 snapshot
+            // ([237, 8, 11531, 179, 18790, 54, 22674, 14, 44108, 575]ms).
+            // Launch async with the proven V5.9.1010 single-flight + hard-
+            // timeout-watchdog pattern so a stuck sell can never wedge the
+            // gate or the loop again.
             markProgress("EXIT_SWEEP")
-            runUniversalSlSafetyNetSweep(cfg, wallet)
+            launchUniversalSlSweepAsync(cfg, wallet)
             markProgress("IDLE")  // V5.9.762 — between cycles is idle/safe-to-rescue.
 
             delay(cfg.pollSeconds * 1000L)
@@ -9993,6 +10015,70 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 if (worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
                     ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500 action=gate_released")
                     try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * V5.9.1019 — UNIVERSAL SL SWEEP, async + single-flight.
+     *
+     * Mirrors launchExitSweepAsync (V5.9.1010) for the OTHER per-cycle sweep
+     * the bot loop used to run synchronously at the end of every cycle
+     * (runUniversalSlSafetyNetSweep). With multiple open positions, that
+     * sync version blocked the bot loop for 30-50s per call.
+     *
+     * Contract:
+     *   • Single-flight: a second call while still running is dropped with
+     *     UNIVERSAL_SL_SWEEP_SKIPPED. Coalescing is correct because the
+     *     sweep is idempotent (re-evaluating the same position cycle later
+     *     is fine — exit signals are recomputed from live state).
+     *   • Hard 3s watchdog: if paperSell's non-cancellable IO blocks an
+     *     IO worker, we release the single-flight gate after 3s so the
+     *     next cycle can request another sweep. Stuck worker is best-effort
+     *     cancelled and may finish late (UNIVERSAL_SL_SWEEP_LATE_DONE).
+     *   • Budget higher than launchExitSweepAsync's 2.5s because this sweep
+     *     iterates ALL open positions (not just exit-managed ones).
+     */
+    private fun launchUniversalSlSweepAsync(
+        cfg: com.lifecyclebot.data.BotConfig,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+    ) {
+        if (!slSafetyNetInFlight.compareAndSet(false, true)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "UNIVERSAL_SL_SWEEP_SKIPPED",
+                    "alreadyRunning=true"
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+
+        val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_START", "")
+                runUniversalSlSafetyNetSweep(cfg, wallet)
+            } catch (t: Throwable) {
+                ErrorLogger.warn("BotService", "universal SL sweep async error: ${t.message}")
+            } finally {
+                if (slSafetyNetInFlight.compareAndSet(true, false)) {
+                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "") } catch (_: Throwable) {}
+                } else {
+                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "") } catch (_: Throwable) {}
+                }
+            }
+        }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                kotlinx.coroutines.delay(3_000L)
+                if (worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "UNIVERSAL_SL_SWEEP_TIMEOUT",
+                            "timeoutMs=3000 action=gate_released"
+                        )
+                    } catch (_: Throwable) {}
+                    try { worker.cancel(kotlinx.coroutines.CancellationException("universal SL sweep timeout")) } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
         }

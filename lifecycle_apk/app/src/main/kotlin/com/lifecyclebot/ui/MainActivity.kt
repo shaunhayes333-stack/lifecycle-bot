@@ -552,8 +552,36 @@ class MainActivity : AppCompatActivity() {
             }
 
             bindViews()
-            setupChart()
-            setupSettings()
+            // V5.9.1019 — DEFER HEAVY UI SETUP PAST FIRST FRAME.
+            // Operator V5.9.1018 ANR snapshot showed 4× MainActivity.onCreate
+            // hits totalling ~2.5s, plus 1321ms inside setupChartControls'
+            // setOnClickListener chain (ImeFocusController init), plus a
+            // 2154ms Cleaner.create on the chart Matrix during setupChart.
+            // The chart + click listeners are not needed BEFORE the first
+            // frame paints — the user can't tap an invisible UI. Posting
+            // them through decorView yields to one vsync (~16ms) so the
+            // initial layout draws, then the heavy work runs while the
+            // user is still looking at the splash → main transition.
+            //
+            // bindViews() stays sync because subsequent code (vm.ui.collect,
+            // renderReadiness, etc.) reads `chart` / button fields. The
+            // expensive parts are inside setupChart (Matrix/Paint init) and
+            // setupChartControls (setOnClickListener chains). setupSettings
+            // also has heavy SharedPreferences reads in some branches.
+            window.decorView.post {
+                try { setupChartControls() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChartControls failed: ${e.message}")
+                }
+                try { setupChart() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChart failed: ${e.message}")
+                }
+                try { setupSettings() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupSettings failed: ${e.message}")
+                }
+                try { setupApiKeyHelpLinks() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupApiKeyHelpLinks failed: ${e.message}")
+                }
+            }
             requestNotifPermission()
             requestStoragePermission()
             checkBatteryOptimisation()
@@ -1357,8 +1385,8 @@ for legal compliance.
         tvChartHolders = try { findViewById(R.id.tvChartHolders) } catch (_: Exception) { null }
         tvChartBuyPressure = try { findViewById(R.id.tvChartBuyPressure) } catch (_: Exception) { null }
         
-        // V5.2: Chart time range button listeners
-        setupChartControls()
+        // V5.9.1019 — setupChartControls() moved to deferred onCreate post-frame block.
+        // It was the #1 ANR offender at 1321ms (setOnClickListener → ImeFocusController init).
         
         // V4.0: AI Status panel bindings
         tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
@@ -1472,8 +1500,8 @@ for legal compliance.
             applyTheme(isChecked)
         }
 
-        // API key help links - open signup pages
-        setupApiKeyHelpLinks()
+        // V5.9.1019 — setupApiKeyHelpLinks() moved to deferred onCreate post-frame block.
+        // Touching N click listeners + Spanned text builders on the main thread.
 
         // Clear settings button
         setupClearSettingsButton()
