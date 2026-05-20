@@ -4049,7 +4049,40 @@ class Executor(
         // FLUID exits (dynamic floor, partial-sell, profit-lock unlock) but
         // STRICT_SL_FLOOR runs first regardless of age and applies to every
         // open position no matter which sub-trader entered it.
+        //
+        // V5.9.1028 — PAPER-MODE-ONLY SETTLE-IN RESTORATION.
+        // Operator V5.9.1027b snapshot: every paper trade exits at -10%
+        // STRICT_SL within 350-1000ms of entry — NO token can drop -10%
+        // that fast. Root cause: paperBuy applies +12% slippage on entry
+        // (Executor.kt L6540) and paperSell applies -18% slippage on exit
+        // (Executor.kt L9104) — round-trip cost on <$5k pump.fun pools is
+        // -26.8% by simulation, before ANY price movement. So every
+        // brand-new paper position is born at -26.8% PnL and STRICT_SL
+        // fires instantly. This corrupts the bot's learning (every
+        // entry "looks" like a -10% loss in the journal) and gutters
+        // MOONSHOT / lanes that need time to play out.
+        //
+        // Fix: in paper mode ONLY, suppress STRICT_SL for a per-lane
+        // settle-in window sourced from FluidLearningAI. Live mode is
+        // untouched — real slippage IS the real cost. Other stops (RAPID
+        // trailing, fluid floor, profit-lock) remain active throughout
+        // the settle-in so we still catch genuine rugs via those paths.
+        val paperSettleInActive = run {
+            if (!isPaperRT()) return@run false
+            val entryMs = ts.position.entryTime
+            if (entryMs <= 0L) return@run false
+            val ageMs = System.currentTimeMillis() - entryMs
+            val lane = ts.position.tradingMode.ifBlank { "V3" }
+            val settleInMinutes = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidMinHoldMinutes(lane)
+            } catch (_: Throwable) { 0.5 }
+            // Absolute floor of 30s: slippage band (entry +12%, exit -18%)
+            // needs at least that long to mean-revert on a churning pool.
+            val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)
+            ageMs < settleInMs
+        }
         run {
+            if (paperSettleInActive) return@run
             val pos = ts.position
             val rawSL = when {
                 pos.isShitCoinPosition && pos.shitCoinStopLoss > 0.0 -> pos.shitCoinStopLoss
@@ -4057,8 +4090,20 @@ class Executor(
                 pos.isTreasuryPosition && pos.treasuryStopLoss > 0.0 -> pos.treasuryStopLoss
                 else -> cfg().stopLossPct.takeIf { it > 0.0 } ?: 20.0
             }
-            // Convert to negative threshold; never wider than -50%.
-            val hardFloor = -rawSL.coerceIn(3.0, 50.0)
+            // V5.9.1028 — AI-FLUID STOP LOSS THRESHOLD.
+            // Operator V5.9.1027b mandate: "the strict and rapid stops are
+            // still meant to be a fluid learnt thing as well. everything is
+            // meant to be." Route the trader's raw stop through
+            // FluidLearningAI.getFluidStopLoss() so the threshold lerps from
+            // a -15% bootstrap floor (capital protection while learning)
+            // toward the trader's full mode stop at maturity. Without this,
+            // every position bleeds straight to the hardcoded trader SL
+            // and learning never gets to influence the gate.
+            val modeStopNegative = -rawSL.coerceIn(3.0, 50.0)
+            val fluidStopNegative = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeStopNegative)
+            } catch (_: Throwable) { modeStopNegative }
+            val hardFloor = fluidStopNegative.coerceIn(-50.0, -3.0)
             val pnlPctNow = if (pos.entryPrice > 0)
                 ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
             else 0.0

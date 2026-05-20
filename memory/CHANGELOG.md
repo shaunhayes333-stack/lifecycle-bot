@@ -5,6 +5,53 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1028 — Paper settle-in restored + AI-fluid STRICT_SL & catastrophe thresholds (Feb 2026, CI ⏳)
+
+V5.9.1027b operator snapshot: every paper trade exits within 350-1000ms
+of entry at STRICT_SL_-10 / RAPID_CATASTROPHE_STOP / CASHGEN_STOP_LOSS.
+No token drops -10% in 700ms — this was a paper-mode simulation
+artifact, not real behaviour.
+
+Root cause: paperBuy (Executor.kt L6540) applies +12% slippage on entry
+and paperSell (L9111) applies -18% slippage on exit, for tokens with
+<$5k liquidity (every pump.fun launch). Round-trip tax is -26.8%
+before ANY price movement → every fresh paper position is born at
+-26.8% PnL and BOTH the strict SL (-10%) AND the catastrophe gate
+(-25%) fire instantly. MOONSHOT / SHITCOIN / TREASURY get gutted in
+under a second, learning data is corrupted with phantom losses, and
+lanes get distrust-paused for "bleeding" they never actually did.
+
+Operator mandate: "settle in period plus all the trader lanes all 9
+and the tools are meant to have ai calculated hold times stops take
+wins etc in a fluid state. the strict and rapid stops are still meant
+to be a fluid learnt thing as well. everything is meant to be."
+
+Three surgical fixes:
+
+1. **Paper-mode settle-in for STRICT_SL** (Executor.kt ~L4040).
+   In paper mode, suppress STRICT_SL for a per-lane settle-in window
+   sourced from `FluidLearningAI.getFluidMinHoldMinutes(lane)`, with an
+   absolute 30s floor so the slippage band has time to mean-revert.
+   Live mode untouched — real slippage IS real cost.
+
+2. **Paper-mode settle-in for RAPID_CATASTROPHE_STOP** (BotService.kt
+   ~L6135). Same per-lane gate added as a new `when` arm BEFORE the
+   `isCatastrophe` branch. Other stops (give-back, dynamic floor,
+   trailing) continue evaluating during settle-in so genuine rugs
+   still get caught.
+
+3. **AI-fluid stop thresholds**. STRICT_SL's `hardFloor` and the
+   catastrophe gate's threshold now both flow through
+   `FluidLearningAI.getFluidStopLoss(modeStop)` — they lerp from a
+   -15% bootstrap floor (capital protection while learning) to the
+   trader's mature mode stop. Falls open to the original hardcoded
+   value on any failure so the safety net is never lost.
+
+Touched: `Executor.kt` STRICT_SL block (~L4040-4108), `BotService.kt`
+catastrophe `when` block (~L6135-6200).
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1027 — Orphan bot-loop exit (kill duplicate post-rescue coroutines) (Feb 2026, CI ⏳)
 
 V5.9.1026 cap landed (chunk=32 confirmed in operator snapshot) but the

@@ -6141,14 +6141,60 @@ class BotService : Service() {
                         // Paper threshold widened to -25% (the pre-V5.9.791 value) to give
                         // mean-reversion room. Live mode keeps the -14% tight stop because
                         // live slippage is real money, not simulated.
-                        val catastropheThreshold = if (cfg.paperMode) -25.0 else -14.0
+                        // V5.9.1028 — AI-FLUID CATASTROPHE THRESHOLD.
+                        // Operator V5.9.1027b mandate: "the strict and rapid
+                        // stops are still meant to be a fluid learnt thing
+                        // as well. everything is meant to be." Route the
+                        // catastrophe floor through FluidLearningAI so
+                        // bootstrap protects with -15% and matures to the
+                        // lane's true catastrophe band. Paper-mode base
+                        // value stays -25% (slippage allowance), live keeps
+                        // -14% (real money tight). Both get lerp'd toward
+                        // the bootstrap floor while the bot is still
+                        // learning. Falls open to the hardcoded value on any
+                        // failure so the safety net is never lost.
+                        val rawCatastrophe = if (cfg.paperMode) -25.0 else -14.0
+                        val catastropheThreshold = try {
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(rawCatastrophe)
+                        } catch (_: Throwable) { rawCatastrophe }
                         val isCatastrophe = pnlPct <= catastropheThreshold
                         val peakGainPct   = ts.position.peakGainPct
                         val drawdownFromPeak = peakGainPct - pnlPct
                         val giveBackTrigger  = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
                         val neverWinner      = peakGainPct < 20.0
 
+                        // V5.9.1028 — PAPER-MODE SETTLE-IN GATE FOR CATASTROPHE.
+                        // paperBuy applies +12% entry slippage and paperSell applies
+                        // -18% exit slippage on <$5k pools → round-trip cost is
+                        // -26.8% the moment a position opens, BEFORE any price
+                        // movement. That immediately trips the -25% catastrophe
+                        // gate, gutting MOONSHOT / SHITCOIN / TREASURY positions
+                        // within 1s and corrupting learning data. In paper mode
+                        // ONLY, suppress catastrophe + give-back for a per-lane
+                        // settle-in window (FluidLearningAI.getFluidMinHoldMinutes,
+                        // minimum 30s) so the slippage band can mean-revert. Live
+                        // mode untouched — real slippage is real cost.
+                        val paperSettleInActiveCatastrophe = run {
+                            if (!cfg.paperMode) return@run false
+                            val entryMs = ts.position.entryTime
+                            if (entryMs <= 0L) return@run false
+                            val ageMs = System.currentTimeMillis() - entryMs
+                            val lane = ts.position.tradingMode.ifBlank { "V3" }
+                            val settleInMinutes = try {
+                                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidMinHoldMinutes(lane)
+                            } catch (_: Throwable) { 0.5 }
+                            val settleInMs = maxOf((settleInMinutes * 60_000.0).toLong(), 30_000L)
+                            ageMs < settleInMs
+                        }
+
                         when {
+                            paperSettleInActiveCatastrophe -> {
+                                // Settle-in active — let dynamic / fluid stops handle
+                                // any real rugs via their own paths. We do NOT exit
+                                // here; we just skip the catastrophe ladder for this
+                                // tick. The token still gets evaluated by every other
+                                // stop and exit mechanism.
+                            }
                             isCatastrophe -> {
                                 ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
                                 addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
