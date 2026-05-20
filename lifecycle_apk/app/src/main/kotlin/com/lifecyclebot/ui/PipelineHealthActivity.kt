@@ -188,8 +188,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 parts.add(current)
                 current = StringBuilder()
             }
-            current.append(line).append('
-')
+            current.append(line).append('\n')
         }
         if (current.isNotEmpty()) parts.add(current)
         return parts.map { it.toString().trimEnd() }.filter { it.isNotBlank() }
