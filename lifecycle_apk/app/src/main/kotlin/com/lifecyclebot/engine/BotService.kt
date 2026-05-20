@@ -9453,13 +9453,25 @@ supervisorScope {
         } catch (_: kotlinx.coroutines.CancellationException) { /* normal */ }
     }
 
+    // V5.9.1007 — DO NOT return out of supervisorScope before the
+    // progressTicker cleanup runs. return@supervisorScope skips the
+    // progressTicker.cancel() line below; because that ticker is a child
+    // of this supervisorScope and loops forever, the scope then waits on
+    // its own ticker forever. Symptom: exactly a few BOT_LOOP_TICKs, then
+    // phase=SUPERVISOR forever while scanner side-jobs keep logging.
+    var supervisorAbort = false
     orderedMints.chunked(maxParallel).forEach { chunk ->
-        if (!status.running) return@supervisorScope
+        if (supervisorAbort) return@forEach
+        if (!status.running) {
+            supervisorAbort = true
+            return@forEach
+        }
 
         val timeLeft = batchDeadline - System.currentTimeMillis()
         if (timeLeft <= 250L) {
             deferredCount += (orderedMints.size - processedCount - deferredCount).coerceAtLeast(0)
-            return@supervisorScope
+            supervisorAbort = true
+            return@forEach
         }
 
         val jobs = chunk.map { mint ->
@@ -9550,7 +9562,10 @@ supervisorScope {
         // token hangs the whole chunk.
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
     }
-    // V5.9.935 — cancel inner ticker on normal supervisor exit.
+    // V5.9.1007 — MUST run before supervisorScope can complete. If this is
+    // skipped by an early return, the infinite ticker remains a live child and
+    // supervisorScope never exits. Keep all supervisor aborts as return@forEach
+    // + supervisorAbort, never return@supervisorScope above this line.
     try { progressTicker.cancel() } catch (_: Throwable) {}
 }
 
