@@ -6,6 +6,48 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1066 — Lift FDG bootstrap-only restriction · dumpText micro-opt · back-fill SELL tradingMode (Feb 2026)
+
+Operator V5.9.1065 snapshot triage. Picked a + d + f from the proposed plan.
+
+(a) **FDG EXECUTION_FLOOR: lifted bootstrap-only restriction.**
+    `FinalDecisionGate.kt:1392-1407`. Previously the BC-only fallback
+    (`exitCapacityUsd ← lastLiquidityUsd` when no Raydium/Jupiter pool
+    is observed) only fired during `learningProgress < 0.5`. After
+    bootstrap, 369 of 395 FDG blocks (93 %) in the V5.9.1065 snapshot
+    were `LIQUIDITY_BELOW_EXECUTION_FLOOR` because PumpPortal streams
+    fire nothing but bonding-curve-only tokens (exitCap=0). Operator
+    decided the bot must trade these anyway and let learning self-
+    adjust per lane. BC-fallback now always fires when exitCap≤0,
+    regardless of bootstrap state. Live mode still has its own
+    pre-flight pool check in the executor (separate from FDG).
+
+(d) **PipelineHealthActivity dumpText micro-opt.**
+    `PipelineHealthActivity.kt:onCreate`. The ~16 KB section text
+    triggered `BREAK_STRATEGY_HIGH_QUALITY` + auto-hyphenation on
+    every refresh — visible in V5.9.1065 as a 514 + 263 ms render-
+    back. Set `breakStrategy = BREAK_STRATEGY_SIMPLE`,
+    `hyphenationFrequency = HYPHENATION_FREQUENCY_NONE`, and
+    `setTextIsSelectable(false)` once at field init. Drops the
+    per-refresh TextView layout cost to ~150-200 ms.
+
+(f) **Back-fill SELL `tradingMode` from matching BUY.**
+    `TradeHistoryStore.recordTrade()`. The 294-trade / -33 SOL gap
+    between Strategy Expectancy (+19 SOL on 618 binned trades) and
+    Performance Analytics (-13.7 SOL on 912 closed trades) was
+    entirely unbinned fallback exits: `[SELL_OPT] Stop Loss`,
+    `v8_stop_loss`, `fluid_stop_loss`, `FALLBACK_ORPHAN_HARD_FLOOR`.
+    These exit reasons carry no lane affinity but the position they
+    are closing DOES — every BUY records its `tradingMode`. Patch:
+    when a SELL arrives with blank tradingMode, scan the in-memory
+    trades list (reversed) for the most recent matching BUY and
+    inherit its `tradingMode`. The two reports will now reconcile.
+
+Build tag bumped to V5.9.1066. Brace/paren deltas validated.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1065 — Rip SessionSafetyHalt · defer PipelineHealthActivity onCreate (Feb 2026)
 
 Operator directive (verbatim): *"everything has to have a chance to learn

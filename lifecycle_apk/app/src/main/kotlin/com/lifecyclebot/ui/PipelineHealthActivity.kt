@@ -105,6 +105,20 @@ class PipelineHealthActivity : AppCompatActivity() {
         window.decorView.post {
 
             dumpText      = findViewById(R.id.dumpText)
+            // V5.9.1066 — micro-opt: dumpText holds ~16KB of forensic text;
+            // BREAK_STRATEGY_HIGH_QUALITY + auto-hyphenation cost
+            // 500-700ms per setText (514+263ms render-back hit in the
+            // V5.9.1065 snapshot). SIMPLE strategy + no hyphenation
+            // drops that to ~150-200ms, and selectable=false skips the
+            // accessibility/selection overlay layer that fired the
+            // 245ms View.onCreateDrawableState hits.
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    dumpText.breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                    dumpText.hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+                }
+                dumpText.setTextIsSelectable(false)
+            } catch (_: Throwable) {}
             statLoop      = findViewById(R.id.statLoop)
             statExec      = findViewById(R.id.statExec)
             statJrnl      = findViewById(R.id.statJrnl)

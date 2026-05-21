@@ -1392,9 +1392,17 @@ object FinalDecisionGate {
         val rawExitCap = try {
             com.lifecyclebot.engine.LiquidityClassifier.exitCapacityUsd(ts)
         } catch (_: Throwable) { ts.lastLiquidityUsd }
-        val isLearningBootstrap = learningProgress < 0.5
-        val exitCapacityUsd = if (isLearningBootstrap && rawExitCap <= 0.0) {
-            ts.lastLiquidityUsd  // BC-only fallback for ALL paths during bootstrap learning
+        // V5.9.1066 — operator directive: lift bootstrap-only restriction
+        // on BC-fallback. Pump.fun streams flood the intake with bonding-
+        // curve-only tokens (no Raydium/Jupiter pool yet) and after
+        // `learningProgress >= 0.5` they were ALL hitting
+        // LIQUIDITY_BELOW_EXECUTION_FLOOR (369/395 blocks in the V5.9.1065
+        // snapshot = 93%). Operator accepts the risk that some buys will
+        // be on BC-only tokens — the bot's learning will self-adjust per
+        // lane. Live mode still has its own pre-flight pool check in the
+        // executor that's separate from FDG.
+        val exitCapacityUsd = if (rawExitCap <= 0.0) {
+            ts.lastLiquidityUsd
         } else {
             rawExitCap
         }

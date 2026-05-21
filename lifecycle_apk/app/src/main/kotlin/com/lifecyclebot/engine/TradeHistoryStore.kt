@@ -415,7 +415,31 @@ object TradeHistoryStore {
         // (BLUE_CHIP vs BLUECHIP vs CashGen vs CASHGEN). Operator triage showed
         // strategy expectancy bins double-counting because Executor and
         // V3JournalRecorder set inconsistent casing on the same trade.
-        val normalizedMode = normalizeTradeModeName(trade.tradingMode)
+        var normalizedMode = normalizeTradeModeName(trade.tradingMode)
+
+        // V5.9.1066 — analytics-vs-expectancy gap fix. When a SELL arrives
+        // with a blank tradingMode (FALLBACK_ORPHAN_HARD_FLOOR, fluid_stop_loss,
+        // [SELL_OPT] Stop Loss etc. that come from non-lane exit paths),
+        // back-fill from the matching BUY's tradingMode so the trade bins
+        // correctly. Operator V5.9.1065 snapshot showed Strategy Expectancy
+        // totaling +19 SOL across 618 binned trades while PerformanceAnalytics
+        // totaled -13.7 SOL across 912 closed trades — a 294-trade / -33 SOL
+        // gap that was entirely unbinned fallback exits.
+        if (normalizedMode.isBlank() && trade.side.equals("SELL", ignoreCase = true) && trade.mint.isNotBlank()) {
+            val inheritedMode = try {
+                synchronized(lock) {
+                    trades.asReversed().firstOrNull { prev ->
+                        prev.side.equals("BUY", ignoreCase = true) &&
+                            prev.mint == trade.mint &&
+                            prev.tradingMode.isNotBlank()
+                    }?.tradingMode
+                }
+            } catch (_: Throwable) { null }
+            if (!inheritedMode.isNullOrBlank()) {
+                normalizedMode = normalizeTradeModeName(inheritedMode)
+            }
+        }
+
         val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
         synchronized(lock) {
             trades.add(tradeToStore)
