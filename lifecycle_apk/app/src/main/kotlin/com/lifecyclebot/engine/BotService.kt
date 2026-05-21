@@ -4918,33 +4918,13 @@ class BotService : Service() {
             com.lifecyclebot.perps.DynamicAltTokenRegistry.stopBackgroundDiscovery()
         } catch (_: Exception) {}
         
-        // V5.7.8: In paper mode, purge only obviously bad trades (not all history)
-        try {
-            val cfg = ConfigStore.load(applicationContext)
-            if (cfg.paperMode) {
-                // Only remove trades with absurd PnL (>10000% or <-100%) — these are decimal errors
-                val allTrades = TradeHistoryStore.getAllTrades()
-                val badCount = allTrades.count { it.pnlPct > 10_000 || it.pnlPct < -100 }
-                if (badCount > 0) {
-                    // Clear and re-add only good trades
-                    val goodTrades = allTrades.filter { it.pnlPct <= 10_000 && it.pnlPct >= -100 }
-                    TradeHistoryStore.clearAllTrades()
-                    TradeHistoryStore.recordTrades(goodTrades)
-                    addLog("Purged $badCount bad trades (PnL > 10000% or < -100%) — kept ${goodTrades.size} good trades")
-                }
-                
-                // Reset paper wallet ONLY if it's clearly inflated (>100x starting balance)
-                val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 130.0
-                val targetSol = 1000.0 / solPrice
-                if (status.paperWalletSol > targetSol * 100) {
-                    status.paperWalletSol = targetSol
-                    status.paperWalletLastRefreshMs = System.currentTimeMillis()
-                    addLog("Paper wallet was inflated — reset to ${String.format("%.2f", targetSol)} SOL (~\$1,000)")
-                }
-            }
-        } catch (e: Exception) {
-            ErrorLogger.debug("BotService", "Paper purge error (non-fatal): ${e.message}")
-        }
+        // V5.9.1063 — removed paper-purge block. The previous implementation
+        // called clearAllTrades() on every stopBot() whenever ANY trade had
+        // pnlPct < -100 (decimal rounding errors on BUY records triggered this).
+        // Result: every bot restart (rescue cycle, app reopen, manual stop)
+        // wiped the entire SQLite journal → Journal always showed 0 trades.
+        // The paper wallet inflation guard is also removed — the SmartSizer
+        // already caps balance to a sane value each cycle.
         
         // IMPORTANT: Close all open positions BEFORE stopping.
         // V5.9.661 — UNCONDITIONAL on every stop. Per operator mandate,
