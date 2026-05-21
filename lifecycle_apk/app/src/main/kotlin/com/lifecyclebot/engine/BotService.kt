@@ -2583,6 +2583,16 @@ class BotService : Service() {
 
     fun startBot() {
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.9.1072 — once the runtime loop has been launched, startBot's
+        // giant outer catch must NEVER declare the bot stopped. Late optional
+        // init failures (toast/notification/reconciler/external stream/etc.)
+        // previously fell into the same catch as fatal pre-loop startup and
+        // executed status.running=false while scanner/loop/positions stayed
+        // alive. Operator symptom: no ACTION_STOP_RECEIVED, intake continues,
+        // Main later says STOPPED, positions remain stuck, Start races an
+        // already-active loop. runtimeCommitted separates fatal pre-loop start
+        // failure from degraded post-commit startup cleanup.
+        var runtimeCommitted = false
         // V5.9.651 — forensic lifecycle marker
         ForensicLogger.lifecycle("BOT_START_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}")
         // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
@@ -3222,6 +3232,13 @@ class BotService : Service() {
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
+        runtimeCommitted = true
+        try {
+            ForensicLogger.lifecycle(
+                "STARTBOT_RUNTIME_COMMITTED",
+                "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}",
+            )
+        } catch (_: Throwable) {}
 
         // V5.9.905 — HIGH-FREQUENCY EXIT MANAGER LOOP.
         // Independent of scanner throughput. Ticks every 2s, walks every
@@ -4552,6 +4569,41 @@ class BotService : Service() {
             addLog("❌ Bot start CRASH: ${e.javaClass.simpleName}: ${e.message}")
             android.util.Log.e("BotService", "startBot CRASH", e)
             e.printStackTrace()
+
+            // V5.9.1072 — SOURCE FIX: post-runtime startup exceptions are NOT stops.
+            // If loopJob is already active (or we passed the runtime commit point), the
+            // service is running. Do not flip status.running=false, do not disarm
+            // recovery, do not make Main show STOPPED. Keep alarms armed and surface
+            // the failure as degraded optional init. This is the exact no-ACTION_STOP
+            // false-stop class seen when returning from Journal/Pipeline.
+            if (runtimeCommitted || loopJob?.isActive == true) {
+                status.running = true
+                stopInProgress = false
+                userStartQueuedDuringStop = false
+                try {
+                    getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+                        .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                        .apply()
+                } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "STARTBOT_POST_COMMIT_EXCEPTION_KEPT_RUNNING",
+                        "exception=${e.javaClass.simpleName} loopActive=${loopJob?.isActive == true} statusRunning=${status.running}",
+                    )
+                } catch (_: Throwable) {}
+                try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
+                try { scheduleLoopHeartbeatAlarm() } catch (_: Throwable) {}
+                try { ServiceWatchdog.schedule(applicationContext) } catch (_: Throwable) {}
+                ErrorLogger.warn(
+                    "BotService",
+                    "startBot post-commit exception kept runtime alive: ${e.javaClass.simpleName}: ${e.message}"
+                )
+                addLog("⚠️ Startup optional init failed after runtime commit — bot kept running (${e.javaClass.simpleName})")
+                return
+            }
+
             status.running = false
 
             // V5.9.913 — AUTO-RECOVERY REWRITE for "bot keeps stopping itself".

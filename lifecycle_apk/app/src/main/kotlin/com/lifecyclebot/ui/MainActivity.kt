@@ -614,7 +614,7 @@ class MainActivity : AppCompatActivity() {
                     if (wasRunning && !manualStop) {
                         // Grace period: give SecurityActivity's pre-kick time to take effect
                         kotlinx.coroutines.delay(4_000)
-                        val isRunning = com.lifecyclebot.engine.BotService.status.running
+                        val isRunning = com.lifecyclebot.engine.BotService.isRuntimeActive()
                         if (!isRunning) {
                             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",
                                 "V5.9.713: bot still stopped 4s after cold-open (wasRunning=true, manualStop=false) — auto-restarting")
