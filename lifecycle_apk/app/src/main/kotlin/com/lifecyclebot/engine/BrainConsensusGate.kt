@@ -71,7 +71,7 @@ object BrainConsensusGate {
         // blocked entries → no learning → WR stays low → mood stays HUMBLED → never unblocks.
         // Fix: downgrade to SOFT_BLOCK during bootstrap so trades still flow for learning.
         val lifetimeTrades = try {
-            com.lifecyclebot.engine.CanonicalLearningCounters.settledTradesTotal.get().toInt()
+            (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() + com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 999 }
         val inBootstrap = lifetimeTrades < 200
         if (mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) {

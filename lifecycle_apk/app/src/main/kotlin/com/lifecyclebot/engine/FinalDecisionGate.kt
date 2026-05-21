@@ -929,7 +929,7 @@ object FinalDecisionGate {
                     approvalClass = ApprovalClass.BLOCKED,
                     quality = candidate.setupQuality, confidence = candidate.aiConfidence,
                     edge = EdgeVerdict.SKIP, blockReason = "COPY_TRADE_LIVE_LOW_CONFIDENCE",
-                    blockLevel = BlockLevel.SOFT, sizeSol = 0.0,
+                    blockLevel = BlockLevel.HARD, sizeSol = 0.0,
                     tags = listOf("copy_trade_live_conf"), mint = ts.mint, symbol = ts.symbol,
                     approvalReason = "COPY_TRADE_LOW_CONF_LIVE",
                     gateChecks = listOf(GateCheck("copy_conf", false, "conf=${candidate.aiConfidence.toInt()}% < 50%"))
