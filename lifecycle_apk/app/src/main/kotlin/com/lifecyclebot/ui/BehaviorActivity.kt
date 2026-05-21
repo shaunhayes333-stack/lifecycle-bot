@@ -83,7 +83,12 @@ class BehaviorActivity : AppCompatActivity() {
         initViews()
         setupKnob()
         loadCurrentAggression()
-        startStatsRefresh()
+        // V5.9.1064 — defer stats refresh to post-first-frame.
+        // ANR snapshot showed BehaviorActivity.onCreate + initViews blocking
+        // main thread. The heavyweight work is startStatsRefresh() which
+        // reads trade history. Defer until after first frame is painted so
+        // the activity opens instantly.
+        window.decorView.post { startStatsRefresh() }
     }
     
     private fun initViews() {

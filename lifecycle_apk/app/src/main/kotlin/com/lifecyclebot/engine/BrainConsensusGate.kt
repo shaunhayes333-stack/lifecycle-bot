@@ -73,10 +73,15 @@ object BrainConsensusGate {
         val lifetimeTrades = try {
             (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() + com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
         } catch (_: Throwable) { 999 }
-        val inBootstrap = lifetimeTrades < 200
+        // V5.9.1064 — raise bootstrap threshold 200 → 1000.
+        // At 648 trades / 6% WR the bot is still deep bootstrap; WR hasn't
+        // converged. The 200-trade cutoff was causing mood=HUMBLED+regime=DUMP
+        // to fire as a HARD_BLOCK from trade 201 onward, blocking 100% of
+        // entries during the exact window where the bot most needs to learn.
+        val inBootstrap = lifetimeTrades < 1000
         if (mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) {
             if (inBootstrap) {
-                objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+bootstrap(trades=$lifetimeTrades<200)"
+                objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+bootstrap(trades=$lifetimeTrades<1000)"
             } else {
                 objections += "SENTIENCE_VETO=mood=$mood+regime=DUMP"
             }
@@ -112,6 +117,7 @@ object BrainConsensusGate {
         // In bootstrap, mood+DUMP adds an advisory objection (SOFT_BLOCK) so trades still
         // flow for learning, breaking the circular lock.
         // V5.9.1053: isStrategyDead removed from hardBlock — no strategy auto-disabled.
+        // V5.9.1064 — hardBlock uses same inBootstrap flag (now < 1000 trades).
         val hardBlock =
             (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) ||
             (dispute?.disputed == true && dispute.secondScoreSaysWorse &&

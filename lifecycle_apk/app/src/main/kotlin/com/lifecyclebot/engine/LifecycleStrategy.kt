@@ -1101,10 +1101,16 @@ class LifecycleStrategy(
         // only relaxing the bootstrap-data gate, not the safety gates.
         val hasStrongFreshLaunchSignals =
             ts.lastLiquidityUsd >= 15_000.0 && result.entryScore >= 30.0
+        // V5.9.1064 — drop score floor from 40 → 0 for paper bootstrap.
+        // Snapshot: V3 scores are mostly negative/low in early trading.
+        // score >= 40 requirement means nothing gets through bootstrapPass
+        // in paper mode → "Insufficient data" blocks 100% of paper entries
+        // → bot can't accumulate trades → stays at 6% WR forever (circular lock).
+        // In paper mode we WANT to trade everything with $2K+ liq to learn.
+        // Score-based filtering happens downstream in FDG and V3 gates.
         val hasPaperLearningSignals =
             isPaperMode &&
-            ts.lastLiquidityUsd >= 2_000.0 &&
-            result.entryScore >= 40.0
+            ts.lastLiquidityUsd >= 2_000.0
         val bootstrapPass = hasStrongFreshLaunchSignals || hasPaperLearningSignals
         // V5.9.1002-FIX — bootstrapPass must also protect the result.phase branch.
         // V5.9.947 added bootstrapPass to bypass hist.size<3, but the condition:
