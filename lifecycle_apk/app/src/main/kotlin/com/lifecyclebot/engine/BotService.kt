@@ -10516,7 +10516,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
     private val supervisorLifetimeSpawned = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeProcessed = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLifetimeSkipped = java.util.concurrent.atomic.AtomicLong(0)
+    // V5.9.1039 — added in response to operator V5.9.1038 4h-uptime dump
+    // showing the silent supervisor pool permanently saturated by hung
+    // workers. Counts workers that hit the per-worker withTimeoutOrNull
+    // budget — surfaces stuck APIs at a glance.
+    private val supervisorLifetimeWorkerTimeouts = java.util.concurrent.atomic.AtomicLong(0)
     private val SUPERVISOR_MAX_INFLIGHT: Int = 48
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 20_000L
 
     /**
      * V5.9.1037 — fire-and-forget supervisor. Replaces the chunk-await
@@ -10561,9 +10567,33 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 try {
                     if (!status.running) return@launch
                     if (orchestrator?.shouldPoll(mint) == false) return@launch
-                    processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-                    try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
-                    supervisorLifetimeProcessed.incrementAndGet()
+                    // V5.9.1039 — PER-WORKER TIMEOUT. V5.9.1037 removed the
+                    // chunk-level awaitAll timeout but forgot to add a
+                    // per-worker safety net. Operator V5.9.1038 4h dump
+                    // showed SUPERVISOR_INFLIGHT_CAP firing 2238 times with
+                    // active=48 cap=48 spawned=0 EVERY cycle — workers stuck
+                    // on slow Birdeye/DexScreener responses never decremented
+                    // supervisorActive, permanently saturating the pool.
+                    // Result: bot loop spawned 0 new workers per cycle for
+                    // 4h straight → EXEC=2 only, projected 166 execs/day
+                    // (target 500+). 20s budget is generous (~3x normal
+                    // processTokenCycle p95) so legitimate work completes;
+                    // stuck workers get cancelled and free their slot.
+                    val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
+                        processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                        try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                    }
+                    if (ok != null) {
+                        supervisorLifetimeProcessed.incrementAndGet()
+                    } else {
+                        supervisorLifetimeWorkerTimeouts.incrementAndGet()
+                        try {
+                            ForensicLogger.lifecycle(
+                                "SUPERVISOR_WORKER_TIMEOUT",
+                                "mint=${mint.take(10)} budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                 } catch (_: kotlinx.coroutines.CancellationException) {
                     // benign — service shutting down
                 } catch (t: Throwable) {
