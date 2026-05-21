@@ -60,9 +60,18 @@ class PipelineHealthActivity : AppCompatActivity() {
     // the documented cause of the 6s main-thread stall in the
     // V5.9.899 snapshot. Keep the snapshot collection itself on
     // background; only post the final rendered text to main.
-    private val bgThread: HandlerThread by lazy {
-        HandlerThread("PipelineHealthRender").also { it.start() }
-    }
+    //
+    // V5.9.1047 — operator V5.9.1046 dump showed
+    // PipelineHealthActivity$bgThread$2.invoke at 793ms on Main
+    // (HandlerThread.<init> + Thread.<init>). The V5.9.1045 daemon
+    // pre-warm lost the race against Main's first access via
+    // renderSnapshotAsync() inside onCreate. Fix: drop `lazy` and
+    // start the HandlerThread eagerly at class-field init, so by
+    // the time onCreate calls renderSnapshotAsync the looper is
+    // already prepared and `Handler(bgThread.looper)` returns
+    // instantly.
+    private val bgThread: HandlerThread =
+        HandlerThread("PipelineHealthRender").apply { start() }
     private val bgHandler: Handler by lazy { Handler(bgThread.looper) }
 
     private val refreshIntervalMs = 12_000L  // V5.9.1018 — full report stays, but current section refreshes only every 12s
@@ -77,21 +86,10 @@ class PipelineHealthActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pipeline_health)
 
-        // V5.9.1045 — eagerly trigger bgThread / bgHandler initialization on
-        // a *background* coroutine BEFORE the first renderSnapshotAsync call.
-        // The `by lazy` accessor on bgHandler calls bgThread.looper which is
-        // a synchronized wait until the HandlerThread's Looper is prepared
-        // (HandlerThread.getLooper does Object.wait()). Triggering that wait
-        // on the main thread inside onCreate caused the V5.9.1044 snapshot's
-        // 930ms ANR_HINT — top blocker by far. Triggering it on a worker
-        // thread keeps onCreate non-blocking; by the time renderSnapshotAsync
-        // tries to post to bgHandler it's either ready or the lazy wait
-        // happens once off-main.
-        try {
-            Thread { try { bgHandler.post {} } catch (_: Throwable) {} }
-                .apply { name = "PipelineHealthBgWarm"; isDaemon = true }
-                .start()
-        } catch (_: Throwable) {}
+        // V5.9.1047 — bgThread now starts eagerly at class-field init
+        // (above). The V5.9.1045 daemon pre-warm became redundant and
+        // was removed. By the time we reach here the HandlerThread's
+        // Looper is prepared and Handler(bgThread.looper) is instant.
 
         // Best-effort: ensure ANR watcher is installed even if BotService
         // never started (e.g. user opened the panel before pressing Start).

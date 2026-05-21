@@ -51,10 +51,19 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     private val walletManager = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
 
     init {
-        viewModelScope.launch { 
+        // V5.9.1047 — operator V5.9.1046 dump showed BotViewModel.pollLoop
+        // hitting 1059ms on Main inflating a VectorDrawable (stack trace
+        // shows VectorDrawable.nCreateFullPath under pollLoop). pollLoop
+        // was launching on viewModelScope (default Dispatchers.Main.immediate)
+        // so the entire body ran on Main, including any indirect resource
+        // lookups via DashboardDataProvider / SuperBrainEnhancements /
+        // UnifiedModeOrchestrator. Move the loop body off Main entirely —
+        // StateFlow.value is thread-safe so UI consumers still observe
+        // updates correctly on their own dispatchers.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             // Auto-reconnect wallet if credentials are saved
             autoReconnectWallet()
-            pollLoop() 
+            pollLoop()
         }
     }
     

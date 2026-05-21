@@ -358,14 +358,30 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun buildJournal(tokens: Map<String, TokenState>) {
-        // V5.9.248: apply mode filter — live / paper / all
-        val allEntries = journal.buildJournal(tokens)
-        val filtered = when (currentModeFilter) {
-            "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
-            "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
-            else    -> allEntries
+        // V5.9.1047 — operator V5.9.1046 dump showed JournalActivity
+        // .buildJournal in the top-4 ANR offenders (4 hits). The disk
+        // reads (journal.buildJournal walks TradeHistoryStore + stats
+        // aggregation) were running on Main. Fix: move data prep to
+        // Dispatchers.IO; only the actual view inflation stays on Main.
+        // Re-enters this function on Main after IO completes via
+        // `runOnUiThread`, so the unchanged tail of this method (view
+        // rendering loop) keeps working as-is.
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val allEntries = try { journal.buildJournal(tokens) } catch (_: Throwable) { emptyList() }
+            val filtered = when (currentModeFilter) {
+                "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
+                "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
+                else    -> allEntries
+            }
+            val stats = try { journal.getStatsFiltered(filtered) } catch (_: Throwable) { null }
+            if (stats == null) return@launch
+            runOnUiThread {
+                try { renderJournalBody(filtered, stats) } catch (_: Throwable) {}
+            }
         }
-        val stats = journal.getStatsFiltered(filtered)
+    }
+
+    private fun renderJournalBody(filtered: List<com.lifecyclebot.engine.TradeJournal.JournalEntry>, stats: com.lifecyclebot.engine.TradeJournal.JournalStats) {
         val entries = filtered
         val sellEntries = entries.filter { it.side == "SELL" }
 
