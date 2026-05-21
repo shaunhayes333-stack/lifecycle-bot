@@ -353,7 +353,10 @@ object TradeHistoryStore {
      * `pos.tradingMode = "BLUE_CHIP"` while V3JournalRecorder sets
      * `tradingMode = layer = "BLUECHIP"`.
      */
-    private fun normalizeTradeModeName(raw: String): String {
+    // V5.9.1043 — exposed so read-side aggregators (StrategyTelemetry,
+    // BrainConsensusGate, etc.) can collapse legacy bin names recorded
+    // before V5.9.1038's choke-point normalization shipped.
+    fun normalizeTradeModeName(raw: String): String {
         val upper = raw.trim().uppercase().replace("[^A-Z0-9]".toRegex(), "")
         return when {
             upper.isBlank() -> ""

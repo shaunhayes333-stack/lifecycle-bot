@@ -52,7 +52,16 @@ object StrategyTelemetry {
         val sellsByStrategy: Map<String, List<Trade>> = all
             .asSequence()
             .filter { it.side.equals("SELL", ignoreCase = true) }
-            .groupBy { it.tradingMode.ifBlank { "UNKNOWN" } }
+            // V5.9.1043 — also collapse legacy bin names at read time so
+            // historical trades recorded before V5.9.1038's choke-point
+            // normalization (e.g. BLUE_CHIP) merge with the canonical
+            // current names (BLUECHIP). Without this, the leaderboard
+            // still shows ghost duplicate bins from old persisted data.
+            .groupBy {
+                val raw = it.tradingMode.ifBlank { "UNKNOWN" }
+                val norm = try { TradeHistoryStore.normalizeTradeModeName(raw) } catch (_: Throwable) { raw }
+                if (norm.isBlank()) "UNKNOWN" else norm
+            }
 
         return sellsByStrategy.map { (strategy, trades) ->
             val wins = trades.count { it.pnlPct > 1.0 }
