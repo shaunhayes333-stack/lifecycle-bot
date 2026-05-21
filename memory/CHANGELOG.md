@@ -6,6 +6,48 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1044 — runInterruptible workers (REAL pool fix, not band-aid) (Feb 2026, CI ✅ green)
+
+Operator V5.9.1042 snapshot proved the watchdog band-aid works
+(bot trading, 6192 LANE_EVALs, 60+ exits) but ALSO proved the
+underlying leak is severe: `SUPERVISOR_POOL_RESET` fired 29 times
+in 20 min (every ~42s). Investigation pinpointed why:
+
+```
+private fun processTokenCycle(...)   ← NOT suspend
+                                       NO suspension points
+                                       withTimeoutOrNull(20s) NEVER cancels
+```
+
+Coroutine cooperative cancellation only triggers at suspension
+points. `processTokenCycle` is a plain blocking function — OkHttp
+socket reads, synchronized SQLite writes, Birdeye/DexScreener
+HTTP calls all run to completion regardless of the outer
+`withTimeoutOrNull`. So the 20s budget was effectively dead code;
+workers ran their natural duration (often >>20s with degraded
+API health), leaking pool slots until V5.9.1042's watchdog
+band-aid kicked in every 30s.
+
+Fixed:
+- Wrapped the worker body in
+  `runInterruptible(Dispatchers.IO) { processTokenCycle(...) }`.
+- `runInterruptible` upgrades coroutine cancellation into a real
+  `Thread.interrupt()` on the worker thread.
+- Blocking I/O (OkHttp, SQLite, Thread.sleep, NIO channels) honors
+  thread interrupt → workers actually die when their 20s budget
+  expires → `finally` block decrements `supervisorActive` → pool
+  stays healthy without the watchdog.
+
+V5.9.1042's watchdog stays in place as a safety net. Expected
+behavior in next snapshot: `SUPERVISOR_POOL_RESET` drops to ~0,
+`supervisorLifetimeWorkerTimeouts` rises to match the actual
+non-cooperative hang rate, and `SCAN_CB` (completed cycles)
+climbs sharply because slots free up much faster.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1043 — collapse legacy bin names at read time (Feb 2026, CI ✅ green)
 
 Operator V5.9.1041 snapshot still showed `BLUECHIP` (n=134) AND

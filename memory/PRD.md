@@ -6,10 +6,11 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1043 (Feb 2026, CI ✅ green)
-- **Read-side bin merge (V5.9.1043)**: `StrategyTelemetry.computeLeaderboard()` now calls `TradeHistoryStore.normalizeTradeModeName()` at `groupBy` time → legacy `BLUE_CHIP` trades persisted before V5.9.1038 now merge into the canonical `BLUECHIP` bin. Resolves the ghost-duplicate bins lingering in the expectancy leaderboard.
-- **Silent-supervisor pool watchdog (V5.9.1042)**: at `fireSupervisorWorkers()` entry, if `active >= cap` AND no new worker has spawned in 30s, force-reset `supervisorActive` to 0 and emit `SUPERVISOR_POOL_RESET`. Unfreezes the bot when non-cooperative blocking ops (SQLite/JNI/native socket) hold worker slots that `withTimeoutOrNull` cannot cancel. Operator V5.9.1041 snapshot showed `SUPERVISOR_INFLIGHT_CAP` firing 335 cycles with `active=48 spawned=0` and no paper BUY in 26+ minutes.
-- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull(20s)` (cooperative — only catches workers that yield).
+## Latest Build — V5.9.1044 (Feb 2026, CI ✅ green)
+- **runInterruptible worker body (V5.9.1044)**: `processTokenCycle` is a plain (non-suspend) function — `withTimeoutOrNull` could NEVER cancel its blocking I/O. Now wrapped in `runInterruptible(Dispatchers.IO)` so cancellation upgrades to `Thread.interrupt()`. OkHttp / SQLite / native I/O honor the interrupt → workers actually die at the 20s budget → supervisor pool stays healthy WITHOUT needing the watchdog band-aid. V5.9.1042's watchdog stays as belt-and-suspenders.
+- **Read-side bin merge (V5.9.1043)**: `StrategyTelemetry.computeLeaderboard()` now calls `TradeHistoryStore.normalizeTradeModeName()` at `groupBy` time → legacy `BLUE_CHIP` trades persisted before V5.9.1038 now merge into the canonical `BLUECHIP` bin. Confirmed in V5.9.1042 snapshot: `BLUECHIP n=222`, `BLUE_CHIP` gone.
+- **Silent-supervisor pool watchdog (V5.9.1042)**: `SUPERVISOR_POOL_RESET` fires when `active >= cap` AND no spawn in 30s → unfreezes the bot. Confirmed working: 29 resets in 20min restored normal trading flow.
+- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull(20s)` (cooperative — V5.9.1044's runInterruptible makes this actually effective).
 - **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU, normalizeTradeModeName, CanonicalLearning reason-fallback, Executor.recordTrade tradingMode inheritance.
 - **Silent supervisor (V5.9.1037)**: fire-and-forget workers, cycle ~20s → ~5s.
 - **ANR fixes (V5.9.1036)**: LearningPersistence + MemeMintRegistry off-main, stall 29.9% → 8.7%.
