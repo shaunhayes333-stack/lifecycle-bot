@@ -6,6 +6,50 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1047 — 4-file UI ANR purge (Feb 2026, CI ✅ green)
+
+Operator V5.9.1046 dump showed engine throughput up 267% but UI
+stall spiked 4% → 28% with a single 42s freeze. Four-file targeted
+purge of the new top ANR offenders:
+
+(a) **BrainNetworkView** — `drawEngineDot`/`drawBrain` were the
+    top main-thread offenders (200-1278ms per onDraw). Throttled
+    animator 200ms → 1000ms (5fps → 1fps; still visually animated,
+    5× less Main CPU load), enabled `setLayerType(LAYER_TYPE_HARDWARE,
+    null)` so the canvas is cached as a GPU texture between
+    invalidates.
+
+(b) **PipelineHealthActivity eager bgThread** — dropped `by lazy`
+    on `bgThread`; HandlerThread.start() now runs at class-field
+    init, before `renderSnapshotAsync` is called from `onCreate`.
+    V5.9.1045's daemon pre-warm lost the race (snapshot showed
+    793ms on Main walking Thread.<init>); eager init guarantees
+    `Handler(bgThread.looper)` is instant. Daemon pre-warm code
+    removed.
+
+(c) **BotViewModel pollLoop on Dispatchers.Default** — `viewModelScope
+    .launch` was using the default Main dispatcher, so the entire
+    pollLoop body — including indirect resource lookups that
+    inflate VectorDrawables — ran on Main. The trace showed
+    `VectorDrawable.nCreateFullPath` beneath pollLoop at 1059ms.
+    Switched launch context to `Default`; StateFlow.value is
+    thread-safe so UI consumers still observe updates correctly.
+
+(d) **JournalActivity buildJournal data-prep async** — split
+    `buildJournal` into two methods: data prep
+    (`journal.buildJournal` + `journal.getStatsFiltered`) on
+    `Dispatchers.IO`, view rendering on Main via `runOnUiThread`.
+    Disk reads no longer block UI thread; only the View inflation
+    loop (which must be on Main) stays there.
+
+Expected combined impact: stall % drops 28% → <5%, max frame gap
+collapses, BrainNetworkView/JournalActivity disappear from ANR top
+sites.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1046 — supervisor decouple + tile BG + V3 reject histogram (Feb 2026, CI ✅ green)
 
 Three quality-of-life upgrades on top of V5.9.1045:

@@ -6,18 +6,19 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1046 (Feb 2026, CI ✅ green)
-- **Supervisor slot decouple + tile BG + V3 reject histogram (V5.9.1046)**: Spawned a separate watchdog coroutine that releases the supervisor slot 10.5s after spawn via `AtomicBoolean.compareAndSet`, decoupling slot accounting from the runaway thread that swallows `InterruptedException`. MainActivity's `pipelineTileRefresh` now reads `PipelineHealthCollector.snapshot()` on a dedicated background executor. Added `v3RejectReasonCounts` histogram + "Top V3 reject reasons" snapshot section.
-- **Supervisor timeout 10s + UI ANR fixes (V5.9.1045)**: Timeout `20s→10s`, PipelineHealthActivity bgHandler pre-warm, SplashActivity logoPulse → hardware-accelerated ObjectAnimator. Both UI ANRs disappeared from top sites; resets dropped 55%.
-- **runInterruptible worker body (V5.9.1044)**: confirmed working with 14 real cancellations per 6min.
+## Latest Build — V5.9.1047 (Feb 2026, CI ✅ green)
+- **4-file UI ANR purge (V5.9.1047)**: BrainNetworkView throttled to 1fps + hardware layer; PipelineHealthActivity bgThread now eagerly initialized (kills V5.9.1045's race); BotViewModel.pollLoop moved to Dispatchers.Default (kills VectorDrawable.nCreateFullPath Main hit); JournalActivity.buildJournal split — data prep on IO, view inflation on Main.
+- **Supervisor slot decouple + tile BG + V3 reject histogram (V5.9.1046)**: `SUPERVISOR_POOL_RESET` confirmed 0/min in V5.9.1046 dump, throughput +267% (SCAN_CB 808 → 2087 per session). V3 reject histogram surfaced `EXTREME_RUG_RISK_100: 103` as dominant V3 choke.
+- **Supervisor timeout 10s + UI ANR fixes (V5.9.1045)**: Timeout `20s→10s`, PipelineHealthActivity bgHandler pre-warm (superseded by V5.9.1047), SplashActivity logoPulse → hardware-accelerated ObjectAnimator.
+- **runInterruptible worker body (V5.9.1044)**: workers wrapped in `runInterruptible(Dispatchers.IO)` so cancellation upgrades to `Thread.interrupt()`.
 - **Read-side bin merge (V5.9.1043)**: `BLUE_CHIP` legacy ghost bin merged into `BLUECHIP` at read time.
 - **Silent-supervisor pool watchdog (V5.9.1042)**: `SUPERVISOR_POOL_RESET` safety net.
-- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull` (now 10s, effective thanks to V5.9.1044's runInterruptible).
+- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull` (now 10s).
 - **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU, normalizeTradeModeName, CanonicalLearning reason-fallback, Executor.recordTrade tradingMode inheritance.
 - **Silent supervisor (V5.9.1037)**: fire-and-forget workers, cycle ~20s → ~5s.
 - **ANR fixes (V5.9.1036)**: LearningPersistence + MemeMintRegistry off-main, stall 29.9% → 8.7%.
-- **Intake Part 2 (V5.9.1035-36)**: INTAKE_LIQ_ZERO_REJECT + INTAKE_BURST_REJECT confirmed at scale (392 + 640 in 4h).
-- **Lite-rich bridge (V5.9.1035)**: rich features 27 → 340 → expected ~90%+ after V5.9.1038's reason-fallback.
+- **Intake Part 2 (V5.9.1035-36)**: INTAKE_LIQ_ZERO_REJECT + INTAKE_BURST_REJECT confirmed at scale.
+- **Lite-rich bridge (V5.9.1035)**: rich features 27 → 340.
 
 ## Previous Build — V5.9.1026 (Feb 2026, CI ✅✅)
 - **Bot is alive & trading.** V5.9.1023 added a dedicated bot-loop dispatcher (escapes Dispatchers.IO starvation when supervisor JNI socket-reads wedge); V5.9.1024 added reactive `ApiBackoff` on 4xx/5xx (DexScreener went 49%→99% SR); V5.9.1025 harvests completed supervisor work on chunk timeout; V5.9.1026 caps supervisor parallelism at 32 (was 96) so workers actually fit the IO-pool + OkHttp connection budgets and complete inside the 2.5s chunk budget.
