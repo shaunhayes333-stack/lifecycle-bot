@@ -95,11 +95,13 @@ object BrainConsensusGate {
             objections += "LOSING_PATTERN_DANGER_ZONE=$tradingMode|s=$v3"
         }
 
-        // --- 5. StrategyTelemetry auto-disabled? (P1) ---
-        val isStrategyDead = try { StrategyTelemetry.isDisabled(tradingMode) } catch (_: Throwable) { false }
-        if (isStrategyDead) {
-            objections += "STRATEGY_AUTO_DISABLED=$tradingMode"
-        }
+        // --- 5. Strategy bleeding advisory (V5.9.1053: advisory only, never hard-block) ---
+        // isDisabled() always returns false per operator directive. This block
+        // is kept as telemetry: if a strategy has historically bled, it's noted
+        // as an advisory objection so the dump is informative, but it cannot
+        // gate a trade. The strategy self-heals via continued learning.
+        val isStrategyDead = false  // isDisabled() is always false — no auto-retire
+        // No objection added — advisory telemetry only
 
         // ---------------- Verdict composition ----------------
         // HARD_BLOCK triggers (any one of these is enough):
@@ -109,8 +111,8 @@ object BrainConsensusGate {
         // V5.9.1052 — mood+DUMP is only HARD_BLOCK in maturity (>= 200 lifetime trades).
         // In bootstrap, mood+DUMP adds an advisory objection (SOFT_BLOCK) so trades still
         // flow for learning, breaking the circular lock.
+        // V5.9.1053: isStrategyDead removed from hardBlock — no strategy auto-disabled.
         val hardBlock =
-            isStrategyDead ||
             (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) ||
             (dispute?.disputed == true && dispute.secondScoreSaysWorse &&
              regime in setOf(RegimeDetector.Regime.DUMP, RegimeDetector.Regime.CHOP))

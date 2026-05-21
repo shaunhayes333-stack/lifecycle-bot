@@ -2605,20 +2605,12 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
 
-            // V5.9.1052 — Selective strategy re-enable on restart.
-            // V5.9.1029 did blanket clearDisabled() which re-admitted PRESALE_SNIPE /
-            // MOMENTUM_SWING even after 31 losses at -24.97% EV. Those retirements
-            // were earned on valid data (V5.9.1028 fixed the phantom-stop slippage).
-            // New rule: only clear a strategy's disabled flag if it has < 10 lifetime
-            // trades, meaning it was retired on insufficient data. Strategies with
-            // ≥ 10 trades and ≤ -10% EV earned their retirement and stay out until
-            // manually re-enabled via StrategyTelemetry.clearDisabled(strategy).
+            // V5.9.1053 — No strategy auto-retire. isDisabled() always returns false.
+            // clearDisabled() is a no-op. Kept for compile compat only.
             try {
-                com.lifecyclebot.engine.StrategyTelemetry.clearDisabledIfInsufficient(minTrades = 10)
-                ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=selective_min10_trades")
-            } catch (_: Throwable) {
-                // Fallback: if selective clear fails, do nothing (don't re-admit toxic strategies)
-            }
+                com.lifecyclebot.engine.StrategyTelemetry.clearDisabled()
+                ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=no_op_v1053")
+            } catch (_: Throwable) {}
 
             // V5.9.1049 — reset the 50-trade SessionSafetyHalt latch so a
             // restart re-arms the circuit breaker (operator manually

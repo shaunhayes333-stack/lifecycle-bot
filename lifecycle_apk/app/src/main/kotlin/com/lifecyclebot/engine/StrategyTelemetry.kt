@@ -102,83 +102,31 @@ object StrategyTelemetry {
             .take(n)
 
     // ───────────────────────────────────────────────────────────────────
-    // V5.9.806 — P1 auto-retirement.
+    // V5.9.1053 — NO AUTO-DISABLE. Operator directive:
+    // "no strategies should be permanently disabled. we are meant to help
+    // anything lagging to learn better. any issue like this is meant to
+    // be self healed."
     //
-    // A strategy that has bled for ≥50 trades with mean PnL ≤ -5%/trade
-    // is auto-disabled. Sub-traders consult `isDisabled(mode)` at their
-    // entry-decision point and refuse to emit entries while disabled.
-    // The operator can manually un-retire via `clearDisabled()` (used
-    // e.g. on fresh re-install when the historical journal carries
-    // pre-fix data the operator doesn't want held against the strategy).
+    // isDisabled() always returns false. BrainConsensusGate may still
+    // emit a SOFT advisory when a strategy is bleeding, but it can never
+    // produce a HARD_BLOCK via this path. The strategy keeps running,
+    // keeps collecting samples, and self-heals as WR improves.
     //
-    // Memoised for 60s. Aggregation cost is a single journal pass which
-    // is also reused by the leaderboard formatter.
+    // clearDisabled() and clearDisabledIfInsufficient() are kept as no-ops
+    // so existing call sites compile without changes.
     // ───────────────────────────────────────────────────────────────────
-    @Volatile private var disabledSet: Set<String> = emptySet()
-    @Volatile private var disabledComputedAt: Long = 0L
-    private const val DISABLED_TTL_MS = 60_000L
-    private const val DISABLE_MIN_TRADES = 50
-    private const val DISABLE_MEAN_PNL_THRESHOLD = -5.0
 
-    @Volatile private var manualUnretire = mutableSetOf<String>()
+    /** Always returns false — no strategy is ever auto-disabled. */
+    fun isDisabled(strategy: String): Boolean = false
 
-    private fun refreshDisabledSet() {
-        val now = System.currentTimeMillis()
-        if ((now - disabledComputedAt) < DISABLED_TTL_MS && disabledSet.isNotEmpty()) return
-        val fresh = HashSet<String>()
-        try {
-            for (m in computeLeaderboard()) {
-                if (m.trades >= DISABLE_MIN_TRADES &&
-                    m.meanPnlPct <= DISABLE_MEAN_PNL_THRESHOLD &&
-                    !manualUnretire.contains(m.strategy)
-                ) {
-                    fresh += m.strategy
-                }
-            }
-        } catch (_: Throwable) {}
-        disabledSet = fresh
-        disabledComputedAt = now
-    }
+    /** Always returns empty — nothing is disabled. */
+    fun getDisabled(): Set<String> = emptySet()
 
-    fun isDisabled(strategy: String): Boolean {
-        val key = strategy.ifBlank { "UNKNOWN" }
-        refreshDisabledSet()
-        return disabledSet.contains(key)
-    }
+    /** No-op — nothing to clear. */
+    fun clearDisabled() {}
 
-    fun getDisabled(): Set<String> {
-        refreshDisabledSet()
-        return disabledSet.toSet()
-    }
-
-    /** Operator escape hatch — call once on fresh install to start clean. */
-    fun clearDisabled() {
-        synchronized(manualUnretire) {
-            manualUnretire.addAll(disabledSet)
-        }
-        disabledSet = emptySet()
-        disabledComputedAt = System.currentTimeMillis()
-    }
-    /**
-     * V5.9.1052 — Selective re-enable: only clear disabled flag for strategies
-     * that were retired on < minTrades data (i.e. retirement was premature).
-     * Strategies with >= minTrades earned their retirement on real outcomes.
-     */
-    fun clearDisabledIfInsufficient(minTrades: Int) {
-        val toReEnable = mutableListOf<String>()
-        synchronized(disabledStrategies) {
-            disabledStrategies.entries.removeIf { (strategy, reason) ->
-                val tradeCount = try { getTradeCount(strategy) } catch (_: Throwable) { minTrades }
-                val shouldClear = tradeCount < minTrades
-                if (shouldClear) toReEnable.add(strategy)
-                shouldClear
-            }
-        }
-        if (toReEnable.isNotEmpty()) {
-            com.lifecyclebot.engine.ErrorLogger.info("StrategyTelemetry",
-                "🔓 Re-enabled strategies (< $minTrades trades): ${toReEnable.joinToString()}")
-        }
-    }
+    /** No-op — nothing to clear. */
+    fun clearDisabledIfInsufficient(minTrades: Int) {}
 
 
     /**
@@ -235,7 +183,7 @@ object StrategyTelemetry {
         if (disabled.isNotEmpty()) {
             sb.append("\n  ⚠ AUTO-DISABLED strategies (≥${DISABLE_MIN_TRADES} trades, mean PnL ≤ ${DISABLE_MEAN_PNL_THRESHOLD}%):\n")
             disabled.forEach { sb.append("    • $it\n") }
-            sb.append("    (operator can re-enable via StrategyTelemetry.clearDisabled())\n")
+            // V5.9.1053: no auto-disable, so no re-enable list to show
         }
 
         return sb.toString()
