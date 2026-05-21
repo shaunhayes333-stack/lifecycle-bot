@@ -6,9 +6,10 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1047 (Feb 2026, CI ✅ green)
-- **4-file UI ANR purge (V5.9.1047)**: BrainNetworkView throttled to 1fps + hardware layer; PipelineHealthActivity bgThread now eagerly initialized (kills V5.9.1045's race); BotViewModel.pollLoop moved to Dispatchers.Default (kills VectorDrawable.nCreateFullPath Main hit); JournalActivity.buildJournal split — data prep on IO, view inflation on Main.
-- **Supervisor slot decouple + tile BG + V3 reject histogram (V5.9.1046)**: `SUPERVISOR_POOL_RESET` confirmed 0/min in V5.9.1046 dump, throughput +267% (SCAN_CB 808 → 2087 per session). V3 reject histogram surfaced `EXTREME_RUG_RISK_100: 103` as dominant V3 choke.
+## Latest Build — V5.9.1048 (Feb 2026, CI ✅ green)
+- **5-fix pass (V5.9.1048)**: STANDARD bin glossary note added to strategy expectancy section · V3 reject reason now extracts from `Rejected`/`Blocked` not just `BlockFatal` · `execBuy` counter key mismatch fixed (was reading legacy `EXEC/PAPER_BUY`) · BirdeyeApi.get() now consults `ApiBackoff.isLockedOut` + reports response codes (sr=59% should recover to >90%) · renderMoonshotPositions gets 8s min render interval throttle.
+- **4-file UI ANR purge (V5.9.1047)**: BrainNetworkView throttled to 1fps + hardware layer; PipelineHealthActivity bgThread now eagerly initialized; BotViewModel.pollLoop moved to Dispatchers.Default; JournalActivity.buildJournal split — data prep on IO, view inflation on Main. Stall % 28% → 6.5%.
+- **Supervisor slot decouple + tile BG + V3 reject histogram (V5.9.1046)**: SUPERVISOR_POOL_RESET confirmed 0/min, throughput +267%. V3 reject histogram surfaced `EXTREME_RUG_RISK_100: 103` as dominant V3 choke.
 - **Supervisor timeout 10s + UI ANR fixes (V5.9.1045)**: Timeout `20s→10s`, PipelineHealthActivity bgHandler pre-warm (superseded by V5.9.1047), SplashActivity logoPulse → hardware-accelerated ObjectAnimator.
 - **runInterruptible worker body (V5.9.1044)**: workers wrapped in `runInterruptible(Dispatchers.IO)` so cancellation upgrades to `Thread.interrupt()`.
 - **Read-side bin merge (V5.9.1043)**: `BLUE_CHIP` legacy ghost bin merged into `BLUECHIP` at read time.
@@ -16,7 +17,7 @@ Service with a 50+ AI-module pipeline gated through processTokenCycle.
 - **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull` (now 10s).
 - **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU, normalizeTradeModeName, CanonicalLearning reason-fallback, Executor.recordTrade tradingMode inheritance.
 - **Silent supervisor (V5.9.1037)**: fire-and-forget workers, cycle ~20s → ~5s.
-- **ANR fixes (V5.9.1036)**: LearningPersistence + MemeMintRegistry off-main, stall 29.9% → 8.7%.
+- **ANR fixes (V5.9.1036)**: LearningPersistence + MemeMintRegistry off-main.
 - **Intake Part 2 (V5.9.1035-36)**: INTAKE_LIQ_ZERO_REJECT + INTAKE_BURST_REJECT confirmed at scale.
 - **Lite-rich bridge (V5.9.1035)**: rich features 27 → 340.
 

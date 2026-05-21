@@ -6,6 +6,48 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1048 — 5-fix pass: STANDARD note · V3 reason · EXEC counter · Birdeye backoff · moonshot throttle (Feb 2026, CI ✅ green)
+
+Operator V5.9.1047 dump surfaced 5 follow-ups. All addressed:
+
+(a) **STANDARD bin glossary note** — added a one-line clarifier
+    below the strategy expectancy block: `STANDARD = V3 default
+    (no lane affinity, TokenMemory.kt fallback), partly survivor-
+    biased since promotions reclassify mid-trade`. Demystifies the
+    suspicious-good n=32 WR=100% +207%/trade reading.
+
+(b) **V3 reject reason histogram** — extract `.reason` from
+    `V3Decision.Rejected` and `V3Decision.Blocked`, not just
+    `BlockFatal`. V5.9.1046's REJECTED_FATAL_V3 lifecycle event
+    silently dropped 128 Rejected-class reasons because the
+    extractor only consulted the BlockFatal subclass. Histogram
+    should now bucket meaningfully across V3 sub-reasons.
+
+(c) **EXEC_BUY counter key mismatch** — `execBuy` was reading
+    legacy `EXEC/PAPER_BUY`+`EXEC/LIVE_BUY` keys while
+    `TradeHistoryStore.recordExec` writes `EXEC_BUY`/`EXEC_SELL`.
+    `execSell` already matched; only `execBuy` was wrong, so the
+    snapshot showed EXEC_BUY=0 while logs proved many actual BUYs.
+
+(d) **Birdeye 429 backoff** — wired `ApiBackoff.isLockedOut("birdeye")`
+    check into `BirdeyeApi.get()` AND `markFailure(code)` /
+    `markSuccess()` on every response. Operator V5.9.1047 dump
+    showed birdeye sr=59% 4xx=344 — Birdeye was being hammered
+    through 429s because the existing ApiBackoff infrastructure
+    wasn't engaged. Now: consecutive 4xx escalates the lockout
+    schedule (5s→5min cap).
+
+(e) **renderMoonshotPositions throttle** — added 8s minimum
+    render interval guard (same `OPEN_POS_MIN_RENDER_INTERVAL_MS`
+    as renderOpenPositions). Operator V5.9.1047 dump showed 509ms
+    ANR; structural hash skipped no-change rebuilds but moonshot
+    open/close still fired Coil image loads + 4 rows inline on
+    Main. Rapid sequences now collapse to one rebuild.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1047 — 4-file UI ANR purge (Feb 2026, CI ✅ green)
 
 Operator V5.9.1046 dump showed engine throughput up 267% but UI
