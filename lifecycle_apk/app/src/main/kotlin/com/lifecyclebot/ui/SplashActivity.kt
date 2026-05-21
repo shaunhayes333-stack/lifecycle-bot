@@ -92,18 +92,27 @@ class SplashActivity : AppCompatActivity() {
         }
         glowPulse.start()
 
-        // Animate logo: subtle scale pulse
-        val logoPulse = ValueAnimator.ofFloat(0f, 1f).apply {
+        // V5.9.1045 — operator V5.9.1044 dump's top ANR offender:
+        // SplashActivity.onCreate$lambda$2$lambda$1 → Float.valueOf →
+        // PropertyValuesHolder.getAnimatedValue → ValueAnimator
+        // (firing 250-755ms gaps on main thread every animation frame).
+        // The custom addUpdateListener pattern boxes a Float each frame and
+        // invokes user code on Main. Replacing with two pure ObjectAnimators
+        // on the view's hardware-accelerated scaleX/scaleY properties moves
+        // the per-frame work to RenderThread — main thread no longer fires
+        // the lambda per frame.
+        val scalePulseX = ObjectAnimator.ofFloat(logo, "scaleX", 0.95f, 1.0f, 0.95f).apply {
             duration = 2000L
             repeatCount = ValueAnimator.INFINITE
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Float
-                val scale = 0.95f + 0.05f * kotlin.math.sin(value * 2 * Math.PI).toFloat()
-                logo.scaleX = scale
-                logo.scaleY = scale
-            }
+            interpolator = AccelerateDecelerateInterpolator()
         }
-        logoPulse.start()
+        val scalePulseY = ObjectAnimator.ofFloat(logo, "scaleY", 0.95f, 1.0f, 0.95f).apply {
+            duration = 2000L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+        scalePulseX.start()
+        scalePulseY.start()
 
         // Delayed fade-in for tagline
         Handler(Looper.getMainLooper()).postDelayed({

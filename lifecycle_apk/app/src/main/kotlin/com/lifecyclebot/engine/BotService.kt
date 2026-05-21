@@ -10537,7 +10537,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
     private val supervisorLifetimePoolResets = java.util.concurrent.atomic.AtomicLong(0)
     private val SUPERVISOR_POOL_STALL_MS: Long = 30_000L
     private val SUPERVISOR_MAX_INFLIGHT: Int = 48
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 20_000L
+    // V5.9.1045 — operator V5.9.1044 dump showed 14 SUPERVISOR_WORKER_TIMEOUTs
+    // firing per 6min (runInterruptible IS working) but 6 SUPERVISOR_POOL_RESETs
+    // still kicking in — workers exceeding 20s. Shrinking to 10s (≈2× tick
+    // cadence, ≈1× OkHttp read budget). Workers that need >10s are almost
+    // always wedged on a stuck API or non-interruptible code path; killing
+    // them keeps pool turnover ≥ tick rate. Next tick will re-pick the
+    // token from WATCHLIST_RR so no signal is lost.
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 10_000L
 
     /**
      * V5.9.1037 — fire-and-forget supervisor. Replaces the chunk-await

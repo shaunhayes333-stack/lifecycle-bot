@@ -77,6 +77,22 @@ class PipelineHealthActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_pipeline_health)
 
+        // V5.9.1045 — eagerly trigger bgThread / bgHandler initialization on
+        // a *background* coroutine BEFORE the first renderSnapshotAsync call.
+        // The `by lazy` accessor on bgHandler calls bgThread.looper which is
+        // a synchronized wait until the HandlerThread's Looper is prepared
+        // (HandlerThread.getLooper does Object.wait()). Triggering that wait
+        // on the main thread inside onCreate caused the V5.9.1044 snapshot's
+        // 930ms ANR_HINT — top blocker by far. Triggering it on a worker
+        // thread keeps onCreate non-blocking; by the time renderSnapshotAsync
+        // tries to post to bgHandler it's either ready or the lazy wait
+        // happens once off-main.
+        try {
+            Thread { try { bgHandler.post {} } catch (_: Throwable) {} }
+                .apply { name = "PipelineHealthBgWarm"; isDaemon = true }
+                .start()
+        } catch (_: Throwable) {}
+
         // Best-effort: ensure ANR watcher is installed even if BotService
         // never started (e.g. user opened the panel before pressing Start).
         try { PipelineHealthCollector.installAnrWatcherOnMainThread() } catch (_: Throwable) {}
