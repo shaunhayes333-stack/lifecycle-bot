@@ -10629,9 +10629,26 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     // (target 500+). 20s budget is generous (~3x normal
                     // processTokenCycle p95) so legitimate work completes;
                     // stuck workers get cancelled and free their slot.
+                    // V5.9.1044 — wrap the call in runInterruptible so the
+                    // cooperative withTimeoutOrNull cancellation is upgraded
+                    // to a REAL Thread.interrupt() on the IO dispatcher
+                    // thread. processTokenCycle is a plain (non-suspend)
+                    // function whose blocking ops (OkHttp socket reads,
+                    // synchronized SQLite writes, Birdeye/DexScreener
+                    // calls) never observe coroutine cancellation —
+                    // explaining V5.9.1042's snapshot showing
+                    // SUPERVISOR_POOL_RESET firing 29× in 20min: workers
+                    // launched, hung non-cooperatively, and never
+                    // released their slot, forcing the watchdog band-aid
+                    // to kick in every ~42s. runInterruptible converts
+                    // cancellation into JVM thread interrupt, which the
+                    // vast majority of blocking I/O honors — so the
+                    // worker actually dies and the finally block fires.
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
-                        processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
-                        try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                        kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                            processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                            try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
+                        }
                     }
                     if (ok != null) {
                         supervisorLifetimeProcessed.incrementAndGet()
