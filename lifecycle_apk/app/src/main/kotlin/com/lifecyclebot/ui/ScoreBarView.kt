@@ -39,6 +39,17 @@ class ScoreBarView @JvmOverloads constructor(
 
     private val rect = RectF()
 
+    init {
+        // V5.9.1061 — GPU-accelerate this view and skip accessibility traversal.
+        // ANR snapshots showed isHighContrastTextEnabled + Arrays.copyOf stalling
+        // the main thread for 1364ms + 861ms on every ScoreBarView.onDraw call.
+        // LAYER_TYPE_HARDWARE offloads compositing to the GPU thread; NO_A11Y
+        // eliminates the AccessibilityManager callbacks that trigger the slow
+        // isHighContrastTextEnabled check on every drawText() invocation.
+        setLayerType(LAYER_TYPE_HARDWARE, null)
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
     override fun onDraw(canvas: Canvas) {
         val h     = height.toFloat()
         val w     = width.toFloat()

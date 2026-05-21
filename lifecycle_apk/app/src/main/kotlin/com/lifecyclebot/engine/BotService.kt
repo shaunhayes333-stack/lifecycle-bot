@@ -12720,6 +12720,21 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             // ═══════════════════════════════════════════════════════════════════
                             val treasuryScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence)  // Use better of two
 
+                            // V5.9.1061 — LosingPatternMemory hard-gate for TREASURY.
+                            // Snapshot: TREASURY|S0-10 = 65 losses / 0 wins / EV=-25.72%
+                            // Total TREASURY losses in session: -2.64 SOL (53% of all losses).
+                            // isDangerZone() checks if this (mode, scoreBand) bucket has ≥5
+                            // losses AND ≥75% loss rate — if so, skip the entry entirely.
+                            val _trsScore = treasuryScore.coerceIn(0, 100)
+                            val _trsIsDanger = try {
+                                com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
+                            } catch (_: Throwable) { false }
+                            if (_trsIsDanger) {
+                                ErrorLogger.info("BotService",
+                                    "🚫 [TREASURY] ${ts.symbol} | DANGER_ZONE_BLOCK | score=$_trsScore | LosingPatternMemory vetoed entry (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
+                                RejectionTelemetry.record("TREASURY", "DANGER_ZONE_BLOCK")
+                            } else {
+
                             // V5.9.688 — FDG gate for Treasury path
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
@@ -12876,6 +12891,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         }
                     }
                 } // close FDG-required else (TREASURY V5.9.688)
+                } // end !_trsIsDanger (V5.9.1061 danger zone gate)
                 } catch (treasuryEx: Exception) {
                     ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)  // Release on error
@@ -14522,7 +14538,18 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     try {
                         val assessment = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
                         
-                        if (assessment.shouldEngage) {
+                        // V5.9.1061 — LosingPatternMemory gate for PRESALE_SNIPE.
+                        // Snapshot: PRESALE_SNIPE|S0-10 = 43 losses / 2 wins / EV=-25.09%.
+                        // Block entry if this (mode, score) bucket is a known danger zone.
+                        val _sniperScore = assessment.confidence.coerceIn(0, 100)
+                        val _sniperIsDanger = try {
+                            com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("PRESALE_SNIPE", _sniperScore)
+                        } catch (_: Throwable) { false }
+                        if (_sniperIsDanger) {
+                            ErrorLogger.info("BotService",
+                                "🚫 [SNIPER] ${ts.symbol} | DANGER_ZONE_BLOCK | score=$_sniperScore | LosingPatternMemory vetoed (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
+                            RejectionTelemetry.record("PRESALE_SNIPE", "DANGER_ZONE_BLOCK")
+                        } else if (assessment.shouldEngage) {
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
