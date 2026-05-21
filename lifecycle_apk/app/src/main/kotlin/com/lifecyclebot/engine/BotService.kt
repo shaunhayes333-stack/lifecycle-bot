@@ -1457,38 +1457,27 @@ class BotService : Service() {
                 } else if (loopJob?.isActive != true) {
                     userStartQueuedDuringStop = false
                     scope.launch { startBot() }
-                } else if (userRequested && !status.running) {
-                    // V5.9.674 — STUCK-LOOP RESCUE. Operator observed: bot stops
-                    // itself (status.running=false) but the bot-loop coroutine
-                    // is still "active" — hung on a network call (Jupiter, RPC
-                    // chain, DexScreener) that hasn't timed out yet. Old code's
-                    // `loopJob?.isActive != true` branch evaluated false → fell
-                    // through to "Bot already running" → just rescheduled the
-                    // keep-alive alarm and did nothing. User sees the START
-                    // button do absolutely nothing for 5-10 minutes until the
-                    // hung suspend point finally times out. THEN pressing
-                    // START works instantly because loopJob is finally inactive.
-                    //
-                    // Fix: when the USER explicitly presses START (not a
-                    // keep-alive alarm, not a watchdog) AND status.running is
-                    // already false (= bot is supposed to be stopped or stuck),
-                    // CANCEL the zombie loopJob and force a fresh startBot().
-                    // Use a 3-second join with kotlinx cancellation so we don't
-                    // wait on the same network call that hung the old loop.
-                    ErrorLogger.warn("BotService", "🆘 STUCK-LOOP RESCUE: userRequested=true status.running=false but loopJob.isActive=true. Force-cancelling zombie loop and restarting.")
-                    addLog("🆘 Detected stuck bot loop — force-restarting")
+                } else if (userRequested) {
+                    // V5.9.1068 — RELAXED STUCK-LOOP RESCUE. The previous
+                    // condition required `!status.running` but the UI VM
+                    // sometimes pre-mutated status.running=true (V5.9.1068
+                    // removed that), and even legitimate user re-presses
+                    // of START while the bot LOOKS running but is actually
+                    // wedged should force a clean restart. Any user-driven
+                    // ACTION_START with an active-but-possibly-zombie loopJob
+                    // now triggers cancel+restart instead of being silently
+                    // swallowed by "Bot already running".
+                    ErrorLogger.warn("BotService", "🆘 USER RESTART: userRequested=true loopJob.isActive=true status.running=${status.running}. Force-cancelling existing loop and restarting.")
+                    addLog("🆘 User pressed START while loop active — force-restarting cleanly")
                     try {
                         ForensicLogger.lifecycle(
-                            "STUCK_LOOP_RESCUE",
-                            "loopActive=true statusRunning=false action=cancel+restart"
+                            "USER_FORCE_RESTART",
+                            "loopActive=true statusRunning=${status.running} action=cancel+restart"
                         )
                     } catch (_: Throwable) {}
                     scope.launch {
                         try {
-                            loopJob?.cancel(kotlinx.coroutines.CancellationException("stuck-loop rescue"))
-                            // Bounded wait — never block longer than 3s on a
-                            // job that is itself hung. The launch coroutine
-                            // doing startBot() will replace loopJob anyway.
+                            loopJob?.cancel(kotlinx.coroutines.CancellationException("user force restart"))
                             withTimeoutOrNull(3_000L) { loopJob?.join() }
                         } catch (_: Throwable) {}
                         userStartQueuedDuringStop = false
@@ -12695,20 +12684,28 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             // ═══════════════════════════════════════════════════════════════════
                             val treasuryScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence)  // Use better of two
 
-                            // V5.9.1061 — LosingPatternMemory hard-gate for TREASURY.
-                            // Snapshot: TREASURY|S0-10 = 65 losses / 0 wins / EV=-25.72%
-                            // Total TREASURY losses in session: -2.64 SOL (53% of all losses).
-                            // isDangerZone() checks if this (mode, scoreBand) bucket has ≥5
-                            // losses AND ≥75% loss rate — if so, skip the entry entirely.
+                            // V5.9.1068 — DOWNGRADED FROM HARD BLOCK TO TELEMETRY.
+                            // The V5.9.1061 hard-block was choking the bot:
+                            // 40 TREASURY danger-zone blocks meant every entry
+                            // in that score band was silently killed, starving
+                            // the lane and contributing to the 6+ min trade
+                            // stalls. Operator mandate: "never fucking pause
+                            // or disable. everything has to have a chance to
+                            // learn then self adjust." Replace block with
+                            // structured telemetry so the learning fan-out
+                            // still records the danger label, but the trade
+                            // proceeds (with SmartSizer/SL tightening already
+                            // handling size + risk reduction downstream).
                             val _trsScore = treasuryScore.coerceIn(0, 100)
                             val _trsIsDanger = try {
                                 com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
                             } catch (_: Throwable) { false }
                             if (_trsIsDanger) {
                                 ErrorLogger.info("BotService",
-                                    "🚫 [TREASURY] ${ts.symbol} | DANGER_ZONE_BLOCK | score=$_trsScore | LosingPatternMemory vetoed entry (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
-                                RejectionTelemetry.record("TREASURY", "DANGER_ZONE_BLOCK")
-                            } else {
+                                    "🏷️ [TREASURY] ${ts.symbol} | DANGER_ZONE_TELEMETRY (not blocked) | score=$_trsScore | LosingPatternMemory flagged (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
+                            }
+                            // V5.9.1068 — no else wrapper; execution proceeds.
+                            run {
 
                             // V5.9.688 — FDG gate for Treasury path
                             val treasuryFdg = try {
@@ -12866,7 +12863,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         }
                     }
                 } // close FDG-required else (TREASURY V5.9.688)
-                } // end !_trsIsDanger (V5.9.1061 danger zone gate)
+                } // end V5.9.1068 unconditional run-block (was V5.9.1061 danger zone gate)
                 } catch (treasuryEx: Exception) {
                     ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | ERROR | ${treasuryEx.message}")
                     FinalExecutionPermit.releaseExecution(ts.mint)  // Release on error
@@ -14513,18 +14510,20 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     try {
                         val assessment = com.lifecyclebot.v3.scoring.ProjectSniperAI.assessTarget(ts, ts.ref)
                         
-                        // V5.9.1061 — LosingPatternMemory gate for PRESALE_SNIPE.
-                        // Snapshot: PRESALE_SNIPE|S0-10 = 43 losses / 2 wins / EV=-25.09%.
-                        // Block entry if this (mode, score) bucket is a known danger zone.
+                        // V5.9.1068 — DOWNGRADED HARD BLOCK TO TELEMETRY.
+                        // Same rationale as TREASURY (V5.9.1068): a 75% loss rate
+                        // bucket should NOT silently kill all future entries —
+                        // it should record the danger label, reduce size, and
+                        // let the bot keep learning. Operator mandate honored.
                         val _sniperScore = assessment.confidence.coerceIn(0, 100)
                         val _sniperIsDanger = try {
                             com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("PRESALE_SNIPE", _sniperScore)
                         } catch (_: Throwable) { false }
                         if (_sniperIsDanger) {
                             ErrorLogger.info("BotService",
-                                "🚫 [SNIPER] ${ts.symbol} | DANGER_ZONE_BLOCK | score=$_sniperScore | LosingPatternMemory vetoed (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
-                            RejectionTelemetry.record("PRESALE_SNIPE", "DANGER_ZONE_BLOCK")
-                        } else if (assessment.shouldEngage) {
+                                "🏷️ [SNIPER] ${ts.symbol} | DANGER_ZONE_TELEMETRY (not blocked) | score=$_sniperScore | LosingPatternMemory flagged (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
+                        }
+                        if (assessment.shouldEngage) {
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,

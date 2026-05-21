@@ -165,11 +165,15 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startBot() {
+        // V5.9.1068 — DO NOT pre-mutate BotService.status.running here.
+        // The previous premature mutation made onStartCommand see
+        // status.running=true and fall through to the "Bot already running"
+        // branch, silently dropping the START action. The service must own
+        // status.running and set it when startBot() actually fires.
         val intent = Intent(ctx, BotService::class.java).apply {
             action = BotService.ACTION_START
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
         }
-        BotService.status.running = true
         _ui.value = _ui.value.copy(running = true)
         ctx.startForegroundService(intent)
     }

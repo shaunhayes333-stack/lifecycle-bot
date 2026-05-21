@@ -62,17 +62,26 @@ object ToxicModeCircuitBreaker {
     // No entry below these thresholds - no exceptions
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V5.9.1068 — REALIGNED FOR PUMP.FUN BONDING-CURVE REALITY.
+    // Pump.fun launches arrive at ~$2,000-$2,500 liquidity (bonding curve
+    // pre-graduation). Previous floors of $10k-$15k silently killed every
+    // entry from MOMENTUM / FRESH_LAUNCH / PRESALE_SNIPE / SENTIMENT_IGNITION
+    // / WHALE_FOLLOW / DEFAULT lanes — operator snapshot showed 5 of 7
+    // active lanes (MOONSHOT, MANIPULATED, SHITCOIN, QUALITY, DIP_HUNTER)
+    // producing ZERO executions despite 95 lane-evals each. Floor lowered
+    // to $1,500 across all modes so the bot can actually trade the
+    // tokens that arrive. Per-mode risk is already handled by SL/SmartSizer.
     private val LIQUIDITY_FLOORS = mapOf(
-        "COPY_TRADE" to 2_000.0,               // V5.9.1055: paper floor $2k — learn via all tokens
-        "COPY" to 2_000.0,                     // V5.9.1055: paper floor $2k — learn via all tokens
-        "WHALE_FOLLOW" to 15_000.0,            // $15k minimum (high-risk social following)
-        "WHALE_ACCUMULATION" to 15_000.0,      // $15k minimum (high-risk)
-        "MOMENTUM" to 10_000.0,                // $10k minimum (execution floor)
-        "MOMENTUM_SWING" to 10_000.0,          // $10k minimum (execution floor)
-        "FRESH_LAUNCH" to 12_000.0,            // $12k minimum (new token risk)
-        "PRESALE_SNIPE" to 15_000.0,           // $15k minimum (highest risk)
-        "SENTIMENT_IGNITION" to 10_000.0,      // $10k minimum (execution floor)
-        "DEFAULT" to 10_000.0,                 // $10k EXECUTION FLOOR (raised from $8k)
+        "COPY_TRADE" to 1_500.0,
+        "COPY" to 1_500.0,
+        "WHALE_FOLLOW" to 1_500.0,
+        "WHALE_ACCUMULATION" to 1_500.0,
+        "MOMENTUM" to 1_500.0,
+        "MOMENTUM_SWING" to 1_500.0,
+        "FRESH_LAUNCH" to 1_500.0,
+        "PRESALE_SNIPE" to 1_500.0,
+        "SENTIMENT_IGNITION" to 1_500.0,
+        "DEFAULT" to 1_500.0,
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
