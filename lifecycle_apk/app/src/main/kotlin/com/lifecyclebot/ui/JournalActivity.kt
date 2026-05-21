@@ -39,8 +39,9 @@ class JournalActivity : AppCompatActivity() {
     // at once (every 2s polling loop) causes OOM → process kill → START_STICKY
     // → bot appears to "randomly start". Show only the most recent PAGE_SIZE
     // trades; user can tap "Load More" to see older ones.
-    private val PAGE_SIZE = 100
+    private val PAGE_SIZE = 30  // V5.9.1057: was 100 — 300 addView calls/poll caused 15s UI freeze
     private var currentPage = 1          // number of pages currently visible (grows on "Load More")
+    private var lastRenderedTradeCount: Int = -1  // V5.9.1057: skip rebuild if count unchanged
     private var cachedSellEntries = listOf<com.lifecyclebot.engine.TradeJournal.JournalEntry>()
 
     private val white = 0xFFFFFFFF.toInt()
@@ -70,14 +71,12 @@ class JournalActivity : AppCompatActivity() {
         setContentView(R.layout.activity_journal)
         supportActionBar?.hide()
 
-        // V5.9.431 — belt-and-braces: ensure SQLite-backed trade store is
-        // open even if Journal is the first activity after a cold start and
-        // something skipped AATEApp init. The store's own lazy-init also
-        // covers this, but calling explicitly here guarantees the persisted
-        // trades load synchronously before buildJournal runs.
-        try {
-            com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
-        } catch (_: Exception) {}
+        // V5.9.1057 — TradeHistoryStore.init removed from main thread.
+        // Calling it synchronously here grabbed the store's internal lock,
+        // blocking main thread while BotService was mid-write → caused the
+        // Journal open to freeze for up to 15s and could starve the bot loop.
+        // The store's own lazy-init in AATEApp.onCreate covers cold-start;
+        // if it somehow wasn't called, the first IO-thread poll will trigger it.
 
         journal = try {
             BotService.instance?.tradeJournal ?: TradeJournal(applicationContext)
@@ -136,6 +135,7 @@ class JournalActivity : AppCompatActivity() {
                 setOnClickListener {
                     currentModeFilter = filter
                     currentPage = 1  // V5.9.330: reset pagination on filter change
+                    lastRenderedTradeCount = -1  // V5.9.1057: force re-render on filter change
                     updateTabColors()
                     refreshTrades()
                 }
@@ -392,11 +392,21 @@ class JournalActivity : AppCompatActivity() {
                     "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
                     else    -> allEntries
                 }
+                // V5.9.1057 — skip the 300-addView main-thread rebuild if the
+                // number of sell entries hasn't changed since last render.
+                // The poll fires every 10s; rebuilding 100 rows × 3 views each
+                // synchronously on the main thread was causing the 15s black
+                // screen observed when navigating to/from any activity.
+                val sellCount = filtered.count { it.side == "SELL" }
+                if (sellCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
                 val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     journal.getStatsFiltered(filtered)
                 }
                 // Back on Main — only if Activity is still alive
-                if (isActive) renderJournalBody(filtered, stats)
+                if (isActive) {
+                    lastRenderedTradeCount = sellCount
+                    renderJournalBody(filtered, stats)
+                }
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.error(
                     "JournalActivity",

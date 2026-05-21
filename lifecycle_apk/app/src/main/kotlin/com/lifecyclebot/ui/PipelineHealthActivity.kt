@@ -74,7 +74,7 @@ class PipelineHealthActivity : AppCompatActivity() {
         HandlerThread("PipelineHealthRender").apply { start() }
     private val bgHandler: Handler by lazy { Handler(bgThread.looper) }
 
-    private val refreshIntervalMs = 12_000L  // V5.9.1018 — full report stays, but current section refreshes only every 12s
+    private val refreshIntervalMs = 20_000L  // V5.9.1057: 12s→20s. Dump is forensic; less main-thread pressure.
     private val refreshRunnable = object : Runnable {
         override fun run() {
             renderSnapshotAsync()
@@ -93,7 +93,7 @@ class PipelineHealthActivity : AppCompatActivity() {
 
         // Best-effort: ensure ANR watcher is installed even if BotService
         // never started (e.g. user opened the panel before pressing Start).
-        try { PipelineHealthCollector.installAnrWatcherOnMainThread() } catch (_: Throwable) {}
+        // V5.9.1057: installAnrWatcherOnMainThread() removed — BotService already installs it. Redundant call added jank on activity transition.
 
         dumpText      = findViewById(R.id.dumpText)
         statLoop      = findViewById(R.id.statLoop)
@@ -218,7 +218,8 @@ class PipelineHealthActivity : AppCompatActivity() {
         sectionLabel.text = "Section ${idx + 1}/${sections.size}: $title"
         prevSectionButton.isEnabled = idx > 0
         nextSectionButton.isEnabled = idx < sections.lastIndex
-        dumpText.text = section
+        // V5.9.1057: skip setText if section unchanged (avoids full layout pass every 20s)
+        if (section != dumpText.text?.toString()) dumpText.text = section
     }
 
     private fun moveSection(delta: Int) {
