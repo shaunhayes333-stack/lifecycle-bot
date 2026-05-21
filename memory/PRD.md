@@ -6,7 +6,14 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1065 (Feb 2026, CI ✅ green)
+## Latest Build — V5.9.1067 (Feb 2026, CI ✅ green)
+- **Fix MainActivity recreation cascade + double-collector ANR + journal diagnostic (V5.9.1067)**: triage-agent RCA after V5.9.1065 panic snapshot (28 ANR samples on `MainActivity.onCreate` in one 30-sample window, stall=6.3%, max frame gap=12.9s, max bot cycle 27.5s). Root cause: opening PipelineHealthActivity → returning recreated MainActivity from scratch → OLD `vm.ui.collect` coroutine still emitting `updateUi()` while NEW `onCreate` launched a SECOND collector → two concurrent flows hammered `renderTreasuryPositions` (ICU/Locale/Bidi clone via SimpleDateFormat.initialize). Fixes: (1) AndroidManifest `configChanges` on `PipelineHealthActivity` so the system stops killing MainActivity; (2) `repeatOnLifecycle(STARTED)` wraps `vm.ui.collect` → exactly one collector ever alive; (3) `SimpleDateFormat` promoted from per-render allocation to class field; (4) journal-wipe diagnostic in `TradeHistoryStore.init()` logs SQLite row count + DB file path + size — next snapshot's ErrorLog will prove whether journal is empty due to fresh install vs a load-path regression.
+
+## Previous Build — V5.9.1066 (Feb 2026, CI ✅ green)
+- Lifted FDG `learningProgress<0.5` restriction on BC-fallback (operator: bot must trade pump.fun bonding-curve tokens after bootstrap). PipelineHealthActivity `dumpText` micro-opt (BREAK_STRATEGY_SIMPLE + no hyphenation + non-selectable). Back-fill SELL `tradingMode` from matching BUY to close the Strategy Expectancy vs Performance Analytics 294-trade / -33 SOL reconciliation gap.
+
+## Earlier Build — V5.9.1065 (CI ✅ green)
+- Ripped V5.9.1049 SessionSafetyHalt entirely (operator mandate: NEVER pause/disable). Deferred PipelineHealthActivity `findViewById` + `setOnClickListener` chain past first vsync (`window.decorView.post`) → 2523ms onCreate hang dropped to 251ms.
 - **Rip SessionSafetyHalt + defer PipelineHealthActivity onCreate (V5.9.1065)**: operator directive *"never fucking pause or disable. thats so off fucking task"* — removed V5.9.1049's 50-trade halt entirely (deleted `SessionSafetyHalt.kt`, dropped all call sites in `Executor.paperBuy` and `BotService.startBot`). Bot now NEVER pauses or disables a lane — learning weights self-adjust via TradingCopilot + FluidLearning + losing-pattern memory. Also fixed the V5.9.1064 "black screen hang" (PipelineHealthActivity.onCreate 4× consecutive 250ms+ frame hits ≈ 2.5s on every panel open): the 8× findViewById + 7× setOnClickListener chain now runs inside `window.decorView.post { }` so the initial layout paints at the first vsync (~16 ms) before any listener wiring.
 
 ## Previous Build — V5.9.1064 (operator-built between agent sessions)
