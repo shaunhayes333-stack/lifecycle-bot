@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.lifecyclebot.R
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.BotService
 import com.lifecyclebot.engine.CurrencyManager
 import com.lifecyclebot.engine.TradeJournal
@@ -71,12 +72,15 @@ class JournalActivity : AppCompatActivity() {
         setContentView(R.layout.activity_journal)
         supportActionBar?.hide()
 
-        // V5.9.1057 — TradeHistoryStore.init removed from main thread.
-        // Calling it synchronously here grabbed the store's internal lock,
-        // blocking main thread while BotService was mid-write → caused the
-        // Journal open to freeze for up to 15s and could starve the bot loop.
-        // The store's own lazy-init in AATEApp.onCreate covers cold-start;
-        // if it somehow wasn't called, the first IO-thread poll will trigger it.
+        // V5.9.1059 — TradeHistoryStore.init on IO thread (was sync on main in ≤1056,
+        // removed entirely in 1057 causing blank journal). AATEApp normally calls it,
+        // but if this Journal opens before BotService starts (bot stopped, app freshly
+        // reopened), the in-memory list may be empty even if SQLite has 1000 trades.
+        // Fire it asynchronously so main thread never blocks but the first poll picks
+        // up populated data. fail-open: any exception is swallowed.
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext) } catch (_: Throwable) {}
+        }
 
         journal = try {
             BotService.instance?.tradeJournal ?: TradeJournal(applicationContext)
@@ -375,34 +379,73 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun buildJournal(tokens: Map<String, TokenState>) {
-        // V5.9.1050 — V5.9.1047 used GlobalScope.launch which is not
-        // cancelled when the Activity is destroyed, causing runOnUiThread
-        // to fire on a dead Activity (silent crash / empty screen).
-        // Also the stats == null bail-out on any exception silently killed
-        // the entire render. Fix: use lifecycleScope so the coroutine
-        // dies with the Activity, withContext(IO) for disk work, and
-        // only re-enter Main with isActive guard.
+        // V5.9.1059 — Rewritten to read DIRECTLY from TradeHistoryStore.getAllTrades()
+        // instead of going through TradeJournal.buildJournal(tokens).
+        //
+        // Root cause of blank journal: TradeJournal.buildJournal(tokens) had two
+        // data sources: (1) in-memory token.trades (empty when bot is stopped because
+        // status.tokens is cleared on stopBot) and (2) TradeHistoryStore.getAllTrades().
+        // When the bot is stopped and the process was freshly started, the in-memory
+        // token map is empty AND TradeHistoryStore may not have loaded from SQLite yet
+        // (init called async in fix 1). The TradeJournal path also depended on the
+        // tokens snapshot for symbol lookup, adding another failure point.
+        //
+        // New path: read getAllTrades() directly on IO thread, map Trade→JournalEntry
+        // inline (same field mapping TradeJournal.buildJournal uses), sort descending.
+        // This works whether bot is running, stopped, or never started.
         lifecycleScope.launch {
             try {
                 val allEntries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    journal.buildJournal(tokens)
+                    // Ensure store is ready — ensureInitialized() handles lazy-init safely
+                    val rawTrades = com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                    // Also merge any in-memory token trades not yet persisted (running bot)
+                    val tokenTrades = mutableListOf<com.lifecyclebot.data.Trade>()
+                    try {
+                        val seenKeys = rawTrades.map { "${it.ts}_${it.mint}_${it.side}" }.toHashSet()
+                        tokens.values.forEach { ts ->
+                            ts.trades.forEach { t ->
+                                val k = "${t.ts}_${t.mint}_${t.side}"
+                                if (k !in seenKeys) tokenTrades.add(t)
+                            }
+                        }
+                    } catch (_: Throwable) {}
+                    (rawTrades + tokenTrades)
+                        .sortedByDescending { it.ts }
+                        .map { t ->
+                            com.lifecyclebot.engine.TradeJournal.JournalEntry(
+                                ts              = t.ts,
+                                symbol          = tokens.values.find { it.mint == t.mint }?.symbol
+                                                    ?: t.mint.take(8),
+                                mint            = t.mint,
+                                side            = t.side,
+                                entryPrice      = t.price,
+                                exitPrice       = if (t.side == "SELL") t.price else 0.0,
+                                solAmount       = t.sol,
+                                pnlSol          = t.pnlSol,
+                                pnlPct          = t.pnlPct,
+                                reason          = t.reason,
+                                mode            = t.mode,
+                                score           = t.score,
+                                durationMins    = 0.0,
+                                phase           = "",
+                                tradingMode     = t.tradingMode,
+                                tradingModeEmoji = t.tradingModeEmoji,
+                                feeSol          = t.feeSol,
+                                netPnlSol       = t.netPnlSol,
+                            )
+                        }
                 }
                 val filtered = when (currentModeFilter) {
                     "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
                     "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
                     else    -> allEntries
                 }
-                // V5.9.1057 — skip the 300-addView main-thread rebuild if the
-                // number of sell entries hasn't changed since last render.
-                // The poll fires every 10s; rebuilding 100 rows × 3 views each
-                // synchronously on the main thread was causing the 15s black
-                // screen observed when navigating to/from any activity.
+                // Skip re-render if sell count unchanged (avoids 90 addView calls every 10s poll)
                 val sellCount = filtered.count { it.side == "SELL" }
                 if (sellCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
                 val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     journal.getStatsFiltered(filtered)
                 }
-                // Back on Main — only if Activity is still alive
                 if (isActive) {
                     lastRenderedTradeCount = sellCount
                     renderJournalBody(filtered, stats)
