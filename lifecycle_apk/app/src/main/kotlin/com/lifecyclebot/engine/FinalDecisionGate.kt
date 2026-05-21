@@ -918,25 +918,25 @@ object FinalDecisionGate {
 
         val tradingModeStr = tradingModeTag?.name ?: ""
 
+        // V5.9.1055 — COPY_TRADE re-enabled. Copy trade follows smart money wallet signals;
+        // it is a valid learning strategy. Allow in paper mode always; live mode requires
+        // confidence >= 50 (same as WHALE_FOLLOW). No permanent ban.
         if (tradingModeStr.uppercase().contains("COPY")) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | mode=$tradingModeStr | COPY_TRADE DISABLED → NO EXECUTION")
-
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "COPY_TRADE_MODE_DISABLED",
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf("copy_trade_disabled", "hard_kill"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "COPY_TRADE_HARD_DISABLED_AFTER_CATASTROPHIC_LOSSES",
-                gateChecks = listOf(GateCheck("copy_trade_kill", false, "COPY_TRADE mode completely banned"))
-            )
+            if (mode == TradeMode.LIVE && candidate.aiConfidence < 50.0) {
+                ErrorLogger.info("FDG", "⚠️ COPY_TRADE live blocked: confidence=${candidate.aiConfidence.toInt()}% < 50%")
+                return FinalDecision(
+                    shouldTrade = false, mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality, confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP, blockReason = "COPY_TRADE_LIVE_LOW_CONFIDENCE",
+                    blockLevel = BlockLevel.SOFT, sizeSol = 0.0,
+                    tags = listOf("copy_trade_live_conf"), mint = ts.mint, symbol = ts.symbol,
+                    approvalReason = "COPY_TRADE_LOW_CONF_LIVE",
+                    gateChecks = listOf(GateCheck("copy_conf", false, "conf=${candidate.aiConfidence.toInt()}% < 50%"))
+                )
+            }
+            // Paper always allowed — copy trade must learn
+            ErrorLogger.info("FDG", "✅ COPY_TRADE: ${ts.symbol} | mode=$tradingModeStr | allowed for learning")
         }
 
         if (tradingModeStr.uppercase().contains("WHALE")) {

@@ -40,10 +40,11 @@ object ToxicModeCircuitBreaker {
     // These modes are completely disabled - no entries allowed
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private val HARD_DISABLED_MODES = setOf(
-        "COPY_TRADE",
-        "COPY",
-    )
+    // V5.9.1055 — COPY_TRADE/COPY removed from hard-disabled.
+    // Copy trade is a valid learning strategy. It learns from wallet signals
+    // and should trade through bad periods, not get permanently killed.
+    // ToxicModeCircuitBreaker timed freezes handle runaway loss patterns.
+    private val HARD_DISABLED_MODES = emptySet<String>()
     
     // ═══════════════════════════════════════════════════════════════════════════
     // LIQUIDITY FLOORS BY MODE
@@ -62,8 +63,8 @@ object ToxicModeCircuitBreaker {
     // ═══════════════════════════════════════════════════════════════════════════
     
     private val LIQUIDITY_FLOORS = mapOf(
-        "COPY_TRADE" to Double.MAX_VALUE,      // Effectively disabled - no entries allowed
-        "COPY" to Double.MAX_VALUE,            // Effectively disabled - no entries allowed
+        "COPY_TRADE" to 2_000.0,               // V5.9.1055: paper floor $2k — learn via all tokens
+        "COPY" to 2_000.0,                     // V5.9.1055: paper floor $2k — learn via all tokens
         "WHALE_FOLLOW" to 15_000.0,            // $15k minimum (high-risk social following)
         "WHALE_ACCUMULATION" to 15_000.0,      // $15k minimum (high-risk)
         "MOMENTUM" to 10_000.0,                // $10k minimum (execution floor)
@@ -79,12 +80,9 @@ object ToxicModeCircuitBreaker {
     // Dangerous source + mode combinations
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // V5.9.1055: COPY_TRADE/COPY source combos removed — copy follows wallet signals, source doesn't matter
     private val BLOCKED_SOURCE_MODE_COMBOS = setOf(
-        "RAYDIUM_NEW_POOL:COPY_TRADE",
-        "RAYDIUM_NEW_POOL:COPY",
         "RAYDIUM_NEW_POOL:WHALE_FOLLOW",
-        "PUMP_GRADUATE:COPY_TRADE",
-        "PUMP_GRADUATE:COPY",
     )
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -174,7 +172,7 @@ object ToxicModeCircuitBreaker {
         // 6. Phase restrictions for aggressive modes
         val dangerousPhases = setOf("early_unknown", "pre_pump", "unknown")
         if (phase.lowercase() in dangerousPhases) {
-            if (modeUpper in setOf("COPY_TRADE", "COPY", "WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
+            if (modeUpper in setOf("WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
                 blockedEntries++
                 Log.w(TAG, "🚫 BLOCKED: $mode not allowed in phase=$phase")
                 return "PHASE_RESTRICTED_${phase}"
@@ -188,7 +186,9 @@ object ToxicModeCircuitBreaker {
         
         // 7. AI degraded + aggressive mode
         if (isAIDegraded) {
-            if (modeUpper in setOf("COPY_TRADE", "COPY", "WHALE_FOLLOW", "FRESH_LAUNCH", "PRESALE_SNIPE")) {
+            // V5.9.1055: COPY_TRADE/COPY removed — copy trade follows wallet signals,
+            // not AI scoring, so AI degradation doesn't affect its signal quality.
+            if (modeUpper in setOf("WHALE_FOLLOW", "FRESH_LAUNCH", "PRESALE_SNIPE")) {
                 blockedEntries++
                 Log.w(TAG, "🚫 BLOCKED: $mode not allowed when AI degraded")
                 return "AI_DEGRADED_AGGRESSIVE_MODE"
@@ -220,8 +220,8 @@ object ToxicModeCircuitBreaker {
             Log.w(TAG, "⚠️ PAPER warning: Memory score $memoryScore is negative — allowing for learning.")
         }
         
-        // 9. Confidence check for copy/whale modes
-        if (modeUpper in setOf("COPY_TRADE", "COPY", "WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
+        // 9. Confidence check for whale-follow only (not copy trade — it learns from wallet signals)
+        if (modeUpper in setOf("WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
             if (confidence < 50) {
                 blockedEntries++
                 return "CONFIDENCE_TOO_LOW_FOR_MODE"
@@ -263,10 +263,9 @@ object ToxicModeCircuitBreaker {
         val modeUpper = mode.uppercase()
         val now = System.currentTimeMillis()
         
-        // V5.2: Different freeze times for paper vs live
-        // Paper: max 1 min (need fast learning iteration)
-        // Live: max 5 min (need some protection but not too long)
-        val freezeMultiplier = if (isPaper) 1L else 5L  // 1 min paper, 5 min live
+        // V5.9.1055: paper = 10 min (operator directive — not real money, needs to learn)
+        // live = 60 min (real money protection)
+        val freezeMultiplier = if (isPaper) 10L else 60L  // 10 min paper, 60 min live
         
         // Add to recent losses
         val losses = recentLosses.getOrPut(modeUpper) { mutableListOf() }
@@ -283,7 +282,7 @@ object ToxicModeCircuitBreaker {
         if (pnlPct <= -40) {
             tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier, 
                 "CATASTROPHIC_LOSS_${pnlPct.toInt()}%")
-            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after ${pnlPct.toInt()}% loss on $symbol")
+            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min (${if (isPaper) "paper" else "live"}) after ${pnlPct.toInt()}% loss on $symbol")
             return
         }
         
@@ -292,7 +291,7 @@ object ToxicModeCircuitBreaker {
         if (pnlPct <= -25) {
             tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                 "SEVERE_LOSS_${pnlPct.toInt()}%")
-            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after ${pnlPct.toInt()}% loss on $symbol")
+            Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min (${if (isPaper) "paper" else "live"}) after ${pnlPct.toInt()}% loss on $symbol")
             return
         }
         
@@ -306,7 +305,7 @@ object ToxicModeCircuitBreaker {
             if (recentBigLosses >= 2) {
                 tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                     "MULTIPLE_BIG_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after $recentBigLosses big losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min (${if (isPaper) "paper" else "live"}) after $recentBigLosses big losses")
                 return
             }
             
@@ -315,7 +314,7 @@ object ToxicModeCircuitBreaker {
             if (recentMediumLosses >= 3) {
                 tripCircuitBreaker(modeUpper, 60 * 1000L * freezeMultiplier,
                     "TRIPLE_MEDIUM_LOSSES")
-                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min after $recentMediumLosses medium losses")
+                Log.e(TAG, "🚨 CIRCUIT BREAKER: $modeUpper frozen ${freezeMultiplier}min (${if (isPaper) "paper" else "live"}) after $recentMediumLosses medium losses")
                 return
             }
         }
