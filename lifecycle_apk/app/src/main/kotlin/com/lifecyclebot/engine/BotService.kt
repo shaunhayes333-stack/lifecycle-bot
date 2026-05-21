@@ -10521,6 +10521,21 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // workers. Counts workers that hit the per-worker withTimeoutOrNull
     // budget — surfaces stuck APIs at a glance.
     private val supervisorLifetimeWorkerTimeouts = java.util.concurrent.atomic.AtomicLong(0)
+    // V5.9.1041 — operator V5.9.1040 dump showed the 48-cap re-saturated
+    // despite V5.9.1039's per-worker withTimeoutOrNull. Root cause: that
+    // timeout is COOPERATIVE — workers stuck in non-cooperative blocking
+    // ops (JNI / SQLite write / blocking socket) never observe the
+    // cancellation, the slot stays held forever, no SUPERVISOR_WORKER_TIMEOUT
+    // counter ever incremented. Watchdog: track last successful spawn
+    // time; if active==cap AND >30s since the last new worker spawned,
+    // force the counter to zero and log SUPERVISOR_POOL_RESET so the bot
+    // can keep working. Truly-still-running workers decrement to a
+    // negative counter (AtomicInteger.get() may briefly read <0) which is
+    // safe — the cap check only compares get() < cap, so negative just
+    // means more headroom.
+    private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+    private val supervisorLifetimePoolResets = java.util.concurrent.atomic.AtomicLong(0)
+    private val SUPERVISOR_POOL_STALL_MS: Long = 30_000L
     private val SUPERVISOR_MAX_INFLIGHT: Int = 48
     private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 20_000L
 
