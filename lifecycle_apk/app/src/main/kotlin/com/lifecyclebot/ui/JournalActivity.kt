@@ -342,9 +342,12 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun getTokensSnapshot(): Map<String, TokenState> {
-        return synchronized(BotService.status.tokens) {
-            BotService.status.tokens.toMap()
-        }
+        // V5.9.1062 — safe null-check; status.tokens may be null if bot never started
+        return try {
+            synchronized(BotService.status.tokens) {
+                BotService.status.tokens.toMap()
+            }
+        } catch (_: Throwable) { emptyMap() }
     }
 
     private fun refreshTrades() {
@@ -396,8 +399,10 @@ class JournalActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val allEntries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    // Ensure store is ready — ensureInitialized() handles lazy-init safely
-                    val rawTrades = com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                    // V5.9.1062 — read directly from SQLite so Journal shows all
+                    // persisted trades even if the async init hasn't populated
+                    // the in-memory list yet (first-open race condition fix).
+                    val rawTrades = com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
                     // Also merge any in-memory token trades not yet persisted (running bot)
                     val tokenTrades = mutableListOf<com.lifecyclebot.data.Trade>()
                     try {

@@ -2267,8 +2267,12 @@ class Executor(
 
         // V5.9.58: reset BotBrain's drought watchdog on every BUY so the
         // watchdog only eases thresholds if the scanner has truly gone
-        // V5.9.1060 — BUY fanout moved into async launch below.
-        
+        // V5.9.1062 — onBuyFired() restored to synchronous path.
+        // Async execution (1060) caused stalled trading after ~150 trades.
+        if (trade.side == "BUY") {
+            try { brain?.onBuyFired() } catch (_: Exception) {}
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.1060 — ASYNC LEARNING FANOUT
@@ -2403,10 +2407,6 @@ class Executor(
                                 ErrorLogger.debug("Executor", "RunTracker30D record error: ${e.message}")
                             }
                         }
-                    }
-                    // ── BUY side ──────────────────────────────────────────────
-                    if (_fanoutSide == "BUY") {
-                        try { brain?.onBuyFired() } catch (_: Exception) {}
                     }
                 } catch (_: Throwable) { /* fail-open — never block sell path */ }
             }

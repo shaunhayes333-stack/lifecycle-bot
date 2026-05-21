@@ -487,6 +487,53 @@ object TradeHistoryStore {
         return synchronized(lock) { trades.toList() }
     }
 
+    /**
+     * V5.9.1062 — Read trades DIRECTLY from SQLite, bypassing the in-memory list.
+     * Use this from the Journal when the async init may not have populated the
+     * in-memory list yet. Always returns the full persisted history (no in-memory cap).
+     * Returns empty list and logs if db is null (init not yet called).
+     */
+    fun getAllTradesFromDb(): List<Trade> {
+        val database = db
+        if (database == null) {
+            // DB not open yet — fall back to in-memory list (may be empty on first open)
+            ensureInitialized()
+            return synchronized(lock) { trades.toList() }
+        }
+        val loaded = mutableListOf<Trade>()
+        try {
+            val cursor = database.query(
+                TradeDbHelper.TABLE,
+                null, null, null, null, null, "ts DESC"  // newest first for Journal
+            )
+            cursor.use { c ->
+                while (c.moveToNext()) {
+                    loaded.add(Trade(
+                        ts             = c.getLong(c.getColumnIndexOrThrow("ts")),
+                        side           = c.getString(c.getColumnIndexOrThrow("side")),
+                        sol            = c.getDouble(c.getColumnIndexOrThrow("sol")),
+                        price          = c.getDouble(c.getColumnIndexOrThrow("price")),
+                        pnlSol         = c.getDouble(c.getColumnIndexOrThrow("pnl_sol")),
+                        pnlPct         = c.getDouble(c.getColumnIndexOrThrow("pnl_pct")),
+                        reason         = c.getString(c.getColumnIndexOrThrow("reason")),
+                        score          = c.getDouble(c.getColumnIndexOrThrow("score")),
+                        mode           = c.getString(c.getColumnIndexOrThrow("mode")),
+                        mint           = c.getString(c.getColumnIndexOrThrow("mint")),
+                        tradingMode    = c.getString(c.getColumnIndexOrThrow("trading_mode")),
+                        tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
+                        feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
+                        netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("TradeHistoryStore", "getAllTradesFromDb failed: ${e.message}")
+            // Fall back to in-memory list on any DB error
+            return synchronized(lock) { trades.toList() }
+        }
+        return loaded
+    }
+
     /** MANUAL CLEAR — V5.9.635 unified semantics: clears journal rows AND
      *  every cross-lane counter the UI reads from, so the main-screen
      *  pills (24h Trades, All Traders, lane breakdown, Live Readiness),
