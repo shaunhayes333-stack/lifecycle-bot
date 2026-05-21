@@ -178,13 +178,7 @@ object StrategyTelemetry {
         // strategy to scale.
         sb.append("  Bin glossary: STANDARD=V3 default (no lane affinity)  ·  BLUECHIP/SHITCOIN/MOONSHOT/etc=lane-specific  ·  CASHGEN/TREASURY=lifecycle exits\n")
 
-        // V5.9.806 — surface auto-retirement set (P1).
-        val disabled = getDisabled()
-        if (disabled.isNotEmpty()) {
-            sb.append("\n  ⚠ AUTO-DISABLED strategies (≥${DISABLE_MIN_TRADES} trades, mean PnL ≤ ${DISABLE_MEAN_PNL_THRESHOLD}%):\n")
-            disabled.forEach { sb.append("    • $it\n") }
-            // V5.9.1053: no auto-disable, so no re-enable list to show
-        }
+        // V5.9.1053: no auto-disable — strategies self-heal via learning
 
         return sb.toString()
     }
