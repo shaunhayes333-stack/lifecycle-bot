@@ -6,7 +6,13 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1049 (Feb 2026, CI ✅ green)
+## Latest Build — V5.9.1065 (Feb 2026, CI ✅ green)
+- **Rip SessionSafetyHalt + defer PipelineHealthActivity onCreate (V5.9.1065)**: operator directive *"never fucking pause or disable. thats so off fucking task"* — removed V5.9.1049's 50-trade halt entirely (deleted `SessionSafetyHalt.kt`, dropped all call sites in `Executor.paperBuy` and `BotService.startBot`). Bot now NEVER pauses or disables a lane — learning weights self-adjust via TradingCopilot + FluidLearning + losing-pattern memory. Also fixed the V5.9.1064 "black screen hang" (PipelineHealthActivity.onCreate 4× consecutive 250ms+ frame hits ≈ 2.5s on every panel open): the 8× findViewById + 7× setOnClickListener chain now runs inside `window.decorView.post { }` so the initial layout paints at the first vsync (~16 ms) before any listener wiring.
+
+## Previous Build — V5.9.1064 (operator-built between agent sessions)
+- V5.9.1050-1064 were pushed directly by the operator while the agent was offline (TREASURY/PRESALE bleed fixes, journal restore, paper-purge removal, ScoreBarView ANR, bootstrapPass unblocks). Agent rebased V5.9.1065 onto these.
+
+## Earlier Builds — V5.9.1048 / V5.9.1049 (CI ✅ green, V5.9.1049 partially rolled back V5.9.1065)
 - **Triage 5-pack (V5.9.1049)**: surgical fixes for the V5.9.1040 panic snapshot (27 217 ms frame gap, 11 % stall, Max Drawdown overflow, no entry cap). (a) `MainActivity.renderTreasuryPositions` view-leak + per-tick `coil.load` purged — same-positions tick now ONLY computes PnL sum, no view construction. (b) `ErrorLogActivity.exportLogs` moved to background `Thread` + `Handler.post` for the AlertDialog. (c) `JournalActivity.showExportDialog` callbacks now explicitly `lifecycleScope.launch(Dispatchers.IO)`; final `startActivity`/`Toast` re-posted via `runOnUiThread`. (d) `PerformanceAnalytics.calculateDrawdown` no longer reports six-figure DD%: ignores peaks < 0.05 SOL, clamps maxDdPct/currentDdPct at 100 %. (e) **NEW `SessionSafetyHalt`** circuit-breaker: after 50 paper buys in a session, if WR < 25 %, refuses fresh paper entries (exits + live unaffected). Resets on every `BotService.startBot()`. Wired at the top of `Executor.paperBuy()` (single canonical fence covering all 7 sub-trader fallback call sites) and recorded on successful paper buys next to `FluidLearning.recordPaperBuy`.
 
 ## Previous Build — V5.9.1048 (Feb 2026, CI ✅ green)
