@@ -9978,26 +9978,13 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        try {
-            if (abs(pnlP) >= 5.0) {
-                MarketRegimeAI.recordTradeOutcome(pnlP)
-            }
-        } catch (_: Exception) {}
+        // V5.9.1056 — MarketRegimeAI.recordTradeOutcome also called by
+        // EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers below.
+        // Removed direct call to prevent 2× recording per paper close.
         
-        try {
-            val peakPnlPct = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
-            } else 0.0
-            MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPct)
-        } catch (_: Exception) {}
-        
-        try {
-            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)
-        } catch (_: Exception) {}
-        
-        try {
-            TimeOptimizationAI.recordOutcome(pnlP)
-        } catch (_: Exception) {}
+        // V5.9.1056 — MomentumPredictorAI, NarrativeDetectorAI, TimeOptimizationAI:
+        // all called by EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers below.
+        // Removed direct calls — were double-counting every paper close.
         
         try {
             TimeModeScheduler.recordTradeOutcome(
@@ -10010,7 +9997,8 @@ class Executor(
         } catch (_: Exception) {}
         
         try {
-            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnlP > 0)
+            // V5.9.1056 — LiquidityDepthAI.recordOutcome also in ESL below — removed.
+            // clearEntryLiquidity is housekeeping-only, still needed here.
             LiquidityDepthAI.clearEntryLiquidity(ts.mint)
         } catch (_: Exception) {}
         
@@ -10022,50 +10010,11 @@ class Executor(
         } catch (_: Exception) {}
         } // end _psIsMemeBase gate (V5.9.390)
         
-        try {
-            val setupQuality = when {
-                ts.position.entryScore > 70 -> "A+"
-                ts.position.entryScore > 60 -> "A"
-                ts.position.entryScore > 50 -> "B"
-                else -> "C"
-            }
-            
-            HoldTimeOptimizerAI.recordOutcome(
-                mint = tradeId.mint,
-                actualHoldMinutes = holdMinutes.toInt(),
-                pnlPct = pnlP,
-                setupQuality = setupQuality
-            )
-            
-            ErrorLogger.debug("Executor", "📊 HoldTimeAI learned: ${ts.symbol} " +
-                "${holdMinutes.toInt()}min hold | ${pnlP.toInt()}% PnL | $setupQuality setup")
-        } catch (e: Exception) {
-            ErrorLogger.warn("Executor", "HoldTimeAI recordOutcome failed: ${e.message}")
-        }
+        // V5.9.1056 — HoldTimeOptimizerAI.recordOutcome also in ESL below.
+        // Removed direct call — was double-counting every paper close.
         
-        try {
-            val peakPnlLive = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
-            } else pnlP
-            
-            val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
-            val approxEntryMcap = ts.position.entryLiquidityUsd * 2
-            
-            TokenWinMemory.recordTradeOutcome(
-                mint = tradeId.mint,
-                symbol = ts.symbol,
-                name = ts.name,
-                pnlPercent = pnlP,
-                peakPnl = peakPnlLive,
-                entryMcap = approxEntryMcap,
-                exitMcap = ts.lastMcap,
-                entryLiquidity = ts.position.entryLiquidityUsd,
-                holdTimeMinutes = holdMinutes.toInt(),
-                buyPercent = latestBuyPct,
-                source = ts.source,
-                phase = ts.position.entryPhase,
-            )
-        } catch (_: Exception) {}
+        // V5.9.1056 — TokenWinMemory.recordTradeOutcome also in ESL below.
+        // Removed direct call — was double-counting every paper close.
         
         try {
             val marketSentiment = ts.meta.emafanAlignment.let { ema ->
@@ -12267,31 +12216,10 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        try {
-            if (abs(pnlP) >= 5.0) {
-                MarketRegimeAI.recordTradeOutcome(pnlP)
-            }
-        } catch (_: Exception) {}
-        
-        try {
-            val peakPnlPctLive = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
-            } else 0.0
-            MomentumPredictorAI.recordOutcome(tradeId.mint, pnlP, peakPnlPctLive)
-        } catch (_: Exception) {}
-        
-        try {
-            NarrativeDetectorAI.recordOutcome(ts.symbol, ts.name, pnlP)  // V5.9.195: was 3x (inflated stats)
-        } catch (_: Exception) {}
-        
-        try {
-            TimeOptimizationAI.recordOutcome(pnlP)  // V5.9.195: was 3x (inflated stats)
-        } catch (_: Exception) {}
-        
-        try {
-            LiquidityDepthAI.recordOutcome(ts.mint, pnlP, pnl > 0)  // V5.9.195: was 3x (inflated stats)
-            LiquidityDepthAI.clearEntryLiquidity(ts.mint)
-        } catch (_: Exception) {}
+        // V5.9.1056 — MarketRegimeAI, MomentumPredictorAI, NarrativeDetectorAI,
+        // TimeOptimizationAI all called inside ESL.recordTradeOutcomeAcrossAllLayers below.
+        // Removed direct calls — were double-counting every live close.
+        try { LiquidityDepthAI.clearEntryLiquidity(ts.mint) } catch (_: Exception) {}
         
         try {
             val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
@@ -12300,31 +12228,7 @@ class Executor(
             }
         } catch (_: Exception) {}
         
-        try {
-            val peakPnlLive = if (ts.position.entryPrice > 0) {
-                com.lifecyclebot.util.pct(ts.position.entryPrice, ts.position.highestPrice)
-            } else pnlP
-            
-            val latestBuyPctLive = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
-            val approxEntryMcapLive = ts.position.entryLiquidityUsd * 2
-            
-            repeat(1) {  // V5.9.195: was repeat(3) — inflated win memory stats
-                TokenWinMemory.recordTradeOutcome(
-                    mint = tradeId.mint,
-                    symbol = ts.symbol,
-                    name = ts.name,
-                    pnlPercent = pnlP,
-                    peakPnl = peakPnlLive,
-                    entryMcap = approxEntryMcapLive,
-                    exitMcap = ts.lastMcap,
-                    entryLiquidity = ts.position.entryLiquidityUsd,
-                    holdTimeMinutes = holdMinutesLive,
-                    buyPercent = latestBuyPctLive,
-                    source = ts.source,
-                    phase = ts.position.entryPhase,
-                )
-            }
-        } catch (_: Exception) {}
+        // V5.9.1056 — TokenWinMemory.recordTradeOutcome also in ESL below — removed.
         }  // V5.9.390 — end _lsIsMemeBase block
         
         try {
