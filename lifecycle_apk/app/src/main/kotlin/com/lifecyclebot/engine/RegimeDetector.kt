@@ -56,6 +56,15 @@ object RegimeDetector {
 
     fun currentRegime(): Regime = current().regime
 
+    /**
+     * V5.9.1070 — Force-expire regime cache. Called by SelfHealingDiagnostics
+     * on CRITICAL/EMERGENCY so regime is recomputed from fresh trade data
+     * rather than remaining stuck on DUMP for hours after recovery starts.
+     */
+    fun bustCache() {
+        cached.set(null)  // V5.9.1070 — AtomicReference cleared; next call recomputes from fresh trade data
+    }
+
     private fun recompute(now: Long): RegimeSnapshot {
         val recentSells = try {
             TradeHistoryStore.getAllTrades()

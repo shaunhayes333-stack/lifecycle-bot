@@ -118,10 +118,17 @@ object BrainConsensusGate {
         // flow for learning, breaking the circular lock.
         // V5.9.1053: isStrategyDead removed from hardBlock — no strategy auto-disabled.
         // V5.9.1064 — hardBlock uses same inBootstrap flag (now < 1000 trades).
+        // V5.9.1070 — SecondScorer disagreement removed from hardBlock.
+        // SecondScorer fires on nearly every fresh pump.fun token because
+        // pool age=0, holders=0, vol=0 on first intake → secondScore≈0-15
+        // while V3 scores +30-50 → gap>=20 → disputed=true → HARD_BLOCK in
+        // DUMP/CHOP. This was the second major executor lock after SENTIENCE_VETO.
+        // The BCG comment already called it "telemetry first round" — restoring
+        // that intent. Second-scorer objection remains as a SOFT_BLOCK tag so
+        // it is visible in the dump but never gates a trade.
+        // Fluid doctrine: gates lower/raise dynamically; they never lock out.
         val hardBlock =
-            (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) ||
-            (dispute?.disputed == true && dispute.secondScoreSaysWorse &&
-             regime in setOf(RegimeDetector.Regime.DUMP, RegimeDetector.Regime.CHOP))
+            (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP)
 
         // SOFT_BLOCK = at least one objection but doesn't hit HARD_BLOCK
         // (logged but doesn't gate the trade — pure telemetry first round).

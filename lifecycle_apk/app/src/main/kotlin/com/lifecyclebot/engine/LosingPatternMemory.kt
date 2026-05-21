@@ -32,7 +32,13 @@ object LosingPatternMemory {
 
     data class BucketStats(val losses: Int, val wins: Int, val meanPnl: Double) {
         val sample: Int get() = losses + wins
-        val isDangerous: Boolean get() = losses >= 5 && (losses.toDouble() / sample.coerceAtLeast(1)) >= 0.75
+        // V5.9.1070 — raised minimums: losses>=5 → >=8, implied sample: ~7 → >=20.
+        // At bootstrap (<1000 trades) virtually every bucket hits >=5 losses + 75%
+        // loss rate (the bot is losing overall). This flags ALL modes as dangerous
+        // and boxes the bot out of trading completely. With losses>=8 AND >=20 samples,
+        // buckets need genuine statistical weight before blocking. Mature bots still get
+        // meaningful danger-zone detection; bootstrap bots can keep learning.
+        val isDangerous: Boolean get() = losses >= 8 && sample >= 20 && (losses.toDouble() / sample) >= 0.75
     }
 
     @Volatile private var cache: Map<String, BucketStats> = emptyMap()
@@ -96,6 +102,16 @@ object LosingPatternMemory {
     }
 
     fun isDangerZone(tradingMode: String, v3Score: Int): Boolean = stats(tradingMode, v3Score).isDangerous
+
+    /**
+     * V5.9.1070 — Force-expire memoised cache so the next isDangerZone()
+     * call re-aggregates from current trade data. Called by SelfHealingDiagnostics
+     * on CRITICAL/EMERGENCY to unblock the bot during recovery windows.
+     */
+    fun bustCache() {
+        cacheBuiltAtMs = 0L
+        cache = emptyMap()
+    }
 
     /**
      * Recommended SL pct override for a position entering a danger bucket.

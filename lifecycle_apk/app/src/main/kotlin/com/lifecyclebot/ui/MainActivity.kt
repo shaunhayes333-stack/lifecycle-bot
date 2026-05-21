@@ -3634,7 +3634,7 @@ for legal compliance.
                 })
             }
         } catch (_: Throwable) { /* best-effort */ }
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = openPosTimeSdf  // V5.9.1070 — class-field, no ICU init
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         
         // V5.9.802 — operator audit Fix (b): defensive render cap.
@@ -3916,7 +3916,20 @@ for legal compliance.
     // SimpleDateFormat.initialize is heavyweight (5+ seconds in V5.9.1065
     // ANR snapshot). Allocating once at class-init avoids that cost on
     // every renderTreasuryPositions call.
-    private val treasuryTimeSdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val treasuryTimeSdf    = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    // V5.9.1070 — same class-field pattern for other lane render functions
+    // Each was re-creating SimpleDateFormat locally on every render call →
+    // ICU Locale.clone() = 5-10ms overhead × 4 functions × 0.4 Hz = 8-16ms/s
+    // of wasted main-thread work. Promoted to class-level vals (zero-cost reuse).
+    private val blueChipTimeSdf    = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val moonshotTimeSdf    = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val presaleTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val dipHunterTimeSdf   = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val openPosTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val qualityTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val shitCoinTimeSdf    = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val expressTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+    private val manipTimeSdf       = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
     // V4.0: Render Treasury Mode positions
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
@@ -4069,7 +4082,7 @@ for legal compliance.
         if (bcHash == lastBlueChipHash) return 0.0
         lastBlueChipHash = bcHash
         llBlueChipPositions.removeAllViews()
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = blueChipTimeSdf  // V5.9.1070 — class-field, no ICU init
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         
@@ -4180,7 +4193,7 @@ for legal compliance.
         if (qpHash == lastQualityHash) return 0.0
         lastQualityHash = qpHash
         llQualityPositions.removeAllViews()
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = qualityTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
 
@@ -4308,7 +4321,7 @@ for legal compliance.
         if (scHash == lastShitCoinHash) return 0.0
         lastShitCoinHash = scHash
         llShitCoinPositions.removeAllViews()
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = shitCoinTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         
@@ -4438,7 +4451,7 @@ for legal compliance.
     // V5.9: Render ShitCoinExpress active rides into dedicated Express card
     private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>): Double {
         llExpressPositions.removeAllViews()
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = expressTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         rides.forEach { ride ->
@@ -4549,7 +4562,7 @@ for legal compliance.
     // ☠️ Render Manipulated positions into the Manip card
     private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>): Double {
         llManipPositions.removeAllViews()
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = manipTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         positions.forEach { pos ->

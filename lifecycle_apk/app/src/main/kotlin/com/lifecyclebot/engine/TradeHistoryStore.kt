@@ -248,7 +248,18 @@ object TradeHistoryStore {
         return ProvenEdgeSnapshot(cachedHasProvenEdge, cachedProvenWinRate, cachedProvenTradeCount)
     }
 
+    // V5.9.1070 — initComplete flag. init() is called from BotService,
+    // MainActivity, and JournalActivity. A race between two callers can
+    // re-run loadTradesFromDb() while the first pass is still in-flight,
+    // causing the trades list to appear empty on the second read.
+    // First caller wins; all subsequent calls are no-ops once db is open.
+    @Volatile private var initComplete = false
+    private val initLock = Any()
+
     fun init(ctx: Context) {
+        if (initComplete) return          // fast-path: already initialised
+        synchronized(initLock) {
+            if (initComplete) return      // double-checked inside lock
         // Start background IO thread
         if (ioThread == null) {
             val t = HandlerThread("TradeHistoryIO", Process.THREAD_PRIORITY_BACKGROUND)
@@ -316,6 +327,8 @@ object TradeHistoryStore {
             "📓 JOURNAL COVERAGE: Executor (memes/perps/stocks/forex/metals/commodities/crypto-alts) ✓ | " +
             "V3JournalRecorder (Shitcoin/Moonshot/Quality/BlueChip/CashGen/Manipulated) ✓ | " +
             "Express ✓ | LlmLab ✓ | Stale-60d refund ✓ — every trade lands in the Journal, no exceptions.")
+        initComplete = true  // V5.9.1070 — mark complete inside the lock
+        } // end synchronized(initLock) — V5.9.1070
     }
 
     // ── Public API ───────────────────────────────────────────────────

@@ -32,13 +32,15 @@ object SelfHealingDiagnostics {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════
 
-    private const val CHECK_INTERVAL_MS = 3L * 60L * 60L * 1000L  // 3 hours
+    // V5.9.1070 — lowered 3h → 20min. Bot can box itself out within minutes
+    // (LPM danger zone filling, RegimeDetector stuck DUMP). 3h was too slow.
+    private const val CHECK_INTERVAL_MS = 20L * 60L * 1000L  // 20 minutes
     private const val MIN_TRADES_FOR_DIAGNOSIS = 20
     private const val CRITICAL_WIN_RATE = 15.0
     private const val WARNING_WIN_RATE = 25.0
     private const val HEALTHY_WIN_RATE = 40.0
     private const val MIN_TRADES_FOR_AVG_PNL = 5
-    private const val MEMORY_CLEAR_COOLDOWN_MS = 24L * 60L * 60L * 1000L
+    private const val MEMORY_CLEAR_COOLDOWN_MS = 2L * 60L * 60L * 1000L  // V5.9.1070: 24h→2h
 
     // ═══════════════════════════════════════════════════════════════════
     // STATE
@@ -262,9 +264,14 @@ object SelfHealingDiagnostics {
                 }
             }
 
-            if (status == HealthStatus.CRITICAL) {
-                ErrorLogger.warn(TAG, "⚠️ Win rate critical - thresholds may need tightening")
-                corrections.add("Flagged for threshold review (manual)")
+            if (status == HealthStatus.CRITICAL || status == HealthStatus.EMERGENCY) {
+                // V5.9.1070 — bust blocking caches so bot isn't locked out during recovery
+                try { bustBlockingCaches() } catch (_: Throwable) {}
+                corrections.add("Busted LosingPatternMemory + RegimeDetector caches")
+                if (status == HealthStatus.CRITICAL) {
+                    ErrorLogger.warn(TAG, "⚠️ Win rate critical — caches busted for fluid recovery")
+                    corrections.add("Flagged for threshold review (manual)")
+                }
             }
 
             DiagnosisResult(
@@ -293,6 +300,20 @@ object SelfHealingDiagnostics {
      * Clear all poisoned learning data.
      * This is a nuclear option when win rate is critically low.
      */
+    // V5.9.1070 — bust blocking caches so LPM / RegimeDetector don't stay
+    // stuck in "dangerous" / DUMP state during recovery. Force-invalidate
+    // their TTL caches so the next FDG evaluation reads fresh trade data.
+    private fun bustBlockingCaches() {
+        try {
+            LosingPatternMemory.bustCache()
+            ErrorLogger.info(TAG, "🔄 LosingPatternMemory cache busted")
+        } catch (_: Throwable) {}
+        try {
+            RegimeDetector.bustCache()
+            ErrorLogger.info(TAG, "🔄 RegimeDetector cache busted")
+        } catch (_: Throwable) {}
+    }
+
     fun clearPoisonedMemory(context: Context? = null) {
         try {
             ErrorLogger.warn(TAG, "🧹 Clearing ALL learning data...")
