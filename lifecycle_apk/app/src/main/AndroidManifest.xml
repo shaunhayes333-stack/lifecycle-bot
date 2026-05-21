@@ -90,7 +90,7 @@
         <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.LiveTradeLogActivity" android:exported="false" android:screenOrientation="portrait" android:label="Live Trade Forensics"/>
         <activity android:name=".ui.LearningCounterActivity" android:exported="false" android:screenOrientation="portrait" android:label="Learning Pipeline"/>
-        <activity android:name=".ui.PipelineHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="Pipeline Health"/>
+        <activity android:name=".ui.PipelineHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="Pipeline Health" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|keyboard|keyboardHidden"/>
         <activity android:name=".ui.UniverseHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="AATE Universe Health"/>
 
         <provider

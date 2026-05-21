@@ -264,6 +264,17 @@ object TradeHistoryStore {
         // Load in-memory list from SQLite
         loadTradesFromDb()
 
+        // V5.9.1067 — operator diagnostic: log SQLite row count + DB file path
+        // at every init so next snapshot can prove "journal empty" = fresh
+        // install (or Android system "Clear data") vs a load/init regression.
+        try {
+            val rowCount = synchronized(lock) { trades.size }
+            val dbFile = ctx.getDatabasePath("trade_history.db")
+            val dbBytes = if (dbFile.exists()) dbFile.length() else -1L
+            ErrorLogger.info("TradeHistoryStore",
+                "📦 INIT: loaded $rowCount trades from SQLite | dbPath=${dbFile.absolutePath} | dbBytes=$dbBytes")
+        } catch (_: Throwable) {}
+
         // One-time migration from SharedPreferences if needed
         prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         migrateFromPrefsIfNeeded(ctx)

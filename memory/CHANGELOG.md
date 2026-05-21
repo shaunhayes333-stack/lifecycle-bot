@@ -6,6 +6,51 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1067 — Fix MainActivity recreation cascade + double-collector ANR + journal diagnostic (Feb 2026)
+
+Triage-agent RCA after operator V5.9.1065 panic snapshot: 28 ANR samples on
+`MainActivity.onCreate` in a single 30-sample window, max frame gap 12.9 s,
+stall 6.3 %, max bot cycle 27.5 s. ROOT CAUSE: opening PipelineHealthActivity
+and returning recreated MainActivity from scratch; the OLD `vm.ui.collect`
+coroutine was still alive emitting `updateUi()` while the NEW onCreate
+launched a SECOND collector. Two concurrent updateUi flows hammered
+`renderTreasuryPositions` → SimpleDateFormat.initialize → ICU Locale.clone
+/ Bidi until Main froze.
+
+(1) **AndroidManifest** — added `configChanges="orientation|screenSize|
+    screenLayout|smallestScreenSize|fontScale|keyboard|keyboardHidden"` to
+    `PipelineHealthActivity`. Stops Android from killing & recreating
+    MainActivity when the user toggles the panel.
+
+(2) **MainActivity `vm.ui.collect` → `repeatOnLifecycle(STARTED)`.**
+    `onCreate` line ~787. Wrapped the existing 2.5 s collect loop in
+    `repeatOnLifecycle(Lifecycle.State.STARTED)` so the collector dies
+    at `onStop` and restarts at `onStart` — exactly one collector ever
+    alive. Added the `androidx.lifecycle.repeatOnLifecycle` import.
+
+(3) **`renderTreasuryPositions` SimpleDateFormat promoted to class field.**
+    The local `val sdf = SimpleDateFormat("HH:mm", Locale.US)` was
+    allocating fresh on every render (ICU/Bidi clone → 5+ second
+    freeze in V5.9.1065 stack). Now `private val treasuryTimeSdf` is
+    constructed once at class-init. The function aliases it as `sdf`
+    so no further changes required.
+
+(4) **Journal wipe diagnostic.** Operator reports "trade journal is gone
+    AGAIN". Forensic search confirmed only two paths can wipe SQLite —
+    `clearAllTrades()` (Journal "Clear" button) and `fullResetIncluding-
+    Lifetime()` (BehaviorActivity reset). The V5.9.1063 stopBot paper-
+    purge is gone. V5.9.1066 back-fill ONLY modifies tradingMode,
+    never deletes. Added an `ErrorLogger.info` at the top of `init()`
+    that logs the SQLite row count + DB file path + DB byte size on
+    every init — the next snapshot's ErrorLog tail will prove whether
+    SQLite is genuinely empty (fresh install / Android system "Clear
+    data") or whether something is killing the load path.
+
+Build tag bumped to V5.9.1067. Brace/paren deltas validated balanced.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1066 — Lift FDG bootstrap-only restriction · dumpText micro-opt · back-fill SELL tradingMode (Feb 2026)
 
 Operator V5.9.1065 snapshot triage. Picked a + d + f from the proposed plan.

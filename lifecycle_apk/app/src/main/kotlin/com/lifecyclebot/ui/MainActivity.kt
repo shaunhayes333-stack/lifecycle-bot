@@ -21,6 +21,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import coil.load
 import coil.transform.CircleCropTransformation
 import com.github.mikephil.charting.charts.LineChart
@@ -783,15 +784,28 @@ class MainActivity : AppCompatActivity() {
             // after the delay will be the most recent one, never a queued
             // backlog. That's exactly the behaviour we want.
             lifecycleScope.launch {
-                vm.ui.collect { state ->
-                    updateUi(state)
-                    // V5.9.925 — was 500ms (2 Hz). updateUi is a 1007-line method that
-                    // setTexts ~50 TextViews + rebuilds card chrome every call. At 2 Hz
-                    // that was a sustained main-thread cost ≈40-60ms per tick → ANR storm
-                    // when concurrent with renderOpenPositions / pipelineTileRefresh.
-                    // V5.9.1017 — 1 Hz was still saturating main with large card rebuilds.
-                    // Runtime trade management is independent of this dashboard paint loop.
-                    kotlinx.coroutines.delay(2_500)
+                // V5.9.1067 — wrap in repeatOnLifecycle(STARTED) to prevent
+                // double-emission during Activity recreation. Triage RCA
+                // (V5.9.1065 snapshot: 28 ANR samples on MainActivity.onCreate,
+                // stall=6.3%, max gap=12.9s) showed: when the user opened
+                // PipelineHealthActivity and returned, the OLD vm.ui.collect
+                // coroutine was still alive and emitting updateUi() while the
+                // NEW Activity's onCreate launched a SECOND collector. Two
+                // concurrent updateUi() flows hammered renderTreasuryPositions
+                // (ICU/Locale/Bidi clone) until the main thread froze.
+                // repeatOnLifecycle cancels the collector at STOPPED, restarts
+                // at STARTED — only one collector ever alive.
+                repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                    vm.ui.collect { state ->
+                        updateUi(state)
+                        // V5.9.925 — was 500ms (2 Hz). updateUi is a 1007-line method that
+                        // setTexts ~50 TextViews + rebuilds card chrome every call. At 2 Hz
+                        // that was a sustained main-thread cost ≈40-60ms per tick → ANR storm
+                        // when concurrent with renderOpenPositions / pipelineTileRefresh.
+                        // V5.9.1017 — 1 Hz was still saturating main with large card rebuilds.
+                        // Runtime trade management is independent of this dashboard paint loop.
+                        kotlinx.coroutines.delay(2_500)
+                    }
                 }
             }
             
@@ -3898,13 +3912,19 @@ for legal compliance.
         }
     }
     
+    // V5.9.1067 — class-field SimpleDateFormat. ICU Locale.clone() inside
+    // SimpleDateFormat.initialize is heavyweight (5+ seconds in V5.9.1065
+    // ANR snapshot). Allocating once at class-init avoids that cost on
+    // every renderTreasuryPositions call.
+    private val treasuryTimeSdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+
     // V4.0: Render Treasury Mode positions
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
         // V5.9.730 ANR FIX: skip full re-inflate if position list is unchanged.
         // Computing PnL still happens (cheap) but view inflation (expensive) is skipped.
         val mintKey = positions.joinToString(",") { "${it.mint}:${it.entrySol}" }
         val samePositions = mintKey == lastTreasuryMints
-        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        val sdf = treasuryTimeSdf
         if (!samePositions) {
             lastTreasuryMints = mintKey
             llTreasuryPositions.removeAllViews()
