@@ -5,6 +5,45 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1039 — per-worker timeout (silent-supervisor pool saturation fix) (Feb 2026, CI ✅✅ green)
+
+Operator V5.9.1038 4h-uptime dump revealed a critical bug introduced by
+V5.9.1037's silent supervisor refactor:
+
+```
+SUPERVISOR_INFLIGHT_CAP: 2238  ← every cycle for 4 hours
+spawned=0  skipped=96  active=48  cap=48
+EXEC=2 only  ·  projected execs/day: 166 🛑 CRITICAL
+```
+
+The 48-worker pool was PERMANENTLY saturated by hung workers. V5.9.1037
+removed the chunk-level `withTimeoutOrNull`, but forgot to add a
+per-worker safety net. When a worker blocks on a slow Birdeye/DexScreener
+call, nothing cancels it — `supervisorActive` never decrements → the
+slot is occupied forever → after 48 hung workers accumulate, every
+cycle spawns ZERO new workers.
+
+Fixed:
+- Wrap `processTokenCycle` + `markProcessed` in `withTimeoutOrNull(20s)`
+  inside the worker. 20s is ~3× normal p95 so legitimate work completes;
+  stuck workers cancel and the `finally` block decrements
+  `supervisorActive` normally.
+- New `supervisorLifetimeWorkerTimeouts` counter.
+- New `SUPERVISOR_WORKER_TIMEOUT` forensic event with mint+budget tag.
+
+Other operator findings (not regressions, just visibility):
+- 956 ANR_HINTS scary-looking but stall % only 6.1% — IMPROVED from
+  V5.9.1037's 8.7%. Top blockers were system-idle
+  (`MessageQueue.nativePollOnce`, `nativeGetLatestVsyncEventData`), not
+  real bot blocks.
+- INTAKE_BURST_REJECT=640 and INTAKE_LIQ_ZERO_REJECT=392 — V5.9.1035
+  filters working perfectly at scale.
+- BLUECHIP=39 vs BLUE_CHIP=25 still split because V5.9.1038's
+  `normalizeTradeModeName` only applies to NEW trades; legacy journal
+  entries retain old casing. Converges naturally over time.
+
+
+
 ## V5.9.1038 — TRIAGE FIXES: TradeHistoryStore dedupe + mode normalize + reason fallback (Feb 2026, CI ⏳)
 
 Triage agent (called per operator request after V5.9.1037 snapshot showed
