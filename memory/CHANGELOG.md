@@ -6,6 +6,51 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1045 — supervisor timeout 10s + 2 UI ANR fixes (Feb 2026, CI ✅ green)
+
+Operator V5.9.1044 snapshot confirmed runInterruptible is real (14
+SUPERVISOR_WORKER_TIMEOUTs fired vs 0 before) but 6
+SUPERVISOR_POOL_RESETs still kicked in over 6min, plus two new
+top UI ANR offenders surfaced. Triple-fix:
+
+(a) **`SUPERVISOR_WORKER_TIMEOUT_MS 20s → 10s`**. 10s ≈ 2×
+    the avg 5.7s tick cadence and ≈1× OkHttp 15s read timeout.
+    Workers that exceed one round-trip get reaped immediately;
+    next tick's WATCHLIST_RR re-picks them — no signal loss.
+    Expected impact: SUPERVISOR_POOL_RESET drops to near-zero,
+    SUPERVISOR_WORKER_TIMEOUT rises proportionally (telemetry
+    signal, not bug).
+
+(c) **`PipelineHealthActivity` bgHandler pre-warm**. The
+    `by lazy` accessor on `bgHandler` triggered
+    `HandlerThread.getLooper()` (a synchronized `Object.wait()`)
+    on Main when first accessed in `onCreate`. V5.9.1044's #1
+    ANR was 930ms on this exact call site. Now pre-warmed on
+    a daemon worker thread so the lazy wait completes off-main.
+
+(d) **`SplashActivity` logo pulse**. Replaced the custom
+    ValueAnimator + addUpdateListener pattern (which boxed a
+    Float and dispatched the lambda on Main every frame —
+    causing the SplashActivity.onCreate\$lambda\$2\$lambda\$1
+    Float.valueOf hotspot in 5+ ANR_HINTs per snapshot) with
+    two pure ObjectAnimators on the view's hardware-accelerated
+    scaleX/scaleY properties. Per-frame work now runs on
+    RenderThread.
+
+Skipped:
+- (e) FDG CONFIDENCE_FLOOR_22% relaxation by design: operator
+  V5.9.809 mandate explicitly revoked wide-open mode. Recent
+  regime=NORMAL wr=40.6% suggests learning is on track without
+  lowering the floor.
+- (b) deep processTokenCycle interrupt-yield insertion:
+  runInterruptible + 10s timeout already covers the leak
+  symptom; modifying a 10k-line function is high-risk for low
+  marginal gain.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1044 — runInterruptible workers (REAL pool fix, not band-aid) (Feb 2026, CI ✅ green)
 
 Operator V5.9.1042 snapshot proved the watchdog band-aid works
