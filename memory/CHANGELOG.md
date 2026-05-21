@@ -6,6 +6,48 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1046 — supervisor decouple + tile BG + V3 reject histogram (Feb 2026, CI ✅ green)
+
+Three quality-of-life upgrades on top of V5.9.1045:
+
+(a) **BotService SLOT-RELEASE DECOUPLE**. V5.9.1045 dump showed
+    12 SUPERVISOR_WORKER_TIMEOUTs firing per 4min (10s timeout
+    working) but ~36 slots still held between resets. Root cause:
+    `withTimeoutOrNull` SUSPENDS the outer coroutine until
+    `runInterruptible`'s inner block returns, and
+    `processTokenCycle`'s outer try/catch SWALLOWS
+    `InterruptedException` → runaway thread keeps running, slot
+    stays held. Fix: spawn a separate watchdog coroutine that
+    delays for `SUPERVISOR_WORKER_TIMEOUT_MS + 500ms` then
+    unconditionally releases the slot via `AtomicBoolean.compareAndSet`.
+    Worker's `finally` also calls `release()`; the CAS ensures
+    only one decrement happens. Slot is now guaranteed to free
+    within timeout+0.5s regardless of inner thread state.
+    Expected: `SUPERVISOR_POOL_RESET` drops to 0/min.
+
+(b) **MainActivity pipelineTileRefresh BG snapshot**. V5.9.1045
+    dump showed `pipelineTileRefresh$1.run` hitting 503ms on
+    Main because `PipelineHealthCollector.snapshot()` walks 12+
+    ConcurrentHashMaps inline on the UI thread every 5s. Now:
+    dedicated single-thread executor builds the formatted
+    string off-main; only the final `setText`/`setTextColor`
+    stays on Main.
+
+(c) **PipelineHealthCollector V3 reject reason histogram**.
+    Operator V5.9.1045 dump showed `REJECTED_FATAL_V3=132` but
+    the bare counter doesn't tell which V3 sub-gate dominates.
+    New `v3RejectReasonCounts` map parses the `reason=` field
+    from each `REJECTED_FATAL_V3` lifecycle event, normalises
+    to the first two colon-segments (so `V3:RUG_FATAL` collapses
+    across sub-reasons), and surfaces a "Top V3 reject reasons"
+    section in the snapshot dump. Operator can now triage the
+    biggest contributor in one glance instead of grepping logs.
+    Zero behaviour change in trading paths.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1045 — supervisor timeout 10s + 2 UI ANR fixes (Feb 2026, CI ✅ green)
 
 Operator V5.9.1044 snapshot confirmed runInterruptible is real (14

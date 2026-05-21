@@ -6,11 +6,12 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1045 (Feb 2026, CI ✅ green)
-- **Supervisor timeout 10s + UI ANR fixes (V5.9.1045)**: `SUPERVISOR_WORKER_TIMEOUT_MS 20s→10s` (≈2× tick cadence) so stuck workers get reaped within one tick. Pre-warmed `PipelineHealthActivity.bgHandler` off-main to kill the 930ms `HandlerThread.getLooper()` ANR. Replaced `SplashActivity` logoPulse update-listener with hardware-accelerated `ObjectAnimator` to eliminate the per-frame Main-thread `Float.valueOf` boxing.
-- **runInterruptible worker body (V5.9.1044)**: confirmed working with 14 real cancellations per 6min. Workers wrapped in `runInterruptible(Dispatchers.IO)` so cancellation upgrades to `Thread.interrupt()`.
+## Latest Build — V5.9.1046 (Feb 2026, CI ✅ green)
+- **Supervisor slot decouple + tile BG + V3 reject histogram (V5.9.1046)**: Spawned a separate watchdog coroutine that releases the supervisor slot 10.5s after spawn via `AtomicBoolean.compareAndSet`, decoupling slot accounting from the runaway thread that swallows `InterruptedException`. MainActivity's `pipelineTileRefresh` now reads `PipelineHealthCollector.snapshot()` on a dedicated background executor. Added `v3RejectReasonCounts` histogram + "Top V3 reject reasons" snapshot section.
+- **Supervisor timeout 10s + UI ANR fixes (V5.9.1045)**: Timeout `20s→10s`, PipelineHealthActivity bgHandler pre-warm, SplashActivity logoPulse → hardware-accelerated ObjectAnimator. Both UI ANRs disappeared from top sites; resets dropped 55%.
+- **runInterruptible worker body (V5.9.1044)**: confirmed working with 14 real cancellations per 6min.
 - **Read-side bin merge (V5.9.1043)**: `BLUE_CHIP` legacy ghost bin merged into `BLUECHIP` at read time.
-- **Silent-supervisor pool watchdog (V5.9.1042)**: `SUPERVISOR_POOL_RESET` safety net — unfreezes pool when active>=cap AND no spawn in 30s.
+- **Silent-supervisor pool watchdog (V5.9.1042)**: `SUPERVISOR_POOL_RESET` safety net.
 - **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull` (now 10s, effective thanks to V5.9.1044's runInterruptible).
 - **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU, normalizeTradeModeName, CanonicalLearning reason-fallback, Executor.recordTrade tradingMode inheritance.
 - **Silent supervisor (V5.9.1037)**: fire-and-forget workers, cycle ~20s → ~5s.
