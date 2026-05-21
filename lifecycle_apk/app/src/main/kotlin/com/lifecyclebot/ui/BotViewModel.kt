@@ -111,7 +111,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     f.get(svc) as? com.lifecyclebot.engine.SecurityGuard
                 } } catch (_: Exception) { null }
             _ui.value  = UiState(
-                running      = status.running,
+                running      = BotService.isRuntimeActive(),  // V5.9.1071: service-owned truth, not stale status flag
                 walletSol    = status.walletSol,
                 activeToken  = active,
                 // V5.9.953 — pollLoop ANR fix. status.tokens is a ConcurrentHashMap
@@ -184,13 +184,18 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
             putExtra(BotService.EXTRA_STOP_SOURCE, source)
         }
-        BotService.status.running = false
-        _ui.value = _ui.value.copy(running = false)
+        // V5.9.1071 — DO NOT pre-mutate BotService.status.running or _ui.running.
+        // Same bug class as V5.9.1068 start pre-mutation: the ViewModel was declaring
+        // the bot stopped before BotService actually accepted/drained ACTION_STOP.
+        // During Pipeline/Journal activity transitions this made Main show STOPPED
+        // while loopJob/scanner/exits were still alive, and START then raced a stale
+        // false state. BotService owns the running flag; pollLoop reflects it via
+        // BotService.isRuntimeActive().
         ctx.startService(intent)
     }
 
     fun toggleBot() {
-        val liveRunning = BotService.status.running
+        val liveRunning = BotService.isRuntimeActive()
         if (liveRunning) stopBot() else startBot()
     }
     

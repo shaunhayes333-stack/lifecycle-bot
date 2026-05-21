@@ -177,8 +177,15 @@ class PipelineHealthActivity : AppCompatActivity() {
     private fun renderSnapshotAsync(forceFull: Boolean = false) {
         bgHandler.post {
             val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { return@post }
-            val dump = try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
-            val sections = splitDumpIntoSections(dump)
+            // V5.9.1071 — automatic refresh should not rebuild the full forensic dump.
+            // dumpText() walks large rings/maps and then causes TextView layout churn when
+            // posted back. Build the full dump only on first render or explicit refresh/copy;
+            // normal timer refresh updates badges from the lightweight snapshot only.
+            val needFullDump = forceFull || fullDumpCache.isBlank()
+            val dump = if (needFullDump) {
+                try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
+            } else fullDumpCache
+            val sections = if (needFullDump) splitDumpIntoSections(dump) else reportSections
             val loop = snap.phaseCounts["SCAN_CB"]
                 ?: snap.labelCounts["BOT_LOOP_TICK"]
                 ?: 0L
@@ -193,18 +200,20 @@ class PipelineHealthActivity : AppCompatActivity() {
             }
 
             mainHandler.post {
-                fullDumpCache = dump
-                reportSections = sections
-                if (reportSections.isEmpty()) reportSections = listOf(dump)
-                if (forceFull) currentSectionIndex = 0
-                if (currentSectionIndex !in reportSections.indices) currentSectionIndex = 0
+                if (needFullDump) {
+                    fullDumpCache = dump
+                    reportSections = sections
+                    if (reportSections.isEmpty()) reportSections = listOf(dump)
+                    if (forceFull) currentSectionIndex = 0
+                    if (currentSectionIndex !in reportSections.indices) currentSectionIndex = 0
+                }
                 statLoop.text     = formatBig(loop)
                 statExec.text     = formatBig(exec)
                 statJrnl.text     = formatBig(jrnl)
                 statMaxFrame.text = maxFrameTxt
                 anrBadge.text     = anrTxt
                 anrBadge.setTextColor(anrColor)
-                renderCurrentSection()
+                if (needFullDump) renderCurrentSection()
             }
         }
     }

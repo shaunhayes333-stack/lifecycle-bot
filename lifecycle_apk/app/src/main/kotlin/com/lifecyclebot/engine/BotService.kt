@@ -338,6 +338,23 @@ class BotService : Service() {
         @Volatile
         var userStartQueuedDuringStop = false
 
+        /**
+         * V5.9.1071 — service-owned runtime truth for UI.
+         *
+         * The UI previously read/wrote status.running directly. That lets an Activity/ViewModel
+         * transition make Main show "stopped" while BotService.loopJob is still alive, or worse,
+         * makes a subsequent START race the real service state. Runtime truth must be derived
+         * from the service-owned loop/stop latches only. This is read-only to UI.
+         */
+        fun isRuntimeActive(): Boolean {
+            return try {
+                val svc = instance
+                status.running || stopInProgress || (svc?.loopJob?.isActive == true)
+            } catch (_: Throwable) {
+                status.running || stopInProgress
+            }
+        }
+
         // V5.9.621 — inert-loop watchdog state. Updated on every scanner discovery.
         @Volatile
         var lastScannerDiscoveryMs: Long = 0L

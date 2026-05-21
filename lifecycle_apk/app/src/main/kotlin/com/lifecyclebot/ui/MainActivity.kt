@@ -584,9 +584,15 @@ class MainActivity : AppCompatActivity() {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupApiKeyHelpLinks failed: ${e.message}")
                 }
             }
-            requestNotifPermission()
-            requestStoragePermission()
-            checkBatteryOptimisation()
+            // V5.9.1071 — defer permission/battery checks past first frame.
+            // Snapshot showed requestNotifPermission blocking Main for 2730ms in
+            // Binder/PermissionManager during activity transition. These checks are
+            // not required before render; defer to avoid starving BotService/UI handoff.
+            window.decorView.postDelayed({
+                try { requestNotifPermission() } catch (_: Throwable) {}
+                try { requestStoragePermission() } catch (_: Throwable) {}
+                try { checkBatteryOptimisation() } catch (_: Throwable) {}
+            }, 1_500L)
 
             // V5.9.713 — AUTO-RESTART on cold-open after process kill.
             // When Android kills the process (OEM battery saver, Doze, OOM) and
