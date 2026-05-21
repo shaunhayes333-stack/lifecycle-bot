@@ -402,7 +402,7 @@ class BotService : Service() {
     // was queued but never got CPU time.
     //
     // Root cause: Dispatchers.IO thread-pool starvation. The supervisor phase
-    // launches up to 96 parallel OkHttp .execute() blocking calls. When
+    // launches up to 100-range OkHttp .execute() blocking calls. When
     // Helius/Birdeye/DexScreener wedge in JNI socket-reads, those calls
     // ignore cancel() (native code is uncancellable). Each rescue cancels
     // the corpse and launches a NEW botLoop on the SAME saturated pool;
@@ -7632,7 +7632,7 @@ class BotService : Service() {
     ): List<String> {
         val nowMs = System.currentTimeMillis()
         val FRESH_WINDOW_MS = 60_000L
-        val PER_CYCLE_CAP = 96
+        val PER_CYCLE_CAP = 100
         val STALE_PROCESS_COUNT_THRESHOLD = 12
         // V5.9.1034 — Operator mandate: cap watchlist at 250, prune stale
         // tokens after 5 minutes idle. "we are burning a lot of data there
@@ -9761,14 +9761,14 @@ val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
 // V5.9.960 — SMART WATCHLIST ROUND-ROBIN.
 //
 // Operator (2026-05-19): 'bot cycle should be every 5 seconds.' With
-// 250 mints × ~250ms per processTokenCycle network call and 96-way
+// 250 mints × ~250ms per processTokenCycle network call and 100-range
 // parallelism, the SUPERVISOR floor is ~7s even with V5.9.958 chunk
 // timeouts. To hit a real 5s round-trip we must EVALUATE FEWER MINTS
 // PER CYCLE — but not blindly: meme alpha lives in the freshly-listed
 // tokens, so those must be evaluated every tick. The cold tail
 // rotates so it gets covered every 2-3 cycles instead of every cycle.
 //
-// Selection priority (in order, capped at 96 = one chunk = ~2.4s):
+// Selection priority (in order, capped at 100 = one supervisor range = ~2.4s):
 //   1. forcedOpenMints — ALL open positions always evaluated (was
 //      already true). These are the mints with skin in the game.
 //   2. Fresh mints (addedAt < 60s ago) — pump.fun graduations and
@@ -9815,22 +9815,22 @@ val memeBootstrap = try {
 val maxParallel = if (memeBootstrap) {
     // V5.9.1026 — CAP AT 32 IN BOOTSTRAP MODE.
     //
-    // V5.9.175 raised this to 96 when the design assumed a 50-100 token
+    // V5.9.1073 uses 100 as the canonical supervisor range for a 50-100 token
     // watchlist. Operator V5.9.1025 snapshot showed the watchlist had
     // exploded to 1056 tokens (PumpPortal spam — e.g. 14× "egg" intaken
     // in 7 seconds, EGG 12×, Sharpton 9×) and EVERY supervisor chunk
-    // reported processed=0 deferred=96.
+    // reported processed=0 deferred=100.
     //
-    // Root cause: 96 parallel async workers on Dispatchers.IO contend
+    // Root cause: 100-range async workers on Dispatchers.IO contend
     // for only 64 default IO threads, plus OkHttp's per-host connection
     // pool (~10). Many workers never even start running before the
     // 2.5s chunk budget expires — the harvest fix in V5.9.1025 confirmed
-    // active=96 at every timeout (none completed).
+    // active=100 at every timeout (none completed).
     //
     // 32 parallel is plenty: 32 fits inside the IO pool, fits inside
     // typical OkHttp connection budgets, and lets each worker complete
     // a real processTokenCycle (Birdeye+Helius+V3+lane evals ≈ 1.5-2s)
-    // inside the chunk budget. 96 tokens → 3 chunks of 32 = ~7.5s,
+    // inside the chunk budget. 100 tokens → bounded 100-slot supervisor = ~7.5s,
     // well within the 15s paper-mode batch deadline.
     when {
         orderedMints.size >= 80 -> 32
@@ -9920,7 +9920,7 @@ val supervisorOuterBudget = maxBatchMillis + 5_000L
 // V5.9.1037 — SILENT SUPERVISOR. The legacy runSupervisorPhase awaits
 // per-chunk withTimeoutOrNull which was burning ~14s per cycle on
 // SUPERVISOR_CHUNK_TIMEOUT (operator V5.9.1036 snapshot: 23 chunk timeouts
-// in 150s, processed=0 deferred=96 every cycle). Workers ALREADY run on
+// in 150s, processed=0 deferred=100 every cycle). Workers ALREADY run on
 // detached GlobalScope.async(Dispatchers.IO) — the bot loop's await was
 // pure dead waiting, since `processed/deferred` only feed log strings and
 // no downstream control flow depends on them. fireSupervisorWorkers spawns
@@ -10448,7 +10448,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 }
                 val chunkBudgetMs = minOf(
                     // V5.9.1029 — WIDEN CHUNK BUDGET to fix supervisor freeze.
-                    // Operator V5.9.1028b snapshot showed processed=0 deferred=96
+                    // Operator V5.9.1028b snapshot showed processed=0 deferred=100
                     // on EVERY supervisor cycle (237× SUPERVISOR_CHUNK_TIMEOUT in
                     // 1041s) — the harvest fix from V5.9.1025 wasn't enough because
                     // the 2.5s floor was simply TOO TIGHT for 32 parallel workers
@@ -10465,14 +10465,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 )
                 // V5.9.1025 — HARVEST COMPLETED WORK ON CHUNK TIMEOUT.
                 //
-                // Operator V5.9.1024 snapshot showed processed=0 deferred=96
+                // Operator V5.9.1024 snapshot showed processed=0 deferred=100
                 // EVERY supervisor cycle, even though DexScreener was at 99%
                 // SR and individual `processTokenCycle` calls were obviously
                 // fast (trades were happening via the SCAN_CB direct path).
                 //
                 // Old failure path: `withTimeoutOrNull { jobs.awaitAll() } ?:
-                // List(jobs.size) { false }` — if even ONE of 96 jobs wedged
-                // past the 2.5s budget, awaitAll() returned null and ALL 96
+                // List(jobs.size) { false }` — if even ONE legacy job wedged
+                // past the 2.5s budget, awaitAll() returned null and the whole legacy chunk
                 // were marked deferred, throwing away the 95+ that actually
                 // completed. With 720 tokens in the watchlist, NONE were
                 // ever re-evaluated by the supervisor — every chunk lost
@@ -10553,30 +10553,61 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // workers. Counts workers that hit the per-worker withTimeoutOrNull
     // budget — surfaces stuck APIs at a glance.
     private val supervisorLifetimeWorkerTimeouts = java.util.concurrent.atomic.AtomicLong(0)
-    // V5.9.1041 — operator V5.9.1040 dump showed the 48-cap re-saturated
-    // despite V5.9.1039's per-worker withTimeoutOrNull. Root cause: that
-    // timeout is COOPERATIVE — workers stuck in non-cooperative blocking
-    // ops (JNI / SQLite write / blocking socket) never observe the
-    // cancellation, the slot stays held forever, no SUPERVISOR_WORKER_TIMEOUT
-    // counter ever incremented. Watchdog: track last successful spawn
-    // time; if active==cap AND >30s since the last new worker spawned,
-    // force the counter to zero and log SUPERVISOR_POOL_RESET so the bot
-    // can keep working. Truly-still-running workers decrement to a
-    // negative counter (AtomicInteger.get() may briefly read <0) which is
-    // safe — the cap check only compares get() < cap, so negative just
-    // means more headroom.
+    // V5.9.1073 — SUPERVISOR ACCOUNTING REWRITE.
+    // Operator directive: give supervisor a range of 100 and stop the repeated
+    // active=48/cap=48 weirdness. The old design selected 96 mints but allowed
+    // only 48 in-flight workers, guaranteeing deferred work on a normal ~100-token
+    // universe. Worse, the old stall watchdog "fixed" saturation by setting
+    // supervisorActive=0 while workers were still alive; late releases could then
+    // push the counter negative/phantom and the next cycle would oscillate between
+    // false headroom and cap saturation.
+    //
+    // New rule: range=100, inflight=100, CAS acquire, non-negative release.
+    // Saturation is telemetry only (SUPERVISOR_POOL_SATURATED_NO_RESET); we never
+    // destructively reset the active counter again.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
-    private val supervisorLifetimePoolResets = java.util.concurrent.atomic.AtomicLong(0)
-    private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // V5.9.1050: 30s was too long; a full pool idles the bot for up to 30s before recovery
-    private val SUPERVISOR_MAX_INFLIGHT: Int = 48
-    // V5.9.1045 — operator V5.9.1044 dump showed 14 SUPERVISOR_WORKER_TIMEOUTs
-    // firing per 6min (runInterruptible IS working) but 6 SUPERVISOR_POOL_RESETs
-    // still kicking in — workers exceeding 20s. Shrinking to 10s (≈2× tick
-    // cadence, ≈1× OkHttp read budget). Workers that need >10s are almost
-    // always wedged on a stuck API or non-interruptible code path; killing
-    // them keeps pool turnover ≥ tick rate. Next tick will re-pick the
-    // token from WATCHLIST_RR so no signal is lost.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 10_000L
+    private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
+    private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
+    private val SUPERVISOR_MAX_INFLIGHT: Int = 100
+    // Worker slot budget is one bot-loop cadence: long enough for normal
+    // processTokenCycle, short enough that stuck IO cannot hold a supervisor
+    // slot across multiple 5s cycles.
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 5_000L
+
+    private fun supervisorTryAcquireSlot(): Boolean {
+        while (true) {
+            val raw = supervisorActive.get()
+            if (raw < 0) {
+                if (supervisorActive.compareAndSet(raw, 0)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SUPERVISOR_ACTIVE_CLAMPED",
+                            "reason=acquire prevActive=$raw cap=$SUPERVISOR_MAX_INFLIGHT",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                continue
+            }
+            if (raw >= SUPERVISOR_MAX_INFLIGHT) return false
+            if (supervisorActive.compareAndSet(raw, raw + 1)) return true
+        }
+    }
+
+    private fun supervisorReleaseSlot(): Int {
+        return supervisorActive.updateAndGet { cur -> (cur - 1).coerceAtLeast(0) }
+    }
+
+    private fun supervisorClampIfNegative(reason: String) {
+        val cur = supervisorActive.get()
+        if (cur < 0 && supervisorActive.compareAndSet(cur, 0)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_ACTIVE_CLAMPED",
+                    "reason=$reason prevActive=$cur cap=$SUPERVISOR_MAX_INFLIGHT",
+                )
+            } catch (_: Throwable) {}
+        }
+    }
 
     /**
      * V5.9.1037 — fire-and-forget supervisor. Replaces the chunk-await
@@ -10601,33 +10632,24 @@ launchExitSweepAsync("POST_SUPERVISOR")
         loopCount: Int,
     ): SupervisorPhaseResult {
         if (!status.running) return SupervisorPhaseResult(0, orderedMints.size, false)
-        // V5.9.1042 WATCHDOG — operator V5.9.1041 dump showed the 48-cap
-        // re-saturated AGAIN after 4h despite V5.9.1041's planned reset
-        // logic (which was only commented, never coded). Symptom in the
-        // snapshot: SUPERVISOR_INFLIGHT_CAP firing 335 cycles with
-        // spawned=0 skipped=96 active=48 cap=48 every tick, last paper BUY
-        // 26+ minutes before snapshot capture, EXEC=0. Root cause confirmed:
-        // workers stuck in non-cooperative blocking ops (SQLite write /
-        // native socket / JNI) → withTimeoutOrNull never cancels them →
-        // supervisorActive never decrements. Fix: if pool is at cap AND no
-        // new worker has been successfully spawned for SUPERVISOR_POOL_STALL_MS
-        // (30s), force the counter back to zero so the bot can keep moving.
-        // The truly-stuck workers will eventually decrement (possibly into
-        // negative territory) which is safe — the cap check only compares
-        // get() < cap, so negative just means more headroom.
+        // V5.9.1073 — saturation is OBSERVATION ONLY.
+        // The old pool reset path force-set supervisorActive=0 at cap, which
+        // created phantom/negative accounting when late workers released. Do not
+        // reset here. Clamp any historical negative value, log sustained full-cap
+        // saturation, and let timed slot releases drain naturally.
         run {
             val now = System.currentTimeMillis()
+            supervisorClampIfNegative("pre_cycle")
             val currentActive = supervisorActive.get()
             if (currentActive >= SUPERVISOR_MAX_INFLIGHT) {
                 val stallMs = now - supervisorLastSpawnAt.get()
                 if (stallMs >= SUPERVISOR_POOL_STALL_MS) {
-                    supervisorActive.set(0)
-                    supervisorLifetimePoolResets.incrementAndGet()
+                    supervisorLifetimeSaturationEvents.incrementAndGet()
                     supervisorLastSpawnAt.set(now)
                     try {
                         ForensicLogger.lifecycle(
-                            "SUPERVISOR_POOL_RESET",
-                            "stallMs=$stallMs cap=$SUPERVISOR_MAX_INFLIGHT prevActive=$currentActive resets=${supervisorLifetimePoolResets.get()}",
+                            "SUPERVISOR_POOL_SATURATED_NO_RESET",
+                            "stallMs=$stallMs cap=$SUPERVISOR_MAX_INFLIGHT active=$currentActive events=${supervisorLifetimeSaturationEvents.get()}",
                         )
                     } catch (_: Throwable) {}
                 }
@@ -10638,22 +10660,16 @@ launchExitSweepAsync("POST_SUPERVISOR")
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
         for (mint in orderedMints) {
             if (!status.running) break
-            val nowInFlight = supervisorActive.get()
-            if (nowInFlight >= SUPERVISOR_MAX_INFLIGHT) {
+            if (!supervisorTryAcquireSlot()) {
                 skipped++
                 continue
             }
-            // Bump count BEFORE launching so two near-simultaneous launches
-            // can't both observe a below-cap value (best-effort cap; minor
-            // overshoot is fine — OkHttp dispatcher provides the real
-            // backpressure floor).
-            supervisorActive.incrementAndGet()
             supervisorLifetimeSpawned.incrementAndGet()
             // V5.9.1042 — record last-successful-spawn timestamp so the
             // watchdog above can detect prolonged pool stalls.
             supervisorLastSpawnAt.set(System.currentTimeMillis())
             // V5.9.1046 — SLOT-RELEASE DECOUPLE. Operator V5.9.1045 dump
-            // showed 12 SUPERVISOR_WORKER_TIMEOUTs firing per 4min (10s
+            // showed SUPERVISOR_WORKER_TIMEOUTs firing but slots still held; V5.9.1073 uses 5s
             // timeout working) but ~36 slots still held between resets.
             // Root cause: withTimeoutOrNull SUSPENDS the outer coroutine
             // until runInterruptible's inner block returns — and
@@ -10669,7 +10685,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // the inner thread ever returns.
             val released = java.util.concurrent.atomic.AtomicBoolean(false)
             val releaseSlot = {
-                if (released.compareAndSet(false, true)) supervisorActive.decrementAndGet()
+                if (released.compareAndSet(false, true)) supervisorReleaseSlot()
                 Unit
             }
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
@@ -10686,7 +10702,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     // chunk-level awaitAll timeout but forgot to add a
                     // per-worker safety net. Operator V5.9.1038 4h dump
                     // showed SUPERVISOR_INFLIGHT_CAP firing 2238 times with
-                    // active=48 cap=48 spawned=0 EVERY cycle — workers stuck
+                    // active=cap spawned=0 EVERY cycle — workers stuck
                     // on slow Birdeye/DexScreener responses never decremented
                     // supervisorActive, permanently saturating the pool.
                     // Result: bot loop spawned 0 new workers per cycle for
@@ -10702,7 +10718,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     // synchronized SQLite writes, Birdeye/DexScreener
                     // calls) never observe coroutine cancellation —
                     // explaining V5.9.1042's snapshot showing
-                    // SUPERVISOR_POOL_RESET firing 29× in 20min: workers
+                    // old destructive pool reset firing 29× in 20min: workers
                     // launched, hung non-cooperatively, and never
                     // released their slot, forcing the watchdog band-aid
                     // to kick in every ~42s. runInterruptible converts
