@@ -902,20 +902,45 @@ class MainActivity : AppCompatActivity() {
     // line on the row-2 Pipeline tile (e.g. "ANR 0" when healthy,
     // "ANR 12" amber, "ANR 47" red). Cheap; does not block UI.
     private val pipelineTileHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // V5.9.1046 — operator V5.9.1045 ANR dump showed
+    // pipelineTileRefresh hitting 503ms on Main because
+    // PipelineHealthCollector.snapshot() walks 12+ ConcurrentHashMaps
+    // and was being called inline on the UI thread every 5s. Moved to
+    // a dedicated background thread; only the final string post stays
+    // on Main.
+    private val pipelineTileBgExecutor: java.util.concurrent.ExecutorService by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "PipelineTileSnapshot").apply { isDaemon = true }
+        }
+    }
     private val pipelineTileRefresh = object : Runnable {
         override fun run() {
             try {
-                val tv = findViewById<android.widget.TextView>(R.id.tvPipelineTileStats)
-                if (tv != null) {
-                    val snap = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
-                    val anr = snap.anrHints
-                    val exec = snap.phaseCounts["EXEC"] ?: 0L
-                    tv.text = "ANR $anr · EXEC $exec"
-                    tv.setTextColor(when {
-                        anr == 0  -> 0xFF10B981.toInt()
-                        anr < 5   -> 0xFFF59E0B.toInt()
-                        else      -> 0xFFEF4444.toInt()
-                    })
+                pipelineTileBgExecutor.execute {
+                    val text: String
+                    val color: Int
+                    try {
+                        val snap = com.lifecyclebot.engine.PipelineHealthCollector.snapshot()
+                        val anr = snap.anrHints
+                        val exec = snap.phaseCounts["EXEC"] ?: 0L
+                        text = "ANR $anr · EXEC $exec"
+                        color = when {
+                            anr == 0  -> 0xFF10B981.toInt()
+                            anr < 5   -> 0xFFF59E0B.toInt()
+                            else      -> 0xFFEF4444.toInt()
+                        }
+                    } catch (_: Throwable) {
+                        return@execute
+                    }
+                    pipelineTileHandler.post {
+                        try {
+                            val tv = findViewById<android.widget.TextView>(R.id.tvPipelineTileStats)
+                            if (tv != null) {
+                                tv.text = text
+                                tv.setTextColor(color)
+                            }
+                        } catch (_: Throwable) { /* never let UI tick crash main */ }
+                    }
                 }
             } catch (_: Throwable) { /* never let UI tick crash main */ }
             // V5.9.925 — was 3_000L. The ANR/EXEC counters move slowly enough

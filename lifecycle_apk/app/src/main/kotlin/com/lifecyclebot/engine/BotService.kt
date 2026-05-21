@@ -10620,6 +10620,32 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // V5.9.1042 — record last-successful-spawn timestamp so the
             // watchdog above can detect prolonged pool stalls.
             supervisorLastSpawnAt.set(System.currentTimeMillis())
+            // V5.9.1046 — SLOT-RELEASE DECOUPLE. Operator V5.9.1045 dump
+            // showed 12 SUPERVISOR_WORKER_TIMEOUTs firing per 4min (10s
+            // timeout working) but ~36 slots still held between resets.
+            // Root cause: withTimeoutOrNull SUSPENDS the outer coroutine
+            // until runInterruptible's inner block returns — and
+            // processTokenCycle's outer try/catch SWALLOWS
+            // InterruptedException ("Error [\$mint]" log), so the runaway
+            // thread keeps running and the slot stays held until it
+            // organically exits. Fix: spawn a separate watchdog coroutine
+            // that delays for timeout+500ms then unconditionally releases
+            // the slot via AtomicBoolean.compareAndSet. The main worker's
+            // finally block also calls release(), but the CAS ensures
+            // only one of them actually decrements. Bound: slot is now
+            // guaranteed to free within timeout+0.5s regardless of whether
+            // the inner thread ever returns.
+            val released = java.util.concurrent.atomic.AtomicBoolean(false)
+            val releaseSlot = {
+                if (released.compareAndSet(false, true)) supervisorActive.decrementAndGet()
+                Unit
+            }
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                try {
+                    kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 500L)
+                    releaseSlot()
+                } catch (_: Throwable) {}
+            }
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     if (!status.running) return@launch
@@ -10676,7 +10702,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         "Silent supervisor worker failed ${mint.take(8)}: ${t.message}",
                     )
                 } finally {
-                    supervisorActive.decrementAndGet()
+                    releaseSlot()
                 }
             }
             spawned++

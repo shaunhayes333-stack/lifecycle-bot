@@ -74,6 +74,13 @@ object PipelineHealthCollector {
     /** V5.9.915 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
 
+    /** V5.9.1046 — V3 REJECTED_FATAL reason histogram. The bare lifecycle
+     *  counter shows '132 rejects' but operator can't tell what the
+     *  dominant cause is. This histogram surfaces the normalised reason
+     *  key extracted from each REJECTED_FATAL_V3 event so the operator
+     *  can prioritise which V3 sub-gate to tune. */
+    private val v3RejectReasonCounts = ConcurrentHashMap<String, AtomicLong>()
+
     // ════════════════════════════════════════════════════════════════
     // V5.9.915 — Per-mode FDG / EXEC counters
     //
@@ -311,6 +318,22 @@ object PipelineHealthCollector {
     fun onLifecycle(event: String, fields: String) {
         if (!attached) return
         bump(labelCounts, "LIFECYCLE/$event")
+        // V5.9.1046 — V3 reject reason histogram. Extract the normalised
+        // V3 reason key from fields like 'mint=… sym=… v3=Rejected
+        // reason=V3:RUG_FATAL:TOP_HOLDER' and bump a separate counter.
+        // Falls back to v3Decision class name when reason is '(none)'.
+        if (event == "REJECTED_FATAL_V3") {
+            try {
+                val raw = Regex("reason=([^ ]+)").find(fields)?.groupValues?.get(1)
+                val cls = Regex("v3=([^ ]+)").find(fields)?.groupValues?.get(1) ?: "Unknown"
+                val keyRaw = if (raw.isNullOrBlank() || raw == "(none)") cls else raw
+                // Normalise: keep only the first 2 colon-segments so
+                // 'V3:RUG_FATAL:HOLDER_X' collapses with 'V3:RUG_FATAL:HOLDER_Y'.
+                val parts = keyRaw.split(":")
+                val key = if (parts.size >= 2) "${parts[0]}:${parts[1]}" else keyRaw
+                bump(v3RejectReasonCounts, key.take(80))
+            } catch (_: Throwable) {}
+        }
         appendEvent(Event(System.currentTimeMillis(), "LIFECYCLE/$event", "", fields.take(220)))
     }
 
@@ -560,6 +583,7 @@ object PipelineHealthCollector {
         val intakeBySource: Map<String, Long>,
         val laneEvalCounts: Map<String, Long>,
         val blockReasonCounts: Map<String, Long>,
+        val v3RejectReasonCounts: Map<String, Long>,
         val symbolIntakeCounts: Map<String, Long>,
         val anrStackCounts: Map<String, Long>,
         val recentExecs: List<ExecRecord>,
@@ -588,6 +612,7 @@ object PipelineHealthCollector {
             intakeBySource         = intakeBySource.mapValues { it.value.get() },
             laneEvalCounts         = laneEvalCounts.mapValues { it.value.get() },
             blockReasonCounts      = blockReasonCounts.mapValues { it.value.get() },
+            v3RejectReasonCounts   = v3RejectReasonCounts.mapValues { it.value.get() },
             symbolIntakeCounts     = symbolIntakeCounts.mapValues { it.value.get() },
             anrStackCounts         = anrStackCounts.mapValues { it.value.get() },
             recentExecs            = recentExecs.toList(),
@@ -705,6 +730,18 @@ object PipelineHealthCollector {
         if (s.blockReasonCounts.isNotEmpty()) {
             sb.append("===== Top block reasons (gate -> reason) =====\n")
             s.blockReasonCounts.entries.sortedByDescending { it.value }.take(20)
+                .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
+            sb.append('\n')
+        }
+
+        // ── V3 reject reason histogram (V5.9.1046) ──────────────────
+        // REJECTED_FATAL_V3 lifecycle counter shows the bare total but
+        // operator can't tell *which* V3 sub-gate dominates. This
+        // surfaces the normalised reason key so the operator can chase
+        // the biggest contributor.
+        if (s.v3RejectReasonCounts.isNotEmpty()) {
+            sb.append("===== Top V3 reject reasons (REJECTED_FATAL_V3) =====\n")
+            s.v3RejectReasonCounts.entries.sortedByDescending { it.value }.take(15)
                 .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
             sb.append('\n')
         }
@@ -1289,6 +1326,7 @@ object PipelineHealthCollector {
         intakeBySource.clear()
         laneEvalCounts.clear()
         blockReasonCounts.clear()
+        v3RejectReasonCounts.clear()
         symbolIntakeCounts.clear()
         anrStackCounts.clear()
         anrHintCount.set(0)
