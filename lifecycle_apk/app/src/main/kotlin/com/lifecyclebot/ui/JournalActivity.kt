@@ -375,25 +375,34 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun buildJournal(tokens: Map<String, TokenState>) {
-        // V5.9.1047 — operator V5.9.1046 dump showed JournalActivity
-        // .buildJournal in the top-4 ANR offenders (4 hits). The disk
-        // reads (journal.buildJournal walks TradeHistoryStore + stats
-        // aggregation) were running on Main. Fix: move data prep to
-        // Dispatchers.IO; only the actual view inflation stays on Main.
-        // Re-enters this function on Main after IO completes via
-        // `runOnUiThread`, so the unchanged tail of this method (view
-        // rendering loop) keeps working as-is.
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val allEntries = try { journal.buildJournal(tokens) } catch (_: Throwable) { emptyList() }
-            val filtered = when (currentModeFilter) {
-                "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
-                "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
-                else    -> allEntries
-            }
-            val stats = try { journal.getStatsFiltered(filtered) } catch (_: Throwable) { null }
-            if (stats == null) return@launch
-            runOnUiThread {
-                try { renderJournalBody(filtered, stats) } catch (_: Throwable) {}
+        // V5.9.1050 — V5.9.1047 used GlobalScope.launch which is not
+        // cancelled when the Activity is destroyed, causing runOnUiThread
+        // to fire on a dead Activity (silent crash / empty screen).
+        // Also the stats == null bail-out on any exception silently killed
+        // the entire render. Fix: use lifecycleScope so the coroutine
+        // dies with the Activity, withContext(IO) for disk work, and
+        // only re-enter Main with isActive guard.
+        lifecycleScope.launch {
+            try {
+                val allEntries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    journal.buildJournal(tokens)
+                }
+                val filtered = when (currentModeFilter) {
+                    "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
+                    "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
+                    else    -> allEntries
+                }
+                val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    journal.getStatsFiltered(filtered)
+                }
+                // Back on Main — only if Activity is still alive
+                if (isActive) renderJournalBody(filtered, stats)
+            } catch (e: Exception) {
+                com.lifecyclebot.engine.ErrorLogger.error(
+                    "JournalActivity",
+                    "📓 buildJournal EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message}", e
+                )
+                if (isActive) showEmptyJournal()
             }
         }
     }
