@@ -10540,7 +10540,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // means more headroom.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimePoolResets = java.util.concurrent.atomic.AtomicLong(0)
-    private val SUPERVISOR_POOL_STALL_MS: Long = 30_000L
+    private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // V5.9.1050: 30s was too long; a full pool idles the bot for up to 30s before recovery
     private val SUPERVISOR_MAX_INFLIGHT: Int = 48
     // V5.9.1045 — operator V5.9.1044 dump showed 14 SUPERVISOR_WORKER_TIMEOUTs
     // firing per 6min (runInterruptible IS working) but 6 SUPERVISOR_POOL_RESETs
