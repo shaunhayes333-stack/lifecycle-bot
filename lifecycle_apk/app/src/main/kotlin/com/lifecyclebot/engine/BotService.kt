@@ -10562,6 +10562,38 @@ launchExitSweepAsync("POST_SUPERVISOR")
         loopCount: Int,
     ): SupervisorPhaseResult {
         if (!status.running) return SupervisorPhaseResult(0, orderedMints.size, false)
+        // V5.9.1042 WATCHDOG — operator V5.9.1041 dump showed the 48-cap
+        // re-saturated AGAIN after 4h despite V5.9.1041's planned reset
+        // logic (which was only commented, never coded). Symptom in the
+        // snapshot: SUPERVISOR_INFLIGHT_CAP firing 335 cycles with
+        // spawned=0 skipped=96 active=48 cap=48 every tick, last paper BUY
+        // 26+ minutes before snapshot capture, EXEC=0. Root cause confirmed:
+        // workers stuck in non-cooperative blocking ops (SQLite write /
+        // native socket / JNI) → withTimeoutOrNull never cancels them →
+        // supervisorActive never decrements. Fix: if pool is at cap AND no
+        // new worker has been successfully spawned for SUPERVISOR_POOL_STALL_MS
+        // (30s), force the counter back to zero so the bot can keep moving.
+        // The truly-stuck workers will eventually decrement (possibly into
+        // negative territory) which is safe — the cap check only compares
+        // get() < cap, so negative just means more headroom.
+        run {
+            val now = System.currentTimeMillis()
+            val currentActive = supervisorActive.get()
+            if (currentActive >= SUPERVISOR_MAX_INFLIGHT) {
+                val stallMs = now - supervisorLastSpawnAt.get()
+                if (stallMs >= SUPERVISOR_POOL_STALL_MS) {
+                    supervisorActive.set(0)
+                    supervisorLifetimePoolResets.incrementAndGet()
+                    supervisorLastSpawnAt.set(now)
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SUPERVISOR_POOL_RESET",
+                            "stallMs=$stallMs cap=$SUPERVISOR_MAX_INFLIGHT prevActive=$currentActive resets=${supervisorLifetimePoolResets.get()}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
         var spawned = 0
         var skipped = 0
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
@@ -10578,6 +10610,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // backpressure floor).
             supervisorActive.incrementAndGet()
             supervisorLifetimeSpawned.incrementAndGet()
+            // V5.9.1042 — record last-successful-spawn timestamp so the
+            // watchdog above can detect prolonged pool stalls.
+            supervisorLastSpawnAt.set(System.currentTimeMillis())
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     if (!status.running) return@launch
