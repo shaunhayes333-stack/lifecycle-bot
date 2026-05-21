@@ -2267,276 +2267,163 @@ class Executor(
 
         // V5.9.58: reset BotBrain's drought watchdog on every BUY so the
         // watchdog only eases thresholds if the scanner has truly gone
-        // silent for 10+ minutes.
-        if (trade.side == "BUY") {
-            try { brain?.onBuyFired() } catch (_: Exception) {}
-        }
+        // V5.9.1060 — BUY fanout moved into async launch below.
         
         // ═══════════════════════════════════════════════════════════════════
-        // V3.2: Record losses to ToxicModeCircuitBreaker
-        // This enables automatic mode freezing after catastrophic losses
         // ═══════════════════════════════════════════════════════════════════
-        if (trade.side == "SELL" && (trade.pnlPct ?: 0.0) < 0) {
-            try {
-                val mode = ModeRouter.classify(ts).tradeType.name
-                ToxicModeCircuitBreaker.recordLoss(
-                    mode = mode,
-                    pnlPct = trade.pnlPct ?: 0.0,
-                    mint = ts.mint,
-                    symbol = ts.symbol
-                )
-            } catch (e: Exception) {
-                // Silently ignore - circuit breaker is secondary
+        // V5.9.1060 — ASYNC LEARNING FANOUT
+        // ToxicMode, MetaCognition, BehaviorAI, Copilot, PersonalityMemory,
+        // CorrelationHedge, SessionEdge, LayerVoteStore, RunTracker30D —
+        // all are pure learning signals, no return value used by the sell path.
+        // Moved to GlobalScope.launch(IO) to eliminate per-trade latency on the
+        // bot loop thread. Snapshots captured BEFORE launch so coroutine has
+        // stable values and there is no race on ts / trade / position fields.
+        // ═══════════════════════════════════════════════════════════════════
+        if (trade.side == "SELL" || (trade.side == "BUY")) {
+            val _fanoutSide       = trade.side
+            val _fanoutPnlPct     = trade.pnlPct ?: 0.0
+            val _fanoutMint       = ts.mint
+            val _fanoutSymbol     = ts.symbol
+            val _fanoutReason     = trade.reason.ifBlank { "unknown" }
+            val _fanoutSol        = trade.sol
+            val _fanoutIsPaper    = isPaperRT()
+            val _fanoutEntryTime  = ts.position.entryTime
+            val _fanoutTradingMode = (ts.position.tradingMode ?: "").uppercase()
+            val _fanoutEntryPrice = ts.position.entryPrice
+            val _fanoutExitPrice  = trade.price
+            val _fanoutEntryScore = ts.entryScore
+            val _fanoutIsRun      = try { RunTracker30D.isRunActive() } catch (_: Throwable) { false }
+            val _fanoutRunScore   = ts.trades.lastOrNull { it.side == "BUY" }?.score?.coerceIn(0.0, 100.0)?.toInt() ?: 50
+            val _fanoutConfidence = ts.entryScore.toInt().coerceIn(0, 100)
+            GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    // ── ToxicModeCircuitBreaker ───────────────────────────────
+                    if (_fanoutSide == "SELL" && _fanoutPnlPct < 0) {
+                        try {
+                            val mode = ModeRouter.classify(ts).tradeType.name
+                            ToxicModeCircuitBreaker.recordLoss(
+                                mode = mode,
+                                pnlPct = _fanoutPnlPct,
+                                mint = _fanoutMint,
+                                symbol = _fanoutSymbol
+                            )
+                        } catch (_: Exception) {}
+                    }
+                    if (_fanoutSide == "SELL") {
+                        val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
+                        val _fluidTm = _fanoutTradingMode
+                        val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
+                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+                            "QUALITY", "BLUECHIP", "BLUE_CHIP", "MOONSHOT", "TREASURY"
+                        )
+                        val _behAsset = when (_fluidTm) {
+                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
+                            "QUALITY"                                         -> "QUALITY"
+                            "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
+                            "MOONSHOT"                                        -> "MOONSHOT"
+                            "TREASURY"                                        -> "TREASURY"
+                            else                                              -> "MEME"
+                        }
+                        // ── MetaCognitionAI ───────────────────────────────────
+                        if (isMemeBaseClose) {
+                            try {
+                                com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
+                                    mint = _fanoutMint, symbol = _fanoutSymbol,
+                                    pnlPct = _fanoutPnlPct, holdTimeMs = holdTimeMs,
+                                    exitReason = _fanoutReason
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        // ── BehaviorAI ────────────────────────────────────────
+                        try {
+                            com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(
+                                pnlPct = _fanoutPnlPct, reason = _fanoutReason,
+                                mint = _fanoutMint, isPaperMode = _fanoutIsPaper,
+                                assetClass = _behAsset,
+                            )
+                        } catch (_: Exception) {}
+                        // ── TradingCopilot ────────────────────────────────────
+                        if (_behAsset == "MEME" && _fanoutReason != "DEAD_TOKEN_NO_PRICE_EXIT") {
+                            try {
+                                com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(
+                                    pnlPct = _fanoutPnlPct, isPaper = _fanoutIsPaper,
+                                    assetClass = "MEME",
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        // ── PersonalityMemoryStore ────────────────────────────
+                        if (isMemeBaseClose) {
+                            try {
+                                val activePersona = try {
+                                    com.lifecyclebot.AATEApp.appContextOrNull()?.let {
+                                        Personalities.getActive(it).id
+                                    } ?: "aate"
+                                } catch (_: Exception) { "aate" }
+                                PersonalityMemoryStore.recordTradeOutcome(
+                                    _fanoutPnlPct, 0.0,
+                                    if (_fanoutEntryTime > 0) ((System.currentTimeMillis() - _fanoutEntryTime) / 60_000L).toInt() else 0
+                                )
+                                PersonalityMemoryStore.recordPersonaTrade(activePersona, _fanoutPnlPct)
+                            } catch (_: Exception) {}
+                        }
+                        // ── CorrelationHedgeAI + SessionEdgeAI ────────────────
+                        if (_behAsset == "MEME") {
+                            try {
+                                val won = _fanoutPnlPct > 0.5
+                                com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerClosed(_fanoutMint)
+                                com.lifecyclebot.v3.scoring.SessionEdgeAI.recordOutcome(
+                                    com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession(), won)
+                            } catch (_: Exception) {}
+                        }
+                        // ── LayerVoteStore ────────────────────────────────────
+                        if (isMemeBaseClose) {
+                            try {
+                                com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
+                                    mint = _fanoutMint, isWin = _fanoutPnlPct >= 1.0,
+                                    pnlPct = _fanoutPnlPct, symbol = _fanoutSymbol,
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        // ── RunTracker30D ─────────────────────────────────────
+                        if (_fanoutIsRun) {
+                            try {
+                                val holdTimeSec = if (_fanoutEntryTime > 0)
+                                    (System.currentTimeMillis() - _fanoutEntryTime) / 1000 else 0L
+                                val mode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Exception) { "UNKNOWN" }
+                                RunTracker30D.recordTrade(
+                                    symbol = _fanoutSymbol, mint = _fanoutMint,
+                                    entryPrice = _fanoutEntryPrice, exitPrice = _fanoutExitPrice,
+                                    sizeSol = _fanoutSol, pnlPct = _fanoutPnlPct,
+                                    holdTimeSec = holdTimeSec, mode = mode,
+                                    score = _fanoutRunScore, confidence = _fanoutConfidence,
+                                    decision = _fanoutReason.ifBlank { "AUTO" }
+                                )
+                                EmergentGuardrails.recordTradeExecution()
+                            } catch (e: Exception) {
+                                ErrorLogger.debug("Executor", "RunTracker30D record error: ${e.message}")
+                            }
+                        }
+                    }
+                    // ── BUY side ──────────────────────────────────────────────
+                    if (_fanoutSide == "BUY") {
+                        try { brain?.onBuyFired() } catch (_: Exception) {}
+                    }
+                } catch (_: Throwable) { /* fail-open — never block sell path */ }
             }
         }
-        
-        // ═══════════════════════════════════════════════════════════════════
-        // V3.2: Record trade outcome to MetaCognitionAI
-        // This enables the self-aware learning loop:
-        //   AI predictions at entry → Trade outcome → Update layer accuracy
-        // ═══════════════════════════════════════════════════════════════════
-        if (trade.side == "SELL") {
-            // V5.9.486 — fire-and-forget LLM exit narration. Opt-in (no-op
-            // unless operator pasted a personal sk-ant-… key). The default
-            // fail-open string ("Exited X on REASON (Y%)") is what shows up
-            // when LLM is disabled or errored — same operator-friendly format
-            // the in-app log viewer expects.
+
+        // V5.9.495z9 — RICH CANONICAL PUBLISH (SELL only)
+        if (trade.side.equals("SELL", ignoreCase = true)) {
+            // V5.9.486 — fire-and-forget LLM exit narration (async internally, no block)
             try {
                 val holdMin = if (ts.position.entryTime > 0)
                     ((System.currentTimeMillis() - ts.position.entryTime) / 60_000L).toInt()
                 else 0
                 com.lifecyclebot.network.EmergentLlmClient.narrateExitAsync(
-                    symbol      = ts.symbol,
-                    reason      = trade.reason.ifBlank { "unknown" },
-                    pnlPct      = trade.pnlPct,
-                    holdMinutes = holdMin,
-                ) { narration ->
-                    try { onLog("🪶 ${ts.symbol}: $narration", ts.mint) } catch (_: Exception) {}
-                }
+                    symbol = ts.symbol, reason = trade.reason.ifBlank { "unknown" },
+                    pnlPct = trade.pnlPct, holdMinutes = holdMin,
+                ) { narration -> try { onLog("🪶 ${ts.symbol}: $narration", ts.mint) } catch (_: Exception) {} }
             } catch (_: Throwable) {}
-
-            // V5.9.390 — MetaCognition is meme-specific (its accuracy stats
-            // drive the meme-brain signal quality estimator). Non-meme sells
-            // MUST NOT pollute it. Gate inline on tradingMode. Sub-trader
-            // layers get their own per-layer maturity via EducationSubLayerAI's
-            // slim path (V5.9.388 Fix A).
-            try {
-                val _mcTm = (ts.position.tradingMode ?: "").uppercase()
-                val _mcIsMemeBase = _mcTm.isBlank() || _mcTm !in setOf(
-                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
-                    "QUALITY", "BLUECHIP", "BLUE_CHIP",
-                    "MOONSHOT", "TREASURY"
-                )
-                if (_mcIsMemeBase) {
-                    val holdTimeMs = if (ts.position.entryTime > 0) {
-                        System.currentTimeMillis() - ts.position.entryTime
-                    } else {
-                        0L
-                    }
-                    com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        pnlPct = trade.pnlPct,
-                        holdTimeMs = holdTimeMs,
-                        exitReason = trade.reason.ifBlank { "unknown" }
-                    )
-                }
-            } catch (e: Exception) {
-                // Silently ignore - meta-cognition is secondary
-            }
-            
-            // ═══════════════════════════════════════════════════════════════
-            // V4.0: Record trade to FluidLearningAI with TIERED WEIGHTS
-            // - LIVE trades: 3.0 weight (real money = 3x learning signal) [V5.9.183]
-            // - PAPER trades: 1.0 weight (1 close = 1 session trade) [V5.9.183]
-            // Also record to BehaviorAI for pattern analysis
-            // ═══════════════════════════════════════════════════════════════
-            try {
-                val pnl = trade.pnlPct
-                val isWin = pnl >= 1.0  // V5.9.185: unified win threshold — must beat combined fees (0.5% buy + 0.5% sell)
-                val isPaper = isPaperRT()
-                
-                // Record to FluidLearningAI with appropriate weight
-                // V5.9.388 — FluidLearning meme bucket gate: only pure meme
-                // base closes feed the MEME sessionTrades counter. Sub-trader
-                // closes (their own traders already called recordSubTraderTrade
-                // themselves) must NOT double-count into the meme bucket.
-                val _fluidTm = (ts.position.tradingMode ?: "").uppercase()
-                val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
-                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
-                    "QUALITY", "BLUECHIP", "BLUE_CHIP",
-                    "MOONSHOT", "TREASURY"
-                )
-                if (isMemeBaseClose) {
-                    // V5.9.495z21 — strategy training gate at this direct
-                    // FluidLearningAI call site (parallel to the gate inside
-                    // EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers).
-                    // Skip if the mint was flagged as a partial-bridge /
-                    // output-mismatch event by the execution pipeline.
-                    // V5.9.694 — REMOVED direct FluidLearningAI call here.
-                    // FluidLearningAI is now fed exclusively through CanonicalOutcomeBus
-                    // → CanonicalSubscribers, which has a per-tradeId recordOnce() guard.
-                    // Having both paths active caused sessionTrades to grow 2x per close,
-                    // inflating FluidLearning from ~95 canonical trades to 3266+.
-                    // CanonicalSubscribers handles both PAPER and LIVE environments.
-                    // (shouldTrainStrategy gate is also applied in CanonicalSubscribers)
-                    if (false) { /* decommissioned — bus is sole source of truth */ }
-                }
-
-                // Record to BehaviorAI for behavior pattern analysis.
-                // V5.9.388 — route by asset class so non-meme sub-trader
-                // losses don't lock the meme trader into PROTECT / tilt.
-                val _behAsset = when (_fluidTm) {
-                    "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
-                    "QUALITY"                                         -> "QUALITY"
-                    "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
-                    "MOONSHOT"                                        -> "MOONSHOT"
-                    "TREASURY"                                        -> "TREASURY"
-                    else                                              -> "MEME"
-                }
-                com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(
-                    pnlPct = pnl,
-                    reason = trade.reason,
-                    mint = ts.mint,
-                    isPaperMode = isPaper,
-                    assetClass = _behAsset,
-                )
-
-                // V5.9.388 — feed the meme-base close into the Copilot MEME
-                // window so the PROTECT / DEAD directive reflects actual
-                // meme-base performance. Sub-trader closes already record to
-                // Copilot with their own asset class (see each sub-trader's
-                // closePosition), so we only fire here for MEME base to avoid
-                // double-counting sub-trader trades.
-                if (_behAsset == "MEME" && trade.reason != "DEAD_TOKEN_NO_PRICE_EXIT") {
-                    // V5.9.723 — DEAD_TOKEN_NO_PRICE_EXIT closes are unpriced
-                    // bonding-curve ghosts (pnl=0 always). Feeding them to the
-                    // Copilot window inflates the trade count without signal,
-                    // can mask real losing streaks, and dilutes regime detection.
-                    try {
-                        com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(
-                            pnlPct = pnl,
-                            isPaper = isPaper,
-                            assetClass = "MEME",
-                        )
-                    } catch (_: Exception) {}
-                }
-
-                // V5.9.120: feed closed trade into PersonalityMemoryStore so
-                // trait vector, milestone log, and persona bio actually
-                // accumulate from real outcomes.
-                // V5.9.390 — meme-only. Persona trait vector is calibrated on
-                // meme P&L distributions; shitcoin rugs and blue-chip slow
-                // grinds would tilt the personality off-distribution.
-                if (_behAsset == "MEME") {
-                    try {
-                        val peak = ts.position.peakGainPct
-                        val gaveBack = (peak - pnl).coerceAtLeast(0.0)
-                        val heldMs = if (ts.position.entryTime > 0) {
-                            System.currentTimeMillis() - ts.position.entryTime
-                        } else 0L
-                        val heldMin = (heldMs / 60_000L).toInt()
-                        PersonalityMemoryStore.recordTradeOutcome(pnl, gaveBack, heldMin)
-                        val activePersona = try {
-                            com.lifecyclebot.AATEApp.appContextOrNull()?.let {
-                                Personalities.getActive(it).id
-                            } ?: "aate"
-                        } catch (_: Exception) { "aate" }
-                        PersonalityMemoryStore.recordPersonaTrade(activePersona, pnl)
-                    } catch (_: Exception) { /* non-critical */ }
-                }
-
-                // V5.9.123 — feed closed-trade outcome into every new layer that
-                // learns from realized results. Each call fails soft.
-                // V5.9.390 — SessionEdgeAI + CorrelationHedge remain meme-only.
-                // CorrelationHedge tracks cross-token meme correlation; session
-                // edge is calibrated on meme session-of-day win distributions.
-                if (_behAsset == "MEME") {
-                    try {
-                        val won = pnl > 0.5
-                        com.lifecyclebot.v3.scoring.CorrelationHedgeAI.registerClosed(ts.mint)
-                        com.lifecyclebot.v3.scoring.SessionEdgeAI.recordOutcome(
-                            com.lifecyclebot.v3.scoring.SessionEdgeAI.currentSession(), won)
-                        // OperatorFingerprint: creator is not in TokenState directly — skip
-                        // unless we've stashed it in ts.meta. Graceful no-op otherwise.
-                    } catch (_: Exception) {}
-                }
-
-                // V5.9.380 — per-layer vote replay. Each of the 26 meme layers
-                // cast a vote at BUY time (see LayerVoteSampler) and is now
-                // graded on ITS OWN opinion. Layers that voted bullish on a
-                // winning trade get +1 correct; layers that voted bearish on
-                // a losing trade ALSO get +1 correct (for saving us). Layers
-                // that abstained get no signal. This is what V5.9.374 lanes
-                // should have done from day one.
-                //
-                // V5.9.388 — ASSET-CLASS GATE (FIX A/2). closeoutMeme feeds
-                // the MEME lane of every layer. It was firing on every sell
-                // including ShitCoin/Quality/BlueChip/Moonshot/Treasury
-                // closes, polluting the meme-lane stats with non-meme
-                // outcomes. Now only pure meme base sells (tradingMode
-                // empty or one of the ExtendedMode names like SCALP /
-                // MOMENTUM / SWING) drive meme vote replay; sub-trader
-                // closes route through recordTradeOutcomeForSubTrader
-                // instead.
-                try {
-                    val tm = (ts.position.tradingMode ?: "").uppercase()
-                    val isMemeBaseClose = tm.isBlank() ||
-                        tm !in setOf(
-                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
-                            "QUALITY", "BLUECHIP", "BLUE_CHIP",
-                            "MOONSHOT", "TREASURY"
-                        )
-                    if (isMemeBaseClose) {
-                        com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
-                            mint = ts.mint,
-                            isWin = isWin,
-                            pnlPct = pnl,
-                            symbol = ts.symbol,
-                        )
-                    }
-                } catch (_: Exception) { /* non-critical */ }
-            } catch (e: Exception) {
-                // Silently ignore - behavior tracking is secondary
-            }
-            
-            // ═══════════════════════════════════════════════════════════════
-            // V5.2: EMERGENT PATCH - Record trade to RunTracker30D
-            // Tracks 30-day proof run with equity curve and investor metrics
-            // ═══════════════════════════════════════════════════════════════
-            try {
-                if (RunTracker30D.isRunActive()) {
-                    val holdTimeSec = if (ts.position.entryTime > 0) {
-                        (System.currentTimeMillis() - ts.position.entryTime) / 1000
-                    } else 0L
-                    
-                    val mode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Exception) { "UNKNOWN" }
-                    val score = ts.trades.lastOrNull { it.side == "BUY" }?.let { 
-                        it.score.coerceIn(0.0, 100.0).toInt()  // V5.9.186: was price*100 = always 100 (wrong) 
-                    } ?: 50
-                    // V5.9.212: use actual entry AI confidence score, not pnlPct (Audit #11)
-                    val confidence = ts.entryScore.toInt().coerceIn(0, 100)
-                    
-                    RunTracker30D.recordTrade(
-                        symbol = ts.symbol,
-                        mint = ts.mint,
-                        entryPrice = ts.position.entryPrice,
-                        exitPrice = trade.price,
-                        sizeSol = trade.sol,
-                        pnlPct = trade.pnlPct ?: 0.0,
-                        holdTimeSec = holdTimeSec,
-                        mode = mode,
-                        score = score,
-                        confidence = confidence,
-                        decision = trade.reason.ifBlank { "AUTO" }
-                    )
-                    
-                    // Record rate limit
-                    EmergentGuardrails.recordTradeExecution()
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("Executor", "RunTracker30D record error: ${e.message}")
-            }
 
             // V5.9.495z9 — RICH CANONICAL PUBLISH. Operator: 'wire AdaptiveLearning,
             // RunTracker30D, BehaviorLearning, MetaCognitionAI at their feature-rich
@@ -2658,7 +2545,7 @@ class Executor(
             } catch (e: Exception) {
                 ErrorLogger.debug("Executor", "Canonical rich publish error: ${e.message?.take(80)}")
             }
-        }
+        } // end if SELL (CanonicalPublish)
     }
 
     // ── top-up sizing ─────────────────────────────────────────────────
