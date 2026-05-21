@@ -2605,18 +2605,20 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "startBot() called")
             addLog("🚀 Starting bot...")
 
-            // V5.9.1029 — Clear any stale auto-disabled strategies on every
-            // bot start. The V5.9.806 telemetry auto-retires strategies with
-            // ≥50 trades AND meanPnl ≤ -5%; once V5.9.1028 stopped paper-mode
-            // slippage from poisoning learning data with phantom -10% losses,
-            // any prior retirements were based on bad data. Clean slate per
-            // start lets SHITCOIN / TREASURY / PRESALE_SNIPE re-prove on
-            // honest fluid stops. clearDisabled() is idempotent — safe to
-            // call when nothing is disabled.
+            // V5.9.1052 — Selective strategy re-enable on restart.
+            // V5.9.1029 did blanket clearDisabled() which re-admitted PRESALE_SNIPE /
+            // MOMENTUM_SWING even after 31 losses at -24.97% EV. Those retirements
+            // were earned on valid data (V5.9.1028 fixed the phantom-stop slippage).
+            // New rule: only clear a strategy's disabled flag if it has < 10 lifetime
+            // trades, meaning it was retired on insufficient data. Strategies with
+            // ≥ 10 trades and ≤ -10% EV earned their retirement and stay out until
+            // manually re-enabled via StrategyTelemetry.clearDisabled(strategy).
             try {
-                com.lifecyclebot.engine.StrategyTelemetry.clearDisabled()
-                ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=fresh_start")
-            } catch (_: Throwable) {}
+                com.lifecyclebot.engine.StrategyTelemetry.clearDisabledIfInsufficient(minTrades = 10)
+                ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=selective_min10_trades")
+            } catch (_: Throwable) {
+                // Fallback: if selective clear fails, do nothing (don't re-admit toxic strategies)
+            }
 
             // V5.9.1049 — reset the 50-trade SessionSafetyHalt latch so a
             // restart re-arms the circuit breaker (operator manually

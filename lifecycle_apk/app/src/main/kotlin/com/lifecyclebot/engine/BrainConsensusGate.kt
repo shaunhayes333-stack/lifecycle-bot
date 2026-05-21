@@ -65,9 +65,21 @@ object BrainConsensusGate {
             com.lifecyclebot.engine.SentientPersonality.getCurrentMood().name
         } catch (_: Throwable) { "UNKNOWN" }
 
-        if (mood in setOf("HUMBLED", "SELF_CRITICAL") &&
-            regime == RegimeDetector.Regime.DUMP) {
-            objections += "SENTIENCE_VETO=mood=$mood+regime=DUMP"
+        // V5.9.1052 — BOOTSTRAP ESCAPE HATCH.
+        // mood=HUMBLED/SELF_CRITICAL + regime=DUMP is a valid hard-block in maturity.
+        // In bootstrap (<200 lifetime settled trades) it creates a circular lock:
+        // blocked entries → no learning → WR stays low → mood stays HUMBLED → never unblocks.
+        // Fix: downgrade to SOFT_BLOCK during bootstrap so trades still flow for learning.
+        val lifetimeTrades = try {
+            com.lifecyclebot.engine.CanonicalLearningCounters.settledTradesTotal.get().toInt()
+        } catch (_: Throwable) { 999 }
+        val inBootstrap = lifetimeTrades < 200
+        if (mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) {
+            if (inBootstrap) {
+                objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+bootstrap(trades=$lifetimeTrades<200)"
+            } else {
+                objections += "SENTIENCE_VETO=mood=$mood+regime=DUMP"
+            }
         }
 
         // --- 3. SecondScorer disagreement (P4) ---
@@ -94,9 +106,12 @@ object BrainConsensusGate {
         //   • strategy auto-disabled (P1)
         //   • mood-veto in DUMP regime (P0 sentience)
         //   • SecondScorer disagrees AND we're in CHOP/DUMP regime
+        // V5.9.1052 — mood+DUMP is only HARD_BLOCK in maturity (>= 200 lifetime trades).
+        // In bootstrap, mood+DUMP adds an advisory objection (SOFT_BLOCK) so trades still
+        // flow for learning, breaking the circular lock.
         val hardBlock =
             isStrategyDead ||
-            (mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) ||
+            (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) ||
             (dispute?.disputed == true && dispute.secondScoreSaysWorse &&
              regime in setOf(RegimeDetector.Regime.DUMP, RegimeDetector.Regime.CHOP))
 

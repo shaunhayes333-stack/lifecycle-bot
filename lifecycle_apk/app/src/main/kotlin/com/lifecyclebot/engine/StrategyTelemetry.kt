@@ -159,6 +159,27 @@ object StrategyTelemetry {
         disabledSet = emptySet()
         disabledComputedAt = System.currentTimeMillis()
     }
+    /**
+     * V5.9.1052 — Selective re-enable: only clear disabled flag for strategies
+     * that were retired on < minTrades data (i.e. retirement was premature).
+     * Strategies with >= minTrades earned their retirement on real outcomes.
+     */
+    fun clearDisabledIfInsufficient(minTrades: Int) {
+        val toReEnable = mutableListOf<String>()
+        synchronized(disabledStrategies) {
+            disabledStrategies.entries.removeIf { (strategy, reason) ->
+                val tradeCount = try { getTradeCount(strategy) } catch (_: Throwable) { minTrades }
+                val shouldClear = tradeCount < minTrades
+                if (shouldClear) toReEnable.add(strategy)
+                shouldClear
+            }
+        }
+        if (toReEnable.isNotEmpty()) {
+            com.lifecyclebot.engine.ErrorLogger.info("StrategyTelemetry",
+                "🔓 Re-enabled strategies (< $minTrades trades): ${toReEnable.joinToString()}")
+        }
+    }
+
 
     /**
      * Format a compact human-readable block for embedding in the pipeline
