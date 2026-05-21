@@ -170,28 +170,42 @@ class ErrorLogActivity : AppCompatActivity() {
     }
 
     private fun exportLogs() {
-        val exportText = ErrorLogger.exportToText()
-        
-        // Copy to clipboard
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Error Logs", exportText))
-        
-        // Also offer to share
-        val shareIntent = Intent().apply {
-            action = Intent.ACTION_SEND
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, exportText)
-            putExtra(Intent.EXTRA_SUBJECT, "AATE Error Logs")
-        }
-        
-        AlertDialog.Builder(this)
-            .setTitle("Export Complete")
-            .setMessage("Logs copied to clipboard. Would you like to share them?")
-            .setPositiveButton("Share") { _, _ ->
-                startActivity(Intent.createChooser(shareIntent, "Share logs"))
+        // V5.9.1049 ANR FIX: ErrorLogger.exportToText() walks the entire
+        // SQLite log table and stringifies every entry — was running on
+        // Main (top-3 ANR site in V5.9.1040 snapshot). Move to a background
+        // thread; show the AlertDialog only after the text is ready.
+        Toast.makeText(this, "Preparing logs…", Toast.LENGTH_SHORT).show()
+        Thread {
+            val exportText = try {
+                ErrorLogger.exportToText()
+            } catch (t: Throwable) {
+                "Error exporting logs: ${t.message}"
             }
-            .setNegativeButton("Done", null)
-            .show()
+            Handler(Looper.getMainLooper()).post {
+                if (isFinishing || isDestroyed) return@post
+
+                // Copy to clipboard
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Error Logs", exportText))
+
+                // Also offer to share
+                val shareIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, exportText)
+                    putExtra(Intent.EXTRA_SUBJECT, "AATE Error Logs")
+                }
+
+                AlertDialog.Builder(this)
+                    .setTitle("Export Complete")
+                    .setMessage("Logs copied to clipboard. Would you like to share them?")
+                    .setPositiveButton("Share") { _, _ ->
+                        startActivity(Intent.createChooser(shareIntent, "Share logs"))
+                    }
+                    .setNegativeButton("Done", null)
+                    .show()
+            }
+        }.start()
     }
 
     private fun confirmClear() {

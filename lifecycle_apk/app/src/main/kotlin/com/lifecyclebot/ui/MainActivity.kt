@@ -3920,40 +3920,36 @@ for legal compliance.
             // Tier 2: CashGenerationAI tracked price — fed from BotService scanner loop
             // Tier 3: entryPrice — last resort (will show +0.0% but won't crash)
             val currentPrice = try {
-                // V5.9.415 — 4-tier price lookup. Previous code returned
-                // pos.entryPrice when Tier 1 (scanner) and Tier 2 (Treasury
-                // tracked-prices map) were both empty for a given mint —
-                // producing a screen full of '+0.0%' when 13/14 Treasury
-                // positions had no live feed in either source. The
-                // TreasuryPosition itself carries a `currentPrice` field
-                // that's stamped on every successful updatePrice() call,
-                // so use that as Tier 3 before falling back to entry.
+                // V5.9.415 — 4-tier price lookup.
                 val fromScanner   = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
                 val fromTreasury  = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
                 val fromPosObj    = pos.currentPrice.takeIf { it > 0.0 }
                 val resolved = fromScanner ?: fromTreasury ?: fromPosObj
-                if (resolved == null || resolved <= 0.0) {
-                    com.lifecyclebot.engine.ErrorLogger.debug("MainActivity",
-                        "[Treasury] No live price for ${pos.symbol} (${pos.mint.take(8)}), using entry")
-                    pos.entryPrice
-                } else resolved
+                if (resolved == null || resolved <= 0.0) pos.entryPrice else resolved
             } catch (_: Exception) { pos.entryPrice }
             val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
-            // V5.9.415 — true stale detection: a row is stale ONLY if we
-            // have NO recent tick (>60s since last updatePrice for this
-            // mint) AND the scanner has no entry for it either. A price
-            // that legitimately equals entry is NOT stale (just unchanged).
             val now = System.currentTimeMillis()
             val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
             val scannerHasMint = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.let { it > 0.0 } == true
             val hasFresh = scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L)
+            val pnlSol = if (hasFresh) pos.entrySol * gainPct / 100.0 else 0.0
+            childrenUnrealizedSum += pnlSol
+
+            // V5.9.1049 ANR FIX: when positions are unchanged, ONLY compute the
+            // PnL sum above; skip all view construction, image loads and addView
+            // calls. The previous code constructed throwaway LinearLayout/
+            // ImageView/TextView per position EVERY tick and appended a divider
+            // unconditionally — divider leak grew indefinitely and the per-tick
+            // coil.load was the #1 cause of the renderTreasuryPositions ANR
+            // (>15% main-thread stall). Now: cheap math when samePositions,
+            // full inflate only on actual position-list change.
+            if (samePositions) return@forEach
+
             val gainCol = when {
                 !hasFresh    -> muted
                 gainPct >= 0 -> green
                 else         -> red
             }
-            val pnlSol = if (hasFresh) pos.entrySol * gainPct / 100.0 else 0.0
-            childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -4040,7 +4036,7 @@ for legal compliance.
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
                 setBackgroundColor(0xFF1F2937.toInt())
             }
-            if (!samePositions) llTreasuryPositions.addView(row)  // V5.9.730 dirty-skip
+            llTreasuryPositions.addView(row)
             llTreasuryPositions.addView(div)
         }
         return childrenUnrealizedSum

@@ -6,6 +6,74 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.9.1049 — Triage: journal/MainActivity ANR purge · drawdown overflow · 50-trade session halt (Feb 2026)
+
+Operator panic snapshot (V5.9.1040, build 5.0.3010): **27 217 ms max
+frame gap**, 11 % stall%, top ANR offenders `MainActivity.
+renderTreasuryPositions`, `ErrorLogActivity.exportLogs`, and the
+Journal export path; bot blew past 50 paper trades to 161 journal
+records with WR=12.5 % and -1.4081 SOL realized PnL while Max
+Drawdown showed an absurd **459 621.4 %**. Five surgical fixes
+(a/b/c/d/e), no butterflies, no refactors:
+
+(a) **`renderTreasuryPositions` view leak + per-tick coil.load**
+    `MainActivity.kt:3902-4046`. Previous code (V5.9.730 dirty-skip)
+    correctly guarded `addView(row)` behind `!samePositions` but
+    still appended a divider every tick AND constructed throwaway
+    `LinearLayout`/`ImageView`/`TextView` per position with a fresh
+    `load("https://cdn.dexscreener.com/…")` call inside coil's
+    Bitmap cache — even when the position list was unchanged.
+    Net effect: dividers leaked unbounded into `llTreasuryPositions`
+    and the per-tick coil flush was the #1 main-thread stall.
+    Fix: when `samePositions == true` we still compute
+    `childrenUnrealizedSum` (cheap math) but `return@forEach`
+    before any view construction or `addView` — full inflate only
+    on real list changes.
+
+(b) **`ErrorLogActivity.exportLogs` synchronous SQLite stringify**
+    `ErrorLogActivity.kt:172`. `ErrorLogger.exportToText()` walks
+    the entire SQLite log table and stringifies every entry while
+    sitting on Main. Move to a background `Thread`, post the
+    AlertDialog + clipboard write back via `Handler(mainLooper)`.
+    Toast "Preparing logs…" gives the user immediate feedback.
+
+(c) **`JournalActivity` export coroutines defaulted to Main**
+    `JournalActivity.kt:235-321`. `lifecycleScope.launch` with no
+    dispatcher defaults to `Dispatchers.Main.immediate`, so every
+    `journal.exportPaperCsv(tokens)` / `exportPdf` / `exportAll`
+    ran on the UI thread — these methods walk `TradeJournal.
+    buildJournal` (full SQLite scan), build thousands of CSV rows
+    and write to `cacheDir` synchronously. Fix: explicit
+    `Dispatchers.IO`, wrap the final `startActivity(...)`/`Toast`
+    in `runOnUiThread`. Toast "Preparing export…" up front.
+
+(d) **Max Drawdown math overflow (459 621.4 %)**
+    `PerformanceAnalytics.calculateDrawdown` line 209-228.
+    Equity starts at 0.0 (cumulative PnL, not actual balance), so
+    the first small positive equity becomes the "peak" — a single
+    larger loss later divides by that microscopic peak and yields
+    six-figure percentages. Fix: ignore peaks below a 0.05 SOL
+    floor, and clamp `maxDdPct` / `currentDdPct` at 100 % (by
+    definition a 100 % DD = full wipeout, nothing worse exists
+    on the percentage scale).
+
+(e) **SessionSafetyHalt — 50-trade circuit breaker** (NEW)
+    Operator verbatim: *"it should be stopping trading after 50
+    trades either mate!!!"*. New `SessionSafetyHalt.kt` object:
+    after 50 successful paper buys this session, if
+    `FluidLearning.getWinRate()` < 25 %, latch the halt and refuse
+    new paper entries (exits and live trades are NEVER blocked).
+    Reset on every `BotService.startBot()`. Wired at the top of
+    `Executor.paperBuy()` (single canonical fence covering all 7
+    sub-trader fallback call sites) and recorded on successful
+    paper buys right next to `FluidLearning.recordPaperBuy`.
+
+Build tag bumped to V5.9.1049 (`PipelineHealthCollector.BUILD_TAG`).
+Brace/paren counts validated as balanced deltas relative to HEAD.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1048 — 5-fix pass: STANDARD note · V3 reason · EXEC counter · Birdeye backoff · moonshot throttle (Feb 2026, CI ✅ green)
 
 Operator V5.9.1047 dump surfaced 5 follow-ups. All addressed:

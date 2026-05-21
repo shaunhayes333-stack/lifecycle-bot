@@ -6553,7 +6553,22 @@ class Executor(
         }
 
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-        
+
+        // V5.9.1049 — SESSION_SAFETY_HALT. Operator directive: bot must
+        // stop trading after 50 paper entries if WR is bleeding. This is
+        // a hard circuit-breaker layered beneath TradingCopilot's brake;
+        // it triggers even when the brake is suppressed during bootstrap.
+        // Exits are NEVER blocked — only fresh paper entries.
+        try {
+            val wrPct = try {
+                FluidLearning.getWinRate()
+            } catch (_: Throwable) { 100.0 }
+            if (SessionSafetyHalt.shouldBlockPaperEntry(wrPct)) {
+                onLog("🛑 SESSION_SAFETY_HALT: ${tradeId.symbol} blocked — ${SessionSafetyHalt.haltReason()}", tradeId.mint)
+                return
+            }
+        } catch (_: Throwable) {}
+
         normalizePositionScaleIfNeeded(ts)
         val price = getActualPrice(ts)
         if (price <= 0) {
@@ -6767,6 +6782,10 @@ class Executor(
             FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
             FluidLearning.recordPriceImpact(tradeId.mint, actualSol, ts.lastLiquidityUsd, isBuy = true)
         }
+
+        // V5.9.1049 — count this successful paper buy toward the session
+        // safety halt (50-trade circuit breaker).
+        try { SessionSafetyHalt.recordPaperBuy() } catch (_: Throwable) {}
         
         EdgeLearning.recordEntry(
             mint = tradeId.mint,

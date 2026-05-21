@@ -2618,6 +2618,11 @@ class BotService : Service() {
                 ForensicLogger.lifecycle("STRATEGY_TELEMETRY_DISABLED_CLEARED", "reason=fresh_start")
             } catch (_: Throwable) {}
 
+            // V5.9.1049 — reset the 50-trade SessionSafetyHalt latch so a
+            // restart re-arms the circuit breaker (operator manually
+            // resumes after reviewing the previous bleeding session).
+            try { SessionSafetyHalt.resetSession() } catch (_: Throwable) {}
+
             // ═══════════════════════════════════════════════════════════════
             // V5.9.934 — Surface AIStartupCoordinator state to operator at
             // bot-start. Pre-934 the coordinator's verdict was completely

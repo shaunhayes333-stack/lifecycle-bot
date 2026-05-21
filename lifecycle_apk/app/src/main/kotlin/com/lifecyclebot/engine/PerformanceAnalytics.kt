@@ -214,6 +214,14 @@ object PerformanceAnalytics {
         var maxDdSol = 0.0
         var maxDdPct = 0.0
 
+        // V5.9.1049 MATH FIX: previous logic used cumulative PnL as equity
+        // (starting at 0) and divided by a tiny `peak` whenever the first
+        // few wins built a small peak, producing absurd values like
+        // 459,621.4% Max DD. The drawdown % only makes sense relative to a
+        // meaningful peak — gate the % calc behind a floor and clamp to
+        // 100% (a 100% DD = full wipeout, by definition the worst possible).
+        val peakFloorSol = 0.05  // ignore peaks tinier than 0.05 SOL — noise
+
         for (trade in sorted) {
             equity += sanitizeDouble(trade.pnlSol)
 
@@ -224,12 +232,14 @@ object PerformanceAnalytics {
             val dd = peak - equity
             if (dd > maxDdSol) {
                 maxDdSol = dd
-                maxDdPct = if (peak > 0.0) (dd / peak) * 100.0 else 0.0
+                maxDdPct = if (peak >= peakFloorSol) {
+                    ((dd / peak) * 100.0).coerceAtMost(100.0)
+                } else 0.0
             }
         }
 
-        val currentDdPct = if (peak > 0.0 && equity < peak) {
-            ((peak - equity) / peak) * 100.0
+        val currentDdPct = if (peak >= peakFloorSol && equity < peak) {
+            (((peak - equity) / peak) * 100.0).coerceAtMost(100.0)
         } else {
             0.0
         }

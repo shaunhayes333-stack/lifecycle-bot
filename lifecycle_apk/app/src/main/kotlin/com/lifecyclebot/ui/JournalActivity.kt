@@ -245,7 +245,12 @@ class JournalActivity : AppCompatActivity() {
         android.app.AlertDialog.Builder(this)
             .setTitle("Export Trade Journal")
             .setItems(options) { _, which ->
-                lifecycleScope.launch {
+                // V5.9.1049 ANR FIX: lifecycleScope.launch defaults to Main —
+                // export* methods walk SQLite, format thousands of CSV rows
+                // and write to disk. Run that on IO; only the resulting
+                // share Intent (cheap) is handed back to Main.
+                Toast.makeText(this, "Preparing export…", Toast.LENGTH_SHORT).show()
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     val tokens = getTokensSnapshot()
                     when (which) {
                         0 -> exportPaperCsv(tokens)
@@ -263,60 +268,72 @@ class JournalActivity : AppCompatActivity() {
 
     private fun exportPaperCsv(tokens: Map<String, TokenState>) {
         val intent = journal.exportPaperCsv(tokens)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Export Paper Trades CSV"))
-        } else {
-            Toast.makeText(this, "No paper trades to export", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            if (intent != null) {
+                startActivity(Intent.createChooser(intent, "Export Paper Trades CSV"))
+            } else {
+                Toast.makeText(this, "No paper trades to export", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun exportLiveCsv(tokens: Map<String, TokenState>) {
         val intent = journal.exportLiveCsv(tokens)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Export Live Trades CSV"))
-        } else {
-            Toast.makeText(this, "No live trades to export", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            if (intent != null) {
+                startActivity(Intent.createChooser(intent, "Export Live Trades CSV"))
+            } else {
+                Toast.makeText(this, "No live trades to export", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun exportCsv(tokens: Map<String, TokenState>) {
         val intent = journal.exportCsv(tokens)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Export CSV"))
-        } else {
-            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            if (intent != null) {
+                startActivity(Intent.createChooser(intent, "Export CSV"))
+            } else {
+                Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun exportPdf(tokens: Map<String, TokenState>) {
         val intent = journal.exportPdf(tokens)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Export PDF Tax Report"))
-        } else {
-            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            if (intent != null) {
+                startActivity(Intent.createChooser(intent, "Export PDF Tax Report"))
+            } else {
+                Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun exportIrs8949(tokens: Map<String, TokenState>) {
         val intent = journal.exportIrs8949(tokens)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Export IRS Form 8949"))
-        } else {
-            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+        runOnUiThread {
+            if (intent != null) {
+                startActivity(Intent.createChooser(intent, "Export IRS Form 8949"))
+            } else {
+                Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
     private fun exportAll(tokens: Map<String, TokenState>) {
         val exports = journal.exportAll(tokens)
-        if (exports.isEmpty()) {
-            Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
-            return
-        }
+        runOnUiThread {
+            if (exports.isEmpty()) {
+                Toast.makeText(this, "No trades to export yet", Toast.LENGTH_SHORT).show()
+                return@runOnUiThread
+            }
 
-        Toast.makeText(this, "Exported ${exports.size} formats!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Exported ${exports.size} formats!", Toast.LENGTH_SHORT).show()
 
-        exports.forEach { (name, intent) ->
-            startActivity(Intent.createChooser(intent, "Share $name"))
+            exports.forEach { (name, intent) ->
+                startActivity(Intent.createChooser(intent, "Share $name"))
+            }
         }
     }
 
