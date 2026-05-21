@@ -6,7 +6,37 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## V5.9.1049 — Triage: journal/MainActivity ANR purge · drawdown overflow · 50-trade session halt (Feb 2026)
+## V5.9.1065 — Rip SessionSafetyHalt · defer PipelineHealthActivity onCreate (Feb 2026)
+
+Operator directive (verbatim): *"everything has to have a chance to learn
+then self adjust into the best lane for winrate and profit. never fucking
+pause or disable. thats so off fucking task"*.
+
+(a) **REMOVED `SessionSafetyHalt`** (V5.9.1049). It paused paper entries
+    after 50 trades with WR<25 % — that IS a pause/disable and the
+    operator has now explicitly forbidden it. Bot must keep trading;
+    learning weights self-adjust per-lane via existing TradingCopilot
+    + FluidLearning + losing-pattern memory. Removed: the entire
+    `Executor.paperBuy()` halt gate, the `recordPaperBuy()` call next
+    to FluidLearning recording, and `BotService.startBot()` reset.
+    Deleted: `SessionSafetyHalt.kt`.
+
+(b) **`PipelineHealthActivity.onCreate` ANR purge.** V5.9.1064 snapshot
+    showed 4 consecutive 250 ms+ frame hits (1010 + 757 + 505 + 251 ms
+    ≈ 2.5 s) every time the panel opens — that's the "black screen
+    hang" the operator hits. Stack: Button.<init> → Paint.<init> →
+    NativeAllocationRegistry. The XML inflate via `setContentView`
+    is unavoidable, but the 8× findViewById + 7× setOnClickListener
+    chain is queued behind `window.decorView.post { }` so the
+    initial layout paints on the next vsync (~16 ms) and listener
+    wiring runs while the user already sees the panel.
+
+Build tag bumped to V5.9.1065.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1049 — Triage: journal/MainActivity ANR purge · drawdown overflow · 50-trade session halt (Feb 2026) — partially rolled back V5.9.1065
 
 Operator panic snapshot (V5.9.1040, build 5.0.3010): **27 217 ms max
 frame gap**, 11 % stall%, top ANR offenders `MainActivity.

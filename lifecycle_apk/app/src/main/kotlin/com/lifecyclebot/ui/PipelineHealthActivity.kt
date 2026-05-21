@@ -91,40 +91,50 @@ class PipelineHealthActivity : AppCompatActivity() {
         // was removed. By the time we reach here the HandlerThread's
         // Looper is prepared and Handler(bgThread.looper) is instant.
 
-        // Best-effort: ensure ANR watcher is installed even if BotService
-        // never started (e.g. user opened the panel before pressing Start).
         // V5.9.1057: installAnrWatcherOnMainThread() removed — BotService already installs it. Redundant call added jank on activity transition.
+        // V5.9.1065 ANR FIX: operator V5.9.1064 snapshot showed
+        // PipelineHealthActivity.onCreate consuming the main thread
+        // for 1010 + 757 + 505 + 251 ms (~2.5s "black screen hang"
+        // every time the panel opens). Stack: Button.<init> →
+        // Paint.<init> → NativeAllocationRegistry. The XML inflate
+        // is unavoidable but the 8× findViewById + 7× setOnClick-
+        // Listener chain can ride one vsync. Posting past first
+        // frame lets the layout paint immediately, then heavy
+        // listener wiring runs ~16 ms later while the user sees
+        // an already-rendered (button-less) panel.
+        window.decorView.post {
 
-        dumpText      = findViewById(R.id.dumpText)
-        statLoop      = findViewById(R.id.statLoop)
-        statExec      = findViewById(R.id.statExec)
-        statJrnl      = findViewById(R.id.statJrnl)
-        statMaxFrame  = findViewById(R.id.statMaxFrame)
-        anrBadge      = findViewById(R.id.anrBadge)
-        sectionLabel = findViewById(R.id.sectionLabel)
-        prevSectionButton = findViewById(R.id.prevSectionButton)
-        nextSectionButton = findViewById(R.id.nextSectionButton)
+            dumpText      = findViewById(R.id.dumpText)
+            statLoop      = findViewById(R.id.statLoop)
+            statExec      = findViewById(R.id.statExec)
+            statJrnl      = findViewById(R.id.statJrnl)
+            statMaxFrame  = findViewById(R.id.statMaxFrame)
+            anrBadge      = findViewById(R.id.anrBadge)
+            sectionLabel = findViewById(R.id.sectionLabel)
+            prevSectionButton = findViewById(R.id.prevSectionButton)
+            nextSectionButton = findViewById(R.id.nextSectionButton)
 
-        findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
+            findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
 
-        findViewById<Button>(R.id.copyButton).setOnClickListener { copyToClipboardAsync() }
+            findViewById<Button>(R.id.copyButton).setOnClickListener { copyToClipboardAsync() }
 
-        findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = true) }
-        prevSectionButton.setOnClickListener { moveSection(-1) }
-        nextSectionButton.setOnClickListener { moveSection(1) }
+            findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = true) }
+            prevSectionButton.setOnClickListener { moveSection(-1) }
+            nextSectionButton.setOnClickListener { moveSection(1) }
 
-        findViewById<Button>(R.id.resetButton).setOnClickListener {
-            // V5.9.904 — reset must run on bg too, then refresh from bg.
-            bgHandler.post {
-                try { PipelineHealthCollector.reset() } catch (_: Throwable) {}
-                mainHandler.post {
-                    Toast.makeText(this, "Counters reset — fresh capture started", Toast.LENGTH_SHORT).show()
+            findViewById<Button>(R.id.resetButton).setOnClickListener {
+                // V5.9.904 — reset must run on bg too, then refresh from bg.
+                bgHandler.post {
+                    try { PipelineHealthCollector.reset() } catch (_: Throwable) {}
+                    mainHandler.post {
+                        Toast.makeText(this, "Counters reset — fresh capture started", Toast.LENGTH_SHORT).show()
+                    }
+                    renderSnapshotAsync()
                 }
-                renderSnapshotAsync()
             }
-        }
 
-        renderSnapshotAsync()
+            renderSnapshotAsync()
+        }
     }
 
     override fun onResume() {
