@@ -3,6 +3,65 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1043 — collapse legacy bin names at read time (Feb 2026, CI ✅ green)
+
+Operator V5.9.1041 snapshot still showed `BLUECHIP` (n=134) AND
+`BLUE_CHIP` (n=25) as separate strategy expectancy bins despite the
+write-side normalization shipped in V5.9.1038. Trades persisted to
+SQLite BEFORE V5.9.1038 still carry the legacy `BLUE_CHIP` string,
+and `StrategyTelemetry.computeLeaderboard()` groups raw values
+verbatim.
+
+Fixed:
+- Exposed `TradeHistoryStore.normalizeTradeModeName()` as public so
+  read-side aggregators can call it.
+- `StrategyTelemetry.computeLeaderboard()` now normalizes each
+  trade's `tradingMode` at `groupBy` time → legacy BLUE_CHIP merges
+  into BLUECHIP, identical to newly-recorded trades.
+
+Read-only telemetry path; no entry/exit logic touched.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.9.1042 — silent-supervisor pool watchdog (UNFREEZE) (Feb 2026, CI ✅ green)
+
+Operator V5.9.1041 ~30min uptime dump showed the pool RE-SATURATED:
+
+```
+SUPERVISOR_INFLIGHT_CAP: 335 events  · spawned=0 skipped=96 active=48 cap=48
+last paper BUY = 26+ minutes before snapshot capture
+EXEC = 0  ·  bot visually "frozen" (loop healthy, executions choked)
+```
+
+V5.9.1039's `withTimeoutOrNull(20s)` is COOPERATIVE — workers stuck
+in non-cooperative blocking ops (SQLite write / native socket / JNI)
+never observe the cancellation, the slot stays held forever, and
+`supervisorActive` never decrements. V5.9.1041 added the
+`supervisorLastSpawnAt` + `supervisorLifetimePoolResets` fields and
+described a watchdog in inline comments, but the watchdog logic was
+NEVER actually coded.
+
+Fixed (V5.9.1042 ships the missing logic):
+- At `fireSupervisorWorkers()` entry, if `active >= cap` AND
+  `(now - supervisorLastSpawnAt) >= SUPERVISOR_POOL_STALL_MS (30s)`,
+  force-reset `supervisorActive` to 0, bump
+  `supervisorLifetimePoolResets`, and emit `SUPERVISOR_POOL_RESET`
+  via ForensicLogger so the reset is visible in pipeline snapshots.
+- On every successful worker spawn, update `supervisorLastSpawnAt`
+  so the stall detector resets correctly under healthy operation.
+- Truly-stuck workers eventually decrement `supervisorActive` into
+  negative territory; safe — the cap check uses `get() < cap`, so
+  negative just means extra headroom.
+
+If `SUPERVISOR_POOL_RESET` fires frequently in future dumps, that's
+the signal to chase the deeper non-cooperative-block hotspot
+(probably SQLite write contention or a synchronous emitter). The
+bot keeps trading either way.
+
+
 ═══════════════════════════════════════════════════════════════════════════════
 
 ## V5.9.1039 — per-worker timeout (silent-supervisor pool saturation fix) (Feb 2026, CI ✅✅ green)

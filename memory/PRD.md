@@ -6,8 +6,10 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
-## Latest Build — V5.9.1039 (Feb 2026, CI ✅✅)
-- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker now wrapped in `withTimeoutOrNull(20s)` so hung Birdeye/DexScreener calls can't permanently saturate the 48-worker pool. Fixes the V5.9.1038 operator dump's `active=48 cap=48 spawned=0` lockout.
+## Latest Build — V5.9.1043 (Feb 2026, CI ✅ green)
+- **Read-side bin merge (V5.9.1043)**: `StrategyTelemetry.computeLeaderboard()` now calls `TradeHistoryStore.normalizeTradeModeName()` at `groupBy` time → legacy `BLUE_CHIP` trades persisted before V5.9.1038 now merge into the canonical `BLUECHIP` bin. Resolves the ghost-duplicate bins lingering in the expectancy leaderboard.
+- **Silent-supervisor pool watchdog (V5.9.1042)**: at `fireSupervisorWorkers()` entry, if `active >= cap` AND no new worker has spawned in 30s, force-reset `supervisorActive` to 0 and emit `SUPERVISOR_POOL_RESET`. Unfreezes the bot when non-cooperative blocking ops (SQLite/JNI/native socket) hold worker slots that `withTimeoutOrNull` cannot cancel. Operator V5.9.1041 snapshot showed `SUPERVISOR_INFLIGHT_CAP` firing 335 cycles with `active=48 spawned=0` and no paper BUY in 26+ minutes.
+- **Per-worker timeout (V5.9.1039)**: each silent-supervisor worker wrapped in `withTimeoutOrNull(20s)` (cooperative — only catches workers that yield).
 - **Triage fixes (V5.9.1038)**: TradeHistoryStore.recordTrade dedupe LRU, normalizeTradeModeName, CanonicalLearning reason-fallback, Executor.recordTrade tradingMode inheritance.
 - **Silent supervisor (V5.9.1037)**: fire-and-forget workers, cycle ~20s → ~5s.
 - **ANR fixes (V5.9.1036)**: LearningPersistence + MemeMintRegistry off-main, stall 29.9% → 8.7%.
