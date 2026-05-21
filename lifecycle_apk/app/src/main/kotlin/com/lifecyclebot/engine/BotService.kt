@@ -10751,6 +10751,78 @@ launchExitSweepAsync("POST_SUPERVISOR")
         wallet: com.lifecyclebot.network.SolanaWallet?,
         effectiveBalance: Double,
     ) {
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1069 — UNIVERSAL HARD FLOOR + PEAK BACKSTOP (Part 0)
+        // ═══════════════════════════════════════════════════════════════════
+        // Operator screenshot evidence (V5.9.1068, 04:25):
+        //   VGRD card displayed SL -14% but position sat at -83.8% (never sold)
+        //   GG card displayed lock +276% on +283% peak — still open at +283%
+        //   17 positions accumulated, cap=8 exceeded, bot effectively frozen
+        //     on entry because exits stopped firing per-lane.
+        //
+        // This Part-0 runs BEFORE Treasury + V3 manage and is a pure safety
+        // net: regardless of which lane owns the position, force-close when
+        // (a) pnl% has fallen below the universal hard floor (-20%), OR
+        // (b) the position peaked ≥+30% and has given back ≥50% of that peak.
+        //
+        // No new pause/disable/cap. Just enforces faster EXIT on positions
+        // that the per-lane SL/trail demonstrably failed to close.
+        //
+        // 45s post-buy grace honored (consistent with Part 1) so we never
+        // clip a position before the first scanner refresh has populated it.
+        try {
+            val openTokensForFloor = synchronized(status.tokens) {
+                status.tokens.values.filter { it.position.isOpen }.toList()
+            }
+            val nowMs = System.currentTimeMillis()
+            openTokensForFloor.forEach { ts ->
+                try {
+                    val posAgeMs = nowMs - ts.position.entryTime
+                    if (posAgeMs < 45_000L) return@forEach
+                    val entry = ts.position.entryPrice
+                    if (entry <= 0.0) return@forEach
+                    val last = ts.lastPrice
+                    if (last <= 0.0) return@forEach
+                    val pnlPct = ((last - entry) / entry) * 100.0
+                    val peakPct = ts.position.peakGainPct
+                    val hardFloor = pnlPct <= -20.0
+                    val peakDrawdown = peakPct >= 30.0 &&
+                        peakPct > 0.0 &&
+                        ((peakPct - pnlPct) / peakPct) >= 0.50
+                    if (!hardFloor && !peakDrawdown) return@forEach
+                    val reason = if (hardFloor)
+                        "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT"
+                    else
+                        "UNIVERSAL_PEAK_LOCK_peak${peakPct.toInt()}_now${pnlPct.toInt()}"
+                    ErrorLogger.warn(
+                        "BotService",
+                        "🛡 UNIVERSAL_EXIT: ${ts.symbol} | pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}% | $reason",
+                    )
+                    try {
+                        ForensicLogger.lifecycle(
+                            "UNIVERSAL_EXIT_FORCE",
+                            "symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakPct.toInt()} reason=$reason",
+                        )
+                    } catch (_: Throwable) {}
+                    val r = executor.requestSell(
+                        ts = ts,
+                        reason = reason,
+                        wallet = wallet,
+                        walletSol = effectiveBalance,
+                    )
+                    if (r == com.lifecyclebot.engine.Executor.SellResult.CONFIRMED ||
+                        r == com.lifecyclebot.engine.Executor.SellResult.PAPER_CONFIRMED
+                    ) {
+                        addLog("🛡 [UNIVERSAL] ${ts.symbol}: $reason pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}%")
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "Universal exit ${ts.symbol}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "Universal exit sweep error: ${e.message}")
+        }
+
         // Part 1 — Treasury sub-trader exits (any mint, with or without ts).
         try {
             val treasuryExits = com.lifecyclebot.v3.scoring.CashGenerationAI
