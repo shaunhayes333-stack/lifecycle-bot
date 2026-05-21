@@ -326,15 +326,17 @@ object TradeHistoryStore {
         }
     }
 
-    // V5.9.1038 — choke-point dedupe (operator V5.9.1037 triage). Same meme
-    // position was being recorded TWICE per close: Path 1 (Executor.recordTrade
-    // for TREASURY_TIME_EXIT) + Path 2 (CashGenAI → V3JournalRecorder for
-    // CASHGEN_TIME_EXIT). The PositionExitArbiter (Executor.kt) only sees the
-    // Executor path; V3JournalRecorder's 5s dedup only sees the V3 path. This
-    // LRU sits at the choke point and catches duplicates from ALL paths.
-    // Key = "${mint}_${ts}_${side}" so two genuinely different closes for the
-    // same mint at different milliseconds are NOT deduped (legitimate close,
-    // reopen, close again sequence). 5-second TTL window matches V3JournalRecorder.
+    // V5.9.1038 — choke-point dedupe (operator V5.9.1037 triage).
+    // V5.9.1040 — TIGHTENED. Operator V5.9.1039 dump showed mint=2E4Awu
+    // recorded TWICE 67ms apart with reason=STALE_LIVE_PRICE_RUG_ESCAPE
+    // then reason=BLUECHIP_STOP_LOSS. The previous key `${mint}_${ts}_SELL`
+    // never matched because each path constructs its own
+    // `Trade(ts=System.currentTimeMillis())` — different ms → different
+    // key → both pass. Drop ts from the key and shrink the window to
+    // 1500ms. Cross-path duplicates always fire sub-second back-to-back
+    // (different lanes both seeing the same exit signal); legitimate
+    // partial sells fire seconds-to-minutes apart (operator dumps
+    // confirmed 3-27s spacing for `6vq8GS` partial_*pct events).
     private val recordTradeRecentLru: MutableMap<String, Long> = java.util.Collections.synchronizedMap(
         object : LinkedHashMap<String, Long>(256, 0.75f, false) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
@@ -342,7 +344,7 @@ object TradeHistoryStore {
             }
         }
     )
-    private val RECORD_TRADE_DEDUPE_WINDOW_MS: Long = 5_000L
+    private val RECORD_TRADE_DEDUPE_WINDOW_MS: Long = 1_500L
 
     /**
      * V5.9.1038 — canonicalize tradingMode at the choke point so the
@@ -381,7 +383,11 @@ object TradeHistoryStore {
         // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
         // not double-fired — only SELL exits go through both paths).
         if (trade.side.equals("SELL", ignoreCase = true)) {
-            val key = "${trade.mint}_${trade.ts}_SELL"
+            // V5.9.1040 — key on (mint, SELL) without ts. Cross-path duplicates
+            // fire ms apart with different Trade.ts values; the 1500ms window
+            // catches them while letting legitimate partial sells (which are
+            // 3+ seconds apart) flow through.
+            val key = "${trade.mint}_SELL"
             val now = System.currentTimeMillis()
             val prior = synchronized(recordTradeRecentLru) {
                 val p = recordTradeRecentLru[key]
