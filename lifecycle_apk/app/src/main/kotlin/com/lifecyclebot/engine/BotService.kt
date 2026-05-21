@@ -13719,6 +13719,20 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         // can still emit downstream).
                         val v3IsPaperModeLocal = cfg.paperMode
                         val v3FatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
+                        // V5.9.1048 — also extract reason from Rejected
+                        // class (V3Decision.Rejected has its own
+                        // `reason: String` field). Operator V5.9.1047
+                        // dump showed 128 events bucketed as bare
+                        // "Rejected" in the V5.9.1046 histogram because
+                        // the lifecycle event only logged reason= for
+                        // BlockFatal; Rejected.reason was silently
+                        // dropped. Pull from whichever class carries it.
+                        val v3RejectedReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.Rejected)?.reason ?: ""
+                        val v3LoggedReason = when {
+                            v3FatalReason.isNotBlank()    -> v3FatalReason
+                            v3RejectedReason.isNotBlank() -> v3RejectedReason
+                            else                          -> "(none)"
+                        }
                         val v3FatalIsRug = v3FatalReason.startsWith("V3:RUG_FATAL:") || v3FatalReason.contains("RUG_CRITICAL")
                         val v3HardRejectForShitCoin =
                             v3Decision is com.lifecyclebot.v3.V3Decision.Rejected ||
@@ -13728,7 +13742,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             try {
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                     "REJECTED_FATAL_V3",
-                                    "mint=${ts.mint} sym=${ts.symbol} v3=${v3Decision::class.java.simpleName} reason=${v3FatalReason.ifBlank { "(none)" }}",
+                                    "mint=${ts.mint} sym=${ts.symbol} v3=${v3Decision::class.java.simpleName} reason=$v3LoggedReason",
                                 )
                             } catch (_: Throwable) {}
                             ErrorLogger.info(

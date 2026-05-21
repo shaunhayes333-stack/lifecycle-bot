@@ -484,6 +484,7 @@ class MainActivity : AppCompatActivity() {
     private var lastOpenPosRenderMs: Long = 0L
     private val OPEN_POS_MIN_RENDER_INTERVAL_MS: Long = 8_000L
     private var lastMoonshotHash: Int = -1
+    private var lastMoonshotRenderMs: Long = 0L  // V5.9.1048
     private var lastNetworkSigRenderMs: Long = 0L
     // V5.9.1013 — first-frame/navigation guard. Optional heavy panels and
     // disk/network warmups wait until MainActivity has had a chance to draw.
@@ -4637,7 +4638,22 @@ for legal compliance.
         // V5.9.709 — skip render if moonshot positions unchanged
         val moonHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaperMode}" }.hashCode()
         if (moonHash == lastMoonshotHash) return
+        // V5.9.1048 — also throttle by time. Operator V5.9.1047 dump
+        // showed renderMoonshotPositions 509ms ANR. The structural hash
+        // skips a no-change rebuild, but when a moonshot position OPENS
+        // / CLOSES the rebuild fires inline on Main with up to 4 rows
+        // of Coil image loads, custom backgrounds, and TextViews. Add a
+        // 2s minimum interval (matches OPEN_POS_MIN_RENDER_INTERVAL_MS
+        // on renderOpenPositions). Any rapid sequence of structural
+        // changes within 2s collapses to one rebuild; positions are
+        // still correct because the LATEST hash is captured.
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastMoonshotRenderMs < OPEN_POS_MIN_RENDER_INTERVAL_MS &&
+            lastMoonshotRenderMs > 0L) {
+            return
+        }
         lastMoonshotHash = moonHash
+        lastMoonshotRenderMs = nowMs
         llMoonshotPositions.removeAllViews()
         
         for (pos in positions.take(4)) {

@@ -565,6 +565,13 @@ class BirdeyeApi(private val apiKey: String = "") {
         // (Converted from expression body — early returns aren't legal there.)
         if (apiKey.isBlank()) return null
         if (!com.lifecyclebot.engine.KeyValidator.isLive("birdeye")) return null
+        // V5.9.1048 — reactive Birdeye backoff. Operator V5.9.1047 dump
+        // showed birdeye sr=59% 4xx=344 — Birdeye was being hammered
+        // through 429s because BirdeyeApi.get() never consulted ApiBackoff.
+        // Now: skip the call entirely while locked out and route the
+        // response code through ApiBackoff.markFailure / markSuccess so
+        // consecutive 429s engage exponential backoff (5s → 5min cap).
+        if (com.lifecyclebot.engine.ApiBackoff.isLockedOut("birdeye")) return null
 
         return try {
             val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -581,6 +588,12 @@ class BirdeyeApi(private val apiKey: String = "") {
                 throw e
             }
             try { com.lifecyclebot.engine.ApiHealthMonitor.record("birdeye", resp.code, System.currentTimeMillis() - beStart) } catch (_: Throwable) {}
+            // V5.9.1048 — feed response codes to ApiBackoff so consecutive
+            // 429/4xx escalate the lockout.
+            try {
+                if (resp.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure("birdeye", resp.code)
+                else if (resp.isSuccessful) com.lifecyclebot.engine.ApiBackoff.markSuccess("birdeye")
+            } catch (_: Throwable) {}
             when {
                 resp.code in listOf(401, 403) -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("birdeye", success = false, httpStatus = resp.code) } catch (_: Throwable) {}

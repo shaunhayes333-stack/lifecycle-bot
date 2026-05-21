@@ -197,6 +197,17 @@ object StrategyTelemetry {
         }
 
         sb.append("\n  Note: read-only telemetry. No strategy is auto-disabled — operator decides what to retire.\n")
+        // V5.9.1048 — bin glossary clarifier. Operator V5.9.1047 dump
+        // flagged STANDARD lane (n=32 WR=100% +207%/trade) as
+        // suspicious-good. STANDARD is the default tradingMode assigned
+        // when a trade has no specific lane affinity (TokenMemory.kt
+        // fallback) — typically high-quality v3 entries that don't fit
+        // a curated bucket. The 100% WR is partly survivor-bias: many
+        // STANDARD candidates get auto-promoted to a specific lane mid-
+        // trade and get re-classified, leaving only the cleanest setups
+        // in the bin. Treat it as a "clean V3" tier, not a separate
+        // strategy to scale.
+        sb.append("  Bin glossary: STANDARD=V3 default (no lane affinity)  ·  BLUECHIP/SHITCOIN/MOONSHOT/etc=lane-specific  ·  CASHGEN/TREASURY=lifecycle exits\n")
 
         // V5.9.806 — surface auto-retirement set (P1).
         val disabled = getDisabled()

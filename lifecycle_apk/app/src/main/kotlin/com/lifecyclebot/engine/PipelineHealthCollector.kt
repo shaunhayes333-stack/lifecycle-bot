@@ -948,7 +948,13 @@ object PipelineHealthCollector {
 
         // ── Cheat-sheet ─────────────────────────────────────────────
         // V5.9.915 — expanded cheat-sheet with actionable context
-        val execBuy  = (labelCounts["EXEC/PAPER_BUY"]?.get() ?: 0L) + (labelCounts["EXEC/LIVE_BUY"]?.get() ?: 0L)
+        // V5.9.1048 — fix counter-key divergence reported in V5.9.1047
+        // operator snapshot (EXEC_BUY=0 despite many actual BUYs in
+        // journal log). The reader was looking for legacy `EXEC/PAPER_BUY`
+        // + `EXEC/LIVE_BUY` keys, but TradeHistoryStore.recordExec writes
+        // `EXEC_BUY` / `EXEC_SELL` (underscore form, side only). execSell
+        // already matched the writer; only execBuy was wrong.
+        val execBuy  = labelCounts["EXEC_BUY"]?.get() ?: 0L
         val execSell = labelCounts["EXEC_SELL"]?.get() ?: 0L
         val stall    = if (uptimeSec > 0) (s.totalFrameStallMs * 100L / (uptimeSec * 1000L)) else 0L
         val avgCycleMs = if (s.cycleCount > 0L) s.totalCycleMs / s.cycleCount else 0L
