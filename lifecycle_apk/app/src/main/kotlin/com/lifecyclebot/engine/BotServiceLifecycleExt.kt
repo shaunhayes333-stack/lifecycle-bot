@@ -265,7 +265,7 @@ internal fun BotService.armRestartAlarm(
         return false
     }
     // Skip when already running.
-    if (status.running && BotService.isRuntimeActive()) {
+    if (BotService.status.running && BotService.isRuntimeActive()) {
         try {
             ForensicLogger.lifecycle(
                 "CRASH_RECOVERY_RESTART_SKIPPED_ALREADY_RUNNING",
