@@ -1511,7 +1511,8 @@ class BotService : Service() {
             ACTION_STOP  -> {
                 val stopSource = intent.getStringExtra(EXTRA_STOP_SOURCE) ?: "unknown_action_stop"
                 val uiStopConfirmed = intent.getBooleanExtra(EXTRA_UI_STOP_CONFIRMED, false)
-                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed") } catch (_: Throwable) {}
+                val isConfirmedManualStop = (stopSource == "ui_stop_button" && uiStopConfirmed) || stopSource == "halt_reset"
+                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed manual=$isConfirmedManualStop") } catch (_: Throwable) {}
                 // V5.9.1075 — reject ambiguous UI stops. Regression RCA:
                 // Main rendered START BOT from stale UiState, but its click handler
                 // called toggleBot(); toggleBot re-read live runtime truth, saw an
@@ -1522,21 +1523,23 @@ class BotService : Service() {
                     try { ForensicLogger.lifecycle("ACTION_STOP_REJECTED", "source=$stopSource reason=missing_ui_stop_confirm") } catch (_: Throwable) {}
                     return START_STICKY
                 }
-                // V5.9.609 — make user Stop authoritative immediately. The old
-                // code only cleared was_running, while already-scheduled alarms
-                // (90s/3m keep-alive, onDestroy, onTaskRemoved) could still fire
-                // ACTION_START and make the bot appear to randomly restart.
+                // V5.9.1078 — STOP LOOP != LIQUIDATE POSITIONS.
+                // Only a confirmed operator stop should arm the manual-stop latch
+                // and disarm resurrection. Internal/config/lifecycle stops are soft
+                // stops used for restart/recovery and must preserve positions.
                 try {
                     getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                         .edit()
-                        .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
-                        .putBoolean(KEY_MANUAL_STOP_REQUESTED, true)
+                        .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, !isConfirmedManualStop)
+                        .putBoolean(KEY_MANUAL_STOP_REQUESTED, isConfirmedManualStop)
                         .apply()
                 } catch (_: Exception) {}
-                userStartQueuedDuringStop = false
+                userStartQueuedDuringStop = !isConfirmedManualStop && stopSource == "config_restart"
                 status.running = false
-                cancelAllRestartAlarms()
-                try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+                if (isConfirmedManualStop) {
+                    cancelAllRestartAlarms()
+                    try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+                }
                 scope.launch { stopBot(stopSource) }
             }
             ACTION_LOOP_HEARTBEAT -> {
@@ -4900,10 +4903,12 @@ class BotService : Service() {
     }
 
     fun stopBot(source: String = "direct_call_unknown") {
-        isShuttingDown = true  // V5.9.721: signal all traders to use fast-close path
+        val liquidateOnStop = source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
+        val softStopPreservePositions = !liquidateOnStop
+        isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
         // V5.9.1016 — forensic stop source marker. Report/navigation bugs must
         // never be allowed to hide behind a generic BOT_STOP_REQUESTED again.
-        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "source=$source loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
+        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
@@ -4935,12 +4940,14 @@ class BotService : Service() {
             try {
                 getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
                     .edit()
-                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
-                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, true)
+                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, softStopPreservePositions)
+                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, liquidateOnStop)
                     .apply()
             } catch (_: Exception) {}
-        cancelAllRestartAlarms()
-        try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+        if (liquidateOnStop) {
+            cancelAllRestartAlarms()
+            try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
+        }
         // V5.9.674 — stop the proactive loop heartbeat watchdog before the
         // loopJob it watches is cancelled; otherwise the watchdog could
         // observe sinceLastTickMs > 180s mid-shutdown and relaunch botLoop
@@ -4991,8 +4998,23 @@ class BotService : Service() {
         // The paper wallet inflation guard is also removed — the SmartSizer
         // already caps balance to a sane value each cycle.
         
+        if (softStopPreservePositions) {
+            val preservedOpenCount = try { status.tokens.values.count { it.position.isOpen } } catch (_: Throwable) { -1 }
+            try {
+                ForensicLogger.lifecycle(
+                    "STOP_SOFT_PRESERVE_POSITIONS",
+                    "source=$source openPositions=$preservedOpenCount mapSize=${status.tokens.size} action=no_liquidation_no_clear",
+                )
+            } catch (_: Throwable) {}
+            addLog("↻ Soft stop/restart: preserving open positions (source=$source)")
+        }
+
+        if (liquidateOnStop) {
         // IMPORTANT: Close all open positions BEFORE stopping.
-        // V5.9.661 — UNCONDITIONAL on every stop. Per operator mandate,
+        // V5.9.1078 — liquidation is no longer unconditional. Only confirmed
+        // operator STOP/halt reset may close positions with bot_shutdown.
+        // Internal/config/lifecycle stops preserve positions and skip this block.
+        // V5.9.661 — UNCONDITIONAL on every manual stop. Per operator mandate,
         // every stop MUST close all open positions and sweep the live
         // wallet, regardless of the legacy cfg.closePositionsOnStop
         // toggle. That flag is now ignored for safety: live tokens
@@ -5465,6 +5487,8 @@ class BotService : Service() {
             } catch (_: Throwable) {}
         }
 
+        }
+
         status.running = false
         loopJob?.cancel()
         orchestrator?.stop()
@@ -5480,10 +5504,12 @@ class BotService : Service() {
         TreasuryManager.save(applicationContext)
         botBrain?.stop(); botBrain = null
         tradeDb?.close(); tradeDb = null
-        // Cancel keep-alive alarm
-        cancelKeepAliveAlarm()
-        // Cancel watchdog (user explicitly stopped)
-        ServiceWatchdog.cancel(applicationContext)
+        // Cancel keep-alive alarm only on explicit manual stop. Soft/restart
+        // stops must keep resurrection available.
+        if (liquidateOnStop) cancelKeepAliveAlarm()
+        // Cancel watchdog only on explicit manual stop. Soft/restart stops must
+        // remain resurrectable and must not arm the manual-stop dead latch.
+        if (liquidateOnStop) ServiceWatchdog.cancel(applicationContext)
         // Stop self-healing diagnostics
         try {
             SelfHealingDiagnostics.stop()
@@ -5511,8 +5537,8 @@ class BotService : Service() {
         try {
             getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
                 .edit()
-                .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
-                .putBoolean(KEY_MANUAL_STOP_REQUESTED, !userStartQueuedDuringStop)
+                .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, softStopPreservePositions)
+                .putBoolean(KEY_MANUAL_STOP_REQUESTED, liquidateOnStop && !userStartQueuedDuringStop)
                 .apply()
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Failed to clear was_running flag: ${e.message}", e)
