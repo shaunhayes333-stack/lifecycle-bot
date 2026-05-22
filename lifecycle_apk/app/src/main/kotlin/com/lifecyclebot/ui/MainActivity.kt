@@ -502,6 +502,9 @@ class MainActivity : AppCompatActivity() {
     private var lastShitCoinHash: Int = -1
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
+    @Volatile private var mainUiActive: Boolean = false
+    private val looseMainHandlers = mutableListOf<android.os.Handler>()
+    private val looseMainRunnables = mutableListOf<Runnable>()
 
         private val green   = 0xFF10B981.toInt()
     private val red     = 0xFFEF4444.toInt()
@@ -730,18 +733,24 @@ class MainActivity : AppCompatActivity() {
                     bottomMargin = (180 * resources.displayMetrics.density).toInt()
                 }
                 rootDecor?.addView(universeTile, universeLp)
-                // Periodic refresh on the main thread (30s)
+                // Periodic refresh on the main thread (30s). V5.9.1074: gate
+                // by mainUiActive and unregister onStop/onDestroy so this loose
+                // handler cannot keep touching TextViews while Android is stopping
+                // the render surface/backgrounding the app.
                 val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 val updater = object : Runnable {
                     override fun run() {
+                        if (!mainUiActive || isFinishing || isDestroyed) return
                         try {
                             val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
                             val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
                             universeTile.text = "🪙 ${total + memeTotal} mints"
                         } catch (_: Throwable) {}
-                        handler.postDelayed(this, 30_000L)
+                        if (mainUiActive && !isFinishing && !isDestroyed) handler.postDelayed(this, 30_000L)
                     }
                 }
+                looseMainHandlers.add(handler)
+                looseMainRunnables.add(updater)
                 handler.post(updater)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
@@ -823,16 +832,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        super.onPause()
+        mainUiActive = false
+        try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
+        try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         // V5.9.1016 — NEVER autosave settings during in-app navigation.
         // Opening PipelineHealthActivity pauses MainActivity; autosave was writing
         // transient/stale settings and previously could restart/stop the bot. Settings
         // are now saved only by explicit Apply/Save actions.
-        try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
+        super.onPause()
     }
     
     override fun onResume() {
         super.onResume()
+        mainUiActive = true
         // Refresh currency rates and wallet balance when returning to activity
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -936,8 +948,10 @@ class MainActivity : AppCompatActivity() {
     }
     private val pipelineTileRefresh = object : Runnable {
         override fun run() {
+            if (!mainUiActive || isFinishing || isDestroyed) return
             try {
                 pipelineTileBgExecutor.execute {
+                    if (!mainUiActive || isFinishing || isDestroyed) return@execute
                     val text: String
                     val color: Int
                     try {
@@ -954,6 +968,7 @@ class MainActivity : AppCompatActivity() {
                         return@execute
                     }
                     pipelineTileHandler.post {
+                        if (!mainUiActive || isFinishing || isDestroyed) return@post
                         try {
                             val tv = findViewById<android.widget.TextView>(R.id.tvPipelineTileStats)
                             if (tv != null) {
@@ -966,14 +981,25 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Throwable) { /* never let UI tick crash main */ }
             // V5.9.925 — was 3_000L. The ANR/EXEC counters move slowly enough
             // that a 5s cadence is plenty; cuts main-thread snapshot reads by 40%.
-            pipelineTileHandler.postDelayed(this, 5_000L)
+            if (mainUiActive && !isFinishing && !isDestroyed) pipelineTileHandler.postDelayed(this, 5_000L)
         }
     }
 
     override fun onStop() {
+        mainUiActive = false
+        try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
+        try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         super.onStop()
         // V5.9.1016 — no lifecycle autosave. Reports/dialogs/other activities must
         // not mutate runtime config or trigger any bot lifecycle side effect.
+    }
+
+    override fun onDestroy() {
+        mainUiActive = false
+        try { pipelineTileHandler.removeCallbacksAndMessages(null) } catch (_: Throwable) {}
+        try { looseMainHandlers.forEach { it.removeCallbacksAndMessages(null) } } catch (_: Throwable) {}
+        try { looseMainHandlers.clear(); looseMainRunnables.clear() } catch (_: Throwable) {}
+        super.onDestroy()
     }
 
     /** Save current settings from UI fields */
@@ -1885,6 +1911,7 @@ for legal compliance.
     }
 
     private fun updateUi(state: UiState) {
+        if (!mainUiActive || isFinishing || isDestroyed) return
         val ts  = state.activeToken
         val cfg = state.config
         val ws  = state.walletState

@@ -52,6 +52,17 @@ class PipelineHealthActivity : AppCompatActivity() {
     private var reportSections: List<String> = emptyList()
     private var currentSectionIndex: Int = 0
 
+    // V5.9.1074 — lifecycle render gate. onResume() can fire before the
+    // first-frame-posted findViewById block binds lateinit TextViews, and
+    // background/recents transitions can deliver bg render results after
+    // onPause/onDestroy. Both cases used to touch lateinit/TextView layout
+    // from stale posts, causing Activity crashes or TextView.makeSingleLayout
+    // ANR storms while Android was stopping the render surface.
+    @Volatile private var viewsBound: Boolean = false
+    @Volatile private var activityVisible: Boolean = false
+    @Volatile private var destroyed: Boolean = false
+    @Volatile private var renderGeneration: Long = 0L
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     // V5.9.904 — background thread for snapshot dump building.
@@ -77,8 +88,9 @@ class PipelineHealthActivity : AppCompatActivity() {
     private val refreshIntervalMs = 20_000L  // V5.9.1057: 12s→20s. Dump is forensic; less main-thread pressure.
     private val refreshRunnable = object : Runnable {
         override fun run() {
+            if (destroyed || !activityVisible || !viewsBound) return
             renderSnapshotAsync()
-            mainHandler.postDelayed(this, refreshIntervalMs)
+            if (!destroyed && activityVisible && viewsBound) mainHandler.postDelayed(this, refreshIntervalMs)
         }
     }
 
@@ -127,6 +139,7 @@ class PipelineHealthActivity : AppCompatActivity() {
             sectionLabel = findViewById(R.id.sectionLabel)
             prevSectionButton = findViewById(R.id.prevSectionButton)
             nextSectionButton = findViewById(R.id.nextSectionButton)
+            viewsBound = true
 
             findViewById<ImageButton>(R.id.backButton).setOnClickListener { finish() }
 
@@ -153,15 +166,23 @@ class PipelineHealthActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        mainHandler.post(refreshRunnable)
+        activityVisible = true
+        renderGeneration++
+        if (viewsBound) mainHandler.post(refreshRunnable)
     }
 
     override fun onPause() {
-        super.onPause()
+        activityVisible = false
+        renderGeneration++
         mainHandler.removeCallbacks(refreshRunnable)
+        super.onPause()
     }
 
     override fun onDestroy() {
+        destroyed = true
+        activityVisible = false
+        renderGeneration++
+        mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
         // V5.9.904 — quit bg thread so it doesn't leak when activity dies.
         try { bgThread.quitSafely() } catch (_: Throwable) {}
@@ -175,7 +196,10 @@ class PipelineHealthActivity : AppCompatActivity() {
      * 250ms+ frame stalls every 2s observed in the V5.9.899 dump.
      */
     private fun renderSnapshotAsync(forceFull: Boolean = false) {
+        if (destroyed || !activityVisible || !viewsBound) return
+        val generation = renderGeneration
         bgHandler.post {
+            if (destroyed || !activityVisible || generation != renderGeneration) return@post
             val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { return@post }
             // V5.9.1071 — automatic refresh should not rebuild the full forensic dump.
             // dumpText() walks large rings/maps and then causes TextView layout churn when
@@ -200,6 +224,7 @@ class PipelineHealthActivity : AppCompatActivity() {
             }
 
             mainHandler.post {
+                if (destroyed || !activityVisible || !viewsBound || generation != renderGeneration) return@post
                 if (needFullDump) {
                     fullDumpCache = dump
                     reportSections = sections
@@ -242,11 +267,15 @@ class PipelineHealthActivity : AppCompatActivity() {
     }
 
     private fun renderCurrentSection() {
+        if (destroyed || !activityVisible || !viewsBound) return
         val sections = reportSections.ifEmpty { listOf(fullDumpCache.ifBlank { "(report loading…)" }) }
         val idx = currentSectionIndex.coerceIn(0, sections.lastIndex)
         currentSectionIndex = idx
-        val section = sections[idx]
-        val title = section.lineSequence().firstOrNull()?.removePrefix("=====")?.removeSuffix("=====")?.trim()
+        val rawSection = sections[idx]
+        val section = if (rawSection.length > 8_000) {
+            rawSection.take(8_000) + "\n\n… section truncated for UI render (${rawSection.length} chars). Use Copy for the full dump."
+        } else rawSection
+        val title = rawSection.lineSequence().firstOrNull()?.removePrefix("=====")?.removeSuffix("=====")?.trim()
             ?.takeIf { it.isNotBlank() } ?: "Pipeline section"
         sectionLabel.text = "Section ${idx + 1}/${sections.size}: $title"
         prevSectionButton.isEnabled = idx > 0
@@ -268,9 +297,13 @@ class PipelineHealthActivity : AppCompatActivity() {
      * the UI thread for the copy tap as well.
      */
     private fun copyToClipboardAsync() {
+        if (destroyed || !viewsBound) return
+        val generation = renderGeneration
         bgHandler.post {
+            if (destroyed || generation != renderGeneration) return@post
             val text = try { fullDumpCache.ifBlank { PipelineHealthCollector.dumpText() } } catch (_: Throwable) { "(render error)" }
             mainHandler.post {
+                if (destroyed || generation != renderGeneration) return@post
                 val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("AATE Pipeline Health", text))
                 Toast.makeText(

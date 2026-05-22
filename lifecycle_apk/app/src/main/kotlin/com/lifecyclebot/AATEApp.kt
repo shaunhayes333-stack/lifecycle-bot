@@ -251,7 +251,7 @@ class AATEApp : Application() {
                     android.util.Log.w("AATEApp", "Recoverable exception - NOT crashing app")
                     
                     // Schedule service restart if bot was supposed to be running
-                    scheduleServiceRestart()
+                    scheduleServiceRestart(force = false)
                     
                     // Don't call default handler - swallow the exception
                     return@setDefaultUncaughtExceptionHandler
@@ -263,6 +263,12 @@ class AATEApp : Application() {
                 android.util.Log.e("AATEApp", "Original crash: ${throwable.message}", throwable)
             }
             
+            // Fatal process crash: if the bot was supposed to be running, schedule
+            // resurrection BEFORE delegating to Android's default crash handler. A main
+            // thread UI crash kills the whole process, so a live loop right now is not
+            // enough — it will be gone in milliseconds.
+            try { scheduleServiceRestart(force = true) } catch (_: Throwable) {}
+
             // Call the default handler to show the crash dialog / terminate
             defaultHandler?.uncaughtException(thread, throwable)
         }
@@ -309,22 +315,20 @@ class AATEApp : Application() {
     /**
      * Schedules a service restart if the bot was running
      */
-    private fun scheduleServiceRestart() {
+    private fun scheduleServiceRestart(force: Boolean = false) {
         try {
             val prefs = getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE)
             val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
             val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
 
-            // V5.9.495z11 — RANDOM RESTART FIX. Only fire a 3-second
-            // ACTION_START alarm if the bot really is NOT running right
-            // now. Previously this fired on any recoverable background
-            // exception (NPE / JSONException / IOException…) even when
-            // BotService was alive and well — the alarm then double-fired
-            // the start path 3 seconds later, which the user perceived as
-            // "the bot randomly stops and starts when it wants".
-            val isRunningNow = try { BotService.status.running } catch (_: Throwable) { false }
-            if (wasRunning && !manualStop && !isRunningNow) {
-                ErrorLogger.info("App", "Bot was running - scheduling restart in 3 seconds")
+            // V5.9.1074 — fatal UI/process crashes must schedule resurrection even
+            // if BotService.isRuntimeActive() is true at crash time, because the
+            // default handler is about to terminate the process and kill that live
+            // loop. Non-fatal recoverable background exceptions still use the old
+            // random-restart guard and schedule only if runtime is actually inactive.
+            val isRunningNow = try { BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            if (wasRunning && !manualStop && (force || !isRunningNow)) {
+                ErrorLogger.info("App", "Bot was running - scheduling restart in 3 seconds force=$force runningNow=$isRunningNow")
                 
                 val restartIntent = Intent(this, BotService::class.java).apply {
                     action = BotService.ACTION_START
