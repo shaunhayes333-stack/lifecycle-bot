@@ -6389,6 +6389,16 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
             return
         }
+        val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
+            ts = ts,
+            mode = "PAPER",
+            lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+            source = "Executor.paperBuy",
+        )
+        if (!executableOpen.allowed) {
+            ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | ${executableOpen.reason}")
+            return
+        }
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener.
         // When WR recovery is in MODERATE/AGGRESSIVE the bot is bleeding
@@ -7290,6 +7300,16 @@ class Executor(
         }
         if (ts.mint.isBlank() || ts.symbol.isBlank()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
+            return
+        }
+        val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
+            ts = ts,
+            mode = "LIVE",
+            lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+            source = "Executor.liveBuy",
+        )
+        if (!executableOpen.allowed) {
+            ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | ${executableOpen.reason}")
             return
         }
 

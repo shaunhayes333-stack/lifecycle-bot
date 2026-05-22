@@ -1,0 +1,157 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.data.TokenState
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * V5.9.1083 — executable-open finality firewall.
+ *
+ * FDG/V3/safety fatal decisions are FINAL for real paper/live execution.
+ * Learning/probe paths may shadow-simulate, but must not create paper-wallet
+ * positions, live swaps, open-position records, or normal BUY journal rows.
+ */
+object ExecutableOpenGate {
+    data class EntryState(
+        val mint: String,
+        val symbol: String,
+        val v3Decision: String = "UNKNOWN",
+        val v3FatalReason: String? = null,
+        val fdgCan: Boolean? = null,
+        val fdgReason: String? = null,
+        val safetyTier: String = "UNKNOWN",
+        val rugScore: Int = -1,
+        val signal: String = "UNKNOWN",
+        val decisionBand: String = "UNKNOWN",
+        val updatedAtMs: Long = System.currentTimeMillis(),
+    )
+
+    data class OpenVerdict(
+        val allowed: Boolean,
+        val reason: String,
+        val shadowOnly: Boolean = false,
+        val logName: String = "EXEC_OPEN_ALLOWED",
+    )
+
+    private val states = ConcurrentHashMap<String, EntryState>()
+    private const val TTL_MS = 10 * 60 * 1000L
+
+    private fun staleCutoff() = System.currentTimeMillis() - TTL_MS
+
+    private fun put(mint: String, update: (EntryState?) -> EntryState) {
+        try {
+            states.entries.removeIf { it.value.updatedAtMs < staleCutoff() }
+            states[mint] = update(states[mint])
+        } catch (_: Throwable) {}
+    }
+
+    fun recordV3(
+        mint: String,
+        symbol: String,
+        decision: String,
+        fatalReason: String? = null,
+        decisionBand: String = decision,
+        rugScore: Int = -1,
+        safetyTier: String = "UNKNOWN",
+    ) {
+        put(mint) { old ->
+            (old ?: EntryState(mint = mint, symbol = symbol)).copy(
+                symbol = symbol,
+                v3Decision = decision,
+                v3FatalReason = fatalReason,
+                decisionBand = decisionBand,
+                rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
+                safetyTier = safetyTier,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    fun recordFdg(
+        mint: String,
+        symbol: String,
+        lane: String,
+        canExecute: Boolean,
+        reason: String?,
+        signal: String = "UNKNOWN",
+        rugScore: Int = -1,
+        safetyTier: String = "UNKNOWN",
+    ) {
+        put(mint) { old ->
+            (old ?: EntryState(mint = mint, symbol = symbol)).copy(
+                symbol = symbol,
+                fdgCan = canExecute,
+                fdgReason = reason,
+                signal = signal,
+                rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
+                safetyTier = safetyTier,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    fun clearExecutableApproval(mint: String, symbol: String, reason: String = "EXECUTE") {
+        put(mint) { old ->
+            (old ?: EntryState(mint = mint, symbol = symbol)).copy(
+                symbol = symbol,
+                v3Decision = reason,
+                v3FatalReason = null,
+                decisionBand = reason,
+                fdgCan = old?.fdgCan,
+                fdgReason = old?.fdgReason,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    fun canOpenExecutablePosition(
+        ts: TokenState,
+        mode: String,
+        lane: String,
+        source: String,
+    ): OpenVerdict {
+        val state = states[ts.mint]
+        val rug = ts.safety.rugcheckScore
+        val v3Decision = state?.v3Decision ?: "UNKNOWN"
+        val fdgCan = state?.fdgCan
+        val fdgReason = state?.fdgReason ?: "n/a"
+        val signal = state?.signal ?: "UNKNOWN"
+        val band = state?.decisionBand ?: v3Decision
+        val fatalReason = state?.v3FatalReason ?: fdgReason
+        val safetyTier = state?.safetyTier ?: "UNKNOWN"
+
+        try {
+            ForensicLogger.lifecycle(
+                "EXEC_OPEN_REQUEST",
+                "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
+            )
+        } catch (_: Throwable) {}
+
+        fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
+            try {
+                ForensicLogger.lifecycle(log, "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
+            } catch (_: Throwable) {}
+            if (shadow) {
+                try { ForensicLogger.lifecycle("PAPER_LEARNING_PROBE_NOT_EXECUTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$reason") } catch (_: Throwable) {}
+            }
+            return OpenVerdict(false, reason, shadowOnly = shadow, logName = log)
+        }
+
+        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
+            return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
+        }
+        if (v3Decision == "WATCH" || band == "WATCH" || v3Decision == "DECISION_WATCH") {
+            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", "DECISION_WATCH", shadow = mode == "PAPER")
+        }
+        if (fdgCan == false) {
+            return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
+        }
+        if (signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) {
+            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
+        }
+        if (rug <= 1 && rug >= 0) {
+            return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", "RC_SCORE_$rug", shadow = mode == "PAPER")
+        }
+        try { ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane reason=finality_clear") } catch (_: Throwable) {}
+        return OpenVerdict(true, "finality_clear")
+    }
+}
