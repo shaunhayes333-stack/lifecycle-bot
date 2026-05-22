@@ -1674,7 +1674,11 @@ for legal compliance.
         tvPnlPercent     = try { findViewById(R.id.tvPnlPercent) } catch (_: Exception) { TextView(this) }
         tvPnlValue       = try { findViewById(R.id.tvPnlValue) } catch (_: Exception) { TextView(this) }
 
-        btnToggle.setOnClickListener { vm.toggleBot() }
+        // V5.9.1076 — initial bind must be START-only. updateUi() later arms
+        // the explicit STOP handler only when the rendered state is STOP. The old
+        // toggle listener created a startup/rebind window where a visible START
+        // button could still call toggleBot() and send ACTION_STOP.
+        btnToggle.setOnClickListener { vm.startBot() }
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
         }

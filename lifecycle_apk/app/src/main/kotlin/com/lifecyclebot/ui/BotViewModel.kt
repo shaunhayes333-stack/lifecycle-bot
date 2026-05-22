@@ -196,10 +196,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleBot() {
-        // V5.9.1075 — deprecated for Main button use. Kept for compatibility,
-        // but unconfirmed ui_stop_button stops are rejected by BotService.
-        val liveRunning = BotService.isRuntimeActive()
-        if (liveRunning) stopBot(uiStopConfirmed = false) else startBot()
+        // V5.9.1076 — STOP capability removed from the legacy toggle API.
+        // Any stale listener, old Activity instance, accessibility replay, or
+        // delayed click that still reaches toggleBot() must be harmless. It now
+        // behaves as START/RESTART only; explicit stopping is only available via
+        // stopBotFromStopButton(), which sets EXTRA_UI_STOP_CONFIRMED=true.
+        startBot()
     }
 
     fun stopBotFromStopButton() {
