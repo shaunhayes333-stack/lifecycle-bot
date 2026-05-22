@@ -1160,7 +1160,7 @@ object PipelineHealthCollector {
 
         // ── ANR / stall ─────────────────────────────────────────────────
         sb.append("\n  [ANR / MAIN THREAD]\n")
-        val anrHints = labelCounts["ANR_HINTS"]?.get() ?: 0L
+        val anrHints = s.anrHints
         sb.append("  ANR_HINTS=$anrHints  Stall=${stall}%% of uptime\n")
         // V5.9.915 — EMERGENT-MEME #9: interpretation derived from
         // actual data. The previous logic skipped the severe path
@@ -1259,7 +1259,8 @@ object PipelineHealthCollector {
             val execsPerHour = recentExecCount / uptimeHr
             val execsPerDay = execsPerHour * 24.0
             val band = when {
-                execsPerDay >= 500.0 -> "✅ ON TARGET (500-1000/day band)"
+                execsPerDay in 500.0..1000.0 -> "✅ ON TARGET (500-1000/day band)"
+                execsPerDay > 1000.0 -> "🔴 ABOVE TARGET BAND (>1000/day; verify quality/FDG finality and churn)"
                 execsPerDay >= 200.0 -> "⚠ BELOW TARGET (need 500+/day; audit V3 allow rate)"
                 else -> "🛑 CRITICAL (need 500+/day; check FGS lifecycle + scanner pool)"
             }

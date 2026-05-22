@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.lifecyclebot.R
@@ -35,6 +36,11 @@ class ErrorLogActivity : AppCompatActivity() {
     private lateinit var emptyText: TextView
     
     private var currentFilter: ErrorLogger.Level = ErrorLogger.Level.DEBUG
+
+    private companion object {
+        const val LOG_DETAIL_PREVIEW_CHARS = 4_000
+        const val LOG_ROW_MESSAGE_PREVIEW_CHARS = 140
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -125,7 +131,7 @@ class ErrorLogActivity : AppCompatActivity() {
         statsText.text = "Loading…"
         Thread {
             val logs = try {
-                ErrorLogger.getRecentLogs(200, currentFilter)
+                ErrorLogger.getRecentLogs(200, currentFilter).map { UiLog.from(it) }
             } catch (t: Throwable) {
                 android.util.Log.e("ErrorLogActivity", "loadLogs failed: ${t.message}")
                 emptyList()
@@ -141,29 +147,32 @@ class ErrorLogActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun showLogDetail(log: ErrorLogger.LogEntry) {
-        val message = buildString {
-            appendLine("Time: ${log.timeFormatted}")
-            appendLine("Level: ${log.level}")
-            appendLine("Component: ${log.component}")
-            appendLine("Session: ${log.sessionId}")
-            appendLine()
-            appendLine("Message:")
-            appendLine(log.message)
-            if (!log.stackTrace.isNullOrBlank()) {
-                appendLine()
-                appendLine("Stack Trace:")
-                appendLine(log.stackTrace)
-            }
-        }
+    private fun showLogDetail(log: UiLog) {
+        val fullMessage = log.fullText
+        val preview = if (fullMessage.length > LOG_DETAIL_PREVIEW_CHARS) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "ERROR_LOG_PREVIEW_TRUNCATED",
+                    "charsShown=$LOG_DETAIL_PREVIEW_CHARS totalChars=${fullMessage.length} component=${log.component} level=${log.level}",
+                )
+            } catch (_: Throwable) {}
+            fullMessage.take(LOG_DETAIL_PREVIEW_CHARS) + "
+
+… truncated for UI preview (${fullMessage.length} chars). Use Copy for the full log."
+        } else fullMessage
         
         AlertDialog.Builder(this)
             .setTitle("${log.levelIcon} ${log.component}")
-            .setMessage(message)
-            .setPositiveButton("Copy") { _, _ ->
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Log", message))
-                Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            .setMessage(preview)
+            .setPositiveButton("Copy full") { _, _ ->
+                Thread {
+                    Handler(Looper.getMainLooper()).post {
+                        if (isFinishing || isDestroyed) return@post
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Log", fullMessage))
+                        Toast.makeText(this, "Full log copied", Toast.LENGTH_SHORT).show()
+                    }
+                }.start()
             }
             .setNegativeButton("Close", null)
             .show()
@@ -184,11 +193,12 @@ class ErrorLogActivity : AppCompatActivity() {
             Handler(Looper.getMainLooper()).post {
                 if (isFinishing || isDestroyed) return@post
 
-                // Copy to clipboard
+                // Copy to clipboard only after the export string was built off-main.
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("Error Logs", exportText))
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ERROR_LOG_EXPORT_COPIED", "chars=${exportText.length}") } catch (_: Throwable) {}
 
-                // Also offer to share
+                // Also offer to share. Do not render the blob in any TextView/Dialog.
                 val shareIntent = Intent().apply {
                     action = Intent.ACTION_SEND
                     type = "text/plain"
@@ -223,9 +233,40 @@ class ErrorLogActivity : AppCompatActivity() {
 
     // ── Adapter ───────────────────────────────────────────────────────
 
+    private data class UiLog(
+        val id: Long,
+        val timeFormatted: String,
+        val level: ErrorLogger.Level,
+        val levelIcon: String,
+        val component: String,
+        val messagePreview: String,
+        val fullText: String,
+    ) {
+        companion object {
+            fun from(log: ErrorLogger.LogEntry): UiLog {
+                val full = buildString {
+                    appendLine("Time: ${log.timeFormatted}")
+                    appendLine("Level: ${log.level}")
+                    appendLine("Component: ${log.component}")
+                    appendLine("Session: ${log.sessionId}")
+                    appendLine()
+                    appendLine("Message:")
+                    appendLine(log.message)
+                    if (!log.stackTrace.isNullOrBlank()) {
+                        appendLine()
+                        appendLine("Stack Trace:")
+                        appendLine(log.stackTrace)
+                    }
+                }
+                val preview = log.message.take(LOG_ROW_MESSAGE_PREVIEW_CHARS) + if (log.message.length > LOG_ROW_MESSAGE_PREVIEW_CHARS) "…" else ""
+                return UiLog(log.id, log.timeFormatted, log.level, log.levelIcon, log.component, preview, full)
+            }
+        }
+    }
+
     private class LogAdapter(
-        private var logs: List<ErrorLogger.LogEntry>,
-        private val onClick: (ErrorLogger.LogEntry) -> Unit
+        private var logs: List<UiLog>,
+        private val onClick: (UiLog) -> Unit
     ) : RecyclerView.Adapter<LogAdapter.ViewHolder>() {
 
         class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -248,7 +289,7 @@ class ErrorLogActivity : AppCompatActivity() {
             holder.timeText.text = log.timeFormatted
             holder.levelText.text = log.levelIcon
             holder.componentText.text = log.component
-            holder.messageText.text = log.message.take(100) + if (log.message.length > 100) "..." else ""
+            holder.messageText.text = log.messagePreview
             
             // Color based on level
             val bgColor = when (log.level) {
@@ -265,9 +306,18 @@ class ErrorLogActivity : AppCompatActivity() {
 
         override fun getItemCount() = logs.size
 
-        fun updateLogs(newLogs: List<ErrorLogger.LogEntry>) {
+        fun updateLogs(newLogs: List<UiLog>) {
+            val oldLogs = logs
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize() = oldLogs.size
+                override fun getNewListSize() = newLogs.size
+                override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                    oldLogs[oldItemPosition].id == newLogs[newItemPosition].id
+                override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int): Boolean =
+                    oldLogs[oldItemPosition] == newLogs[newItemPosition]
+            })
             logs = newLogs
-            notifyDataSetChanged()
+            diff.dispatchUpdatesTo(this)
         }
     }
 }

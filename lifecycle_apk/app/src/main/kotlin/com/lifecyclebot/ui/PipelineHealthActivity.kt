@@ -145,7 +145,7 @@ class PipelineHealthActivity : AppCompatActivity() {
 
             findViewById<Button>(R.id.copyButton).setOnClickListener { copyToClipboardAsync() }
 
-            findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = true) }
+            findViewById<Button>(R.id.refreshButton).setOnClickListener { renderSnapshotAsync(forceFull = false, manualRefresh = true) }
             prevSectionButton.setOnClickListener { moveSection(-1) }
             nextSectionButton.setOnClickListener { moveSection(1) }
 
@@ -160,7 +160,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 }
             }
 
-            renderSnapshotAsync()
+            renderSnapshotAsync(forceFull = false, manualRefresh = true)
         }
     }
 
@@ -195,7 +195,7 @@ class PipelineHealthActivity : AppCompatActivity() {
      * updates post back to the main looper. This eliminates the
      * 250ms+ frame stalls every 2s observed in the V5.9.899 dump.
      */
-    private fun renderSnapshotAsync(forceFull: Boolean = false) {
+    private fun renderSnapshotAsync(forceFull: Boolean = false, manualRefresh: Boolean = false) {
         if (destroyed || !activityVisible || !viewsBound) return
         val generation = renderGeneration
         bgHandler.post {
@@ -205,7 +205,9 @@ class PipelineHealthActivity : AppCompatActivity() {
             // dumpText() walks large rings/maps and then causes TextView layout churn when
             // posted back. Build the full dump only on first render or explicit refresh/copy;
             // normal timer refresh updates badges from the lightweight snapshot only.
-            val needFullDump = forceFull || fullDumpCache.isBlank()
+            // V5.9.1084 — full forensic dump is COPY/EXPORT ONLY.
+            // Opening this activity must not build/render the massive dump by default.
+            val needFullDump = forceFull
             val dump = if (needFullDump) {
                 try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
             } else fullDumpCache
@@ -231,6 +233,26 @@ class PipelineHealthActivity : AppCompatActivity() {
                     if (reportSections.isEmpty()) reportSections = listOf(dump)
                     if (forceFull) currentSectionIndex = 0
                     if (currentSectionIndex !in reportSections.indices) currentSectionIndex = 0
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PIPELINE_FULL_DUMP_COPY_ONLY", "chars=${dump.length}") } catch (_: Throwable) {}
+                } else if (reportSections.isEmpty() || manualRefresh) {
+                    reportSections = listOf(
+                        "Pipeline Health — lightweight view
+
+" +
+                            "Loop/scan events: $loop
+" +
+                            "Executor invocations: $exec
+" +
+                            "Journal writes: $jrnl
+" +
+                            "ANR hints: ${snap.anrHints}
+" +
+                            "Max frame gap: ${snap.maxFrameGapMs} ms
+
+" +
+                            "Full forensic dump is copy/export only. Tap Copy to generate it off-main."
+                    )
+                    currentSectionIndex = 0
                 }
                 statLoop.text     = formatBig(loop)
                 statExec.text     = formatBig(exec)
@@ -238,7 +260,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 statMaxFrame.text = maxFrameTxt
                 anrBadge.text     = anrTxt
                 anrBadge.setTextColor(anrColor)
-                if (needFullDump) renderCurrentSection()
+                renderCurrentSection()
             }
         }
     }
@@ -301,11 +323,12 @@ class PipelineHealthActivity : AppCompatActivity() {
         val generation = renderGeneration
         bgHandler.post {
             if (destroyed || generation != renderGeneration) return@post
-            val text = try { fullDumpCache.ifBlank { PipelineHealthCollector.dumpText() } } catch (_: Throwable) { "(render error)" }
+            val text = try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
             mainHandler.post {
                 if (destroyed || generation != renderGeneration) return@post
                 val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cb.setPrimaryClip(ClipData.newPlainText("AATE Pipeline Health", text))
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PIPELINE_FULL_DUMP_COPY_ONLY", "chars=${text.length}") } catch (_: Throwable) {}
                 Toast.makeText(
                     this,
                     "Pipeline health dump copied (${text.length} chars)",
