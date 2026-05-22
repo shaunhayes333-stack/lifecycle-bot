@@ -178,11 +178,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         ctx.startForegroundService(intent)
     }
 
-    fun stopBot(source: String = "ui_stop_button") {
+    fun stopBot(source: String = "ui_stop_button", uiStopConfirmed: Boolean = false) {
         val intent = Intent(ctx, BotService::class.java).apply {
             action = BotService.ACTION_STOP
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
             putExtra(BotService.EXTRA_STOP_SOURCE, source)
+            putExtra(BotService.EXTRA_UI_STOP_CONFIRMED, source != "ui_stop_button" || uiStopConfirmed)
         }
         // V5.9.1071 — DO NOT pre-mutate BotService.status.running or _ui.running.
         // Same bug class as V5.9.1068 start pre-mutation: the ViewModel was declaring
@@ -195,8 +196,14 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleBot() {
+        // V5.9.1075 — deprecated for Main button use. Kept for compatibility,
+        // but unconfirmed ui_stop_button stops are rejected by BotService.
         val liveRunning = BotService.isRuntimeActive()
-        if (liveRunning) stopBot() else startBot()
+        if (liveRunning) stopBot(uiStopConfirmed = false) else startBot()
+    }
+
+    fun stopBotFromStopButton() {
+        stopBot(source = "ui_stop_button", uiStopConfirmed = true)
     }
     
     fun forceRefresh() {

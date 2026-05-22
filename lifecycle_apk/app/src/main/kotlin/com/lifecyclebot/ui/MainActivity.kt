@@ -3306,20 +3306,22 @@ for legal compliance.
         })
         btnToggle.setTextColor(if (running || isHalted) white else white)
 
-        // Override toggle click when halted
-        if (isHalted) {
-            btnToggle.setOnClickListener {
-                // Clear halt and stop the bot
+        // V5.9.1075 — EXPLICIT button semantics. Do NOT use vm.toggleBot()
+        // here. START text must only send ACTION_START; STOP text must only send
+        // a confirmed ACTION_STOP. A stale/ghost runtime read is not allowed to
+        // invert the operator's click again.
+        when {
+            isHalted -> btnToggle.setOnClickListener {
                 try {
                     val svc = com.lifecyclebot.engine.BotService.instance
                     val f   = svc?.javaClass?.getDeclaredField("securityGuard")
                     f?.isAccessible = true
                     (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
                 } catch (_: Exception) {}
-                vm.stopBot()
+                vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
             }
-        } else {
-            btnToggle.setOnClickListener { vm.toggleBot() }
+            running -> btnToggle.setOnClickListener { vm.stopBotFromStopButton() }
+            else    -> btnToggle.setOnClickListener { vm.startBot() }
         }
 
         statusDot.background = ContextCompat.getDrawable(this, when {

@@ -46,6 +46,7 @@ class BotService : Service() {
         const val ACTION_LOOP_HEARTBEAT = "com.lifecyclebot.LOOP_HEARTBEAT"
         const val EXTRA_USER_REQUESTED = "com.lifecyclebot.USER_REQUESTED"
         const val EXTRA_STOP_SOURCE = "com.lifecyclebot.STOP_SOURCE"
+        const val EXTRA_UI_STOP_CONFIRMED = "com.lifecyclebot.UI_STOP_CONFIRMED"
         const val RUNTIME_PREFS = "bot_runtime"
         const val KEY_WAS_RUNNING_BEFORE_SHUTDOWN = "was_running_before_shutdown"
         const val KEY_MANUAL_STOP_REQUESTED = "manual_stop_requested"
@@ -1509,7 +1510,18 @@ class BotService : Service() {
             }
             ACTION_STOP  -> {
                 val stopSource = intent.getStringExtra(EXTRA_STOP_SOURCE) ?: "unknown_action_stop"
-                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)}") } catch (_: Throwable) {}
+                val uiStopConfirmed = intent.getBooleanExtra(EXTRA_UI_STOP_CONFIRMED, false)
+                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed") } catch (_: Throwable) {}
+                // V5.9.1075 — reject ambiguous UI stops. Regression RCA:
+                // Main rendered START BOT from stale UiState, but its click handler
+                // called toggleBot(); toggleBot re-read live runtime truth, saw an
+                // active/ghost loop, and sent ACTION_STOP source=ui_stop_button.
+                // Operator clicked/expected START; service accepted STOP. Never again.
+                if (stopSource == "ui_stop_button" && !uiStopConfirmed) {
+                    ErrorLogger.error("BotService", "🚫 Rejected ambiguous UI stop: missing EXTRA_UI_STOP_CONFIRMED")
+                    try { ForensicLogger.lifecycle("ACTION_STOP_REJECTED", "source=$stopSource reason=missing_ui_stop_confirm") } catch (_: Throwable) {}
+                    return START_STICKY
+                }
                 // V5.9.609 — make user Stop authoritative immediately. The old
                 // code only cleared was_running, while already-scheduled alarms
                 // (90s/3m keep-alive, onDestroy, onTaskRemoved) could still fire
