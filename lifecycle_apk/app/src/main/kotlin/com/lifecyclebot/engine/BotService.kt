@@ -7537,6 +7537,23 @@ class BotService : Service() {
     // learning/closeout fanout previously parked the main cycle in
     // POST_SUPERVISOR and stopped BOT_LOOP_TICK after ~3 iterations.
     private val exitSweepInFlight = AtomicBoolean(false)
+    // V5.9.1079 — operator snapshot showed EXIT_SWEEP_SKIPPED=154 vs
+    // ASYNC_DONE=42 in 1095s with 9 open positions and EXIT allow=191/block=0.
+    // The exit gate kept approving exits but the actual paperSell never fired
+    // because every cycle's sweep request was skipped on alreadyRunning=true.
+    // Root cause: the 2.5s watchdog cancelled the worker but the worker's
+    // own `finally` block also ran compareAndSet on the gate — whichever
+    // ran first won, and if the worker's IO was wedged inside non-cooperative
+    // code, the watchdog won the gate flip but the dead worker's reference
+    // was lost. Subsequent sweeps then saw alreadyRunning=true forever
+    // because nothing tracked the wedged worker for explicit cancel.
+    // Fix: track the live worker Job + its start time. When a new sweep
+    // arrives and the gate is held but the prior worker is older than the
+    // watchdog budget, force-cancel the prior worker AND clear the gate
+    // before proceeding. Stuck IO can never park exits again.
+    @Volatile private var exitSweepWorker: kotlinx.coroutines.Job? = null
+    @Volatile private var exitSweepStartedMs: Long = 0L
+    private val EXIT_SWEEP_HARD_MS: Long = 3_000L
 
     // V5.9.1019 — Operator V5.9.1018 snapshot showed cycles alternating
     // between fast (sub-200ms) and slow (11-44s). Forensic trace pinned
@@ -7549,6 +7566,12 @@ class BotService : Service() {
     // as launchExitSweepAsync (V5.9.1010) — single-flight + worker + hard
     // timeout watchdog so the gate can never get stuck.
     private val slSafetyNetInFlight = AtomicBoolean(false)
+    // V5.9.1079 — same pattern as exitSweepInFlight: track the live worker
+    // + age so a wedged universal-SL sweep can be force-cancelled by the
+    // next cycle instead of permanently parking position exits.
+    @Volatile private var slSafetyNetWorker: kotlinx.coroutines.Job? = null
+    @Volatile private var slSafetyNetStartedMs: Long = 0L
+    private val UNIVERSAL_SL_HARD_MS: Long = 4_000L
 
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
@@ -10354,14 +10377,33 @@ launchExitSweepAsync("POST_SUPERVISOR")
 
 
     private fun launchExitSweepAsync(reason: String) {
+        // V5.9.1079 — if the gate is held, check whether the prior worker
+        // is hung past the hard budget. If yes, force-cancel it and clear
+        // the gate so this sweep can proceed. Previously the gate could
+        // remain stuck indefinitely if the watchdog won the CAS race but
+        // the wedged worker's IO never returned.
         if (!exitSweepInFlight.compareAndSet(false, true)) {
-            try {
-                ForensicLogger.lifecycle(
-                    "EXIT_SWEEP_SKIPPED",
-                    "reason=$reason alreadyRunning=true"
-                )
-            } catch (_: Throwable) {}
-            return
+            val priorAgeMs = System.currentTimeMillis() - exitSweepStartedMs
+            val priorWorker = exitSweepWorker
+            if (priorAgeMs >= EXIT_SWEEP_HARD_MS) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXIT_SWEEP_FORCE_RESET",
+                        "reason=$reason priorAgeMs=$priorAgeMs hardMs=$EXIT_SWEEP_HARD_MS action=cancel_and_proceed",
+                    )
+                } catch (_: Throwable) {}
+                try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("exit sweep stuck > ${EXIT_SWEEP_HARD_MS}ms")) } catch (_: Throwable) {}
+                exitSweepWorker = null
+                exitSweepInFlight.set(true)
+            } else {
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXIT_SWEEP_SKIPPED",
+                        "reason=$reason alreadyRunning=true priorAgeMs=$priorAgeMs"
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
         }
 
         val cfgSnapshot = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
@@ -10377,6 +10419,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
         // gate from an independent watchdog after 2500ms. The stuck worker may
         // finish later, but botLoop/openPositionTickLoop can keep requesting
         // future sweeps instead of silently disabling exit management.
+        exitSweepStartedMs = System.currentTimeMillis()
         val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason")
@@ -10389,16 +10432,19 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 ErrorLogger.warn("BotService", "exit sweep async error: ${t.message}")
             } finally {
                 if (exitSweepInFlight.compareAndSet(true, false)) {
+                    exitSweepWorker = null
                     ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason")
                 } else {
                     ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason")
                 }
             }
         }
+        exitSweepWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 kotlinx.coroutines.delay(2_500L)
                 if (worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
+                    exitSweepWorker = null
                     ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500 action=gate_released")
                     try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
                 }
@@ -10877,16 +10923,34 @@ launchExitSweepAsync("POST_SUPERVISOR")
         cfg: com.lifecyclebot.data.BotConfig,
         wallet: com.lifecyclebot.network.SolanaWallet?,
     ) {
+        // V5.9.1079 — force-cancel stuck worker pattern (matches
+        // launchExitSweepAsync). Snapshot showed UNIVERSAL_SL_SWEEP_SKIPPED=153
+        // vs DONE=23 — the gate was held by a wedged worker on every cycle.
         if (!slSafetyNetInFlight.compareAndSet(false, true)) {
-            try {
-                ForensicLogger.lifecycle(
-                    "UNIVERSAL_SL_SWEEP_SKIPPED",
-                    "alreadyRunning=true"
-                )
-            } catch (_: Throwable) {}
-            return
+            val priorAgeMs = System.currentTimeMillis() - slSafetyNetStartedMs
+            val priorWorker = slSafetyNetWorker
+            if (priorAgeMs >= UNIVERSAL_SL_HARD_MS) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIVERSAL_SL_SWEEP_FORCE_RESET",
+                        "priorAgeMs=$priorAgeMs hardMs=$UNIVERSAL_SL_HARD_MS action=cancel_and_proceed",
+                    )
+                } catch (_: Throwable) {}
+                try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("universal SL sweep stuck > ${UNIVERSAL_SL_HARD_MS}ms")) } catch (_: Throwable) {}
+                slSafetyNetWorker = null
+                slSafetyNetInFlight.set(true)
+            } else {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIVERSAL_SL_SWEEP_SKIPPED",
+                        "alreadyRunning=true priorAgeMs=$priorAgeMs"
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
         }
 
+        slSafetyNetStartedMs = System.currentTimeMillis()
         val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_START", "")
@@ -10895,16 +10959,19 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 ErrorLogger.warn("BotService", "universal SL sweep async error: ${t.message}")
             } finally {
                 if (slSafetyNetInFlight.compareAndSet(true, false)) {
+                    slSafetyNetWorker = null
                     try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "") } catch (_: Throwable) {}
                 } else {
                     try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "") } catch (_: Throwable) {}
                 }
             }
         }
+        slSafetyNetWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 kotlinx.coroutines.delay(3_000L)
                 if (worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
+                    slSafetyNetWorker = null
                     try {
                         ForensicLogger.lifecycle(
                             "UNIVERSAL_SL_SWEEP_TIMEOUT",

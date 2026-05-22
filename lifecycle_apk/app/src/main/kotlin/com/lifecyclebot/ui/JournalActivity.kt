@@ -399,10 +399,21 @@ class JournalActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val allEntries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    // V5.9.1062 — read directly from SQLite so Journal shows all
-                    // persisted trades even if the async init hasn't populated
-                    // the in-memory list yet (first-open race condition fix).
-                    val rawTrades = com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
+                    // V5.9.1079 — In-memory list is the source of truth while the
+                    // bot is running. recordTrade() populates it synchronously,
+                    // but insertTradeAsync() flushes to SQLite via the IO
+                    // HandlerThread — there is a wall-clock window where 198
+                    // TRADEJRNL_REC counter increments have happened but the
+                    // SQLite rows have not yet been committed. Reading from
+                    // disk first in that window returns 0 even though the
+                    // trades are live in memory (the V5.9.1078 snapshot symptom).
+                    // Read in-memory first; fall back to SQLite only when memory
+                    // is empty (bot stopped / fresh open before init() finished).
+                    val rawTrades = run {
+                        val mem = com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                        if (mem.isNotEmpty()) mem
+                        else com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
+                    }
                     // Also merge any in-memory token trades not yet persisted (running bot)
                     val tokenTrades = mutableListOf<com.lifecyclebot.data.Trade>()
                     try {
