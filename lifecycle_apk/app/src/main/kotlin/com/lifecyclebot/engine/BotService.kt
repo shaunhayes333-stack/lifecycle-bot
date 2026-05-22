@@ -10565,6 +10565,28 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // workers. Counts workers that hit the per-worker withTimeoutOrNull
     // budget — surfaces stuck APIs at a glance.
     private val supervisorLifetimeWorkerTimeouts = java.util.concurrent.atomic.AtomicLong(0)
+
+    // V5.9.1077 — supervisor slots are leases, not a blind counter.
+    // Operator log showed the ghost-death pattern:
+    //   SUPERVISOR_INFLIGHT_CAP loop=43 spawned=0 skipped=100 active=100 cap=100
+    // even while BOT_LOOP_TICK continued. The old AtomicInteger counted acquired
+    // slots but had no identity/age; if a watchdog/release coroutine was delayed,
+    // or the next 5s loop arrived before the 5.5s release, the whole next cycle
+    // saw cap-full and processed zero tokens. Leases expire by wall-clock before
+    // acquire, so stale/dead workers cannot monopolize capacity.
+    private data class SupervisorLease(val mint: String, val startedMs: Long)
+    private val supervisorLeaseSeq = java.util.concurrent.atomic.AtomicLong(0)
+    private val supervisorLeases = java.util.concurrent.ConcurrentHashMap<Long, SupervisorLease>()
+    private val supervisorLifetimeExpiredLeases = java.util.concurrent.atomic.AtomicLong(0)
+    // Must be < 5s bot cadence so the next cycle is never fully starved by the
+    // prior cycle's timed workers. processTokenCycle may continue in background,
+    // but its supervisor slot lease has expired and capacity is returned.
+    private val SUPERVISOR_LEASE_TTL_MS: Long = 4_750L
+    // Back-pressure: if the underlying IO is wedged, don't launch another full
+    // 100 workers every 5s forever. This still preserves throughput while avoiding
+    // runaway thread/network pressure.
+    private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 140
+
     // V5.9.1073 — SUPERVISOR ACCOUNTING REWRITE.
     // Operator directive: give supervisor a range of 100 and stop the repeated
     // active=48/cap=48 weirdness. The old design selected 96 mints but allowed
@@ -10574,9 +10596,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // push the counter negative/phantom and the next cycle would oscillate between
     // false headroom and cap saturation.
     //
-    // New rule: range=100, inflight=100, CAS acquire, non-negative release.
+    // New rule: range=100, inflight=100, expiring per-worker leases.
     // Saturation is telemetry only (SUPERVISOR_POOL_SATURATED_NO_RESET); we never
-    // destructively reset the active counter again.
+    // destructively reset the active counter again, and stale leases expire before
+    // the next 5s loop cadence.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
@@ -10586,27 +10609,49 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // slot across multiple 5s cycles.
     private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 5_000L
 
-    private fun supervisorTryAcquireSlot(): Boolean {
-        while (true) {
-            val raw = supervisorActive.get()
-            if (raw < 0) {
-                if (supervisorActive.compareAndSet(raw, 0)) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "SUPERVISOR_ACTIVE_CLAMPED",
-                            "reason=acquire prevActive=$raw cap=$SUPERVISOR_MAX_INFLIGHT",
-                        )
-                    } catch (_: Throwable) {}
+    private fun supervisorPruneExpiredLeases(reason: String = "cycle"): Int {
+        val now = System.currentTimeMillis()
+        var expired = 0
+        try {
+            val it = supervisorLeases.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                val age = now - e.value.startedMs
+                if (age >= SUPERVISOR_LEASE_TTL_MS) {
+                    if (supervisorLeases.remove(e.key, e.value)) expired++
                 }
-                continue
             }
-            if (raw >= SUPERVISOR_MAX_INFLIGHT) return false
-            if (supervisorActive.compareAndSet(raw, raw + 1)) return true
+        } catch (_: Throwable) {}
+        if (expired > 0) {
+            supervisorLifetimeExpiredLeases.addAndGet(expired.toLong())
+            supervisorActive.set(supervisorLeases.size)
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_LEASE_EXPIRED",
+                    "reason=$reason expired=$expired active=${supervisorLeases.size} ttlMs=$SUPERVISOR_LEASE_TTL_MS total=${supervisorLifetimeExpiredLeases.get()}",
+                )
+            } catch (_: Throwable) {}
         }
+        return expired
     }
 
-    private fun supervisorReleaseSlot(): Int {
-        return supervisorActive.updateAndGet { cur -> (cur - 1).coerceAtLeast(0) }
+    private fun supervisorTryAcquireSlot(mint: String): Long {
+        supervisorPruneExpiredLeases("acquire")
+        val live = supervisorLeases.size
+        // Lease cap controls cycle coverage; live-worker cap prevents runaway
+        // non-cooperative processTokenCycle calls if APIs wedge.
+        if (live >= SUPERVISOR_MAX_INFLIGHT || live >= SUPERVISOR_MAX_LIVE_WORKERS) return -1L
+        val id = supervisorLeaseSeq.incrementAndGet()
+        supervisorLeases[id] = SupervisorLease(mint = mint, startedMs = System.currentTimeMillis())
+        supervisorActive.set(supervisorLeases.size)
+        return id
+    }
+
+    private fun supervisorReleaseSlot(leaseId: Long): Int {
+        if (leaseId > 0L) supervisorLeases.remove(leaseId)
+        val active = supervisorLeases.size.coerceAtLeast(0)
+        supervisorActive.set(active)
+        return active
     }
 
     private fun supervisorClampIfNegative(reason: String) {
@@ -10619,6 +10664,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 )
             } catch (_: Throwable) {}
         }
+        supervisorPruneExpiredLeases(reason)
+        supervisorActive.set(supervisorLeases.size.coerceAtLeast(0))
     }
 
     /**
@@ -10628,9 +10675,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
      * worker on Dispatchers.IO; the rest are dropped (re-attempted next
      * cycle's fresh ordering). The bot loop returns immediately — no
      * chunked await, no per-chunk timeout, no SUPERVISOR_CHUNK_TIMEOUT
-     * forensic noise. Worker concurrency is bounded by the AtomicInteger
-     * gate AND the existing OkHttp dispatcher (maxRequestsPerHost=16 per
-     * V5.9.1032), so we cannot blast Birdeye/DexScreener.
+     * forensic noise. Worker admission is bounded by expiring lease slots
+     * plus the existing OkHttp dispatcher (maxRequestsPerHost=16 per
+     * V5.9.1032), so we cannot permanently starve the next cycle.
      *
      * The returned SupervisorPhaseResult.processed is "spawned this tick",
      * not "completed this tick". For long-tail telemetry, audit
@@ -10652,7 +10699,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
         run {
             val now = System.currentTimeMillis()
             supervisorClampIfNegative("pre_cycle")
-            val currentActive = supervisorActive.get()
+            val currentActive = supervisorLeases.size
             if (currentActive >= SUPERVISOR_MAX_INFLIGHT) {
                 val stallMs = now - supervisorLastSpawnAt.get()
                 if (stallMs >= SUPERVISOR_POOL_STALL_MS) {
@@ -10672,7 +10719,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
         for (mint in orderedMints) {
             if (!status.running) break
-            if (!supervisorTryAcquireSlot()) {
+            val leaseId = supervisorTryAcquireSlot(mint)
+            if (leaseId <= 0L) {
                 skipped++
                 continue
             }
@@ -10697,12 +10745,12 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // the inner thread ever returns.
             val released = java.util.concurrent.atomic.AtomicBoolean(false)
             val releaseSlot = {
-                if (released.compareAndSet(false, true)) supervisorReleaseSlot()
+                if (released.compareAndSet(false, true)) supervisorReleaseSlot(leaseId)
                 Unit
             }
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 try {
-                    kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 500L)
+                    kotlinx.coroutines.delay(SUPERVISOR_LEASE_TTL_MS)
                     releaseSlot()
                 } catch (_: Throwable) {}
             }
@@ -10772,7 +10820,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
             try {
                 ForensicLogger.lifecycle(
                     "SUPERVISOR_INFLIGHT_CAP",
-                    "loop=$loopCount spawned=$spawned skipped=$skipped active=${supervisorActive.get()} cap=$SUPERVISOR_MAX_INFLIGHT",
+                    "loop=$loopCount spawned=$spawned skipped=$skipped active=${supervisorLeases.size} cap=$SUPERVISOR_MAX_INFLIGHT liveCap=$SUPERVISOR_MAX_LIVE_WORKERS",
                 )
             } catch (_: Throwable) {}
         }
