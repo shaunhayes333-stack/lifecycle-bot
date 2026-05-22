@@ -236,20 +236,12 @@ class PipelineHealthActivity : AppCompatActivity() {
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PIPELINE_FULL_DUMP_COPY_ONLY", "chars=${dump.length}") } catch (_: Throwable) {}
                 } else if (reportSections.isEmpty() || manualRefresh) {
                     reportSections = listOf(
-                        "Pipeline Health — lightweight view
-
-" +
-                            "Loop/scan events: $loop
-" +
-                            "Executor invocations: $exec
-" +
-                            "Journal writes: $jrnl
-" +
-                            "ANR hints: ${snap.anrHints}
-" +
-                            "Max frame gap: ${snap.maxFrameGapMs} ms
-
-" +
+                        "Pipeline Health — lightweight view\n\n" +
+                            "Loop/scan events: $loop\n" +
+                            "Executor invocations: $exec\n" +
+                            "Journal writes: $jrnl\n" +
+                            "ANR hints: ${snap.anrHints}\n" +
+                            "Max frame gap: ${snap.maxFrameGapMs} ms\n\n" +
                             "Full forensic dump is copy/export only. Tap Copy to generate it off-main."
                     )
                     currentSectionIndex = 0

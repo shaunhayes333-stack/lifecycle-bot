@@ -156,9 +156,7 @@ class ErrorLogActivity : AppCompatActivity() {
                     "charsShown=$LOG_DETAIL_PREVIEW_CHARS totalChars=${fullMessage.length} component=${log.component} level=${log.level}",
                 )
             } catch (_: Throwable) {}
-            fullMessage.take(LOG_DETAIL_PREVIEW_CHARS) + "
-
-… truncated for UI preview (${fullMessage.length} chars). Use Copy for the full log."
+            fullMessage.take(LOG_DETAIL_PREVIEW_CHARS) + "\n\n… truncated for UI preview (${fullMessage.length} chars). Use Copy for the full log."
         } else fullMessage
         
         AlertDialog.Builder(this)
