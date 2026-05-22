@@ -143,29 +143,30 @@ object ModeSpecificExits {
     private fun aiTimeoutHardFloorExit(
         mint: String,
         holdTimeMins: Double,
-        aiTimeout: Double,
+        aiTimeout: Int,
     ): Boolean {
+        val aiTimeoutD = aiTimeout.toDouble()
         val aiOver = try { isAIOverheld(mint, holdTimeMins) } catch (_: Throwable) { false }
-        val hardFloorMet = holdTimeMins >= aiTimeout
-        val shouldExit = hardFloorMet && (holdTimeMins > aiTimeout || aiOver)
+        val hardFloorMet = holdTimeMins >= aiTimeoutD
+        val shouldExit = hardFloorMet && (holdTimeMins > aiTimeoutD || aiOver)
         try {
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "FRESH_TIMEOUT_CHECK",
-                "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)} aiOverheld=$aiOver hardFloorMet=$hardFloorMet shouldExit=$shouldExit"
+                "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout aiOverheld=$aiOver hardFloorMet=$hardFloorMet shouldExit=$shouldExit"
             )
         } catch (_: Throwable) {}
         if (shouldExit) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "FRESH_TIMEOUT_EXIT_CONFIRMED",
-                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)}"
+                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout"
                 )
             } catch (_: Throwable) {}
         } else if (aiOver && !hardFloorMet) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY",
-                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)} aiSaidOverheld=true"
+                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout aiSaidOverheld=true"
                 )
             } catch (_: Throwable) {}
         }
