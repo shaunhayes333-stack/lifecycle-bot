@@ -557,6 +557,14 @@ class MainActivity : AppCompatActivity() {
             }
 
             bindViews()
+            // V5.9.1085 — regression fix: V5.9.1074 added mainUiActive gating to
+            // updateUi(), but repeatOnLifecycle(STARTED) can consume the initial
+            // StateFlow value before onResume() flips mainUiActive=true. That skipped
+            // the one render that binds Start/Stop and leaves MainActivity looking
+            // frozen until another state emission. Mark active immediately after
+            // views are bound; onPause/onStop still disable stale background posts.
+            mainUiActive = true
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_ACTIVE_PRIMED", "source=onCreate_after_bindViews") } catch (_: Throwable) {}
             // V5.9.1019 — DEFER HEAVY UI SETUP PAST FIRST FRAME.
             // Operator V5.9.1018 ANR snapshot showed 4× MainActivity.onCreate
             // hits totalling ~2.5s, plus 1321ms inside setupChartControls'
@@ -845,6 +853,16 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         mainUiActive = true
+        // V5.9.1085 — force one foreground render from the latest UiState.
+        // StateFlow does not guarantee a new emission just because Activity resumed;
+        // after V5.9.1074's mainUiActive guard, returning from another Activity could
+        // leave the main screen inert/stale until the bot emitted a new state.
+        try {
+            updateUi(vm.ui.value)
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT", "source=onResume")
+        } catch (t: Throwable) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "foreground repaint failed: ${t.message}")
+        }
         // Refresh currency rates and wallet balance when returning to activity
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -1922,7 +1940,10 @@ for legal compliance.
     }
 
     private fun updateUi(state: UiState) {
-        if (!mainUiActive || isFinishing || isDestroyed) return
+        if (!mainUiActive || isFinishing || isDestroyed) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UPDATE_SKIPPED_INACTIVE", "active=$mainUiActive finishing=$isFinishing destroyed=$isDestroyed") } catch (_: Throwable) {}
+            return
+        }
         val ts  = state.activeToken
         val cfg = state.config
         val ws  = state.walletState
