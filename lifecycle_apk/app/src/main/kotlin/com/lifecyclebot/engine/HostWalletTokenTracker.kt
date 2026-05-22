@@ -482,6 +482,14 @@ object HostWalletTokenTracker {
                     existing.status = PositionStatus.OPEN_TRACKING
                     emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
                         "Wallet truth: ${existing.symbol ?: mint.take(6)} promoted to OPEN_TRACKING qty=$uiAmount")
+                    // V5.9.1081 — confirms a live position via wallet balance
+                    // reconciliation (no signature available — synced from chain state).
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_POSITION_CONFIRMED_FROM_WALLET",
+                            "mint=${mint.take(10)} symbol=${existing.symbol ?: "?"} qty=$uiAmount"
+                        )
+                    } catch (_: Throwable) {}
                 }
                 continue
             }
@@ -507,6 +515,20 @@ object HostWalletTokenTracker {
             positions[mint] = recovered
             emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_RECOVERED_FROM_WALLET, mint, recovered.symbol, null,
                 "Tracker RECOVERED_FROM_WALLET qty=$uiAmount mint=${mint.take(8)}…")
+            // V5.9.1081 — operator-spec'd forensic markers so the next pipeline
+            // snapshot can prove orphans are being attached + monitored.
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "ORPHAN_WALLET_TOKEN_ATTACHED",
+                    "mint=${mint.take(10)} qty=$uiAmount decimals=$decimals"
+                )
+            } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "ORPHAN_WALLET_TOKEN_MONITORED_FOR_EXIT",
+                    "mint=${mint.take(10)} status=OPEN_TRACKING source=WALLET_RECONCILED"
+                )
+            } catch (_: Throwable) {}
         }
 
         // Pass 2: zombie closure — open positions whose wallet balance is now zero.

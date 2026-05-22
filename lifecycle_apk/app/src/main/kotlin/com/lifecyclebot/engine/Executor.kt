@@ -6179,6 +6179,12 @@ class Executor(
         } else if (wallet == null) {
             ErrorLogger.error("Executor",
                 "🚫 MEME_SPINE LIVE_BUY_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing to fall back to paperBuy.")
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LIVE_BUY_FAILED_NO_PAPER_FALLBACK",
+                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$effSol reason=wallet_null"
+                )
+            } catch (_: Throwable) {}
             onLog("🚫 Live buy blocked: ${ts.symbol} — wallet disconnected. Reconnect to resume live trading.", tradeId.mint)
             onNotify("🚫 Wallet Disconnected",
                 "Cannot execute live buy on ${ts.symbol} — wallet is not connected. Paper-trade fallback refused.",
@@ -6423,6 +6429,13 @@ class Executor(
                     ForensicLogger.lifecycle(
                         "PAPER_BUY_IN_LIVE_MODE_BLOCKED",
                         "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag",
+                    )
+                } catch (_: Throwable) {}
+                // V5.9.1081 — operator-spec'd alias log name.
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_POSITION_BLOCKED_IN_LIVE_MODE",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag"
                     )
                 } catch (_: Throwable) {}
                 ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — RuntimeModeAuthority=LIVE and shadowPaperEnabled=false")
@@ -7771,6 +7784,12 @@ class Executor(
             }
             
             tradeId.executed(price, sol, isPaper = false, signature = sig)
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE",
+                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol price=$price signature=${sig.take(16)}"
+                )
+            } catch (_: Throwable) {}
             tradeId.monitoring()
             
             TradeLifecycle.executed(tradeId.mint, price, sol)

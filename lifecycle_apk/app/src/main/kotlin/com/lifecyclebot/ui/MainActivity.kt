@@ -1674,11 +1674,18 @@ for legal compliance.
         tvPnlPercent     = try { findViewById(R.id.tvPnlPercent) } catch (_: Exception) { TextView(this) }
         tvPnlValue       = try { findViewById(R.id.tvPnlValue) } catch (_: Exception) { TextView(this) }
 
-        // V5.9.1076 — initial bind must be START-only. updateUi() later arms
-        // the explicit STOP handler only when the rendered state is STOP. The old
-        // toggle listener created a startup/rebind window where a visible START
-        // button could still call toggleBot() and send ACTION_STOP.
-        btnToggle.setOnClickListener { vm.startBot() }
+        // V5.9.1081 — DISABLED early-window. The previous V5.9.1076 fix kept a
+        // "START-only" listener wired in onCreate as a safety against startup
+        // racing with updateUi. But that listener still ran on any tap before
+        // the first state-bound render bound the real handler at line ~3327,
+        // and 10 rapid START taps in that window were processed by an
+        // ACTION_START path that — pre V5.9.1081 — could force-cancel a healthy
+        // loop. Now the button is hard-disabled at creation and only the
+        // state-aware bind in updateUi (running → STOP / else → START) is
+        // permitted to enable + wire it. Safe no-op listener so nothing
+        // happens if the view somehow becomes enabled before bind.
+        btnToggle.setOnClickListener { /* state-bound in updateUi */ }
+        btnToggle.isEnabled = false
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
         }
@@ -3327,6 +3334,9 @@ for legal compliance.
             running -> btnToggle.setOnClickListener { vm.stopBotFromStopButton() }
             else    -> btnToggle.setOnClickListener { vm.startBot() }
         }
+        // V5.9.1081 — only the state-aware bind above is permitted to enable
+        // the toggle. Before this point the button is inert (set in onCreate).
+        btnToggle.isEnabled = true
 
         statusDot.background = ContextCompat.getDrawable(this, when {
             isHalted -> R.drawable.dot_red

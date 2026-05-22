@@ -47,6 +47,14 @@ class BotService : Service() {
         const val EXTRA_USER_REQUESTED = "com.lifecyclebot.USER_REQUESTED"
         const val EXTRA_STOP_SOURCE = "com.lifecyclebot.STOP_SOURCE"
         const val EXTRA_UI_STOP_CONFIRMED = "com.lifecyclebot.UI_STOP_CONFIRMED"
+        // V5.9.1081 — separates the stuck-loop force-restart rescue from the
+        // normal user UI START button. Normal START is now strictly idempotent:
+        // start-while-starting and start-while-running both IGNORE (no cancel,
+        // no restart). The legacy "userRequested && loopActive" force-restart
+        // path now requires this explicit extra to be set, and the UI START
+        // button NEVER sets it. Only an explicit "halt_reset"-style operator
+        // confirmation can recover from a wedged loop.
+        const val EXTRA_FORCE_RESTART_CONFIRMED = "com.lifecyclebot.FORCE_RESTART_CONFIRMED"
         const val RUNTIME_PREFS = "bot_runtime"
         const val KEY_WAS_RUNNING_BEFORE_SHUTDOWN = "was_running_before_shutdown"
         const val KEY_MANUAL_STOP_REQUESTED = "manual_stop_requested"
@@ -458,6 +466,16 @@ class BotService : Service() {
     lateinit var autoMode: AutoModeEngine
     lateinit var copyTradeEngine: CopyTradeEngine
     private var loopJob: Job? = null
+
+    // V5.9.1081 — single-flight startup latch. Set to true the moment
+    // ACTION_START is accepted, cleared when startBot() finishes
+    // (success or failure). Prevents 10 rapid ACTION_START intents from
+    // creating 10 concurrent runtime jobs. Used in addition to (not
+    // instead of) loopJob.isActive — startInProgress covers the window
+    // BETWEEN ACTION_START being accepted and loopJob first becoming
+    // active, where loopJob.isActive is still false but a startup is
+    // already in flight.
+    @Volatile private var startInProgress: Boolean = false
 
     // V5.9.762 — EMERGENT CRITICAL #1: heartbeat/rescue rewrite.
     //
@@ -1428,7 +1446,13 @@ class BotService : Service() {
         when (intent.action) {
             ACTION_START -> {
                 val userRequested = intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)
+                val forceRestartConfirmed = intent.getBooleanExtra(EXTRA_FORCE_RESTART_CONFIRMED, false)
                 val manualStop = isManualStopRequested(applicationContext)
+
+                // V5.9.1081 — every ACTION_START gets a REQUESTED breadcrumb so
+                // the next snapshot can answer "did 10 START taps create 10
+                // runtime jobs or exactly 1?".
+                try { ForensicLogger.lifecycle("LIFECYCLE_START_REQUESTED", "userRequested=$userRequested forceRestart=$forceRestartConfirmed manualStop=$manualStop") } catch (_: Throwable) {}
 
                 // V5.9.609 — stale keep-alive / watchdog / lifecycle alarms must
                 // not undo a user stop. Only a fresh UI/user start may clear the
@@ -1436,6 +1460,7 @@ class BotService : Service() {
                 // after Stop because an older ACTION_START alarm fired later.
                 if (manualStop && !userRequested) {
                     ErrorLogger.warn("BotService", "Ignoring non-user ACTION_START because manual stop latch is active")
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_MANUAL_STOP_LATCH", "userRequested=false manualStop=true") } catch (_: Throwable) {}
                     cancelAllRestartAlarms()
                     try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
                     return START_NOT_STICKY
@@ -1450,62 +1475,104 @@ class BotService : Service() {
                     } catch (_: Exception) {}
                 }
 
+                // V5.9.1081 — strict idempotency. Three early-exit checks BEFORE
+                // any restart logic:
+                //   1) startInProgress  → a previous ACTION_START is mid-flight.
+                //                         IGNORE silently. (User mashing the
+                //                         button or alarm storm.)
+                //   2) loopJob.isActive → bot is already running. IGNORE.
+                //                         Never cancel and restart a healthy
+                //                         loop from normal ACTION_START.
+                //   3) forceRestartConfirmed → operator explicitly asked for a
+                //                              stuck-loop rescue (e.g. halt_reset
+                //                              path). Bypasses the running guard.
+                // The normal UI START button NEVER sets EXTRA_FORCE_RESTART_CONFIRMED,
+                // so it can never accidentally trigger the cancel+restart path.
+                if (startInProgress && !forceRestartConfirmed) {
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_ALREADY_STARTING", "userRequested=$userRequested") } catch (_: Throwable) {}
+                    return START_STICKY
+                }
+                if (loopJob?.isActive == true && !forceRestartConfirmed) {
+                    try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_ALREADY_EXISTS", "userRequested=$userRequested loopActive=true statusRunning=${status.running}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_ALREADY_RUNNING", "userRequested=$userRequested") } catch (_: Throwable) {}
+                    // Renew keep-alive so the running loop stays alive, but do
+                    // not cancel anything.
+                    scheduleKeepAliveAlarm()
+                    try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Exception) {}
+                    return START_STICKY
+                }
+
                 if (stopInProgress) {
                     // V5.9.148 — queue the start until stopBot() has fully drained.
                     // Otherwise the tail of stopBot stops the traders we just started.
                     addLog("⏳ Stop in progress — restart queued (will auto-start when clean)")
                     ErrorLogger.warn("BotService", "Start requested while stopInProgress — queued")
-                    scope.launch {
-                        // V5.9.720: increased from 60s to 30s — shutdown is now near-instant
-                        // (bot_shutdown sells skip heavy AI learning via the fast path).
-                        // 30s is plenty of headroom; if it still hangs, something else is wrong.
-                        val deadline = System.currentTimeMillis() + 30_000L
-                        while (stopInProgress && System.currentTimeMillis() < deadline) {
-                            kotlinx.coroutines.delay(200)
-                        }
-                        if (stopInProgress) {
-                            ErrorLogger.error("BotService", "stopBot() did not complete in 30s — force-clearing flag")
-                            stopInProgress = false
-                        }
-                        if (loopJob?.isActive != true && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
-                            userStartQueuedDuringStop = false
-                            startBot()
-                        }
-                    }
-                } else if (loopJob?.isActive != true) {
-                    userStartQueuedDuringStop = false
-                    scope.launch { startBot() }
-                } else if (userRequested) {
-                    // V5.9.1068 — RELAXED STUCK-LOOP RESCUE. The previous
-                    // condition required `!status.running` but the UI VM
-                    // sometimes pre-mutated status.running=true (V5.9.1068
-                    // removed that), and even legitimate user re-presses
-                    // of START while the bot LOOKS running but is actually
-                    // wedged should force a clean restart. Any user-driven
-                    // ACTION_START with an active-but-possibly-zombie loopJob
-                    // now triggers cancel+restart instead of being silently
-                    // swallowed by "Bot already running".
-                    ErrorLogger.warn("BotService", "🆘 USER RESTART: userRequested=true loopJob.isActive=true status.running=${status.running}. Force-cancelling existing loop and restarting.")
-                    addLog("🆘 User pressed START while loop active — force-restarting cleanly")
-                    try {
-                        ForensicLogger.lifecycle(
-                            "USER_FORCE_RESTART",
-                            "loopActive=true statusRunning=${status.running} action=cancel+restart"
-                        )
-                    } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_QUEUED_STOP_IN_PROGRESS", "userRequested=$userRequested") } catch (_: Throwable) {}
+                    startInProgress = true
                     scope.launch {
                         try {
-                            loopJob?.cancel(kotlinx.coroutines.CancellationException("user force restart"))
-                            withTimeoutOrNull(3_000L) { loopJob?.join() }
-                        } catch (_: Throwable) {}
-                        userStartQueuedDuringStop = false
-                        startBot()
+                            // V5.9.720: increased from 60s to 30s — shutdown is now near-instant
+                            // (bot_shutdown sells skip heavy AI learning via the fast path).
+                            // 30s is plenty of headroom; if it still hangs, something else is wrong.
+                            val deadline = System.currentTimeMillis() + 30_000L
+                            while (stopInProgress && System.currentTimeMillis() < deadline) {
+                                kotlinx.coroutines.delay(200)
+                            }
+                            if (stopInProgress) {
+                                ErrorLogger.error("BotService", "stopBot() did not complete in 30s — force-clearing flag")
+                                stopInProgress = false
+                            }
+                            if (loopJob?.isActive != true && (userStartQueuedDuringStop || !isManualStopRequested(applicationContext))) {
+                                userStartQueuedDuringStop = false
+                                try { ForensicLogger.lifecycle("LIFECYCLE_START_ACCEPTED", "drained_after_stop=true") } catch (_: Throwable) {}
+                                startBot()
+                                try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CREATED", "drained_after_stop=true loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
+                            } else {
+                                try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_ALREADY_RUNNING", "drained_after_stop=true loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
+                            }
+                        } finally {
+                            startInProgress = false
+                        }
+                    }
+                } else if (forceRestartConfirmed && loopJob?.isActive == true) {
+                    // V5.9.1081 — explicit operator-confirmed force-restart (e.g.
+                    // halt_reset, or a future "rescue stuck loop" debug button).
+                    // The normal UI START button does NOT set this extra, so it
+                    // can never reach this branch. This preserves the V5.9.1068
+                    // stuck-loop rescue capability under an explicit gesture.
+                    ErrorLogger.warn("BotService", "🆘 EXPLICIT FORCE RESTART: caller set EXTRA_FORCE_RESTART_CONFIRMED=true. Cancelling loop and restarting.")
+                    addLog("🆘 Operator-confirmed force-restart — cancelling and restarting loop")
+                    try { ForensicLogger.lifecycle("LIFECYCLE_FORCE_RESTART_ACCEPTED", "loopActive=true statusRunning=${status.running}") } catch (_: Throwable) {}
+                    startInProgress = true
+                    scope.launch {
+                        try {
+                            try {
+                                loopJob?.cancel(kotlinx.coroutines.CancellationException("operator force restart"))
+                                withTimeoutOrNull(3_000L) { loopJob?.join() }
+                            } catch (_: Throwable) {}
+                            userStartQueuedDuringStop = false
+                            try { ForensicLogger.lifecycle("LIFECYCLE_START_ACCEPTED", "forceRestart=true") } catch (_: Throwable) {}
+                            startBot()
+                            try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CREATED", "forceRestart=true loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
+                        } finally {
+                            startInProgress = false
+                        }
                     }
                 } else {
-                    // Bot already running - just reschedule keep-alive
-                    scheduleKeepAliveAlarm()
-                    // V5.9.707 — also renew the 5-min watchdog alarm chain
-                    try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Exception) {}
+                    // Normal accepted start — loopJob is null/inactive, no stop
+                    // in progress, no manual-stop latch. This is the only path
+                    // that creates a fresh runtime job from a normal ACTION_START.
+                    userStartQueuedDuringStop = false
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_ACCEPTED", "userRequested=$userRequested fresh=true") } catch (_: Throwable) {}
+                    startInProgress = true
+                    scope.launch {
+                        try {
+                            startBot()
+                            try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CREATED", "loopActive=${loopJob?.isActive == true}") } catch (_: Throwable) {}
+                        } finally {
+                            startInProgress = false
+                        }
+                    }
                 }
             }
             ACTION_STOP  -> {
@@ -1513,6 +1580,7 @@ class BotService : Service() {
                 val uiStopConfirmed = intent.getBooleanExtra(EXTRA_UI_STOP_CONFIRMED, false)
                 val isConfirmedManualStop = (stopSource == "ui_stop_button" && uiStopConfirmed) || stopSource == "halt_reset"
                 try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed manual=$isConfirmedManualStop") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("LIFECYCLE_STOP_REQUESTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
                 // V5.9.1075 — reject ambiguous UI stops. Regression RCA:
                 // Main rendered START BOT from stale UiState, but its click handler
                 // called toggleBot(); toggleBot re-read live runtime truth, saw an
@@ -1523,6 +1591,7 @@ class BotService : Service() {
                     try { ForensicLogger.lifecycle("ACTION_STOP_REJECTED", "source=$stopSource reason=missing_ui_stop_confirm") } catch (_: Throwable) {}
                     return START_STICKY
                 }
+                try { ForensicLogger.lifecycle("LIFECYCLE_STOP_ACCEPTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
                 // V5.9.1078 — STOP LOOP != LIQUIDATE POSITIONS.
                 // Only a confirmed operator stop should arm the manual-stop latch
                 // and disarm resurrection. Internal/config/lifecycle stops are soft
@@ -1538,6 +1607,7 @@ class BotService : Service() {
                 status.running = false
                 if (isConfirmedManualStop) {
                     cancelAllRestartAlarms()
+                    try { ForensicLogger.lifecycle("LIFECYCLE_PENDING_RESTART_CANCELLED", "source=$stopSource") } catch (_: Throwable) {}
                     try { ServiceWatchdog.cancel(applicationContext) } catch (_: Exception) {}
                 }
                 scope.launch { stopBot(stopSource) }
@@ -1832,10 +1902,25 @@ class BotService : Service() {
             //     fast path when not in Doze)
             //   • request code 5: 5s setAlarmClock (Doze-bypass guarantee)
             // This matches onTaskRemoved's two-layer pattern.
-            ErrorLogger.warn("BotService", "Bot was running - scheduling DUAL restart alarms (1s + 5s AlarmClock backup)")
-            val restartIntent = Intent(applicationContext, BotService::class.java).apply {
-                action = ACTION_START
-            }
+            //
+            // V5.9.1081 — DEDUPE + manual-stop guard. The persistence calls
+            // BELOW (EdgeLearning, positions, EntryIntelligence, ExitIntelligence)
+            // MUST always run — only skip the alarm-scheduling block when the
+            // operator has manually stopped.
+            val manualStopOnDestroy = try {
+                getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+            } catch (_: Throwable) { false }
+            if (manualStopOnDestroy) {
+                try { ForensicLogger.lifecycle("CRASH_RECOVERY_RESTART_SKIPPED_MANUAL_STOP", "site=onDestroy") } catch (_: Throwable) {}
+                ErrorLogger.warn("BotService", "onDestroy: skipping restart — manual stop latch active")
+            } else {
+                cancelAllRestartAlarms()
+                try { ForensicLogger.lifecycle("CRASH_RECOVERY_DUPLICATE_CANCELLED", "site=onDestroy") } catch (_: Throwable) {}
+                ErrorLogger.warn("BotService", "Bot was running - scheduling DUAL restart alarms (1s + 5s AlarmClock backup)")
+                val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+                    action = ACTION_START
+                }
             val am = getSystemService(android.app.AlarmManager::class.java)
 
             // Fast-path: 1s setExactAndAllowWhileIdle (works when not Doze)
@@ -1870,6 +1955,8 @@ class BotService : Service() {
             } catch (e: Exception) {
                 ErrorLogger.warn("BotService", "onDestroy: AlarmClock backup failed: ${e.message}")
             }
+            try { ForensicLogger.lifecycle("CRASH_RECOVERY_RESTART_SCHEDULED_ONCE", "site=onDestroy rc=2+5") } catch (_: Throwable) {}
+            } // V5.9.1081 — closing the else branch of manualStopOnDestroy
         }
         
         // Save EdgeLearning thresholds before shutdown
@@ -2064,6 +2151,11 @@ class BotService : Service() {
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
         
         if (status.running && !isManualStopRequested(applicationContext)) {
+            // V5.9.1081 — DEDUPE: cancel any prior pending restart alarms first
+            // so onTaskRemoved cannot stack a second pair on top of an existing
+            // onDestroy-armed pair.
+            cancelAllRestartAlarms()
+            try { ForensicLogger.lifecycle("CRASH_RECOVERY_DUPLICATE_CANCELLED", "site=onTaskRemoved") } catch (_: Throwable) {}
             // V5.6.8: Multiple restart mechanisms for aggressive OEMs
             val restartIntent = Intent(applicationContext, BotService::class.java).apply {
                 action = ACTION_START
@@ -2100,6 +2192,9 @@ class BotService : Service() {
             }
             
             ErrorLogger.info("BotService", "Scheduled restart alarms (1s + 5s backup)")
+            try { ForensicLogger.lifecycle("CRASH_RECOVERY_RESTART_SCHEDULED_ONCE", "site=onTaskRemoved rc=1+3") } catch (_: Throwable) {}
+        } else if (status.running && isManualStopRequested(applicationContext)) {
+            try { ForensicLogger.lifecycle("CRASH_RECOVERY_RESTART_SKIPPED_MANUAL_STOP", "site=onTaskRemoved") } catch (_: Throwable) {}
         }
     }
 
@@ -4932,6 +5027,7 @@ class BotService : Service() {
         //    instead of waiting 4.8s budget × 3 chunks = 14.4s drain.
         try {
             loopJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source"))
+            try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CANCELLED", "source=$source") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         try {
             com.lifecyclebot.network.SharedHttpClient.cancelAllRequests()
@@ -5643,6 +5739,7 @@ class BotService : Service() {
             // V5.9.148 — always clear, even on early return/exception, so any
             // queued restart in onStartCommand can proceed.
             stopInProgress = false
+            try { ForensicLogger.lifecycle("LIFECYCLE_STOP_COMPLETE", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions") } catch (_: Throwable) {}
         }
     }
     

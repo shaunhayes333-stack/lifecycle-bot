@@ -201,7 +201,11 @@ internal fun BotService.cancelAllRestartAlarms() {
         action = BotService.ACTION_START
     }
     val am = getSystemService(android.app.AlarmManager::class.java)
-    for (requestCode in intArrayOf(1, 2, 3, 996, 997, 998, 999)) { // V5.9.714: added 996,998 (Doze-bypass PIs)
+    // V5.9.1081 — added request code 5 (the AlarmClock backup armed in
+    // onDestroy at BotService.kt:1859). Previously only 1,2,3,996,997,998,999
+    // were cancelled, so the 5-second AlarmClock could still fire after a
+    // manual stop.
+    for (requestCode in intArrayOf(1, 2, 3, 5, 996, 997, 998, 999)) {
         try {
             val pi = android.app.PendingIntent.getService(
                 this,
@@ -214,6 +218,99 @@ internal fun BotService.cancelAllRestartAlarms() {
         } catch (_: Exception) {}
     }
     ErrorLogger.info("BotService", "All restart alarms cancelled")
+}
+
+/**
+ * V5.9.1081 — single canonical restart-alarm arming helper.
+ *
+ * Every self-restart path in BotService.kt (onDestroy, onTaskRemoved, post-OOM
+ * recovery, keep-alive failure, etc.) previously constructed its own
+ * PendingIntent + .setExactAndAllowWhileIdle call without cancelling earlier
+ * pending alarms. With 5 such paths it was possible to have 5 concurrent
+ * restart alarms pending simultaneously, each firing ACTION_START and creating
+ * load on onStartCommand.
+ *
+ * This helper enforces:
+ *   1) Always cancel ALL pending restart alarms FIRST (cancelAllRestartAlarms)
+ *      so prior duplicates are torn down.
+ *   2) Honour KEY_MANUAL_STOP_REQUESTED — never schedule a restart if the
+ *      operator has confirmed a manual stop.
+ *   3) Skip when BotService is already running (loopJob.isActive == true)
+ *      because there is nothing to restart.
+ *   4) Always use FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE so the OS replaces
+ *      any leaked duplicate of the same requestCode.
+ *
+ * Returns true if a fresh alarm was armed, false if it was skipped.
+ */
+internal fun BotService.armRestartAlarm(
+    reason: String,
+    delayMs: Long,
+    requestCode: Int = 999,
+): Boolean {
+    // Honour manual-stop latch — never restart after a confirmed operator stop.
+    val manualStop = try {
+        applicationContext.getSharedPreferences(
+            BotService.RUNTIME_PREFS,
+            android.content.Context.MODE_PRIVATE
+        ).getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
+    } catch (_: Throwable) { false }
+    if (manualStop) {
+        try {
+            ForensicLogger.lifecycle(
+                "CRASH_RECOVERY_RESTART_SKIPPED_MANUAL_STOP",
+                "reason=$reason requestCode=$requestCode"
+            )
+        } catch (_: Throwable) {}
+        ErrorLogger.warn("BotService", "armRestartAlarm($reason): skipped — manual stop latch is set")
+        return false
+    }
+    // Skip when already running.
+    if (status.running && BotService.isRuntimeActive()) {
+        try {
+            ForensicLogger.lifecycle(
+                "CRASH_RECOVERY_RESTART_SKIPPED_ALREADY_RUNNING",
+                "reason=$reason requestCode=$requestCode"
+            )
+        } catch (_: Throwable) {}
+        return false
+    }
+    // Always tear down any prior pending restart alarm before arming a new one.
+    cancelAllRestartAlarms()
+    try {
+        ForensicLogger.lifecycle(
+            "CRASH_RECOVERY_DUPLICATE_CANCELLED",
+            "reason=$reason requestCode=$requestCode"
+        )
+    } catch (_: Throwable) {}
+
+    val restartIntent = Intent(applicationContext, BotService::class.java).apply {
+        action = BotService.ACTION_START
+    }
+    val am = getSystemService(android.app.AlarmManager::class.java)
+    return try {
+        val pi = android.app.PendingIntent.getService(
+            this,
+            requestCode,
+            restartIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        am?.setExactAndAllowWhileIdle(
+            android.app.AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + delayMs,
+            pi
+        )
+        try {
+            ForensicLogger.lifecycle(
+                "CRASH_RECOVERY_RESTART_SCHEDULED_ONCE",
+                "reason=$reason requestCode=$requestCode delayMs=$delayMs"
+            )
+        } catch (_: Throwable) {}
+        ErrorLogger.info("BotService", "armRestartAlarm($reason): scheduled in ${delayMs}ms rc=$requestCode")
+        true
+    } catch (e: Exception) {
+        ErrorLogger.warn("BotService", "armRestartAlarm($reason): failed: ${e.message}")
+        false
+    }
 }
 
 /**
