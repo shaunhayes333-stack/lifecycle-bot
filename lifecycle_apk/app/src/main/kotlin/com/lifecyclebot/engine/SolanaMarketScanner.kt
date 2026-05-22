@@ -704,15 +704,39 @@ class SolanaMarketScanner(
         val uniqueWallet24h: Int = 0,          // raw distinct wallets, anti-bot signal
     )
 
+    // V5.9.1080 — REMOVE the per-scanner Dispatcher override.
+    //
+    // The override used to be useful (April 3, 2026 commit 07107cc35) when
+    // SharedHttpClient had maxRequests=32/maxRequestsPerHost=5; the scanner
+    // wanted MORE serialization for OOM mitigation.
+    //
+    // V5.9.1030 (May 20, 2026) raised SharedHttpClient.base to
+    // maxRequests=64 / maxRequestsPerHost=16. The scanner still installed
+    // a brand-new Dispatcher() of maxRequests=6 / maxRequestsPerHost=1,
+    // which silently OVERRODE the V5.9.1030 fix only for scanner calls.
+    //
+    // Operator's V5.9.1078 snapshot proved the result:
+    //   SCANNER_HEARTBEAT src=1 ok=0 err=0  (telemetry cumulative since boot)
+    //   ApiHealth pumpfun: sr=80% s=4   (4 successful calls in 1095s)
+    // scanPumpFunDirect issues 5 sequential pump.fun URLs; maxRequestsPerHost=1
+    // serializes them through the queue and slow API responses ate the entire
+    // 18-minute window on the FIRST scanLoop iteration. All 16 deep-scan
+    // sources (DexScreener / Birdeye / Gecko / CoinGecko / Meteora / Raydium
+    // / pump.fun variants) were skipped because scanLoop never advanced past
+    // its first runScan call. Operator: "the scanner only returns 4
+    // candidates per cycle... its meant to be scanning the entire sol network
+    // for tokens. its fucking not obviously".
+    //
+    // Removing the override lets the scanner inherit the shared 64/16
+    // dispatcher (the same one BotService / DexscreenerApi / BirdeyeApi
+    // already use). Per-host concurrency goes from 1 to 16; scanner can
+    // fan out 16 sources in parallel and complete a full deep scan in
+    // seconds instead of "permanently stuck on source 1".
     private val http = SharedHttpClient.builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.SECONDS))
         .cache(null)
-        .dispatcher(okhttp3.Dispatcher().apply {
-            maxRequests = 6
-            maxRequestsPerHost = 1
-        })
         .build()
 
     private val dex = DexscreenerApi()
