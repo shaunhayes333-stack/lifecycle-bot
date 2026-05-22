@@ -114,6 +114,63 @@ object ModeSpecificExits {
             false
         }
     }
+
+    /**
+     * V5.9.1082 — AI-TIMEOUT EXIT HARD FLOOR.
+     *
+     * Operator caught the bot logging exits like
+     *   "FRESH_LAUNCH: AI Timeout 2min > 5min optimal"
+     * — i.e. exiting on "timeout" 3 minutes BEFORE the configured timeout.
+     *
+     * Root cause: the previous condition was
+     *   holdTimeMins > aiTimeout || isAIOverheld(mint, holdTimeMins)
+     * The right-hand OR fired any time HoldTimeOptimizerAI's *learned* hold
+     * was shorter than the configured timeout (e.g. AI learned 1min, position
+     * held 2min → isAIOverheld=true → exit), but the log message still
+     * referenced the unmet aiTimeout threshold, making the snapshot read
+     * "2min > 5min" — impossible-looking and operator-misleading.
+     *
+     * New rule: the AI's learned hold can never cause an exit BEFORE the
+     * configured aiTimeout has been reached. holdTimeMins MUST be at least
+     * aiTimeout for any "AI timeout" reason to fire. If AI says "overheld"
+     * earlier than that, the AI is wrong and is ignored.
+     *
+     * Also emits operator-spec'd forensic telemetry:
+     *   FRESH_TIMEOUT_CHECK              — every evaluation
+     *   FRESH_TIMEOUT_EXIT_CONFIRMED     — when exit will fire
+     *   FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY — when AI tried to exit too soon
+     */
+    private fun aiTimeoutHardFloorExit(
+        mint: String,
+        holdTimeMins: Double,
+        aiTimeout: Double,
+    ): Boolean {
+        val aiOver = try { isAIOverheld(mint, holdTimeMins) } catch (_: Throwable) { false }
+        val hardFloorMet = holdTimeMins >= aiTimeout
+        val shouldExit = hardFloorMet && (holdTimeMins > aiTimeout || aiOver)
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "FRESH_TIMEOUT_CHECK",
+                "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)} aiOverheld=$aiOver hardFloorMet=$hardFloorMet shouldExit=$shouldExit"
+            )
+        } catch (_: Throwable) {}
+        if (shouldExit) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FRESH_TIMEOUT_EXIT_CONFIRMED",
+                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)}"
+                )
+            } catch (_: Throwable) {}
+        } else if (aiOver && !hardFloorMet) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY",
+                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=${"%.2f".format(aiTimeout)} aiSaidOverheld=true"
+                )
+            } catch (_: Throwable) {}
+        }
+        return shouldExit
+    }
     
     // ═══════════════════════════════════════════════════════════════════
     // EXIT RECOMMENDATION
@@ -206,7 +263,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Fresh launches use dynamic learned timeout
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -284,7 +341,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -381,7 +438,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT (don't overstay reversals)
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -579,7 +636,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Medium patience
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -745,7 +802,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Very patient but AI-learned limits
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -894,7 +951,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT
-        if (holdTimeMins > aiTimeout || isAIOverheld(ts.mint, holdTimeMins)) {
+        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,

@@ -1468,6 +1468,18 @@ object FinalDecisionGate {
 
             if (circuitBlockReason != null) {
                 ErrorLogger.warn("FDG", "🚫 CIRCUIT_BREAKER: ${ts.symbol} | mode=$tradingModeStr | $circuitBlockReason")
+                // V5.9.1082 — operator-spec'd EXECUTION_STATE field. When the
+                // circuit breaker blocks buys the operator must SEE the
+                // block in the snapshot — not silently watch a "live" bot
+                // that has actually paused buying. This emits a structured
+                // event on every block so PipelineHealthCollector can compute
+                // an explicit EXECUTION_STATE field.
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_STATE_BLOCKED",
+                        "state=CIRCUIT_BREAKER mode=$tradingModeStr symbol=${ts.symbol} reason=$circuitBlockReason"
+                    )
+                } catch (_: Throwable) {}
 
                 return FinalDecision(
                     shouldTrade = false,

@@ -7650,7 +7650,16 @@ class BotService : Service() {
     // before proceeding. Stuck IO can never park exits again.
     @Volatile private var exitSweepWorker: kotlinx.coroutines.Job? = null
     @Volatile private var exitSweepStartedMs: Long = 0L
-    private val EXIT_SWEEP_HARD_MS: Long = 3_000L
+    private val EXIT_SWEEP_HARD_MS: Long = 12_000L
+    // V5.9.1082 — operator V5.9.1081b snapshot: EXIT_SWEEP_FORCE_RESET=54 in
+    // ~18 min. That's a reset every 20s — meaning the previous 3s budget was
+    // far below the realistic sweep duration. sweepUniversalExits iterates
+    // all open positions and may invoke paperSell()'s learning fanout per
+    // match; with 5-10 positions this routinely exceeds 5-10 seconds. Bumped
+    // to 12s so the worker actually has time to finish on a healthy cycle.
+    // The watchdog delay below was bumped in lock-step (2.5s → 10s). Force
+    // resets now indicate a TRULY stuck worker (>12s) rather than a
+    // slow-but-progressing one.
 
     // V5.9.1019 — Operator V5.9.1018 snapshot showed cycles alternating
     // between fast (sub-200ms) and slow (11-44s). Forensic trace pinned
@@ -7668,7 +7677,10 @@ class BotService : Service() {
     // next cycle instead of permanently parking position exits.
     @Volatile private var slSafetyNetWorker: kotlinx.coroutines.Job? = null
     @Volatile private var slSafetyNetStartedMs: Long = 0L
-    private val UNIVERSAL_SL_HARD_MS: Long = 4_000L
+    private val UNIVERSAL_SL_HARD_MS: Long = 15_000L
+    // V5.9.1082 — UNIVERSAL_SL_SWEEP_FORCE_RESET=52 in operator's 1081b
+    // snapshot. Same root cause: 4s budget too tight for
+    // runUniversalSlSafetyNetSweep iterating all positions. Bumped to 15s.
 
     private fun emitBotLoopTick(loopCount: Int) {
         // V5.9.659b — extracted from botLoop body to stay under JVM 64KB
@@ -10539,10 +10551,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
         exitSweepWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                kotlinx.coroutines.delay(2_500L)
+                kotlinx.coroutines.delay(10_000L)
                 if (worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
                     exitSweepWorker = null
-                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=2500 action=gate_released")
+                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=10000 action=gate_released")
                     try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
@@ -11066,13 +11078,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
         slSafetyNetWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                kotlinx.coroutines.delay(3_000L)
+                kotlinx.coroutines.delay(13_000L)
                 if (worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
                     slSafetyNetWorker = null
                     try {
                         ForensicLogger.lifecycle(
                             "UNIVERSAL_SL_SWEEP_TIMEOUT",
-                            "timeoutMs=3000 action=gate_released"
+                            "timeoutMs=13000 action=gate_released"
                         )
                     } catch (_: Throwable) {}
                     try { worker.cancel(kotlinx.coroutines.CancellationException("universal SL sweep timeout")) } catch (_: Throwable) {}

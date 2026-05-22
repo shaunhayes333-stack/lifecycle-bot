@@ -65,6 +65,11 @@ object PipelineHealthCollector {
     /** Custom labelled counters (e.g. lane name, error class). */
     private val labelCounts = ConcurrentHashMap<String, AtomicLong>()
 
+    // V5.9.1082 — last-seen EXECUTION_STATE_BLOCKED for the snapshot
+    // top-bar EXECUTION_STATE field. Operator must SEE buying is paused.
+    @Volatile private var lastExecutionStateBlockedMs: Long = 0L
+    @Volatile private var lastExecutionStateBlockedFields: String = ""
+
     /** V5.9.915 — per-source intake counters (PUMP_PORTAL_WS / RAYDIUM_NEW_POOL / etc.). */
     private val intakeBySource = ConcurrentHashMap<String, AtomicLong>()
 
@@ -189,10 +194,16 @@ object PipelineHealthCollector {
 
     private const val RING_CAP = 150  // V5.9.916 — reduced from 300: 16KB dumpText.setText every 2s was main-thread ANR storm
 
-    // V5.9.915 — bumped each release. Printed verbatim at top of every
-    // pipeline-health dump alongside BuildConfig.VERSION_NAME so the
-    // operator and agent never argue about which APK is on the device.
-    private const val BUILD_TAG = "V5.9.1078"
+    // V5.9.1082 — operator complaint: every snapshot displayed
+    // "Tag: V5.9.1078" no matter which APK was actually installed
+    // (because BUILD_TAG was hardcoded). That meant the operator was
+    // told "still on 1078" while running 1081+. The build/version line
+    // now reads from BuildConfig.VERSION_NAME (set by Gradle to the
+    // real CI build name) so the snapshot tag matches reality.
+    // No const anymore — single source of truth via getBuildTag().
+    private fun getBuildTag(): String = try {
+        com.lifecyclebot.BuildConfig.VERSION_NAME
+    } catch (_: Throwable) { "unknown" }
 
     data class Event(
         val tsMs: Long,
@@ -318,6 +329,14 @@ object PipelineHealthCollector {
     fun onLifecycle(event: String, fields: String) {
         if (!attached) return
         bump(labelCounts, "LIFECYCLE/$event")
+        // V5.9.1082 — track the most recent EXECUTION_STATE_BLOCKED so the
+        // snapshot top-bar can render an explicit EXECUTION_STATE field. The
+        // operator must SEE the bot is paused buying via circuit breaker
+        // rather than silently watch the loop tick with no trades.
+        if (event == "EXECUTION_STATE_BLOCKED") {
+            lastExecutionStateBlockedMs = System.currentTimeMillis()
+            lastExecutionStateBlockedFields = fields.take(220)
+        }
         // V5.9.1046 — V3 reject reason histogram. Extract the normalised
         // V3 reason key from fields like 'mint=… sym=… v3=Rejected
         // reason=V3:RUG_FATAL:TOP_HOLDER' and bump a separate counter.
@@ -669,10 +688,30 @@ object PipelineHealthCollector {
         val _appVer = try {
             com.lifecyclebot.BuildConfig.VERSION_NAME
         } catch (_: Throwable) { "unknown" }
-        sb.append("  Build:                 ${_appVer}  |  Tag: ${BUILD_TAG}\n")
+        sb.append("  Build:                 ${_appVer}  |  Tag: ${getBuildTag()}\n")
         sb.append("  Captured at:           ${df.format(Date(s.nowMs))}\n")
         sb.append("  Uptime since start:    ${uptimeSec}s\n")
         sb.append("  Forensic logging:      ${if (ForensicLogger.enabled) "ON" else "OFF"}\n")
+        // V5.9.1082 — operator-spec'd EXECUTION_STATE field. Sources its
+        // value from the most recent EXECUTION_STATE_BLOCKED event tracked
+        // in onLifecycle(). The operator must SEE that the bot has stopped
+        // buying for a specific reason, not silently watch the loop tick
+        // while no trades happen.
+        try {
+            val blockedMs = lastExecutionStateBlockedMs
+            val ageSec = if (blockedMs > 0) ((System.currentTimeMillis() - blockedMs) / 1000L) else -1L
+            val state = if (blockedMs > 0 && ageSec in 0..120) {
+                "CIRCUIT_BREAKER (last block ${ageSec}s ago)"
+            } else {
+                "ACTIVE"
+            }
+            sb.append("  Execution state:       $state\n")
+            if (blockedMs > 0 && ageSec in 0..120) {
+                sb.append("  Execution block reason: ${lastExecutionStateBlockedFields.take(160)}\n")
+            }
+        } catch (_: Throwable) {
+            sb.append("  Execution state:       UNKNOWN (snapshot read error)\n")
+        }
         // V5.9.997 — surface LiveLayerGateRelaxer (z38) state to operator.
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
