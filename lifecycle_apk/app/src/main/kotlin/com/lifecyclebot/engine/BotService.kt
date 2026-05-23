@@ -7650,6 +7650,10 @@ class BotService : Service() {
     // before proceeding. Stuck IO can never park exits again.
     @Volatile private var exitSweepWorker: kotlinx.coroutines.Job? = null
     @Volatile private var exitSweepStartedMs: Long = 0L
+    // V5.9.1087 — owner token for the single-flight gate. A timed-out/late
+    // worker from generation N must never clear the gate or worker ref for
+    // generation N+1 after a force reset starts a fresh sweep.
+    private val exitSweepGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val EXIT_SWEEP_HARD_MS: Long = 12_000L
     // V5.9.1082 — operator V5.9.1081b snapshot: EXIT_SWEEP_FORCE_RESET=54 in
     // ~18 min. That's a reset every 20s — meaning the previous 3s budget was
@@ -7677,6 +7681,8 @@ class BotService : Service() {
     // next cycle instead of permanently parking position exits.
     @Volatile private var slSafetyNetWorker: kotlinx.coroutines.Job? = null
     @Volatile private var slSafetyNetStartedMs: Long = 0L
+    // V5.9.1087 — same owner-token guard as exitSweepGeneration.
+    private val slSafetyNetGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val UNIVERSAL_SL_HARD_MS: Long = 15_000L
     // V5.9.1082 — UNIVERSAL_SL_SWEEP_FORCE_RESET=52 in operator's 1081b
     // snapshot. Same root cause: 4s budget too tight for
@@ -10502,6 +10508,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     )
                 } catch (_: Throwable) {}
                 try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("exit sweep stuck > ${EXIT_SWEEP_HARD_MS}ms")) } catch (_: Throwable) {}
+                // Invalidate the old owner before reserving the gate for the
+                // replacement sweep; otherwise the old worker's finally block
+                // can race in and clear this freshly-reserved gate.
+                exitSweepGeneration.incrementAndGet()
                 exitSweepWorker = null
                 exitSweepInFlight.set(true)
             } else {
@@ -10529,9 +10539,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
         // finish later, but botLoop/openPositionTickLoop can keep requesting
         // future sweeps instead of silently disabling exit management.
         exitSweepStartedMs = System.currentTimeMillis()
+        val sweepGen = exitSweepGeneration.incrementAndGet()
         val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason")
+                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason gen=$sweepGen")
                 if (cfgSnapshot == null) {
                     ForensicLogger.lifecycle("EXIT_SWEEP_SKIPPED", "reason=$reason cfg=null")
                     return@launch
@@ -10540,21 +10551,21 @@ launchExitSweepAsync("POST_SUPERVISOR")
             } catch (t: Throwable) {
                 ErrorLogger.warn("BotService", "exit sweep async error: ${t.message}")
             } finally {
-                if (exitSweepInFlight.compareAndSet(true, false)) {
+                if (exitSweepGeneration.get() == sweepGen && exitSweepInFlight.compareAndSet(true, false)) {
                     exitSweepWorker = null
-                    ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason")
+                    ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason gen=$sweepGen")
                 } else {
-                    ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason")
+                    ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason gen=$sweepGen currentGen=${exitSweepGeneration.get()}")
                 }
             }
         }
         exitSweepWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                kotlinx.coroutines.delay(10_000L)
-                if (worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
+                kotlinx.coroutines.delay(EXIT_SWEEP_HARD_MS)
+                if (exitSweepGeneration.get() == sweepGen && worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
                     exitSweepWorker = null
-                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason timeoutMs=10000 action=gate_released")
+                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason gen=$sweepGen timeoutMs=$EXIT_SWEEP_HARD_MS action=gate_released")
                     try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
@@ -11046,6 +11057,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     )
                 } catch (_: Throwable) {}
                 try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("universal SL sweep stuck > ${UNIVERSAL_SL_HARD_MS}ms")) } catch (_: Throwable) {}
+                // Same generation invalidation as exit sweep: old late workers
+                // must not clear the replacement sweep's single-flight gate.
+                slSafetyNetGeneration.incrementAndGet()
                 slSafetyNetWorker = null
                 slSafetyNetInFlight.set(true)
             } else {
@@ -11060,31 +11074,32 @@ launchExitSweepAsync("POST_SUPERVISOR")
         }
 
         slSafetyNetStartedMs = System.currentTimeMillis()
+        val slGen = slSafetyNetGeneration.incrementAndGet()
         val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_START", "")
+                ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_START", "gen=$slGen")
                 runUniversalSlSafetyNetSweep(cfg, wallet)
             } catch (t: Throwable) {
                 ErrorLogger.warn("BotService", "universal SL sweep async error: ${t.message}")
             } finally {
-                if (slSafetyNetInFlight.compareAndSet(true, false)) {
+                if (slSafetyNetGeneration.get() == slGen && slSafetyNetInFlight.compareAndSet(true, false)) {
                     slSafetyNetWorker = null
-                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "gen=$slGen") } catch (_: Throwable) {}
                 } else {
-                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "gen=$slGen currentGen=${slSafetyNetGeneration.get()}") } catch (_: Throwable) {}
                 }
             }
         }
         slSafetyNetWorker = worker
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                kotlinx.coroutines.delay(13_000L)
-                if (worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
+                kotlinx.coroutines.delay(UNIVERSAL_SL_HARD_MS)
+                if (slSafetyNetGeneration.get() == slGen && worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
                     slSafetyNetWorker = null
                     try {
                         ForensicLogger.lifecycle(
                             "UNIVERSAL_SL_SWEEP_TIMEOUT",
-                            "timeoutMs=13000 action=gate_released"
+                            "gen=$slGen timeoutMs=$UNIVERSAL_SL_HARD_MS action=gate_released"
                         )
                     } catch (_: Throwable) {}
                     try { worker.cancel(kotlinx.coroutines.CancellationException("universal SL sweep timeout")) } catch (_: Throwable) {}
