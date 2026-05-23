@@ -6,12 +6,9 @@ import android.database.sqlite.SQLiteOpenHelper
 import android.content.ContentValues
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.Looper
 import android.os.Process
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * ErrorLogger — In-app error logging with SQLite database
@@ -66,25 +63,6 @@ object ErrorLogger {
     private var ioThread: HandlerThread? = null
     private var ioHandler: Handler? = null
 
-    // V5.9.1095 — logging must never block Main. Keep logcat + SQLite +
-    // throwable stack rendering on ErrorLoggerIO, apply a bounded queue, and
-    // surface pressure via PipelineHealthCollector without recursively logging.
-    private val pendingLogWrites = AtomicInteger(0)
-    private val enqueuedLogCount = AtomicLong(0L)
-    private val droppedLogCount = AtomicLong(0L)
-    private val lastQueueTelemetryMs = AtomicLong(0L)
-    private val lastDropTelemetryMs = AtomicLong(0L)
-    private const val MAX_PENDING_LOG_WRITES = 1_000
-    private const val LOG_TELEMETRY_INTERVAL_MS = 5_000L
-
-    private fun emitQueueTelemetry(event: String, count: Long, queueSize: Int) {
-        val now = System.currentTimeMillis()
-        val gate = if (event.contains("DROPPED")) lastDropTelemetryMs else lastQueueTelemetryMs
-        val prev = gate.get()
-        if (now - prev < LOG_TELEMETRY_INTERVAL_MS || !gate.compareAndSet(prev, now)) return
-        try { PipelineHealthCollector.onLifecycle(event, "count=$count queueSize=$queueSize") } catch (_: Throwable) {}
-    }
-
     // ── Initialize ────────────────────────────────────────────────────
 
     fun init(context: Context) {
@@ -118,59 +96,56 @@ object ErrorLogger {
         log(Level.CRASH, component, message, throwable)
 
     fun log(level: Level, component: String, message: String, throwable: Throwable? = null) {
-        val database = db
-        val handler = ioHandler
-        val queueSize = pendingLogWrites.incrementAndGet()
-        if (queueSize > MAX_PENDING_LOG_WRITES) {
-            pendingLogWrites.decrementAndGet()
-            val dropped = droppedLogCount.incrementAndGet()
-            emitQueueTelemetry("ERROR_LOG_DROPPED_RATE_LIMITED", dropped, queueSize)
-            return
-        }
+        val database = db ?: return
 
+        // Always mirror to logcat immediately on the caller thread — cheap,
+        // and invaluable for attaching debuggers.
+        val tag = "AATE.$component"
+        try {
+            when (level) {
+                Level.DEBUG -> android.util.Log.d(tag, message, throwable)
+                Level.INFO -> android.util.Log.i(tag, message, throwable)
+                Level.WARN -> android.util.Log.w(tag, message, throwable)
+                Level.ERROR -> android.util.Log.e(tag, message, throwable)
+                Level.CRASH -> android.util.Log.e(tag, "CRASH: $message", throwable)
+            }
+        } catch (_: Throwable) { /* never let logcat failures propagate */ }
+
+        // V5.9.476 — BATTERY-USE FIX: skip the SQLite write for DEBUG-level
+        // logs.
+        //
+        // Operator: 'users are complaining about very heavy battery use.'
+        //
+        // Root cause: 700+ ErrorLogger.debug call sites in the codebase,
+        // each one queueing a SQLite INSERT into error_logs every loop tick
+        // (8s default). At ~50 debug events per cycle that's ~22,000 DB
+        // writes/hour just for traces nobody reads — keeps disk active and
+        // ioHandler thread spinning, which prevents the CPU from settling
+        // into deep sleep states. Plus MAX_LOGS=500 means a DELETE pass
+        // every few minutes adding more writes.
+        //
+        // DEBUG logs are still emitted to logcat (free, only there if a
+        // developer is attached) but no longer hit the DB. INFO/WARN/ERROR/
+        // CRASH still write — those are the levels the in-app log viewer
+        // shows by default and are the meaningful events.
+        if (level == Level.DEBUG) return
+
+        // Capture values that we need off-thread (throwable stack must be
+        // rendered on the caller thread in case it gets mutated).
         val ts = System.currentTimeMillis()
         val lvlName = level.name
-        val componentSafe = component.take(64)
-        val msg = message.take(700)
+        val msg = message.take(1000)
+        val stack = throwable?.stackTraceToString()?.take(2000)
         val sid = sessionId
-        val task = Runnable {
-            try {
-                val tag = "AATE.$componentSafe"
-                try {
-                    when (level) {
-                        Level.DEBUG -> android.util.Log.d(tag, msg, throwable)
-                        Level.INFO -> android.util.Log.i(tag, msg, throwable)
-                        Level.WARN -> android.util.Log.w(tag, msg, throwable)
-                        Level.ERROR -> android.util.Log.e(tag, msg, throwable)
-                        Level.CRASH -> android.util.Log.e(tag, "CRASH: $msg", throwable)
-                    }
-                } catch (_: Throwable) { /* never let logcat failures propagate */ }
 
-                // DEBUG remains logcat-only. INFO/WARN/ERROR/CRASH persist.
-                if (level != Level.DEBUG && database != null) {
-                    val stack = throwable?.stackTraceToString()?.take(1500)
-                    writeToDb(database, ts, lvlName, componentSafe, msg, stack, sid)
-                }
-            } finally {
-                val remain = pendingLogWrites.decrementAndGet().coerceAtLeast(0)
-                val count = enqueuedLogCount.incrementAndGet()
-                emitQueueTelemetry("ERROR_LOG_ASYNC_ENQUEUED", count, remain)
-            }
+        val handler = ioHandler
+        if (handler == null) {
+            // Init hasn't run yet — fall back to sync insert (startup only).
+            writeToDb(database, ts, lvlName, component, msg, stack, sid)
+            return
         }
-
-        if (handler != null) {
-            if (!handler.post(task)) {
-                pendingLogWrites.decrementAndGet()
-                val dropped = droppedLogCount.incrementAndGet()
-                emitQueueTelemetry("ERROR_LOG_DROPPED_RATE_LIMITED", dropped, queueSize)
-            }
-        } else if (Looper.myLooper() == Looper.getMainLooper()) {
-            // Init race on Main: never do DB/logcat work synchronously here.
-            pendingLogWrites.decrementAndGet()
-            val dropped = droppedLogCount.incrementAndGet()
-            emitQueueTelemetry("ERROR_LOG_DROPPED_RATE_LIMITED", dropped, queueSize)
-        } else {
-            task.run()
+        handler.post {
+            writeToDb(database, ts, lvlName, component, msg, stack, sid)
         }
     }
 

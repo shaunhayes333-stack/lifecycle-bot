@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -27,32 +26,6 @@ object ForensicLogger {
     /** Counter for sequencing — every emit gets a monotonic seq# */
     private val seq = AtomicLong(0L)
 
-    // V5.9.1095 — forensic logging can be extremely hot during storms. Keep
-    // collector counters flowing, but bound ErrorLogger/logcat/SQLite pressure.
-    private val logWindowStartMs = AtomicLong(System.currentTimeMillis())
-    private val logWindowCount = AtomicInteger(0)
-    private val droppedForensicLogs = AtomicLong(0L)
-    private val lastDropTelemetryMs = AtomicLong(0L)
-    private const val LOG_WINDOW_MS = 10_000L
-    private const val MAX_ERROR_LOG_LINES_PER_WINDOW = 600
-    private const val DROP_TELEMETRY_INTERVAL_MS = 5_000L
-
-    private fun shouldEmitErrorLog(): Boolean {
-        val now = System.currentTimeMillis()
-        val start = logWindowStartMs.get()
-        if (now - start > LOG_WINDOW_MS && logWindowStartMs.compareAndSet(start, now)) {
-            logWindowCount.set(0)
-        }
-        val n = logWindowCount.incrementAndGet()
-        if (n <= MAX_ERROR_LOG_LINES_PER_WINDOW) return true
-        val dropped = droppedForensicLogs.incrementAndGet()
-        val prev = lastDropTelemetryMs.get()
-        if (now - prev >= DROP_TELEMETRY_INTERVAL_MS && lastDropTelemetryMs.compareAndSet(prev, now)) {
-            try { PipelineHealthCollector.onLifecycle("FORENSIC_LOG_DROPPED_RATE_LIMITED", "count=$dropped windowCount=$n") } catch (_: Throwable) {}
-        }
-        return false
-    }
-
     enum class PHASE(val tag: String) {
         INTAKE       ("INTAKE"),
         QUEUE        ("QUEUE"),
@@ -76,7 +49,7 @@ object ForensicLogger {
     fun phase(p: PHASE, symbol: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  ${fields.take(700)}")
+        ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  $fields")
         try { PipelineHealthCollector.onPhase(p.tag, symbol, fields) } catch (_: Throwable) {}
     }
 
@@ -84,41 +57,41 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         val mark = if (allow) "✅" else "🚫"
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  $mark ${reason.take(700)}")
+        ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  $mark $reason")
         try { PipelineHealthCollector.onGate(p.tag, symbol, allow, reason) } catch (_: Throwable) {}
     }
 
     fun decision(p: PHASE, symbol: String, verdict: String, score: Int, conf: Int, reason: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  verdict=$verdict score=$score conf=$conf  reason=${reason.take(500)}")
+        ErrorLogger.info("FORENSIC", "🧬[${p.tag}] #$n $symbol  verdict=$verdict score=$score conf=$conf  reason=$reason")
         try { PipelineHealthCollector.onDecision(p.tag, symbol, verdict, score, conf, reason) } catch (_: Throwable) {}
     }
 
     fun exec(action: String, symbol: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[EXEC] #$n $symbol  $action  ${fields.take(700)}")
+        ErrorLogger.info("FORENSIC", "🧬[EXEC] #$n $symbol  $action  $fields")
         try { PipelineHealthCollector.onExec(action, symbol, fields) } catch (_: Throwable) {}
     }
 
     fun lifecycle(event: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[LIFECYCLE] #$n $event  ${fields.take(700)}")
+        ErrorLogger.info("FORENSIC", "🧬[LIFECYCLE] #$n $event  $fields")
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
     }
 
     fun tick(symbol: String, stage: String, ms: Long, extra: String = "") {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[TICK] #$n $symbol  $stage  ${ms}ms  ${extra.take(500)}")
+        ErrorLogger.info("FORENSIC", "🧬[TICK] #$n $symbol  $stage  ${ms}ms  $extra")
     }
 
     fun snapshot(label: String, fields: String) {
         if (!enabled) return
         val n = seq.incrementAndGet()
-        if (shouldEmitErrorLog()) ErrorLogger.info("FORENSIC", "🧬[$label] #$n ${fields.take(700)}")
+        ErrorLogger.info("FORENSIC", "🧬[$label] #$n $fields")
         try { PipelineHealthCollector.onSnapshot(label, fields) } catch (_: Throwable) {}
     }
 }
