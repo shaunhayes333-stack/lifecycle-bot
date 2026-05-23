@@ -257,6 +257,24 @@ object WhaleTrackerAI {
     // WHALE MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
     
+    /** V5.9.1113 — last defense against raw lamports entering smart-money consensus. */
+    private fun normalizeObservedSol(raw: Double, mint: String, symbol: String): Double? {
+        if (!raw.isFinite() || raw <= 0.0) return null
+        val scaled = when {
+            raw > 100_000.0 -> raw / 1_000_000_000.0
+            raw > 10_000.0  -> raw / 1_000_000.0
+            else -> raw
+        }
+        if (!scaled.isFinite() || scaled <= 0.0 || scaled > 1_000.0) {
+            try { ErrorLogger.warn(TAG, "🐋 WHALE_AMOUNT_REJECTED $symbol | raw=$raw scaled=$scaled mint=${mint.take(10)}") } catch (_: Throwable) {}
+            return null
+        }
+        if (scaled != raw) {
+            try { ErrorLogger.warn(TAG, "🐋 WHALE_AMOUNT_NORMALIZED $symbol | raw=$raw → ${scaled.fmt(4)} SOL") } catch (_: Throwable) {}
+        }
+        return scaled
+    }
+
     /**
      * Record whale activity (called when we detect a whale transaction).
      */
@@ -268,6 +286,7 @@ object WhaleTrackerAI {
         amountSol: Double,
         priceAtAction: Double,
     ) {
+        val amountSol = normalizeObservedSol(amountSol, mint, symbol) ?: return
         val activity = WhaleActivity(
             whaleAddress = whaleAddress,
             mint = mint,

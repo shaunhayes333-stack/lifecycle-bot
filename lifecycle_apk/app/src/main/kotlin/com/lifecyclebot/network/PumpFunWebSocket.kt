@@ -134,9 +134,10 @@ class PumpFunWebSocket(
                 "buy", "sell" -> {
                     val mint   = msg.optString("mint", "")
                     val isBuy  = txType == "buy"
-                    val sol    = msg.optDouble("solAmount", 0.0)
+                    val rawSol = msg.optDouble("solAmount", 0.0)
+                    val sol    = normalizeSolAmount(rawSol)
                     val wallet = msg.optString("traderPublicKey", "")
-                    if (mint.isNotBlank()) {
+                    if (mint.isNotBlank() && sol != null) {
                         onTrade(mint, isBuy, sol, wallet)
                     }
                 }
@@ -153,6 +154,23 @@ class PumpFunWebSocket(
                 }
             }
         } catch (_: Exception) {}
+    }
+
+
+    /**
+     * V5.9.1113 — PumpPortal/PumpFun trade feeds are not consistent about
+     * numeric basis. Some sessions delivered raw lamports/base units in the
+     * `solAmount` slot, which downstream logged as 1,000,000+ SOL whale buys
+     * and poisoned SmartMoneyAI divergence. Canonicalize to UI SOL at ingress.
+     */
+    private fun normalizeSolAmount(raw: Double): Double? {
+        if (!raw.isFinite() || raw <= 0.0) return null
+        val scaled = when {
+            raw > 100_000.0 -> raw / 1_000_000_000.0   // lamports/base-unit leak
+            raw > 10_000.0  -> raw / 1_000_000.0       // micro-SOL style leak
+            else -> raw
+        }
+        return scaled.takeIf { it.isFinite() && it > 0.0 && it <= 1_000.0 }
     }
 
     private fun scheduleReconnect() {

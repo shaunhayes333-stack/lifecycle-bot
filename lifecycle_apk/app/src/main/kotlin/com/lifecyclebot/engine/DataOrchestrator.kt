@@ -239,12 +239,15 @@ class DataOrchestrator(
                 handleNewPumpToken(mint, symbol, name, devWallet)
             },
             onTrade     = { mint, isBuy, solAmount, wallet ->
-                handlePumpTrade(mint, isBuy, solAmount, wallet)
-                // Feed into copy trade engine
-                try {
-                    com.lifecyclebot.engine.BotService.instance
-                        ?.copyTradeEngine?.onSwapDetected(mint, wallet, solAmount, isBuy)
-                } catch (_: Exception) {}
+                val safeSol = normalizeTradeSolAmount(solAmount, "pumpfun_ws", mint)
+                if (safeSol != null) {
+                    handlePumpTrade(mint, isBuy, safeSol, wallet)
+                    // Feed into copy trade engine with canonical UI SOL only.
+                    try {
+                        com.lifecyclebot.engine.BotService.instance
+                            ?.copyTradeEngine?.onSwapDetected(mint, wallet, safeSol, isBuy)
+                    } catch (_: Exception) {}
+                }
             },
             onGraduation = { mint ->
                 onLog("Token graduated to Raydium: ${mint.take(12)}…", mint)
@@ -288,6 +291,39 @@ class DataOrchestrator(
         }
     }
 
+
+    /**
+     * V5.9.1113 — canonical trade feed amount guard. All downstream components
+     * expect UI SOL. Raw lamports/micro-SOL leaks must not reach whale, copy,
+     * or real-time candle volume logic.
+     */
+    private fun normalizeTradeSolAmount(raw: Double, source: String, mint: String): Double? {
+        if (!raw.isFinite() || raw <= 0.0) return null
+        val scaled = when {
+            raw > 100_000.0 -> raw / 1_000_000_000.0
+            raw > 10_000.0  -> raw / 1_000_000.0
+            else -> raw
+        }
+        if (!scaled.isFinite() || scaled <= 0.0 || scaled > 1_000.0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "TRADE_SOL_AMOUNT_REJECTED",
+                    "src=$source mint=${mint.take(10)} raw=$raw scaled=$scaled"
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        if (scaled != raw) {
+            try {
+                ForensicLogger.lifecycle(
+                    "TRADE_SOL_AMOUNT_NORMALIZED",
+                    "src=$source mint=${mint.take(10)} raw=$raw sol=$scaled"
+                )
+            } catch (_: Throwable) {}
+        }
+        return scaled
+    }
+
     private fun handlePumpTrade(mint: String, isBuy: Boolean, solAmount: Double, wallet: String) {
         lastWsEventMs[mint] = System.currentTimeMillis()
         val ts = status.tokens[mint] ?: return
@@ -309,16 +345,17 @@ class DataOrchestrator(
         heliusWs = HeliusWebSocket(
             apiKey            = apiKey,
             onSwap            = { mint, isBuy, solAmt, tokenAmt, wallet, sig ->
+                val safeSol = normalizeTradeSolAmount(solAmt, "helius_ws", mint) ?: return@HeliusWebSocket
                 lastWsEventMs[mint] = System.currentTimeMillis()
-                WhaleDetector.recordTrade(mint, wallet, solAmt, isBuy)
+                WhaleDetector.recordTrade(mint, wallet, safeSol, isBuy)
                 // V5.9: route to CopyTradeEngine for copy-buy detection
                 if (isBuy && wallet.isNotBlank()) {
-                    copyTradeEngine?.onSwapDetected(mint, wallet, solAmt, isBuy = true)
+                    copyTradeEngine?.onSwapDetected(mint, wallet, safeSol, isBuy = true)
                 }
                 val ts = synchronized(status.tokens) {
                     status.tokens.values.find { it.mint == mint }
                 } ?: return@HeliusWebSocket
-                updateRealtimeCandle(ts, isBuy, solAmt)
+                updateRealtimeCandle(ts, isBuy, safeSol)
             },
             onLargeWalletMove = { wallet, mint, solAmt, isBuy ->
                 // Check if this is a dev wallet selling
