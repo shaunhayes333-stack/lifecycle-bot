@@ -149,6 +149,18 @@ object FinalExecutionPermit {
             return false
         }
 
+        val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, layer)
+        if (!laneElection.allowed) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_EXECUTION_SUPPRESSED",
+                    "mint=${mint.take(10)} symbol=$symbol lane=$layer primary=${laneElection.primaryLane} candidateVersion=${laneElection.candidateVersion} reason=${laneElection.reason}"
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.debug(TAG, "🧭 LANE_TELEMETRY_ONLY: $symbol | layer=$layer primary=${laneElection.primaryLane}")
+            return false
+        }
+
         // V5.9.408 — Free-range: skip pending-exec lockout so overlapping
         // layers (Treasury + ShitCoin + BlueChip etc) can all fire.
         val wideOpen = FreeRangeMode.isWideOpen()

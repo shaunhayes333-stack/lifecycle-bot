@@ -225,3 +225,148 @@ class RuntimeSupervisorSmokeTest {
         assertTrue(com.lifecyclebot.engine.execution.Forensics.recent(10).isNotEmpty())
     }
 }
+
+class LaneExecutionCoordinatorSmokeTest {
+    @Test
+    fun one_primary_lane_per_candidate_generation() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        val e = LaneExecutionCoordinator.elect("MintA", listOf("TREASURY", "SHITCOIN", "MOONSHOT"), preferred = "SHITCOIN", runtimeGeneration = gen)
+        assertEquals("SHITCOIN", e.primaryLane)
+        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintA", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintA", "TREASURY", runtimeGeneration = gen).allowed)
+        assertEquals(1L, LaneExecutionCoordinator.duplicateOpenSuppressions())
+    }
+}
+
+
+class QuarantineAndOutcomeLedgerSmokeTest {
+    @Test
+    fun quarantine_blocks_blacklisted_and_zero_liquidity_before_watchlist() {
+        QuarantineStore.resetForTests()
+        val zero = QuarantineStore.evaluate(
+            mint = "MintZero111111111111111111111111111111",
+            symbol = "ZERO",
+            source = "SCANNER",
+            liquidityUsd = 0.0,
+            marketCapUsd = 1000.0,
+        )
+        assertTrue(zero.quarantined)
+        assertEquals("ZERO_LIQUIDITY", zero.reason)
+        assertTrue(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
+    }
+
+@Test
+    fun outcome_ledger_counts_one_final_close_only() {
+        TradeOutcomeLedger.resetForTests()
+        BotRuntimeController.resetForTests()
+        BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        val ts = com.lifecyclebot.data.TokenState(
+            mint = "MintOutcome11111111111111111111111111",
+            symbol = "OUT"
+        )
+        ts.position = com.lifecyclebot.data.Position(
+            qtyToken = 100.0,
+            entryPrice = 1.0,
+            entryTime = 123456789L,
+            costSol = 1.0,
+            isPaperPosition = true,
+            tradingMode = "SHITCOIN",
+        )
+        val buy = com.lifecyclebot.data.Trade(side = "BUY", mode = "paper", sol = 1.0, price = 1.0, ts = 123456789L, mint = ts.mint, tradingMode = "SHITCOIN")
+        assertTrue(TradeOutcomeLedger.recordOpen(ts, buy))
+        val sell = com.lifecyclebot.data.Trade(side = "SELL", mode = "paper", sol = 1.2, price = 1.2, ts = 123456999L, pnlPct = 20.0, mint = ts.mint, tradingMode = "SHITCOIN")
+        assertTrue(TradeOutcomeLedger.recordClose(ts, sell, partial = false).accepted)
+        assertFalse(TradeOutcomeLedger.recordClose(ts, sell.copy(ts = 123457000L), partial = false).accepted)
+        assertEquals(1, TradeOutcomeLedger.uniqueClosedPositionCount())
+        assertEquals(1L, TradeOutcomeLedger.learningDuplicateSuppressions())
+    }
+}
+
+class ExecutionRouteGuardSmokeTest {
+    @Test
+    fun live_authority_blocks_normal_paper_route_without_shadow() {
+        ExecutionRouteGuard.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        val ts = com.lifecyclebot.data.TokenState(mint = "MintRoute111111111111111111111111111", symbol = "ROUTE")
+        val v = ExecutionRouteGuard.requirePaperRoute(ts, shadowEnabled = false)
+        assertFalse(v.allowed)
+        assertEquals(ExecutionRouteGuard.Route.PAPER, v.route)
+        assertEquals(1L, ExecutionRouteGuard.paperBlockedInLiveCount())
+    }
+
+    @Test
+    fun live_authority_allows_shadow_route_when_explicit() {
+        ExecutionRouteGuard.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        val ts = com.lifecyclebot.data.TokenState(mint = "MintShadow11111111111111111111111111", symbol = "SHADOW")
+        val v = ExecutionRouteGuard.requirePaperRoute(ts, shadowEnabled = true)
+        assertTrue(v.allowed)
+        assertEquals(ExecutionRouteGuard.Route.SHADOW, v.route)
+        assertEquals(1L, ExecutionRouteGuard.shadowAllowedCount())
+    }
+}
+
+class RuntimeRegressionGuardsSmokeTest {
+    @Test
+    fun guard_fails_lane_ratio_above_twelve() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(intake = 10, laneEval = 130)
+        )
+        val lane = checks.first { it.name == "lane_eval_intake_ratio" }
+        assertFalse(lane.ok)
+    }
+
+    @Test
+    fun guard_fails_learning_mismatch() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(learningTrades = 3, uniqueClosedPositionIds = 2)
+        )
+        val learning = checks.first { it.name == "learning_equals_unique_closes" }
+        assertFalse(learning.ok)
+    }
+}
+
+class RuntimeDoctorSmokeTest {
+    @Test
+    fun invariant_guard_detects_runtime_ui_split_brain() {
+        val snap = RuntimeStateSnapshot.current(uiRunning = false).copy(
+            runtimeState = "RUNNING",
+            botLoopActive = true,
+            uiState = "STOPPED",
+        )
+        val faults = InvariantGuardian.check(snap, uiRunning = false)
+        assertTrue(faults.any { it.code == InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN })
+    }
+
+    @Test
+    fun self_healer_refuses_forbidden_live_deploy_request() {
+        val result = RuntimeSelfHealer.apply(
+            RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = "please deploy apk and edit kotlin")
+        )
+        assertFalse(result.applied)
+    }
+
+    @Test
+    fun signed_hotfix_rule_requires_valid_signature_and_rolls_back() {
+        HotfixRules.resetForTests()
+        val expires = System.currentTimeMillis() + 60_000L
+        val sig = HotfixRules.signPayload("r1", 1, HotfixRules.RuleType.DISABLE_LANE, "MOONSHOT", "off", expires, "rb")
+        val rule = HotfixRules.Rule("r1", 1, HotfixRules.RuleType.DISABLE_LANE, "MOONSHOT", "off", expires, "rb", sig)
+        assertTrue(HotfixRules.apply(rule).applied)
+        assertTrue(RuntimeRepairState.isLaneDisabled("MOONSHOT"))
+        assertTrue(HotfixRules.rollback("r1", "rb").applied)
+    }
+
+    @Test
+    fun state_debugger_outputs_required_safe_fields() {
+        val snap = RuntimeStateSnapshot.current()
+        val diagnosis = StateDebuggerAI.deterministicFallback(
+            StateDebuggerAI.Context(snap, emptyList(), emptyList(), emptyList(), "cfg", emptyMap())
+        )
+        assertNotNull(diagnosis.faultCode)
+        assertNotNull(diagnosis.safeMitigation)
+        assertFalse(PatchWriterAI.planFromDiagnosis(diagnosis).mayMergeOrDeploy)
+    }
+}

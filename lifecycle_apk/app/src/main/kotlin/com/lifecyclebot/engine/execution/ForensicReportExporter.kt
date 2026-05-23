@@ -9,6 +9,12 @@ import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.engine.LiveTradeLogStore
 import com.lifecyclebot.engine.BotRuntimeController
 import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.ExecutionRouteGuard
+import com.lifecyclebot.engine.LaneExecutionCoordinator
+import com.lifecyclebot.engine.QuarantineStore
+import com.lifecyclebot.engine.TradeOutcomeLedger
+import com.lifecyclebot.engine.RuntimeRegressionGuards
+import com.lifecyclebot.engine.RuntimeDoctor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -97,6 +103,14 @@ object ForensicReportExporter {
         root.put("schemaVersion", "z22.2-runtime")
         val runtime = BotRuntimeController.snapshot()
         root.put("runtimeGeneration", runtime.runtimeGeneration)
+        val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
+        root.put("runtime_doctor", JSONObject().apply {
+            put("fault_count", doctor?.faults?.size ?: -1)
+            put("diagnosis_fault", doctor?.diagnosis?.faultCode ?: "unavailable")
+            put("diagnosis_confidence", doctor?.diagnosis?.confidence ?: 0.0)
+            put("safe_actions", doctor?.recommendedActions?.joinToString(",") { it.action.name + ":" + it.target } ?: "")
+            put("latest_snapshot_ts", doctor?.snapshot?.timestampMs ?: 0L)
+        })
         root.put("runtime", JSONObject().apply {
             put("generation", runtime.runtimeGeneration)
             put("state", runtime.state.name)
@@ -109,6 +123,36 @@ object ForensicReportExporter {
             put("hostTrackerOpenCount", runtime.hostTrackerOpenCount)
             put("sellReconcilerStarted", runtime.sellReconcilerStarted)
             put("updatedAtMs", runtime.updatedAtMs)
+        })
+        val regressionChecks = try {
+            RuntimeRegressionGuards.evaluate(
+                RuntimeRegressionGuards.Input(
+                    uniqueClosedPositionIds = TradeOutcomeLedger.uniqueClosedPositionCount().toLong(),
+                    learningTrades = TradeOutcomeLedger.uniqueClosedPositionCount().toLong(),
+                    forensicsEvents = try { Forensics.size().toLong() } catch (_: Throwable) { 0L },
+                    forensicLoggingOn = com.lifecyclebot.engine.ForensicLogger.enabled,
+                    runtimeActive = runtime.runtimeActive,
+                    uiRunning = runtime.runtimeActive,
+                    sellReconcilerStarted = runtime.sellReconcilerStarted,
+                    hostTrackerOpenCount = runtime.hostTrackerOpenCount,
+                    positionStoreOpenCount = runtime.hostTrackerOpenCount,
+                )
+            )
+        } catch (_: Throwable) { emptyList() }
+        root.put("regression_guard_summary", try { RuntimeRegressionGuards.summary(regressionChecks) } catch (_: Throwable) { "REGRESSION_GUARDS_ERROR" })
+        root.put("regression_counters", JSONObject().apply {
+            put("lane_duplicate_open_suppressed", try { LaneExecutionCoordinator.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
+            put("quarantine_suppressed", try { QuarantineStore.suppressedCount() } catch (_: Throwable) { -1 })
+            put("duplicate_open_attempts_suppressed", try { TradeOutcomeLedger.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
+            put("duplicate_close_attempts_suppressed", try { TradeOutcomeLedger.duplicateCloseSuppressions() } catch (_: Throwable) { -1 })
+            put("orphan_closes_suppressed", try { TradeOutcomeLedger.orphanCloseSuppressions() } catch (_: Throwable) { -1 })
+            put("learning_duplicate_suppressions", try { TradeOutcomeLedger.learningDuplicateSuppressions() } catch (_: Throwable) { -1 })
+            put("unique_closed_positions", try { TradeOutcomeLedger.uniqueClosedPositionCount() } catch (_: Throwable) { -1 })
+            put("paper_blocked_in_live", try { ExecutionRouteGuard.paperBlockedInLiveCount() } catch (_: Throwable) { -1 })
+            put("live_route_blocked", try { ExecutionRouteGuard.liveBlockedCount() } catch (_: Throwable) { -1 })
+            put("shadow_route_allowed", try { ExecutionRouteGuard.shadowAllowedCount() } catch (_: Throwable) { -1 })
+            put("paper_route_allowed", try { ExecutionRouteGuard.paperAllowedCount() } catch (_: Throwable) { -1 })
+            put("live_route_allowed", try { ExecutionRouteGuard.liveAllowedCount() } catch (_: Throwable) { -1 })
         })
 
         // Reconciler section

@@ -3397,6 +3397,21 @@ class SolanaMarketScanner(
     }
 
     private fun emit(token: ScannedToken) {
+        val quarantine = QuarantineStore.evaluate(
+            mint = token.mint,
+            symbol = token.symbol,
+            source = token.source.name,
+            liquidityUsd = token.liquidityUsd,
+            marketCapUsd = token.mcapUsd,
+        )
+        if (quarantine.quarantined) {
+            markRejected(token.mint)
+            if (quarantine.telemetryDue) {
+                try { ForensicLogger.lifecycle("INTAKE_QUARANTINED", "symbol=${token.symbol} mint=${token.mint.take(10)} src=${token.source.name} reason=${quarantine.reason} stage=scanner_emit") } catch (_: Throwable) {}
+                ErrorLogger.info("Scanner", "🧯 QUARANTINE_DROP: ${token.symbol} reason=${quarantine.reason}")
+            }
+            return
+        }
         // V5.9.626 — protected intake starts inside the scanner. AI skip is
         // execution/priority advice, not an intake drop. Returning here can make
         // BotService/Meme Trader show 0 tokens even while raw scanner sources are
@@ -3524,6 +3539,7 @@ class SolanaMarketScanner(
             // ABSOLUTE BLOCK: Confirmed rug
             if (rugged == "true" || rugged == "yes") {
                 telemetryRugRejects++
+                QuarantineStore.quarantine(mint, reason = "RUGCHECK_RUGGED_TRUE")
                 onLog("🚫 RUG CONFIRMED: ${mint.take(8)}... (tokens worthless)")
                 ErrorLogger.info("Scanner", "quickRugcheck FATAL: ${mint.take(12)} rugged=true")
                 return false
@@ -3535,6 +3551,7 @@ class SolanaMarketScanner(
             // Score=1 means "unknown/pending" and should be allowed through for evaluation
             if (scoreNormalized == 0) {
                 telemetryRugRejects++
+                QuarantineStore.quarantine(mint, reason = "RUGCHECK_0")
                 onLog("🚫 RC HARD BLOCK: ${mint.take(8)}... score=0 (confirmed dangerous)")
                 ErrorLogger.info("Scanner", "RC HARD_BLOCK: ${mint.take(12)} score=0 (confirmed dangerous)")
                 return false
@@ -3590,10 +3607,12 @@ class SolanaMarketScanner(
         }
 
         if (!passed) {
-            // V5.9.626 — Rugcheck can block EXECUTION downstream, but the
-            // scanner must still emit to protected intake so the universe/UI and
-            // learning telemetry do not go dark. Keep the fatal signal in logs.
-            ErrorLogger.info("Scanner", "🛡 INTAKE_SHADOW_RUGCHECK: ${token.symbol} quickRugcheck=false — emitted to protected intake; execution gates may block")
+            val q = QuarantineStore.quarantine(token.mint, token.symbol, "RUGCHECK_FATAL")
+            if (q.telemetryDue) {
+                try { ForensicLogger.lifecycle("INTAKE_QUARANTINED", "symbol=${token.symbol} mint=${token.mint.take(10)} reason=${q.reason} stage=quick_rugcheck") } catch (_: Throwable) {}
+            }
+            ErrorLogger.info("Scanner", "🧯 INTAKE_QUARANTINED_RUGCHECK: ${token.symbol} quickRugcheck=false — no watchlist/lane/FDG")
+            return
         }
 
         emit(token)
