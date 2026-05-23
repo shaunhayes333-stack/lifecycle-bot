@@ -12449,6 +12449,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
             }
         } catch (_: Throwable) {}
     }
+
+    if (!ts.position.isOpen) {
+        if (RuntimeConfigOverlay.isTradingPaused() || RuntimeConfigOverlay.isPreAuthDisabled()) {
+            try { ForensicLogger.lifecycle("PREAUTH_BLOCK_RUNTIME_OVERLAY", "symbol=${identity.symbol} mint=${identity.mint.take(10)}") } catch (_: Throwable) {}
+            return
+        }
+    }
     
     // ═══════════════════════════════════════════════════════════════════
     // V3 CLEAN RUNTIME: V3 is the PRIMARY and ONLY decision authority
@@ -15064,7 +15071,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
             )
             // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
             // so brain sees skips due to mode/permit too).
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
+            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled() && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
@@ -15073,7 +15080,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && sniperAllowed && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled()) {
+            if (!ts.position.isOpen && sniperAllowed && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled() && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
                     // Check exit conditions

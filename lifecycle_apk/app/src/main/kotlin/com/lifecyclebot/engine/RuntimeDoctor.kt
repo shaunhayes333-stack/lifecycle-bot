@@ -43,12 +43,15 @@ object RuntimeDoctor {
         InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
         InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
         InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> listOf(
+            RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableLane("TREASURY", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("QUALITY", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("SHITCOIN", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("PROJECT_SNIPER", f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableLane("BLUECHIP", f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableLane("MOONSHOT", f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableLane("MANIPULATED", f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableLane("DIP_HUNTER", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("EXPRESS", f.detail, 30_000L),
             RuntimeMitigationBus.Command.DisableScannerSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L),
             RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L),
         )
@@ -64,6 +67,8 @@ object RuntimeDoctor {
         is RuntimeMitigationBus.Command.DisableScannerSource -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_SCANNER_SOURCE, cmd.source, cmd.reason)
         is RuntimeMitigationBus.Command.ReduceScannerConcurrency -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.REDUCE_SCANNER_CONCURRENCY, cmd.value.toString(), cmd.reason)
         is RuntimeMitigationBus.Command.PauseTrading -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = cmd.reason)
+        is RuntimeMitigationBus.Command.DisablePreAuth -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = cmd.reason)
+        is RuntimeMitigationBus.Command.ForceQualityOnly -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_LANE, "NON_QUALITY", cmd.reason)
         is RuntimeMitigationBus.Command.RestartSellReconciler -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.RESTART_SELL_RECONCILER, reason = cmd.reason)
         is RuntimeMitigationBus.Command.QuarantineSource -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_SCANNER_SOURCE, cmd.source, cmd.reason)
     }

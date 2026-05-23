@@ -187,9 +187,9 @@ object ExecutableOpenGate {
             try {
                 ForensicLogger.lifecycle(log, "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
             } catch (_: Throwable) {}
-            if (shadow) {
-                try { ForensicLogger.lifecycle("PAPER_LEARNING_PROBE_NOT_EXECUTED", "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} reason=$reason") } catch (_: Throwable) {}
-            }
+            // No PAPER_LEARNING_PROBE_NOT_EXECUTED spam here. A blocked open is
+            // already represented by its EXEC_OPEN_BLOCKED_* reason; probe spam was
+            // self-DOSing the loop and hiding real executor demand.
             return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 

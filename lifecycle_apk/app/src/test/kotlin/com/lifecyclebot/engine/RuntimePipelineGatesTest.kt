@@ -389,3 +389,15 @@ class RuntimeEnforcementSmokeTest {
         assertTrue(RuntimeConfigOverlay.isLaneDisabled("MOONSHOT"))
     }
 }
+
+
+class RuntimeQualityOnlyOverlaySmokeTest {
+    @Test
+    fun force_quality_only_disables_non_quality_lanes() {
+        RuntimeConfigOverlay.resetForTests()
+        RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.ForceQualityOnly("fanout", 30_000L))
+        assertTrue(RuntimeConfigOverlay.isLaneDisabled("SHITCOIN"))
+        assertTrue(RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER"))
+        assertFalse(RuntimeConfigOverlay.isLaneDisabled("QUALITY"))
+    }
+}

@@ -233,6 +233,14 @@ object PipelineHealthCollector {
                 return
             }
         }
+        if (phaseTag == "FDG") {
+            val path = Regex("path=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
+                appendEvent(Event(System.currentTimeMillis(), "PHASE/FDG_SUPPRESSED", symbol, fields.take(220)))
+                return
+            }
+        }
         bump(phaseCounts, phaseTag)
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
             bump(labelCounts, "BOT_LOOP_TICK")
@@ -265,9 +273,16 @@ object PipelineHealthCollector {
                 return
             }
         }
-        if (phaseTag == "FDG" && RuntimeConfigOverlay.isTradingPaused()) {
-            bump(labelCounts, "FDG_SUPPRESSED_RUNTIME_PAUSED")
-            return
+        if (phaseTag == "FDG") {
+            if (RuntimeConfigOverlay.isTradingPaused()) {
+                bump(labelCounts, "FDG_SUPPRESSED_RUNTIME_PAUSED")
+                return
+            }
+            val path = Regex("path=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
+                return
+            }
         }
         bump(phaseCounts, phaseTag)
         if (allow) bump(phaseAllow, phaseTag) else bump(phaseBlock, phaseTag)

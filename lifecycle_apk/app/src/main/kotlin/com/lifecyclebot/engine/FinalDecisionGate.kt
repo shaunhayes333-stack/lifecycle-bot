@@ -686,6 +686,26 @@ object FinalDecisionGate {
 
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
 
+        val overlayLane = tradingModeTag?.name ?: "STANDARD"
+        if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "RUNTIME_OVERLAY_LANE_DISABLED_$overlayLane",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("runtime_overlay", "lane_disabled:$overlayLane"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "runtime overlay disabled lane $overlayLane",
+                gateChecks = listOf(GateCheck("RUNTIME_OVERLAY", false, "lane_disabled=$overlayLane")),
+            )
+        }
+
         // V5.9.805 — operator audit Fix (β): record this candidate's V3
         // score in the WrRecoveryPartial rolling distribution. We do this
         // at the top of FDG (after candidate construction) because every
