@@ -382,7 +382,7 @@ class RuntimeEnforcementSmokeTest {
     }
 
     @Test
-    fun runtime_doctor_applies_lane_fanout_mitigation_overlay() {
+    fun runtime_overlay_can_still_disable_specific_lane_when_explicitly_commanded() {
         RuntimeConfigOverlay.resetForTests()
         val fault = InvariantGuardian.Fault(InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=49")
         RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.DisableLane("MOONSHOT", fault.detail, 30_000L))

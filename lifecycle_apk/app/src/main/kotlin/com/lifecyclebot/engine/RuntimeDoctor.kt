@@ -43,15 +43,13 @@ object RuntimeDoctor {
         InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
         InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
         InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> listOf(
-            RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("TREASURY", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("SHITCOIN", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("PROJECT_SNIPER", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("BLUECHIP", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("MOONSHOT", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("MANIPULATED", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("DIP_HUNTER", f.detail, 30_000L),
-            RuntimeMitigationBus.Command.DisableLane("EXPRESS", f.detail, 30_000L),
+            // V5.9.1112 — unlock multi-lane runtime after 1109-1111 repairs.
+            // Do NOT auto-force QUALITY-only and do NOT disable all specialist lanes
+            // on a raw laneEval/intake ratio. Multi-lane recovery intentionally raises
+            // lane-eval volume; the repaired FinalExecutionPermit/FDG/preauth guards
+            // now own execution containment. RuntimeDoctor may still reduce scanner
+            // pressure and quarantine restore poison, but it must not silently re-cage
+            // the trader the moment lanes come back.
             RuntimeMitigationBus.Command.DisableScannerSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L),
             RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L),
         )

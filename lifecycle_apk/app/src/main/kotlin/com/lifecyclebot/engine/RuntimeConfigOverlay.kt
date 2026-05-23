@@ -4,8 +4,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Bounded TTL runtime overlay consumed by scanner/lane/auth/executor hot paths. */
 object RuntimeConfigOverlay {
-    /** V5.9.1108 — operator emergency: narrow runtime to QUALITY only until fanout root cause is proven closed. */
-    const val HARD_QUALITY_ONLY: Boolean = true
+    /** V5.9.1112 — hard QUALITY-only cage removed after 1109-1111 repairs proved containment. */
+    const val HARD_QUALITY_ONLY: Boolean = false
     data class Command(val kind: String, val target: String, val value: String, val reason: String, val expiresAtMs: Long)
     private val commands = ConcurrentHashMap<String, Command>()
     private fun now() = System.currentTimeMillis()
