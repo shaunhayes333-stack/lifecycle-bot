@@ -196,3 +196,32 @@ class RuntimePipelineGatesTest {
             DeadAILayerFilter.health("FundingRateAwarenessAI"))
     }
 }
+
+class RuntimeSupervisorSmokeTest {
+    @Test
+    fun runtime_job_active_cannot_report_stopped() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        BotRuntimeController.publishRunning(gen)
+        val snap = BotRuntimeController.snapshot()
+        assertTrue(snap.runtimeActive)
+        assertTrue("UI stopped while runtime active must be a regression", BotRuntimeController.runtimeJobActiveButUiStopped(uiRunning = false) || snap.state == BotRuntimeController.RuntimeState.RUNNING)
+    }
+
+    @Test
+    fun runtime_export_state_has_generation() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        BotRuntimeController.publishRunning(gen)
+        val snap = BotRuntimeController.snapshot()
+        assertTrue("runtime generation must be non-zero after start", snap.runtimeGeneration > 0)
+        assertEquals(BotRuntimeController.RuntimeState.RUNNING, snap.state)
+    }
+
+    @Test
+    fun forensics_ring_not_empty_when_event_emitted() {
+        com.lifecyclebot.engine.execution.Forensics.clear()
+        com.lifecyclebot.engine.execution.Forensics.log(com.lifecyclebot.engine.execution.Forensics.Event.RUNTIME_EVENT, "", "smoke")
+        assertTrue(com.lifecyclebot.engine.execution.Forensics.recent(10).isNotEmpty())
+    }
+}

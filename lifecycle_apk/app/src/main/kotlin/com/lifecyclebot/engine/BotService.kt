@@ -357,10 +357,12 @@ class BotService : Service() {
          */
         fun isRuntimeActive(): Boolean {
             return try {
-                val svc = instance
-                status.running || stopInProgress || (svc?.loopJob?.isActive == true)
+                BotRuntimeController.snapshot().runtimeActive || stopInProgress || status.running
             } catch (_: Throwable) {
-                status.running || stopInProgress
+                try {
+                    val svc = instance
+                    status.running || stopInProgress || (svc?.loopJob?.isActive == true)
+                } catch (_: Throwable) { status.running || stopInProgress }
             }
         }
 
@@ -2722,8 +2724,13 @@ class BotService : Service() {
         // already-active loop. runtimeCommitted separates fatal pre-loop start
         // failure from degraded post-commit startup cleanup.
         var runtimeCommitted = false
+        val startCfgForRuntime = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+        val runtimeGeneration = BotRuntimeController.beginStart(
+            paperMode = startCfgForRuntime?.paperMode ?: true,
+            enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" }
+        )
         // V5.9.651 — forensic lifecycle marker
-        ForensicLogger.lifecycle("BOT_START_REQUESTED", "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}")
+        ForensicLogger.lifecycle("BOT_START_REQUESTED", "gen=$runtimeGeneration loopActive=${loopJob?.isActive == true} statusRunning=${status.running} runtimeState=${BotRuntimeController.snapshot().state}")
         // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
         // BotViewModel.startBot() pre-sets BotService.status.running = true
         // for instant UI feedback BEFORE the service even starts. The old
@@ -2742,7 +2749,10 @@ class BotService : Service() {
         // 'BLUE CHIP QUALIFIED: TRUMP score=70 conf=90% size=0.3210 SOL'
         // but no execution log following.
         if (loopJob?.isActive == true) {
-            ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — skipping")
+            BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
+            BotRuntimeController.publishRunning(runtimeGeneration)
+            status.running = true
+            ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — rebinding runtime state")
             return
         }
         
@@ -3361,11 +3371,13 @@ class BotService : Service() {
 
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
+        BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
+        BotRuntimeController.publishRunning(runtimeGeneration)
         runtimeCommitted = true
         try {
             ForensicLogger.lifecycle(
                 "STARTBOT_RUNTIME_COMMITTED",
-                "loopActive=${loopJob?.isActive == true} statusRunning=${status.running}",
+                "gen=$runtimeGeneration loopActive=${loopJob?.isActive == true} statusRunning=${status.running} runtimeState=${BotRuntimeController.snapshot().state}",
             )
         } catch (_: Throwable) {}
 
@@ -3451,7 +3463,9 @@ class BotService : Service() {
                 try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) { break }
             }
             ErrorLogger.info("BotService", "hotExitJob loop exited (status.running=${status.running})")
-        }        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
+        }
+        BotRuntimeController.registerJob(runtimeGeneration, "hotExit", hotExitJob)
+        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
         // watchdog. Runs every 10s in LIVE mode only; scans the host
         // wallet's open tracked positions, force-releases stale sell
         // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
@@ -3492,7 +3506,9 @@ class BotService : Service() {
                     }
                 },
             )
+            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
         } catch (e: Throwable) {
+            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)
             ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
         }
 
@@ -5022,7 +5038,8 @@ class BotService : Service() {
         isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
         // V5.9.1016 — forensic stop source marker. Report/navigation bugs must
         // never be allowed to hide behind a generic BOT_STOP_REQUESTED again.
-        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
+        val stopGeneration = BotRuntimeController.beginStopping(source)
+        ForensicLogger.lifecycle("BOT_STOP_REQUESTED", "gen=$stopGeneration source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions loopActive=${loopJob?.isActive == true} statusRunning=${status.running} openPositions=${status.tokens.values.count { it.position.isOpen }}")
         // V5.9.148 — gate so a concurrent ACTION_START queues instead of racing
         // the tail of this method. Cleared in the `finally` block below.
         stopInProgress = true
@@ -5046,7 +5063,8 @@ class BotService : Service() {
         //    instead of waiting 4.8s budget × 3 chunks = 14.4s drain.
         try {
             loopJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source"))
-            try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CANCELLED", "source=$source") } catch (_: Throwable) {}
+            BotRuntimeController.registerJob(stopGeneration, "botLoop", loopJob)
+            try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_CANCELLED", "gen=$stopGeneration source=$source") } catch (_: Throwable) {}
         } catch (_: Throwable) {}
         try {
             com.lifecyclebot.network.SharedHttpClient.cancelAllRequests()
@@ -5098,6 +5116,10 @@ class BotService : Service() {
         // V5.9.495z22 — stop reconciler loop on bot stop.
         try {
             com.lifecyclebot.engine.execution.PositionWalletReconciler.stop()
+        } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.engine.sell.SellReconciler.stop()
+            BotRuntimeController.markSellReconcilerStarted(stopGeneration, false)
         } catch (_: Exception) {}
 
         // V5.9.495z24 — stop background discovery loop.
@@ -5729,8 +5751,9 @@ class BotService : Service() {
             } catch (_: Throwable) { -1 }
             ForensicLogger.lifecycle(
                 "STOP_COMPLETE",
-                "tokens=$_finalTokens host=$_finalHostOpen life=$_finalLifeOpen"
+                "gen=$stopGeneration tokens=$_finalTokens host=$_finalHostOpen life=$_finalLifeOpen"
             )
+            BotRuntimeController.publishStopped(stopGeneration, source)
         } catch (_: Throwable) {}
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -5758,6 +5781,7 @@ class BotService : Service() {
             // V5.9.148 — always clear, even on early return/exception, so any
             // queued restart in onStartCommand can proceed.
             stopInProgress = false
+            BotRuntimeController.publishStopped(stopGeneration, source)
             try { ForensicLogger.lifecycle("LIFECYCLE_STOP_COMPLETE", "source=$source liquidate=$liquidateOnStop softPreserve=$softStopPreservePositions") } catch (_: Throwable) {}
         }
     }

@@ -18,6 +18,7 @@ object Forensics {
     private const val MAX_EVENTS = 500
 
     enum class Event {
+        RUNTIME_EVENT,
         ROUTE_INTENT_CREATED,
         ROUTE_SELECTED,
         ROUTE_VALIDATE_PRE_OK,
@@ -67,6 +68,9 @@ object Forensics {
 
     @Synchronized
     fun recent(limit: Int = 50): List<Entry> = ring.toList().takeLast(limit).reversed()
+
+    @Synchronized
+    fun size(): Int = ring.size
 
     @Synchronized
     fun clear() { ring.clear() }

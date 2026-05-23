@@ -510,6 +510,12 @@ class MainActivity : AppCompatActivity() {
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
     @Volatile private var mainUiActive: Boolean = false
+    private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val markMainInactiveRunnable = Runnable {
+        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            mainUiActive = false
+        }
+    }
     private val looseMainHandlers = mutableListOf<android.os.Handler>()
     private val looseMainRunnables = mutableListOf<Runnable>()
 
@@ -847,7 +853,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        mainUiActive = false
+        try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
+        mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
         try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
         try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         // V5.9.1016 — NEVER autosave settings during in-app navigation.
@@ -906,6 +913,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
         mainUiActive = true
         // V5.9.1085 — force one foreground render from the latest UiState.
         // StateFlow does not guarantee a new emission just because Activity resumed;
@@ -1059,7 +1067,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        mainUiActive = false
+        try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
+        mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
         try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
         try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         super.onStop()
@@ -1995,8 +2004,11 @@ for legal compliance.
     }
 
     private fun updateUi(state: UiState) {
+        if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            mainUiActive = true
+        }
         if (!mainUiActive || isFinishing || isDestroyed) {
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UPDATE_SKIPPED_INACTIVE", "active=$mainUiActive finishing=$isFinishing destroyed=$isDestroyed") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UPDATE_SKIPPED_INACTIVE", "active=$mainUiActive lifecycle=${lifecycle.currentState} finishing=$isFinishing destroyed=$isDestroyed") } catch (_: Throwable) {}
             return
         }
         val ts  = state.activeToken

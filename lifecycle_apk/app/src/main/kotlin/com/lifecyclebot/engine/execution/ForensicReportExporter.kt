@@ -7,6 +7,8 @@ import androidx.core.content.FileProvider
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.engine.LiveTradeLogStore
+import com.lifecyclebot.engine.BotRuntimeController
+import com.lifecyclebot.engine.ForensicLogger
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -92,7 +94,22 @@ object ForensicReportExporter {
     private fun buildPayload(): JSONObject {
         val root = JSONObject()
         root.put("exportedAtMs", System.currentTimeMillis())
-        root.put("schemaVersion", "z22.1")
+        root.put("schemaVersion", "z22.2-runtime")
+        val runtime = BotRuntimeController.snapshot()
+        root.put("runtimeGeneration", runtime.runtimeGeneration)
+        root.put("runtime", JSONObject().apply {
+            put("generation", runtime.runtimeGeneration)
+            put("state", runtime.state.name)
+            put("runtimeActive", runtime.runtimeActive)
+            put("botLoopJobActive", runtime.botLoopJobActive)
+            put("scannerActive", runtime.scannerActive)
+            put("hotExitJobActive", runtime.hotExitJobActive)
+            put("paperMode", runtime.paperMode)
+            put("enabledTraders", runtime.enabledTraders)
+            put("hostTrackerOpenCount", runtime.hostTrackerOpenCount)
+            put("sellReconcilerStarted", runtime.sellReconcilerStarted)
+            put("updatedAtMs", runtime.updatedAtMs)
+        })
 
         // Reconciler section
         val recon = PositionWalletReconciler.snapshot()
@@ -136,7 +153,8 @@ object ForensicReportExporter {
             put("totalTicks",   com.lifecyclebot.engine.sell.SellReconciler.totalTicks)
             put("totalChecked", com.lifecyclebot.engine.sell.SellReconciler.totalChecked)
             put("lastTickAtMs", com.lifecyclebot.engine.sell.SellReconciler.lastTickAtMs)
-            put("isStarted",    com.lifecyclebot.engine.sell.SellReconciler.isStarted)
+            put("isStarted",    runtime.sellReconcilerStarted || com.lifecyclebot.engine.sell.SellReconciler.isStarted)
+            put("runtimeGeneration", runtime.runtimeGeneration)
             put("activeJobs",   com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size)
         }
         root.put("sell_reconciler", sellReconJson)
@@ -165,12 +183,16 @@ object ForensicReportExporter {
         } catch (_: Throwable) {}
         root.put("host_tracker", JSONObject().apply {
             put("open_count", try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 })
+            put("runtime_open_count", runtime.hostTrackerOpenCount)
             put("positions", trackerArr)
         })
 
         // Forensics ring buffer
         val forensicsArr = JSONArray()
         try {
+            if (Forensics.size() == 0 && ForensicLogger.enabled) {
+                Forensics.log(Forensics.Event.RUNTIME_EVENT, "", "runtimeGeneration=${runtime.runtimeGeneration} state=${runtime.state.name} exporter_fallback=true")
+            }
             for (e in Forensics.recent(limit = 200)) {
                 forensicsArr.put(JSONObject().apply {
                     put("ts", e.ts)

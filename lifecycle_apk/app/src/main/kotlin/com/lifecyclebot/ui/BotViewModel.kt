@@ -8,6 +8,7 @@ import com.lifecyclebot.data.BotConfig
 import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.BotService
+import com.lifecyclebot.engine.BotRuntimeController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 
 data class UiState(
     val running: Boolean = false,
+    val runtime: BotRuntimeController.Snapshot = BotRuntimeController.Snapshot(),
     val walletSol: Double = 0.0,
     val activeToken: TokenState? = null,
     val tokens: Map<String, TokenState> = emptyMap(),
@@ -90,6 +92,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             // V5.9.696 — ConfigStore.load is a disk read; move it off the main/UI thread.
             val cfg    = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
             val status = BotService.status
+            val runtime = BotRuntimeController.snapshot()
             
             // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
             var active = status.tokens[cfg.activeToken]
@@ -111,7 +114,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     f.get(svc) as? com.lifecyclebot.engine.SecurityGuard
                 } } catch (_: Exception) { null }
             _ui.value  = UiState(
-                running      = BotService.isRuntimeActive(),  // V5.9.1071: service-owned truth, not stale status flag
+                running      = runtime.runtimeActive,
+                runtime      = runtime,
                 walletSol    = status.walletSol,
                 activeToken  = active,
                 // V5.9.953 — pollLoop ANR fix. status.tokens is a ConcurrentHashMap
@@ -174,7 +178,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             action = BotService.ACTION_START
             putExtra(BotService.EXTRA_USER_REQUESTED, true)
         }
-        _ui.value = _ui.value.copy(running = true)
+        _ui.value = _ui.value.copy(runtime = BotRuntimeController.snapshot(), running = BotRuntimeController.snapshot().runtimeActive)
         ctx.startForegroundService(intent)
     }
 
