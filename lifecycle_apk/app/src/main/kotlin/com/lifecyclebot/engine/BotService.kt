@@ -13014,6 +13014,21 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 }
                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "REJECTED", result.reason, "REJECT", ts.safety.rugcheckScore)
+                    // V5.9.1122 — only terminal eligibility rejects return early.
+                    // 3088 still showed ZERO_LIQUIDITY/LOW_LIQUIDITY walking all
+                    // lanes after V3 rejected them, creating supervisor timeouts
+                    // and finality blocks with no executable value. Keep
+                    // SCORE_TOO_LOW soft for bootstrap/learning probes.
+                    val terminalRejected = result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
+                        result.reason.contains("LOW_LIQUIDITY", ignoreCase = true) ||
+                        result.reason.contains("INELIGIBLE", ignoreCase = true) ||
+                        result.reason.contains("TOO_OLD", ignoreCase = true) ||
+                        result.reason.contains("NO_PAIR", ignoreCase = true)
+                    if (terminalRejected && !ts.position.isOpen) {
+                        try { ForensicLogger.lifecycle("V3_REJECTED_TERMINAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                        ErrorLogger.debug("BotService", "🧯 V3_REJECTED_TERMINAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
+                        return
+                    }
                 }
                 is com.lifecyclebot.v3.V3Decision.ShadowOnly -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "SHADOW_ONLY", result.reason, "WATCH", ts.safety.rugcheckScore)
