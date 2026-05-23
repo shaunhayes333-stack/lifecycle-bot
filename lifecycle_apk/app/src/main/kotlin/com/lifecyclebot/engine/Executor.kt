@@ -7374,7 +7374,9 @@ class Executor(
                         quality: String = "C",
                         skipGraduated: Boolean = false,
                         layerTag: String = "",           // V5.9.386 — sub-trader journal tag
-                        layerTagEmoji: String = "") {    // V5.9.386 — matching emoji
+                        layerTagEmoji: String = "",
+                        finalityPrechecked: Boolean = false,
+                        attemptId: String = "") {    // V5.9.386 — matching emoji
 
         // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
         // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL

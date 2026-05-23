@@ -111,6 +111,56 @@ object ToxicModeCircuitBreaker {
     // Stats
     @Volatile private var blockedEntries = 0
     @Volatile private var circuitTrips = 0
+
+    // V5.9.1094 — execution-state circuit pause source of truth.
+    // FDG used to discover CIRCUIT_BREAKER only after thousands of lane/FDG
+    // evaluations. Track the most recent entry-block reason here so BotService
+    // can short-circuit new BUY work before LANE_EVAL / FDG / EXEC_OPEN.
+    @Volatile private var lastEntryBlockMs: Long = 0L
+    @Volatile private var lastEntryBlockReason: String = ""
+    @Volatile private var lastEntryBlockMode: String = ""
+    @Volatile private var lastEntryBlockEmitMs: Long = 0L
+    private const val ENTRY_BLOCK_PAUSE_MS = 120_000L
+    private const val EXECUTION_STATE_BLOCK_LOG_MS = 10_000L
+
+    data class EntryPause(
+        val active: Boolean,
+        val reason: String = "",
+        val mode: String = "",
+        val ageMs: Long = 0L,
+    )
+
+    private fun markEntryBlocked(modeUpper: String, reason: String): String {
+        blockedEntries++
+        lastEntryBlockMs = System.currentTimeMillis()
+        lastEntryBlockReason = reason
+        lastEntryBlockMode = modeUpper
+        return reason
+    }
+
+    fun currentEntryPause(): EntryPause {
+        val ms = lastEntryBlockMs
+        if (ms <= 0L) return EntryPause(false)
+        val age = System.currentTimeMillis() - ms
+        if (age > ENTRY_BLOCK_PAUSE_MS) return EntryPause(false, lastEntryBlockReason, lastEntryBlockMode, age)
+        return EntryPause(true, lastEntryBlockReason, lastEntryBlockMode, age)
+    }
+
+    fun emitExecutionStateBlockedIfDue(symbol: String, source: String): Boolean {
+        val pause = currentEntryPause()
+        if (!pause.active) return false
+        val now = System.currentTimeMillis()
+        if (now - lastEntryBlockEmitMs >= EXECUTION_STATE_BLOCK_LOG_MS) {
+            lastEntryBlockEmitMs = now
+            try {
+                ForensicLogger.lifecycle(
+                    "EXECUTION_STATE_BLOCKED",
+                    "state=CIRCUIT_BREAKER mode=${pause.mode} symbol=$symbol reason=${pause.reason} ageSec=${pause.ageMs / 1000} source=$source"
+                )
+            } catch (_: Throwable) {}
+        }
+        return true
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN ENTRY GATE
@@ -134,25 +184,22 @@ object ToxicModeCircuitBreaker {
         
         // 1. Emergency stop
         if (emergencyStop.get()) {
-            blockedEntries++
-            return "EMERGENCY_STOP_ACTIVE"
+            return markEntryBlocked("GLOBAL", "EMERGENCY_STOP_ACTIVE")
         }
         
         // 2. Hard disabled modes
         val modeUpper = mode.uppercase()
         if (modeUpper in HARD_DISABLED_MODES) {
-            blockedEntries++
             Log.w(TAG, "🚫 BLOCKED: $mode is HARD DISABLED (toxic loss pattern)")
-            return "MODE_HARD_DISABLED"
+            return markEntryBlocked(modeUpper, "MODE_HARD_DISABLED")
         }
         
         // 3. Frozen modes (circuit breaker tripped)
         val freezeEnd = frozenModes[modeUpper]
         if (freezeEnd != null && System.currentTimeMillis() < freezeEnd) {
-            blockedEntries++
             val remainingMins = (freezeEnd - System.currentTimeMillis()) / 60_000
             Log.w(TAG, "🚫 BLOCKED: $mode frozen for ${remainingMins}min (circuit breaker)")
-            return "MODE_FROZEN_${remainingMins}MIN"
+            return markEntryBlocked(modeUpper, "MODE_FROZEN_${remainingMins}MIN")
         }
         
         // 4. Liquidity floor check
@@ -165,31 +212,27 @@ object ToxicModeCircuitBreaker {
             LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!
         }
         if (liquidityUsd < floor) {
-            blockedEntries++
             Log.w(TAG, "🚫 BLOCKED: $mode requires \$${floor.toInt()} liq, got \$${liquidityUsd.toInt()}")
-            return "LIQUIDITY_BELOW_FLOOR_${floor.toInt()}"
+            return markEntryBlocked(modeUpper, "LIQUIDITY_BELOW_FLOOR_${floor.toInt()}")
         }
         
         // 5. Source + mode combo block
         val combo = "${source.uppercase()}:$modeUpper"
         if (combo in BLOCKED_SOURCE_MODE_COMBOS) {
-            blockedEntries++
             Log.w(TAG, "🚫 BLOCKED: $source + $mode combo is banned")
-            return "BLOCKED_SOURCE_MODE_COMBO"
+            return markEntryBlocked(modeUpper, "BLOCKED_SOURCE_MODE_COMBO")
         }
         
         // 6. Phase restrictions for aggressive modes
         val dangerousPhases = setOf("early_unknown", "pre_pump", "unknown")
         if (phase.lowercase() in dangerousPhases) {
             if (modeUpper in setOf("WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
-                blockedEntries++
                 Log.w(TAG, "🚫 BLOCKED: $mode not allowed in phase=$phase")
-                return "PHASE_RESTRICTED_${phase}"
+                return markEntryBlocked(modeUpper, "PHASE_RESTRICTED_${phase}")
             }
             // Even for other modes, require higher liquidity in dangerous phases
             if (liquidityUsd < 15_000) {
-                blockedEntries++
-                return "PHASE_LOW_LIQ_${phase}"
+                return markEntryBlocked(modeUpper, "PHASE_LOW_LIQ_${phase}")
             }
         }
         
@@ -198,9 +241,8 @@ object ToxicModeCircuitBreaker {
             // V5.9.1055: COPY_TRADE/COPY removed — copy trade follows wallet signals,
             // not AI scoring, so AI degradation doesn't affect its signal quality.
             if (modeUpper in setOf("WHALE_FOLLOW", "FRESH_LAUNCH", "PRESALE_SNIPE")) {
-                blockedEntries++
                 Log.w(TAG, "🚫 BLOCKED: $mode not allowed when AI degraded")
-                return "AI_DEGRADED_AGGRESSIVE_MODE"
+                return markEntryBlocked(modeUpper, "AI_DEGRADED_AGGRESSIVE_MODE")
             }
         }
         
@@ -220,9 +262,8 @@ object ToxicModeCircuitBreaker {
         //     have a substantially negative memory profile before LIVE
         //     entries are blocked.
         if (memoryScore <= -12 && !isPaperMode) {
-            blockedEntries++
             Log.w(TAG, "🚫 BLOCKED [LIVE]: Memory score $memoryScore too negative")
-            return "MEMORY_TOO_NEGATIVE"
+            return markEntryBlocked(modeUpper, "MEMORY_TOO_NEGATIVE")
         }
         if (memoryScore <= -8 && isPaperMode) {
             // Visibility only — do NOT block paper trades.
@@ -232,8 +273,7 @@ object ToxicModeCircuitBreaker {
         // 9. Confidence check for whale-follow only (not copy trade — it learns from wallet signals)
         if (modeUpper in setOf("WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
             if (confidence < 50) {
-                blockedEntries++
-                return "CONFIDENCE_TOO_LOW_FOR_MODE"
+                return markEntryBlocked(modeUpper, "CONFIDENCE_TOO_LOW_FOR_MODE")
             }
         }
         
@@ -511,5 +551,9 @@ object ToxicModeCircuitBreaker {
         emergencyStop.set(false)
         blockedEntries = 0
         circuitTrips = 0
+        lastEntryBlockMs = 0L
+        lastEntryBlockReason = ""
+        lastEntryBlockMode = ""
+        lastEntryBlockEmitMs = 0L
     }
 }

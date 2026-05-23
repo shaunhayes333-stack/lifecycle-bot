@@ -12393,6 +12393,20 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // This ensures mint/symbol are always consistent across all systems
     // ═══════════════════════════════════════════════════════════════════
     val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+
+    // V5.9.1094 — CIRCUIT BREAKER EARLY BUY SHORT-CIRCUIT.
+    // The breaker was previously discovered inside FDG, after all lane evals
+    // had already run. That produced storms: LANE_EVAL/FDG/EXEC_OPEN_REQUEST/
+    // PAPER_LEARNING_PROBE_NOT_EXECUTED/LANE_BUY_NOT_OPENED_RELEASED while the
+    // snapshot already showed CIRCUIT_BREAKER. Exits and universal/rug safety
+    // above this point still run; new BUY/V3/lane/FDG/open work below is paused.
+    if (!ts.position.isOpen) {
+        try {
+            if (com.lifecyclebot.engine.ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")) {
+                return
+            }
+        } catch (_: Throwable) {}
+    }
     
     // ═══════════════════════════════════════════════════════════════════
     // V3 CLEAN RUNTIME: V3 is the PRIMARY and ONLY decision authority
