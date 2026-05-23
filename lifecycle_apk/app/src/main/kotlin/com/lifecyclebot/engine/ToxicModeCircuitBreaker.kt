@@ -220,8 +220,11 @@ object ToxicModeCircuitBreaker {
         // V5.2/V5.9.47: lenient mode uses much lower floor (paper/proven-edge)
         val lenient = ModeLeniency.useLenientGates(isPaperMode)
         val floor = if (lenient) {
-            // Lenient: $3K floor (same as Treasury minimum)
-            3_000.0
+            // V5.9.1118 — paper/proven-edge bootstrap must match pump.fun
+            // bonding-curve reality. 3084 showed $2.0k-$2.5k candidates being
+            // globally buried by LIQUIDITY_BELOW_FLOOR_3000. Live keeps the
+            // regular per-mode floor; only lenient learning path uses $1.5k.
+            1_500.0
         } else {
             LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!
         }
@@ -244,8 +247,10 @@ object ToxicModeCircuitBreaker {
                 Log.w(TAG, "🚫 BLOCKED: $mode not allowed in phase=$phase")
                 return recordEntryBlocked(modeUpper, "PHASE_RESTRICTED_${phase}")
             }
-            // Even for other modes, require higher liquidity in dangerous phases
-            if (liquidityUsd < 15_000) {
+            // V5.9.1118 — in paper/lenient bootstrap, early_unknown/pre_pump is
+            // exactly where meme learning samples come from. Do not add a second
+            // $15k phase floor after the lenient $1.5k floor has already passed.
+            if (!lenient && liquidityUsd < 15_000) {
                 return recordEntryBlocked(modeUpper, "PHASE_LOW_LIQ_${phase}")
             }
         }
