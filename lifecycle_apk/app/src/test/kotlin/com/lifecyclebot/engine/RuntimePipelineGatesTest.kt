@@ -225,3 +225,17 @@ class RuntimeSupervisorSmokeTest {
         assertTrue(com.lifecyclebot.engine.execution.Forensics.recent(10).isNotEmpty())
     }
 }
+
+class LaneExecutionCoordinatorSmokeTest {
+    @Test
+    fun one_primary_lane_per_candidate_generation() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        val e = LaneExecutionCoordinator.elect("MintA", listOf("TREASURY", "SHITCOIN", "MOONSHOT"), preferred = "SHITCOIN", runtimeGeneration = gen)
+        assertEquals("SHITCOIN", e.primaryLane)
+        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintA", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintA", "TREASURY", runtimeGeneration = gen).allowed)
+        assertEquals(1L, LaneExecutionCoordinator.duplicateOpenSuppressions())
+    }
+}
