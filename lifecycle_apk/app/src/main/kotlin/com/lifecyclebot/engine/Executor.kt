@@ -8487,6 +8487,16 @@ class Executor(
 
         // Explicit immediate-exit whitelist. These preserve the operator's
         // hard safety doctrine and high-priority rug/catastrophe handling.
+        val entry = pos.entryPrice
+        val current = getActualPrice(ts)
+        if (entry <= 0.0 || current <= 0.0) return false
+        val pnlPct = ((current - entry) / entry) * 100.0
+        val ageMs = System.currentTimeMillis() - pos.entryTime
+
+        val isPaperFullProfitExit = r.contains("RAPID_TAKE_PROFIT") ||
+            r.contains("TAKE_PROFIT") ||
+            r.contains("FULL_PROFIT")
+
         val immediate = listOf(
             "HARD_FLOOR",
             "CATASTROPHE",
@@ -8499,12 +8509,27 @@ class Executor(
             "BOT_SHUTDOWN",
             "STARTUP_SWEEP",
             "MANUAL",
-            "TAKE_PROFIT",
             "PARTIAL_TAKE",
             "TRAIL",
-            "PROFIT",
         )
         if (immediate.any { r.contains(it) }) return false
+
+        // V5.9.1097 — prevent instant full-close paper churn. Prior code put
+        // TAKE_PROFIT/PROFIT in the unconditional immediate whitelist, so a
+        // paper position could open and full-close seconds later as
+        // RAPID_TAKE_PROFIT_23. Partial/profit-lock/rug/hard-floor exits still
+        // bypass; this only delays full profit exits long enough to avoid fake
+        // open-close churn while preserving winners.
+        if (isPaperFullProfitExit && pnlPct > 0.0 && ageMs < 15_000L) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_PROFIT_MIN_HOLD",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs minHoldMs=15000 action=delay"
+                )
+            } catch (_: Throwable) {}
+            return true
+        }
+        if (r.contains("PROFIT") && !isPaperFullProfitExit) return false
 
         val softLoss = r.contains("STOP_LOSS") ||
             r.contains("STOP LOSS") ||
@@ -8512,11 +8537,6 @@ class Executor(
             r.contains("CASHGEN_STOP_LOSS") ||
             r.contains("SELL_OPT")
         if (!softLoss) return false
-
-        val entry = pos.entryPrice
-        val current = getActualPrice(ts)
-        if (entry <= 0.0 || current <= 0.0) return false
-        val pnlPct = ((current - entry) / entry) * 100.0
 
         // Unconditional hard floor must remain unconditional. Use current raw
         // price before paper exit slippage/clamps so the floor reflects market
@@ -8526,8 +8546,6 @@ class Executor(
         // Only delay losing/flat soft stops. Anything already profitable is
         // allowed to exit/lock as usual.
         if (pnlPct > 0.0) return false
-
-        val ageMs = System.currentTimeMillis() - pos.entryTime
         val lane = pos.tradingMode.ifBlank {
             when {
                 pos.isTreasuryPosition -> "TREASURY"

@@ -195,13 +195,17 @@ object ExecutableOpenGate {
         if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
-        if (v3Decision == "WATCH" || band == "WATCH" || v3Decision == "DECISION_WATCH") {
-            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", "DECISION_WATCH", shadow = mode == "PAPER")
-        }
         if (fdgCan == false) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
         }
-        if (signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) {
+        if ((v3Decision == "WATCH" || band == "WATCH" || v3Decision == "DECISION_WATCH") && fdgCan != true) {
+            // V5.9.1097 — WATCH is a soft V3 timing opinion, not a hard finality veto.
+            // Pre-1093 doctrine allowed FDG-approved lane probes through WATCH to preserve
+            // throughput/learning. 1093 accidentally made WATCH block every executable open,
+            // causing TREASURY/BLUECHIP/etc to report EXEC_OPEN_BLOCKED_SIGNAL_WAIT forever.
+            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", "DECISION_WATCH", shadow = mode == "PAPER")
+        }
+        if ((signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) && fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
         }
         if (rug <= 1 && rug >= 0) {
