@@ -6232,11 +6232,12 @@ class BotService : Service() {
                             // loss it would never have taken in live (live's 90s window
                             // would have escaped at -30%).
                             //
-                            // Paper-noise WAS a real problem in V5.9.788 — solve it by
-                            // requiring TWO conditions: (a) price age threshold, AND
-                            // (b) PnL from last-known price is NOT actively winning.
-                            // A position at +50% with stale price isn't rugged, just dark.
-                            // A position at any negative pnl with stale price IS rugged.
+                            // V5.9.1121 — paper stale-price is now an intelligent gate,
+                            // not a hair-trigger. Journal export showed 14 stale-live exits
+                            // averaging -14.4%, including -5.4%/-10.1% cuts. In paper,
+                            // feed darkness alone should not teach the bot fake rug losses.
+                            // Live remains aggressive; paper requires hard-floor-level
+                            // last-known damage before stale feed may force a sell.
                             val staleLivePriceThreshMs = if (cfg.paperMode) {
                                 if (posAgeForStale > 60_000L) 120_000L else 180_000L      // 2min / 3min in paper
                             } else {
@@ -6268,12 +6269,13 @@ class BotService : Service() {
                                 val lastKnownPnlPct = if (ts.position.entryPrice > 0 && ts.lastPrice > 0)
                                     ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
                                 else 0.0
-                                val pnlCorroborates = lastKnownPnlPct <= 0.0
+                                val stalePnlFloor = if (cfg.paperMode) -HARD_FLOOR_STOP_PCT else 0.0
+                                val pnlCorroborates = lastKnownPnlPct <= stalePnlFloor
                                 if (!pnlCorroborates) {
                                     try {
                                         ForensicLogger.lifecycle(
-                                            "STALE_LIVE_PRICE_HOLD_WINNER",
-                                            "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} ageS=${livePriceAgeMs/1000} — feed dark but position green, riding out"
+                                            if (cfg.paperMode) "STALE_LIVE_PRICE_HOLD_PAPER_NOT_HARDFLOOR" else "STALE_LIVE_PRICE_HOLD_WINNER",
+                                            "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} — feed dark but stale-exit not corroborated"
                                         )
                                     } catch (_: Throwable) {}
                                     continue
@@ -12963,6 +12965,17 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         v3Score = 0,
                         v3Confidence = 0
                     )
+                    // V5.9.1121 — hard V3 fatal is terminal for new entries.
+                    // 3086 showed EXTREME_RUG_RISK_* continuing through every
+                    // lane, creating 4,858 fatal open blocks + 1,433 supervisor
+                    // worker timeouts. Exits/managed open positions already ran
+                    // above this point; for flat tokens, stop before Treasury/
+                    // ShitCoin/Moonshot/FDG fanout.
+                    if (!ts.position.isOpen) {
+                        try { ForensicLogger.lifecycle("V3_FATAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                        ErrorLogger.debug("BotService", "🧯 V3_FATAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
+                        return
+                    }
                 }
                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCKED", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
@@ -12975,6 +12988,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         v3Score = 0,
                         v3Confidence = 0
                     )
+                    if (!ts.position.isOpen) {
+                        try { ForensicLogger.lifecycle("V3_BLOCKED_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                        ErrorLogger.debug("BotService", "🧯 V3_BLOCKED_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
+                        return
+                    }
                 }
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
                     ExecutableOpenGate.clearExecutableApproval(ts.mint, ts.symbol, "EXECUTE")
