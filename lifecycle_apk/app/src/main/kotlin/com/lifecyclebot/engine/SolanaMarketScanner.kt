@@ -1249,11 +1249,13 @@ class SolanaMarketScanner(
                 // Auto-recovery: if watchlist is thin, clear churn state so tokens can re-enter
                 // V5.4: Raised threshold from ≤2 to ≤10 — 2 tokens wasn't catching pipeline drains early enough
                 // V5.9.363: Raised threshold from ≤10 to ≤30 — fire churn-clear earlier so the watchlist refills faster
-                if (watchlistSize <= 30 && seenMints.size > 20) {
+                // V5.9.1114: Raise thin threshold to <100. Live-readiness target needs
+                // a deep bench; <50 active tokens means scanner/watchlist is choked.
+                if (watchlistSize < 100 && seenMints.size > 20) {
                     onLog("⚠️ Watchlist thin ($watchlistSize tokens) - clearing churn state to refill")
                     ErrorLogger.warn(
                         "Scanner",
-                        "Auto-recovery: watchlist=$watchlistSize (<=30), clearing cooldown/saturation maps"
+                        "Auto-recovery: watchlist=$watchlistSize (<100), clearing cooldown/saturation maps"
                     )
                     cooldownHitCount.clear()
                     saturatedMints.clear()

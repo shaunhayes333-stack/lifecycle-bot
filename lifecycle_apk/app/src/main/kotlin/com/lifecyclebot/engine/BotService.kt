@@ -7867,14 +7867,15 @@ class BotService : Service() {
         orderedMintsRaw: List<String>,
     ): List<String> {
         val nowMs = System.currentTimeMillis()
-        val FRESH_WINDOW_MS = 60_000L
-        val PER_CYCLE_CAP = 100
-        val STALE_PROCESS_COUNT_THRESHOLD = 12
-        // V5.9.1034 — Operator mandate: cap watchlist at 250, prune stale
-        // tokens after 5 minutes idle. "we are burning a lot of data there
-        // on every loop". Open positions are always exempt (see forcedOpenMints).
-        val STALE_AGE_MS = 5L * 60_000L              // 5 minutes since last touch
-        val MAX_ACTIVE_WATCHLIST = 250
+        val FRESH_WINDOW_MS = 120_000L
+        val PER_CYCLE_CAP = 200
+        val STALE_PROCESS_COUNT_THRESHOLD = 96
+        // V5.9.1114 — live-readiness refill. V5.9.1034's 250 cap + 12-pass /
+        // 5-minute eviction overcorrected the old 1000-token firehose and now
+        // starves the scanner (<50 active tokens). Restore the protected 500-token
+        // intake pool while keeping round-robin per-cycle work bounded.
+        val STALE_AGE_MS = 30L * 60_000L             // 30 minutes since last touch
+        val MAX_ACTIVE_WATCHLIST = 500
 
         val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
@@ -7924,8 +7925,8 @@ class BotService : Service() {
             } catch (_: Throwable) {}
         }
 
-        // V5.9.1034 — TIME-BASED stale eviction (5 minutes idle).
-        // Operator mandate: "prune stale or non moving tokens after 5 minutes".
+        // V5.9.1114 — TIME-BASED stale eviction relaxed to 30 minutes.
+        // Five minutes was shorter than enough scanner/source cycles to prove edge.
         // Applies only to tokens that have been processed at least once and
         // aren't open positions (forcedOpenMints set is the protection list).
         // This complements the existing process-count-based eviction; together
@@ -7953,7 +7954,7 @@ class BotService : Service() {
             } catch (_: Throwable) {}
         }
 
-        // V5.9.1034 — HARD CAP enforcement at 250 active watchlist entries.
+        // V5.9.1114 — HARD CAP enforcement at 500 active watchlist entries.
         // V5.9.1034b — Bugfix: original cap-evict pulled only from `cold`.
         // Operator snapshot (build 2995, watchlist 1693): cap-evict fired
         // (evicted=31 cap=250 sizeBefore=1694) but watchlist still rose
