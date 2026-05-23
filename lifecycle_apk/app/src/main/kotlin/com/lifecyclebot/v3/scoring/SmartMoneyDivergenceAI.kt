@@ -287,8 +287,10 @@ object SmartMoneyDivergenceAI {
             return DivergenceType.STRONG_BULLISH
         }
 
-        // Bullish divergence: whales buying, price flat/down
-        if (behavior == SmartMoneyBehavior.ACCUMULATION && priceDirection <= 0) {
+        // Bullish divergence requires actual price weakness. Flat/unknown
+        // price (priceDirection=0) is whale accumulation or confirmation-pending,
+        // not divergence. 3085 still logged STRONG_BULLISH price=0.
+        if (behavior == SmartMoneyBehavior.ACCUMULATION && priceDirection == -1) {
             // V5.9.840 — promote to STRONG when conviction is high
             return if (netConviction >= 50.0 && absConv >= 50.0)
                 DivergenceType.STRONG_BULLISH
@@ -303,8 +305,9 @@ object SmartMoneyDivergenceAI {
             return DivergenceType.STRONG_BEARISH
         }
 
-        // Bearish divergence: whales selling, price flat/up
-        if (behavior == SmartMoneyBehavior.DISTRIBUTION && priceDirection >= 0) {
+        // Bearish divergence requires actual price strength. Flat/unknown
+        // price (priceDirection=0) is distribution risk, not divergence.
+        if (behavior == SmartMoneyBehavior.DISTRIBUTION && priceDirection == 1) {
             // V5.9.840 — promote to STRONG when conviction is high
             return if (netConviction <= -50.0 && absConv >= 50.0)
                 DivergenceType.STRONG_BEARISH

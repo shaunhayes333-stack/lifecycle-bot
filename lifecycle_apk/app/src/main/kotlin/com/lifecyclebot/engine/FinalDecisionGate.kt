@@ -1475,6 +1475,11 @@ object FinalDecisionGate {
         }
 
         if (tradingModeStr.isNotBlank()) {
+            // V5.9.1119 — use runtime authority, not config-only paper flag.
+            // 3085 showed UI/runtime current=PAPER while circuit still emitted
+            // LIQUIDITY_BELOW_FLOOR_3000. That means config.paperMode can be stale
+            // on this FDG path; RuntimeModeAuthority is the source of truth.
+            val circuitPaperMode = config.paperMode || try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
             val circuitBlockReason = ToxicModeCircuitBreaker.checkEntryAllowed(
                 mode = tradingModeStr,
                 source = ts.source,
@@ -1483,7 +1488,7 @@ object FinalDecisionGate {
                 memoryScore = earlyMemoryScore,
                 isAIDegraded = earlyAIDegraded,
                 confidence = confidence.toInt(),
-                isPaperMode = config.paperMode
+                isPaperMode = circuitPaperMode
             )
 
             if (circuitBlockReason != null) {

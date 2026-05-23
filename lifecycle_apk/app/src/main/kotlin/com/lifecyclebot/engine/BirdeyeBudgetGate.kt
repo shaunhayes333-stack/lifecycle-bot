@@ -37,7 +37,7 @@ object BirdeyeBudgetGate {
     private const val MONTHLY_CAP = 5_000_000L
     private const val MONTHLY_LOCKDOWN_PCT = 0.80
     private const val MONTHLY_SCANNER_THROTTLE_PCT = 0.75
-    private const val DAILY_SCANNER_THROTTLE_PCT = 0.60
+    private const val DAILY_SCANNER_THROTTLE_PCT = 0.10
 
     @Volatile private var dayKey: Long = currentDayKey()
     @Volatile private var monthKey: Long = currentMonthKey()
@@ -76,7 +76,11 @@ object BirdeyeBudgetGate {
 
         val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
         val monthlyPct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        if (dailyPct >= 0.85) return false
+        // V5.9.1119 — scanner-side Birdeye is a luxury lane. 3085 burned
+        // 150k/150k daily CU while free Dex/Gecko/Pump sources were already
+        // supplying diverse intake. Hard-stop Birdeye scanner lanes at 25%
+        // daily so safety/exit fallbacks keep budget. Free sources remain on.
+        if (dailyPct >= 0.25) return false
         val throttle = dailyPct >= DAILY_SCANNER_THROTTLE_PCT ||
                        monthlyPct >= MONTHLY_SCANNER_THROTTLE_PCT
 
