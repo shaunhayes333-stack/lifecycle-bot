@@ -25,7 +25,8 @@ object InvariantGuardian {
         val mainStall = s.topBlockReasons.keys.any { it.contains("MainActivity", true) || it.contains("renderOpenPositions", true) || it.contains("onCreate", true) }
         if (s.anrHints > 0 && mainStall) out += Fault(FaultCode.MAIN_THREAD_STALL, "HIGH", "anrHints=${s.anrHints} top=${s.topBlockReasons.keys.take(3)}")
         val badApis = s.apiHealth.filterValues { it.successRatePct < 70 && it.failures >= 5 }
-        if (badApis.isNotEmpty()) out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${badApis.keys.joinToString(",")}")
+        val birdeyeLocked = try { BirdeyeBudgetGate.snapshot().lockedDown || BirdeyeBudgetGate.snapshot().pctUsed >= 85.0 } catch (_: Throwable) { false }
+        if (badApis.isNotEmpty() || birdeyeLocked) out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${badApis.keys.joinToString(",")} birdeyeLocked=$birdeyeLocked")
         return out
     }
 }

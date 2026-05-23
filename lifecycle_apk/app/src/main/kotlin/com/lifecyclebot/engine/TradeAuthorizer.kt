@@ -130,6 +130,13 @@ object TradeAuthorizer {
         val normalizedQuality = quality.trim().uppercase()
         val safeConfidence = confidence.coerceIn(0.0, 100.0)
 
+        if (RuntimeConfigOverlay.isTradingPaused()) {
+            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_RUNTIME_PAUSED", BlockLevel.HARD, canRetry = true)
+        }
+        if (RuntimeConfigOverlay.isLaneDisabled(requestedBook.name)) {
+            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_LANE_DISABLED", BlockLevel.SOFT, canRetry = true)
+        }
+
         // V5.9.1093 — finality BEFORE auth side effects.
         // No AUTHORIZED/PAPER_EXECUTE/LIVE_EXECUTE/token lock may appear before
         // EXEC_OPEN_ALLOWED for this same attempt.

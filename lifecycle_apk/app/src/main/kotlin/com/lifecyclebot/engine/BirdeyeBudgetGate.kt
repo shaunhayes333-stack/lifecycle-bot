@@ -76,6 +76,7 @@ object BirdeyeBudgetGate {
 
         val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
         val monthlyPct = cuThisMonth.get().toDouble() / MONTHLY_CAP
+        if (dailyPct >= 0.85) return false
         val throttle = dailyPct >= DAILY_SCANNER_THROTTLE_PCT ||
                        monthlyPct >= MONTHLY_SCANNER_THROTTLE_PCT
 
@@ -115,15 +116,16 @@ object BirdeyeBudgetGate {
 
     fun isLockedDown(): Boolean {
         val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        val locked = pct >= MONTHLY_LOCKDOWN_PCT
+        val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
+        val locked = pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
         if (locked) {
             val now = System.currentTimeMillis()
             if (now - lastLockdownLogMs > 300_000L) {
                 lastLockdownLogMs = now
                 ErrorLogger.warn(
                     TAG,
-                    "BIRDEYE LOCKDOWN — monthly burn=" + "%.0f".format(pct*100) + "% of 5M cap. " +
-                        "All non-safety paths blocked until UTC month rollover."
+                    "BIRDEYE LOCKDOWN — monthly burn=" + "%.0f".format(pct*100) + "% daily=" + "%.0f".format(dailyPct*100) + "%. " +
+                        "All non-safety paths blocked until reset."
                 )
             }
         }

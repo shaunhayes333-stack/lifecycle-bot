@@ -103,6 +103,7 @@ object TradeOutcomeLedger {
         return verdict
     }
 
+    fun recordSuppressedDuplicateOpen() { duplicateOpenSuppressed.incrementAndGet() }
     fun duplicateOpenSuppressions(): Long = duplicateOpenSuppressed.get()
     fun duplicateCloseSuppressions(): Long = duplicateCloseSuppressed.get()
     fun orphanCloseSuppressions(): Long = orphanCloseSuppressed.get()

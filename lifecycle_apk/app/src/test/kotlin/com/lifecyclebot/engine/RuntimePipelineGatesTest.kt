@@ -370,3 +370,22 @@ class RuntimeDoctorSmokeTest {
         assertFalse(PatchWriterAI.planFromDiagnosis(diagnosis).mayMergeOrDeploy)
     }
 }
+
+
+class RuntimeEnforcementSmokeTest {
+    @Test
+    fun exec_open_request_not_emitted_for_block_fatal() {
+        ExecutableOpenGate.recordV3("MintFatal111111111111111111111111111", "FATAL", "BLOCK_FATAL", "EXTREME_RUG_RISK_100", "BLOCK_FATAL", 1)
+        val v = ExecutableOpenGate.canOpenExecutablePosition("MintFatal111111111111111111111111111", "FATAL", 1, "PAPER", "SHITCOIN", "test")
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
+    }
+
+    @Test
+    fun runtime_doctor_applies_lane_fanout_mitigation_overlay() {
+        RuntimeConfigOverlay.resetForTests()
+        val fault = InvariantGuardian.Fault(InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=49")
+        RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.DisableLane("MOONSHOT", fault.detail, 30_000L))
+        assertTrue(RuntimeConfigOverlay.isLaneDisabled("MOONSHOT"))
+    }
+}

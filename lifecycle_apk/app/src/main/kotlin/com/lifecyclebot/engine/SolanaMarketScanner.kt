@@ -3397,6 +3397,12 @@ class SolanaMarketScanner(
     }
 
     private fun emit(token: ScannedToken) {
+        if (RuntimeConfigOverlay.isScannerSourceDisabled(token.source.name)) {
+            val q = QuarantineStore.quarantine(token.mint, token.symbol, "SOURCE_DISABLED_${token.source.name}")
+            if (q.telemetryDue) try { ForensicLogger.lifecycle("INTAKE_QUARANTINED", "symbol=${token.symbol} mint=${token.mint.take(10)} src=${token.source.name} reason=RUNTIME_OVERLAY_SOURCE_DISABLED") } catch (_: Throwable) {}
+            markRejected(token.mint)
+            return
+        }
         val quarantine = QuarantineStore.evaluate(
             mint = token.mint,
             symbol = token.symbol,

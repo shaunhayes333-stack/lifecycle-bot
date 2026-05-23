@@ -225,6 +225,14 @@ object PipelineHealthCollector {
 
     fun onPhase(phaseTag: String, symbol: String, fields: String) {
         if (!attached) return
+        if (phaseTag == "LANE_EVAL") {
+            val lane = Regex("lane=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
+                bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
+                appendEvent(Event(System.currentTimeMillis(), "PHASE/LANE_EVAL_SUPPRESSED", symbol, fields.take(220)))
+                return
+            }
+        }
         bump(phaseCounts, phaseTag)
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
             bump(labelCounts, "BOT_LOOP_TICK")
@@ -250,6 +258,17 @@ object PipelineHealthCollector {
 
     fun onGate(phaseTag: String, symbol: String, allow: Boolean, reason: String) {
         if (!attached) return
+        if (phaseTag == "LANE_EVAL") {
+            val lane = Regex("lane=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
+                bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
+                return
+            }
+        }
+        if (phaseTag == "FDG" && RuntimeConfigOverlay.isTradingPaused()) {
+            bump(labelCounts, "FDG_SUPPRESSED_RUNTIME_PAUSED")
+            return
+        }
         bump(phaseCounts, phaseTag)
         if (allow) bump(phaseAllow, phaseTag) else bump(phaseBlock, phaseTag)
         // V5.9.916 — extract lane=… from gate() reasons too so the per-lane

@@ -9,6 +9,9 @@ import android.os.HandlerThread
 import android.os.Process
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * ErrorLogger — In-app error logging with SQLite database
@@ -62,6 +65,9 @@ object ErrorLogger {
     // app is flooded with log lines from parallel trader engines.
     private var ioThread: HandlerThread? = null
     private var ioHandler: Handler? = null
+    private val pendingWrites = AtomicInteger(0)
+    private val droppedUnderPressure = AtomicLong(0L)
+    private const val MAX_PENDING_WRITES = 300
 
     // ── Initialize ────────────────────────────────────────────────────
 
@@ -98,18 +104,15 @@ object ErrorLogger {
     fun log(level: Level, component: String, message: String, throwable: Throwable? = null) {
         val database = db ?: return
 
-        // Always mirror to logcat immediately on the caller thread — cheap,
-        // and invaluable for attaching debuggers.
-        val tag = "AATE.$component"
-        try {
-            when (level) {
-                Level.DEBUG -> android.util.Log.d(tag, message, throwable)
-                Level.INFO -> android.util.Log.i(tag, message, throwable)
-                Level.WARN -> android.util.Log.w(tag, message, throwable)
-                Level.ERROR -> android.util.Log.e(tag, message, throwable)
-                Level.CRASH -> android.util.Log.e(tag, "CRASH: $message", throwable)
-            }
-        } catch (_: Throwable) { /* never let logcat failures propagate */ }
+        // V5.9.1106 — no main-thread logcat/stack/SQLite work. Android Log can
+        // block on saturated buffers, and stackTraceToString() showed up in ANR
+        // samples under forensic storms. Everything below is fire-and-forget.
+        val handler = ioHandler
+        if (handler == null) return
+        if (pendingWrites.get() > MAX_PENDING_WRITES && level != Level.ERROR && level != Level.CRASH) {
+            droppedUnderPressure.incrementAndGet()
+            return
+        }
 
         // V5.9.476 — BATTERY-USE FIX: skip the SQLite write for DEBUG-level
         // logs.
@@ -130,22 +133,28 @@ object ErrorLogger {
         // shows by default and are the meaningful events.
         if (level == Level.DEBUG) return
 
-        // Capture values that we need off-thread (throwable stack must be
-        // rendered on the caller thread in case it gets mutated).
         val ts = System.currentTimeMillis()
         val lvlName = level.name
         val msg = message.take(1000)
-        val stack = throwable?.stackTraceToString()?.take(2000)
         val sid = sessionId
-
-        val handler = ioHandler
-        if (handler == null) {
-            // Init hasn't run yet — fall back to sync insert (startup only).
-            writeToDb(database, ts, lvlName, component, msg, stack, sid)
-            return
-        }
+        pendingWrites.incrementAndGet()
         handler.post {
-            writeToDb(database, ts, lvlName, component, msg, stack, sid)
+            try {
+                val tag = "AATE.$component"
+                try {
+                    when (level) {
+                        Level.DEBUG -> android.util.Log.d(tag, msg)
+                        Level.INFO -> android.util.Log.i(tag, msg)
+                        Level.WARN -> android.util.Log.w(tag, msg)
+                        Level.ERROR -> android.util.Log.e(tag, msg, throwable)
+                        Level.CRASH -> android.util.Log.e(tag, "CRASH: $msg", throwable)
+                    }
+                } catch (_: Throwable) {}
+                val stack = throwable?.stackTraceToString()?.take(2000)
+                writeToDb(database, ts, lvlName, component, msg, stack, sid)
+            } finally {
+                pendingWrites.decrementAndGet()
+            }
         }
     }
 

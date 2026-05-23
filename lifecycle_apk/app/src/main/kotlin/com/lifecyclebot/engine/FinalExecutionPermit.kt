@@ -128,6 +128,16 @@ object FinalExecutionPermit {
     ): Boolean {
         val now = System.currentTimeMillis()
 
+        if (RuntimeConfigOverlay.isTradingPaused()) {
+            ErrorLogger.warn(TAG, "🛑 RUNTIME_PAUSED: $symbol | layer=$layer")
+            return false
+        }
+        if (RuntimeConfigOverlay.isLaneDisabled(layer)) {
+            try { ForensicLogger.lifecycle("LANE_EXECUTION_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=RUNTIME_OVERLAY_DISABLED") } catch (_: Throwable) {}
+            return false
+        }
+
+
         // V5.9.1093 — finality BEFORE ENTER/permit side effects.
         // Existing lane code logs ENTER immediately after this function returns
         // true, so this is the last universal pre-side-effect choke point.

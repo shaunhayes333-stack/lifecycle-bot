@@ -28,6 +28,7 @@ data class RuntimeStateSnapshot(
     val anrHints: Int,
     val apiHealth: Map<String, ApiSummary>,
     val topBlockReasons: Map<String, Long>,
+    val activeMitigations: List<String> = emptyList(),
     val timestampMs: Long = System.currentTimeMillis(),
 ) {
     data class ApiSummary(val successRatePct: Int, val failures: Int, val avgLatencyMs: Int, val lastError: String)
@@ -76,6 +77,7 @@ data class RuntimeStateSnapshot(
                 anrHints = pipe.anrHints,
                 apiHealth = api,
                 topBlockReasons = pipe.blockReasonCounts.entries.sortedByDescending { it.value }.take(10).associate { it.key to it.value },
+                activeMitigations = RuntimeConfigOverlay.activeCommands().map { "${it.kind}:${it.target}:${it.value}" },
             )
         }
     }

@@ -35,14 +35,22 @@ object ExecutableOpenGate {
     )
 
     private val attemptSeq = AtomicLong(0L)
-    fun nextAttemptId(mint: String, lane: String): String =
-        "${System.currentTimeMillis()}-${attemptSeq.incrementAndGet()}-${lane.take(10)}-${mint.take(6)}"
+    fun nextAttemptId(mint: String, lane: String): String = canonicalExecutionKey(mint, lane = lane)
+    fun canonicalExecutionKey(
+        mint: String,
+        mode: String = if (FinalExecutionPermit.isPaperMode) "PAPER" else "LIVE",
+        side: String = "BUY",
+        lane: String = "PRIMARY",
+        runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
+        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
+    ): String = "$runtimeGeneration:${mode.uppercase()}:${mint.trim()}:${side.uppercase()}:$candidateVersion"
 
     private val states = ConcurrentHashMap<String, EntryState>()
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val openRequests = ConcurrentHashMap<String, Long>()
     private fun laneKey(mint: String, lane: String): String = mint + ":" + lane.uppercase().filter { it.isLetterOrDigit() }
-    private const val ALLOWED_ATTEMPT_TTL_MS = 15_000L
+    private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
 
     fun recentAllowedAttemptId(mint: String, lane: String): String? {
         val now = System.currentTimeMillis()
@@ -175,13 +183,6 @@ object ExecutableOpenGate {
         val fatalReason = state?.v3FatalReason ?: fdgReason
         val safetyTier = state?.safetyTier ?: "UNKNOWN"
 
-        try {
-            ForensicLogger.lifecycle(
-                "EXEC_OPEN_REQUEST",
-                "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
-            )
-        } catch (_: Throwable) {}
-
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
                 ForensicLogger.lifecycle(log, "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
@@ -192,8 +193,17 @@ object ExecutableOpenGate {
             return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 
-        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
+        if (RuntimeConfigOverlay.isTradingPaused()) {
+            return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
+        }
+        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || v3Decision == "REJECTED" || band == "BLOCK_FATAL" || band == "REJECT") {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
+        }
+        if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
+            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
+        }
+        if (rug <= 10 && rug >= 0) {
+            return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_$rug", shadow = mode == "PAPER")
         }
         if (fdgCan == false) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
@@ -208,11 +218,22 @@ object ExecutableOpenGate {
         if ((signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) && fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
         }
-        if (rug <= 1 && rug >= 0) {
-            return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", "RC_SCORE_$rug", shadow = mode == "PAPER")
+        val execKey = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane)
+        val now = System.currentTimeMillis()
+        openRequests.entries.removeIf { now - it.value > ALLOWED_ATTEMPT_TTL_MS }
+        val prior = openRequests.putIfAbsent(execKey, now)
+        if (prior != null && now - prior <= ALLOWED_ATTEMPT_TTL_MS) {
+            try { TradeOutcomeLedger.recordSuppressedDuplicateOpen() } catch (_: Throwable) {}
+            return blocked("EXEC_OPEN_BLOCKED_DUPLICATE_KEY", "DUPLICATE_EXECUTION_KEY")
         }
-        try { allowedAttempts[laneKey(mint, lane)] = attemptId to System.currentTimeMillis() } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear") } catch (_: Throwable) {}
-        return OpenVerdict(true, "finality_clear", attemptId = attemptId)
+        try { allowedAttempts[laneKey(mint, lane)] = execKey to System.currentTimeMillis() } catch (_: Throwable) {}
+        try {
+            ForensicLogger.lifecycle(
+                "EXEC_OPEN_REQUEST",
+                "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
+            )
+            ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear")
+        } catch (_: Throwable) {}
+        return OpenVerdict(true, "finality_clear", attemptId = execKey)
     }
 }

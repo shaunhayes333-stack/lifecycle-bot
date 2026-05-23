@@ -31,20 +31,40 @@ object RuntimeDoctor {
             apiHealth = snap.apiHealth,
         )
         val diagnosis = StateDebuggerAI.deterministicFallback(ctx)
-        return Report(snap, faults, diagnosis, faults.mapNotNull { actionFor(it) })
+        val actions = faults.flatMap { commandsFor(it) }
+        actions.forEach { cmd -> try { RuntimeMitigationBus.publish(cmd) } catch (_: Throwable) {} }
+        return Report(snap, faults, diagnosis, actions.map { toRequest(it) })
     }
 
     fun latestSnapshot(): RuntimeStateSnapshot = latest
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
-    private fun actionFor(f: InvariantGuardian.Fault): RuntimeSelfHealer.Request? = when (f.code) {
-        InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.FORCE_UI_RUNTIME_REBIND, reason = f.detail)
-        InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.RESTART_SELL_RECONCILER, reason = f.detail)
-        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_LANE, target = "NOISY", reason = f.detail)
-        InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = f.detail)
-        InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_SCANNER_SOURCE, target = "MEME_REGISTRY_RESTORE", reason = f.detail)
-        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.REDUCE_SCANNER_CONCURRENCY, target = "2", reason = f.detail)
-        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.REDUCE_SCANNER_CONCURRENCY, target = "2", reason = f.detail)
-        InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC, InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION, InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = f.detail)
+    private fun commandsFor(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> = when (f.code) {
+        InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
+        InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
+        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> listOf(
+            RuntimeMitigationBus.Command.DisableLane("TREASURY", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("QUALITY", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("BLUECHIP", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("MOONSHOT", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("MANIPULATED", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableLane("DIP_HUNTER", f.detail, 30_000L),
+            RuntimeMitigationBus.Command.DisableScannerSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L),
+            RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L),
+        )
+        InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
+        InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
+        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+        InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC, InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION, InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
+    }
+
+    private fun toRequest(cmd: RuntimeMitigationBus.Command): RuntimeSelfHealer.Request = when (cmd) {
+        is RuntimeMitigationBus.Command.DisableLane -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_LANE, cmd.lane, cmd.reason)
+        is RuntimeMitigationBus.Command.DisableScannerSource -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_SCANNER_SOURCE, cmd.source, cmd.reason)
+        is RuntimeMitigationBus.Command.ReduceScannerConcurrency -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.REDUCE_SCANNER_CONCURRENCY, cmd.value.toString(), cmd.reason)
+        is RuntimeMitigationBus.Command.PauseTrading -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = cmd.reason)
+        is RuntimeMitigationBus.Command.RestartSellReconciler -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.RESTART_SELL_RECONCILER, reason = cmd.reason)
+        is RuntimeMitigationBus.Command.QuarantineSource -> RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.DISABLE_SCANNER_SOURCE, cmd.source, cmd.reason)
     }
 }
