@@ -786,6 +786,24 @@ class MainActivity : AppCompatActivity() {
             // ════════════════════════════════════════════════════════════════════════════
             lifecycleScope.launch {
                 try {
+                    if (com.lifecyclebot.engine.BotService.isRuntimeActive()) {
+                        // V5.9.1111 — MainActivity must be render-only while the
+                        // trading runtime is active. The 1108/1109 logs showed
+                        // onCreate racing live bot execution, followed by learning
+                        // init/import churn. Do not let an Activity recreation
+                        // mutate AI/runtime state mid-session.
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "MAIN_UI_RUNTIME_RENDER_ONLY",
+                                "stage=ai_startup skipped=true reason=runtime_active"
+                            )
+                        } catch (_: Throwable) {}
+                        com.lifecyclebot.engine.ErrorLogger.info(
+                            "MainActivity",
+                            "AIStartupCoordinator skipped — runtime active; UI render-only"
+                        )
+                        return@launch
+                    }
                     val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                         com.lifecyclebot.v3.core.AIStartupCoordinator.initialize(this)
                     }
@@ -1916,27 +1934,39 @@ for legal compliance.
     private fun queuePostFirstFrameWarmups(reason: String) {
         if (postFirstFrameWarmupQueued) return
         postFirstFrameWarmupQueued = true
+        val runWarmups: suspend () -> Unit = warmups@{
+            if (com.lifecyclebot.engine.BotService.isRuntimeActive()) {
+                // V5.9.1111 — Activity recreation while the bot is active must
+                // not re-init learning stores or hydrate paper wallet. BotService
+                // owns runtime state; MainActivity only renders it.
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "MAIN_UI_RUNTIME_RENDER_ONLY",
+                        "stage=post_frame_warmups skipped=true reason=$reason runtime_active=true"
+                    )
+                } catch (_: Throwable) {}
+                com.lifecyclebot.engine.ErrorLogger.info(
+                    "MainActivity",
+                    "Post-frame warmups skipped ($reason) — runtime active; UI render-only"
+                )
+                return@warmups
+            }
+            try {
+                com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
+                com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized post-frame ($reason)")
+            } catch (e: Throwable) {
+                com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore post-frame init failed: ${e.message}")
+            }
+            try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly() } catch (_: Throwable) {}
+            hydratePaperWalletForColdOpen(reason)
+        }
         try {
             window.decorView.post {
-                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext)
-                        com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized post-frame ($reason)")
-                    } catch (e: Throwable) {
-                        com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore post-frame init failed: ${e.message}")
-                    }
-                    try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly() } catch (_: Throwable) {}
-                    hydratePaperWalletForColdOpen(reason)
-                }
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runWarmups() }
             }
         } catch (_: Throwable) {
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try { com.lifecyclebot.engine.TradeHistoryStore.init(applicationContext) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.LearningPersistence.init(applicationContext) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).refreshSolPriceEagerly() } catch (_: Throwable) {}
-                hydratePaperWalletForColdOpen(reason)
-            }
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runWarmups() }
         }
     }
 
