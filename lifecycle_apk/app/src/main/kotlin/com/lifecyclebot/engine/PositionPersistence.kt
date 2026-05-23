@@ -178,6 +178,15 @@ object PositionPersistence {
     }
     
     /**
+     * Quiet membership check for hot-path guards. Unlike loadPositions(), this
+     * does not emit per-position logs and is safe for exit-loop diagnostics.
+     */
+    fun hasPersistedPosition(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        return try { loadPositionsInternal().containsKey(mint) } catch (_: Throwable) { false }
+    }
+
+    /**
      * Load all persisted positions.
      * Returns map of mint -> PersistedPosition.
      */

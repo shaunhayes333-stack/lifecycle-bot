@@ -18139,7 +18139,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
 
     private fun runFallbackSafetyExit(ts: TokenState, cfg: BotConfig, wallet: SolanaWallet?) {
         try {
-            val price = ts.lastPrice
+            val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.lastPrice }
             if (price <= 0.0 || ts.position.entryPrice <= 0.0) return
             val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
 
@@ -18225,6 +18225,59 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // -20% meme hard-floor to stop catastrophic bleed.
             val pnlPct = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
             if (pnlPct <= -20.0) {
+                val nowMs = System.currentTimeMillis()
+                val ageMs = (nowMs - ts.position.entryTime).coerceAtLeast(0L)
+                val isPaper = ts.position.isPaperPosition
+                val hasCanonicalLaneTag = ts.position.tradingMode.isNotBlank() &&
+                    ts.position.tradingMode.uppercase() != "STANDARD"
+                val hasPersisted = try {
+                    com.lifecyclebot.engine.PositionPersistence.hasPersistedPosition(ts.mint)
+                } catch (_: Throwable) { false }
+                val sourceChangedUnrebased = isPaper &&
+                    ts.position.entryPriceSource.isNotBlank() &&
+                    ts.position.entryPriceSource != "UNKNOWN" &&
+                    ts.lastPriceSource.isNotBlank() &&
+                    ts.position.entryPriceSource != ts.lastPriceSource &&
+                    !ts.position.priceBasisRescaled
+
+                // V5.9.1109 — ghost-position containment.
+                // The fallback orphan hard-floor is a LAST-resort safety net for
+                // old/restored positions with no lane owner. It must not fire on
+                // brand-new PAPER buys that have just been journaled/persisted but
+                // have not yet been re-adopted by sub-trader active maps. The 1108
+                // report showed 7 fresh paper positions force-sold in 1-7s with
+                // fake -24%..-87% PnL. Those were accounting/price-basis ghosts,
+                // not real market losses. Normal lane exits still enforce the
+                // unconditional -15% stop; this guard only suppresses the orphan
+                // fallback path until the position is old enough to be truly orphaned.
+                if (isPaper && ageMs < 60_000L) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "ORPHAN_FALLBACK_SUPPRESSED_FRESH_PAPER",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} pnl=${pnlPct.toInt()} ageMs=$ageMs persisted=$hasPersisted mode=${ts.position.tradingMode} src=${ts.position.entryPriceSource}->${ts.lastPriceSource}"
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
+                if (isPaper && hasCanonicalLaneTag && hasPersisted && ageMs < 5 * 60_000L) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "ORPHAN_FALLBACK_SUPPRESSED_CANONICAL_PAPER",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} pnl=${pnlPct.toInt()} ageMs=$ageMs mode=${ts.position.tradingMode} persisted=true"
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
+                if (sourceChangedUnrebased) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "ORPHAN_FALLBACK_SUPPRESSED_PRICE_BASIS",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} pnl=${pnlPct.toInt()} ageMs=$ageMs src=${ts.position.entryPriceSource}->${ts.lastPriceSource}"
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
+
                 ErrorLogger.warn("BotService",
                     "🛑 [FALLBACK_SAFETY_SL][ORPHAN] ${ts.symbol} | ${pnlPct.toInt()}% — no sub-trader has mint; firing hard-floor")
                 executor.requestSell(

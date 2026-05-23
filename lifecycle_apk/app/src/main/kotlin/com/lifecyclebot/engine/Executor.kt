@@ -6642,6 +6642,19 @@ class Executor(
             entryLiquidityUsd = ts.lastLiquidityUsd,
             entryMcap    = ts.lastMcap,
             isPaperPosition = true,
+            // V5.9.1109 — stamp paper entry pricing basis too. LiveBuy already
+            // did this, but paperBuy left entryPriceSource blank; the shared
+            // price-basis resolver then could not rebase PAPER entries when
+            // PumpFun synthetic quotes graduated to a DEX/Birdeye source. The
+            // universal fallback safety path read raw ts.lastPrice and printed
+            // fake -24%..-87% orphan losses seconds after BUY. Persisting the
+            // source/pool/dex contract here makes paper exits comparable.
+            entryPriceSource = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+            entryPoolAddress = ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+            entryDex         = ts.lastPriceDex.ifBlank { "UNKNOWN" },
+            entrySupplyAssumed = if (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" ||
+                                      ts.lastPriceSource == "PUMP_FUN_FRONTEND_API")
+                1_000_000_000.0 else 0.0,
             // V5.9.969 — finalMode picks the richer HoldingLogicLayer label
             // when no sub-trader tag is set and would otherwise be STANDARD.
             tradingMode  = if (routeIsShadow) "SHADOW_$finalMode" else finalMode,
