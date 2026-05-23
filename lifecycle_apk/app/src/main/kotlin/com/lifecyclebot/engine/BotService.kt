@@ -13077,20 +13077,28 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
                         // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
                         // TOO_OLD / INELIGIBLE / ZERO_LIQUIDITY rejections from V3|ELIGIBILITY must block all layers.
-                        val shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || forceBootstrapEntry)
+                        var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || forceBootstrapEntry)
+                        var treasuryBlockedReason: String? = null
+
+                        // V5.9.1091 — Treasury is only ONE lane. Its private skip
+                        // conditions must not return from processTokenCycle(), because
+                        // that starves Quality/BlueChip/Moonshot/ShitCoin/Manip/Sniper/Dip.
+                        // Convert Treasury-only vetoes into local shouldEnter=false.
 
                         // V5.9: Post-close cooldown — prevent immediate re-entry after a close
                         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
                         if (!FreeRangeMode.isWideOpen() && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
-                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s)")
-                            return
+                            treasuryBlockedReason = "COOLDOWN_${closedAgoMs/1000}s"
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s) — yielding to other lanes")
+                            shouldEnter = false
                         }
                         
                         // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
-                        if (!FreeRangeMode.isWideOpen() &&
+                        if (shouldEnter && !FreeRangeMode.isWideOpen() &&
                             com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
-                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
-                            return
+                            treasuryBlockedReason = "BOOTSTRAP_BLOCKED_score_${treasurySignal.confidence}"
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — yielding to other lanes")
+                            shouldEnter = false
                         }
 
                         // V5.9.92: SmartChart veto for Treasury (same fix as
@@ -13118,14 +13126,23 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         val tsBearish = try {
                             com.lifecyclebot.engine.SmartChartCache.getBearishConfidence(ts.mint)
                         } catch (_: Exception) { null }
-                        if (!smartChartBypass && tsBearish != null && tsBearish >= 80.0) {
+                        if (shouldEnter && !smartChartBypass && tsBearish != null && tsBearish >= 80.0) {
+                            treasuryBlockedReason = "SMARTCHART_BEARISH_${tsBearish.toInt()}"
                             ErrorLogger.info(
                                 "BotService",
-                                "💰 [TREASURY] ${ts.symbol} | SMARTCHART_BLOCK | bearish=${tsBearish.toInt()}% — skip"
+                                "💰 [TREASURY] ${ts.symbol} | SMARTCHART_BLOCK | bearish=${tsBearish.toInt()}% — yielding to other lanes"
                             )
-                            return
+                            shouldEnter = false
                         }
 
+                        if (!shouldEnter && treasuryBlockedReason != null) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "TREASURY_YIELDED_TO_OTHER_LANES",
+                                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$treasuryBlockedReason"
+                                )
+                            } catch (_: Throwable) {}
+                        }
 
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
