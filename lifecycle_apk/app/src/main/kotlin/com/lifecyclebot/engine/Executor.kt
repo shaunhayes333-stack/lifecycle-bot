@@ -2113,6 +2113,45 @@ class Executor(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
             tradingMode = if (trade.tradingMode.isBlank()) ts.position.tradingMode else trade.tradingMode,
         )
+
+        // V5.9.1100 — canonical execution/outcome idempotency.
+        // BUY records register a canonical PositionId. Terminal SELL records
+        // must acquire exactly one TradeOutcomeId before any closed-trade
+        // journal/learning fanout. Partial sells remain journal-visible but do
+        // not count as closed outcomes; orphan/duplicate closes are suppressed
+        // from strategy learning/accounting.
+        val ledgerAllowsClosedLearning: Boolean = try {
+            when {
+                tradeWithMint.side.equals("BUY", ignoreCase = true) -> {
+                    val ok = TradeOutcomeLedger.recordOpen(ts, tradeWithMint)
+                    if (!ok) {
+                        ForensicLogger.lifecycle("DUPLICATE_OPEN_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=${tradeWithMint.mode} lane=${tradeWithMint.tradingMode}")
+                        return
+                    }
+                    false
+                }
+                tradeWithMint.side.equals("SELL", ignoreCase = true) -> {
+                    val r = tradeWithMint.reason.lowercase()
+                    val partialByReason = r.startsWith("partial") || r.contains("partial_") || r.contains("partialsell") ||
+                        r.startsWith("profit_lock") || r.startsWith("capital_recovery") || r.startsWith("wr_recovery") ||
+                        r.contains("_partial_") || r.contains("profit_take_partial") || r.contains("scale_out")
+                    val partialByQty = try {
+                        val price = if (tradeWithMint.price > 0.0) tradeWithMint.price else 1.0
+                        val sellQty = tradeWithMint.sol / price
+                        val totalQty = ts.position.qtyToken
+                        totalQty > 0.0 && sellQty < totalQty * 0.99
+                    } catch (_: Throwable) { false }
+                    val close = TradeOutcomeLedger.recordClose(ts, tradeWithMint, partial = partialByReason || partialByQty)
+                    if (!close.accepted && !close.partial) {
+                        ForensicLogger.lifecycle("TRADE_OUTCOME_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} outcomeId=${close.outcomeId} reason=${close.reason} orphan=${close.orphan}")
+                        return
+                    }
+                    close.accepted
+                }
+                else -> false
+            }
+        } catch (_: Throwable) { tradeWithMint.side.equals("SELL", ignoreCase = true) }
+
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
 
@@ -2137,7 +2176,7 @@ class Executor(
         // longer wedges the sell path. Snapshot inputs into immutable locals
         // BEFORE launch so the coroutine has stable values (no race on ts).
         try {
-            if (tradeWithMint.side == "SELL") {
+            if (tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning) {
                 val tradeSnap     = tradeWithMint
                 val recentSnap    = ts.history.takeLast(30).toList()
                 val entryWindow   = ts.history.takeLast(60).take(30).toList()
@@ -2192,7 +2231,7 @@ class Executor(
         // it added cumulative latency to the bot tick. Async = never blocks
         // the loop, still arms the kill switch in live mode within ms.
         try {
-            if (tradeWithMint.side == "SELL") {
+            if (tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning) {
                 // BotService.instance?.applicationContext — same pattern as
                 // GeminiCopilot.kt:595. solBalance comes from the canonical
                 // WalletManager state — same accessor as BotService.kt:3874
@@ -2233,6 +2272,7 @@ class Executor(
         // Fail-open: any exception swallowed — never block sell finalize.
         try {
             if (tradeWithMint.side == "SELL"
+                && ledgerAllowsClosedLearning
                 && ts.position.copyWallet.isNotBlank()
             ) {
                 com.lifecyclebot.engine.BotService.instance
@@ -2256,7 +2296,7 @@ class Executor(
                 try {
                     com.lifecyclebot.learning.LayerVoteSampler.captureAllMemeVotes(ts)
                 } catch (_: Exception) {}
-            } else if (trade.side == "SELL") {
+            } else if (trade.side == "SELL" && ledgerAllowsClosedLearning) {
                 PatternClassifier.noteExit(
                     mint = ts.mint,
                     pnlPct = trade.pnlPct,
@@ -2283,7 +2323,7 @@ class Executor(
         // bot loop thread. Snapshots captured BEFORE launch so coroutine has
         // stable values and there is no race on ts / trade / position fields.
         // ═══════════════════════════════════════════════════════════════════
-        if (trade.side == "SELL" || (trade.side == "BUY")) {
+        if ((trade.side == "SELL" && ledgerAllowsClosedLearning) || (trade.side == "BUY")) {
             val _fanoutSide       = trade.side
             val _fanoutPnlPct     = trade.pnlPct ?: 0.0
             val _fanoutMint       = ts.mint

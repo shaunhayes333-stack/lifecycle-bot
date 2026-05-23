@@ -256,4 +256,30 @@ class QuarantineAndOutcomeLedgerSmokeTest {
         assertEquals("ZERO_LIQUIDITY", zero.reason)
         assertTrue(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
     }
+
+@Test
+    fun outcome_ledger_counts_one_final_close_only() {
+        TradeOutcomeLedger.resetForTests()
+        BotRuntimeController.resetForTests()
+        BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        val ts = com.lifecyclebot.data.TokenState(
+            mint = "MintOutcome11111111111111111111111111",
+            symbol = "OUT"
+        )
+        ts.position = com.lifecyclebot.data.Position(
+            qtyToken = 100.0,
+            entryPrice = 1.0,
+            entryTime = 123456789L,
+            costSol = 1.0,
+            isPaperPosition = true,
+            tradingMode = "SHITCOIN",
+        )
+        val buy = com.lifecyclebot.data.Trade(side = "BUY", mode = "paper", sol = 1.0, price = 1.0, ts = 123456789L, mint = ts.mint, tradingMode = "SHITCOIN")
+        assertTrue(TradeOutcomeLedger.recordOpen(ts, buy))
+        val sell = com.lifecyclebot.data.Trade(side = "SELL", mode = "paper", sol = 1.2, price = 1.2, ts = 123456999L, pnlPct = 20.0, mint = ts.mint, tradingMode = "SHITCOIN")
+        assertTrue(TradeOutcomeLedger.recordClose(ts, sell, partial = false).accepted)
+        assertFalse(TradeOutcomeLedger.recordClose(ts, sell.copy(ts = 123457000L), partial = false).accepted)
+        assertEquals(1, TradeOutcomeLedger.uniqueClosedPositionCount())
+        assertEquals(1L, TradeOutcomeLedger.learningDuplicateSuppressions())
+    }
 }
