@@ -13291,7 +13291,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 
                                 // Execute treasury buy (this calls paperBuy which applies slippage to ts.position)
                                 // V5.2.8 FIX: Use effectiveTpPct/effectiveSlPct to prevent 0% TP instant-exits!
-                                executor.treasuryBuy(
+                                val treasuryOpened = executor.treasuryBuy(
                                     ts = ts,
                                     sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
@@ -13300,6 +13300,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     wallet = wallet,
                                     isPaper = cfg.paperMode
                                 )
+                                if (!treasuryOpened) {
+                                    ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=TREASURY symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.TREASURY) } catch (_: Throwable) {}
+                                    return
+                                }
+
                                 
                                 // V5.0 FIX: Mark position as treasury so checkExit uses correct thresholds
                                 ts.position.isTreasuryPosition = true
@@ -13324,7 +13332,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards of new position
-                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // Release permit after successful execution
                                 FinalExecutionPermit.releaseExecution(ts.mint)
@@ -13502,7 +13510,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
 
                                 // Execute Quality buy (reuse BlueChip executor pattern)
-                                executor.blueChipBuy(
+                                val qualityOpened = executor.blueChipBuy(
                                     ts = ts,
                                     sizeSol = qualitySignal.positionSizeSol,
                                     walletSol = effectiveBalance,
@@ -13515,6 +13523,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     layerTag = "QUALITY",
                                     layerTagEmoji = "⭐",
                                 )
+                                if (!qualityOpened) {
+                                    ErrorLogger.warn("BotService", "QUALITY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=QUALITY symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    return
+                                }
+
 
                                 // V5.8: Override tradingMode — blueChipBuy() sets "BLUE_CHIP" by default,
                                 // breaking Quality exit routing (SL/TP checks gate on tradingMode == "QUALITY")
@@ -13537,7 +13552,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
-                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -13667,7 +13682,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     "TP=$blueChipTp% (conf=$v3Confidence)")
 
                                 // Execute Blue Chip buy
-                                executor.blueChipBuy(
+                                val blueChipOpened = executor.blueChipBuy(
                                     ts = ts,
                                     sizeSol = blueChipSignal.positionSizeSol,
                                     walletSol = effectiveBalance,
@@ -13676,6 +13691,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     wallet = wallet,
                                     isPaper = cfg.paperMode
                                 )
+                                if (!blueChipOpened) {
+                                    ErrorLogger.warn("BotService", "BLUE_CHIP ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=BLUE_CHIP symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    return
+                                }
+
 
                                 // V5.9.270 FIX: Use qtyToken > 0 || pendingVerify (not just isOpen).
                                 // For live buys, liveBuy() leaves pendingVerify=true making isOpen=false.
@@ -13696,7 +13718,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
-                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -13967,7 +13989,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                                 "TP=${moonshotEffectiveTpPct.toInt()}% SL=${moonshotEffectiveSlPct.toInt()}%")
                                             
                                             // Execute moonshot entry — live mode runs real on-chain swap
-                                            executor.moonshotBuy(
+                                            val moonshotOpened = executor.moonshotBuy(
                                                 ts = ts,
                                                 sizeSol = msEffectiveSize,
                                                 walletSol = effectiveBalance,
@@ -13977,6 +13999,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                                 spaceModeEmoji = moonshotScore.spaceMode.emoji,
                                                 spaceModeName = moonshotScore.spaceMode.displayName,
                                             )
+                                            if (!moonshotOpened) {
+                                                ErrorLogger.warn("BotService", "MOONSHOT ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                                try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MOONSHOT symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                                try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                                try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MOONSHOT) } catch (_: Throwable) {}
+                                                return
+                                            }
 
                                             // V5.9.270 FIX: Use qtyToken > 0 || pendingVerify (not just isOpen).
                                             // For live buys, liveBuy() leaves pendingVerify=true making isOpen=false.
@@ -14007,7 +14036,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                             )
                                             
                                             // V5.6.8 FIX: Notify V3 exposure guards
-                                            com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                            if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                             
                                             // Register with LayerTransitionManager for tracking
                                             com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -14484,7 +14513,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     "TP=${shitCoinSignal.takeProfitPct}%$gradLabel$bundleLabel")
                                 
                                 // Execute ShitCoin buy
-                                executor.shitCoinBuy(
+                                val shitCoinOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = adjustedSize,
                                     walletSol = effectiveBalance,
@@ -14495,9 +14524,17 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     launchPlatform = shitCoinSignal.launchPlatform,
                                     riskLevel = shitCoinSignal.riskLevel,
                                 )
+                                if (!shitCoinOpened) {
+                                    ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=SHITCOIN symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    return
+                                }
+
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
-                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
 
                                 // Register with Layer Transition Manager
                                 com.lifecyclebot.v3.scoring.LayerTransitionManager.registerPosition(
@@ -14714,7 +14751,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 "size=${String.format("%.4f", manipSignal.positionSizeSol)} SOL | " +
                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}")
 
-                            executor.shitCoinBuy(
+                            val manipOpened = executor.shitCoinBuy(
                                 ts = ts,
                                 sizeSol = manipSignal.positionSizeSol,
                                 walletSol = effectiveBalance,
@@ -14726,7 +14763,15 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                             )
 
-                            val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+  
+                                if (!manipOpened) {
+                                    ErrorLogger.warn("BotService", "MANIPULATED ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MANIPULATED) } catch (_: Throwable) {}
+                                    return
+                                }
+                          val actualManipEntry = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
                             if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
                                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
                                     mint = ts.mint,
@@ -14744,7 +14789,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             )
                             
                             // V5.6.8 FIX: Notify V3 exposure guards
-                            com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                            if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
 
                             ts.position.tradingMode = "MANIPULATED"
                             ts.position.tradingModeEmoji = "☠️"
@@ -14897,7 +14942,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     "target=${expressSignal.estimatedGainPct.toInt()}%")
                                 
                                 // Execute buy first — only board the ride if the buy actually opened
-                                executor.shitCoinBuy(
+                                val expressOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = expressSignal.positionSizeSol,
                                     walletSol = effectiveBalance,
@@ -14908,6 +14953,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                 )
+                                if (!expressOpened) {
+                                    ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=EXPRESS symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    return
+                                }
+
 
                                 if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
                                     mint = ts.mint,
@@ -15185,13 +15238,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
-                                com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 // V5.9.738 — paper-mode leak fix.
                                 // Use the dipHunterBuy router so live mode
                                 // correctly fires a Jupiter swap instead of
                                 // silently routing through paperBuy().
-                                executor.dipHunterBuy(
+                                val dipOpened = executor.dipHunterBuy(
                                     ts = ts,
                                     sizeSol = dipSignal.positionSizeSol,
                                     score = dipSignal.confidence.toDouble(),
@@ -15199,6 +15252,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     walletSol = effectiveBalance,
                                     identity = identity,
                                 )
+                                if (!dipOpened) {
+                                    ErrorLogger.warn("BotService", "DIP_HUNTER ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=DIP_HUNTER symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.DIP_HUNTER) } catch (_: Throwable) {}
+                                    return
+                                }
+
                                 
                                 ts.position.tradingMode = "DIP_HUNTER"
                                 ts.position.tradingModeEmoji = "📉"

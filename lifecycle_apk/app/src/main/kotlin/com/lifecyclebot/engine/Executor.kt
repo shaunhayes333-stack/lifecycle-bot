@@ -6917,7 +6917,7 @@ class Executor(
         wallet: SolanaWallet?,
         walletSol: Double,
         identity: TradeIdentity? = null,
-    ) {
+    ): Boolean {
         val isPaper = isPaperRT()
         val id = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         ErrorLogger.info("Executor",
@@ -6934,7 +6934,7 @@ class Executor(
             if (wallet == null) {
                 ErrorLogger.error("Executor",
                     "📉🎯 DIP ${ts.symbol} | LIVE_BUY_FAILED | no wallet — refusing to fall back to paperBuy")
-                return
+                return false
             }
             liveBuy(
                 ts = ts, sol = sizeSol, score = score,
@@ -6943,6 +6943,7 @@ class Executor(
                 layerTag = "DIP_HUNTER", layerTagEmoji = "📉",
             )
         }
+        return ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
     }
 
     fun sniperSell(
@@ -7020,6 +7021,11 @@ class Executor(
                 layerTagEmoji = "💰",
             )
         }
+        val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+        if (!buyOpened) {
+            ErrorLogger.warn("Executor", "💰 [TREASURY] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            return false
+        }
         
         ts.position.tradingMode = "TREASURY"
         ts.position.tradingModeEmoji = "💰"
@@ -7068,7 +7074,7 @@ class Executor(
         // V5.9.386 — allow callers (Quality path) to override journal tag.
         layerTag: String = "BLUE_CHIP",
         layerTagEmoji: String = "🔵",
-    ) {
+    ): Boolean {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -7094,7 +7100,7 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
-                return
+                return false
             }
             liveBuy(
                 ts = ts,
@@ -7108,6 +7114,11 @@ class Executor(
                 layerTag = layerTag,             // V5.9.386
                 layerTagEmoji = layerTagEmoji,
             )
+        }
+        val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+        if (!buyOpened) {
+            ErrorLogger.warn("Executor", "🔵 [${layerTag}] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            return false
         }
         
         // V5.9.386 — default "BLUE_CHIP", but Quality caller passes "QUALITY"/"⭐"
@@ -7140,6 +7151,7 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("Collective", "BLUE CHIP BUY upload error: ${e.message}")
         }
+        return true
     }
     
     fun shitCoinBuy(
@@ -7152,7 +7164,7 @@ class Executor(
         isPaper: Boolean,
         launchPlatform: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform,
         riskLevel: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel,
-    ) {
+    ): Boolean {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -7184,7 +7196,7 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "💩 [SHITCOIN] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
-                return
+                return false
             }
             liveBuy(
                 ts = ts,
@@ -7198,6 +7210,11 @@ class Executor(
                 layerTag = "SHITCOIN",          // V5.9.386 — journal tag
                 layerTagEmoji = "💩",
             )
+        }
+        val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+        if (!buyOpened) {
+            ErrorLogger.warn("Executor", "💩 [SHITCOIN] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            return false
         }
         
         ts.position.tradingMode = "SHITCOIN"
@@ -7228,6 +7245,7 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.debug("Collective", "SHITCOIN BUY upload error: ${e.message}")
         }
+        return true
     }
 
     fun moonshotBuy(
@@ -7239,7 +7257,7 @@ class Executor(
         score: Double,
         spaceModeEmoji: String,
         spaceModeName: String,
-    ) {
+    ): Boolean {
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
 
@@ -7254,15 +7272,21 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🚀 [MOONSHOT] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
-                return
+                return false
             }
             liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
                 walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true,
                 layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" })  // V5.9.386
         }
+        val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+        if (!buyOpened) {
+            ErrorLogger.warn("Executor", "🚀 [MOONSHOT] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            return false
+        }
 
         ts.position.tradingMode = "MOONSHOT_$spaceModeName"
         ts.position.tradingModeEmoji = spaceModeEmoji
+        return true
     }
 
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,

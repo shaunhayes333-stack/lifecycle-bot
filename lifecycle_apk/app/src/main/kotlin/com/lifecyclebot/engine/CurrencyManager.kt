@@ -8,6 +8,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.math.pow
+import kotlin.math.roundToLong
 
 /**
  * CurrencyManager
@@ -244,16 +246,56 @@ class CurrencyManager(private val ctx: Context) {
 
     // ── Formatters ────────────────────────────────────────────────────
 
-    private fun formatSol(v: Double)  = "%.4f".format(v)
-    private fun formatBtc(v: Double)  = "%.6f".format(v)
-    private fun formatEth(v: Double)  = "%.5f".format(v)
-    private fun formatFiat(v: Double) = "%,.2f".format(v)
-    private fun formatInt(v: Double)  = "%,.0f".format(v)
+    // V5.9.1092 — avoid Kotlin String.format/Formatter on Main.
+    // ANR sampler showed CurrencyManager.formatFiat creating DecimalFormat/
+    // ICU symbols on the UI thread. Use a tiny manual fixed-decimal formatter
+    // so MainActivity.updateUi never constructs locale formatters while visible.
+    private fun fixed(v: Double, d: Int): String {
+        if (!v.isFinite()) return "0" + if (d > 0) "." + "0".repeat(d) else ""
+        val sign = if (v < 0) "-" else ""
+        val scale = when (d) {
+            0 -> 1L
+            1 -> 10L
+            2 -> 100L
+            3 -> 1_000L
+            4 -> 10_000L
+            5 -> 100_000L
+            6 -> 1_000_000L
+            8 -> 100_000_000L
+            10 -> 10_000_000_000L
+            else -> 10.0.pow(d).toLong().coerceAtLeast(1L)
+        }
+        val rounded = (kotlin.math.abs(v) * scale).roundToLong()
+        val whole = rounded / scale
+        if (d <= 0) return sign + whole.toString()
+        val frac = (rounded % scale).toString().padStart(d, '0')
+        return sign + whole.toString() + "." + frac
+    }
+    private fun comma2(v: Double): String {
+        val raw = fixed(v, 2)
+        val sign = if (raw.startsWith("-")) "-" else ""
+        val body = raw.removePrefix("-")
+        val parts = body.split('.')
+        val whole = parts[0].reversed().chunked(3).joinToString(",").reversed()
+        return sign + whole + "." + (parts.getOrNull(1) ?: "00")
+    }
+    private fun comma0(v: Double): String {
+        val raw = fixed(v, 0)
+        val sign = if (raw.startsWith("-")) "-" else ""
+        val whole = raw.removePrefix("-").reversed().chunked(3).joinToString(",").reversed()
+        return sign + whole
+    }
+
+    private fun formatSol(v: Double)  = fixed(v, 4)
+    private fun formatBtc(v: Double)  = fixed(v, 6)
+    private fun formatEth(v: Double)  = fixed(v, 5)
+    private fun formatFiat(v: Double) = comma2(v)
+    private fun formatInt(v: Double)  = comma0(v)
 
     private fun formatSmallPrice(v: Double): String = when {
-        v >= 1.0    -> "%.4f".format(v)
-        v >= 0.01   -> "%.6f".format(v)
-        v >= 0.0001 -> "%.8f".format(v)
-        else        -> "%.10f".format(v)
+        v >= 1.0    -> fixed(v, 4)
+        v >= 0.01   -> fixed(v, 6)
+        v >= 0.0001 -> fixed(v, 8)
+        else        -> fixed(v, 10)
     }
 }
