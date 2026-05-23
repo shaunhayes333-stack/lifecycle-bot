@@ -1735,22 +1735,23 @@ object FinalDecisionGate {
 
         var baseSignalMismatchIgnoredForLane = false
         if (blockReason == null && candidate.blockReason.isNotEmpty()) {
+            val laneNameForBaseSignal = tradingModeTag?.name
             val staleBaseSignalBlock = candidate.blockReason.startsWith("Signal is ") &&
                 candidate.blockReason.endsWith(", not BUY") &&
-                tradingModeTag != null &&
-                tradingModeTag.name != "STANDARD"
-            if (staleBaseSignalBlock) {
+                laneNameForBaseSignal != null &&
+                laneNameForBaseSignal != "STANDARD"
+            if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
                 baseSignalMismatchIgnoredForLane = true
                 // V5.9.1114 — specialist lanes/V3 can produce their own entry
                 // signal even when the legacy LifecycleStrategy base signal is
                 // WAIT/SELL. Treat that stale base-strategy mismatch as telemetry,
                 // not a hard FDG veto. Real safety/quality blocks below remain hard.
-                checks.add(GateCheck("candidate_base_signal", true, "ignored_for_lane=${tradingModeTag.name}: ${candidate.blockReason}"))
-                tags.add("base_signal_ignored:${tradingModeTag.name}")
+                checks.add(GateCheck("candidate_base_signal", true, "ignored_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
+                tags.add("base_signal_ignored:$laneNameForBaseSignal")
                 try {
                     ForensicLogger.lifecycle(
                         "FDG_BASE_SIGNAL_BLOCK_IGNORED",
-                        "lane=${tradingModeTag.name} symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${candidate.blockReason.take(80)}"
+                        "lane=$laneNameForBaseSignal symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${candidate.blockReason.take(80)}"
                     )
                 } catch (_: Throwable) {}
             } else {

@@ -270,7 +270,7 @@ object WhaleTrackerAI {
             return null
         }
         if (scaled != raw) {
-            try { ErrorLogger.warn(TAG, "🐋 WHALE_AMOUNT_NORMALIZED $symbol | raw=$raw → ${scaled.fmt(4)} SOL") } catch (_: Throwable) {}
+            try { ErrorLogger.warn(TAG, "🐋 WHALE_AMOUNT_NORMALIZED $symbol | raw=$raw → ${"%.4f".format(scaled)} SOL") } catch (_: Throwable) {}
         }
         return scaled
     }

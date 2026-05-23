@@ -14,6 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -931,16 +934,36 @@ class SolanaMarketScanner(
     private suspend fun runScan(name: String, block: suspend () -> Unit) {
         telemetrySourceAttempts++
         lastSourceAttemptMs = System.currentTimeMillis()
+        val startedAt = System.currentTimeMillis()
+        val rawBefore = telemetryRawScanned
+        val enqBefore = telemetryEnqueued
         try {
             block()
             telemetrySourceSuccesses++
+            try {
+                ForensicLogger.lifecycle(
+                    "SCANNER_SOURCE_DONE",
+                    "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}"
+                )
+            } catch (_: Throwable) {}
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             telemetrySourceErrors++
             ErrorLogger.warn("Scanner", "$name error: ${e.message}")
+            try { ForensicLogger.lifecycle("SCANNER_SOURCE_ERROR", "name=$name err=${e.javaClass.simpleName}:${e.message?.take(80)}") } catch (_: Throwable) {}
         } finally {
             try { MarketsTelemetry.latestThroughput = getThroughputTelemetrySnapshot() } catch (_: Exception) {}
+        }
+    }
+
+    private suspend fun runScanBatch(vararg scans: Pair<String, suspend () -> Unit>) = coroutineScope {
+        val cap = try { RuntimeConfigOverlay.scannerConcurrencyCap().takeIf { it > 0 } ?: 6 } catch (_: Throwable) { 6 }
+        val groups = scans.toList().chunked(cap.coerceIn(1, 12))
+        for (group in groups) {
+            group.map { (name, block) ->
+                async(Dispatchers.IO) { runScan(name, block) }
+            }.awaitAll()
         }
     }
 
@@ -1135,80 +1158,37 @@ class SolanaMarketScanner(
                     ErrorLogger.info("Scanner", "REGISTRY_SIZE: watchlist=$watchlistNow (no action — backpressure gate removed)")
                 }
 
-                onLog("🚀 Scanning: Pump.fun tokens (PRIORITY)...")
-                runScan("scanPumpFunDirect") { scanPumpFunDirect() }
-                delay(200)
-                runScan("scanPumpFunActive") { scanPumpFunActive() }
-                delay(200)
+                onLog("🚀 Scanning: Pump.fun tokens (PRIORITY fanout)...")
+                runScanBatch(
+                    "scanPumpFunDirect" to { scanPumpFunDirect() },
+                    "scanPumpFunActive" to { scanPumpFunActive() },
+                )
 
                 if (!backpressure) {
-                    onLog("🔍 Scanning ALL sources (DEEP SCAN)...")
-                    // V5.9.664 — ANR mitigation: doubled inter-source delay 100→200ms
-                    // to give main thread breathing room between heavy emits.
-                    runScan("scanPumpGraduates") { scanPumpGraduates() }
-                    delay(200)
-                    runScan("scanDexBoosted") { scanDexBoosted() }
-                    delay(200)
-                    runScan("scanFreshLaunches") { scanFreshLaunches() }
-                    delay(200)
-                    runScan("scanDexTrending") { scanDexTrending() }
-                    delay(200)
-                    runScan("scanDexGainers") { scanDexGainers() }
-                    delay(200)
-                    // V5.9.952 — gate Birdeye scanner lanes; free-source equivalents cover 90% of data
-                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
-                        runScan("scanBirdeyeTrending") { scanBirdeyeTrending() }
+                    onLog("🔍 Scanning ALL sources (PARALLEL DEEP SCAN)...")
+                    val birdeyeOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
+                    val deepScans = mutableListOf<Pair<String, suspend () -> Unit>>(
+                        "scanPumpGraduates" to { scanPumpGraduates() },
+                        "scanDexBoosted" to { scanDexBoosted() },
+                        "scanFreshLaunches" to { scanFreshLaunches() },
+                        "scanDexTrending" to { scanDexTrending() },
+                        "scanDexGainers" to { scanDexGainers() },
+                        "scanTopVolumeTokens" to { scanTopVolumeTokens() },
+                        "scanPumpFunVolume" to { scanPumpFunVolume() },
+                        "scanRaydiumNewPools" to { scanRaydiumNewPools() },
+                        "scanGeckoTrendingPools" to { scanGeckoTrendingPools() },
+                        "scanGeckoTopPoolsByVolume" to { scanGeckoTopPoolsByVolume() },
+                        "scanMeteoraPoolsViaGecko" to { scanMeteoraPoolsViaGecko() },
+                        "scanCoinGeckoTrending" to { scanCoinGeckoTrending() },
+                    )
+                    if (birdeyeOk) {
+                        deepScans += "scanBirdeyeTrending" to { scanBirdeyeTrending() }
+                        deepScans += "scanBirdeyeMemeList" to { scanBirdeyeMemeList() }
+                        deepScans += "scanBirdeyeMarkets" to { scanBirdeyeMarkets() }
+                        deepScans += "scanBirdeyeNewListing" to { scanBirdeyeNewListing() }
+                        deepScans += "scanBirdeyeNarratives" to { scanBirdeyeNarratives() }
                     }
-                    delay(200)
-                    runScan("scanTopVolumeTokens") { scanTopVolumeTokens() }
-                    delay(200)
-                    runScan("scanPumpFunVolume") { scanPumpFunVolume() }
-                    delay(200)
-                    runScan("scanRaydiumNewPools") { scanRaydiumNewPools() }
-                    delay(200)
-                    runScan("scanGeckoTrendingPools") { scanGeckoTrendingPools() }
-                    delay(200)
-                    runScan("scanGeckoTopPoolsByVolume") { scanGeckoTopPoolsByVolume() }
-                    delay(200)
-                    runScan("scanMeteoraPoolsViaGecko") { scanMeteoraPoolsViaGecko() }
-                    delay(200)
-                    runScan("scanCoinGeckoTrending") { scanCoinGeckoTrending() }
-                    delay(200)
-                    // V5.9.906 — birdeye v3 meme/list. NO API key required.
-                    // Sorted by pump.fun graduation progress descending.
-                    // Returns rich per-token data (multi-TF volume, buy/sell
-                    // counts, holder count, creator wallet, real liquidity)
-                    // even when the operator hasn't configured a birdeye key.
-                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
-                        runScan("scanBirdeyeMemeList") { scanBirdeyeMemeList() }
-                    }
-                    delay(200)
-                    // V5.9.907 — birdeye v2 markets. NO API key required.
-                    // Top liquidity pools across Solana. Critically exposes
-                    // trade_velocity_24h and wallet_velocity_24h — signals
-                    // unavailable anywhere else in the intake. Skip stable-
-                    // stable and LST pools (mature, low-EV); score-boost
-                    // pools showing accelerating engagement.
-                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
-                        runScan("scanBirdeyeMarkets") { scanBirdeyeMarkets() }
-                    }
-                    delay(200)
-                    // V5.9.908 — birdeye v2 new_listing (earliest possible signal).
-                    // Runs TWO variants in succession:
-                    //   1) non-meme platform (raydium-direct launches that skip pump.fun)
-                    //   2) meme platform enabled (pump.fun graduates)
-                    // Both queries use limit=50, freshness gated to <= 6h old.
-                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
-                        runScan("scanBirdeyeNewListing") { scanBirdeyeNewListing() }
-                    }
-                    delay(200)
-                    // V5.9.942 — Birdeye searchTokens narrative scan.
-                    // Activates the previously-INERT NARRATIVE_SCAN TokenSource.
-                    // Rotates through 14 hot keywords; ~520K CU/month worst case.
-                    // Per V5.9.941 Phase 6: GROWTH-tier-fit by source whitelist.
-                    if (com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
-                        runScan("scanBirdeyeNarratives") { scanBirdeyeNarratives() }
-                    }
+                    runScanBatch(*deepScans.toTypedArray())
                 }
 
                 // V5.9.639 — hard fallback for the 2461 scanner-authority path.
