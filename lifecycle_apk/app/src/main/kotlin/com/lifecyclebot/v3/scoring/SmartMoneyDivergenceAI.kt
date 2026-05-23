@@ -118,12 +118,17 @@ object SmartMoneyDivergenceAI {
         // Convert whale recommendation to scores
         val (whaleBuyScore, whaleSellScore) = parseWhaleSignal(whaleSignal)
         
-        // Calculate price direction
-        val priceChange = if (recentPrices.size >= 2 && recentPrices.first() > 0) {
-            ((recentPrices.last() - recentPrices.first()) / recentPrices.first()) * 100.0
+        // Calculate price direction. V5.9.1116: invalid/zero price history must
+        // be NEUTRAL, never bullish/bearish divergence. Previous price=0/-1 logs
+        // produced STRONG_BULLISH whale signals from missing price data.
+        val validPrices = recentPrices.filter { it.isFinite() && it > 0.0 }
+        val hasValidPriceTrend = validPrices.size >= 2
+        val priceChange = if (hasValidPriceTrend && validPrices.first() > 0.0) {
+            ((validPrices.last() - validPrices.first()) / validPrices.first()) * 100.0
         } else 0.0
         
         val priceDirection = when {
+            !hasValidPriceTrend -> 0
             priceChange > 3 -> 1   // Up
             priceChange < -3 -> -1 // Down
             else -> 0              // Flat
@@ -142,7 +147,7 @@ object SmartMoneyDivergenceAI {
         val behavior = detectBehavior(whaleBuyScore, whaleSellScore, topHolderPctChange, holderCountChange)
         
         // Detect divergence
-        val divergenceType = detectDivergence(behavior, priceDirection, whaleBuyScore, whaleSellScore)
+        val divergenceType = if (!hasValidPriceTrend) DivergenceType.NEUTRAL else detectDivergence(behavior, priceDirection, whaleBuyScore, whaleSellScore)
         
         // Calculate divergence strength
         val divergenceStrength = calculateDivergenceStrength(

@@ -304,8 +304,15 @@ object ModeSpecificGates {
         val m = tradingMode.trim().uppercase()
         return when {
             m.startsWith("MOONSHOT")         -> TradingModeTag.MOONSHOT
-            m == "SHITCOIN"                   -> TradingModeTag.SHITCOIN
-            m == "MANIPULATED"                -> TradingModeTag.MANIPULATED
+            m == "SHITCOIN" || m == "SHIT_COIN" -> TradingModeTag.SHITCOIN
+            m == "MANIPULATED" || m == "MANIP" -> TradingModeTag.MANIPULATED
+            m == "TREASURY" || m == "CASHGEN" || m == "CASH_GEN" -> TradingModeTag.AGGRESSIVE
+            m == "QUALITY"                    -> TradingModeTag.MEME_GENERIC
+            m == "EXPRESS" || m == "SHITCOIN_EXPRESS" || m == "SHIT_COIN_EXPRESS" -> TradingModeTag.SHITCOIN
+            m == "DIP_HUNTER" || m == "DIP"   -> TradingModeTag.MICRO_CAP
+            m == "PROJECT_SNIPER" || m == "SNIPER" -> TradingModeTag.SNIPE
+            m == "DIAMOND_HANDS" || m == "DIAMOND" -> TradingModeTag.LONG_HOLD
+            m == "CYCLIC" || m == "CYCLIC_TRADER" -> TradingModeTag.RANGE
             m == "CULT"                       -> TradingModeTag.CULT
             m == "NARRATIVE"                  -> TradingModeTag.NARRATIVE
             m == "MEME" || m == "MEME_GENERIC" -> TradingModeTag.MEME_GENERIC

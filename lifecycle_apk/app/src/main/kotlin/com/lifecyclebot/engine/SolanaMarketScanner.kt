@@ -792,6 +792,8 @@ class SolanaMarketScanner(
 
     private val semaphore = Semaphore(6)
 
+    private val SOURCE_SCAN_TIMEOUT_MS = 12_000L
+
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
     @Volatile private var scanRotation = 0
@@ -938,7 +940,7 @@ class SolanaMarketScanner(
         val rawBefore = telemetryRawScanned
         val enqBefore = telemetryEnqueued
         try {
-            block()
+            withTimeout(SOURCE_SCAN_TIMEOUT_MS) { block() }
             telemetrySourceSuccesses++
             try {
                 ForensicLogger.lifecycle(
@@ -958,8 +960,9 @@ class SolanaMarketScanner(
     }
 
     private suspend fun runScanBatch(vararg scans: Pair<String, suspend () -> Unit>) = coroutineScope {
-        val cap = try { RuntimeConfigOverlay.scannerConcurrencyCap().takeIf { it > 0 } ?: 6 } catch (_: Throwable) { 6 }
-        val groups = scans.toList().chunked(cap.coerceIn(1, 12))
+        val overlayCap = try { RuntimeConfigOverlay.scannerConcurrencyCap() } catch (_: Throwable) { 0 }
+        val cap = if (overlayCap > 6) overlayCap else 6
+        val groups = scans.toList().chunked(cap.coerceIn(6, 12))
         for (group in groups) {
             group.map { (name, block) ->
                 async(Dispatchers.IO) { runScan(name, block) }

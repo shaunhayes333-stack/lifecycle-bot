@@ -51,12 +51,17 @@ object RuntimeDoctor {
             // pressure and quarantine restore poison, but it must not silently re-cage
             // the trader the moment lanes come back.
             RuntimeMitigationBus.Command.DisableScannerSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L),
-            RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L),
         )
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
         InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
         InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
-        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> {
+            // V5.9.1116 — do not throttle the Meme scanner for unrelated x/groq
+            // failures. Birdeye lockdown is still handled by BirdeyeBudgetGate;
+            // source-level scanner errors are isolated by runScanBatch.
+            val d = f.detail.lowercase()
+            if (d.contains("birdeyelocked=true")) listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(4, f.detail, 60_000L)) else emptyList()
+        }
         InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC, InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION, InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
     }
 

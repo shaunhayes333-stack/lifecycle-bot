@@ -111,7 +111,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                 arrayOf(maxRows.toString())
             ).use { c ->
                 while (c.moveToNext()) {
-                    val mint = c.getString(0) ?: continue
+                    val mint = com.lifecyclebot.data.CanonicalMint.normalize(c.getString(0) ?: continue)
                     if (mint.isEmpty()) continue
                     val e = Entry(
                         mint = mint,
@@ -145,8 +145,9 @@ class TokenMetaCache private constructor(ctx: Context) :
 
     /** Hot path read. Returns null on miss. Never touches disk. */
     fun lookup(mint: String): Entry? {
-        if (mint.isEmpty()) return null
-        val hit = live[mint]
+        val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+        if (key.isEmpty()) return null
+        val hit = live[key]
         if (hit != null) { totalReadHits.incrementAndGet(); return hit }
         totalReadMisses.incrementAndGet()
         return null
@@ -173,9 +174,10 @@ class TokenMetaCache private constructor(ctx: Context) :
         lastFdv: Double? = null,
         creationTimeMs: Long? = null,
     ) {
-        if (mint.isEmpty()) return
+        val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+        if (key.isEmpty()) return
         val now = System.currentTimeMillis()
-        val e = live.computeIfAbsent(mint) { Entry(mint = mint, firstSeenMs = now) }
+        val e = live.computeIfAbsent(key) { Entry(mint = key, firstSeenMs = now) }
         var changed = false
         if (symbol != null && symbol.isNotBlank() && symbol != e.symbol) { e.symbol = symbol; changed = true }
         if (name != null && name.isNotBlank() && name != e.name) { e.name = name; changed = true }
@@ -192,7 +194,7 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (creationTimeMs != null && creationTimeMs > 0L && creationTimeMs != e.creationTimeMs) { e.creationTimeMs = creationTimeMs; changed = true }
         e.lastSeenMs = now
         e.hitCount += 1L
-        if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(mint)
+        if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
     }
 
     /** Persist all dirty rows. Safe from any thread. Returns rows flushed. */
