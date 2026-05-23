@@ -7075,6 +7075,23 @@ class BotService : Service() {
             return false
         }
 
+        val quarantine = QuarantineStore.evaluate(
+            mint = mint,
+            symbol = symbol,
+            source = source,
+            liquidityUsd = liquidityUsd,
+            marketCapUsd = marketCapUsd,
+            restoredLosses = 0,
+            hasExternalLiquidityProof = liquidityUsd > 0.0,
+        )
+        if (quarantine.quarantined) {
+            if (quarantine.telemetryDue) {
+                val qSymbol = if (symbol.isBlank()) mint.take(6) else symbol
+                try { ForensicLogger.lifecycle("INTAKE_QUARANTINED", "symbol=$qSymbol mint=${mint.take(10)} src=$source reason=${quarantine.reason} stage=protected_intake") } catch (_: Throwable) {}
+            }
+            return false
+        }
+
         // V5.9.771 — EMERGENT-MEME #8: blocked-symbol FINAL enforcement.
         // Operator dump V5.9.770 showed:
         //   FILTER REJECT USDT: blocked symbol 'usdt'

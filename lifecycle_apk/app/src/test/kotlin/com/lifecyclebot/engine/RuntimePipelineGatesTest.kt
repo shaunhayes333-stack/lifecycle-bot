@@ -239,3 +239,21 @@ class LaneExecutionCoordinatorSmokeTest {
         assertEquals(1L, LaneExecutionCoordinator.duplicateOpenSuppressions())
     }
 }
+
+
+class QuarantineAndOutcomeLedgerSmokeTest {
+    @Test
+    fun quarantine_blocks_blacklisted_and_zero_liquidity_before_watchlist() {
+        QuarantineStore.resetForTests()
+        val zero = QuarantineStore.evaluate(
+            mint = "MintZero111111111111111111111111111111",
+            symbol = "ZERO",
+            source = "SCANNER",
+            liquidityUsd = 0.0,
+            marketCapUsd = 1000.0,
+        )
+        assertTrue(zero.quarantined)
+        assertEquals("ZERO_LIQUIDITY", zero.reason)
+        assertTrue(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
+    }
+}

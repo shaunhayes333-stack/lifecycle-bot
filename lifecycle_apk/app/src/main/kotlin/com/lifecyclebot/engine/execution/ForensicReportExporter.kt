@@ -9,6 +9,9 @@ import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.engine.LiveTradeLogStore
 import com.lifecyclebot.engine.BotRuntimeController
 import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.LaneExecutionCoordinator
+import com.lifecyclebot.engine.QuarantineStore
+import com.lifecyclebot.engine.TradeOutcomeLedger
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -109,6 +112,15 @@ object ForensicReportExporter {
             put("hostTrackerOpenCount", runtime.hostTrackerOpenCount)
             put("sellReconcilerStarted", runtime.sellReconcilerStarted)
             put("updatedAtMs", runtime.updatedAtMs)
+        })
+        root.put("regression_counters", JSONObject().apply {
+            put("lane_duplicate_open_suppressed", try { LaneExecutionCoordinator.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
+            put("quarantine_suppressed", try { QuarantineStore.suppressedCount() } catch (_: Throwable) { -1 })
+            put("duplicate_open_attempts_suppressed", try { TradeOutcomeLedger.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
+            put("duplicate_close_attempts_suppressed", try { TradeOutcomeLedger.duplicateCloseSuppressions() } catch (_: Throwable) { -1 })
+            put("orphan_closes_suppressed", try { TradeOutcomeLedger.orphanCloseSuppressions() } catch (_: Throwable) { -1 })
+            put("learning_duplicate_suppressions", try { TradeOutcomeLedger.learningDuplicateSuppressions() } catch (_: Throwable) { -1 })
+            put("unique_closed_positions", try { TradeOutcomeLedger.uniqueClosedPositionCount() } catch (_: Throwable) { -1 })
         })
 
         // Reconciler section
