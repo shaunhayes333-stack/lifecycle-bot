@@ -9100,6 +9100,13 @@ class Executor(
             if (pct != null) return Pair(pct - 5.0, pct)
         }
         if (r.contains("RAPID_ENTRY_PROTECT_STOP")) return Pair(-13.0, -8.0)
+        // V5.9.1089 — paper realism for stop labels that do not encode a
+        // numeric threshold. 5.0.3056 still journaled TREASURY_STOP_LOSS_SWEEP
+        // at -75%/-90% and CASHGEN_STOP_LOSS at -72% because these labels fell
+        // through unclamped to stale/raw prices. These are soft stop labels, not
+        // rug/catastrophe labels; train the brain on the intended trigger band.
+        if (r.contains("TREASURY_STOP_LOSS") || r.contains("TREASURY_SL")) return Pair(-17.0, -15.0)
+        if (r.contains("CASHGEN_STOP_LOSS") || r.contains("SHITCOIN_STOP_LOSS") || r.contains("QUALITY_STOP_LOSS") || r.contains("BLUECHIP_STOP_LOSS") || r.contains("MOONSHOT_STOP_LOSS")) return Pair(-12.0, -6.0)
         // V5.9.1086 — align paper hard-floor accounting with the operator's
         // unconditional -15% floor. Old [-20,-9] made hard-floor exits look
         // materially better/worse than the actual trigger band.

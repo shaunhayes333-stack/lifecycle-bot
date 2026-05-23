@@ -496,6 +496,13 @@ class MainActivity : AppCompatActivity() {
     private var lastWatchlistRenderHash: Int = -1
     private var lastTreasuryRenderMs: Long = 0L   // V5.9.730 ANR debounce
     private var lastTreasuryMints: String = ""      // V5.9.730 dirty-check
+    // V5.9.1089 — split Treasury structural render from cheap PnL refresh.
+    // ANR dump 5.0.3056 still shows renderTreasuryPositions as top blocker.
+    // The old 6s debounce still ran inside updateUi() and still touched live
+    // maps + row code. These fields let us rebuild rows only when structure
+    // changes and throttle the cheap header PnL refresh separately.
+    private var lastTreasuryPnlRefreshMs: Long = 0L
+    private var lastTreasuryCachedPnlSol: Double = 0.0
     private var lastCryptoAltsRenderMs: Long = 0L  // V5.9.730 ANR debounce
     private var lastBlueChipHash: Int = -1
     private var lastQualityHash: Int = -1
@@ -2828,11 +2835,24 @@ for legal compliance.
                 // 2500ms UI tick. Debounce to 6s max — Treasury positions are long-hold
                 // so 6s visual lag is imperceptible while halving main-thread pressure.
                 val nowMs = System.currentTimeMillis()
-                if (nowMs - lastTreasuryRenderMs >= 6_000L) {
-                    lastTreasuryRenderMs = nowMs
-                    val treasuryUnrealized = renderTreasuryPositions(treasuryPositions)
-                    tvTreasuryPnl.text = "%+.4f◎".format(treasuryUnrealized)
-                    tvTreasuryPnl.setTextColor(if (treasuryUnrealized >= 0) green else red)
+                val treasuryStructKey = treasuryPositions.joinToString(",") { "${it.mint}:${it.entrySol}:${it.isPaper}" }
+                val structureChanged = treasuryStructKey != lastTreasuryMints
+                val cheapRefreshDue = nowMs - lastTreasuryPnlRefreshMs >= 12_000L
+                // V5.9.1089 — the 5.0.3056 dump still had renderTreasuryPositions
+                // as the top ANR site. Rebuild rows only on structural changes;
+                // otherwise refresh the header PnL at a low cadence using cached
+                // child rows. Treasury row visuals can lag; bot execution cannot.
+                if (structureChanged || cheapRefreshDue) {
+                    lastTreasuryPnlRefreshMs = nowMs
+                    if (structureChanged || nowMs - lastTreasuryRenderMs >= 30_000L) {
+                        lastTreasuryRenderMs = nowMs
+                        val treasuryUnrealized = renderTreasuryPositions(treasuryPositions)
+                        lastTreasuryCachedPnlSol = treasuryUnrealized
+                    } else {
+                        lastTreasuryCachedPnlSol = computeTreasuryUnrealizedPnl(treasuryPositions)
+                    }
+                    tvTreasuryPnl.text = "%+.4f◎".format(lastTreasuryCachedPnlSol)
+                    tvTreasuryPnl.setTextColor(if (lastTreasuryCachedPnlSol >= 0) green else red)
                 }
             }
         } catch (_: Exception) {}
@@ -4001,17 +4021,40 @@ for legal compliance.
     private val expressTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
     private val manipTimeSdf       = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
+    // V5.9.1089 — cheap Treasury PnL refresh without row rebuild.
+    private fun computeTreasuryUnrealizedPnl(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
+        var sum = 0.0
+        val now = System.currentTimeMillis()
+        positions.forEach { pos ->
+            if (pos.entryPrice <= 0.0 || pos.entrySol <= 0.0) return@forEach
+            val currentPrice = try {
+                val fromScanner = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
+                val fromTreasury = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
+                val fromPosObj = pos.currentPrice.takeIf { it > 0.0 }
+                val resolved = fromScanner ?: fromTreasury ?: fromPosObj
+                if (resolved == null || resolved <= 0.0) pos.entryPrice else resolved
+            } catch (_: Exception) { pos.entryPrice }
+            val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
+            val scannerHasMint = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.let { it > 0.0 } == true } catch (_: Throwable) { false }
+            val hasFresh = scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L)
+            if (hasFresh) {
+                val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+                sum += pos.entrySol * gainPct / 100.0
+            }
+        }
+        return sum
+    }
+
     // V4.0: Render Treasury Mode positions
     private fun renderTreasuryPositions(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
         // V5.9.730 ANR FIX: skip full re-inflate if position list is unchanged.
         // Computing PnL still happens (cheap) but view inflation (expensive) is skipped.
-        val mintKey = positions.joinToString(",") { "${it.mint}:${it.entrySol}" }
+        val mintKey = positions.joinToString(",") { "${it.mint}:${it.entrySol}:${it.isPaper}" }
         val samePositions = mintKey == lastTreasuryMints
         val sdf = treasuryTimeSdf
-        if (!samePositions) {
-            lastTreasuryMints = mintKey
-            llTreasuryPositions.removeAllViews()
-        }
+        if (samePositions) return lastTreasuryCachedPnlSol
+        lastTreasuryMints = mintKey
+        llTreasuryPositions.removeAllViews()
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         // V5.9.420 — accumulate children unrealized PnL so the card header
         // matches the visible rows below (was showing daily realized PnL).
@@ -4060,18 +4103,9 @@ for legal compliance.
                 gravity = android.view.Gravity.CENTER_VERTICAL
             }
 
-            // V5.8.0: Token logo
-            val logoImg = android.widget.ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
-                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
-                    transformations(coil.transform.CircleCropTransformation())
-                }
-            }
-            row.addView(logoImg)
+            // V5.9.1089 — Treasury panel is diagnostic-only and was still the
+            // top ANR source in 5.0.3056. Avoid per-row Coil/network image work
+            // here entirely; coloured bar + symbol is enough for visibility.
 
             // Colour bar on left (gold for treasury)
             val bar = View(this).apply {
