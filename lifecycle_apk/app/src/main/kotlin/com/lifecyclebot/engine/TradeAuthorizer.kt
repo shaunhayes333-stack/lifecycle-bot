@@ -134,7 +134,8 @@ object TradeAuthorizer {
             return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_RUNTIME_PAUSED", BlockLevel.HARD, canRetry = true)
         }
         if (RuntimeConfigOverlay.isLaneDisabled(requestedBook.name)) {
-            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_LANE_DISABLED", BlockLevel.SOFT, canRetry = true)
+            try { ForensicLogger.lifecycle("QUALITY_ONLY_PREAUTH_BLOCKED", "lane=${requestedBook.name} symbol=$symbol mint=${mint.take(10)}") } catch (_: Throwable) {}
+            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
         }
 
         // V5.9.1093 — finality BEFORE auth side effects.

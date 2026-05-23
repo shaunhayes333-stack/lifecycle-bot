@@ -4,6 +4,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Bounded TTL runtime overlay consumed by scanner/lane/auth/executor hot paths. */
 object RuntimeConfigOverlay {
+    /** V5.9.1108 — operator emergency: narrow runtime to QUALITY only until fanout root cause is proven closed. */
+    const val HARD_QUALITY_ONLY: Boolean = true
     data class Command(val kind: String, val target: String, val value: String, val reason: String, val expiresAtMs: Long)
     private val commands = ConcurrentHashMap<String, Command>()
     private fun now() = System.currentTimeMillis()
@@ -19,7 +21,7 @@ object RuntimeConfigOverlay {
     fun pauseTrading(reason: String, ttlMs: Long) = put("PAUSE_TRADING", "GLOBAL", "true", reason, ttlMs)
     fun disablePreAuth(reason: String, ttlMs: Long) = put("DISABLE_PREAUTH", "GLOBAL", "true", reason, ttlMs)
     fun forcePrimaryLane(lane: String, reason: String, ttlMs: Long) = put("FORCE_PRIMARY_LANE", "GLOBAL", lane.uppercase(), reason, ttlMs)
-    fun forcedPrimaryLane(): String? = activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
+    fun forcedPrimaryLane(): String? = if (HARD_QUALITY_ONLY) "QUALITY" else activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
     fun isLaneDisabled(lane: String): Boolean {
         val normalized = normalizeLane(lane)
         val forced = forcedPrimaryLane()
@@ -30,7 +32,16 @@ object RuntimeConfigOverlay {
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")
     fun isTradingPaused(): Boolean = active("PAUSE_TRADING:GLOBAL")
     fun scannerConcurrencyCap(): Int = activeCommand("SCANNER_CONCURRENCY:GLOBAL")?.value?.toIntOrNull() ?: 0
-    fun activeCommands(): List<Command> { prune(); return commands.values.toList().sortedBy { it.kind + it.target } }
+    fun activeCommands(): List<Command> {
+        prune()
+        val base = commands.values.toMutableList()
+        if (HARD_QUALITY_ONLY) base += Command("HARD_POLICY", "PRIMARY_LANE", "QUALITY", "operator_quality_only", Long.MAX_VALUE)
+        return base.sortedBy { it.kind + it.target }
+    }
+    fun qualityOnlySummary(): String {
+        val disabled = activeCommands().filter { it.kind == "DISABLE_LANE" }.map { it.target }.joinToString("|")
+        return "hardQualityOnly=$HARD_QUALITY_ONLY forcedPrimary=${forcedPrimaryLane() ?: "none"} disabled=$disabled"
+    }
     fun resetForTests() = commands.clear()
     fun normalizeLane(lane: String): String = lane.uppercase().replace("-", "_").replace(" ", "_").let {
         when (it) {

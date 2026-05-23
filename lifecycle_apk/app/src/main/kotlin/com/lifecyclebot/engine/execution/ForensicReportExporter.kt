@@ -111,6 +111,7 @@ object ForensicReportExporter {
             put("safe_actions", doctor?.recommendedActions?.joinToString(",") { it.action.name + ":" + it.target } ?: "")
             put("latest_snapshot_ts", doctor?.snapshot?.timestampMs ?: 0L)
             put("active_mitigations", doctor?.snapshot?.activeMitigations?.joinToString(",") ?: "")
+            put("quality_only_policy", com.lifecyclebot.engine.RuntimeConfigOverlay.qualityOnlySummary())
         })
         root.put("runtime", JSONObject().apply {
             put("generation", runtime.runtimeGeneration)

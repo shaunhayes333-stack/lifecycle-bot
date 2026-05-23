@@ -75,6 +75,9 @@ object PipelineHealthCollector {
 
     /** V5.9.915 — per-lane LANE_EVAL counters (SHITCOIN / MOONSHOT / QUALITY / BLUECHIP). */
     private val laneEvalCounts = ConcurrentHashMap<String, AtomicLong>()
+    private val laneEvalSuppressedCounts = ConcurrentHashMap<String, AtomicLong>()
+    private val fdgPathCounts = ConcurrentHashMap<String, AtomicLong>()
+    private val fdgSuppressedPathCounts = ConcurrentHashMap<String, AtomicLong>()
 
     /** V5.9.915 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
@@ -228,6 +231,7 @@ object PipelineHealthCollector {
         if (phaseTag == "LANE_EVAL") {
             val lane = Regex("lane=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
+                bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
                 appendEvent(Event(System.currentTimeMillis(), "PHASE/LANE_EVAL_SUPPRESSED", symbol, fields.take(220)))
                 return
@@ -235,7 +239,9 @@ object PipelineHealthCollector {
         }
         if (phaseTag == "FDG") {
             val path = Regex("path=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                bump(fdgSuppressedPathCounts, RuntimeConfigOverlay.normalizeLane(path))
                 bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
                 appendEvent(Event(System.currentTimeMillis(), "PHASE/FDG_SUPPRESSED", symbol, fields.take(220)))
                 return
@@ -269,6 +275,7 @@ object PipelineHealthCollector {
         if (phaseTag == "LANE_EVAL") {
             val lane = Regex("lane=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
+                bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
                 return
             }
@@ -279,7 +286,9 @@ object PipelineHealthCollector {
                 return
             }
             val path = Regex("path=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                bump(fdgSuppressedPathCounts, RuntimeConfigOverlay.normalizeLane(path))
                 bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
                 return
             }
@@ -635,6 +644,9 @@ object PipelineHealthCollector {
         val labelCounts: Map<String, Long>,
         val intakeBySource: Map<String, Long>,
         val laneEvalCounts: Map<String, Long>,
+        val laneEvalSuppressedCounts: Map<String, Long>,
+        val fdgPathCounts: Map<String, Long>,
+        val fdgSuppressedPathCounts: Map<String, Long>,
         val blockReasonCounts: Map<String, Long>,
         val v3RejectReasonCounts: Map<String, Long>,
         val symbolIntakeCounts: Map<String, Long>,
@@ -664,6 +676,9 @@ object PipelineHealthCollector {
             labelCounts            = labelCounts.mapValues { it.value.get() },
             intakeBySource         = intakeBySource.mapValues { it.value.get() },
             laneEvalCounts         = laneEvalCounts.mapValues { it.value.get() },
+            laneEvalSuppressedCounts = laneEvalSuppressedCounts.mapValues { it.value.get() },
+            fdgPathCounts          = fdgPathCounts.mapValues { it.value.get() },
+            fdgSuppressedPathCounts = fdgSuppressedPathCounts.mapValues { it.value.get() },
             blockReasonCounts      = blockReasonCounts.mapValues { it.value.get() },
             v3RejectReasonCounts   = v3RejectReasonCounts.mapValues { it.value.get() },
             symbolIntakeCounts     = symbolIntakeCounts.mapValues { it.value.get() },
@@ -880,6 +895,49 @@ object PipelineHealthCollector {
                 .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
             sb.append('\n')
         }
+
+        sb.append("===== QUALITY-only runtime leak audit =====\n")
+        val activeMitigationText = RuntimeConfigOverlay.activeCommands()
+            .joinToString(" ; ") { cmd -> "${cmd.kind}:${cmd.target}=${cmd.value}" }
+            .ifBlank { "none" }
+        sb.append("  Policy:                  ${RuntimeConfigOverlay.qualityOnlySummary()}\n")
+        sb.append("  Active mitigations:      $activeMitigationText\n")
+        val activeQualityEval = s.laneEvalCounts["QUALITY"] ?: 0L
+        val activeNonQualityEval = s.laneEvalCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
+        val suppressedNonQualityEval = s.laneEvalSuppressedCounts.values.sum()
+        val activeQualityFdg = s.fdgPathCounts["QUALITY"] ?: 0L
+        val activeNonQualityFdg = s.fdgPathCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
+        val suppressedNonQualityFdg = s.fdgSuppressedPathCounts.values.sum()
+        val evalLeakLabel = if (activeNonQualityEval > 0) "LEAK" else "OK"
+        val fdgLeakLabel = if (activeNonQualityFdg > 0) "LEAK" else "OK"
+        sb.append("  Active QUALITY eval:      $activeQualityEval\n")
+        sb.append("  Active non-QUALITY eval:  $activeNonQualityEval $evalLeakLabel\n")
+        sb.append("  Suppressed non-QUALITY eval: $suppressedNonQualityEval\n")
+        sb.append("  Active QUALITY FDG:       $activeQualityFdg\n")
+        sb.append("  Active non-QUALITY FDG:   $activeNonQualityFdg $fdgLeakLabel\n")
+        sb.append("  Suppressed non-QUALITY FDG: $suppressedNonQualityFdg\n")
+        if (s.laneEvalSuppressedCounts.isNotEmpty()) {
+            sb.append("  Suppressed lane eval by lane:\n")
+            for (entry in s.laneEvalSuppressedCounts.entries.sortedByDescending { it.value }) {
+                sb.append("    • ${entry.key}: ${entry.value}\n")
+            }
+        }
+        if (s.fdgSuppressedPathCounts.isNotEmpty()) {
+            sb.append("  Suppressed FDG by path:\n")
+            for (entry in s.fdgSuppressedPathCounts.entries.sortedByDescending { it.value }) {
+                sb.append("    • ${entry.key}: ${entry.value}\n")
+            }
+        }
+        val qualityBlockLabels = s.labelCounts.filterKeys {
+            it.contains("QUALITY_ONLY") || it.contains("PREAUTH_BLOCK") || it.contains("EXEC_OPEN_BLOCKED")
+        }
+        if (qualityBlockLabels.isNotEmpty()) {
+            sb.append("  Quality/preauth/open block labels:\n")
+            for (entry in qualityBlockLabels.entries.sortedByDescending { it.value }.take(30)) {
+                sb.append("    • ${entry.key}: ${entry.value}\n")
+            }
+        }
+        sb.append('\n')
 
         // ── Decision verdicts ───────────────────────────────────────
         if (s.verdictCounts.isNotEmpty()) {
@@ -1302,8 +1360,9 @@ object PipelineHealthCollector {
         val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L
         val recentExecCount = s.recentExecs.size.toLong()
         sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
-        sb.append("  lane evaluations:     $totalLaneEval\n")
+        sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
+        sb.append("  FDG active/suppressed:${s.phaseCounts["FDG"] ?: 0L} / ${s.fdgSuppressedPathCounts.values.sum()}\n")
         sb.append("    ├─ V3 allow:        $v3Allow\n")
         sb.append("    └─ V3 skip:         $v3Skipped\n")
         sb.append("  verdicts produced:    $totalVerdicts\n")

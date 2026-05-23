@@ -223,6 +223,15 @@ object FinalExecutionPermit {
     ): PermitResult {
         val now = System.currentTimeMillis()
 
+        if (RuntimeConfigOverlay.isLaneDisabled(requestingLayer)) {
+            try { ForensicLogger.lifecycle("QUALITY_ONLY_LAYER_BLOCKED", "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} stage=canExecute") } catch (_: Throwable) {}
+            return PermitResult(
+                allowed = false,
+                reason = "QUALITY_ONLY_LAYER_BLOCKED:$requestingLayer",
+                blockingLayer = "RUNTIME_POLICY",
+            )
+        }
+
         // V5.9.408 — Free-range mode: let every layer fire. Only position-open
         // is still honored (can't stack duplicate positions on one mint).
         if (FreeRangeMode.isWideOpen()) {
