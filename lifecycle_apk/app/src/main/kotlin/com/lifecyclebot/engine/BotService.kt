@@ -364,6 +364,20 @@ class BotService : Service() {
             }
         }
 
+        fun heldPositionCountForRescue(): Int {
+            return try {
+                val statusOpen = try { status.openPositions.size } catch (_: Throwable) { 0 }
+                val tokenOpen = try { status.tokens.values.count { it.position.isOpen } } catch (_: Throwable) { 0 }
+                val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+                val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                val cashGenOpen = try {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true).size +
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false).size
+                } catch (_: Throwable) { 0 }
+                maxOf(statusOpen, tokenOpen, hostOpen, lifecycleOpen, cashGenOpen)
+            } catch (_: Throwable) { 0 }
+        }
+
         // V5.9.621 — inert-loop watchdog state. Updated on every scanner discovery.
         @Volatile
         var lastScannerDiscoveryMs: Long = 0L
@@ -1433,9 +1447,11 @@ class BotService : Service() {
             val wasRunning = rp.getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
             val manualStop = rp.getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
             ErrorLogger.warn("BotService", "onStartCommand null intent (START_STICKY resurrection) wasRunning=$wasRunning manualStop=$manualStop")
-            if (wasRunning && !manualStop && !status.running) {
+            val held = heldPositionCountForRescue()
+            if ((wasRunning || held > 0) && !manualStop && !isRuntimeActive()) {
                 try {
-                    addLog("🔄 AUTO-RESURRECT: Bot restarted by OS after unexpected kill")
+                    addLog("🔄 AUTO-RESURRECT: Bot restarted by OS after unexpected kill/held positions")
+                    try { ForensicLogger.lifecycle("STICKY_STRANDED_POSITION_RESCUE", "wasRunning=$wasRunning held=$held manualStop=false") } catch (_: Throwable) {}
                     scope.launch { startBot() }
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "Resurrection startBot failed: ${e.message}", e)
@@ -1871,10 +1887,11 @@ class BotService : Service() {
         // behaviour: persist position state durably so the restart's
         // PositionPersistence.restorePositions + StartupReconciler chain can
         // re-adopt the position from on-chain truth on next boot.
-        if (status.running && !isManualStopRequested(applicationContext)) {
+        val onDestroyHeldCount = heldPositionCountForRescue()
+        if ((status.running || onDestroyHeldCount > 0) && !isManualStopRequested(applicationContext)) {
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
-                val openCount = tokensCopy.values.count { it.position.isOpen }
+                val openCount = maxOf(tokensCopy.values.count { it.position.isOpen }, onDestroyHeldCount)
                 ErrorLogger.warn("BotService",
                     "onDestroy: SYSTEM-INITIATED destroy (not manual stop). " +
                     "$openCount open position(s) — persisting to disk for restart recovery. " +
@@ -2150,7 +2167,9 @@ class BotService : Service() {
         super.onTaskRemoved(rootIntent)
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
         
-        if (status.running && !isManualStopRequested(applicationContext)) {
+        val taskRemovedHeldCount = heldPositionCountForRescue()
+        if ((status.running || taskRemovedHeldCount > 0) && !isManualStopRequested(applicationContext)) {
+            try { ForensicLogger.lifecycle("TASK_REMOVED_STRANDED_POSITION_RESCUE", "statusRunning=${status.running} held=$taskRemovedHeldCount") } catch (_: Throwable) {}
             // V5.9.1081 — DEDUPE: cancel any prior pending restart alarms first
             // so onTaskRemoved cannot stack a second pair on top of an existing
             // onDestroy-armed pair.

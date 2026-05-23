@@ -857,6 +857,53 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
     
+    private fun rescueStrandedRuntimeIfNeeded(reason: String) {
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val manualStop = try {
+                    getSharedPreferences(com.lifecyclebot.engine.BotService.RUNTIME_PREFS, Context.MODE_PRIVATE)
+                        .getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
+                } catch (_: Throwable) { false }
+                if (manualStop) return@launch
+
+                val runtimeActive = com.lifecyclebot.engine.BotService.isRuntimeActive()
+                if (runtimeActive) return@launch
+
+                val openCount = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+                val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                val uiOpen = try { vm.ui.value.openPositions.size } catch (_: Throwable) { 0 }
+                val cashGenOpen = try {
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true).size +
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false).size
+                } catch (_: Throwable) { 0 }
+                val held = maxOf(openCount, lifecycleOpen, uiOpen, cashGenOpen)
+                if (held <= 0) return@launch
+
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "UI_STRANDED_POSITION_RESCUE",
+                        "reason=$reason held=$held host=$openCount lifecycle=$lifecycleOpen ui=$uiOpen cashgen=$cashGenOpen runtimeActive=false manualStop=false"
+                    )
+                } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.ErrorLogger.warn(
+                        "MainActivity",
+                        "UI_STRANDED_POSITION_RESCUE: held=$held but runtime inactive; issuing ACTION_START ($reason)"
+                    )
+                } catch (_: Throwable) {}
+
+                val intent = Intent(applicationContext, com.lifecyclebot.engine.BotService::class.java).apply {
+                    action = com.lifecyclebot.engine.BotService.ACTION_START
+                    putExtra(com.lifecyclebot.engine.BotService.EXTRA_USER_REQUESTED, false)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) applicationContext.startForegroundService(intent)
+                else applicationContext.startService(intent)
+            } catch (t: Throwable) {
+                try { com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "stranded runtime rescue failed: ${t.message}") } catch (_: Throwable) {}
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         mainUiActive = true
@@ -870,6 +917,7 @@ class MainActivity : AppCompatActivity() {
         } catch (t: Throwable) {
             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "foreground repaint failed: ${t.message}")
         }
+        rescueStrandedRuntimeIfNeeded("onResume")
         // Refresh currency rates and wallet balance when returning to activity
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
