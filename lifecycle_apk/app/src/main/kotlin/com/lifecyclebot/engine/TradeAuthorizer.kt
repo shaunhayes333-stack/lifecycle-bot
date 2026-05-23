@@ -138,6 +138,28 @@ object TradeAuthorizer {
             return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
         }
 
+        // V5.9.1120 — lane election BEFORE finality/open-request side effects.
+        // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
+        // secondary lanes were reaching ExecutableOpenGate just to be rejected
+        // by the canonical execution key. That burns worker budget and causes
+        // supervisor timeouts without increasing real trades. Preserve primary
+        // lane execution; suppress secondary lanes as telemetry before finality.
+        val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, requestedBook.name)
+        if (!laneElection.allowed) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_PREAUTH_SUPPRESSED",
+                    "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} primary=${laneElection.primaryLane} candidateVersion=${laneElection.candidateVersion} reason=${laneElection.reason}"
+                )
+            } catch (_: Throwable) {}
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = "PREAUTH_${laneElection.reason}",
+                blockLevel = BlockLevel.SOFT,
+                canRetry = false,
+            )
+        }
+
         // V5.9.1093 — finality BEFORE auth side effects.
         // No AUTHORIZED/PAPER_EXECUTE/LIVE_EXECUTE/token lock may appear before
         // EXEC_OPEN_ALLOWED for this same attempt.
