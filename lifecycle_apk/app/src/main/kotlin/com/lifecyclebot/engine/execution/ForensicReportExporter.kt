@@ -13,6 +13,7 @@ import com.lifecyclebot.engine.ExecutionRouteGuard
 import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.QuarantineStore
 import com.lifecyclebot.engine.TradeOutcomeLedger
+import com.lifecyclebot.engine.RuntimeRegressionGuards
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -114,6 +115,22 @@ object ForensicReportExporter {
             put("sellReconcilerStarted", runtime.sellReconcilerStarted)
             put("updatedAtMs", runtime.updatedAtMs)
         })
+        val regressionChecks = try {
+            RuntimeRegressionGuards.evaluate(
+                RuntimeRegressionGuards.Input(
+                    uniqueClosedPositionIds = TradeOutcomeLedger.uniqueClosedPositionCount().toLong(),
+                    learningTrades = TradeOutcomeLedger.uniqueClosedPositionCount().toLong(),
+                    forensicsEvents = try { Forensics.size().toLong() } catch (_: Throwable) { 0L },
+                    forensicLoggingOn = com.lifecyclebot.engine.ForensicLogger.enabled,
+                    runtimeActive = runtime.runtimeActive,
+                    uiRunning = runtime.runtimeActive,
+                    sellReconcilerStarted = runtime.sellReconcilerStarted,
+                    hostTrackerOpenCount = runtime.hostTrackerOpenCount,
+                    positionStoreOpenCount = runtime.hostTrackerOpenCount,
+                )
+            )
+        } catch (_: Throwable) { emptyList() }
+        root.put("regression_guard_summary", try { RuntimeRegressionGuards.summary(regressionChecks) } catch (_: Throwable) { "REGRESSION_GUARDS_ERROR" })
         root.put("regression_counters", JSONObject().apply {
             put("lane_duplicate_open_suppressed", try { LaneExecutionCoordinator.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
             put("quarantine_suppressed", try { QuarantineStore.suppressedCount() } catch (_: Throwable) { -1 })

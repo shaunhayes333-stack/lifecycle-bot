@@ -307,3 +307,23 @@ class ExecutionRouteGuardSmokeTest {
         assertEquals(1L, ExecutionRouteGuard.shadowAllowedCount())
     }
 }
+
+class RuntimeRegressionGuardsSmokeTest {
+    @Test
+    fun guard_fails_lane_ratio_above_twelve() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(intake = 10, laneEval = 130)
+        )
+        val lane = checks.first { it.name == "lane_eval_intake_ratio" }
+        assertFalse(lane.ok)
+    }
+
+    @Test
+    fun guard_fails_learning_mismatch() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(learningTrades = 3, uniqueClosedPositionIds = 2)
+        )
+        val learning = checks.first { it.name == "learning_equals_unique_closes" }
+        assertFalse(learning.ok)
+    }
+}
