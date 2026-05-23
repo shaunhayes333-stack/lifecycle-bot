@@ -239,13 +239,18 @@ object PipelineHealthCollector {
         }
         if (phaseTag == "FDG") {
             val path = Regex("path=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
-            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                // V5.9.1110 — suppressed FDG is NOT active FDG. The 1108 leak audit
+                // showed active=97 and suppressed=97 because this method bumped the
+                // active path counter before checking the overlay. Count disabled paths
+                // only in fdgSuppressedPathCounts so Active non-QUALITY FDG means a
+                // real FinalDecisionGate call reached a disabled lane.
                 bump(fdgSuppressedPathCounts, RuntimeConfigOverlay.normalizeLane(path))
                 bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
                 appendEvent(Event(System.currentTimeMillis(), "PHASE/FDG_SUPPRESSED", symbol, fields.take(220)))
                 return
             }
+            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
         }
         bump(phaseCounts, phaseTag)
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
@@ -286,12 +291,14 @@ object PipelineHealthCollector {
                 return
             }
             val path = Regex("path=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
-            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
             if (path.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(path)) {
+                // V5.9.1110 — disabled-lane FDG gate telemetry is suppressed-only,
+                // not active FDG. Keeps QUALITY-only leak audit truthful.
                 bump(fdgSuppressedPathCounts, RuntimeConfigOverlay.normalizeLane(path))
                 bump(labelCounts, "FDG_SUPPRESSED_OVERLAY")
                 return
             }
+            if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
         }
         bump(phaseCounts, phaseTag)
         if (allow) bump(phaseAllow, phaseTag) else bump(phaseBlock, phaseTag)

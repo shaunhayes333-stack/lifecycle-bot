@@ -14760,6 +14760,24 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     )
 
                     if (manipSignal.shouldEnter) {
+                        // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
+                        // V5.9.1108 blocked MANIP later, but the 1108 report still
+                        // showed Active non-QUALITY FDG=42. Do not call FDG/auth/exec
+                        // while QUALITY-only is active; emit suppressed FDG telemetry only.
+                        if (RuntimeConfigOverlay.isLaneDisabled("MANIPULATED")) {
+                            try {
+                                ForensicLogger.phase(
+                                    ForensicLogger.PHASE.FDG,
+                                    ts.symbol,
+                                    "path=MANIP suppressed=true reason=QUALITY_ONLY_PRE_FDG"
+                                )
+                                ForensicLogger.lifecycle(
+                                    "QUALITY_ONLY_PRE_FDG_BLOCKED",
+                                    "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}"
+                                )
+                            } catch (_: Throwable) {}
+                            return
+                        }
                         // V5.9.688 — FDG gate for Manip path
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
@@ -14961,6 +14979,24 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, expressSignal.reason)
                         }
                         if (expressSignal.shouldRide) {
+                            // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
+                            // V5.9.1108 blocked EXPRESS later, but the 1108 report still
+                            // showed Active non-QUALITY FDG=55. Do not call FDG/auth/exec
+                            // while QUALITY-only is active; emit suppressed FDG telemetry only.
+                            if (RuntimeConfigOverlay.isLaneDisabled("EXPRESS")) {
+                                try {
+                                    ForensicLogger.phase(
+                                        ForensicLogger.PHASE.FDG,
+                                        ts.symbol,
+                                        "path=EXPRESS suppressed=true reason=QUALITY_ONLY_PRE_FDG"
+                                    )
+                                    ForensicLogger.lifecycle(
+                                        "QUALITY_ONLY_PRE_FDG_BLOCKED",
+                                        "lane=EXPRESS symbol=${ts.symbol} mint=${ts.mint.take(10)}"
+                                    )
+                                } catch (_: Throwable) {}
+                                return
+                            }
                             // V5.9.688 — FDG gate for Express path
                             val expressFdg = try {
                                 FinalDecisionGate.evaluate(
