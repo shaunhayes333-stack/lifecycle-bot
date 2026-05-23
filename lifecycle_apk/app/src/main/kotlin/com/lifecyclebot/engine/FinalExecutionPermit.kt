@@ -122,8 +122,32 @@ object FinalExecutionPermit {
         symbol: String,
         layer: String,
         sizeSol: Double,
+        attemptId: String = "",
+        paperMode: Boolean = isPaperMode,
+        rugScore: Int = -1,
     ): Boolean {
         val now = System.currentTimeMillis()
+
+        // V5.9.1093 — finality BEFORE ENTER/permit side effects.
+        // Existing lane code logs ENTER immediately after this function returns
+        // true, so this is the last universal pre-side-effect choke point.
+        val finalityAttemptId = attemptId.ifBlank {
+            ExecutableOpenGate.recentAllowedAttemptId(mint, layer)
+                ?: ExecutableOpenGate.nextAttemptId(mint, layer)
+        }
+        val finality = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = symbol,
+            rugScore = rugScore,
+            mode = if (paperMode) "PAPER" else "LIVE",
+            lane = layer,
+            source = "FinalExecutionPermit.tryAcquireExecution",
+            attemptId = finalityAttemptId,
+        )
+        if (!finality.allowed) {
+            ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")
+            return false
+        }
 
         // V5.9.408 — Free-range: skip pending-exec lockout so overlapping
         // layers (Treasury + ShitCoin + BlueChip etc) can all fire.
@@ -148,7 +172,7 @@ object FinalExecutionPermit {
             sizeSol = sizeSol,
         )
         
-        ErrorLogger.debug(TAG, "🔓 ACQUIRED: $symbol | layer=$layer | size=${sizeSol}")
+        ErrorLogger.debug(TAG, "🔓 ACQUIRED: $symbol | layer=$layer | attemptId=$finalityAttemptId | size=${sizeSol}")
         return true
     }
     

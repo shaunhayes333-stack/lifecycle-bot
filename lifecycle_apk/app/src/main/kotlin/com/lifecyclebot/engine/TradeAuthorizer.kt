@@ -124,10 +124,36 @@ object TradeAuthorizer {
         rugcheckScore: Int = 100,
         liquidity: Double = 0.0,
         isBanned: Boolean = false,
+        attemptId: String = "",
     ): AuthorizationResult {
         val now = System.currentTimeMillis()
         val normalizedQuality = quality.trim().uppercase()
         val safeConfidence = confidence.coerceIn(0.0, 100.0)
+
+        // V5.9.1093 — finality BEFORE auth side effects.
+        // No AUTHORIZED/PAPER_EXECUTE/LIVE_EXECUTE/token lock may appear before
+        // EXEC_OPEN_ALLOWED for this same attempt.
+        val finalityAttemptId = attemptId.ifBlank {
+            ExecutableOpenGate.nextAttemptId(mint, requestedBook.name)
+        }
+        val finality = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = symbol,
+            rugScore = rugcheckScore,
+            mode = if (isPaperMode) "PAPER" else "LIVE",
+            lane = requestedBook.name,
+            source = "TradeAuthorizer.preAuth",
+            attemptId = finalityAttemptId,
+        )
+        if (!finality.allowed) {
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = "FINALITY_${finality.logName}:${finality.reason}",
+                blockLevel = BlockLevel.SOFT,
+                canRetry = false,
+            )
+        }
 
         // GATE 1: permanent ban
         if (isBanned || BannedTokens.isBanned(mint)) {
@@ -308,7 +334,7 @@ object TradeAuthorizer {
 
         ErrorLogger.info(
             TAG,
-            "✅ AUTHORIZED $symbol: ${verdict.name} in ${requestedBook.name} | score=$score conf=${safeConfidence.toInt()}% quality=$normalizedQuality"
+            "✅ AUTHORIZED $symbol: ${verdict.name} in ${requestedBook.name} | attemptId=$finalityAttemptId score=$score conf=${safeConfidence.toInt()}% quality=$normalizedQuality"
         )
 
         return AuthorizationResult(

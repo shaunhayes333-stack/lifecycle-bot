@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * V5.9.1083 — executable-open finality firewall.
@@ -30,10 +31,25 @@ object ExecutableOpenGate {
         val reason: String,
         val shadowOnly: Boolean = false,
         val logName: String = "EXEC_OPEN_ALLOWED",
+        val attemptId: String = "",
     )
+
+    private val attemptSeq = AtomicLong(0L)
+    fun nextAttemptId(mint: String, lane: String): String =
+        "${System.currentTimeMillis()}-${attemptSeq.incrementAndGet()}-${lane.take(10)}-${mint.take(6)}"
 
     private val states = ConcurrentHashMap<String, EntryState>()
     private const val TTL_MS = 10 * 60 * 1000L
+    private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
+    private fun laneKey(mint: String, lane: String): String = mint + ":" + lane.uppercase().filter { it.isLetterOrDigit() }
+    private const val ALLOWED_ATTEMPT_TTL_MS = 15_000L
+
+    fun recentAllowedAttemptId(mint: String, lane: String): String? {
+        val now = System.currentTimeMillis()
+        allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
+        return allowedAttempts[laneKey(mint, lane)]?.takeIf { now - it.second <= ALLOWED_ATTEMPT_TTL_MS }?.first
+    }
+
 
     private fun staleCutoff() = System.currentTimeMillis() - TTL_MS
 
@@ -104,13 +120,53 @@ object ExecutableOpenGate {
     }
 
     fun canOpenExecutablePosition(
+        mint: String,
+        symbol: String,
+        rugScore: Int,
+        mode: String,
+        lane: String,
+        source: String,
+        attemptId: String = nextAttemptId(mint, lane),
+    ): OpenVerdict {
+        return canOpenExecutablePositionInternal(
+            mint = mint,
+            symbol = symbol,
+            rug = rugScore,
+            mode = mode,
+            lane = lane,
+            source = source,
+            attemptId = attemptId,
+        )
+    }
+
+    fun canOpenExecutablePosition(
         ts: TokenState,
         mode: String,
         lane: String,
         source: String,
+        attemptId: String = nextAttemptId(ts.mint, lane),
     ): OpenVerdict {
-        val state = states[ts.mint]
-        val rug = ts.safety.rugcheckScore
+        return canOpenExecutablePositionInternal(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            rug = ts.safety.rugcheckScore,
+            mode = mode,
+            lane = lane,
+            source = source,
+            attemptId = attemptId,
+        )
+    }
+
+    private fun canOpenExecutablePositionInternal(
+        mint: String,
+        symbol: String,
+        rug: Int,
+        mode: String,
+        lane: String,
+        source: String,
+        attemptId: String,
+    ): OpenVerdict {
+        val state = states[mint]
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
         val fdgCan = state?.fdgCan
         val fdgReason = state?.fdgReason ?: "n/a"
@@ -122,18 +178,18 @@ object ExecutableOpenGate {
         try {
             ForensicLogger.lifecycle(
                 "EXEC_OPEN_REQUEST",
-                "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
+                "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
             )
         } catch (_: Throwable) {}
 
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
-                ForensicLogger.lifecycle(log, "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
+                ForensicLogger.lifecycle(log, "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
             } catch (_: Throwable) {}
             if (shadow) {
-                try { ForensicLogger.lifecycle("PAPER_LEARNING_PROBE_NOT_EXECUTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$reason") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_LEARNING_PROBE_NOT_EXECUTED", "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} reason=$reason") } catch (_: Throwable) {}
             }
-            return OpenVerdict(false, reason, shadowOnly = shadow, logName = log)
+            return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 
         if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
@@ -151,7 +207,8 @@ object ExecutableOpenGate {
         if (rug <= 1 && rug >= 0) {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", "RC_SCORE_$rug", shadow = mode == "PAPER")
         }
-        try { ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode lane=$lane reason=finality_clear") } catch (_: Throwable) {}
-        return OpenVerdict(true, "finality_clear")
+        try { allowedAttempts[laneKey(mint, lane)] = attemptId to System.currentTimeMillis() } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear") } catch (_: Throwable) {}
+        return OpenVerdict(true, "finality_clear", attemptId = attemptId)
     }
 }

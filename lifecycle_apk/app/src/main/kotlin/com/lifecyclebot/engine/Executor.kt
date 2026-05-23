@@ -6375,7 +6375,9 @@ class Executor(
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0,
                  layerTag: String = "",            // V5.9.386 — override BUY trade tradingMode for sub-trader journal tagging
-                 layerTagEmoji: String = "") {     // V5.9.386 — matching emoji for the sub-trader tag
+                 layerTagEmoji: String = "",
+                 finalityPrechecked: Boolean = false,
+                 attemptId: String = "") {     // V5.9.386 — matching emoji for the sub-trader tag
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
@@ -6389,15 +6391,18 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
             return
         }
-        val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
-            ts = ts,
-            mode = "PAPER",
-            lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
-            source = "Executor.paperBuy",
-        )
-        if (!executableOpen.allowed) {
-            ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | ${executableOpen.reason}")
-            return
+        if (!finalityPrechecked) {
+            val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
+                ts = ts,
+                mode = "PAPER",
+                lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+                source = "Executor.paperBuy",
+                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
+            )
+            if (!executableOpen.allowed) {
+                ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
+                return
+            }
         }
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener.
@@ -6727,7 +6732,9 @@ class Executor(
         sounds?.playBuySound()
         
         val buildInfo = if (buildPhase == 1) " [BUILD 1/3]" else ""
-        onLog("PAPER BUY  @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
+        val buyAttemptLane = if (layerTag.isNotBlank()) layerTag else trade.tradingMode
+        try { ForensicLogger.lifecycle("TRADE_HISTORY_BUY_ATTEMPT", "attemptId=$attemptId symbol=${tradeId.symbol} mint=${tradeId.mint.take(10)} mode=PAPER lane=$buyAttemptLane") } catch (_: Throwable) {}
+        onLog("PAPER BUY attemptId=$attemptId @ ${price.fmt()} | ${actualSol.fmt(4)} SOL | score=${score.toInt()}$buildInfo", tradeId.mint)
         onNotify("📈 Paper Buy", "${tradeId.symbol}  ${actualSol.fmt(3)} SOL$buildInfo", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         
         TradeAlerts.onBuy(cfg(), tradeId.symbol, actualSol, score, 0.0, ts.position.tradingMode, isPaper = true)
@@ -6908,6 +6915,28 @@ class Executor(
     //
     // These helpers enforce the same paper-vs-live routing v3Buy already
     // does for the MEME_SPINE path. Single source of truth: isPaperRT().
+    // V5.9.1093 — wrapper-level finality preflight.
+    // This runs before wrapper PAPER_BUY/LIVE_BUY logs, identity.executed(),
+    // wallet mutation, journal writes, learning uploads, or position registration.
+    private fun preflightExecutableOpen(
+        ts: TokenState,
+        isPaper: Boolean,
+        lane: String,
+        source: String,
+        attemptId: String,
+    ): ExecutableOpenGate.OpenVerdict {
+        return ExecutableOpenGate.canOpenExecutablePosition(
+            ts = ts,
+            mode = if (isPaper) "PAPER" else "LIVE",
+            lane = lane,
+            source = source,
+            attemptId = attemptId.ifBlank {
+                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, lane)
+                    ?: ExecutableOpenGate.nextAttemptId(ts.mint, lane)
+            },
+        )
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
 
     fun dipHunterBuy(
@@ -6917,18 +6946,27 @@ class Executor(
         wallet: SolanaWallet?,
         walletSol: Double,
         identity: TradeIdentity? = null,
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ): Boolean {
         val isPaper = isPaperRT()
+        val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
+            else preflightExecutableOpen(ts, isPaper, "DIP_HUNTER", "Executor.dipHunterBuy", attemptId)
+        if (!preflight.allowed) {
+            ErrorLogger.warn("Executor", "🚫 DIP_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
+            return false
+        }
         val id = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         ErrorLogger.info("Executor",
             "📉🎯 DIP_BUY_ROUTE ${ts.symbol} | route=${if (isPaper) "PAPER" else "LIVE_JUPITER"} | " +
-            "cfgPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
+            "attemptId=${preflight.attemptId} | cfgPaper=$isPaper | walletLoaded=${wallet != null} | size=${sizeSol.fmt(4)}")
         if (isPaper) {
             paperBuy(
                 ts = ts, sol = sizeSol, score = score, identity = id,
                 quality = "DIP_HUNTER", skipGraduated = true,
                 wallet = wallet, walletSol = walletSol,
                 layerTag = "DIP_HUNTER", layerTagEmoji = "📉",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         } else {
             if (wallet == null) {
@@ -6941,6 +6979,7 @@ class Executor(
                 wallet = wallet, walletSol = walletSol,
                 identity = id, quality = "DIP_HUNTER", skipGraduated = true,
                 layerTag = "DIP_HUNTER", layerTagEmoji = "📉",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         }
         return ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
@@ -6975,15 +7014,23 @@ class Executor(
         takeProfitPct: Double,
         stopLossPct: Double,
         wallet: SolanaWallet?,
-        isPaper: Boolean
+        isPaper: Boolean,
+        finalityPrechecked: Boolean = false,
+        attemptId: String = ""
     ): Boolean {
+        val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
+            else preflightExecutableOpen(ts, isPaper, "TREASURY", "Executor.treasuryBuy", attemptId)
+        if (!preflight.allowed) {
+            ErrorLogger.warn("Executor", "🚫 TREASURY_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
+            return false
+        }
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
         
         ErrorLogger.info("Executor", "💰 [TREASURY] ${ts.symbol} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
-            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+            "attemptId=${preflight.attemptId} | ${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
         
         if (isPaper) {
             paperBuy(
@@ -6997,6 +7044,7 @@ class Executor(
                 walletSol = walletSol,
                 layerTag = "TREASURY",        // V5.9.386 — journal tag
                 layerTagEmoji = "💰",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         } else {
             if (wallet == null) {
@@ -7019,11 +7067,12 @@ class Executor(
                 skipGraduated = true,
                 layerTag = "TREASURY",        // V5.9.386
                 layerTagEmoji = "💰",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
-            ErrorLogger.warn("Executor", "💰 [TREASURY] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            ErrorLogger.warn("Executor", "💰 [TREASURY] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
             return false
         }
         
@@ -7074,7 +7123,15 @@ class Executor(
         // V5.9.386 — allow callers (Quality path) to override journal tag.
         layerTag: String = "BLUE_CHIP",
         layerTagEmoji: String = "🔵",
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ): Boolean {
+        val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
+            else preflightExecutableOpen(ts, isPaper, layerTag, "Executor.blueChipBuy", attemptId)
+        if (!preflight.allowed) {
+            ErrorLogger.warn("Executor", "🚫 BLUECHIP_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
+            return false
+        }
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -7082,7 +7139,7 @@ class Executor(
         ErrorLogger.info("Executor", "🔵 [BLUE CHIP] ${ts.symbol} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
             "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+            "attemptId=${preflight.attemptId} | ${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
         
         if (isPaper) {
             paperBuy(
@@ -7096,6 +7153,7 @@ class Executor(
                 walletSol = walletSol,
                 layerTag = layerTag,             // V5.9.386
                 layerTagEmoji = layerTagEmoji,
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         } else {
             if (wallet == null) {
@@ -7113,11 +7171,12 @@ class Executor(
                 skipGraduated = true,
                 layerTag = layerTag,             // V5.9.386
                 layerTagEmoji = layerTagEmoji,
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
-            ErrorLogger.warn("Executor", "🔵 [${layerTag}] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            ErrorLogger.warn("Executor", "🔵 [${layerTag}] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
             return false
         }
         
@@ -7164,7 +7223,15 @@ class Executor(
         isPaper: Boolean,
         launchPlatform: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform,
         riskLevel: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel,
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ): Boolean {
+        val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
+            else preflightExecutableOpen(ts, isPaper, "SHITCOIN", "Executor.shitCoinBuy", attemptId)
+        if (!preflight.allowed) {
+            ErrorLogger.warn("Executor", "🚫 SHITCOIN_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
+            return false
+        }
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
@@ -7178,7 +7245,7 @@ class Executor(
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
             "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | " +
             "risk=${riskLevel.emoji}${riskLevel.name} | " +
-            "${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
+            "attemptId=${preflight.attemptId} | ${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
         
         if (isPaper) {
             paperBuy(
@@ -7192,6 +7259,7 @@ class Executor(
                 walletSol = walletSol,
                 layerTag = "SHITCOIN",          // V5.9.386 — journal tag
                 layerTagEmoji = "💩",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         } else {
             if (wallet == null) {
@@ -7209,11 +7277,12 @@ class Executor(
                 skipGraduated = true,
                 layerTag = "SHITCOIN",          // V5.9.386 — journal tag
                 layerTagEmoji = "💩",
+                finalityPrechecked = true, attemptId = preflight.attemptId,
             )
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
-            ErrorLogger.warn("Executor", "💩 [SHITCOIN] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            ErrorLogger.warn("Executor", "💩 [SHITCOIN] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
             return false
         }
         
@@ -7257,18 +7326,27 @@ class Executor(
         score: Double,
         spaceModeEmoji: String,
         spaceModeName: String,
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ): Boolean {
+        val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
+            else preflightExecutableOpen(ts, isPaper, "MOONSHOT", "Executor.moonshotBuy", attemptId)
+        if (!preflight.allowed) {
+            ErrorLogger.warn("Executor", "🚫 MOONSHOT_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${preflight.attemptId} | ${preflight.reason}")
+            return false
+        }
         val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         identity.executed(getActualPrice(ts), sizeSol, isPaper)
 
         ErrorLogger.info("Executor", "🚀 [MOONSHOT] ${ts.symbol} | " +
             "${if (isPaper) "PAPER" else "LIVE"}_BUY | " +
-            "mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | ${sizeSol.fmt(3)} SOL")
+            "attemptId=${preflight.attemptId} | mcap=\$${(ts.lastMcap/1_000).fmt(1)}K | ${sizeSol.fmt(3)} SOL")
 
         if (isPaper) {
             paperBuy(ts = ts, sol = sizeSol, score = score, identity = identity,
                 quality = spaceModeName, skipGraduated = true, wallet = wallet, walletSol = walletSol,
-                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" })  // V5.9.386
+                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" },
+                finalityPrechecked = true, attemptId = preflight.attemptId)  // V5.9.386
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "🚀 [MOONSHOT] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
@@ -7276,11 +7354,12 @@ class Executor(
             }
             liveBuy(ts = ts, sol = sizeSol, score = score, wallet = wallet,
                 walletSol = walletSol, identity = identity, quality = spaceModeName, skipGraduated = true,
-                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" })  // V5.9.386
+                layerTag = "MOONSHOT", layerTagEmoji = spaceModeEmoji.ifBlank { "🚀" },
+                finalityPrechecked = true, attemptId = preflight.attemptId)  // V5.9.386
         }
         val buyOpened = ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
         if (!buyOpened) {
-            ErrorLogger.warn("Executor", "🚀 [MOONSHOT] ${ts.symbol} | BUY_NOT_OPENED | finality/route blocked")
+            ErrorLogger.warn("Executor", "🚀 [MOONSHOT] ${ts.symbol} | BUY_NOT_OPENED | attemptId=${preflight.attemptId} | finality/route blocked")
             return false
         }
 
@@ -7326,15 +7405,18 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
             return
         }
-        val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
-            ts = ts,
-            mode = "LIVE",
-            lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
-            source = "Executor.liveBuy",
-        )
-        if (!executableOpen.allowed) {
-            ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | ${executableOpen.reason}")
-            return
+        if (!finalityPrechecked) {
+            val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
+                ts = ts,
+                mode = "LIVE",
+                lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+                source = "Executor.liveBuy",
+                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
+            )
+            if (!executableOpen.allowed) {
+                ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
+                return
+            }
         }
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).

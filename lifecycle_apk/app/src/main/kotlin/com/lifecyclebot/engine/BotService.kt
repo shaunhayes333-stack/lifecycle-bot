@@ -13255,7 +13255,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     layer = "TREASURY",
-                                    sizeSol = adjustedSize
+                                    sizeSol = adjustedSize,
+                                    paperMode = cfg.paperMode,
+                                    rugScore = ts.safety.rugcheckScore
                                 )
                                 
                                 if (canExecute) {
@@ -13493,7 +13495,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
-                                sizeSol = qualitySignal.positionSizeSol
+                                sizeSol = qualitySignal.positionSizeSol,
+                                paperMode = cfg.paperMode,
+                                rugScore = ts.safety.rugcheckScore
                             )
                             
                             if (canExecute) {
@@ -13665,7 +13669,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "BLUE_CHIP",
-                                sizeSol = blueChipSignal.positionSizeSol
+                                sizeSol = blueChipSignal.positionSizeSol,
+                                paperMode = cfg.paperMode,
+                                rugScore = ts.safety.rugcheckScore
                             )
                             
                             if (canExecute) {
