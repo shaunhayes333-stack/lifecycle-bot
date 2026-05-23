@@ -753,6 +753,52 @@ object PipelineHealthCollector {
         }
         sb.append('\n')
 
+        // ── V5.9.1088 staged — Runtime stall sentinels ───────────────
+        // Purpose: after the 1085-1087 regression fixes, the operator's next
+        // phone dump must prove whether exit sweep gates, universal SL gates,
+        // supervisor leases, or UI lifecycle gates are still the active stall
+        // source. Labelled counters contain these events, but the top-40 list
+        // can bury the relationship between START/DONE/SKIP/TIMEOUT. This
+        // compact section renders the ratios explicitly.
+        fun lc(name: String): Long = s.labelCounts["LIFECYCLE/$name"] ?: 0L
+        val exStart = lc("EXIT_SWEEP_ASYNC_START")
+        val exDone = lc("EXIT_SWEEP_ASYNC_DONE")
+        val exLate = lc("EXIT_SWEEP_LATE_DONE")
+        val exSkip = lc("EXIT_SWEEP_SKIPPED")
+        val exTimeout = lc("EXIT_SWEEP_TIMEOUT")
+        val exReset = lc("EXIT_SWEEP_FORCE_RESET")
+        val slStart = lc("UNIVERSAL_SL_SWEEP_START")
+        val slDone = lc("UNIVERSAL_SL_SWEEP_DONE")
+        val slLate = lc("UNIVERSAL_SL_SWEEP_LATE_DONE")
+        val slSkip = lc("UNIVERSAL_SL_SWEEP_SKIPPED")
+        val slTimeout = lc("UNIVERSAL_SL_SWEEP_TIMEOUT")
+        val slReset = lc("UNIVERSAL_SL_SWEEP_FORCE_RESET")
+        val supCap = lc("SUPERVISOR_INFLIGHT_CAP")
+        val supSat = lc("SUPERVISOR_POOL_SATURATED_NO_RESET")
+        val supExpired = lc("SUPERVISOR_LEASE_EXPIRED")
+        val supTimeout = lc("SUPERVISOR_WORKER_TIMEOUT")
+        val paperSoftHold = lc("PAPER_SOFT_LOSS_MIN_HOLD")
+        val uiInactiveSkip = lc("MAIN_UPDATE_SKIPPED_INACTIVE")
+        if (exStart + exDone + exSkip + exTimeout + exReset + slStart + slDone + slSkip + slTimeout + slReset + supCap + supSat + supExpired + supTimeout + paperSoftHold + uiInactiveSkip > 0L) {
+            sb.append("===== Runtime stall sentinels =====\n")
+            sb.append(line("Exit sweep start/done:", "$exStart / $exDone", "late=$exLate skip=$exSkip timeout=$exTimeout reset=$exReset")).append('\n')
+            sb.append(line("Universal SL start/done:", "$slStart / $slDone", "late=$slLate skip=$slSkip timeout=$slTimeout reset=$slReset")).append('\n')
+            sb.append(line("Supervisor cap/sat:", "$supCap / $supSat", "expiredLeases=$supExpired workerTimeout=$supTimeout")).append('\n')
+            sb.append(line("Paper soft-loss holds:", paperSoftHold, "1086 gate delaying fake instant paper losses")).append('\n')
+            sb.append(line("UI inactive skips:", uiInactiveSkip, "should be near zero while Main is visible")).append('\n')
+            if (exStart > 0 && exDone == 0L && exTimeout == 0L && exReset == 0L)
+                sb.append("  ⚠ EXIT sweep starts but never completes/timeouts — worker may be wedged before watchdog ownership logs.\n")
+            if (exSkip > exDone + exTimeout + exReset + 3)
+                sb.append("  ⚠ EXIT sweep skip pressure exceeds done/timeout/reset — alreadyRunning still choking exits.\n")
+            if (slSkip > slDone + slTimeout + slReset + 3)
+                sb.append("  ⚠ Universal SL skip pressure exceeds done/timeout/reset — hard-floor sweep may still be choked.\n")
+            if (supCap > 0 && supExpired == 0L)
+                sb.append("  ⚠ Supervisor cap hit but no lease expiry — lease pruning may not be freeing capacity.\n")
+            if (uiInactiveSkip > 0)
+                sb.append("  ⚠ Main update skipped while inactive — if visible, V5.9.1085 did not fully close the UI gate regression.\n")
+            sb.append('\n')
+        }
+
         // ── Gate tally ──────────────────────────────────────────────
         if (s.phaseAllow.isNotEmpty() || s.phaseBlock.isNotEmpty()) {
             sb.append("===== Gate allow / block tally =====\n")
