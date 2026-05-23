@@ -8353,6 +8353,104 @@ class Executor(
     }
 
     // ── sell ──────────────────────────────────────────────────────────
+
+    /**
+     * V5.9.1086 — CENTRAL PAPER SOFT-LOSS MIN-HOLD GATE.
+     *
+     * Regression hunted after V5.9.1085: several exit paths can bypass the
+     * lane-specific paper settle-in logic in runManageOnly(), especially
+     * BotService → SellOptimizationAI → requestSell("[SELL_OPT] Stop Loss...").
+     * In paper mode, entry+exit slippage simulation can make a fresh position
+     * appear deeply red before the token has had time to trade, so soft stop
+     * exits teach the brain fake instant losses.
+     *
+     * This gate is intentionally narrow:
+     *  - PAPER positions only.
+     *  - Loss-making full exits only.
+     *  - Soft stop labels only.
+     *  - NEVER blocks high-priority rug/catastrophe/stale-price exits.
+     *  - NEVER blocks the unconditional -15% hard floor.
+     *  - NEVER blocks profit exits, partials, or trailing/profit-lock exits.
+     */
+    private fun shouldDelayPaperSoftLossExit(ts: TokenState, reason: String): Boolean {
+        val pos = ts.position
+        if (!pos.isPaperPosition || !pos.isOpen) return false
+        val r = reason.uppercase()
+
+        // Explicit immediate-exit whitelist. These preserve the operator's
+        // hard safety doctrine and high-priority rug/catastrophe handling.
+        val immediate = listOf(
+            "HARD_FLOOR",
+            "CATASTROPHE",
+            "RUG_ESCAPE",
+            "STALE_PRICE",
+            "STALE_LIVE_PRICE",
+            "DEEP_CATASTROPHE",
+            "LIQUIDITY_DRAIN",
+            "RUG_PULL",
+            "BOT_SHUTDOWN",
+            "STARTUP_SWEEP",
+            "MANUAL",
+            "TAKE_PROFIT",
+            "PARTIAL_TAKE",
+            "TRAIL",
+            "PROFIT",
+        )
+        if (immediate.any { r.contains(it) }) return false
+
+        val softLoss = r.contains("STOP_LOSS") ||
+            r.contains("STOP LOSS") ||
+            r.contains("STRICT_SL") ||
+            r.contains("CASHGEN_STOP_LOSS") ||
+            r.contains("SELL_OPT")
+        if (!softLoss) return false
+
+        val entry = pos.entryPrice
+        val current = getActualPrice(ts)
+        if (entry <= 0.0 || current <= 0.0) return false
+        val pnlPct = ((current - entry) / entry) * 100.0
+
+        // Unconditional hard floor must remain unconditional. Use current raw
+        // price before paper exit slippage/clamps so the floor reflects market
+        // movement, not simulated round-trip friction.
+        if (pnlPct <= -15.0) return false
+
+        // Only delay losing/flat soft stops. Anything already profitable is
+        // allowed to exit/lock as usual.
+        if (pnlPct > 0.0) return false
+
+        val ageMs = System.currentTimeMillis() - pos.entryTime
+        val lane = pos.tradingMode.ifBlank {
+            when {
+                pos.isTreasuryPosition -> "TREASURY"
+                pos.isShitCoinPosition -> "SHITCOIN"
+                pos.isBlueChipPosition -> "BLUECHIP"
+                else -> "V3"
+            }
+        }
+        val fluidMinMs = try {
+            (com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidMinHoldMinutes(lane) * 60_000.0).toLong()
+        } catch (_: Throwable) { 30_000L }
+        // Keep the central gate bounded so it doesn't become a throughput choke.
+        // Lane learners may recommend minutes, but this central guard's job is
+        // only to absorb fake instant paper slippage, not override strategy exits.
+        val minHoldMs = fluidMinMs.coerceIn(30_000L, 90_000L)
+        if (ageMs >= minHoldMs) return false
+
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_SOFT_LOSS_MIN_HOLD",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs minHoldMs=$minHoldMs lane=$lane action=delay"
+            )
+        } catch (_: Throwable) {}
+        try {
+            ErrorLogger.info(
+                "Executor",
+                "⏳ PAPER_SOFT_LOSS_MIN_HOLD: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${ageMs/1000}s/${minHoldMs/1000}s reason=$reason"
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
     
     enum class SellResult {
         CONFIRMED,
@@ -8364,6 +8462,7 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE
         if (!ts.position.isPaperPosition && blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
         // as SELL_PENDING the moment any sell is requested. The downstream
@@ -9001,7 +9100,10 @@ class Executor(
             if (pct != null) return Pair(pct - 5.0, pct)
         }
         if (r.contains("RAPID_ENTRY_PROTECT_STOP")) return Pair(-13.0, -8.0)
-        if (r.contains("RAPID_HARD_FLOOR_STOP")) return Pair(-20.0, -9.0)
+        // V5.9.1086 — align paper hard-floor accounting with the operator's
+        // unconditional -15% floor. Old [-20,-9] made hard-floor exits look
+        // materially better/worse than the actual trigger band.
+        if (r.contains("RAPID_HARD_FLOOR_STOP") || r.contains("HARD_FLOOR")) return Pair(-17.0, -15.0)
         // V5.9.795 — operator audit (build-2733 dump): catastrophe trigger
         // was tightened from -25% to -14% in V5.9.791, but the paper clamp
         // band was left at [-30%, -15%] — meaning every RAPID_CATASTROPHE
