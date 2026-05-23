@@ -878,17 +878,15 @@ SYSTEM
                 currentBalance = (startBalance + recomputedPnl).coerceAtLeast(0.0)
             }
 
-            // Update RunTracker30D to match TradeHistoryStore totals
-            // Only sync if TradeHistoryStore has more trades (it's the source of truth)
-            if (stats.totalTrades > totalTrades) {
-                ErrorLogger.info(TAG, "📊 SYNC: Aligning stats from TradeHistoryStore")
+            // V5.9.1117 — align 30D with the Journal exactly. totalTrades is
+            // all closed SELL/PARTIAL_SELL rows including scratches; WR still uses W/L.
+            if (stats.totalStoredTrades != totalTrades || stats.totalWins != wins || stats.totalLosses != losses || stats.totalScratches != scratches) {
+                ErrorLogger.info(TAG, "📊 SYNC: Aligning 30D stats from Journal")
                 ErrorLogger.info(TAG, "   Before: total=$totalTrades W=$wins L=$losses S=$scratches")
-                
-                totalTrades = stats.totalTrades
+                totalTrades = stats.totalStoredTrades
                 wins = stats.totalWins
                 losses = stats.totalLosses
                 scratches = stats.totalScratches
-                
                 ErrorLogger.info(TAG, "   After:  total=$totalTrades W=$wins L=$losses S=$scratches")
             }
             save()

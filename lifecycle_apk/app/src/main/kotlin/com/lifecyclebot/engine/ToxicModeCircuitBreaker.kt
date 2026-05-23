@@ -136,9 +136,15 @@ object ToxicModeCircuitBreaker {
     }
 
     private fun markGlobalEntryPause(modeUpper: String, reason: String): String {
-        // V5.9.1096 — ONLY true global emergency/fatal circuit states may pause
-        // all buy lanes. Ordinary per-lane checks such as LIQUIDITY_BELOW_FLOOR
-        // or PHASE_LOW_LIQ must not globally suppress every token/lane.
+        // V5.9.1117 — ordinary liquidity/phase blocks are lane-local telemetry,
+        // not a global EXECUTION_STATE=CIRCUIT_BREAKER. 3084 showed one SHITCOIN
+        // LIQUIDITY_BELOW_FLOOR_3000 token suppressing 1569 FDG calls globally.
+        if (reason.contains("LIQUIDITY_BELOW_FLOOR", true) ||
+            reason.contains("PHASE_LOW_LIQ", true) ||
+            reason.contains("LOW_LIQUIDITY", true)
+        ) {
+            return recordEntryBlocked(modeUpper, reason)
+        }
         blockedEntries++
         lastEntryBlockMs = System.currentTimeMillis()
         lastEntryBlockReason = reason

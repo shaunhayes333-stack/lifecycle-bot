@@ -841,6 +841,7 @@ object TradeHistoryStore {
         val totalLosses    = lifetimeLosses
         val totalScratches = lifetimeScratches
         val totalCompleted = totalWins + totalLosses
+        val totalClosed = lifetimeSells
 
         val allSells       = synchronized(lock) { trades.filter { it.side == "SELL" } }
 
@@ -867,7 +868,7 @@ object TradeHistoryStore {
             winRate24h         = winRate24h,
             pnl24hSol          = sells24h.sumOf { it.pnlSol },
             totalStoredTrades  = lifetimeSells,  // V5.9.354: lifetime, not in-memory size
-            totalTrades        = totalCompleted,
+            totalTrades        = totalClosed,
             winRate            = lifetimeWR,
             avgWinPct          = avgWinPct,
             avgLossPct         = avgLossPct,
@@ -882,6 +883,14 @@ object TradeHistoryStore {
             scratches24h       = scratches24h,
         )
     }
+
+
+    /** Journal-aligned closed trade count: all SELL/PARTIAL_SELL rows including scratches. */
+    fun getJournalClosedTradeCount(): Int = getLifetimeStats().totalSells
+
+    /** Journal-aligned learning progress: 0..1 over doctrine bootstrap target. */
+    fun getJournalLearningProgress(targetTrades: Int = 5000): Double =
+        (getJournalClosedTradeCount().toDouble() / targetTrades.coerceAtLeast(1).toDouble()).coerceIn(0.0, 1.0)
 
     fun getTopMode(): String? {
         val t = synchronized(lock) { trades.toList() }

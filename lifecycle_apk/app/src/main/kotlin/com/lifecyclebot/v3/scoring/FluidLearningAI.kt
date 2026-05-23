@@ -165,9 +165,9 @@ object FluidLearningAI {
     // (bootstrap <5000, mature >5000). Old values (1000/3000/5000) flipped
     // the system into mature-phase gating ~2000 trades inside the doctrine
     // bootstrap band. FDG mirrors these via FDG_BOOTSTRAP_END/etc.
-    private const val BOOTSTRAP_PHASE_END = 2000  // early exploration
-    private const val MATURE_PHASE_END = 5000   // doctrine bootstrap ends here
-    private const val EXPERT_PHASE_END = 8000   // expert tier, well beyond bootstrap
+    private const val BOOTSTRAP_PHASE_END = 5000  // doctrine bootstrap ends here
+    private const val MATURE_PHASE_END = 8000   // mature ramp after bootstrap
+    private const val EXPERT_PHASE_END = 10000  // expert tier, well beyond bootstrap
     private const val MAX_LEARNING_PROGRESS = 1.0  // V5.9: Full expert at 5000+ trades
     
     // V5.9.179 — bootstrap floor dropped from 75 → 5. The old value was
@@ -627,7 +627,11 @@ object FluidLearningAI {
         val historicalTrades = lifetime?.totalSells ?: 0
         val historicalWinRate = lifetime?.winRate ?: 50.0
         
-        val totalTrades = historicalTrades + sessionTrades.get()
+        // V5.9.1117 — Journal is source of truth. Do NOT add sessionTrades on
+        // top of lifetimeSells; the journal counter already bumps on close.
+        // Screenshot 3084 showed 111 journal trades but 31% progress. Correct
+        // doctrine progress is closedTrades / 5000, not mixed session counters.
+        val totalTrades = historicalTrades
         val sessionWinRate = if (sessionTrades.get() > 0) {
             sessionWins.get().toDouble() / sessionTrades.get() * 100
         } else historicalWinRate

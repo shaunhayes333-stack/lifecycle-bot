@@ -2216,8 +2216,8 @@ for legal compliance.
                 // halves agreed. Now V5.9.809 mandate "journal is source of truth"
                 // wins — the Journal source is TradeHistoryStore.getStatsCached().)
                 val stats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
-                val trades = stats.totalTrades
-                val meaningful = stats.totalTrades  // decisive-only denominator
+                val trades = stats.totalStoredTrades
+                val meaningful = stats.totalWins + stats.totalLosses
                 val actual = stats.winRate
                 val target = com.lifecyclebot.engine.QualityLadder.targetWrForTrades(trades)
                 val tier = com.lifecyclebot.engine.QualityLadder.tier()
@@ -2629,7 +2629,7 @@ for legal compliance.
             // The top-bar is now the cross-lane journal total — same numbers
             // shown when you open the Trade Journal screen.
             val trades24h = persistedStats.trades24h
-            val topBarTradeCount = persistedStats.totalTrades
+            val topBarTradeCount = persistedStats.totalStoredTrades
             tvStats24hTrades.text = "$topBarTradeCount"
             
             // Win rate: Use RunTracker30D meme-trader-specific WR.
@@ -5923,16 +5923,18 @@ for legal compliance.
         tv30DayDrawdown.text = "N/A"
         tv30DayDrawdown.setTextColor(muted)
         
-        // Trades count
-        tv30DayTrades.text = tracker.totalTrades.toString()
+        // V5.9.1117 — Journal is the scoreboard source of truth. 30D must match
+        // Journal/main stat card exactly; RunTracker remains balance/timeline only.
+        val journalStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+        tv30DayTrades.text = journalStats.totalStoredTrades.toString()
         
         // W/L/S
-        tv30DayWLS.text = "${tracker.wins} / ${tracker.losses} / ${tracker.scratches}"
+        tv30DayWLS.text = "${journalStats.totalWins} / ${journalStats.totalLosses} / ${journalStats.totalScratches}"
         
-        // Win rate - V5.6.16: Exclude scratches from calculation
-        val meaningfulTrades = tracker.wins + tracker.losses
+        // Win rate - exclude scratches from calculation
+        val meaningfulTrades = journalStats.totalWins + journalStats.totalLosses
         val winRate = if (meaningfulTrades > 0) {
-            (tracker.wins * 100 / meaningfulTrades)
+            (journalStats.totalWins * 100 / meaningfulTrades)
         } else 0
         tv30DayWinRate.text = "$winRate%"
         tv30DayWinRate.setTextColor(when {
@@ -5943,7 +5945,8 @@ for legal compliance.
         
         // Intelligence metrics
         val metrics = tracker.metrics
-        tv30DayLearning.text = String.format("%.1f", metrics.learning) + "%"
+        val journalLearningPct = com.lifecyclebot.engine.TradeHistoryStore.getJournalLearningProgress() * 100.0
+        tv30DayLearning.text = String.format("%.1f", journalLearningPct) + "%"
         tv30DayAccuracy.text = String.format("%.1f", metrics.decisionAccuracy) + "%"
         tv30DayAccuracy.setTextColor(when {
             metrics.decisionAccuracy >= 60 -> green
