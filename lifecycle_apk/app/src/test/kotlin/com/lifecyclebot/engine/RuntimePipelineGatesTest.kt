@@ -283,3 +283,27 @@ class QuarantineAndOutcomeLedgerSmokeTest {
         assertEquals(1L, TradeOutcomeLedger.learningDuplicateSuppressions())
     }
 }
+
+class ExecutionRouteGuardSmokeTest {
+    @Test
+    fun live_authority_blocks_normal_paper_route_without_shadow() {
+        ExecutionRouteGuard.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        val ts = com.lifecyclebot.data.TokenState(mint = "MintRoute111111111111111111111111111", symbol = "ROUTE")
+        val v = ExecutionRouteGuard.requirePaperRoute(ts, shadowEnabled = false)
+        assertFalse(v.allowed)
+        assertEquals(ExecutionRouteGuard.Route.PAPER, v.route)
+        assertEquals(1L, ExecutionRouteGuard.paperBlockedInLiveCount())
+    }
+
+    @Test
+    fun live_authority_allows_shadow_route_when_explicit() {
+        ExecutionRouteGuard.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        val ts = com.lifecyclebot.data.TokenState(mint = "MintShadow11111111111111111111111111", symbol = "SHADOW")
+        val v = ExecutionRouteGuard.requirePaperRoute(ts, shadowEnabled = true)
+        assertTrue(v.allowed)
+        assertEquals(ExecutionRouteGuard.Route.SHADOW, v.route)
+        assertEquals(1L, ExecutionRouteGuard.shadowAllowedCount())
+    }
+}

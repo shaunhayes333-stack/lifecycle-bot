@@ -6477,28 +6477,26 @@ class Executor(
         // V5.9.779 — EMERGENT MEME-ONLY: read from RuntimeModeAuthority
         // (atomic, no 2 s cache race) — same single source of truth used
         // by the LIVE buy paths. isPaperRT() is config INPUT only.
-        if (isLiveRT()) {
-            val shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false }
-            if (!shadowEnabled) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "PAPER_BUY_IN_LIVE_MODE_BLOCKED",
-                        "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag",
-                    )
-                } catch (_: Throwable) {}
-                // V5.9.1081 — operator-spec'd alias log name.
-                try {
-                    ForensicLogger.lifecycle(
-                        "PAPER_POSITION_BLOCKED_IN_LIVE_MODE",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag"
-                    )
-                } catch (_: Throwable) {}
-                ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — RuntimeModeAuthority=LIVE and shadowPaperEnabled=false")
-                return
-            }
-            // V5.9.779 — option 3b: shadow writes to existing PaperWallet
-            // / PositionPersistence but get a SHADOW forensic tag so the
-            // LIVE forensics page can filter them out via mode tagging.
+        val routeVerdict = ExecutionRouteGuard.requirePaperRoute(
+            ts = ts,
+            shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false },
+        )
+        if (!routeVerdict.allowed) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_IN_LIVE_MODE_BLOCKED",
+                    "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}",
+                )
+                ForensicLogger.lifecycle(
+                    "PAPER_POSITION_BLOCKED_IN_LIVE_MODE",
+                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}"
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — ${routeVerdict.reason}")
+            return
+        }
+        val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
+        if (routeIsShadow) {
             try {
                 ForensicLogger.lifecycle(
                     "SHADOW_PAPER_BUY",
@@ -6646,7 +6644,7 @@ class Executor(
             isPaperPosition = true,
             // V5.9.969 — finalMode picks the richer HoldingLogicLayer label
             // when no sub-trader tag is set and would otherwise be STANDARD.
-            tradingMode  = finalMode,
+            tradingMode  = if (routeIsShadow) "SHADOW_$finalMode" else finalMode,
             tradingModeEmoji = finalEmoji,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
@@ -6670,7 +6668,7 @@ class Executor(
         } catch (_: Exception) {}
         val trade = Trade(
             side = "BUY", 
-            mode = "paper", 
+            mode = if (routeIsShadow) "shadow" else "paper",
             sol = actualSol, 
             price = price, 
             ts = System.currentTimeMillis(), 
@@ -7438,6 +7436,17 @@ class Executor(
             return
         }
         try {
+        val liveRoute = ExecutionRouteGuard.requireLiveRoute(
+            ts = ts,
+            wallet = wallet,
+            walletSol = walletSol,
+            liveTradingEnabled = true,
+        )
+        if (!liveRoute.allowed) {
+            try { ForensicLogger.lifecycle("LIVE_ROUTE_BLOCKED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol reason=${liveRoute.reason}") } catch (_: Throwable) {}
+            ErrorLogger.warn("Executor", "🚫 LIVE_ROUTE_BLOCKED: ${ts.symbol} | ${liveRoute.reason}")
+            return
+        }
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")

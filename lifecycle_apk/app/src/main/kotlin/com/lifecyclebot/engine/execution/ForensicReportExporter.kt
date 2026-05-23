@@ -9,6 +9,7 @@ import com.lifecyclebot.engine.HostWalletTokenTracker
 import com.lifecyclebot.engine.LiveTradeLogStore
 import com.lifecyclebot.engine.BotRuntimeController
 import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.ExecutionRouteGuard
 import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.QuarantineStore
 import com.lifecyclebot.engine.TradeOutcomeLedger
@@ -121,6 +122,11 @@ object ForensicReportExporter {
             put("orphan_closes_suppressed", try { TradeOutcomeLedger.orphanCloseSuppressions() } catch (_: Throwable) { -1 })
             put("learning_duplicate_suppressions", try { TradeOutcomeLedger.learningDuplicateSuppressions() } catch (_: Throwable) { -1 })
             put("unique_closed_positions", try { TradeOutcomeLedger.uniqueClosedPositionCount() } catch (_: Throwable) { -1 })
+            put("paper_blocked_in_live", try { ExecutionRouteGuard.paperBlockedInLiveCount() } catch (_: Throwable) { -1 })
+            put("live_route_blocked", try { ExecutionRouteGuard.liveBlockedCount() } catch (_: Throwable) { -1 })
+            put("shadow_route_allowed", try { ExecutionRouteGuard.shadowAllowedCount() } catch (_: Throwable) { -1 })
+            put("paper_route_allowed", try { ExecutionRouteGuard.paperAllowedCount() } catch (_: Throwable) { -1 })
+            put("live_route_allowed", try { ExecutionRouteGuard.liveAllowedCount() } catch (_: Throwable) { -1 })
         })
 
         // Reconciler section
