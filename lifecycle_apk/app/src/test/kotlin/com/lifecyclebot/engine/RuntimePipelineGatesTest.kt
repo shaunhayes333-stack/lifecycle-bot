@@ -327,3 +327,46 @@ class RuntimeRegressionGuardsSmokeTest {
         assertFalse(learning.ok)
     }
 }
+
+class RuntimeDoctorSmokeTest {
+    @Test
+    fun invariant_guard_detects_runtime_ui_split_brain() {
+        val snap = RuntimeStateSnapshot.current(uiRunning = false).copy(
+            runtimeState = "RUNNING",
+            botLoopActive = true,
+            uiState = "STOPPED",
+        )
+        val faults = InvariantGuardian.check(snap, uiRunning = false)
+        assertTrue(faults.any { it.code == InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN })
+    }
+
+    @Test
+    fun self_healer_refuses_forbidden_live_deploy_request() {
+        val result = RuntimeSelfHealer.apply(
+            RuntimeSelfHealer.Request(RuntimeSelfHealer.Action.PAUSE_TRADING, reason = "please deploy apk and edit kotlin")
+        )
+        assertFalse(result.applied)
+    }
+
+    @Test
+    fun signed_hotfix_rule_requires_valid_signature_and_rolls_back() {
+        HotfixRules.resetForTests()
+        val expires = System.currentTimeMillis() + 60_000L
+        val sig = HotfixRules.signPayload("r1", 1, HotfixRules.RuleType.DISABLE_LANE, "MOONSHOT", "off", expires, "rb")
+        val rule = HotfixRules.Rule("r1", 1, HotfixRules.RuleType.DISABLE_LANE, "MOONSHOT", "off", expires, "rb", sig)
+        assertTrue(HotfixRules.apply(rule).applied)
+        assertTrue(RuntimeRepairState.isLaneDisabled("MOONSHOT"))
+        assertTrue(HotfixRules.rollback("r1", "rb").applied)
+    }
+
+    @Test
+    fun state_debugger_outputs_required_safe_fields() {
+        val snap = RuntimeStateSnapshot.current()
+        val diagnosis = StateDebuggerAI.deterministicFallback(
+            StateDebuggerAI.Context(snap, emptyList(), emptyList(), emptyList(), "cfg", emptyMap())
+        )
+        assertNotNull(diagnosis.faultCode)
+        assertNotNull(diagnosis.safeMitigation)
+        assertFalse(PatchWriterAI.planFromDiagnosis(diagnosis).mayMergeOrDeploy)
+    }
+}

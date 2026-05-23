@@ -14,6 +14,7 @@ import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.QuarantineStore
 import com.lifecyclebot.engine.TradeOutcomeLedger
 import com.lifecyclebot.engine.RuntimeRegressionGuards
+import com.lifecyclebot.engine.RuntimeDoctor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -102,6 +103,14 @@ object ForensicReportExporter {
         root.put("schemaVersion", "z22.2-runtime")
         val runtime = BotRuntimeController.snapshot()
         root.put("runtimeGeneration", runtime.runtimeGeneration)
+        val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
+        root.put("runtime_doctor", JSONObject().apply {
+            put("fault_count", doctor?.faults?.size ?: -1)
+            put("diagnosis_fault", doctor?.diagnosis?.faultCode ?: "unavailable")
+            put("diagnosis_confidence", doctor?.diagnosis?.confidence ?: 0.0)
+            put("safe_actions", doctor?.recommendedActions?.joinToString(",") { it.action.name + ":" + it.target } ?: "")
+            put("latest_snapshot_ts", doctor?.snapshot?.timestampMs ?: 0L)
+        })
         root.put("runtime", JSONObject().apply {
             put("generation", runtime.runtimeGeneration)
             put("state", runtime.state.name)
