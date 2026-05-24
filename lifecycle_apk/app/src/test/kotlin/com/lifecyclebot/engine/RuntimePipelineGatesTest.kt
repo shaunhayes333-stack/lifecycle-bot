@@ -537,7 +537,7 @@ class ExecutionAuthorityInvariantTest {
     @Test
     fun trade_authorizer_returns_finality_attempt_contract() {
         resetAuthorities(paper = true)
-        TradeAuthorizer.resetForTests()
+        TradeAuthorizer.reset()
         LaneExecutionCoordinator.resetForTests()
         val mint = "MintContract1111111111111111111111111"
         ExecutableOpenGate.recordV3(mint, "CONTRACT", "WATCH", "DECISION_WATCH", "WATCH", 90)

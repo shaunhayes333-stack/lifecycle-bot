@@ -89,6 +89,7 @@ object TradeAuthorizer {
     enum class ExecutionBook {
         CORE,
         TREASURY,
+        QUALITY,
         SHITCOIN,
         BLUECHIP,
         MOONSHOT,

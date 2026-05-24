@@ -13427,6 +13427,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     symbol = ts.symbol,
                                     layer = "TREASURY",
                                     sizeSol = adjustedSize,
+                                    attemptId = authResult.attemptId,
+                                    finalityPrechecked = true,
                                     paperMode = cfg.paperMode,
                                     rugScore = ts.safety.rugcheckScore
                                 )
@@ -13667,11 +13669,29 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("QUALITY_FDG_PROBE", qualityFdg?.blockReason ?: "fdg_caution")
                             }
+                            val qualityAuthResult = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                score = qualitySignal.qualityScore,
+                                confidence = qualitySignal.qualityScore.toDouble(),
+                                quality = "QUALITY",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                            )
+                            if (!qualityAuthResult.isExecutable()) {
+                                ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ${if (qualityAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${qualityAuthResult.reason}")
+                                if (!qualityAuthResult.isShadowOnly()) RejectionTelemetry.record("QUALITY", qualityAuthResult.reason)
+                            } else {
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
                                 sizeSol = qualitySignal.positionSizeSol,
+                                attemptId = qualityAuthResult.attemptId,
+                                finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore
                             )
@@ -13702,6 +13722,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     // journal (was showing as BLUE_CHIP / ExtendedMode).
                                     layerTag = "QUALITY",
                                     layerTagEmoji = "⭐",
+                                    finalityPrechecked = true,
+                                    attemptId = qualityAuthResult.attemptId,
                                 )
                                 if (!qualityOpened) {
                                     ErrorLogger.warn("BotService", "QUALITY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -13747,6 +13769,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 addLog("⭐ QUALITY: ${ts.symbol} | \$${(ts.lastMcap/1000).toInt()}K mcap", ts.mint)
                             }
+                            } // close quality canExecute
+                            } // close qualityAuthResult.isExecutable else
                             } // close FDG-required else (QUALITY V5.9.688)
                         }
                     }
@@ -13841,12 +13865,30 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("BLUECHIP_FDG_PROBE", blueChipFdg?.blockReason ?: "fdg_caution")
                             }
+                            val blueChipAuthResult = TradeAuthorizer.authorize(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                score = blueChipSignal.confidence,
+                                confidence = blueChipSignal.confidence.toDouble(),
+                                quality = "BLUECHIP",
+                                isPaperMode = cfg.paperMode,
+                                requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
+                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                liquidity = ts.lastLiquidityUsd,
+                                isBanned = BannedTokens.isBanned(ts.mint),
+                            )
+                            if (!blueChipAuthResult.isExecutable()) {
+                                ErrorLogger.info("BotService", "🔵 [BLUECHIP] ${ts.symbol} | ${if (blueChipAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${blueChipAuthResult.reason}")
+                                if (!blueChipAuthResult.isShadowOnly()) RejectionTelemetry.record("BLUECHIP", blueChipAuthResult.reason)
+                            } else {
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                layer = "BLUE_CHIP",
+                                layer = "BLUECHIP",
                                 sizeSol = blueChipSignal.positionSizeSol,
+                                attemptId = blueChipAuthResult.attemptId,
+                                finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore
                             )
@@ -13872,7 +13914,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode
+                                    isPaper = cfg.paperMode,
+                                    finalityPrechecked = true,
+                                    attemptId = blueChipAuthResult.attemptId,
                                 )
                                 if (!blueChipOpened) {
                                     ErrorLogger.warn("BotService", "BLUE_CHIP ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14161,6 +14205,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                         symbol = ts.symbol,
                                         layer = "MOONSHOT",
                                         sizeSol = msEffectiveSize,
+                                        attemptId = authResult.attemptId,
+                                        finalityPrechecked = true,
+                                        paperMode = cfg.paperMode,
+                                        rugScore = ts.safety.rugcheckScore,
                                     )) {
                                         try {
                                             val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
@@ -14684,7 +14732,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     layer = "SHITCOIN",
-                                    sizeSol = adjustedSize
+                                    sizeSol = adjustedSize,
+                                    attemptId = authResult.attemptId,
+                                    finalityPrechecked = true,
+                                    paperMode = cfg.paperMode,
+                                    rugScore = ts.safety.rugcheckScore,
                                 )
                                 
                                 if (canExecute) {

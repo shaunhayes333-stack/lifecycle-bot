@@ -123,6 +123,7 @@ object FinalExecutionPermit {
         layer: String,
         sizeSol: Double,
         attemptId: String = "",
+        finalityPrechecked: Boolean = false,
         paperMode: Boolean = isPaperMode,
         rugScore: Int = -1,
     ): Boolean {
@@ -150,19 +151,21 @@ object FinalExecutionPermit {
             ExecutableOpenGate.recentAllowedAttemptId(mint, layer)
                 ?: ExecutableOpenGate.nextAttemptId(mint, layer)
         }
-        val finality = ExecutableOpenGate.canOpenExecutablePosition(
-            mint = mint,
-            symbol = symbol,
-            rugScore = rugScore,
-            mode = if (paperMode) "PAPER" else "LIVE",
-            lane = layer,
-            source = "FinalExecutionPermit.tryAcquireExecution",
-            attemptId = finalityAttemptId,
-        )
-        if (!finality.allowed) {
-            ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")
-            releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")
-            return false
+        if (!finalityPrechecked) {
+            val finality = ExecutableOpenGate.canOpenExecutablePosition(
+                mint = mint,
+                symbol = symbol,
+                rugScore = rugScore,
+                mode = if (paperMode) "PAPER" else "LIVE",
+                lane = layer,
+                source = "FinalExecutionPermit.tryAcquireExecution",
+                attemptId = finalityAttemptId,
+            )
+            if (!finality.allowed) {
+                ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")
+                releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")
+                return false
+            }
         }
 
         val laneElection = LaneExecutionCoordinator.canRequestExecution(mint, layer)
