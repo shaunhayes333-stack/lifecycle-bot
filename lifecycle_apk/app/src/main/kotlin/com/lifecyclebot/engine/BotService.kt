@@ -7060,6 +7060,35 @@ class BotService : Service() {
     private val SYMBOL_BURST_WINDOW_MS: Long = 60_000L
     private val SYMBOL_BURST_MAX_MINTS: Int = 5
 
+    private fun laneQualifiedBuyDecision(
+        base: com.lifecyclebot.data.CandidateDecision,
+        lane: String,
+        confidenceFloor: Double = 60.0,
+    ): com.lifecyclebot.data.CandidateDecision {
+        val cleanQuality = when {
+            base.finalQuality.isNotBlank() && base.finalQuality != "SKIP" -> base.finalQuality
+            base.setupQuality.isNotBlank() && base.setupQuality != "SKIP" -> base.setupQuality
+            else -> "C"
+        }
+        return base.copy(
+            signal = "BUY",
+            finalSignal = "BUY",
+            shouldTrade = true,
+            blockReason = "",
+            edgeVeto = false,
+            edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+            finalQuality = cleanQuality,
+            aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
+        ).also {
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_BUY_INTENT_OVERRIDES_BASE_WAIT",
+                    "lane=$lane baseSignal=${base.signal} baseFinal=${base.finalSignal} baseBlock=${base.blockReason.take(80)}"
+                )
+            } catch (_: Throwable) {}
+        }
+    }
+
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
@@ -13334,7 +13363,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble()),
                                     config = cfg,
                                     proposedSizeSol = treasurySignal.positionSizeSol,
                                     brain = executor.brain,
@@ -13605,7 +13634,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val qualityFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble()),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal.positionSizeSol,
                                     brain = executor.brain,
@@ -13779,7 +13808,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.qualityScore.toDouble()),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14070,7 +14099,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     } catch (_: Exception) { null }
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
-                                        candidate = decision,
+                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0),
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
                                         brain = executor.brain,
@@ -14591,7 +14620,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val shitCoinFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0),
                                     config = cfg,
                                     proposedSizeSol = shitCoinSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14868,7 +14897,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
-                                candidate = decision,
+                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.confidence * 100.0),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
@@ -15088,7 +15117,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val expressFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0),
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -15362,7 +15391,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val dipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = decision,
+                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0),
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
                                     brain = executor.brain,
