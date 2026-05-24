@@ -3096,8 +3096,14 @@ class Executor(
         val holdTimeMinutes = holdTimeMs / 60_000.0
         
         val actualPrice = getActualPrice(ts)
-        val currentValue = pos.qtyToken * actualPrice
-        val gainMultiple = if (pos.costSol > 0) currentValue / pos.costSol else 1.0
+        val gainMultiple = if (pos.costSol > 0) {
+            if (pos.isPaperPosition && pos.entryPrice > 0.0) {
+                (actualPrice / pos.entryPrice)
+            } else {
+                (pos.qtyToken * actualPrice) / pos.costSol
+            }
+        } else 1.0
+        val currentValue = pos.costSol * gainMultiple
         val gainPctPerMinute = if (holdTimeMinutes > 0) {
             ((gainMultiple - 1.0) * 100.0) / holdTimeMinutes
         } else {
@@ -3135,12 +3141,29 @@ class Executor(
     fun checkProfitLock(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c = cfg()
         normalizePositionScaleIfNeeded(ts)
-        val pos = ts.position
-        if (!pos.isOpen) return false
+        val prePricePos = ts.position
+        if (!prePricePos.isOpen) return false
         
         val actualPrice = getActualPrice(ts)
-        val currentValue = pos.qtyToken * actualPrice
-        val gainMultiple = currentValue / pos.costSol
+        // getActualPrice(ts) may apply the existing PRICE_BASIS_REBASE script/path
+        // and mutate ts.position. Re-read it here; otherwise this function uses
+        // the stale pre-rebase Position and pos.copy(...) writes the old basis
+        // back over the corrected entryPrice/source fields.
+        val pos = ts.position
+        if (!pos.isOpen) return false
+        // V5.9.1128 — use the existing price-basis resolver correctly for PAPER.
+        // getActualPrice(ts) already links the stored mint to current price/mcap/pool
+        // data and rebases paper entries when the source basis changes. The bug was
+        // below this line: profit-lock used qtyToken * actualPrice, so any simulated
+        // qty/basis drift produced fake 240x/75,000x rows. Paper has no on-chain
+        // token balance; its value is cost basis × resolved price return. LIVE keeps
+        // qtyToken math because chain token quantity is real ground truth.
+        val gainMultiple = if (pos.isPaperPosition && pos.entryPrice > 0.0) {
+            (actualPrice / pos.entryPrice)
+        } else {
+            (pos.qtyToken * actualPrice) / pos.costSol
+        }
+        val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
         
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
@@ -3148,7 +3171,7 @@ class Executor(
         if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
             val sellFraction = (1.0 / gainMultiple).coerceIn(0.25, 0.70)
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice
+            val sellSol = if (pos.isPaperPosition) currentValue * sellFraction else sellQty * actualPrice
             
             onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
             onNotify("🔒 Capital Recovered!",
@@ -3213,7 +3236,7 @@ class Executor(
         if (pos.capitalRecovered && !pos.profitLocked && gainMultiple >= profitLockThreshold) {
             val sellFraction = 0.50
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice
+            val sellSol = if (pos.isPaperPosition) currentValue * sellFraction else sellQty * actualPrice
             
             onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
             onNotify("🔐 Profits Locked!",
