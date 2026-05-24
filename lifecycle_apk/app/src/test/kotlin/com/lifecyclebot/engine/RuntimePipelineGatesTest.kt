@@ -375,6 +375,14 @@ class RuntimeDoctorSmokeTest {
 class RuntimeEnforcementSmokeTest {
     @Test
     fun exec_open_request_not_emitted_for_block_fatal() {
+        RuntimeConfigOverlay.resetForTests()
+        ExecutableOpenGate.resetForTests()
+        ToxicModeCircuitBreaker.resetForTests()
+        BirdeyeBudgetGate.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(true)
+        RuntimeModeAuthority.publishExecutorMode(true)
+        RuntimeModeAuthority.publishPipelineMode(true)
         ExecutableOpenGate.recordV3("MintFatal111111111111111111111111111", "FATAL", "BLOCK_FATAL", "EXTREME_RUG_RISK_100", "BLOCK_FATAL", 1)
         val v = ExecutableOpenGate.canOpenExecutablePosition("MintFatal111111111111111111111111111", "FATAL", 1, "PAPER", "SHITCOIN", "test")
         assertFalse(v.allowed)
