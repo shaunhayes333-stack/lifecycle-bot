@@ -45,15 +45,14 @@ object RuntimeDoctor {
         InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> fanoutMitigations(f)
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
         InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
-        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> fanoutMitigations(f) + RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L)
-        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
         InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC,
         InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION,
         InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION,
         InvariantGuardian.FaultCode.FDG_FANOUT_EXPLOSION,
         InvariantGuardian.FaultCode.FDG_SIGNAL_BYPASS,
-        InvariantGuardian.FaultCode.EXEC_ACCOUNTING_SPLIT_BRAIN,
-        InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
+        InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> fanoutMitigations(f)
     }
 
     private fun fanoutMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {

@@ -5,7 +5,7 @@ object InvariantGuardian {
         RUNTIME_UI_SPLIT_BRAIN, SELL_RECONCILER_DEAD, HOST_TRACKER_DESYNC,
         LANE_FANOUT_EXPLOSION, EXEC_REQUEST_INFLATION, LEARNING_LEDGER_DUPLICATION,
         PAPER_LIVE_CONTAMINATION, SCANNER_RESTORE_POISONING, MAIN_THREAD_STALL, API_LAYER_DEGRADED,
-        FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXEC_ACCOUNTING_SPLIT_BRAIN, EXIT_SWEEP_UNSTABLE
+        FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXIT_SWEEP_UNSTABLE
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -22,8 +22,12 @@ object InvariantGuardian {
         if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG/intake=${"%.2f".format(fdgRatio)} fdg=$fdg intake=${s.intake}")
         val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
         if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
-        val journal = pipe?.labelCounts?.get("TRADEJRNL_REC") ?: 0L
-        if (s.exec == 0L && journal > 0L) out += Fault(FaultCode.EXEC_ACCOUNTING_SPLIT_BRAIN, "CRITICAL", "EXEC=0 but TRADEJRNL_REC=$journal")
+        // V5.9.1125 — do NOT treat EXEC=0 + TRADEJRNL_REC>0 as split-brain.
+        // The funnel EXEC counter tracks executor invocations, while EXEC_BUY/
+        // EXEC_SELL/TRADEJRNL_REC track completed journaled trades. 3092 showed
+        // this false-positive guard publishing PAUSE_TRADING and choking all
+        // QUALITY entries. Real accounting split-brain belongs in the report,
+        // not as an automatic global pause from this semantic mismatch.
         val exitReset = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_RESET") ?: 0L
         val exitTimeout = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_TIMEOUT") ?: 0L
         val workerTimeout = pipe?.labelCounts?.get("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT") ?: 0L
@@ -38,8 +42,9 @@ object InvariantGuardian {
         val mainStall = s.topBlockReasons.keys.any { it.contains("MainActivity", true) || it.contains("renderOpenPositions", true) || it.contains("onCreate", true) }
         if (s.anrHints > 0 && mainStall) out += Fault(FaultCode.MAIN_THREAD_STALL, "HIGH", "anrHints=${s.anrHints} top=${s.topBlockReasons.keys.take(3)}")
         val badApis = s.apiHealth.filterValues { it.successRatePct < 70 && it.failures >= 5 }
-        val birdeyeLocked = try { BirdeyeBudgetGate.snapshot().lockedDown || BirdeyeBudgetGate.snapshot().pctUsed >= 85.0 } catch (_: Throwable) { false }
-        if (badApis.isNotEmpty() || birdeyeLocked) out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${badApis.keys.joinToString(",")} birdeyeLocked=$birdeyeLocked")
+        // Birdeye may be intentionally locked down by conservation mode. That
+        // must not generate RuntimeDoctor fanout mitigations every tick.
+        if (badApis.isNotEmpty()) out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${badApis.keys.joinToString(",")}")
         return out
     }
 }
