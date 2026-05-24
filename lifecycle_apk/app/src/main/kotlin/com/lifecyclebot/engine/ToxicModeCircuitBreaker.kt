@@ -399,6 +399,28 @@ object ToxicModeCircuitBreaker {
         // Log for debugging (use ErrorLogger since BehaviorLearning.recordEvent doesn't exist)
         ErrorLogger.warn(TAG, "CIRCUIT_BREAKER: $mode frozen for ${durationMs / 60_000}min: $reason")
     }
+
+    /** V5.9.1129 — deterministic invariant tests for early entry gating. */
+    fun resetForTests() {
+        frozenModes.clear()
+        recentLosses.clear()
+        lastEntryBlockMs = 0L
+        lastEntryBlockReason = ""
+        lastEntryBlockMode = ""
+        lastEntryBlockEmitMs = 0L
+        blockedEntries = 0
+        circuitTrips = 0
+    }
+
+    /** V5.9.1129 — test hook only; production trips still flow through recordLoss/checkEntryAllowed. */
+    fun forceTripForTests(mode: String = "SHITCOIN", durationMs: Long = 60_000L, reason: String = "TEST_CIRCUIT") {
+        val modeUpper = mode.uppercase()
+        tripCircuitBreaker(modeUpper, durationMs, reason)
+        lastEntryBlockMs = System.currentTimeMillis()
+        lastEntryBlockReason = reason
+        lastEntryBlockMode = modeUpper
+        lastEntryBlockEmitMs = 0L
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // COLLAPSE DETECTION - Should trigger FULL EXIT

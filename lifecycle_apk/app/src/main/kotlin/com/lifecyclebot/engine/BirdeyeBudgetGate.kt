@@ -66,6 +66,20 @@ object BirdeyeBudgetGate {
         ErrorLogger.info(TAG, "daily CU cap set to $cap")
     }
 
+    /** V5.9.1129 — deterministic tests for hard budget lockdown invariant. */
+    fun resetForTests(dailyCapOverride: Long = DEFAULT_DAILY_CAP) {
+        dayKey = currentDayKey()
+        monthKey = currentMonthKey()
+        callsToday.set(0L)
+        cuToday.set(0L)
+        cuThisMonth.set(0L)
+        dailyCap = dailyCapOverride.coerceAtLeast(0L)
+        lastThrottleLogMs = 0L
+        lastLockdownLogMs = 0L
+        lastScannerLaneTickMs = 0L
+        hourlyEmergencyCalls.clear()
+    }
+
     fun canAfford(estimatedCalls: Int): Boolean {
         rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
@@ -158,6 +172,22 @@ object BirdeyeBudgetGate {
         val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
         val dailyPct = if (cap > 0) cuToday.get().toDouble() / cap else 0.0
         return pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
+    }
+
+    /**
+     * V5.9.1129 — executable-entry budget invariant.
+     *
+     * isLockedDown() intentionally returns true during emergency conservation so
+     * Birdeye callers stop burning CU while free-source trading can continue.
+     * Do NOT use that provider lock as a global buy kill-switch or the bot goes
+     * to zero volume whenever Birdeye is conserved. New entries are hard-paused
+     * only when the configured daily/monthly CU counters themselves are exhausted.
+     */
+    fun isEntryBudgetLockedDown(): Boolean {
+        rolloverIfNeeded()
+        val configuredDailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
+        val monthlyPct = cuThisMonth.get().toDouble() / MONTHLY_CAP
+        return configuredDailyPct >= 1.0 || monthlyPct >= MONTHLY_LOCKDOWN_PCT
     }
 
     fun isLockedDown(): Boolean {

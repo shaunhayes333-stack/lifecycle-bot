@@ -6454,13 +6454,39 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
             return
         }
+        // V5.9.1129 — route authority must run before open authority for direct
+        // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is
+        // a SHADOW paper route, not a mixed PAPER/LIVE mode violation. Keep this
+        // before EXEC_OPEN_* finality so shadow paper remains a legal explicit mode
+        // while ordinary live→paper fallback stays blocked below.
+        val routeVerdict = ExecutionRouteGuard.requirePaperRoute(
+            ts = ts,
+            shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false },
+        )
+        if (!routeVerdict.allowed) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_IN_LIVE_MODE_BLOCKED",
+                    "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}",
+                )
+                ForensicLogger.lifecycle(
+                    "PAPER_POSITION_BLOCKED_IN_LIVE_MODE",
+                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}"
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — ${routeVerdict.reason}")
+            return
+        }
+        val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
+
         if (!finalityPrechecked) {
+            val finalityLane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" }
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
-                mode = "PAPER",
-                lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+                mode = if (routeIsShadow) "SHADOW" else "PAPER",
+                lane = finalityLane,
                 source = "Executor.paperBuy",
-                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
+                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, finalityLane) },
             )
             if (!executableOpen.allowed) {
                 ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
@@ -6500,25 +6526,6 @@ class Executor(
         // V5.9.779 — EMERGENT MEME-ONLY: read from RuntimeModeAuthority
         // (atomic, no 2 s cache race) — same single source of truth used
         // by the LIVE buy paths. isPaperRT() is config INPUT only.
-        val routeVerdict = ExecutionRouteGuard.requirePaperRoute(
-            ts = ts,
-            shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false },
-        )
-        if (!routeVerdict.allowed) {
-            try {
-                ForensicLogger.lifecycle(
-                    "PAPER_BUY_IN_LIVE_MODE_BLOCKED",
-                    "blocked=true symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}",
-                )
-                ForensicLogger.lifecycle(
-                    "PAPER_POSITION_BLOCKED_IN_LIVE_MODE",
-                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag reason=${routeVerdict.reason}"
-                )
-            } catch (_: Throwable) {}
-            ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — ${routeVerdict.reason}")
-            return
-        }
-        val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
         if (routeIsShadow) {
             try {
                 ForensicLogger.lifecycle(

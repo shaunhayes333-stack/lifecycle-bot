@@ -401,3 +401,103 @@ class RuntimeQualityOnlyOverlaySmokeTest {
         assertFalse(RuntimeConfigOverlay.isLaneDisabled("QUALITY"))
     }
 }
+
+class ExecutionAuthorityInvariantTest {
+    private fun resetAuthorities(paper: Boolean = true) {
+        RuntimeConfigOverlay.resetForTests()
+        ExecutableOpenGate.resetForTests()
+        ToxicModeCircuitBreaker.resetForTests()
+        BirdeyeBudgetGate.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = paper, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(paper)
+        RuntimeModeAuthority.publishExecutorMode(paper)
+        RuntimeModeAuthority.publishPipelineMode(paper)
+    }
+
+    @Test
+    fun circuit_breaker_blocks_before_executable_open_allowed() {
+        resetAuthorities(paper = true)
+        ToxicModeCircuitBreaker.forceTripForTests("SHITCOIN", 60_000L, "TEST_CIRCUIT")
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintCircuit11111111111111111111111111",
+            symbol = "CB",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "SHITCOIN",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", v.logName)
+        assertTrue(v.reason.contains("TEST_CIRCUIT"))
+        assertNull("blocked circuit breaker must not create allowed attempt", ExecutableOpenGate.recentAllowedAttemptId("MintCircuit11111111111111111111111111", "SHITCOIN"))
+    }
+
+    @Test
+    fun daily_budget_exhaustion_blocks_executable_entry_but_provider_lock_is_separate() {
+        resetAuthorities(paper = true)
+        BirdeyeBudgetGate.resetForTests(dailyCapOverride = 25L)
+        BirdeyeBudgetGate.recordCalls(1)
+        assertTrue("configured daily cap exhausted", BirdeyeBudgetGate.isEntryBudgetLockedDown())
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintBudget111111111111111111111111111",
+            symbol = "BUD",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "QUALITY",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", v.logName)
+    }
+
+    @Test
+    fun blocked_candidate_gets_cooldown_without_allowed_attempt() {
+        resetAuthorities(paper = true)
+        ExecutableOpenGate.recordFdg(
+            mint = "MintWait1111111111111111111111111111",
+            symbol = "WAIT",
+            lane = "QUALITY",
+            canExecute = false,
+            reason = "Signal is WAIT",
+            signal = "WAIT",
+            rugScore = 90,
+        )
+        val first = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintWait1111111111111111111111111111",
+            symbol = "WAIT",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "QUALITY",
+            source = "test",
+        )
+        assertFalse(first.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", first.logName)
+        val second = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintWait1111111111111111111111111111",
+            symbol = "WAIT",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "QUALITY",
+            source = "test",
+        )
+        assertFalse(second.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_COOLDOWN", second.logName)
+        assertNull(ExecutableOpenGate.recentAllowedAttemptId("MintWait1111111111111111111111111111", "QUALITY"))
+    }
+
+    @Test
+    fun mode_authority_rejects_mixed_live_request_while_runtime_paper() {
+        resetAuthorities(paper = true)
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintMode1111111111111111111111111111",
+            symbol = "MODE",
+            rugScore = 90,
+            mode = "LIVE",
+            lane = "QUALITY",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", v.logName)
+        assertTrue(v.reason.contains("LIVE_REQUEST_WHILE_RUNTIME_PAPER"))
+    }
+}

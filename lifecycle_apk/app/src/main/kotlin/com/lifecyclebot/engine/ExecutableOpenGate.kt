@@ -49,8 +49,29 @@ object ExecutableOpenGate {
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val openRequests = ConcurrentHashMap<String, Long>()
+    private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private fun laneKey(mint: String, lane: String): String = mint + ":" + lane.uppercase().filter { it.isLetterOrDigit() }
     private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
+
+    fun resetForTests() {
+        states.clear()
+        allowedAttempts.clear()
+        openRequests.clear()
+        blockedCooldowns.clear()
+    }
+
+    private fun cooldownMsFor(log: String, reason: String): Long {
+        val r = reason.uppercase()
+        return when {
+            log.contains("RUNTIME") || r.contains("CIRCUIT") || r.contains("LOCKDOWN") -> 120_000L
+            log.contains("FATAL_V3") || r.contains("EXTREME_RUG") || r.contains("ZERO_LIQUIDITY") -> 10 * 60_000L
+            r.contains("WAIT") -> 60_000L
+            r.contains("INSUFFICIENT") -> 30_000L
+            r.contains("LOW_LIQUIDITY") || r.contains("LIQUIDITY_BELOW") -> 60_000L
+            log.contains("FDG") -> 30_000L
+            else -> 15_000L
+        }
+    }
 
     fun recentAllowedAttemptId(mint: String, lane: String): String? {
         val now = System.currentTimeMillis()
@@ -185,6 +206,10 @@ object ExecutableOpenGate {
 
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
+                val coolMs = cooldownMsFor(log, reason)
+                if (coolMs > 0L) blockedCooldowns[laneKey(mint, lane)] = reason to (System.currentTimeMillis() + coolMs)
+            } catch (_: Throwable) {}
+            try {
                 ForensicLogger.lifecycle(log, "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
             } catch (_: Throwable) {}
             // No PAPER_LEARNING_PROBE_NOT_EXECUTED spam here. A blocked open is
@@ -193,8 +218,33 @@ object ExecutableOpenGate {
             return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 
+        val nowPre = System.currentTimeMillis()
+        blockedCooldowns.entries.removeIf { it.value.second <= nowPre }
+        blockedCooldowns[laneKey(mint, lane)]?.let { cd ->
+            if (cd.second > nowPre) return OpenVerdict(false, "COOLDOWN_${cd.first}", shadowOnly = mode == "PAPER", logName = "EXEC_OPEN_BLOCKED_COOLDOWN", attemptId = attemptId)
+        }
+
+        val modeUpper = mode.uppercase()
+        if (modeUpper !in setOf("PAPER", "LIVE", "SHADOW")) {
+            return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "MIXED_OR_UNKNOWN_MODE_$mode")
+        }
+        if (modeUpper == "LIVE" && RuntimeModeAuthority.isPaper()) {
+            return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "LIVE_REQUEST_WHILE_RUNTIME_PAPER")
+        }
+        if (modeUpper == "PAPER" && RuntimeModeAuthority.isLive()) {
+            return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "PAPER_REQUEST_WHILE_RUNTIME_LIVE")
+        }
+
+        val pause = ToxicModeCircuitBreaker.currentEntryPause()
+        if (pause.active) {
+            ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
+            return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
+        }
         if (RuntimeConfigOverlay.isTradingPaused()) {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
+        }
+        if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
+            return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
         }
         if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || v3Decision == "REJECTED" || band == "BLOCK_FATAL" || band == "REJECT") {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
