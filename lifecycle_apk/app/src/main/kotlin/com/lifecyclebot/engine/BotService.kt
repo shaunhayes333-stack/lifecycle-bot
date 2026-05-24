@@ -14897,7 +14897,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
-                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.score.toDouble()),
+                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble()),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
