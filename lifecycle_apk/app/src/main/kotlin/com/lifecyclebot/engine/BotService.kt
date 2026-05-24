@@ -13669,29 +13669,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("QUALITY_FDG_PROBE", qualityFdg?.blockReason ?: "fdg_caution")
                             }
-                            val qualityAuthResult = TradeAuthorizer.authorize(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                score = qualitySignal.qualityScore,
-                                confidence = qualitySignal.qualityScore.toDouble(),
-                                quality = "QUALITY",
-                                isPaperMode = cfg.paperMode,
-                                requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
-                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                                liquidity = ts.lastLiquidityUsd,
-                                isBanned = BannedTokens.isBanned(ts.mint),
-                            )
-                            if (!qualityAuthResult.isExecutable()) {
-                                ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ${if (qualityAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${qualityAuthResult.reason}")
-                                if (!qualityAuthResult.isShadowOnly()) RejectionTelemetry.record("QUALITY", qualityAuthResult.reason)
-                            } else {
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
                                 sizeSol = qualitySignal.positionSizeSol,
-                                attemptId = qualityAuthResult.attemptId,
-                                finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore
                             )
@@ -13722,8 +13704,6 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     // journal (was showing as BLUE_CHIP / ExtendedMode).
                                     layerTag = "QUALITY",
                                     layerTagEmoji = "⭐",
-                                    finalityPrechecked = true,
-                                    attemptId = qualityAuthResult.attemptId,
                                 )
                                 if (!qualityOpened) {
                                     ErrorLogger.warn("BotService", "QUALITY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -13769,20 +13749,13 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 addLog("⭐ QUALITY: ${ts.symbol} | \$${(ts.lastMcap/1000).toInt()}K mcap", ts.mint)
                             }
-                            } // close quality canExecute
-                            } // close qualityAuthResult.isExecutable else
                             } // close FDG-required else (QUALITY V5.9.688)
                         }
                     }
-                } catch (qualityEx: Exception) {
-                    ErrorLogger.debug("BotService", "⭐ [QUALITY] ${ts.symbol} | ERROR | ${qualityEx.message}")
-                    FinalExecutionPermit.releaseExecution(ts.mint)
-                }
                     
                     // ═══════════════════════════════════════════════════════════════
                     // BLUE CHIP TRADER AI - For $1M+ mcap tokens
                     // ═══════════════════════════════════════════════════════════════
-                    try {
 
                     // V5.9.920 — BLUECHIP LANE_EVAL emit. Even when mcap is below
                     // $1M (the lane's own threshold), emit so the brain sees
@@ -13870,30 +13843,12 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")
                                 RejectionTelemetry.record("BLUECHIP_FDG_PROBE", blueChipFdg?.blockReason ?: "fdg_caution")
                             }
-                            val blueChipAuthResult = TradeAuthorizer.authorize(
-                                mint = ts.mint,
-                                symbol = ts.symbol,
-                                score = blueChipSignal.confidence,
-                                confidence = blueChipSignal.confidence.toDouble(),
-                                quality = "BLUECHIP",
-                                isPaperMode = cfg.paperMode,
-                                requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
-                                rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                                liquidity = ts.lastLiquidityUsd,
-                                isBanned = BannedTokens.isBanned(ts.mint),
-                            )
-                            if (!blueChipAuthResult.isExecutable()) {
-                                ErrorLogger.info("BotService", "🔵 [BLUECHIP] ${ts.symbol} | ${if (blueChipAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${blueChipAuthResult.reason}")
-                                if (!blueChipAuthResult.isShadowOnly()) RejectionTelemetry.record("BLUECHIP", blueChipAuthResult.reason)
-                            } else {
                             // V4.0: Try to acquire execution permit
                             val canExecute = FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                layer = "BLUECHIP",
+                                layer = "BLUE_CHIP",
                                 sizeSol = blueChipSignal.positionSizeSol,
-                                attemptId = blueChipAuthResult.attemptId,
-                                finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore
                             )
@@ -13919,9 +13874,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
-                                    finalityPrechecked = true,
-                                    attemptId = blueChipAuthResult.attemptId,
+                                    isPaper = cfg.paperMode
                                 )
                                 if (!blueChipOpened) {
                                     ErrorLogger.warn("BotService", "BLUE_CHIP ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
