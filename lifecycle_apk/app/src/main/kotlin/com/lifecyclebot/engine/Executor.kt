@@ -9405,12 +9405,13 @@ class Executor(
 
         val simulatedFeePct = 0.5
 
-        val rawValue = pos.qtyToken * effectivePrice * (1.0 - simulatedFeePct / 100.0)
-        // (3) Liquidity-aware return cap — a position can never realistically
-        // extract more than ~50% of the pool's USD liquidity converted to
-        // SOL. Cap the value at that bound so we don't book +8234% from a
-        // $4k pool. lastKnownSolPrice may be 0 during cold boot; if so we
-        // fall back to a conservative SOL multiple.
+        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
+        val rawValue = pos.costSol * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
+        // (3) Cost-basis paper proceeds — paper has no real token balance. Do
+        // NOT book proceeds from qtyToken * price; a stale qty or source-basis
+        // mismatch creates impossible million-SOL rows. We already have the
+        // correct comparable entry/exit price after getActualPrice() rebase and
+        // optional reason clamp, so proceeds are cost basis × price return.
         val cappedValue = run {
             val solPriceUsd = WalletManager.lastKnownSolPrice
             if (ts.lastLiquidityUsd > 0.0 && solPriceUsd > 0.0) {
@@ -9426,7 +9427,7 @@ class Executor(
                 } else rawValue
             } else rawValue
         }
-        val value = cappedValue
+        val value = cappedValue.coerceAtLeast(0.0)
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(
