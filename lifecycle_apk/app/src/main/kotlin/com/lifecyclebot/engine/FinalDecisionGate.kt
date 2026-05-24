@@ -685,8 +685,41 @@ object FinalDecisionGate {
         val tags = mutableListOf<String>()
 
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
+        val laneName = tradingModeTag?.name ?: "STANDARD"
+        val canonicalLearning = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val canonicalDecisive = (canonicalLearning?.totalWins ?: 0) + (canonicalLearning?.totalLosses ?: 0)
+        val canonicalWr = if (canonicalDecisive > 0)
+            (canonicalLearning?.totalWins ?: 0).toDouble() * 100.0 / canonicalDecisive.toDouble()
+        else 50.0
+        val canonicalRollingWr = try { TradeHistoryStore.rollingWinRatePct(50) } catch (_: Throwable) { -1.0 }
+        val canonicalTargetWr = try { FreeRangeMode.phaseTargetWr(canonicalDecisive) } catch (_: Throwable) { 0.0 }
+        val deepLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < (canonicalTargetWr * 0.85)
+        val moderateLearningDeficit = canonicalDecisive >= 50 && canonicalTargetWr > 0.0 && canonicalWr < canonicalTargetWr
 
-        val overlayLane = tradingModeTag?.name ?: "STANDARD"
+        // V5.9.1136 — cheap non-executable signal guard. 3102 showed 3k+ FDG/Signal
+        // blocks, meaning WAIT candidates were still walking the full expensive FDG
+        // stack before being rejected. This does NOT prune scanner intake or lane eval;
+        // it just local-blocks non-BUY candidates before ML/BCG/social/EV work.
+        if (candidate.blockReason.startsWith("Signal is ") && candidate.blockReason.endsWith(", not BUY")) {
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = candidate.blockReason,
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("fdg_local_wait_fast_block", "lane:$laneName"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "FDG_FAST_BLOCK: ${candidate.blockReason}",
+                gateChecks = listOf(GateCheck("candidate_base_signal", false, "fast_block lane=$laneName ${candidate.blockReason}")),
+            )
+        }
+
+        val overlayLane = laneName
         if (overlayLane != "STANDARD" && RuntimeConfigOverlay.isLaneDisabled(overlayLane)) {
             return FinalDecision(
                 shouldTrade = false,
@@ -1538,9 +1571,12 @@ object FinalDecisionGate {
             0
         }
 
-        val effectiveTradeCount = maxOf(brainTrades, fluidTrades)
+        val effectiveTradeCount = maxOf(brainTrades, fluidTrades, canonicalDecisive)
         val rawExecutedCount = sessionTrades
-        val winRate = brain?.getRecentWinRate() ?: 50.0
+        // V5.9.1136 — use canonical settled WR for FDG learning pressure.
+        // BotBrain/Fluid counters can lag or represent only one learner; the journal
+        // stats are what the operator sees and what actually proves/denies edge.
+        val winRate = canonicalWr.takeIf { canonicalDecisive > 0 } ?: (brain?.getRecentWinRate() ?: 50.0)
         val adjusted = getAdjustedThresholds(effectiveTradeCount, winRate)
 
         val countersMatch = brainTrades == fluidTrades
@@ -1548,7 +1584,7 @@ object FinalDecisionGate {
         val isPhaseTransition = effectiveTradeCount == 0 || effectiveTradeCount == 10 || effectiveTradeCount == 30 || effectiveTradeCount == 51
 
         if (isPhaseTransition || !countersMatch || executionMismatch) {
-            val counterDetail = "executed=$rawExecutedCount | classified=$brainTrades | fluid=$fluidTrades | learning_uses=$effectiveTradeCount"
+            val counterDetail = "executed=$rawExecutedCount | classified=$brainTrades | fluid=$fluidTrades | canonical=$canonicalDecisive | learning_uses=$effectiveTradeCount"
             val mismatchNote = when {
                 executionMismatch -> " ⚠️ EXECUTION_AHEAD (trades executing faster than learning)"
                 !countersMatch -> " ⚠️ LEARNING_MISMATCH ($counterDetail)"
@@ -2711,6 +2747,38 @@ object FinalDecisionGate {
 
         var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809: soft WR-recovery size penalty
 
+        // V5.9.1136 — make learning bite without choking scanner/lane volume.
+        // When canonical WR is under phase target, learned losing buckets reduce size;
+        // only deep-deficit + weak evidence in a proven danger bucket blocks execution.
+        try {
+            val bucket = LosingPatternMemory.stats(laneName, candidate.entryScore.toInt())
+            if (bucket.sample > 0) {
+                val lossRate = bucket.lossRatePct
+                val learnedPressure = when {
+                    bucket.isDangerous && deepLearningDeficit -> 0.35
+                    bucket.isDangerous && moderateLearningDeficit -> 0.55
+                    bucket.isDangerous -> 0.70
+                    bucket.losses >= 5 && lossRate >= 65.0 && moderateLearningDeficit -> 0.75
+                    else -> 1.0
+                }
+                if (learnedPressure < 1.0) {
+                    val originalSize = finalSize
+                    finalSize = (finalSize * learnedPressure).coerceAtLeast(0.01)
+                    tags.add("learning_recovery_shaped")
+                    tags.add("danger_bucket:${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())}")
+                    checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
+                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())} n=${bucket.sample} loss=${lossRate.toInt()}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
+                }
+                val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && candidate.entryScore < 25.0
+                if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {
+                    blockReason = "LEARNING_DANGER_BUCKET_EVIDENCE_REQUIRED_${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())}"
+                    blockLevel = BlockLevel.CONFIDENCE
+                    tags.add("learning_evidence_required")
+                    checks.add(GateCheck("learned_bucket_evidence", false, "deep WR deficit + weak evidence in danger bucket n=${bucket.sample} loss=${lossRate.toInt()}%"))
+                }
+            }
+        } catch (_: Throwable) { /* fail-open: learned shaping must not starve execution */ }
+
         val winMemoryMultiplier = try {
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
             TokenWinMemory.getConfidenceMultiplier(
@@ -3492,10 +3560,29 @@ object FinalDecisionGate {
                         blockLevelFinal = BlockLevel.HARD
                     }
                     BrainConsensusGate.Verdict.SOFT_BLOCK -> {
-                        // Telemetry-only. Tag it so the operator can see soft-block
-                        // counts climb in the pipeline-health dump without us
-                        // actually preventing the trade yet.
+                        // V5.9.1136 — no longer pure telemetry. Soft objections now
+                        // reduce size during WR deficit so learning changes behaviour
+                        // without disabling the lane. Only a danger-bucket objection in
+                        // a deep deficit with weak evidence becomes binding.
                         tags.add("bcg_objections:${report.objections.size}")
+                        val hasDanger = report.objections.any { it.contains("LOSING_PATTERN_DANGER_ZONE") }
+                        val originalSize = finalSize
+                        val damp = when {
+                            deepLearningDeficit && hasDanger -> 0.50
+                            moderateLearningDeficit -> 0.75
+                            else -> 0.90
+                        }
+                        if (damp < 1.0) {
+                            finalSize = (finalSize * damp).coerceAtLeast(0.01)
+                            tags.add("bcg_size_damped")
+                            checks.add(GateCheck("brain_consensus", true, "SOFT objections=${report.objections.size}; size ${originalSize.format(3)}→${finalSize.format(3)}"))
+                        }
+                        val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && adjustedConfidence < 35.0 && candidate.entryScore < 25.0
+                        if (hasDanger && deepLearningDeficit && weakEvidence) {
+                            shouldTradeFinal = false
+                            blockReasonFinal = "BRAIN_LEARNED_DANGER_EVIDENCE_REQUIRED:${report.objections.joinToString("+").take(120)}"
+                            blockLevelFinal = BlockLevel.CONFIDENCE
+                        }
                     }
                     BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }
                 }

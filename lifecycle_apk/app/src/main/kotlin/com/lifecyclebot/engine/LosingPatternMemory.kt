@@ -32,6 +32,7 @@ object LosingPatternMemory {
 
     data class BucketStats(val losses: Int, val wins: Int, val meanPnl: Double) {
         val sample: Int get() = losses + wins
+        val lossRatePct: Double get() = if (sample > 0) losses.toDouble() * 100.0 / sample.toDouble() else 0.0
         // V5.9.1070 — raised minimums: losses>=5 → >=8, implied sample: ~7 → >=20.
         // At bootstrap (<1000 trades) virtually every bucket hits >=5 losses + 75%
         // loss rate (the bot is losing overall). This flags ALL modes as dangerous
@@ -135,10 +136,10 @@ object LosingPatternMemory {
             .sortedByDescending { it.value.losses }
         if (dangerous.isEmpty()) {
             return "\n===== Losing-pattern memory (V5.9.806) =====\n" +
-                   "  ✅ No bucket has crossed the danger threshold (≥5 losses, ≥75% loss rate)\n"
+                   "  ✅ No bucket has crossed the danger threshold (≥8 losses, ≥20 samples, ≥75% loss rate)\n"
         }
         val sb = StringBuilder("\n===== Losing-pattern memory (V5.9.806) =====\n")
-        sb.append("  Danger buckets (≥5 losses, ≥75% loss rate). TradingMode × ScoreBand:\n")
+        sb.append("  Danger buckets (≥8 losses, ≥20 samples, ≥75% loss rate). TradingMode × ScoreBand:\n")
         dangerous.take(10).forEach { (k, v) ->
             sb.append("    %-26s  losses=%-3d  wins=%-3d  meanPnl=%+.2f%%\n".format(k, v.losses, v.wins, v.meanPnl))
         }
