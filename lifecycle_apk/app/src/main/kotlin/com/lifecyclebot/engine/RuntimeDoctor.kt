@@ -108,9 +108,12 @@ object RuntimeDoctor {
     private fun fanoutMitigations(f: InvariantGuardian.Fault, snapState: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> {
         val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
         val topSource = snap?.intakeBySource?.maxByOrNull { it.value }?.key ?: "PUMP_PORTAL_WS"
-        val forceQuality = !RuntimeConfigOverlay.isHardQualityOnlyActive() && snapState.laneEval > snapState.intake * 8
+        // V5.9.1132 — NO AUTO LANE DISABLES.
+        // Operator explicitly rejected the 24h loop where RuntimeDoctor kept
+        // forcing QUALITY-only / disabling lanes as a mitigation. Fanout pressure
+        // is now handled with soft throughput shaping only. Lanes stay enabled;
+        // FDG/safety/execution authority remain the real guards.
         return buildList {
-            if (forceQuality) add(RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 2 * 60_000L))
             add(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
             if (topSource == "MEME_REGISTRY_RESTORE") add(RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L))
         }
