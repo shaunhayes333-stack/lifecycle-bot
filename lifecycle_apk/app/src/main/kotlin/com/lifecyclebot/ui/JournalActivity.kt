@@ -44,6 +44,9 @@ class JournalActivity : AppCompatActivity() {
     private var currentPage = 1          // number of pages currently visible (grows on "Load More")
     private var lastRenderedTradeCount: Int = -1  // V5.9.1057: skip rebuild if count unchanged
     private var cachedSellEntries = listOf<com.lifecyclebot.engine.TradeJournal.JournalEntry>()
+    @Volatile private var journalRefreshInFlight: Boolean = false
+    private var lastRenderedStoreCount: Int = -1
+    private var lastRenderedFilter: String? = "__INIT__"
 
     private val white = 0xFFFFFFFF.toInt()
     private val muted = 0xFF6B7280.toInt()
@@ -193,11 +196,20 @@ class JournalActivity : AppCompatActivity() {
                     // V5.9.330: Fetch data on IO thread, render on main.
                     // journal.buildJournal() hits SharedPreferences/TradeHistoryStore —
                     // doing this on the main thread causes ANR when trade count is large.
+                    val storeSize = try {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
+                        }
+                    } catch (_: Throwable) { -1 }
+                    if (storeSize == lastRenderedStoreCount && currentModeFilter == lastRenderedFilter && lastRenderedTradeCount >= 0) {
+                        delay(10_000)
+                        continue
+                    }
                     val tokens = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         getTokensSnapshot()
                     }
                     // buildJournal renders on the main thread (required for View ops)
-                    refreshTradesWithTokens(tokens)
+                    refreshTradesWithTokens(tokens, storeSize)
                     // V5.9.658 — operator triage: user reports Journal screen
                     // shows 0 trades but bot is clearly trading (875 24h
                     // trades, 15 open positions). The previous catch
@@ -208,9 +220,6 @@ class JournalActivity : AppCompatActivity() {
                     // "JOURNAL_POLL" and confirm whether the activity is
                     // even refreshing, plus the size of the trade store at
                     // the time of the poll.
-                    val storeSize = try {
-                        com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount()
-                    } catch (_: Throwable) { -1 }
                     com.lifecyclebot.engine.ErrorLogger.info(
                         "JournalActivity",
                         "📓 JOURNAL_POLL #${++pollCount} ok | tokens=${tokens.size} | storeTrades=$storeSize | filter=${currentModeFilter ?: "ALL"}",
@@ -367,9 +376,9 @@ class JournalActivity : AppCompatActivity() {
     }
 
     /** V5.9.330: Called from IO-prefetched polling path with pre-fetched tokens. */
-    private fun refreshTradesWithTokens(tokens: Map<String, TokenState>) {
+    private fun refreshTradesWithTokens(tokens: Map<String, TokenState>, knownStoreCount: Int = -1) {
         try {
-            buildJournal(tokens)
+            buildJournal(tokens, knownStoreCount)
         } catch (e: Exception) {
             // V5.9.658 — see refreshTrades comment.
             com.lifecyclebot.engine.ErrorLogger.error(
@@ -381,7 +390,7 @@ class JournalActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildJournal(tokens: Map<String, TokenState>) {
+    private fun buildJournal(tokens: Map<String, TokenState>, knownStoreCount: Int = -1) {
         // V5.9.1059 — Rewritten to read DIRECTLY from TradeHistoryStore.getAllTrades()
         // instead of going through TradeJournal.buildJournal(tokens).
         //
@@ -396,6 +405,8 @@ class JournalActivity : AppCompatActivity() {
         // New path: read getAllTrades() directly on IO thread, map Trade→JournalEntry
         // inline (same field mapping TradeJournal.buildJournal uses), sort descending.
         // This works whether bot is running, stopped, or never started.
+        if (journalRefreshInFlight) return
+        journalRefreshInFlight = true
         lifecycleScope.launch {
             try {
                 val allEntries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -464,6 +475,8 @@ class JournalActivity : AppCompatActivity() {
                 }
                 if (isActive) {
                     lastRenderedTradeCount = sellCount
+                    lastRenderedStoreCount = if (knownStoreCount >= 0) knownStoreCount else try { com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount() } catch (_: Throwable) { sellCount }
+                    lastRenderedFilter = currentModeFilter
                     renderJournalBody(filtered, stats)
                 }
             } catch (e: Exception) {
@@ -472,6 +485,8 @@ class JournalActivity : AppCompatActivity() {
                     "📓 buildJournal EXCEPTION cls=${e.javaClass.simpleName} msg=${e.message}", e
                 )
                 if (isActive) showEmptyJournal()
+            } finally {
+                journalRefreshInFlight = false
             }
         }
     }
@@ -617,6 +632,7 @@ class JournalActivity : AppCompatActivity() {
                 ).also { it.topMargin = dp(8) }
                 setOnClickListener {
                     currentPage++
+                    lastRenderedTradeCount = -1
                     refreshTrades()
                 }
             }
@@ -660,6 +676,8 @@ class JournalActivity : AppCompatActivity() {
             )
             .setPositiveButton("Clear Journal") { _, _ ->
                 com.lifecyclebot.engine.TradeHistoryStore.clearAllTrades()
+                lastRenderedTradeCount = -1
+                lastRenderedStoreCount = -1
                 Toast.makeText(this, "Journal cleared — learned AI preserved", Toast.LENGTH_SHORT).show()
                 refreshTrades()
             }
