@@ -80,6 +80,8 @@ object TokenMergeQueue {
         var bestScanner: String,
         var confidence: Int,
         var discoveryCount: Int,
+        val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
+        val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
     )
 
     data class MergedToken(
@@ -92,6 +94,8 @@ object TokenMergeQueue {
         val allScanners: Set<String>,
         val confidence: Int,
         val multiScannerBoost: Boolean,
+        val laneAffinity: Set<String> = emptySet(),
+        val toolAffinity: Set<String> = emptySet(),
     )
 
     /**
@@ -104,8 +108,12 @@ object TokenMergeQueue {
         marketCapUsd: Double = 0.0,
         liquidityUsd: Double = 0.0,
         volumeH1: Double = 0.0,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
     ) {
         val now = System.currentTimeMillis()
+        val inferredLaneAffinity = (laneAffinity + inferLaneAffinity(scanner, marketCapUsd, liquidityUsd)).map { it.uppercase() }.toSet()
+        val inferredToolAffinity = (toolAffinity + inferToolAffinity(scanner, marketCapUsd, liquidityUsd)).map { it.uppercase() }.toSet()
         totalDiscoveries.incrementAndGet()
 
         val existing = pendingDiscoveries[mint]
@@ -113,6 +121,8 @@ object TokenMergeQueue {
         if (existing != null) {
             // Merge into existing pending entry
             existing.scanners.add(scanner)
+            existing.laneAffinity.addAll(inferredLaneAffinity)
+            existing.toolAffinity.addAll(inferredToolAffinity)
             existing.lastSeenAt = now
             existing.discoveryCount++
 
@@ -169,7 +179,10 @@ object TokenMergeQueue {
                 bestScanner = scanner,
                 confidence = initialConfidence,
                 discoveryCount = 1,
-            )
+            ).also { entry ->
+                entry.laneAffinity.addAll(inferredLaneAffinity)
+                entry.toolAffinity.addAll(inferredToolAffinity)
+            }
 
             ErrorLogger.debug(
                 TAG,
@@ -206,6 +219,8 @@ object TokenMergeQueue {
                     allScanners = entry.scanners.toSet(),
                     confidence = entry.confidence,
                     multiScannerBoost = entry.scanners.size > 1,
+                    laneAffinity = entry.laneAffinity.toSet(),
+                    toolAffinity = entry.toolAffinity.toSet(),
                 )
 
                 readyToEmit.add(merged)
@@ -269,6 +284,32 @@ object TokenMergeQueue {
             .coerceIn(20, 95)
     }
 
+
+    /** V5.9.1137 — scanner/tool → lane affinity. Advisory only; never a gate. */
+    private fun inferLaneAffinity(scanner: String, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
+        val src = scanner.uppercase()
+        val out = linkedSetOf<String>()
+        if (src.contains("PUMP") || src.contains("PORTAL")) out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
+        if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
+        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        if (src.contains("WHALE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
+        if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
+        if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
+        return out
+    }
+
+    private fun inferToolAffinity(scanner: String, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
+        val src = scanner.uppercase()
+        val out = linkedSetOf<String>()
+        if (src.contains("PUMP") || src.contains("PORTAL")) out += listOf("PUMP_FUN", "MEME", "SNIPER")
+        if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("RAYDIUM", "NEW_POOL", "MEME")
+        if (src.contains("DEX")) out += "DEX"
+        if (src.contains("COINGECKO")) out += "TRENDING"
+        if (marketCapUsd >= 75_000.0 || liquidityUsd >= 25_000.0) out += "QUALITY_DEPTH"
+        return out
+    }
+
     fun isPending(mint: String): Boolean = pendingDiscoveries.containsKey(mint)
     
     /** V5.9.651 — depth of the merge queue (used by ForensicLogger LOOP_TOP snapshot). */
@@ -307,6 +348,8 @@ object TokenMergeQueue {
                 allScanners = entry.scanners.toSet(),
                 confidence = entry.confidence,
                 multiScannerBoost = entry.scanners.size > 1,
+                laneAffinity = entry.laneAffinity.toSet(),
+                toolAffinity = entry.toolAffinity.toSet(),
             )
         }
 

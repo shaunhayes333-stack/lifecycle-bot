@@ -7060,6 +7060,29 @@ class BotService : Service() {
     private val SYMBOL_BURST_WINDOW_MS: Long = 60_000L
     private val SYMBOL_BURST_MAX_MINTS: Int = 5
 
+    private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
+        val tags = (allSources + source).joinToString("|").uppercase()
+        val out = linkedSetOf<String>()
+        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
+        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
+        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
+        if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
+        if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
+        return out
+    }
+
+    private fun inferIntakeToolAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
+        val tags = (allSources + source).joinToString("|").uppercase()
+        val out = linkedSetOf<String>()
+        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("PUMP_FUN", "MEME", "SNIPER")
+        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("RAYDIUM", "NEW_POOL", "MEME")
+        if (tags.contains("DEX")) out += "DEX"
+        if (tags.contains("COINGECKO")) out += "TRENDING"
+        if (marketCapUsd >= 75_000.0 || liquidityUsd >= 25_000.0) out += "QUALITY_DEPTH"
+        return out
+    }
+
     private fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
@@ -7256,6 +7279,17 @@ class BotService : Service() {
         )
 
         val joinedSources = allSources.ifEmpty { setOf(source) }.joinToString(",")
+        val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
+        val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
+        try {
+            val affinitySymbol = if (symbol.isBlank()) mint.take(6) else symbol
+            val laneAffinityLabel = laneAffinity.joinToString("+")
+            val toolAffinityLabel = toolAffinity.joinToString("+")
+            ForensicLogger.lifecycle(
+                "WATCHLIST_AFFINITY",
+                "symbol=$affinitySymbol mint=${mint.take(10)} lanes=$laneAffinityLabel tools=$toolAffinityLabel src=$source"
+            )
+        } catch (_: Throwable) {}
 
         // V5.9.961 — PROBATION TIER ROUTING (was dormant pre-V5.9.961).
         // Operator: 'we did have a probation section that never gets used can
@@ -7315,6 +7349,8 @@ class BotService : Service() {
                     liquidityUsd = liquidityUsd,
                     confidence = confidence,
                     isMultiSource = allSources.size > 1,
+                    laneAffinity = laneAffinity,
+                    toolAffinity = toolAffinity,
                 )
             } else {
                 GlobalTradeRegistry.addToWatchlist(
@@ -7323,6 +7359,8 @@ class BotService : Service() {
                     addedBy = source,
                     source = joinedSources,
                     initialMcap = marketCapUsd,
+                    laneAffinity = laneAffinity,
+                    toolAffinity = toolAffinity,
                 )
             }
         } catch (e: Throwable) {
@@ -7354,6 +7392,8 @@ class BotService : Service() {
                         source = joinedSources,
                         logoUrl = cached?.logoUrl ?: "",
                     ).also { fresh ->
+                        fresh.laneAffinity.addAll(laneAffinity)
+                        fresh.toolAffinity.addAll(toolAffinity)
                         if (cached != null) {
                             // Warm slow-moving snapshot fields. These are SAFE
                             // to seed because every fresh tick will overwrite
@@ -7371,6 +7411,9 @@ class BotService : Service() {
                 // symbol/name are immutable identity fields on TokenState; the
                 // getOrPut initializer above is the authority for first hydrate.
                 if (ts.source.isBlank()) ts.source = joinedSources
+                ts.laneAffinity.addAll(laneAffinity)
+                ts.toolAffinity.addAll(toolAffinity)
+                try { GlobalTradeRegistry.mergeAffinity(mint, laneAffinity, toolAffinity) } catch (_: Throwable) {}
 
                 if (liquidityUsd > ts.lastLiquidityUsd) {
                     // V5.9.769 — max-take semantics (was `<= 0.0` guard, which

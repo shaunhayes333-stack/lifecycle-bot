@@ -36,6 +36,7 @@ object LaneExecutionCoordinator {
     private val versionSeq = AtomicLong(0L)
     private val elections = ConcurrentHashMap<String, Election>()
     private val duplicateOpenSuppressed = AtomicLong(0L)
+    private val affinities = ConcurrentHashMap<String, Set<String>>()
 
     // V5.9.1135 — lane election must be priority-based, not first-caller-wins.
     // 3102 showed TREASURY evaluating first in BotService and becoming primary
@@ -58,6 +59,20 @@ object LaneExecutionCoordinator {
     )
 
     private fun priority(lane: String): Int = lanePriority[lane.uppercase()] ?: 50
+
+    fun registerAffinity(mint: String, lanes: Set<String>) {
+        val clean = lanes.map { it.uppercase() }.filter { it.isNotBlank() }.toSet()
+        if (clean.isEmpty()) return
+        affinities.merge(mint, clean) { old, new -> old + new }
+    }
+
+    private fun effectivePriority(mint: String, lane: String): Int {
+        val laneUpper = lane.uppercase()
+        val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
+        val allAffinity = (affinities[mint] ?: emptySet()) + registryAffinity
+        val boost = if (allAffinity.contains(laneUpper)) 30 else 0
+        return priority(laneUpper) + boost
+    }
 
     fun candidateVersionFor(mint: String): Long {
         // 15-30s window bucket + monotonic suffix avoids same-second duplicate opens
@@ -115,7 +130,7 @@ object LaneExecutionCoordinator {
         }
         val e = when {
             existing == null -> elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
-            priority(laneUpper) > priority(existing.primaryLane) -> {
+            effectivePriority(mint, laneUpper) > effectivePriority(mint, existing.primaryLane) -> {
                 val upgraded = Election(
                     key = existing.key,
                     primaryLane = laneUpper,
@@ -147,6 +162,7 @@ object LaneExecutionCoordinator {
 
     fun resetForTests() {
         elections.clear()
+        affinities.clear()
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
     }

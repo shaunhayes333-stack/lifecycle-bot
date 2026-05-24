@@ -293,6 +293,12 @@ data class TokenState(
     var topHolderPct: Double? = null,        // Top holder concentration
     var momentum: Double? = null,            // Price momentum
     var volatility: Double? = null,          // Price volatility
+    // V5.9.1137 — watchlist lane/tool awareness.
+    // These are AFFINITY HINTS, not vetoes. Scanner/intake marks which
+    // traders/tools a token appears naturally suited for; lane election uses
+    // them as a priority boost so every lane still gets learning chances.
+    val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
+    val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
     // V5.9.618 — bridge advisory flag. Set per-pass by BotService when the
     // MemeUnifiedScorerBridge agrees an entry is good. Read by ShitCoin/Moonshot
     // evaluators as a small additive confidence bonus. Pure advisory — never blocks.

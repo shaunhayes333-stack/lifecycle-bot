@@ -149,6 +149,8 @@ object GlobalTradeRegistry {
         val addedBy: String,  // "SCANNER", "USER", "DEX_BOOSTED", "PUMP_FUN", etc.
         val source: String,   // More specific: "pump.fun", "raydium", "moonshot"
         val initialMcap: Double,
+        val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
+        val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
         var lastProcessedAt: Long = 0,
         var processCount: Int = 0,
     )
@@ -186,6 +188,8 @@ object GlobalTradeRegistry {
         val isEstimatedLiquidity: Boolean,  // True if liquidity was estimated, not confirmed
         val isSingleSource: Boolean,        // True if only 1 scanner found it
         var additionalScanners: MutableSet<String> = mutableSetOf(),  // Other scanners that found it later
+        val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
+        val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
         var rcScore: Int = -1,              // Rugcheck score (-1 = not checked)
         var priceAtAdd: Double = 0.0,       // Track price to check if it holds
         var currentPrice: Double = 0.0,
@@ -245,6 +249,8 @@ object GlobalTradeRegistry {
         addedBy: String,
         source: String = addedBy,
         initialMcap: Double = 0.0,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
     ): AddResult {
         // Validate mint
         if (mint.isBlank() || mint.length < 30) {
@@ -256,6 +262,8 @@ object GlobalTradeRegistry {
         // Check if already in watchlist
         val existing = watchlist[mint]
         if (existing != null) {
+            existing.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
+            existing.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
             duplicatesBlocked.incrementAndGet()
             return AddResult(false, "DUPLICATE: already watching since ${(now - existing.addedAt)/1000}s ago")
         }
@@ -311,7 +319,10 @@ object GlobalTradeRegistry {
             addedBy = addedBy,
             source = source,
             initialMcap = initialMcap,
-        )
+        ).also { entry ->
+            entry.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
+            entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
+        }
 
         totalTokensAdded.incrementAndGet()
         ErrorLogger.debug(TAG, "➕ Added $symbol | by=$addedBy | source=$source | mcap=\$${initialMcap.toLong()}")
@@ -341,6 +352,8 @@ object GlobalTradeRegistry {
         isMultiSource: Boolean = false,
         isEstimatedLiquidity: Boolean = false,
         price: Double = 0.0,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
     ): AddResult {
         // Validate mint
         if (mint.isBlank() || mint.length < 30) {
@@ -361,6 +374,8 @@ object GlobalTradeRegistry {
         val existingProbation = probation[mint]
         if (existingProbation != null) {
             existingProbation.additionalScanners.add(addedBy)
+            existingProbation.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
+            existingProbation.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
             PipelineTracer.registryDuplicate(symbol, mint, "PROBATION")
             // Check if this promotes it
             if (existingProbation.additionalScanners.size >= 1) {
@@ -429,11 +444,13 @@ object GlobalTradeRegistry {
                     isEstimatedLiquidity = isEstimatedLiquidity,
                     isSingleSource = !isMultiSource,
                     price = price,
+                    laneAffinity = laneAffinity,
+                    toolAffinity = toolAffinity,
                 )
             } catch (e: Throwable) {
                 ErrorLogger.debug(TAG, "probation-observe failed for $symbol: ${e.message}")
             }
-            val admitted = addToWatchlist(mint, symbol, addedBy, source, initialMcap)
+            val admitted = addToWatchlist(mint, symbol, addedBy, source, initialMcap, laneAffinity, toolAffinity)
             return if (admitted.added) {
                 admitted.copy(reason = "ADDED_PROBATION_OBSERVED")
             } else {
@@ -442,7 +459,7 @@ object GlobalTradeRegistry {
         }
 
         // Direct add to watchlist
-        return addToWatchlist(mint, symbol, addedBy, source, initialMcap)
+        return addToWatchlist(mint, symbol, addedBy, source, initialMcap, laneAffinity, toolAffinity)
     }
 
     /**
@@ -459,6 +476,8 @@ object GlobalTradeRegistry {
         isEstimatedLiquidity: Boolean,
         isSingleSource: Boolean,
         price: Double,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
     ): AddResult {
         // Check probation size
         if (probation.size >= MAX_PROBATION_SIZE) {
@@ -485,7 +504,10 @@ object GlobalTradeRegistry {
             isSingleSource = isSingleSource,
             priceAtAdd = price,
             currentPrice = price,
-        )
+        ).also { entry ->
+            entry.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
+            entry.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
+        }
 
         val reason = when {
             isSingleSource -> "SINGLE_SOURCE"
@@ -513,7 +535,10 @@ object GlobalTradeRegistry {
             addedBy = "${entry.addedBy}+PROBATION",
             source = entry.source,
             initialMcap = entry.initialMcap,
-        )
+        ).also { wl ->
+            wl.laneAffinity.addAll(entry.laneAffinity)
+            wl.toolAffinity.addAll(entry.toolAffinity)
+        }
 
         totalTokensAdded.incrementAndGet()
         probationPromotions.incrementAndGet()
@@ -762,6 +787,16 @@ object GlobalTradeRegistry {
      * Get current watchlist as a list of mint addresses.
      * This is the ONLY way to read the watchlist.
      */
+    fun getLaneAffinity(mint: String): Set<String> = watchlist[mint]?.laneAffinity?.toSet() ?: emptySet()
+
+    fun getToolAffinity(mint: String): Set<String> = watchlist[mint]?.toolAffinity?.toSet() ?: emptySet()
+
+    fun mergeAffinity(mint: String, lanes: Set<String> = emptySet(), tools: Set<String> = emptySet()) {
+        val e = watchlist[mint] ?: return
+        e.laneAffinity.addAll(lanes.map { it.uppercase() })
+        e.toolAffinity.addAll(tools.map { it.uppercase() })
+    }
+
     fun getWatchlist(): List<String> {
         return watchlist.keys.toList()
     }

@@ -247,6 +247,17 @@ class LaneExecutionCoordinatorSmokeTest {
     }
 
     @Test
+    fun affinity_lane_can_upgrade_non_affinity_higher_base_lane() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        LaneExecutionCoordinator.registerAffinity("MintAffinity", setOf("SHITCOIN"))
+        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
+        assertTrue("affinity boost should let SHITCOIN claim its routed token", LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
+    }
+
+    @Test
     fun one_primary_lane_per_candidate_generation() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
