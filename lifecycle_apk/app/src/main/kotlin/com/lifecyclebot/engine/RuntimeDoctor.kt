@@ -10,6 +10,21 @@ object RuntimeDoctor {
 
     @Volatile private var latest: RuntimeStateSnapshot = RuntimeStateSnapshot.current()
     private val recentFaults = java.util.concurrent.ConcurrentLinkedDeque<InvariantGuardian.Fault>()
+    @Volatile private var lastHeavyMitigationAtMs: Long = 0L
+    @Volatile private var lastHeavyWorkerTimeout: Long = 0L
+    @Volatile private var lastHeavyExitTimeout: Long = 0L
+    @Volatile private var lastHeavyExitReset: Long = 0L
+    private const val HEAVY_MITIGATION_COOLDOWN_MS = 120_000L
+    private const val HEAVY_WORKER_TIMEOUT_DELTA = 75L
+
+    fun resetForTests() {
+        latest = RuntimeStateSnapshot.current()
+        recentFaults.clear()
+        lastHeavyMitigationAtMs = 0L
+        lastHeavyWorkerTimeout = 0L
+        lastHeavyExitTimeout = 0L
+        lastHeavyExitReset = 0L
+    }
 
     fun tick(uiRunning: Boolean? = null): Report {
         val snap = RuntimeStateSnapshot.current(uiRunning)
@@ -31,7 +46,7 @@ object RuntimeDoctor {
             apiHealth = snap.apiHealth,
         )
         val diagnosis = StateDebuggerAI.deterministicFallback(ctx)
-        val actions = faults.flatMap { commandsFor(it) }
+        val actions = faults.flatMap { commandsFor(it, snap) }
         actions.forEach { cmd -> try { RuntimeMitigationBus.publish(cmd) } catch (_: Throwable) {} }
         return Report(snap, faults, diagnosis, actions.map { toRequest(it) })
     }
@@ -39,31 +54,66 @@ object RuntimeDoctor {
     fun latestSnapshot(): RuntimeStateSnapshot = latest
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
-    private fun commandsFor(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> = when (f.code) {
+    private fun commandsFor(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> = when (f.code) {
         InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
         InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
-        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> fanoutMitigations(f, snap)
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
         InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
-        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> lightMitigations(f)
         InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
         InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC,
         InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION,
         InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION,
         InvariantGuardian.FaultCode.FDG_FANOUT_EXPLOSION,
         InvariantGuardian.FaultCode.FDG_SIGNAL_BYPASS,
-        InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> exitStabilityMitigations(f, snap)
     }
 
-    private fun fanoutMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {
+    private fun lightMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {
+        return listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+    }
+
+    private fun exitStabilityMitigations(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> {
+        val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val worker = pipe?.labelCounts?.get("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT") ?: 0L
+        val exitTimeout = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_TIMEOUT") ?: 0L
+        val exitReset = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_FORCE_RESET")
+            ?: pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_RESET")
+            ?: 0L
+        val now = System.currentTimeMillis()
+        val activeQualityOnly = RuntimeConfigOverlay.isHardQualityOnlyActive()
+        val workerDelta = worker - lastHeavyWorkerTimeout
+        val exitAdvanced = exitTimeout > lastHeavyExitTimeout || exitReset > lastHeavyExitReset
+        val cooldownPassed = now - lastHeavyMitigationAtMs >= HEAVY_MITIGATION_COOLDOWN_MS
+
+        // V5.9.1131 — cumulative workerTimeout counters are monotonically increasing.
+        // 3098 showed RuntimeDoctor re-publishing FORCE_QUALITY_ONLY + scanner cap
+        // every loop from the same 607 historical timeouts, creating 656 mitigation
+        // writes and a self-DOS. If the system is already in quality-only and the
+        // counters have not materially advanced, observe only.
+        if (activeQualityOnly && !exitAdvanced && workerDelta < HEAVY_WORKER_TIMEOUT_DELTA) {
+            return emptyList()
+        }
+        if (!cooldownPassed && !exitAdvanced && workerDelta < HEAVY_WORKER_TIMEOUT_DELTA) {
+            return emptyList()
+        }
+        lastHeavyMitigationAtMs = now
+        lastHeavyWorkerTimeout = worker
+        lastHeavyExitTimeout = exitTimeout
+        lastHeavyExitReset = exitReset
+        return fanoutMitigations(f, snap)
+    }
+
+    private fun fanoutMitigations(f: InvariantGuardian.Fault, snapState: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> {
         val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
         val topSource = snap?.intakeBySource?.maxByOrNull { it.value }?.key ?: "PUMP_PORTAL_WS"
-        return listOf(
-            RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 5 * 60_000L),
-            RuntimeMitigationBus.Command.ReduceScannerConcurrency(1, f.detail, 5 * 60_000L),
-            RuntimeMitigationBus.Command.DisableScannerSource(topSource, f.detail, 60_000L),
-            RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L),
-        )
+        val forceQuality = !RuntimeConfigOverlay.isHardQualityOnlyActive() && snapState.laneEval > snapState.intake * 8
+        return buildList {
+            if (forceQuality) add(RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 2 * 60_000L))
+            add(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+            if (topSource == "MEME_REGISTRY_RESTORE") add(RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L))
+        }
     }
 
     private fun toRequest(cmd: RuntimeMitigationBus.Command): RuntimeSelfHealer.Request = when (cmd) {

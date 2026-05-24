@@ -10,9 +10,23 @@ object RuntimeConfigOverlay {
     private val commands = ConcurrentHashMap<String, Command>()
     private fun now() = System.currentTimeMillis()
     private fun put(kind: String, target: String, value: String, reason: String, ttlMs: Long) {
-        val key = "$kind:${target.uppercase()}"
-        commands[key] = Command(kind, target.uppercase(), value, reason.take(180), now() + ttlMs.coerceIn(1_000L, 10 * 60_000L))
-        try { ForensicLogger.lifecycle("RUNTIME_MITIGATION_APPLIED", "kind=$kind target=${target.uppercase()} value=$value ttlMs=$ttlMs reason=${reason.take(120)}") } catch (_: Throwable) {}
+        val normalizedTarget = target.uppercase()
+        val key = "$kind:$normalizedTarget"
+        val n = now()
+        val safeTtl = ttlMs.coerceIn(1_000L, 10 * 60_000L)
+        val safeReason = reason.take(180)
+        val existing = commands[key]
+        // V5.9.1131 — idempotent runtime mitigations.
+        // RuntimeDoctor runs every loop; if the same mitigation is already active,
+        // do not rewrite/extend/log it until it is near expiry. 3098 emitted 656
+        // RUNTIME_MITIGATION_APPLIED rows from stale cumulative counters, which
+        // became its own main-thread/logging pressure source.
+        if (existing != null && existing.expiresAtMs > n && existing.value == value && existing.reason == safeReason) {
+            val remaining = existing.expiresAtMs - n
+            if (remaining > safeTtl / 3) return
+        }
+        commands[key] = Command(kind, normalizedTarget, value, safeReason, n + safeTtl)
+        try { ForensicLogger.lifecycle("RUNTIME_MITIGATION_APPLIED", "kind=$kind target=$normalizedTarget value=$value ttlMs=$ttlMs reason=${reason.take(120)}") } catch (_: Throwable) {}
     }
     fun disableLane(lane: String, reason: String, ttlMs: Long) = put("DISABLE_LANE", lane, "true", reason, ttlMs)
     fun disableScannerSource(source: String, reason: String, ttlMs: Long) = put("DISABLE_SCANNER_SOURCE", source, "true", reason, ttlMs)

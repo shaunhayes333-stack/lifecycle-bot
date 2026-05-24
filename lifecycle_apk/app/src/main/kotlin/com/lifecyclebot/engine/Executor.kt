@@ -6503,11 +6503,41 @@ class Executor(
         // without compounding it. FLUID/OFF bands are not touched.
         val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
         @Suppress("NAME_SHADOWING")
-        val sol = if (wrSizeMult < 1.0) {
-            val damped = sol * wrSizeMult
-            ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
-            damped
-        } else sol
+        val sol = run {
+            var finalSol = if (wrSizeMult < 1.0) {
+                val damped = sol * wrSizeMult
+                ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (paper): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
+                damped
+            } else sol
+
+            // V5.9.1131 — side-effect boundary paper cold-streak cap.
+            // SmartSizer has its own cap, but 3098 proved several lane paths can
+            // deliver 6-12 SOL directly into paperBuy(). Clamp at the last possible
+            // point before wallet/journal mutation so no bypass can create outsized
+            // paper losses during a cold WR regime.
+            try {
+                val stats = TradeHistoryStore.getStatsCached()
+                val decisive = stats.totalWins + stats.totalLosses
+                val wr = if (decisive > 0) stats.totalWins.toDouble() / decisive * 100.0 else 100.0
+                val perf = SmartSizer.getPerformanceContext(walletSol.takeIf { it > 0.0 } ?: finalSol, decisive, isPaperMode = true)
+                val coldCapPct = when {
+                    decisive >= 25 && (perf.lossStreak >= 10 || wr < 10.0) -> 0.02
+                    decisive >= 25 && (perf.lossStreak >= 6  || wr < 20.0) -> 0.035
+                    decisive >= 25 && (perf.lossStreak >= 4  || wr < 30.0) -> 0.05
+                    else -> 0.0
+                }
+                if (coldCapPct > 0.0) {
+                    val baseWallet = walletSol.takeIf { it > 0.0 } ?: try { FluidLearning.getSimulatedBalance() } catch (_: Throwable) { finalSol }
+                    val cap = maxOf(0.01, baseWallet * coldCapPct).coerceAtMost(1.0)
+                    if (finalSol > cap) {
+                        ErrorLogger.warn("Executor", "🧯 PAPER_BUY_COLD_CAP: ${ts.symbol} ${finalSol.fmt(4)} → ${cap.fmt(4)} SOL | wr=${wr.toInt()}% lossStreak=${perf.lossStreak} trades=$decisive")
+                        try { ForensicLogger.lifecycle("PAPER_BUY_COLD_CAP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${finalSol.fmt(4)} to=${cap.fmt(4)} wr=${wr.toInt()} lossStreak=${perf.lossStreak} trades=$decisive") } catch (_: Throwable) {}
+                        finalSol = cap
+                    }
+                }
+            } catch (_: Throwable) {}
+            finalSol
+        }
         
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
 

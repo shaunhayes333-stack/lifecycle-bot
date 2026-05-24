@@ -598,6 +598,30 @@ object SmartSizer {
             }
         }
 
+        // V5.9.1131 — paper cold-streak clamp.
+        // 3098 showed 7.4% WR, 11-loss cold streak, and 4-12 SOL paper buys.
+        // Paper must keep learning volume, but giant losing entries poison P&L,
+        // distort expectancy, and amplify feed glitches. Clamp only during proven
+        // cold regimes; do not zero size or choke the scanner.
+        if (isPaperMode && perf.totalTrades >= 25) {
+            val coldCapPct = when {
+                perf.lossStreak >= 10 || perf.recentWinRate < 10.0 -> 0.02
+                perf.lossStreak >= 6  || perf.recentWinRate < 20.0 -> 0.035
+                perf.lossStreak >= 4  || perf.recentWinRate < 30.0 -> 0.05
+                else -> 0.0
+            }
+            if (coldCapPct > 0.0) {
+                val coldCap = maxOf(0.01, tradeable * coldCapPct).coerceAtMost(1.0)
+                if (size > coldCap) {
+                    ErrorLogger.warn("SmartSizer",
+                        "🧯 PAPER_COLD_STREAK_CAP: size=${size.fmt(3)} → ${coldCap.fmt(3)} SOL " +
+                        "(wr=${perf.recentWinRate.toInt()}% lossStreak=${perf.lossStreak} trades=${perf.totalTrades})")
+                    size = coldCap
+                    cappedBy = "paper_cold_streak_${(coldCapPct * 100).toInt()}pct"
+                }
+            }
+        }
+
         // Max per-trade: 20% of tradeable (same for paper and live)
         val maxPerTrade = tradeable * 0.20
         if (size > maxPerTrade) { size = maxPerTrade; cappedBy = "maxPct_20" }

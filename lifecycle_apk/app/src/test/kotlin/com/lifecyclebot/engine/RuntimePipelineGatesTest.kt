@@ -359,6 +359,42 @@ class RuntimeDoctorSmokeTest {
         assertTrue(HotfixRules.rollback("r1", "rb").applied)
     }
 
+
+    @Test
+    fun runtime_overlay_duplicate_mitigation_is_idempotent() {
+        RuntimeConfigOverlay.resetForTests()
+        RuntimeConfigOverlay.disableLane("MOONSHOT", "same_reason", 60_000L)
+        RuntimeConfigOverlay.disableLane("MOONSHOT", "same_reason", 60_000L)
+        val active = RuntimeConfigOverlay.activeCommands().filter { it.kind == "DISABLE_LANE" && it.target == "MOONSHOT" }
+        assertEquals(1, active.size)
+    }
+
+    @Test
+    fun smart_sizer_caps_paper_cold_streak_size() {
+        val cfg = com.lifecyclebot.data.BotConfig(paperMode = true, fluidLearningEnabled = false)
+        val perf = SmartSizer.PerformanceContext(
+            recentWinRate = 7.4,
+            winStreak = 0,
+            lossStreak = 11,
+            sessionPeakSol = 100.0,
+            totalTrades = 271,
+        )
+        val size = SmartSizer.calculate(
+            walletSol = 68.0,
+            entryScore = 80.0,
+            perf = perf,
+            cfg = cfg,
+            openPositionCount = 4,
+            currentTotalExposure = 0.0,
+            liquidityUsd = 200_000.0,
+            solPriceUsd = 160.0,
+            mcapUsd = 1_000_000.0,
+            aiConfidence = 80.0,
+            setupQuality = "A+",
+        )
+        assertTrue("cold paper cap should keep sizing <= 1 SOL, got ${size.solAmount}", size.solAmount <= 1.0)
+    }
+
     @Test
     fun state_debugger_outputs_required_safe_fields() {
         val snap = RuntimeStateSnapshot.current()
