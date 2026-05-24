@@ -13808,7 +13808,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.qualityScore.toDouble()),
+                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble()),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14897,7 +14897,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
-                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.confidence * 100.0),
+                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.score.toDouble()),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
