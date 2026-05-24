@@ -1746,19 +1746,13 @@ object FinalDecisionGate {
                 laneNameForBaseSignal != null &&
                 laneNameForBaseSignal != "STANDARD"
             if (staleBaseSignalBlock && laneNameForBaseSignal != null) {
-                baseSignalMismatchIgnoredForLane = true
-                // V5.9.1114 — specialist lanes/V3 can produce their own entry
-                // signal even when the legacy LifecycleStrategy base signal is
-                // WAIT/SELL. Treat that stale base-strategy mismatch as telemetry,
-                // not a hard FDG veto. Real safety/quality blocks below remain hard.
-                checks.add(GateCheck("candidate_base_signal", true, "ignored_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
-                tags.add("base_signal_ignored:$laneNameForBaseSignal")
-                try {
-                    ForensicLogger.lifecycle(
-                        "FDG_BASE_SIGNAL_BLOCK_IGNORED",
-                        "lane=$laneNameForBaseSignal symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${candidate.blockReason.take(80)}"
-                    )
-                } catch (_: Throwable) {}
+                // V5.9.1124 — 3090 showed FDG_BASE_SIGNAL_BLOCK_IGNORED=43k.
+                // A WAIT/SELL base signal is not executable. Specialist lanes may
+                // keep telemetry elsewhere, but FDG must not authorize or preAuth.
+                blockReason = candidate.blockReason
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("candidate_base_signal", false, "hard_block_for_lane=$laneNameForBaseSignal: ${candidate.blockReason}"))
+                tags.add("base_signal_hard_block:$laneNameForBaseSignal")
             } else {
                 blockReason = candidate.blockReason
                 blockLevel = BlockLevel.HARD

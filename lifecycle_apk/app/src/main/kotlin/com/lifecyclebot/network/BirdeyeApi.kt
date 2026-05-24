@@ -157,12 +157,26 @@ class BirdeyeApi(private val apiKey: String = "") {
      */
     fun getTokenPrice(mint: String): Double? {
         val body = get("$BASE/defi/price?address=$mint") ?: return null
-        return try {
-            val data = JSONObject(body).optJSONObject("data") ?: return null
-            val p = data.optDouble("value", 0.0)
-            if (p > 0.0) p else null
-        } catch (_: Exception) { null }
+        return parsePriceBody(body)
     }
+
+    /**
+     * V5.9.1123 — emergency-only open-position fallback. The caller must pass
+     * BirdeyeBudgetGate.canAffordOpenPositionEmergency() before calling this;
+     * this method records the one allowed call and skips the generic gate, which
+     * is intentionally closed during conservation mode.
+     */
+    fun getTokenPriceEmergency(mint: String): Double? {
+        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
+        val body = getRaw("$BASE/defi/price?address=$mint") ?: return null
+        return parsePriceBody(body)
+    }
+
+    private fun parsePriceBody(body: String): Double? = try {
+        val data = JSONObject(body).optJSONObject("data") ?: return null
+        val p = data.optDouble("value", 0.0)
+        if (p > 0.0) p else null
+    } catch (_: Exception) { null }
 
     // ── V5.9.937 — STARTER-TIER RICH DATA ENDPOINTS ────────────────────
     //
@@ -555,12 +569,16 @@ class BirdeyeApi(private val apiKey: String = "") {
     // ── HTTP helper ───────────────────────────────────────────────────
 
     private fun get(url: String): String? {
-        // V5.9.952 — global budget gate. Every BirdeyeApi call routes here.
+        // V5.9.952 — global budget gate. Every normal BirdeyeApi call routes here.
         if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
             com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
             return null
         }
         com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
+        return getRaw(url)
+    }
+
+    private fun getRaw(url: String): String? {
         // V5.9.866 — KeyValidator entry gate. Birdeye is key-auth-class API.
         // (Converted from expression body — early returns aren't legal there.)
         if (apiKey.isBlank()) return null

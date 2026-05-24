@@ -4,7 +4,8 @@ object InvariantGuardian {
     enum class FaultCode {
         RUNTIME_UI_SPLIT_BRAIN, SELL_RECONCILER_DEAD, HOST_TRACKER_DESYNC,
         LANE_FANOUT_EXPLOSION, EXEC_REQUEST_INFLATION, LEARNING_LEDGER_DUPLICATION,
-        PAPER_LIVE_CONTAMINATION, SCANNER_RESTORE_POISONING, MAIN_THREAD_STALL, API_LAYER_DEGRADED
+        PAPER_LIVE_CONTAMINATION, SCANNER_RESTORE_POISONING, MAIN_THREAD_STALL, API_LAYER_DEGRADED,
+        FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXEC_ACCOUNTING_SPLIT_BRAIN, EXIT_SWEEP_UNSTABLE
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -15,6 +16,18 @@ object InvariantGuardian {
         if (s.hostTrackerOpenCount != s.positionStoreOpenCount) out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "host=${s.hostTrackerOpenCount} positionStore=${s.positionStoreOpenCount}")
         val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
         if (s.intake > 0 && laneRatio > 12.0) out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)}")
+        val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val fdg = pipe?.phaseCounts?.get("FDG") ?: s.fdg
+        val fdgRatio = if (s.intake > 0) fdg.toDouble() / s.intake else 0.0
+        if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG/intake=${"%.2f".format(fdgRatio)} fdg=$fdg intake=${s.intake}")
+        val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
+        if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
+        val journal = pipe?.labelCounts?.get("TRADEJRNL_REC") ?: 0L
+        if (s.exec == 0L && journal > 0L) out += Fault(FaultCode.EXEC_ACCOUNTING_SPLIT_BRAIN, "CRITICAL", "EXEC=0 but TRADEJRNL_REC=$journal")
+        val exitReset = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_RESET") ?: 0L
+        val exitTimeout = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_TIMEOUT") ?: 0L
+        val workerTimeout = pipe?.labelCounts?.get("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT") ?: 0L
+        if (exitReset > 10L || exitTimeout > 0L || workerTimeout > 100L) out += Fault(FaultCode.EXIT_SWEEP_UNSTABLE, "HIGH", "exitReset=$exitReset exitTimeout=$exitTimeout workerTimeout=$workerTimeout")
         val actualBuys = (s.exec).coerceAtLeast(0L)
         val execRatio = if (actualBuys > 0) (s.exec.toDouble() / actualBuys) else 0.0
         if (actualBuys > 0 && execRatio > 5.0) out += Fault(FaultCode.EXEC_REQUEST_INFLATION, "HIGH", "execOpenRequest/actualBuys=${"%.2f".format(execRatio)}")

@@ -39,6 +39,15 @@ object BirdeyeBudgetGate {
     private const val MONTHLY_SCANNER_THROTTLE_PCT = 0.75
     private const val DAILY_SCANNER_THROTTLE_PCT = 0.10
 
+    // V5.9.1123 — emergency conservation mode. Operator reported real
+    // Birdeye account usage at ~300% monthly. The app-local monthly counter
+    // can reset across reinstalls/builds, so do not trust it as the source of
+    // truth while the provider account is over quota. Default: block all
+    // non-emergency Birdeye traffic. Free Dex/Pump/Gecko/Helius paths continue.
+    private const val EMERGENCY_CONSERVATION_MODE = true
+    private const val EMERGENCY_DAILY_CAP = 2_500L       // ~100 calls/day max
+    private const val EMERGENCY_OPEN_POS_CALLS_PER_HOUR = 12L
+
     @Volatile private var dayKey: Long = currentDayKey()
     @Volatile private var monthKey: Long = currentMonthKey()
     private val callsToday = AtomicLong(0L)
@@ -59,10 +68,29 @@ object BirdeyeBudgetGate {
 
     fun canAfford(estimatedCalls: Int): Boolean {
         rolloverIfNeeded()
+        if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (dailyCap == 0L) return true
         val estCu = estimatedCalls * 25L
         return (cuToday.get() + estCu) <= dailyCap
+    }
+
+    /** Emergency-only allowance for open-position price fallback. */
+    fun canAffordOpenPositionEmergency(estimatedCalls: Int = 1): Boolean {
+        rolloverIfNeeded()
+        if (isProviderLockedDown()) return false
+        val estCu = estimatedCalls * 25L
+        val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
+        if (cap > 0L && cuToday.get() + estCu > cap) return false
+        if (EMERGENCY_CONSERVATION_MODE) {
+            val hourKey = System.currentTimeMillis() / 3_600_000L
+            val key = "openpos:$hourKey"
+            val used = hourlyEmergencyCalls[key] ?: 0L
+            if (used + estimatedCalls > EMERGENCY_OPEN_POS_CALLS_PER_HOUR) return false
+            hourlyEmergencyCalls[key] = used + estimatedCalls
+            hourlyEmergencyCalls.keys.removeIf { it != key }
+        }
+        return true
     }
 
     /**
@@ -71,6 +99,7 @@ object BirdeyeBudgetGate {
      */
     fun canAffordScannerLane(): Boolean {
         rolloverIfNeeded()
+        if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (!canAfford(1)) return false
 
@@ -107,6 +136,10 @@ object BirdeyeBudgetGate {
      */
     fun canAffordSafety(): Boolean {
         rolloverIfNeeded()
+        // Token security is useful, but not worth burning provider quota while
+        // the account is already 300% over monthly. Safety remains fail-open and
+        // is covered by RugCheck/Helius/Dex heuristics.
+        if (EMERGENCY_CONSERVATION_MODE) return false
         return !isLockedDown()
     }
 
@@ -118,10 +151,20 @@ object BirdeyeBudgetGate {
         cuThisMonth.addAndGet(cu)
     }
 
+    private val hourlyEmergencyCalls = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun isProviderLockedDown(): Boolean {
+        val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP
+        val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
+        val dailyPct = if (cap > 0) cuToday.get().toDouble() / cap else 0.0
+        return pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
+    }
+
     fun isLockedDown(): Boolean {
         val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
-        val locked = pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
+        val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
+        val dailyPct = if (cap > 0) cuToday.get().toDouble() / cap else 0.0
+        val locked = EMERGENCY_CONSERVATION_MODE || pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
         if (locked) {
             val now = System.currentTimeMillis()
             if (now - lastLockdownLogMs > 300_000L) {
@@ -151,12 +194,13 @@ object BirdeyeBudgetGate {
         rolloverIfNeeded()
         val cu = cuToday.get()
         val monthCu = cuThisMonth.get()
+        val effectiveDailyCap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
         return Snapshot(
             dayKey = dayKey,
             callsToday = callsToday.get(),
             cuToday = cu,
-            dailyCap = dailyCap,
-            pctUsed = if (dailyCap > 0) (cu.toDouble() / dailyCap * 100.0) else 0.0,
+            dailyCap = effectiveDailyCap,
+            pctUsed = if (effectiveDailyCap > 0) (cu.toDouble() / effectiveDailyCap * 100.0) else 0.0,
             cuThisMonth = monthCu,
             monthlyPctUsed = monthCu.toDouble() / MONTHLY_CAP * 100.0,
             lockedDown = isLockedDown(),

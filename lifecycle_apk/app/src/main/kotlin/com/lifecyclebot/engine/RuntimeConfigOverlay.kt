@@ -22,6 +22,7 @@ object RuntimeConfigOverlay {
     fun disablePreAuth(reason: String, ttlMs: Long) = put("DISABLE_PREAUTH", "GLOBAL", "true", reason, ttlMs)
     fun forcePrimaryLane(lane: String, reason: String, ttlMs: Long) = put("FORCE_PRIMARY_LANE", "GLOBAL", lane.uppercase(), reason, ttlMs)
     fun forcedPrimaryLane(): String? = if (HARD_QUALITY_ONLY) "QUALITY" else activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
+    fun isHardQualityOnlyActive(): Boolean = HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY"
     fun isLaneDisabled(lane: String): Boolean {
         val normalized = normalizeLane(lane)
         val forced = forcedPrimaryLane()
@@ -40,7 +41,7 @@ object RuntimeConfigOverlay {
     }
     fun qualityOnlySummary(): String {
         val disabled = activeCommands().filter { it.kind == "DISABLE_LANE" }.map { it.target }.joinToString("|")
-        return "hardQualityOnly=$HARD_QUALITY_ONLY forcedPrimary=${forcedPrimaryLane() ?: "none"} disabled=$disabled"
+        return "hardQualityOnly=${isHardQualityOnlyActive()} forcedPrimary=${forcedPrimaryLane() ?: "none"} disabled=$disabled"
     }
     fun resetForTests() = commands.clear()
     fun normalizeLane(lane: String): String = lane.uppercase().replace("-", "_").replace(" ", "_").let {

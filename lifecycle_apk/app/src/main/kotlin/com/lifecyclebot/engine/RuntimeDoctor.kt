@@ -42,27 +42,29 @@ object RuntimeDoctor {
     private fun commandsFor(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> = when (f.code) {
         InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
         InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
-        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> listOf(
-            // V5.9.1112 — unlock multi-lane runtime after 1109-1111 repairs.
-            // Do NOT auto-force QUALITY-only and do NOT disable all specialist lanes
-            // on a raw laneEval/intake ratio. Multi-lane recovery intentionally raises
-            // lane-eval volume; the repaired FinalExecutionPermit/FDG/preauth guards
-            // now own execution containment. RuntimeDoctor may still reduce scanner
-            // pressure and quarantine restore poison, but it must not silently re-cage
-            // the trader the moment lanes come back.
-            RuntimeMitigationBus.Command.DisableScannerSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L),
-        )
+        InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> fanoutMitigations(f)
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
         InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
-        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
-        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> {
-            // V5.9.1116 — do not throttle the Meme scanner for unrelated x/groq
-            // failures. Birdeye lockdown is still handled by BirdeyeBudgetGate;
-            // source-level scanner errors are isolated by runScanBatch.
-            val d = f.detail.lowercase()
-            if (d.contains("birdeyelocked=true")) listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(4, f.detail, 60_000L)) else emptyList()
-        }
-        InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC, InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION, InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
+        InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> fanoutMitigations(f) + RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L)
+        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> fanoutMitigations(f)
+        InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC,
+        InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION,
+        InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION,
+        InvariantGuardian.FaultCode.FDG_FANOUT_EXPLOSION,
+        InvariantGuardian.FaultCode.FDG_SIGNAL_BYPASS,
+        InvariantGuardian.FaultCode.EXEC_ACCOUNTING_SPLIT_BRAIN,
+        InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
+    }
+
+    private fun fanoutMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {
+        val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val topSource = snap?.intakeBySource?.maxByOrNull { it.value }?.key ?: "PUMP_PORTAL_WS"
+        return listOf(
+            RuntimeMitigationBus.Command.ForceQualityOnly(f.detail, 5 * 60_000L),
+            RuntimeMitigationBus.Command.ReduceScannerConcurrency(1, f.detail, 5 * 60_000L),
+            RuntimeMitigationBus.Command.DisableScannerSource(topSource, f.detail, 60_000L),
+            RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L),
+        )
     }
 
     private fun toRequest(cmd: RuntimeMitigationBus.Command): RuntimeSelfHealer.Request = when (cmd) {

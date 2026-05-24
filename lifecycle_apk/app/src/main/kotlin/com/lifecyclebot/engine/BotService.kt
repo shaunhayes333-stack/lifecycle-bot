@@ -6757,7 +6757,10 @@ class BotService : Service() {
                         if (birdeye != null) {
                             val nowMs = System.currentTimeMillis()
                             var burnedThisTick = 0
-                            val perTickCap = 5
+                            // V5.9.1123 — Birdeye emergency conservation: provider
+                            // account is ~300% over monthly. Use at most one fallback
+                            // price per tick and only through the emergency gate.
+                            val perTickCap = 1
                             for (mint in missing) {
                                 if (burnedThisTick >= perTickCap) break
                                 val lastFb = openPosFallbackLastAttempt[mint] ?: 0L
@@ -6769,14 +6772,13 @@ class BotService : Service() {
                                 // Budget gate — if we're at cap, skip. Open-position
                                 // safety still has hard-SL via the position's last
                                 // known price (price will go stale → SL trips later).
-                                if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(1)) {
+                                if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordOpenPositionEmergency(1)) {
                                     com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()
                                     break
                                 }
                                 openPosFallbackLastAttempt[mint] = nowMs
                                 burnedThisTick++
-                                com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
-                                val price = try { birdeye.getTokenPrice(mint) } catch (_: Throwable) { null }
+                                val price = try { birdeye.getTokenPriceEmergency(mint) } catch (_: Throwable) { null }
                                 if (price != null && price > 0.0) {
                                     priceMap[mint] = price
                                     // Reset chronic counter on success

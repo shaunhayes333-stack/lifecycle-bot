@@ -18,7 +18,12 @@ object RuntimeMitigationBus {
         is Command.ReduceScannerConcurrency -> { RuntimeConfigOverlay.reduceScannerConcurrency(cmd.value, cmd.reason, cmd.ttlMs); Result(true, "ReduceScannerConcurrency", cmd.value.toString()) }
         is Command.PauseTrading -> { RuntimeConfigOverlay.pauseTrading(cmd.reason, cmd.ttlMs); RuntimeRepairState.pauseTrading(cmd.reason); Result(true, "PauseTrading", cmd.reason) }
         is Command.DisablePreAuth -> { RuntimeConfigOverlay.disablePreAuth(cmd.reason, cmd.ttlMs); Result(true, "DisablePreAuth", cmd.reason) }
-        is Command.ForceQualityOnly -> { RuntimeConfigOverlay.forcePrimaryLane("QUALITY", cmd.reason, cmd.ttlMs); Result(true, "ForceQualityOnly", cmd.reason) }
+        is Command.ForceQualityOnly -> {
+            RuntimeConfigOverlay.forcePrimaryLane("QUALITY", cmd.reason, cmd.ttlMs)
+            listOf("TREASURY", "SHITCOIN", "EXPRESS", "MANIPULATED", "MOONSHOT", "DIP_HUNTER", "PROJECT_SNIPER", "BLUECHIP", "LAB", "SHADOW", "CORE")
+                .forEach { lane -> RuntimeConfigOverlay.disableLane(lane, "force_quality_only:${cmd.reason}", cmd.ttlMs) }
+            Result(true, "ForceQualityOnly", cmd.reason)
+        }
         is Command.RestartSellReconciler -> { BotRuntimeController.markSellReconcilerStarted(BotRuntimeController.currentGeneration(), true); Result(true, "RestartSellReconciler", cmd.reason) }
         is Command.QuarantineSource -> { RuntimeConfigOverlay.quarantineSource(cmd.source, cmd.reason, cmd.ttlMs); Result(true, "QuarantineSource", cmd.source) }
     }
