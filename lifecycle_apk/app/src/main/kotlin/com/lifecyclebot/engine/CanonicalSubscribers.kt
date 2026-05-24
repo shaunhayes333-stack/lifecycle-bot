@@ -220,6 +220,34 @@ object CanonicalSubscribers {
                 }
             }
 
+            // V5.9.1146 — UNIVERSAL MEME LAYER VOTE CLOSEOUT.
+            // Votes are captured when ANY meme trade opens in Executor.recordTrade.
+            // Before this, votes were drained only from Executor's base-meme SELL
+            // fanout and only when isMemeBaseClose=true. Specialist closes
+            // (ShitCoin/Moonshot/BlueChip/Quality/Manip/Express/Dip/Sniper), which
+            // publish through CanonicalPublishHelper, bypassed that path, leaving
+            // LayerVoteStore votes undrained and the 26 meme layers ungraded.
+            // Subscribe once to the canonical bus so every real settled MEME close
+            // grades the layers that actually voted on the entry — no duplicate
+            // side path, no extra execution authority, pure learning fanout.
+            CanonicalOutcomeBus.subscribe { outcome ->
+                if (!recordOnce(outcome.tradeId, "LayerVoteStore")) return@subscribe
+                if (outcome.assetClass != AssetClass.MEME) return@subscribe
+                if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                if (outcome.bcSimOnly) return@subscribe
+                try {
+                    val isWin = outcome.result == TradeResult.WIN
+                    com.lifecyclebot.learning.LayerVoteStore.closeoutMeme(
+                        mint = outcome.mint,
+                        isWin = isWin,
+                        pnlPct = outcome.realizedPnlPct ?: 0.0,
+                        symbol = outcome.symbol,
+                    )
+                } catch (t: Throwable) {
+                    ErrorLogger.debug(TAG, "LayerVoteStore closeout threw: ${t.message?.take(80)}")
+                }
+            }
+
             // Generic readiness recorder for the strategy/execution layers
             // that don't yet have a direct mirror but DO need their readiness
             // sample count to advance every time a relevant outcome lands.

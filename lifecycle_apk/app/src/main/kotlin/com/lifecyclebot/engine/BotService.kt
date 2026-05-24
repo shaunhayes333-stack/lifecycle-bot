@@ -13774,10 +13774,15 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             } // close FDG-required else (QUALITY V5.9.688)
                         }
                     }
+                } catch (qualityEx: Exception) {
+                    ErrorLogger.debug("BotService", "⭐ [QUALITY] ${ts.symbol} | ERROR | ${qualityEx.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)
+                }
                     
                     // ═══════════════════════════════════════════════════════════════
                     // BLUE CHIP TRADER AI - For $1M+ mcap tokens
                     // ═══════════════════════════════════════════════════════════════
+                    try {
 
                     // V5.9.920 — BLUECHIP LANE_EVAL emit. Even when mcap is below
                     // $1M (the lane's own threshold), emit so the brain sees
