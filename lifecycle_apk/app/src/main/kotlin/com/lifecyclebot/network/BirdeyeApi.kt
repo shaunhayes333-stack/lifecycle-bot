@@ -172,11 +172,13 @@ class BirdeyeApi(private val apiKey: String = "") {
         return parsePriceBody(body)
     }
 
-    private fun parsePriceBody(body: String): Double? = try {
-        val data = JSONObject(body).optJSONObject("data") ?: return null
-        val p = data.optDouble("value", 0.0)
-        if (p > 0.0) p else null
-    } catch (_: Exception) { null }
+    private fun parsePriceBody(body: String): Double? {
+        return try {
+            val data = JSONObject(body).optJSONObject("data") ?: return null
+            val p = data.optDouble("value", 0.0)
+            if (p > 0.0) p else null
+        } catch (_: Exception) { null }
+    }
 
     // ── V5.9.937 — STARTER-TIER RICH DATA ENDPOINTS ────────────────────
     //
