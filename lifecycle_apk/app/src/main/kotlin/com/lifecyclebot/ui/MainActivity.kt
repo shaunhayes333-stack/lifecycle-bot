@@ -2802,9 +2802,19 @@ for legal compliance.
             val unifiedListSize = try {
                 buildUnifiedOpenPositions(state).size
             } catch (_: Throwable) { 0 }
-            val openCount = maxOf(openMints.size, hostOpen, lifecycleOpen, unifiedListSize)
-            tvStatsOpenPos.text = "$openCount"
-            tvStatsOpenPos.setTextColor(if (openCount > 0) purple else muted)
+            val managedOpenCount = maxOf(openMints.size, hostOpen, lifecycleOpen, unifiedListSize)
+            // V5.9.1134 — do not hide source divergence. The screenshot at
+            // 3100 showed "11 Open" in the top tile but only 3 rendered in
+            // Open Positions because the tile counts every managed holder
+            // source (host/lifecycle/private lane stores) while the card shows
+            // the current-mode unified list and excludes dedicated lane cards.
+            // Show as visible/managed so ghost gaps are immediately obvious.
+            tvStatsOpenPos.text = if (managedOpenCount > unifiedListSize) {
+                "$unifiedListSize/$managedOpenCount"
+            } else {
+                "$unifiedListSize"
+            }
+            tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
             
             // ═══════════════════════════════════════════════════════════════════
             // AI CONFIDENCE / MODE DISPLAY (unified - no double-write)
@@ -3785,8 +3795,13 @@ for legal compliance.
                 }
                 (llOpenPositions.parent as? android.view.ViewGroup)?.addView(footer)
             }
-            if (laneHeld > 0) {
-                footer.text = "+ $laneHeld held in lane cards below — still managed by their respective traders."
+            val managedTileText = try { tvStatsOpenPos.text?.toString().orEmpty() } catch (_: Throwable) { "" }
+            if (laneHeld > 0 || managedTileText.contains("/")) {
+                footer.text = if (managedTileText.contains("/")) {
+                    "Showing ${positions.size}; managed total $managedTileText. Hidden/dedicated-lane positions are still managed."
+                } else {
+                    "+ $laneHeld held in lane cards below — still managed by their respective traders."
+                }
                 footer.visibility = android.view.View.VISIBLE
             } else {
                 footer.visibility = android.view.View.GONE

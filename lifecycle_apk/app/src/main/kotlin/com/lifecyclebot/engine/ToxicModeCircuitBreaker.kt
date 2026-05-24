@@ -35,6 +35,12 @@ object ToxicModeCircuitBreaker {
     
     private const val TAG = "CircuitBreaker"
     
+    private fun warn(message: String) {
+        try { Log.w(TAG, message) } catch (_: Throwable) {
+            try { ErrorLogger.warn(TAG, message) } catch (_: Throwable) {}
+        }
+    }
+    
     // ═══════════════════════════════════════════════════════════════════════════
     // HARD DISABLED MODES
     // These modes are completely disabled - no entries allowed
@@ -204,7 +210,7 @@ object ToxicModeCircuitBreaker {
         // 2. Hard disabled modes
         val modeUpper = mode.uppercase()
         if (modeUpper in HARD_DISABLED_MODES) {
-            Log.w(TAG, "🚫 BLOCKED: $mode is HARD DISABLED (toxic loss pattern)")
+            warn("🚫 BLOCKED: $mode is HARD DISABLED (toxic loss pattern)")
             return recordEntryBlocked(modeUpper, "MODE_HARD_DISABLED")
         }
         
@@ -212,7 +218,7 @@ object ToxicModeCircuitBreaker {
         val freezeEnd = frozenModes[modeUpper]
         if (freezeEnd != null && System.currentTimeMillis() < freezeEnd) {
             val remainingMins = (freezeEnd - System.currentTimeMillis()) / 60_000
-            Log.w(TAG, "🚫 BLOCKED: $mode frozen for ${remainingMins}min (circuit breaker)")
+            warn("🚫 BLOCKED: $mode frozen for ${remainingMins}min (circuit breaker)")
             return recordEntryBlocked(modeUpper, "MODE_FROZEN_${remainingMins}MIN")
         }
         
@@ -229,14 +235,14 @@ object ToxicModeCircuitBreaker {
             LIQUIDITY_FLOORS[modeUpper] ?: LIQUIDITY_FLOORS["DEFAULT"]!!
         }
         if (liquidityUsd < floor) {
-            Log.w(TAG, "🚫 BLOCKED: $mode requires \$${floor.toInt()} liq, got \$${liquidityUsd.toInt()}")
+            warn("🚫 BLOCKED: $mode requires \$${floor.toInt()} liq, got \$${liquidityUsd.toInt()}")
             return recordEntryBlocked(modeUpper, "LIQUIDITY_BELOW_FLOOR_${floor.toInt()}")
         }
         
         // 5. Source + mode combo block
         val combo = "${source.uppercase()}:$modeUpper"
         if (combo in BLOCKED_SOURCE_MODE_COMBOS) {
-            Log.w(TAG, "🚫 BLOCKED: $source + $mode combo is banned")
+            warn("🚫 BLOCKED: $source + $mode combo is banned")
             return recordEntryBlocked(modeUpper, "BLOCKED_SOURCE_MODE_COMBO")
         }
         
@@ -244,7 +250,7 @@ object ToxicModeCircuitBreaker {
         val dangerousPhases = setOf("early_unknown", "pre_pump", "unknown")
         if (phase.lowercase() in dangerousPhases) {
             if (modeUpper in setOf("WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
-                Log.w(TAG, "🚫 BLOCKED: $mode not allowed in phase=$phase")
+                warn("🚫 BLOCKED: $mode not allowed in phase=$phase")
                 return recordEntryBlocked(modeUpper, "PHASE_RESTRICTED_${phase}")
             }
             // V5.9.1118 — in paper/lenient bootstrap, early_unknown/pre_pump is
@@ -260,7 +266,7 @@ object ToxicModeCircuitBreaker {
             // V5.9.1055: COPY_TRADE/COPY removed — copy trade follows wallet signals,
             // not AI scoring, so AI degradation doesn't affect its signal quality.
             if (modeUpper in setOf("WHALE_FOLLOW", "FRESH_LAUNCH", "PRESALE_SNIPE")) {
-                Log.w(TAG, "🚫 BLOCKED: $mode not allowed when AI degraded")
+                warn("🚫 BLOCKED: $mode not allowed when AI degraded")
                 return recordEntryBlocked(modeUpper, "AI_DEGRADED_AGGRESSIVE_MODE")
             }
         }
@@ -281,12 +287,12 @@ object ToxicModeCircuitBreaker {
         //     have a substantially negative memory profile before LIVE
         //     entries are blocked.
         if (memoryScore <= -12 && !isPaperMode) {
-            Log.w(TAG, "🚫 BLOCKED [LIVE]: Memory score $memoryScore too negative")
+            warn("🚫 BLOCKED [LIVE]: Memory score $memoryScore too negative")
             return recordEntryBlocked(modeUpper, "MEMORY_TOO_NEGATIVE")
         }
         if (memoryScore <= -8 && isPaperMode) {
             // Visibility only — do NOT block paper trades.
-            Log.w(TAG, "⚠️ PAPER warning: Memory score $memoryScore is negative — allowing for learning.")
+            warn("⚠️ PAPER warning: Memory score $memoryScore is negative — allowing for learning.")
         }
         
         // 9. Confidence check for whale-follow only (not copy trade — it learns from wallet signals)
@@ -444,7 +450,7 @@ object ToxicModeCircuitBreaker {
         // For COPY_TRADE and WHALE modes, any collapse signal = full exit
         if (modeUpper in setOf("COPY_TRADE", "COPY", "WHALE_FOLLOW", "WHALE_ACCUMULATION")) {
             if (liquidityCollapsing || copyInvalidated || whalesStopped) {
-                Log.w(TAG, "⚠️ FORCE EXIT: $mode collapse detected (liq=$liquidityCollapsing, copy=$copyInvalidated, whale=$whalesStopped)")
+                warn("⚠️ FORCE EXIT: $mode collapse detected (liq=$liquidityCollapsing, copy=$copyInvalidated, whale=$whalesStopped)")
                 return true
             }
         }
@@ -459,13 +465,13 @@ object ToxicModeCircuitBreaker {
         ).count { it }
         
         if (collapseSignals >= 3) {
-            Log.w(TAG, "⚠️ FORCE EXIT: Multiple collapse signals ($collapseSignals)")
+            warn("⚠️ FORCE EXIT: Multiple collapse signals ($collapseSignals)")
             return true
         }
         
         // Liquidity collapse alone is enough for small-cap positions
         if (liquidityCollapsing && depthDangerous) {
-            Log.w(TAG, "⚠️ FORCE EXIT: Liquidity collapse + depth dangerous")
+            warn("⚠️ FORCE EXIT: Liquidity collapse + depth dangerous")
             return true
         }
         
