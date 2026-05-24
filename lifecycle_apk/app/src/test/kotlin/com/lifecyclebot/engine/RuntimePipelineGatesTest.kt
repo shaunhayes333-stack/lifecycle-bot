@@ -228,6 +228,25 @@ class RuntimeSupervisorSmokeTest {
 
 class LaneExecutionCoordinatorSmokeTest {
     @Test
+    fun specialist_lane_can_upgrade_treasury_first_caller_primary() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        assertFalse("treasury first touch should defer one cycle for specialists", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
+        assertTrue("specialist lane must be able to supersede treasury first-caller election", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "MOONSHOT", runtimeGeneration = gen).allowed)
+        assertFalse("treasury should become telemetry after specialist upgrade", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
+    }
+
+    @Test
+    fun treasury_can_trade_next_pass_if_no_specialist_claims() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen).allowed)
+        assertTrue("treasury should be allowed on next pass when no specialist upgraded", LaneExecutionCoordinator.canRequestExecution("MintTreasuryOnly", "TREASURY", runtimeGeneration = gen).allowed)
+    }
+
+    @Test
     fun one_primary_lane_per_candidate_generation() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
