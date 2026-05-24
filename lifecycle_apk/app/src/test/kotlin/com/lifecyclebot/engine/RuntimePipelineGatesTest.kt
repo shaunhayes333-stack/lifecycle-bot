@@ -535,6 +535,34 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
+    fun preauthorized_open_attempt_can_be_reused_by_executor_same_lane() {
+        resetAuthorities(paper = true)
+        val mint = "MintReuse111111111111111111111111111"
+        ExecutableOpenGate.recordV3(mint, "REUSE", "WATCH", "DECISION_WATCH", "WATCH", 90)
+        ExecutableOpenGate.recordFdg(mint, "REUSE", "SHITCOIN", true, null, rugScore = 90)
+        val first = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "REUSE",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "SHITCOIN",
+            source = "TradeAuthorizer.preAuth",
+        )
+        assertTrue(first.allowed)
+        val second = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "REUSE",
+            rugScore = 90,
+            mode = "PAPER",
+            lane = "SHITCOIN",
+            source = "Executor.shitCoinBuy",
+            attemptId = first.attemptId,
+        )
+        assertTrue("executor must reuse the same pre-authorized attempt, not self-block as duplicate", second.allowed)
+        assertEquals(first.attemptId, second.attemptId)
+    }
+
+    @Test
     fun daily_budget_exhaustion_blocks_executable_entry_but_provider_lock_is_separate() {
         resetAuthorities(paper = true)
         BirdeyeBudgetGate.resetForTests(dailyCapOverride = 25L)
