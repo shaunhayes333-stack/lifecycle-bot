@@ -94,38 +94,48 @@ object LayerVoteStore {
             return
         }
 
-        val correctLayers = mutableListOf<String>()
-        val wrongLayers = mutableListOf<String>()
+        val bullishCorrectLayers = mutableListOf<String>()
+        val bearishCorrectLayers = mutableListOf<String>()
+        val bullishWrongLayers = mutableListOf<String>()
+        val bearishWrongLayers = mutableListOf<String>()
         cast.forEach { (layer, vote) ->
             val layerCorrect = vote.bullish == isWin
-            if (layerCorrect) correctLayers.add(layer) else wrongLayers.add(layer)
+            when {
+                vote.bullish && layerCorrect -> bullishCorrectLayers.add(layer)
+                !vote.bullish && layerCorrect -> bearishCorrectLayers.add(layer)
+                vote.bullish -> bullishWrongLayers.add(layer)
+                else -> bearishWrongLayers.add(layer)
+            }
         }
 
-        // Feed correct voters as "isWin=true" and wrong voters as "isWin=false"
-        // via two separate calls so each layer gets graded on its OWN vote.
-        if (correctLayers.isNotEmpty()) {
+        // V5.9.1148 — sign layer P&L from the layer's own vote, not from the
+        // trade's raw direction. Before this, a bearish layer that correctly
+        // avoided a -27% loss was logged/trained as "WIN -27%". That made
+        // accuracy improve while totalPnlContribution went DOWN — corrupting
+        // layer trust/expectancy. Correct bearish calls now receive +abs(loss)
+        // avoided-loss contribution; wrong bearish calls on winning trades
+        // receive -abs(win). Bullish votes keep raw trade PnL.
+        fun feed(layers: List<String>, won: Boolean, layerPnlPct: Double) {
+            if (layers.isEmpty()) return
             com.lifecyclebot.perps.PerpsLearningBridge.learnFromAssetTrade(
                 asset = com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME,
-                contributingLayers = correctLayers,
-                isWin = true,
-                pnlPct = pnlPct,
+                contributingLayers = layers,
+                isWin = won,
+                pnlPct = layerPnlPct,
                 symbol = symbol,
             )
         }
-        if (wrongLayers.isNotEmpty()) {
-            com.lifecyclebot.perps.PerpsLearningBridge.learnFromAssetTrade(
-                asset = com.lifecyclebot.perps.PerpsLearningBridge.AssetClass.MEME,
-                contributingLayers = wrongLayers,
-                isWin = false,
-                pnlPct = pnlPct,
-                symbol = symbol,
-            )
-        }
+
+        feed(bullishCorrectLayers, true, pnlPct)
+        feed(bearishCorrectLayers, true, kotlin.math.abs(pnlPct))
+        feed(bullishWrongLayers, false, pnlPct)
+        feed(bearishWrongLayers, false, -kotlin.math.abs(pnlPct))
 
         ErrorLogger.debug(
             TAG,
             "🗳️ $symbol closeout ${if (isWin) "WIN" else "LOSS"} → " +
-                "correct=${correctLayers.size} wrong=${wrongLayers.size} " +
+                "bullOk=${bullishCorrectLayers.size} bearOk=${bearishCorrectLayers.size} " +
+                "bullWrong=${bullishWrongLayers.size} bearWrong=${bearishWrongLayers.size} " +
                 "abstain=${26 - cast.size}",
         )
     }

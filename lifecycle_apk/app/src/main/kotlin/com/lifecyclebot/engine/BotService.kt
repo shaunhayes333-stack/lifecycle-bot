@@ -13704,6 +13704,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     // journal (was showing as BLUE_CHIP / ExtendedMode).
                                     layerTag = "QUALITY",
                                     layerTagEmoji = "⭐",
+                                    // V5.9.1148 — FEP already executed finality above.
+                                    // Do not let executor preflight re-open the same key and
+                                    // self-block as EXEC_OPEN_BLOCKED_DUPLICATE_KEY.
+                                    finalityPrechecked = true,
+                                    attemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "QUALITY") ?: "",
                                 )
                                 if (!qualityOpened) {
                                     ErrorLogger.warn("BotService", "QUALITY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -13874,7 +13879,12 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode
+                                    isPaper = cfg.paperMode,
+                                    // V5.9.1148 — FinalExecutionPermit above already passed
+                                    // executable-open finality for BLUE_CHIP. Bypass only the
+                                    // duplicate executor preflight, not FDG/FEP itself.
+                                    finalityPrechecked = true,
+                                    attemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "BLUE_CHIP") ?: "",
                                 )
                                 if (!blueChipOpened) {
                                     ErrorLogger.warn("BotService", "BLUE_CHIP ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
