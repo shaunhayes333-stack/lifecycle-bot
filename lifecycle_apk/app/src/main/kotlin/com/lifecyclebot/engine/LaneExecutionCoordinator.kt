@@ -160,6 +160,38 @@ object LaneExecutionCoordinator {
 
     fun duplicateOpenSuppressions(): Long = duplicateOpenSuppressed.get()
 
+    /**
+     * V5.9.1138 — release a primary election when the winning lane fails before
+     * actually opening a trade. Without this, the first primary lane can fail
+     * FDG/finality/buy-open and still suppress every other lane for the full
+     * candidate window, making runtime look like "only one layer trades".
+     * This is fail-open for learning: it only releases when the caller is the
+     * current primary for that mint/window.
+     */
+    fun releaseIfPrimary(
+        mint: String,
+        lane: String,
+        reason: String,
+        candidateVersion: Long = candidateVersionFor(mint),
+        runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
+    ): Boolean {
+        val laneUpper = lane.uppercase()
+        val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
+        val mapKey = mapKey(key)
+        val current = elections[mapKey] ?: return false
+        if (current.primaryLane != laneUpper) return false
+        val removed = elections.remove(mapKey, current)
+        if (removed) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_PRIMARY_RELEASED",
+                    "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
+                )
+            } catch (_: Throwable) {}
+        }
+        return removed
+    }
+
     fun resetForTests() {
         elections.clear()
         affinities.clear()

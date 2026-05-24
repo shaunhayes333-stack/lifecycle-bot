@@ -258,6 +258,17 @@ class LaneExecutionCoordinatorSmokeTest {
     }
 
     @Test
+    fun failed_primary_release_allows_next_lane_to_trade() {
+        BotRuntimeController.resetForTests()
+        val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
+        LaneExecutionCoordinator.resetForTests()
+        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintRelease", "MOONSHOT", runtimeGeneration = gen).allowed)
+        assertFalse(LaneExecutionCoordinator.canRequestExecution("MintRelease", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertTrue(LaneExecutionCoordinator.releaseIfPrimary("MintRelease", "MOONSHOT", "TEST_FDG_FAIL", runtimeGeneration = gen))
+        assertTrue("after primary fails pre-open, another lane must get a shot", LaneExecutionCoordinator.canRequestExecution("MintRelease", "SHITCOIN", runtimeGeneration = gen).allowed)
+    }
+
+    @Test
     fun one_primary_lane_per_candidate_generation() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")

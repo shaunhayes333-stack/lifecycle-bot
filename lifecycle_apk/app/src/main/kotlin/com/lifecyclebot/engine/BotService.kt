@@ -13447,6 +13447,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!treasuryOpened) {
                                     ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=TREASURY symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "TREASURY", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.TREASURY) } catch (_: Throwable) {}
                                     return
@@ -13492,6 +13493,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
                                 // Release authorizer lock since we didn't execute
                                 TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "PERMIT_BLOCKED") } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "TREASURY", "PERMIT_BLOCKED") } catch (_: Throwable) {}
                             }
                             } // end authResult.isExecutable()
                         }
@@ -13672,6 +13675,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!qualityOpened) {
                                     ErrorLogger.warn("BotService", "QUALITY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=QUALITY symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "QUALITY", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     return
                                 }
@@ -13842,6 +13846,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!blueChipOpened) {
                                     ErrorLogger.warn("BotService", "BLUE_CHIP ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=BLUE_CHIP symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "BLUE_CHIP", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     return
                                 }
@@ -14150,6 +14155,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                             if (!moonshotOpened) {
                                                 ErrorLogger.warn("BotService", "MOONSHOT ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                                 try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MOONSHOT symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "MOONSHOT", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                                 try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                                 try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MOONSHOT) } catch (_: Throwable) {}
                                                 return
@@ -14675,6 +14681,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!shitCoinOpened) {
                                     ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=SHITCOIN symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
                                     return
@@ -14933,6 +14940,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!manipOpened) {
                                     ErrorLogger.warn("BotService", "MANIPULATED ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "MANIPULATED", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MANIPULATED) } catch (_: Throwable) {}
                                     return
@@ -15140,6 +15148,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!expressOpened) {
                                     ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=EXPRESS symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "EXPRESS", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
                                     return
@@ -15439,6 +15448,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!dipOpened) {
                                     ErrorLogger.warn("BotService", "DIP_HUNTER ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=DIP_HUNTER symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "DIP_HUNTER", "BUY_NOT_OPENED") } catch (_: Throwable) {}
                                     try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.DIP_HUNTER) } catch (_: Throwable) {}
                                     return

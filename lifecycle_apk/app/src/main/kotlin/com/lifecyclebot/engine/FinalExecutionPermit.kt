@@ -127,13 +127,18 @@ object FinalExecutionPermit {
         rugScore: Int = -1,
     ): Boolean {
         val now = System.currentTimeMillis()
+        fun releasePrimaryAfterPermitFailure(reason: String) {
+            try { LaneExecutionCoordinator.releaseIfPrimary(mint, layer, reason) } catch (_: Throwable) {}
+        }
 
         if (RuntimeConfigOverlay.isTradingPaused()) {
             ErrorLogger.warn(TAG, "🛑 RUNTIME_PAUSED: $symbol | layer=$layer")
+            releasePrimaryAfterPermitFailure("RUNTIME_PAUSED")
             return false
         }
         if (RuntimeConfigOverlay.isLaneDisabled(layer)) {
             try { ForensicLogger.lifecycle("LANE_EXECUTION_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=RUNTIME_OVERLAY_DISABLED") } catch (_: Throwable) {}
+            releasePrimaryAfterPermitFailure("RUNTIME_OVERLAY_DISABLED")
             return false
         }
 
@@ -156,6 +161,7 @@ object FinalExecutionPermit {
         )
         if (!finality.allowed) {
             ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")
+            releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")
             return false
         }
 
@@ -181,6 +187,7 @@ object FinalExecutionPermit {
             val elapsed = now - existing.timestamp
             if (elapsed < EXECUTION_COOLDOWN_MS) {
                 ErrorLogger.debug(TAG, "🔒 BLOCKED: $symbol | $layer blocked by pending ${existing.layer} (${elapsed}ms ago)")
+                releasePrimaryAfterPermitFailure("PENDING_${existing.layer}")
                 return false
             }
         }

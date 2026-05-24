@@ -138,6 +138,10 @@ object TradeAuthorizer {
             return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
         }
 
+        fun releasePrimaryAfterAuthFailure(reason: String) {
+            try { LaneExecutionCoordinator.releaseIfPrimary(mint, requestedBook.name, reason) } catch (_: Throwable) {}
+        }
+
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
         // secondary lanes were reaching ExecutableOpenGate just to be rejected
@@ -177,6 +181,7 @@ object TradeAuthorizer {
         )
         if (!finality.allowed) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
+            releasePrimaryAfterAuthFailure("FINALITY_${finality.logName}")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "FINALITY_${finality.logName}:${finality.reason}",
@@ -188,6 +193,7 @@ object TradeAuthorizer {
         // GATE 1: permanent ban
         if (isBanned || BannedTokens.isBanned(mint)) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: BANNED")
+            releasePrimaryAfterAuthFailure("BANNED")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "BANNED",
@@ -209,6 +215,7 @@ object TradeAuthorizer {
         if (!isPaperMode && LiveSafetyCircuitBreaker.isTripped()) {
             val cbReason = LiveSafetyCircuitBreaker.trippedReason()
             ErrorLogger.info(TAG, "❌ REJECT $symbol: LIVE_SAFETY_CB_TRIPPED — $cbReason")
+            releasePrimaryAfterAuthFailure("LIVE_SAFETY_CB")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "LIVE_SAFETY_CB:$cbReason",
@@ -232,6 +239,7 @@ object TradeAuthorizer {
                     // fall through to GATE 3+
                 } else {
                     ErrorLogger.info(TAG, "❌ REJECT $symbol: RC_SCORE_$rugcheckScore <= 0 (confirmed rug)")
+                    releasePrimaryAfterAuthFailure("RUGCHECK_CATASTROPHIC")
                     return AuthorizationResult(
                         verdict = ExecutionVerdict.REJECT,
                         reason = "RUGCHECK_CATASTROPHIC_$rugcheckScore",
@@ -272,6 +280,7 @@ object TradeAuthorizer {
             when (sameBookLock.state) {
                 TokenState.PAPER_OPEN, TokenState.LIVE_OPEN -> {
                     ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
+                    releasePrimaryAfterAuthFailure("ALREADY_OPEN")
                     return AuthorizationResult(
                         verdict = ExecutionVerdict.REJECT,
                         reason = "ALREADY_OPEN",
@@ -323,6 +332,7 @@ object TradeAuthorizer {
             // is a clean REJECT — no position record, no lock, no shadow.
             if (isPaperMode) {
                 ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
+                releasePrimaryAfterAuthFailure("SHADOW_ONLY")
                 tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
                     mint = mint,
                     state = TokenState.SHADOW_TRACKING,
@@ -339,6 +349,7 @@ object TradeAuthorizer {
             }
             // Live: clean reject, no lock written.
             ErrorLogger.info(TAG, "❌ REJECT $symbol: ${promotion.reason} (live, no shadow track)")
+            releasePrimaryAfterAuthFailure("PROMOTION_REJECT")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = promotion.reason,
