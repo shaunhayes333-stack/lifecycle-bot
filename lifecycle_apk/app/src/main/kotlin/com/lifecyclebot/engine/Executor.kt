@@ -9701,6 +9701,23 @@ class Executor(
         } catch (e: Exception) {
             ErrorLogger.error("Executor", "Error closing layer positions: ${e.message}")
         }
+
+        // V5.9.1133 — close paper position state before heavy learning fanout.
+        // 3100 showed ghost-looking open positions after sells while the code kept
+        // ts.position open until after bad-observation/brain/memory work. The
+        // async journal already uses tsLearningSnap, and later learning can read
+        // immutable `pos`, so clear live state now to stop exit sweeps/re-entry
+        // guards from seeing a closed paper trade as still open.
+        ts.position = Position()
+        ts.lastExitTs = System.currentTimeMillis()
+        ts.lastExitPrice = price
+        ts.lastExitPnlPct = pnlP
+        ts.lastExitWasWin = pnlP >= 1.0
+        try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+        try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason stage=early_close") } catch (_: Throwable) {}
+        try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
+        try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
+        try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
         
         try {
             TradeAuthorizer.releasePosition(
@@ -9766,7 +9783,7 @@ class Executor(
         
         if (shouldLearnAsLoss) {
             val fanName = ts.meta.emafanAlignment
-            val ph      = ts.position.entryPhase
+            val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
 
             tradeDb?.recordBadObservation(
@@ -9869,7 +9886,7 @@ class Executor(
             }
         } else if (shouldLearnAsWin) {
             val fanName = ts.meta.emafanAlignment
-            val ph      = ts.position.entryPhase
+            val ph      = pos.entryPhase
             val src     = ts.source.ifBlank { "UNKNOWN" }
             tradeDb?.recordGoodObservation("phase=${ph}+ema=${fanName}")
             tradeDb?.recordGoodObservation("source=${src}")
@@ -10427,8 +10444,7 @@ class Executor(
             com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(tradeId.mint, price, expEx)
         } catch (_: Exception) {}
 
-        ts.position         = Position()
-        try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason") } catch (_: Throwable) {}
+        // Position already cleared before heavy learning fanout (V5.9.1133).
         ts.lastExitTs       = System.currentTimeMillis()
         ts.lastExitPrice    = price
         ts.lastExitPnlPct   = pnlP

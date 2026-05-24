@@ -459,6 +459,23 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
+    fun liquidity_floor_block_does_not_create_global_circuit_pause() {
+        resetAuthorities(paper = true)
+        val reason = ToxicModeCircuitBreaker.checkEntryAllowed(
+            mode = "SHITCOIN",
+            source = "test",
+            liquidityUsd = 100.0,
+            phase = "fresh_launch",
+            memoryScore = 0,
+            isAIDegraded = false,
+            confidence = 50,
+            isPaperMode = true,
+        )
+        assertTrue(reason?.contains("LIQUIDITY_BELOW_FLOOR") == true)
+        assertFalse("liquidity floor is lane-local, not global circuit breaker", ToxicModeCircuitBreaker.currentEntryPause().active)
+    }
+
+    @Test
     fun circuit_breaker_blocks_before_executable_open_allowed() {
         resetAuthorities(paper = true)
         ToxicModeCircuitBreaker.forceTripForTests("SHITCOIN", 60_000L, "TEST_CIRCUIT")
