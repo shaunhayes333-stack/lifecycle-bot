@@ -88,6 +88,12 @@ object TreasuryWalletManager {
     }
 
     fun publicKey(): String = publicKeyB58
+    fun destinationAddress(): String {
+        val cfgAddress = try {
+            appCtx?.let { ConfigStore.load(it).treasuryWalletAddress.trim() }
+        } catch (_: Throwable) { null }
+        return cfgAddress?.takeIf { it.isNotBlank() } ?: publicKeyB58
+    }
     fun getWallet(): SolanaWallet? = wallet
     fun getBalance(): Double = lastObservedSolBalance
 
@@ -174,15 +180,16 @@ object TreasuryWalletManager {
             ErrorLogger.debug(TAG, "transferFromTrading skipped: no trading wallet (paper or disconnected)")
             return null
         }
-        if (publicKeyB58.isBlank()) {
-            ErrorLogger.warn(TAG, "transferFromTrading skipped: treasury wallet not initialised")
+        val destination = destinationAddress()
+        if (destination.isBlank()) {
+            ErrorLogger.warn(TAG, "transferFromTrading skipped: no treasury destination configured")
             return null
         }
         if (amountSol < 0.000001) return null  // dust
         return try {
-            val sig = tradingWallet.sendSol(publicKeyB58, amountSol)
+            val sig = tradingWallet.sendSol(destination, amountSol)
             ErrorLogger.info(TAG,
-                "💸 transferred ${"%.6f".format(amountSol)} SOL trading→treasury | $memo | sig=${sig.take(8)}…")
+                "💸 transferred ${"%.6f".format(amountSol)} SOL trading→treasury(${destination.take(8)}…) | $memo | sig=${sig.take(8)}…")
             // Trigger a balance refresh on the next IO tick so UI updates.
             scope.launch { refreshBalance() }
             sig

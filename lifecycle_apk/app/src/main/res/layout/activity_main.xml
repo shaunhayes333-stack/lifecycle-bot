@@ -5480,6 +5480,19 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:inputType="textUri" android:layout_marginBottom="10dp"/>
 
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="TREASURY WALLET ADDRESS" android:textColor="#6B7280"
+                        android:textSize="10sp" android:fontFamily="monospace"
+                        android:layout_marginBottom="4dp"/>
+                    <EditText android:id="@+id/etTreasuryWalletAddress"
+                        android:layout_width="match_parent" android:layout_height="@dimen/input_height"
+                        android:background="@drawable/input_bg" android:textColor="#FFFFFF"
+                        android:textColorHint="#374151" android:textSize="11sp"
+                        android:fontFamily="monospace"
+                        android:hint="optional public SOL address for treasury splits"
+                        android:paddingStart="@dimen/input_padding_h"
+                        android:inputType="text" android:singleLine="true" android:layout_marginBottom="10dp"/>
+
                     <TextView android:id="@+id/tvTelegramHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="📱 TELEGRAM BOT — t.me/BotFather"

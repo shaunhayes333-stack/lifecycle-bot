@@ -3877,8 +3877,16 @@ class Executor(
                            else TreasuryEventType.PROFIT_LOCK_SELL
             TreasuryManager.recordProfitLockEvent(eventType, solBack, ts.symbol, gainMultiple, solPrice)
             
-            if (pnlSol > 0) {
-                TreasuryManager.lockRealizedProfit(pnlSol, solPrice)
+            if (netPnl > 0) {
+                try {
+                    if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                        TreasuryManager.contributeFullyFromTreasuryScalp(netPnl, solPrice)
+                    } else {
+                        TreasuryManager.contributeFromMemeSell(netPnl, solPrice)
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Treasury split error (profit-lock live): ${e.message}")
+                }
             }
 
             LiveTradeLogStore.log(

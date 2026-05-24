@@ -418,6 +418,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSlippage: EditText
     private lateinit var etPoll: EditText
     private lateinit var etRpc: EditText
+    private lateinit var etTreasuryWalletAddress: EditText
     private lateinit var etTgBotToken: EditText
     private lateinit var etTgChatId: EditText
     private lateinit var etWatchlist: EditText
@@ -1640,6 +1641,7 @@ for legal compliance.
         etSlippage      = findViewById(R.id.etSlippage)
         etPoll          = findViewById(R.id.etPoll)
         etRpc           = findViewById(R.id.etRpc)
+        etTreasuryWalletAddress = try { findViewById(R.id.etTreasuryWalletAddress) } catch (_: Exception) { EditText(this) }
         etTgBotToken    = findViewById(R.id.etTgBotToken)
         etTgChatId          = findViewById(R.id.etTgChatId)
         etWatchlist     = findViewById(R.id.etWatchlist)
@@ -7621,6 +7623,7 @@ This cannot be undone!
         etSlippage.setText(cfg.slippageBps.toString())
         etPoll.setText(cfg.pollSeconds.toString())
         etRpc.setText(cfg.rpcUrl)
+        etTreasuryWalletAddress.setText(cfg.treasuryWalletAddress)
         etTgBotToken.setText(cfg.telegramBotToken)
         etWatchlist.setText(cfg.watchlist.joinToString(", "))
         etHeliusKey.setText(cfg.heliusApiKey)
@@ -7644,6 +7647,7 @@ This cannot be undone!
             slippageBps           = etSlippage.text.toString().toIntOrNull() ?: 200,
             pollSeconds           = etPoll.text.toString().toIntOrNull() ?: 8,
             rpcUrl                = etRpc.text.toString().trim().ifBlank { "https://api.mainnet-beta.solana.com" },
+            treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             telegramBotToken      = etTgBotToken.text.toString().trim(),
             telegramChatId        = etTgChatId.text.toString().trim(),  // V5.2 FIX: Was missing!
             heliusApiKey          = etHeliusKey.text.toString().trim(),
