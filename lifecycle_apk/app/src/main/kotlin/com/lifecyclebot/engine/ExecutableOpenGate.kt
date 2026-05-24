@@ -273,18 +273,6 @@ object ExecutableOpenGate {
         openRequests.entries.removeIf { now - it.value > ALLOWED_ATTEMPT_TTL_MS }
         val prior = openRequests.putIfAbsent(execKey, now)
         if (prior != null && now - prior <= ALLOWED_ATTEMPT_TTL_MS) {
-            val sameLanePreAuth = try {
-                allowedAttempts[laneKey(mint, lane)]?.let { it.first == execKey && now - it.second <= ALLOWED_ATTEMPT_TTL_MS } == true
-            } catch (_: Throwable) { false }
-            if (sameLanePreAuth) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "EXEC_OPEN_ALLOWED_REUSE",
-                        "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source reason=same_lane_preauth_reuse",
-                    )
-                } catch (_: Throwable) {}
-                return OpenVerdict(true, "finality_clear_reuse", attemptId = execKey)
-            }
             try { TradeOutcomeLedger.recordSuppressedDuplicateOpen() } catch (_: Throwable) {}
             return blocked("EXEC_OPEN_BLOCKED_DUPLICATE_KEY", "DUPLICATE_EXECUTION_KEY")
         }

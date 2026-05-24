@@ -13471,7 +13471,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
                                     stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode
+                                    isPaper = cfg.paperMode,
+                                    finalityPrechecked = true,
+                                    attemptId = authResult.attemptId,
                                 )
                                 if (!treasuryOpened) {
                                     ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14180,6 +14182,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                                 score = moonshotScore.score.toDouble(),
                                                 spaceModeEmoji = moonshotScore.spaceMode.emoji,
                                                 spaceModeName = moonshotScore.spaceMode.displayName,
+                                                finalityPrechecked = true,
+                                                attemptId = authResult.attemptId,
                                             )
                                             if (!moonshotOpened) {
                                                 ErrorLogger.warn("BotService", "MOONSHOT ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14706,6 +14710,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     isPaper = cfg.paperMode,
                                     launchPlatform = shitCoinSignal.launchPlatform,
                                     riskLevel = shitCoinSignal.riskLevel,
+                                    finalityPrechecked = true,
+                                    attemptId = authResult.attemptId,
                                 )
                                 if (!shitCoinOpened) {
                                     ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14963,6 +14969,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 isPaper = cfg.paperMode,
                                 launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                 riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                finalityPrechecked = true,
+                                attemptId = manipAuthResult.attemptId,
                             )
 
   
@@ -15173,6 +15181,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     isPaper = cfg.paperMode,
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                    finalityPrechecked = true,
+                                    attemptId = authResult.attemptId,
                                 )
                                 if (!expressOpened) {
                                     ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -15328,6 +15338,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     isPaper = cfg.paperMode,
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
+                                    finalityPrechecked = true,
+                                    attemptId = authResult.attemptId,
                                 )
                                 
                                 addLog("🎯 SNIPER: ${ts.symbol} | ${assessment.threatLevel.emoji} ENGAGED | " +
@@ -15473,6 +15485,8 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     wallet = wallet,
                                     walletSol = effectiveBalance,
                                     identity = identity,
+                                    finalityPrechecked = true,
+                                    attemptId = authResult.attemptId,
                                 )
                                 if (!dipOpened) {
                                     ErrorLogger.warn("BotService", "DIP_HUNTER ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -15788,7 +15802,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             wallet = wallet,
                             lastSuccessfulPollMs = lastSuccessfulPollMs,
                             openPositionCount = status.openPositionCount,
-                            totalExposureSol = status.totalExposureSol
+                            totalExposureSol = status.totalExposureSol,
+                            finalityPrechecked = true,
+                            attemptId = authResult.attemptId,
                         )
                         
                         addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)

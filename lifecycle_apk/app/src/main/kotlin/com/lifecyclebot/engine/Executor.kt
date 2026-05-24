@@ -6894,7 +6894,9 @@ class Executor(
         wallet: SolanaWallet?,
         lastSuccessfulPollMs: Long,
         openPositionCount: Int,
-        totalExposureSol: Double
+        totalExposureSol: Double,
+        finalityPrechecked: Boolean = false,
+        attemptId: String = "",
     ) {
         // V5.9.778 — EMERGENT MEME-ONLY: single mode authority. The
         // exact log line `MEME_SPINE V3_BUY_ROUTE route=PAPER cfgPaper=true`
@@ -6950,7 +6952,9 @@ class Executor(
                 quality = v3Band,
                 skipGraduated = true,
                 wallet = wallet,
-                walletSol = walletSol
+                walletSol = walletSol,
+                finalityPrechecked = finalityPrechecked,
+                attemptId = attemptId,
             )
         } else {
             if (wallet == null) {
@@ -6965,7 +6969,9 @@ class Executor(
                 walletSol = walletSol,
                 identity = identity,
                 quality = v3Band,
-                skipGraduated = true
+                skipGraduated = true,
+                finalityPrechecked = finalityPrechecked,
+                attemptId = attemptId,
             )
         }
         

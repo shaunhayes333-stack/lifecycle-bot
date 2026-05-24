@@ -71,6 +71,7 @@ object TradeAuthorizer {
         val reason: String,
         val blockLevel: BlockLevel? = null,
         val canRetry: Boolean = false,
+        val attemptId: String = "",
     ) {
         fun isExecutable(): Boolean {
             return verdict == ExecutionVerdict.PAPER_EXECUTE || verdict == ExecutionVerdict.LIVE_EXECUTE
@@ -383,6 +384,7 @@ object TradeAuthorizer {
             reason = "AUTHORIZED",
             blockLevel = null,
             canRetry = false,
+            attemptId = finality.attemptId,
         )
     }
 

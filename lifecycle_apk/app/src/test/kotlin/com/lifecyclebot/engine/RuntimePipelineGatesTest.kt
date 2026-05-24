@@ -535,31 +535,27 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun preauthorized_open_attempt_can_be_reused_by_executor_same_lane() {
+    fun trade_authorizer_returns_finality_attempt_contract() {
         resetAuthorities(paper = true)
-        val mint = "MintReuse111111111111111111111111111"
-        ExecutableOpenGate.recordV3(mint, "REUSE", "WATCH", "DECISION_WATCH", "WATCH", 90)
-        ExecutableOpenGate.recordFdg(mint, "REUSE", "SHITCOIN", true, null, rugScore = 90)
-        val first = ExecutableOpenGate.canOpenExecutablePosition(
+        TradeAuthorizer.resetForTests()
+        LaneExecutionCoordinator.resetForTests()
+        val mint = "MintContract1111111111111111111111111"
+        ExecutableOpenGate.recordV3(mint, "CONTRACT", "WATCH", "DECISION_WATCH", "WATCH", 90)
+        ExecutableOpenGate.recordFdg(mint, "CONTRACT", "SHITCOIN", true, null, rugScore = 90)
+        val auth = TradeAuthorizer.authorize(
             mint = mint,
-            symbol = "REUSE",
-            rugScore = 90,
-            mode = "PAPER",
-            lane = "SHITCOIN",
-            source = "TradeAuthorizer.preAuth",
+            symbol = "CONTRACT",
+            score = 42,
+            confidence = 60.0,
+            quality = "C",
+            isPaperMode = true,
+            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
+            rugcheckScore = 90,
+            liquidity = 2500.0,
         )
-        assertTrue(first.allowed)
-        val second = ExecutableOpenGate.canOpenExecutablePosition(
-            mint = mint,
-            symbol = "REUSE",
-            rugScore = 90,
-            mode = "PAPER",
-            lane = "SHITCOIN",
-            source = "Executor.shitCoinBuy",
-            attemptId = first.attemptId,
-        )
-        assertTrue("executor must reuse the same pre-authorized attempt, not self-block as duplicate", second.allowed)
-        assertEquals(first.attemptId, second.attemptId)
+        assertTrue(auth.isExecutable())
+        assertTrue("authorized execution must carry the finality attemptId contract", auth.attemptId.isNotBlank())
+        assertEquals(auth.attemptId, ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
     }
 
     @Test
