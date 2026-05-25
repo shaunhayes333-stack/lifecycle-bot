@@ -1159,6 +1159,7 @@ object MoonshotTraderAI {
                 holdMins  = holdMins,
                 traderTag = "MOONSHOT",
                 exitReason = exitReason.name,
+                entryTimeMs = pos.entryTime,
             )
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
                 pnlPct              = pnlPct,
@@ -1244,7 +1245,8 @@ object MoonshotTraderAI {
                     holdTimeMins = holdMins,
                     exitReason = exitReason.name,
                     outcomeScore = if (isWin) 1 else if (pnlPct <= -1.0) -1 else 0,
-                    label = label
+                    label = label,
+                    stableTradeKey = "${mint}:${pos.entryTime}",
                 )
                 com.lifecyclebot.engine.AdaptiveLearningEngine.learnFromTrade(features)
             } catch (e: Exception) {

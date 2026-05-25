@@ -810,6 +810,7 @@ object ShitCoinExpress {
                 holdMins   = holdMins,
                 traderTag  = "EXPRESS",
                 exitReason = exitSignal.name,
+                entryTimeMs = ride.entryTime,
             )
             com.lifecyclebot.engine.PersonalityMemoryStore.recordTradeOutcome(
                 pnlPct              = pnlPct,

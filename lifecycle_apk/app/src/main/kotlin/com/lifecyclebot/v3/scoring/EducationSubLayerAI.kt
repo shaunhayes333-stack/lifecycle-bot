@@ -2828,6 +2828,7 @@ object EducationSubLayerAI {
         holdMins: Double,
         traderTag: String,
         exitReason: String = "CLOSED",
+        entryTimeMs: Long = 0L,
     ) {
         try {
             val outcome = TradeOutcomeData(
@@ -2836,6 +2837,7 @@ object EducationSubLayerAI {
                 tokenName          = symbol,
                 pnlPct             = pnlPct,
                 holdTimeMinutes    = holdMins.coerceAtLeast(0.0),
+                entryTimeMs        = entryTimeMs,
                 exitReason         = exitReason,
                 entryPhase         = "LIVE",
                 tradingMode        = traderTag,
