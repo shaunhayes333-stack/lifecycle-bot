@@ -519,6 +519,17 @@ class ExecutionAuthorityInvariantTest {
     @Test
     fun circuit_breaker_blocks_before_executable_open_allowed() {
         resetAuthorities(paper = true)
+        ExecutableOpenGate.recordFdg(
+            mint = "MintCircuit11111111111111111111111111",
+            symbol = "CB",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
         ToxicModeCircuitBreaker.forceTripForTests("SHITCOIN", 60_000L, "TEST_CIRCUIT")
         val v = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintCircuit11111111111111111111111111",
@@ -541,7 +552,7 @@ class ExecutionAuthorityInvariantTest {
         LaneExecutionCoordinator.resetForTests()
         val mint = "MintContract1111111111111111111111111"
         ExecutableOpenGate.recordV3(mint, "CONTRACT", "WATCH", "DECISION_WATCH", "WATCH", 90)
-        ExecutableOpenGate.recordFdg(mint, "CONTRACT", "SHITCOIN", true, null, rugScore = 90)
+        ExecutableOpenGate.recordFdg(mint, "CONTRACT", "SHITCOIN", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 2500.0)
         val auth = TradeAuthorizer.authorize(
             mint = mint,
             symbol = "CONTRACT",
@@ -564,6 +575,17 @@ class ExecutionAuthorityInvariantTest {
         BirdeyeBudgetGate.resetForTests(dailyCapOverride = 25L)
         BirdeyeBudgetGate.recordCalls(1)
         assertTrue("configured daily cap exhausted", BirdeyeBudgetGate.isEntryBudgetLockedDown())
+        ExecutableOpenGate.recordFdg(
+            mint = "MintBudget111111111111111111111111111",
+            symbol = "BUD",
+            lane = "QUALITY",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
         val v = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintBudget111111111111111111111111111",
             symbol = "BUD",
@@ -587,6 +609,8 @@ class ExecutionAuthorityInvariantTest {
             reason = "Signal is WAIT",
             signal = "WAIT",
             rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
         )
         val first = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintWait1111111111111111111111111111",
@@ -597,7 +621,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(first.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", first.logName)
+        assertEquals("EXEC_OPEN_BLOCKED_PRE_FDG_NOT_BUY", first.logName)
         val second = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintWait1111111111111111111111111111",
             symbol = "WAIT",

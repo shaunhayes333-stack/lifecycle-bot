@@ -282,6 +282,22 @@ object ExecutableOpenGate {
         }
 
 
+
+        val pause = ToxicModeCircuitBreaker.currentEntryPause()
+        if (pause.active) {
+            ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
+            return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
+        }
+        if (RuntimeConfigOverlay.isTradingPaused()) {
+            return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
+        }
+        if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
+            return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
+        }
+        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
+            return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
+        }
+
         if (state == null) {
             return blocked("EXEC_OPEN_BLOCKED_NO_FINAL_CANDIDATE", "NO_FINAL_BUY_CANDIDATE")
         }
@@ -311,21 +327,6 @@ object ExecutableOpenGate {
         }
         if (fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
-        }
-
-        val pause = ToxicModeCircuitBreaker.currentEntryPause()
-        if (pause.active) {
-            ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
-            return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
-        }
-        if (RuntimeConfigOverlay.isTradingPaused()) {
-            return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
-        }
-        if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
-            return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
-        }
-        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
-            return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
