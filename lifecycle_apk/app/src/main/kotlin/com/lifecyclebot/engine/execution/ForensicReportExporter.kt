@@ -15,6 +15,7 @@ import com.lifecyclebot.engine.QuarantineStore
 import com.lifecyclebot.engine.TradeOutcomeLedger
 import com.lifecyclebot.engine.RuntimeRegressionGuards
 import com.lifecyclebot.engine.RuntimeDoctor
+import com.lifecyclebot.engine.RuntimeStateSnapshot
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -102,6 +103,7 @@ object ForensicReportExporter {
         root.put("exportedAtMs", System.currentTimeMillis())
         root.put("schemaVersion", "z22.2-runtime")
         val runtime = BotRuntimeController.snapshot()
+        val runtimeSnapshot = try { RuntimeStateSnapshot.current() } catch (_: Throwable) { null }
         root.put("runtimeGeneration", runtime.runtimeGeneration)
         val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
         root.put("runtime_doctor", JSONObject().apply {
@@ -123,6 +125,13 @@ object ForensicReportExporter {
             put("paperMode", runtime.paperMode)
             put("enabledTraders", runtime.enabledTraders)
             put("hostTrackerOpenCount", runtime.hostTrackerOpenCount)
+            put("positionStoreOpenCount", runtimeSnapshot?.positionStoreOpenCount ?: -1)
+            put("paperOpenPositions", runtimeSnapshot?.paperOpenPositions ?: -1)
+            put("liveOpenPositions", runtimeSnapshot?.liveOpenPositions ?: -1)
+            put("walletHeldMints", runtimeSnapshot?.walletHeldMints ?: -1)
+            put("canonicalOpenPositions", runtimeSnapshot?.canonicalOpenPositions ?: -1)
+            put("orphanPaperPositions", runtimeSnapshot?.orphanPaperPositions ?: -1)
+            put("orphanLivePositions", runtimeSnapshot?.orphanLivePositions ?: -1)
             put("sellReconcilerStarted", runtime.sellReconcilerStarted)
             put("updatedAtMs", runtime.updatedAtMs)
         })
@@ -136,8 +145,12 @@ object ForensicReportExporter {
                     runtimeActive = runtime.runtimeActive,
                     uiRunning = runtime.runtimeActive,
                     sellReconcilerStarted = runtime.sellReconcilerStarted,
-                    hostTrackerOpenCount = runtime.hostTrackerOpenCount,
-                    positionStoreOpenCount = runtime.hostTrackerOpenCount,
+                    hostTrackerOpenCount = runtimeSnapshot?.hostTrackerOpenCount ?: runtime.hostTrackerOpenCount,
+                    positionStoreOpenCount = runtimeSnapshot?.positionStoreOpenCount ?: -1,
+                    paperOpenPositions = runtimeSnapshot?.paperOpenPositions ?: 0,
+                    liveOpenPositions = runtimeSnapshot?.liveOpenPositions ?: 0,
+                    walletHeldMints = runtimeSnapshot?.walletHeldMints ?: 0,
+                    canonicalOpenPositions = runtimeSnapshot?.canonicalOpenPositions ?: 0,
                 )
             )
         } catch (_: Throwable) { emptyList() }
@@ -230,6 +243,10 @@ object ForensicReportExporter {
         root.put("host_tracker", JSONObject().apply {
             put("open_count", try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 })
             put("runtime_open_count", runtime.hostTrackerOpenCount)
+            put("paper_open_positions", runtimeSnapshot?.paperOpenPositions ?: -1)
+            put("live_open_positions", runtimeSnapshot?.liveOpenPositions ?: -1)
+            put("wallet_held_mints", runtimeSnapshot?.walletHeldMints ?: -1)
+            put("canonical_open_positions", runtimeSnapshot?.canonicalOpenPositions ?: -1)
             put("positions", trackerArr)
         })
 

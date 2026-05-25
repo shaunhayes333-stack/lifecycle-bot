@@ -24,6 +24,10 @@ object RuntimeRegressionGuards {
         val sellReconcilerStarted: Boolean = false,
         val hostTrackerOpenCount: Int = 0,
         val positionStoreOpenCount: Int = 0,
+        val paperOpenPositions: Int = 0,
+        val liveOpenPositions: Int = 0,
+        val walletHeldMints: Int = 0,
+        val canonicalOpenPositions: Int = 0,
     )
 
     fun evaluate(input: Input): List<Check> {
@@ -37,13 +41,13 @@ object RuntimeRegressionGuards {
             ),
             Check(
                 "sell_reconciler_running",
-                ok = !input.runtimeActive || input.sellReconcilerStarted || input.hostTrackerOpenCount == 0,
-                detail = "runtimeActive=${input.runtimeActive} sellReconcilerStarted=${input.sellReconcilerStarted} hostOpen=${input.hostTrackerOpenCount}",
+                ok = !input.runtimeActive || input.sellReconcilerStarted || input.liveOpenPositions == 0,
+                detail = "runtimeActive=${input.runtimeActive} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
             ),
             Check(
                 "host_tracker_open_match",
-                ok = input.positionStoreOpenCount < 0 || input.hostTrackerOpenCount == input.positionStoreOpenCount,
-                detail = "host=${input.hostTrackerOpenCount} store=${input.positionStoreOpenCount}",
+                ok = input.liveOpenPositions == input.hostTrackerOpenCount,
+                detail = "hostLive=${input.hostTrackerOpenCount} liveStore=${input.liveOpenPositions} paperStore=${input.paperOpenPositions} walletHeld=${input.walletHeldMints} canonical=${input.canonicalOpenPositions}",
             ),
             Check(
                 "lane_eval_intake_ratio",

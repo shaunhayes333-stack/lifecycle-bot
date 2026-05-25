@@ -12,8 +12,11 @@ object InvariantGuardian {
     fun check(s: RuntimeStateSnapshot, uiRunning: Boolean = s.uiState == "RUNNING"): List<Fault> {
         val out = mutableListOf<Fault>()
         if (s.botLoopActive && !uiRunning) out += Fault(FaultCode.RUNTIME_UI_SPLIT_BRAIN, "HIGH", "runtime active but UI stopped")
-        if (s.botLoopActive && !s.sellReconcilerStarted && s.hostTrackerOpenCount > 0) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with open host positions but sell reconciler stopped")
-        if (s.hostTrackerOpenCount != s.positionStoreOpenCount) out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "host=${s.hostTrackerOpenCount} positionStore=${s.positionStoreOpenCount}")
+        if (s.botLoopActive && !s.sellReconcilerStarted && s.liveOpenPositions > 0) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with live open positions but sell reconciler stopped")
+        // V5.9.1162 — compare live domain to live wallet truth only. Paper positions
+        // are expected to have walletHeldMints=0 and must not be reported as healthy
+        // live wallet drift. They are surfaced separately as paperOpenPositions.
+        if (s.liveOpenPositions != s.hostTrackerOpenCount && s.mode == "LIVE") out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "liveStore=${s.liveOpenPositions} hostLive=${s.hostTrackerOpenCount} paper=${s.paperOpenPositions} walletHeld=${s.walletHeldMints}")
         val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
         if (s.intake > 0 && laneRatio > 12.0) out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)}")
         val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }

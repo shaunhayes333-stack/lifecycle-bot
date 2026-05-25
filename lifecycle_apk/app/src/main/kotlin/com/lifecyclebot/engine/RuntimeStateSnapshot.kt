@@ -12,6 +12,15 @@ data class RuntimeStateSnapshot(
     val sellReconcilerStarted: Boolean,
     val hostTrackerOpenCount: Int,
     val positionStoreOpenCount: Int,
+    // V5.9.1162 — domain-separated open truth. Host wallet truth is LIVE
+    // wallet only; paper positions live in BotStatus/position store and must
+    // not be hidden by a wallet-held count of zero.
+    val paperOpenPositions: Int,
+    val liveOpenPositions: Int,
+    val walletHeldMints: Int,
+    val canonicalOpenPositions: Int,
+    val orphanPaperPositions: Int,
+    val orphanLivePositions: Int,
     val mode: String,
     val enabledTraders: String,
     val intake: Long,
@@ -42,6 +51,17 @@ data class RuntimeStateSnapshot(
                 RuntimeModeAuthority.isLive() -> "LIVE"
                 else -> "PAPER"
             }
+            val statusOpen = try { BotService.status.openPositions } catch (_: Throwable) { emptyList<com.lifecyclebot.data.TokenState>() }
+            val paperOpen = try { statusOpen.count { it.position.isPaperPosition } } catch (_: Throwable) { 0 }
+            val liveOpen = try { statusOpen.count { !it.position.isPaperPosition } } catch (_: Throwable) { 0 }
+            val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
+            val hostOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { runtime.hostTrackerOpenCount }
+            val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+            val positionStoreOpen = try { statusOpen.size } catch (_: Throwable) { paperOpen + liveOpen }
+            val canonicalOpen = maxOf(positionStoreOpen, hostOpen, lifecycleOpen)
+            val orphanPaper = try { paperOpen - hostOpen }.coerceAtLeast(0) catch (_: Throwable) { 0 }
+            val orphanLive = try { maxOf(hostOpen, lifecycleOpen) - liveOpen }.coerceAtLeast(0) catch (_: Throwable) { 0 }
+
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->
                 ApiSummary(
                     successRatePct = (s.successRate() * 100.0).toInt(),
@@ -59,8 +79,14 @@ data class RuntimeStateSnapshot(
                 botLoopActive = runtime.botLoopJobActive,
                 scannerActive = runtime.scannerActive,
                 sellReconcilerStarted = runtime.sellReconcilerStarted,
-                hostTrackerOpenCount = runtime.hostTrackerOpenCount,
-                positionStoreOpenCount = runtime.hostTrackerOpenCount,
+                hostTrackerOpenCount = hostOpen,
+                positionStoreOpenCount = positionStoreOpen,
+                paperOpenPositions = paperOpen,
+                liveOpenPositions = liveOpen,
+                walletHeldMints = walletHeld,
+                canonicalOpenPositions = canonicalOpen,
+                orphanPaperPositions = orphanPaper,
+                orphanLivePositions = orphanLive,
                 mode = mode,
                 enabledTraders = runtime.enabledTraders,
                 intake = pipe.phaseCounts["INTAKE"] ?: 0L,

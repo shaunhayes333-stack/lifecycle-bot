@@ -436,6 +436,27 @@ class RuntimeDoctorSmokeTest {
         assertTrue("cold paper cap should keep sizing <= 1 SOL, got ${size.solAmount}", size.solAmount <= 1.0)
     }
 
+
+    @Test
+    fun regression_guards_do_not_treat_paper_open_positions_as_live_wallet_drift() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(
+                runtimeActive = true,
+                sellReconcilerStarted = false,
+                hostTrackerOpenCount = 0,
+                positionStoreOpenCount = 12,
+                paperOpenPositions = 12,
+                liveOpenPositions = 0,
+                walletHeldMints = 0,
+                canonicalOpenPositions = 12,
+            )
+        )
+        val host = checks.first { it.name == "host_tracker_open_match" }
+        val sell = checks.first { it.name == "sell_reconciler_running" }
+        assertTrue(host.ok)
+        assertTrue(sell.ok)
+    }
+
     @Test
     fun state_debugger_outputs_required_safe_fields() {
         val snap = RuntimeStateSnapshot.current()
