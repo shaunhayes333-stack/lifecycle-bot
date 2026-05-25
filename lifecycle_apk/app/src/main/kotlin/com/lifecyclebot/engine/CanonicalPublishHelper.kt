@@ -149,6 +149,12 @@ object CanonicalPublishHelper {
                 featuresAtEntry  = features,
                 candidate        = laneCandidate,                // V5.9.896
                 featuresIncomplete = (laneCandidate == null),    // V5.9.896 — true only on legacy lite
+                isPartial        = closeReason?.contains("partial", ignoreCase = true) == true,
+                parentPositionId = mint,
+                costBasisSol     = entrySol.takeIf { it > 0.0 },
+                proceedsSol      = exitSol?.coerceAtLeast(0.0),
+                isTrainable      = entryPrice > 0.0 && (exitPrice ?: 0.0) > 0.0 && entrySol > 0.0,
+                invalidReason    = if (entryPrice <= 0.0 || (exitPrice ?: 0.0) <= 0.0 || entrySol <= 0.0) "INVALID_ACCOUNTING" else null,
                 bcSimOnly        = false,
             )
             CanonicalOutcomeBus.markRichPublished(tradeId)

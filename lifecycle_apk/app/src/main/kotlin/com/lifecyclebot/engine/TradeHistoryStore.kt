@@ -370,6 +370,17 @@ object TradeHistoryStore {
     )
     private val RECORD_TRADE_DEDUPE_WINDOW_MS: Long = 1_500L
 
+    private fun isJournalSellLike(side: String): Boolean =
+        side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
+
+    private fun isValidAccountingTrade(t: Trade): Boolean {
+        if (!isJournalSellLike(t.side)) return true
+        if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001) return false
+        val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
+        if (proceeds < -0.0000001) return false
+        return true
+    }
+
     /**
      * V5.9.1038 — canonicalize tradingMode at the choke point so the
      * StrategyTelemetry bins (BLUECHIP / BLUE_CHIP / STANDARD) collapse into
@@ -449,7 +460,7 @@ object TradeHistoryStore {
         // totaling +19 SOL across 618 binned trades while PerformanceAnalytics
         // totaled -13.7 SOL across 912 closed trades — a 294-trade / -33 SOL
         // gap that was entirely unbinned fallback exits.
-        if (normalizedMode.isBlank() && trade.side.equals("SELL", ignoreCase = true) && trade.mint.isNotBlank()) {
+        if (normalizedMode.isBlank() && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
             val inheritedMode = try {
                 synchronized(lock) {
                     trades.asReversed().firstOrNull { prev ->
@@ -465,6 +476,9 @@ object TradeHistoryStore {
         }
 
         val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
+        if (!isValidAccountingTrade(tradeToStore)) {
+            try { ErrorLogger.warn("TradeHistoryStore", "PARTIAL_SELL_INVALID_ACCOUNTING mint=${tradeToStore.mint.take(8)} side=${tradeToStore.side} price=${tradeToStore.price} sol=${tradeToStore.sol} pnl=${tradeToStore.pnlSol} mode=${tradeToStore.tradingMode}") } catch (_: Throwable) {}
+        }
         synchronized(lock) {
             trades.add(tradeToStore)
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
@@ -645,28 +659,18 @@ object TradeHistoryStore {
     fun getTotalTradeCount(): Int = synchronized(lock) { trades.size }
 
     fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
-        ensureInitialized()
-        val partialTrade = Trade(
-            side  = "PARTIAL_SELL",
-            mode  = "paper",
-            sol   = profitSol,
-            price = 0.0,
-            ts    = System.currentTimeMillis(),
-            pnlSol= profitSol,
-            pnlPct= pnlPct,
-            reason= "CHUNK_SELL",
-            mint  = mint,
-        )
-        synchronized(lock) { trades.add(partialTrade) }
-        // V5.9.869 — record this partial as a lifetime sell so the win-rate
-        // counter sees the +18%/+35%/+60% rungs. bumpLifetimeFor now accepts
-        // PARTIAL_SELL alongside SELL and also accumulates pnlSol there, so
-        // the previous `lifetimeRealizedPnlSol += profitSol` is removed here
-        // to avoid double-counting realized profit.
-        bumpLifetimeFor(partialTrade)
-        // saveLifetimeStats() already called inside bumpLifetimeFor.
-        insertTradeAsync(partialTrade)
-        ErrorLogger.debug("TradeHistoryStore", "📊 PARTIAL PROFIT: ${profitSol.fmt(4)} SOL @ ${pnlPct.toInt()}% (counted as lifetime win-tick)")
+        // V5.9.1161 — legacy corruption path disabled permanently.
+        // The caller has no exit price, proceeds, parent position, fee or lane
+        // context, so any row created here becomes the exact broken shape from
+        // the uploaded journal (PARTIAL_SELL price=0/proceeds=0/standard).
+        // Valid partials are recorded directly by Executor as real Trade rows
+        // with side=PARTIAL_SELL, price>0, cost basis, PnL, and inherited lane.
+        try {
+            ErrorLogger.warn(
+                "TradeHistoryStore",
+                "PARTIAL_SELL_INVALID_ACCOUNTING legacy_recordPartialProfit_suppressed mint=${mint.take(8)} profit=${profitSol.fmt(4)} pnlPct=${pnlPct.toInt()}",
+            )
+        } catch (_: Throwable) {}
     }
 
     fun recordTradeForML(
@@ -718,11 +722,21 @@ object TradeHistoryStore {
 
     fun getSells24h(): List<Trade> {
         val midnight = midnightTs()
-        return synchronized(lock) { trades.filter { it.side == "SELL" && it.ts >= midnight } }
+        return synchronized(lock) { trades.filter { isJournalSellLike(it.side) && it.ts >= midnight && isValidAccountingTrade(it) } }
     }
 
     fun getAllSells(): List<Trade> =
-        synchronized(lock) { trades.filter { it.side == "SELL" }.toList() }
+        synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }.toList() }
+
+    fun getRecentValidClosedForMode(mode: String, limit: Int = 50): List<Trade> {
+        val norm = normalizeTradeModeName(mode)
+        return synchronized(lock) {
+            trades.asReversed().asSequence()
+                .filter { isJournalSellLike(it.side) && normalizeTradeModeName(it.tradingMode) == norm && isValidAccountingTrade(it) }
+                .take(limit.coerceAtLeast(1))
+                .toList()
+        }
+    }
 
     fun getWinRate24h(): Int {
         val sells = getSells24h()
@@ -843,7 +857,7 @@ object TradeHistoryStore {
         val totalCompleted = totalWins + totalLosses
         val totalClosed = lifetimeSells
 
-        val allSells       = synchronized(lock) { trades.filter { it.side == "SELL" } }
+        val allSells       = synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) } }
 
         val lifetimeWR    = if (totalCompleted > 0)
             totalWins * 100.0 / totalCompleted.toDouble() else 50.0
@@ -907,7 +921,7 @@ object TradeHistoryStore {
      */
     fun getLaneWinRate(mode: String, minTrades: Int = 10): Double {
         val t = synchronized(lock) { trades.toList() }
-        val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && it.side.equals("SELL", ignoreCase = true) }
+        val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
         if (modeTrades.size < minTrades) return -1.0
         val wins = modeTrades.count { it.pnlPct > 0.0 }
         return wins * 100.0 / modeTrades.size
@@ -1077,39 +1091,21 @@ object TradeHistoryStore {
     }
 
     private fun bumpLifetimeFor(trade: Trade) {
-        // V5.9.869 — operator audit: PARTIAL_SELL trades MUST contribute to
-        // lifetime WR statistics. Previously only side=='SELL' was counted,
-        // which meant the WR-Recovery ladder added zero "win ticks" to the
-        // lifetime WR — the entire premise of the ladder doctrine
-        // (R1/R2/R3 = small wins to boost recovery WR) was silently broken.
-        //
-        // New behaviour:
-        //   - Full SELL closes: count as before (1 sell, 1 win/loss/scratch).
-        //   - PARTIAL_SELL: counts as a sell too, win/loss/scratch decided
-        //     by isWin/isLoss against partial pnlPct (typically the
-        //     +18%/+35%/+60% AGGRESSIVE rungs all classify as wins).
-        if (trade.side != "SELL" && trade.side != "PARTIAL_SELL") return
+        if (!isJournalSellLike(trade.side)) return
+        if (!isValidAccountingTrade(trade)) return
         lifetimeSells++
         when {
             isWin(trade)  -> { lifetimeWins++;    lifetimeWinPnlSum += trade.pnlPct }
             isLoss(trade) ->   lifetimeLosses++
             else          ->   lifetimeScratches++
         }
-        // Realized PnL also accumulated here. recordPartialProfit no longer
-        // adds pnlSol manually (it was duplicating this accumulation in the
-        // pre-V5.9.869 code path — but only for PARTIAL_SELL, since
-        // recordTrade routed through bumpLifetimeFor for SELL).
-        lifetimeRealizedPnlSol += trade.pnlSol
+        lifetimeRealizedPnlSol += trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol
         saveLifetimeStats()
     }
 
     private fun backfillLifetimeFromTrades() {
-        // V5.9.869 — include PARTIAL_SELL in the lifetime back-fill so a
-        // restart correctly recovers the WR counters (previously partials
-        // were dropped on rebuild). Realized PnL is summed across both
-        // SELL and PARTIAL_SELL because both write pnlSol.
         val sells = synchronized(lock) {
-            trades.filter { it.side == "SELL" || it.side == "PARTIAL_SELL" }
+            trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
         }
         if (sells.isEmpty()) return
         lifetimeSells          = sells.size
@@ -1117,13 +1113,11 @@ object TradeHistoryStore {
         lifetimeLosses         = sells.count { isLoss(it) }
         lifetimeScratches      = sells.size - lifetimeWins - lifetimeLosses
         lifetimeWinPnlSum      = sells.filter { isWin(it) }.sumOf { it.pnlPct }
-        lifetimeRealizedPnlSol = sells.sumOf { it.pnlSol }
+        lifetimeRealizedPnlSol = sells.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
         saveLifetimeStats()
         ErrorLogger.info("TradeHistoryStore",
-            "📊 Back-filled lifetime stats from ${sells.size} SELL/PARTIAL_SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
+            "📊 Back-filled lifetime stats from ${sells.size} valid SELL/PARTIAL_SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
     }
-
-    // ── Helpers ──────────────────────────────────────────────────────
 
     private fun isWin(trade: Trade): Boolean  = trade.pnlPct >= WIN_THRESHOLD_PCT
     private fun isLoss(trade: Trade): Boolean = trade.pnlPct <= LOSS_THRESHOLD_PCT

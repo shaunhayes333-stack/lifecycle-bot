@@ -650,4 +650,86 @@ class ExecutionAuthorityInvariantTest {
         assertEquals("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", v.logName)
         assertTrue(v.reason.contains("LIVE_REQUEST_WHILE_RUNTIME_PAPER"))
     }
+
+    @Test
+    fun canonical_valid_partial_sell_is_trainable_and_partial() {
+        val outcome = CanonicalTradeOutcome(
+            tradeId = "partial-valid-1",
+            mint = "MintPartialValid111111111111111111111",
+            symbol = "PV",
+            assetClass = AssetClass.MEME,
+            mode = TradeMode.SHITCOIN,
+            source = TradeSource.SHITCOIN,
+            environment = TradeEnvironment.PAPER,
+            entryTimeMs = 1000L,
+            exitTimeMs = 2000L,
+            entryPrice = 0.001,
+            exitPrice = 0.0015,
+            entrySol = 0.10,
+            exitSol = 0.15,
+            realizedPnlSol = 0.05,
+            realizedPnlPct = 50.0,
+            maxGainPct = 50.0,
+            maxDrawdownPct = 0.0,
+            holdSeconds = 1L,
+            result = TradeResult.WIN,
+            executionResult = ExecutionResult.EXECUTED,
+            closeReason = "partial_50pct",
+            candidate = CandidateFeatures(assetClass = "MEME", runtimeMode = "PAPER", trader = "SHITCOIN", venue = "PUMP_FUN_BONDING", entryPattern = "TEST", liqBucket = "LIQ_LOW", mcapBucket = "MCAP_MICRO"),
+            featuresIncomplete = false,
+            isPartial = true,
+            partialIndex = 1,
+            parentPositionId = "parent-1",
+            costBasisSol = 0.10,
+            proceedsSol = 0.15,
+            feesSol = 0.0,
+            isTrainable = true,
+        )
+        val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(outcome)
+        assertNotNull(normalized)
+        assertTrue(normalized!!.isPartial)
+        assertTrue(normalized.isTrainable)
+        assertNull(normalized.invalidReason)
+    }
+
+    @Test
+    fun canonical_zero_price_partial_is_invalid_not_silent_standard_training() {
+        val outcome = CanonicalTradeOutcome(
+            tradeId = "partial-invalid-1",
+            mint = "MintPartialInvalid1111111111111111111",
+            symbol = "PI",
+            assetClass = AssetClass.MEME,
+            mode = TradeMode.SHITCOIN,
+            source = TradeSource.SHITCOIN,
+            environment = TradeEnvironment.PAPER,
+            entryTimeMs = 1000L,
+            exitTimeMs = 2000L,
+            entryPrice = 0.001,
+            exitPrice = 0.0,
+            entrySol = 0.10,
+            exitSol = 0.0,
+            realizedPnlSol = 0.05,
+            realizedPnlPct = 50.0,
+            maxGainPct = 50.0,
+            maxDrawdownPct = 0.0,
+            holdSeconds = 1L,
+            result = TradeResult.WIN,
+            executionResult = ExecutionResult.EXECUTED,
+            closeReason = "CHUNK_SELL",
+            candidate = CandidateFeatures(assetClass = "MEME", runtimeMode = "PAPER", trader = "SHITCOIN", venue = "PUMP_FUN_BONDING", entryPattern = "TEST", liqBucket = "LIQ_LOW", mcapBucket = "MCAP_MICRO"),
+            featuresIncomplete = false,
+            isPartial = true,
+            partialIndex = 1,
+            parentPositionId = "parent-2",
+            costBasisSol = 0.10,
+            proceedsSol = 0.0,
+            feesSol = 0.0,
+            isTrainable = true,
+        )
+        val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(outcome)
+        assertNotNull(normalized)
+        assertFalse(normalized!!.isTrainable)
+        assertEquals("MISSING_EXIT_PRICE", normalized.invalidReason)
+    }
+
 }

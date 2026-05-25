@@ -224,6 +224,17 @@ data class CanonicalTradeOutcome(
     // production WR aggregator excludes these so paper BC sims can't
     // inflate the real-money expectancy signal.
     val bcSimOnly: Boolean = false,
+    // V5.9.1161 — canonical accounting contract. Partials are first-class
+    // outcomes and SHOULD train when accounting is valid; invalid accounting
+    // stays visible in the canonical stream but cannot train strategy/EV.
+    val isPartial: Boolean = false,
+    val partialIndex: Int = 0,
+    val parentPositionId: String? = null,
+    val costBasisSol: Double? = null,
+    val proceedsSol: Double? = null,
+    val feesSol: Double = 0.0,
+    val isTrainable: Boolean = true,
+    val invalidReason: String? = null,
     val timestampMs: Long = System.currentTimeMillis(),
 )
 
@@ -274,19 +285,43 @@ object CanonicalOutcomeNormalizer {
      * Operator spec item 2 — block bad labels before learning.
      * Returns null to REJECT the outcome (counted in rejectedBadLabels).
      */
+    private fun invalid(raw: CanonicalTradeOutcome, reason: String): CanonicalTradeOutcome {
+        CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
+        return raw.copy(isTrainable = false, invalidReason = reason)
+    }
+
     fun normalizeOutcomeBeforeLearning(raw: CanonicalTradeOutcome): CanonicalTradeOutcome? {
+        // Rule: UNKNOWN strategy labels remain audit-visible but cannot train.
+        if (raw.mode == TradeMode.UNKNOWN || raw.source == TradeSource.UNKNOWN) {
+            return invalid(raw, "UNKNOWN_LANE")
+        }
+        // Rule: BUY/SELL accounting sanity. Partials are allowed and trainable
+        // only if they have real exit price/proceeds/cost basis.
+        val isExitLike = raw.result == TradeResult.WIN || raw.result == TradeResult.LOSS || raw.result == TradeResult.BREAKEVEN
+        if (isExitLike) {
+            if ((raw.exitPrice ?: 0.0) <= 0.0) return invalid(raw, "MISSING_EXIT_PRICE")
+            val cost = raw.costBasisSol ?: raw.entrySol ?: 0.0
+            val proceeds = raw.proceedsSol ?: ((raw.exitSol ?: 0.0) + (raw.realizedPnlSol ?: 0.0))
+            if (cost <= 0.0) return invalid(raw, "MISSING_COST_BASIS")
+            if (proceeds < -0.0000001) return invalid(raw, "NEGATIVE_PROCEEDS")
+            if (raw.isPartial && proceeds <= 0.0 && kotlin.math.abs(raw.realizedPnlSol ?: 0.0) > 0.0000001) {
+                return invalid(raw, "PARTIAL_SELL_INVALID_ACCOUNTING")
+            }
+            val pct = raw.realizedPnlPct ?: 0.0
+            if ((pct > 500.0 || pct < -80.0) && ((raw.exitPrice ?: 0.0) <= 0.0 || cost <= 0.0)) {
+                return invalid(raw, "EXTREME_OUTCOME_UNVERIFIED")
+            }
+        }
         // Rule: WIN with no exit → invalid
         if (raw.result == TradeResult.WIN && raw.exitTimeMs == null) {
-            CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
-            return null
+            return invalid(raw, "WIN_WITHOUT_EXIT")
         }
         // Rule: LOSS with no execution → invalid (execution failure, not strategy loss)
         if (raw.result == TradeResult.LOSS && raw.executionResult != ExecutionResult.EXECUTED &&
             raw.executionResult != ExecutionResult.CLOSED_BY_TX_PARSE &&
             raw.executionResult != ExecutionResult.CLOSED_BY_WALLET_RECONCILE
         ) {
-            CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
-            return null
+            return invalid(raw, "LOSS_WITHOUT_EXECUTION")
         }
         // Rule: PHANTOM_UNCONFIRMED but a TERMINAL_GOOD on the same mint key
         // already exists in LiveTradeLogStore → execution actually landed.
@@ -294,8 +329,7 @@ object CanonicalOutcomeNormalizer {
             if (LiveTradeLogStore.isTerminallyResolved(tradeKey = raw.tradeId, sig = null) ||
                 LiveTradeLogStore.isTerminallyResolved(tradeKey = raw.mint, sig = null)
             ) {
-                CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
-                return null  // do not learn from this stale label
+                return invalid(raw, "PHANTOM_AFTER_TERMINAL")  // do not train from this stale label
             }
         }
         // Rule: STUCK_UNCONFIRMED but TX_PARSE already proved settlement
@@ -303,8 +337,7 @@ object CanonicalOutcomeNormalizer {
             if (LiveTradeLogStore.isTerminallyResolved(tradeKey = raw.tradeId, sig = null) ||
                 LiveTradeLogStore.isTerminallyResolved(tradeKey = raw.mint, sig = null)
             ) {
-                CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
-                return null
+                return invalid(raw, "STUCK_AFTER_TERMINAL")
             }
         }
         return raw
@@ -536,7 +569,7 @@ object CanonicalOutcomeBus {
         // V5.9.782 — split rich vs incomplete so dashboards/strategy learners
         // can compute "real training samples" honestly. featuresIncomplete=true
         // is the legacy bridge default.
-        val rich = !o.featuresIncomplete
+        val rich = !o.featuresIncomplete && o.isTrainable
         if (rich) {
             CanonicalLearningCounters.richFeatureOutcomes.incrementAndGet()
         } else {
@@ -554,7 +587,7 @@ object CanonicalOutcomeBus {
             ExecutionResult.RECOVERED_FROM_WALLET -> true
             else -> false
         }
-        if (rich && executedOk) {
+        if (o.isTrainable && rich && executedOk) {
             CanonicalLearningCounters.strategyTrainableOutcomes.incrementAndGet()
         } else {
             CanonicalLearningCounters.executionOnlyOutcomes.incrementAndGet()
@@ -580,8 +613,8 @@ object CanonicalOutcomeBus {
             ExecutionResult.UNKNOWN -> {}
         }
         when (o.result) {
-            TradeResult.WIN -> CanonicalLearningCounters.settledWins.incrementAndGet()
-            TradeResult.LOSS -> CanonicalLearningCounters.settledLosses.incrementAndGet()
+            TradeResult.WIN -> if (o.isTrainable) CanonicalLearningCounters.settledWins.incrementAndGet()
+            TradeResult.LOSS -> if (o.isTrainable) CanonicalLearningCounters.settledLosses.incrementAndGet()
             TradeResult.OPEN -> CanonicalLearningCounters.openTrades.incrementAndGet()
             TradeResult.INCONCLUSIVE_PENDING -> CanonicalLearningCounters.inconclusiveTrades.incrementAndGet()
             TradeResult.BREAKEVEN, TradeResult.CANCELLED, TradeResult.UNKNOWN -> {}
@@ -595,7 +628,8 @@ object CanonicalOutcomeBus {
      * later in the trade lifecycle.
      */
     fun publishFromLegacyTrade(trade: Trade) {
-        if (!trade.side.equals("SELL", ignoreCase = true)) return
+        val isPartialSide = trade.side.equals("PARTIAL_SELL", ignoreCase = true)
+        if (!trade.side.equals("SELL", ignoreCase = true) && !isPartialSide) return
         val tradeId = "${trade.mint}_${trade.ts}"
         // V5.9.495z9 — skip if a feature-rich publish from the trade-close
         // emit site already covered this tradeId (no double counting).
@@ -635,6 +669,7 @@ object CanonicalOutcomeBus {
         val (assetClass, source) = inferAssetClassAndSource(mode)
         val env = if (trade.mode.equals("paper", true)) TradeEnvironment.PAPER else TradeEnvironment.LIVE
         val pnlPct = trade.pnlPct
+        val isSyntheticBadPartial = isPartialSide && trade.price <= 0.0 && kotlin.math.abs(trade.pnlSol) > 0.0000001
         val result = when {
             pnlPct > 0.5 -> TradeResult.WIN
             pnlPct < -0.5 -> TradeResult.LOSS
@@ -685,6 +720,14 @@ object CanonicalOutcomeBus {
             closeReason = trade.reason.ifBlank { null },
             candidate = liteCandidate,
             featuresIncomplete = liteIncomplete,
+            isPartial = isPartialSide,
+            partialIndex = if (isPartialSide) trade.reason.filter { it.isDigit() }.toIntOrNull() ?: 1 else 0,
+            parentPositionId = trade.mint.takeIf { isPartialSide },
+            costBasisSol = trade.sol.takeIf { it > 0.0 },
+            proceedsSol = (trade.sol + (trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol)).coerceAtLeast(0.0),
+            feesSol = trade.feeSol,
+            isTrainable = !isSyntheticBadPartial,
+            invalidReason = if (isSyntheticBadPartial) "PARTIAL_SELL_INVALID_ACCOUNTING" else null,
         )
         publish(outcome)
     }

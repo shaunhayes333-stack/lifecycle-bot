@@ -79,6 +79,7 @@ object CanonicalSubscribers {
             // FluidLearningAI mirror — simplest signature.
             CanonicalOutcomeBus.subscribe { outcome ->
                 if (!recordOnce(outcome.tradeId, "FluidLearningAI")) return@subscribe
+                if (!outcome.isTrainable) return@subscribe
                 // Only educate on settled outcomes, not OPEN / INCONCLUSIVE.
                 if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
                 // V5.9.495z21 — skip if the target token never actually landed.
@@ -170,6 +171,7 @@ object CanonicalSubscribers {
             )) {
                 CanonicalOutcomeBus.subscribe { outcome ->
                     if (!recordOnce(outcome.tradeId, layer)) return@subscribe
+                    if (!outcome.isTrainable) return@subscribe
                     if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
                     val isWin = outcome.result == TradeResult.WIN
                     LayerReadinessRegistry.recordEducationDetailed(

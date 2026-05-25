@@ -80,12 +80,13 @@ object TradeOutcomeLedger {
     }
 
     fun recordClose(ts: TokenState, trade: Trade, partial: Boolean): CloseVerdict {
-        if (!trade.side.equals("SELL", ignoreCase = true)) {
+        val isPartialSide = trade.side.equals("PARTIAL_SELL", ignoreCase = true)
+        if (!trade.side.equals("SELL", ignoreCase = true) && !isPartialSide) {
             return CloseVerdict(true, positionId(ts, trade), "", "NOT_CLOSE")
         }
         val id = positionId(ts, trade)
-        if (partial) {
-            return CloseVerdict(false, id, "$id:PARTIAL:${trade.ts}", "PARTIAL_SELL_NOT_FINAL", partial = true)
+        if (partial || isPartialSide) {
+            return CloseVerdict(true, id, "$id:PARTIAL:${trade.ts}", "PARTIAL_SELL_ACCEPTED", partial = true)
         }
         val orphan = ts.position.entryTime <= 0L || ts.position.tradingMode.isBlank()
         if (orphan) {

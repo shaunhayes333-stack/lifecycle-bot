@@ -2130,7 +2130,7 @@ class Executor(
                     }
                     false
                 }
-                tradeWithMint.side.equals("SELL", ignoreCase = true) -> {
+                tradeWithMint.side.equals("SELL", ignoreCase = true) || tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true) -> {
                     val r = tradeWithMint.reason.lowercase()
                     val partialByReason = r.startsWith("partial") || r.contains("partial_") || r.contains("partialsell") ||
                         r.startsWith("profit_lock") || r.startsWith("capital_recovery") || r.startsWith("wr_recovery") ||
@@ -2151,6 +2151,33 @@ class Executor(
                 else -> false
             }
         } catch (_: Throwable) { tradeWithMint.side.equals("SELL", ignoreCase = true) }
+
+        val accountingTrainable: Boolean = try {
+            if (!tradeWithMint.side.equals("SELL", true) && !tradeWithMint.side.equals("PARTIAL_SELL", true)) true
+            else {
+                val proceeds = tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)
+                tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && proceeds >= -0.0000001
+            }
+        } catch (_: Throwable) { false }
+
+        if (!accountingTrainable && (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true))) {
+            try {
+                ForensicLogger.lifecycle(
+                    "INVALID_ACCOUNTING_NOT_TRAINED",
+                    "mint=${tradeWithMint.mint.take(10)} side=${tradeWithMint.side} price=${tradeWithMint.price} sol=${tradeWithMint.sol} pnl=${tradeWithMint.pnlSol} reason=${tradeWithMint.reason}",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        // V5.9.1161 — premark all valid sell-like outcomes, including
+        // PARTIAL_SELL, before the legacy TradeHistoryStore bridge runs.
+        // Otherwise a valid partial would publish once through the legacy
+        // bridge and again through the feature-rich Executor publisher.
+        try {
+            if ((tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) && ledgerAllowsClosedLearning) {
+                com.lifecyclebot.engine.CanonicalOutcomeBus.markRichPublished("${tradeWithMint.mint}_${tradeWithMint.ts}")
+            }
+        } catch (_: Throwable) {}
 
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
@@ -2176,7 +2203,7 @@ class Executor(
         // longer wedges the sell path. Snapshot inputs into immutable locals
         // BEFORE launch so the coroutine has stable values (no race on ts).
         try {
-            if (tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning) {
+            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
                 val tradeSnap     = tradeWithMint
                 val recentSnap    = ts.history.takeLast(30).toList()
                 val entryWindow   = ts.history.takeLast(60).take(30).toList()
@@ -2231,7 +2258,7 @@ class Executor(
         // it added cumulative latency to the bot tick. Async = never blocks
         // the loop, still arms the kill switch in live mode within ms.
         try {
-            if (tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning) {
+            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
                 // BotService.instance?.applicationContext — same pattern as
                 // GeminiCopilot.kt:595. solBalance comes from the canonical
                 // WalletManager state — same accessor as BotService.kt:3874
@@ -2271,8 +2298,9 @@ class Executor(
         //
         // Fail-open: any exception swallowed — never block sell finalize.
         try {
-            if (tradeWithMint.side == "SELL"
+            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL")
                 && ledgerAllowsClosedLearning
+                && accountingTrainable
                 && ts.position.copyWallet.isNotBlank()
             ) {
                 com.lifecyclebot.engine.BotService.instance
@@ -2296,7 +2324,7 @@ class Executor(
                 try {
                     com.lifecyclebot.learning.LayerVoteSampler.captureAllMemeVotes(ts)
                 } catch (_: Exception) {}
-            } else if (trade.side == "SELL" && ledgerAllowsClosedLearning) {
+            } else if ((trade.side == "SELL" || trade.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
                 PatternClassifier.noteExit(
                     mint = ts.mint,
                     pnlPct = trade.pnlPct,
@@ -2452,8 +2480,8 @@ class Executor(
             }
         }
 
-        // V5.9.495z9 — RICH CANONICAL PUBLISH (SELL only)
-        if (trade.side.equals("SELL", ignoreCase = true)) {
+        // V5.9.1161 — RICH CANONICAL PUBLISH (SELL + valid PARTIAL_SELL)
+        if (tradeWithMint.side.equals("SELL", ignoreCase = true) || tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true)) {
             // V5.9.486 — fire-and-forget LLM exit narration (async internally, no block)
             try {
                 val holdMin = if (ts.position.entryTime > 0)
@@ -2472,16 +2500,16 @@ class Executor(
             // publish a fully-populated CanonicalTradeOutcome. Marks the tradeId
             // so the TradeHistoryStore legacy bridge skips it (no double count).
             try {
-                if (trade.side.equals("SELL", ignoreCase = true)) {
-                    val tradeId = "${trade.mint}_${trade.ts}"
+                if (tradeWithMint.side.equals("SELL", ignoreCase = true) || tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true)) {
+                    val tradeId = "${tradeWithMint.mint}_${tradeWithMint.ts}"
                     val isPaperEnv = isPaperRT()
-                    val pnl = trade.pnlPct
+                    val pnl = tradeWithMint.pnlPct
                     val resultEnum = when {
                         pnl >= 1.0 -> com.lifecyclebot.engine.TradeResult.WIN
                         pnl <= -1.0 -> com.lifecyclebot.engine.TradeResult.LOSS
                         else -> com.lifecyclebot.engine.TradeResult.BREAKEVEN
                     }
-                    val executionEnum = if (trade.sig.isNotBlank() || isPaperEnv)
+                    val executionEnum = if (tradeWithMint.sig.isNotBlank() || isPaperEnv)
                         com.lifecyclebot.engine.ExecutionResult.EXECUTED
                     else com.lifecyclebot.engine.ExecutionResult.UNKNOWN
                     val rawMode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { ts.position.tradingMode }
@@ -2518,7 +2546,7 @@ class Executor(
                     val features = mapOf(
                         "entryScore" to (ts.entryScore.toDouble().takeIf { it.isFinite() } ?: 0.0),
                         "entryConfidence" to (ts.position.entryScore.takeIf { it.isFinite() } ?: 0.0),
-                        "tradeSize" to trade.sol,
+                        "tradeSize" to tradeWithMint.sol,
                         "holdSec" to (holdSec?.toDouble() ?: 0.0),
                     )
                     // V5.9.785 — operator audit Wave 5 producer sweep: build a
@@ -2547,12 +2575,12 @@ class Executor(
                         source = sourceEnum,
                         environment = envEnum,
                         entryTimeMs = ts.position.entryTime,
-                        exitTimeMs = trade.ts,
+                        exitTimeMs = tradeWithMint.ts,
                         entryPrice = ts.position.entryPrice,
-                        exitPrice = trade.price,
+                        exitPrice = tradeWithMint.price,
                         entrySol = ts.position.costSol.takeIf { it > 0.0 },
-                        exitSol = trade.sol,
-                        realizedPnlSol = trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol,
+                        exitSol = tradeWithMint.sol,
+                        realizedPnlSol = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol,
                         realizedPnlPct = pnl,
                         maxGainPct = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0)
                             ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else null,
@@ -2561,10 +2589,18 @@ class Executor(
                         holdSeconds = holdSec,
                         result = resultEnum,
                         executionResult = executionEnum,
-                        closeReason = trade.reason.ifBlank { null },
+                        closeReason = tradeWithMint.reason.ifBlank { null },
                         featuresAtEntry = features,
                         candidate = candFeatures,
                         featuresIncomplete = isIncomplete,
+                        isPartial = tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true),
+                        partialIndex = if (tradeWithMint.side.equals("PARTIAL_SELL", true)) tradeWithMint.reason.filter { it.isDigit() }.toIntOrNull() ?: 1 else 0,
+                        parentPositionId = com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade),
+                        costBasisSol = tradeWithMint.sol.takeIf { it > 0.0 },
+                        proceedsSol = (tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)).coerceAtLeast(0.0),
+                        feesSol = trade.feeSol,
+                        isTrainable = tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && (tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)) >= -0.0000001,
+                        invalidReason = if (tradeWithMint.price <= 0.0 || tradeWithMint.sol <= 0.0) "INVALID_ACCOUNTING" else null,
                         // V5.9.793 — operator audit Item 5: flag BC-sim-only outcomes
                         // so the production WR aggregator can exclude them. A paper
                         // close priced exclusively against a pump.fun bonding-curve
@@ -4348,9 +4384,11 @@ class Executor(
         }
         if (pos.isPaperPosition) {
             ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-            val trade   = Trade("SELL", "paper", sellSol, actualPrice,
+            val partialCostBasisSol = pos.costSol * sellFraction
+            val trade   = Trade("PARTIAL_SELL", "paper", partialCostBasisSol, actualPrice,
                               System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
-                              paperPnlSol, pct(pos.costSol * sellFraction, sellQty * actualPrice))
+                              paperPnlSol, pct(partialCostBasisSol, sellQty * actualPrice),
+                              tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint)
             recordTrade(ts, trade); security.recordTrade(trade)
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
             // sell ladder. Previously only the manual requestPartialSell entry
@@ -4472,7 +4510,8 @@ class Executor(
                     feeSol = pair.second
                 }
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
-                val liveTrade = Trade("SELL", "live", solBack, actualPrice,
+                val livePartialCostBasisSol = pos.costSol * sellFraction
+                val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
                     System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
@@ -8782,7 +8821,7 @@ class Executor(
 
             // Record the partial sell as a proper Trade entry in the journal
             val trade = Trade(
-                side             = "SELL",
+                side             = "PARTIAL_SELL",
                 mode             = "paper",
                 sol              = soldValueSol,
                 price            = currentPrice,
@@ -8814,8 +8853,6 @@ class Executor(
                 }
             } else 0.0
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
-
-            TradeHistoryStore.recordPartialProfit(ts.mint, profitSol, pnlPct)
 
             ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
                 "sold=${(pct * 100).toInt()}% @ ${pnlPct.toInt()}% | profit=${profitSol}SOL | " +
@@ -9086,7 +9123,8 @@ class Executor(
                     // Update position
                     ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                     
-                    val liveTrade = Trade("SELL", "live", solBack, currentPrice,
+                    val livePartialCostBasisSol = pos.costSol * pct
+                    val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
                         System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
@@ -9145,21 +9183,9 @@ class Executor(
                         }
                     }
 
-                    // V5.9.870 — mirror the V5.9.743 treasury fix on the WR-stats
-                    // side. The PAPER partial branch (line ~8052) calls
-                    // recordPartialProfit so lifetime WR counts the +18%/+35%/+60%
-                    // ladder rungs as win-ticks. The LIVE partial branch was
-                    // missing that call entirely — meaning live partials get the
-                    // treasury siphon but NEVER show up in lifetime WR.
-                    // Combined with the V5.9.869 fix (bumpLifetimeFor now accepts
-                    // PARTIAL_SELL), this finally closes the loop: live partials
-                    // count as win-ticks too. Use netPnl as the profitSol value
-                    // (post-fee, matches what the operator actually realized).
-                    try {
-                        TradeHistoryStore.recordPartialProfit(ts.mint, netPnl, pnlPct)
-                    } catch (e: Exception) {
-                        ErrorLogger.debug("Executor", "recordPartialProfit (live) error: ${e.message}")
-                    }
+                    // V5.9.1161 — no synthetic zero-price PARTIAL_SELL row here.
+                    // liveTrade above is the canonical partial outcome and trains
+                    // through TradeHistoryStore → CanonicalOutcomeBus when valid.
 
                     onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
                           "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)

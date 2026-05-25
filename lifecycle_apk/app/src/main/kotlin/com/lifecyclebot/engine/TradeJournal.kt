@@ -35,6 +35,12 @@ class TradeJournal(private val ctx: Context) {
         private const val LOSS_THRESHOLD_PCT = -2.0
     }
 
+    private fun isSellLike(side: String): Boolean =
+        side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
+
+    private fun isInvalidAccounting(e: JournalEntry): Boolean =
+        isSellLike(e.side) && e.entryPrice <= 0.0 && kotlin.math.abs(e.pnlSol) > 0.0000001
+
     data class JournalEntry(
         val ts: Long,
         val symbol: String,
@@ -104,7 +110,7 @@ class TradeJournal(private val ctx: Context) {
                             mint = tokenState.mint,
                             side = trade.side,
                             entryPrice = trade.price,
-                            exitPrice = if (trade.side == "SELL") trade.price else 0.0,
+                            exitPrice = if (isSellLike(trade.side)) trade.price else 0.0,
                             solAmount = trade.sol,
                             pnlSol = trade.pnlSol,
                             pnlPct = trade.pnlPct,
@@ -140,7 +146,7 @@ class TradeJournal(private val ctx: Context) {
                             mint = trade.mint,
                             side = trade.side,
                             entryPrice = trade.price,
-                            exitPrice = if (trade.side == "SELL") trade.price else 0.0,
+                            exitPrice = if (isSellLike(trade.side)) trade.price else 0.0,
                             solAmount = trade.sol,
                             pnlSol = trade.pnlSol,
                             pnlPct = trade.pnlPct,
@@ -235,9 +241,10 @@ class TradeJournal(private val ctx: Context) {
         )
 
         entries.forEach { e ->
+            val invalidAccounting = isInvalidAccounting(e)
             val priceUsd = e.entryPrice * solPrice
             val costBasisUsd = e.solAmount * solPrice
-            val proceedsUsd = if (e.side == "SELL") (e.solAmount + e.pnlSol) * solPrice else 0.0
+            val proceedsUsd = if (isSellLike(e.side) && !invalidAccounting) (e.solAmount + e.pnlSol).coerceAtLeast(0.0) * solPrice else 0.0
             val pnlUsd = e.pnlSol * solPrice
             val feeUsd = e.feeSol * solPrice
             val netPnlUsd = e.netPnlSol * solPrice
@@ -264,12 +271,12 @@ class TradeJournal(private val ctx: Context) {
                     e.mode.uppercase(),
                     "%.0f".format(e.score),
                     e.reason.csvEscape(),
-                    "Trading bot automated trade"
+                    (if (invalidAccounting) "INVALID_EXPORT: zero price/proceeds with non-zero PnL" else "Trading bot automated trade").csvEscape()
                 ).joinToString(",")
             )
         }
 
-        val sells = entries.filter { it.side == "SELL" }
+        val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
         val decisiveSells = sells.filter { isDecisive(it.pnlPct) }
         val wins = decisiveSells.count { isWin(it.pnlPct) }
         val losses = decisiveSells.count { isLoss(it.pnlPct) }
@@ -352,7 +359,7 @@ class TradeJournal(private val ctx: Context) {
     }
 
     fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
-        val sells = entries.filter { it.side == "SELL" }
+        val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
         val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }
         val scratchTrades = sells.filter { isScratch(it.pnlPct) }
         val wins = decisiveTrades.filter { isWin(it.pnlPct) }
@@ -385,7 +392,7 @@ class TradeJournal(private val ctx: Context) {
      */
     fun exportPdf(tokens: Map<String, TokenState>): Intent? {
         val entries = buildJournal(tokens)
-        val sells = entries.filter { it.side == "SELL" }
+        val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
         if (sells.isEmpty()) return null
 
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
@@ -557,7 +564,7 @@ class TradeJournal(private val ctx: Context) {
      */
     fun exportIrs8949(tokens: Map<String, TokenState>): Intent? {
         val entries = buildJournal(tokens)
-        val sells = entries.filter { it.side == "SELL" }
+        val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
         if (sells.isEmpty()) return null
 
         val sdf = SimpleDateFormat("MM/dd/yyyy", Locale.US)
