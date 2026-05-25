@@ -59,8 +59,8 @@ data class RuntimeStateSnapshot(
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
             val positionStoreOpen = try { statusOpen.size } catch (_: Throwable) { paperOpen + liveOpen }
             val canonicalOpen = maxOf(positionStoreOpen, hostOpen, lifecycleOpen)
-            val orphanPaper = try { paperOpen - hostOpen }.coerceAtLeast(0) catch (_: Throwable) { 0 }
-            val orphanLive = try { maxOf(hostOpen, lifecycleOpen) - liveOpen }.coerceAtLeast(0) catch (_: Throwable) { 0 }
+            val orphanPaper = try { (paperOpen - hostOpen).coerceAtLeast(0) } catch (_: Throwable) { 0 }
+            val orphanLive = try { (maxOf(hostOpen, lifecycleOpen) - liveOpen).coerceAtLeast(0) } catch (_: Throwable) { 0 }
 
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->
                 ApiSummary(
