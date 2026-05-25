@@ -10926,14 +10926,20 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // push the counter negative/phantom and the next cycle would oscillate between
     // false headroom and cap saturation.
     //
-    // New rule: range=100, inflight=100, expiring per-worker leases.
+    // V5.9.1149 — align lease cap with the existing live-worker ceiling.
+    // Runtime 5.0.3115 showed WATCHLIST_RR picked=199, supervisor spawned=120,
+    // skipped=80, active=100 cap=100 liveCap=140. That means admission was still
+    // being throttled by the older lease cap while the explicit runaway guard
+    // already allowed 140 live workers. Raising the lease cap to 140 restores
+    // throughput without scanner pruning, lane disabling, or increasing the
+    // selected watchlist pool.
     // Saturation is telemetry only (SUPERVISOR_POOL_SATURATED_NO_RESET); we never
     // destructively reset the active counter again, and stale leases expire before
     // the next 5s loop cadence.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
-    private val SUPERVISOR_MAX_INFLIGHT: Int = 100
+    private val SUPERVISOR_MAX_INFLIGHT: Int = 140
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
