@@ -46,6 +46,7 @@ object ForensicLogger {
         LANE_EVAL    ("LANE_EVAL"),
         LANE_DEC     ("LANE_DEC"),
         FDG          ("FDG"),
+        EXEC_GATE    ("EXEC_GATE"),
         PERMIT       ("PERMIT"),
         EXEC         ("EXEC"),
         EXIT_GATE    ("EXIT"),

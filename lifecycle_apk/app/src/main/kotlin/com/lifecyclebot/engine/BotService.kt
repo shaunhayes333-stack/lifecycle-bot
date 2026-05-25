@@ -13387,7 +13387,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = treasuryFdg?.canExecute() ?: true,
                     reason = treasuryFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdg?.canExecute() ?: true, treasuryFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdg?.canExecute() ?: true, treasuryFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
                             val trsFdgStructural = treasuryFdg != null && !treasuryFdg.canExecute() &&
                                 treasuryFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -13662,7 +13662,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = qualityFdg?.canExecute() ?: true,
                     reason = qualityFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
                             val qualityFdgStructural = qualityFdg != null && !qualityFdg.canExecute() &&
                                 qualityFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -13841,7 +13841,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = blueChipFdg?.canExecute() ?: true,
                     reason = blueChipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
                             val bcFdgStructural = blueChipFdg != null && !blueChipFdg.canExecute() &&
                                 blueChipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -14129,7 +14129,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     ErrorLogger.warn("BotService", "🚀 [MOONSHOT] FDG error: ${fdgEx.message} — proceeding without FDG veto")
                                     null // null = no veto, proceed
                                 }
-                                ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, rugScore = ts.safety.rugcheckScore)
+                                ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
 
                                 // V5.9.691 — FDG is MODULATOR not KILLER for sub-traders.
                                 // Perpetual-learning architecture: FDG adjusts size when it disagrees,
@@ -14664,7 +14664,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = shitCoinFdg?.canExecute() ?: true,
                     reason = shitCoinFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, ShitCoin signals
                             val scFdgStructural = shitCoinFdg != null && !shitCoinFdg.canExecute() &&
                                 shitCoinFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -14947,7 +14947,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = manipFdg?.canExecute() ?: true,
                     reason = manipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
                         val manipFdgStructural = manipFdg != null && !manipFdg.canExecute() &&
                             manipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
@@ -15447,7 +15447,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     allow = dipFdg?.canExecute() ?: true,
                     reason = dipFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
-            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, rugScore = ts.safety.rugcheckScore)
+            ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
                             val dipFdgStructural = dipFdg != null && !dipFdg.canExecute() &&
                                 dipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true

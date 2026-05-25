@@ -21,8 +21,13 @@ object ExecutableOpenGate {
         val fdgReason: String? = null,
         val safetyTier: String = "UNKNOWN",
         val rugScore: Int = -1,
+        val liquidityUsd: Double = 0.0,
         val signal: String = "UNKNOWN",
         val decisionBand: String = "UNKNOWN",
+        val selectedLane: String = "UNKNOWN",
+        val preFdgVerdict: String = "WATCH",
+        val hardNoReasons: List<String> = emptyList(),
+        val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -117,21 +122,54 @@ object ExecutableOpenGate {
         lane: String,
         canExecute: Boolean,
         reason: String?,
-        signal: String = "UNKNOWN",
+        signal: String = "BUY",
         rugScore: Int = -1,
         safetyTier: String = "UNKNOWN",
+        liquidityUsd: Double = 0.0,
+        hardNoReasons: List<String> = emptyList(),
+        preFdgVerdict: String = if (canExecute) "BUY" else "NO_BUY",
+        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
     ) {
+        val finalHardNo = hardNoReasons.toMutableList().apply {
+            if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
+            if (safetyTier.equals("UNKNOWN", true)) add("PRE_FDG_SAFETY_CONTEXT_MISSING")
+            if (rugScore < 0) add("PRE_FDG_RUG_CONTEXT_MISSING")
+            if (rugScore in 0..1) add("RC_SCORE_$rugScore")
+        }.distinct()
+        val finalVerdict = when {
+            finalHardNo.isNotEmpty() -> "HARD_NO_BUY"
+            !canExecute -> preFdgVerdict.takeIf { it != "BUY" } ?: "NO_BUY"
+            signal.equals("BUY", true) || signal.equals("EXECUTE", true) -> "BUY"
+            else -> "WATCH"
+        }
         put(mint) { old ->
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
                 symbol = symbol,
                 fdgCan = canExecute,
                 fdgReason = reason,
-                signal = signal,
+                signal = signal.ifBlank { "UNKNOWN" },
+                decisionBand = if (finalVerdict == "BUY") "BUY" else (old?.decisionBand ?: finalVerdict),
+                selectedLane = lane.uppercase(),
+                preFdgVerdict = finalVerdict,
+                hardNoReasons = finalHardNo,
+                candidateVersion = candidateVersion,
+                liquidityUsd = liquidityUsd,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = safetyTier,
                 updatedAtMs = System.currentTimeMillis(),
             )
         }
+        try {
+            val hard = finalHardNo.joinToString(prefix = "[", postfix = "]")
+            val msg = "symbol=$symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion"
+            if (canExecute && finalVerdict == "BUY" && finalHardNo.isEmpty()) {
+                ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=BUY hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=OK version=$candidateVersion")
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_ALLOW $msg")
+            } else {
+                ErrorLogger.info("FDG", "FDG_BLOCK $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard reason=${reason ?: finalHardNo.firstOrNull() ?: "FDG_BLOCK"}")
+                ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_BLOCK $msg reason=${reason ?: finalHardNo.firstOrNull() ?: "FDG_BLOCK"}")
+            }
+        } catch (_: Throwable) {}
     }
 
     fun clearExecutableApproval(mint: String, symbol: String, reason: String = "EXECUTE") {
@@ -203,6 +241,11 @@ object ExecutableOpenGate {
         val band = state?.decisionBand ?: v3Decision
         val fatalReason = state?.v3FatalReason ?: fdgReason
         val safetyTier = state?.safetyTier ?: "UNKNOWN"
+        val liquidityUsd = state?.liquidityUsd ?: 0.0
+        val selectedLane = state?.selectedLane ?: "UNKNOWN"
+        val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
+        val hardNoReasons = state?.hardNoReasons ?: emptyList()
+        val candidateVersion = state?.candidateVersion ?: 0L
 
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
@@ -210,7 +253,10 @@ object ExecutableOpenGate {
                 if (coolMs > 0L) blockedCooldowns[laneKey(mint, lane)] = reason to (System.currentTimeMillis() + coolMs)
             } catch (_: Throwable) {}
             try {
-                ForensicLogger.lifecycle(log, "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}")
+                val detail = "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=${hardNoReasons.joinToString(prefix="[", postfix="]")} safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} candidateVersion=$candidateVersion ${if (log.contains("FDG")) "fdgReason=$reason" else if (log.contains("V3")) "fatalReason=$reason" else if (log.contains("SIGNAL")) "signal=$signal" else "reason=$reason"}"
+                ForensicLogger.lifecycle(log, detail)
+                ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_BLOCK $detail")
+                ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = false, reason = reason)
             } catch (_: Throwable) {}
             // No PAPER_LEARNING_PROBE_NOT_EXECUTED spam here. A blocked open is
             // already represented by its EXEC_OPEN_BLOCKED_* reason; probe spam was
@@ -235,6 +281,38 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "PAPER_REQUEST_WHILE_RUNTIME_LIVE")
         }
 
+
+        if (state == null) {
+            return blocked("EXEC_OPEN_BLOCKED_NO_FINAL_CANDIDATE", "NO_FINAL_BUY_CANDIDATE")
+        }
+        if (selectedLane.equals("UNKNOWN", true) || !selectedLane.equals(lane.uppercase(), true)) {
+            return blocked("EXEC_OPEN_BLOCKED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${selectedLane}_REQUEST_${lane.uppercase()}")
+        }
+        if (candidateVersion != LaneExecutionCoordinator.candidateVersionFor(mint)) {
+            return blocked("EXEC_OPEN_BLOCKED_CANDIDATE_VERSION_MISMATCH", "STALE_CANDIDATE_VERSION_$candidateVersion")
+        }
+        if (preFdgVerdict != "BUY") {
+            return blocked("EXEC_OPEN_BLOCKED_PRE_FDG_NOT_BUY", preFdgVerdict, shadow = mode == "PAPER")
+        }
+        if (hardNoReasons.isNotEmpty()) {
+            return blocked("EXEC_OPEN_BLOCKED_HARD_NO_BUY", hardNoReasons.joinToString("+"), shadow = mode == "PAPER")
+        }
+        if (safetyTier.equals("UNKNOWN", true)) {
+            return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")
+        }
+        if (rug < 0) {
+            return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = mode == "PAPER")
+        }
+        if (liquidityUsd <= 0.0) {
+            return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = mode == "PAPER")
+        }
+        if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
+            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal.ifBlank { "UNKNOWN" }, shadow = mode == "PAPER")
+        }
+        if (fdgCan != true) {
+            return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
+        }
+
         val pause = ToxicModeCircuitBreaker.currentEntryPause()
         if (pause.active) {
             ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
@@ -246,7 +324,7 @@ object ExecutableOpenGate {
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
             return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
         }
-        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || v3Decision == "REJECTED" || band == "BLOCK_FATAL" || band == "REJECT") {
+        if (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
@@ -278,11 +356,12 @@ object ExecutableOpenGate {
         }
         try { allowedAttempts[laneKey(mint, lane)] = execKey to System.currentTimeMillis() } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle(
-                "EXEC_OPEN_REQUEST",
-                "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug signal=$signal band=$band",
-            )
-            ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear")
+            val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=[] candidateVersion=$candidateVersion v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} signal=$signal band=$band"
+            ForensicLogger.lifecycle("EXEC_OPEN_REQUEST", detail)
+            ForensicLogger.lifecycle("EXEC_GATE_ALLOW", detail)
+            ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW $detail")
+            ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = true, reason = "finality_clear")
+            ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear candidateVersion=$candidateVersion")
         } catch (_: Throwable) {}
         return OpenVerdict(true, "finality_clear", attemptId = execKey)
     }

@@ -53,6 +53,12 @@ object MemePipelineTracer {
     }
 
     fun blocked(mint: String, symbol: String, reason: String, detail: String = "") {
+        if (reason.equals("DECISION_WATCH", ignoreCase = true)) {
+            stageCounts.computeIfAbsent("ENTRY_SOFT_WATCH") { AtomicInteger(0) }.incrementAndGet()
+            ErrorLogger.info(TAG,
+                "MEME_ENTRY_SOFT_WATCH | $symbol | mint=${mint.take(8)}… | reason=$reason${if (detail.isNotBlank()) " | $detail" else ""}")
+            return
+        }
         stageCounts.computeIfAbsent("ENTRY_BLOCKED") { AtomicInteger(0) }.incrementAndGet()
         blockReasonCounts.computeIfAbsent(reason) { AtomicInteger(0) }.incrementAndGet()
         ErrorLogger.info(TAG,
