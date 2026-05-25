@@ -125,6 +125,12 @@ class AATEApp : Application() {
 
         // Set up global uncaught exception handler
         setupCrashHandler()
+
+        // V5.9.1153 — 24/7 runtime contract guard.
+        // Activity navigation/backgrounding must never imply bot stop. If all
+        // AATE activities stop while the bot was intended to run, renew watchdog
+        // alarms and re-kick BotService if the runtime is inactive.
+        installBackgroundRuntimeGuard()
         
         // V5.9.913 — RESURRECTION-IN-APPLICATION-ONCREATE.
         //
@@ -206,6 +212,121 @@ class AATEApp : Application() {
         ErrorLogger.info("App", "AATE Application started successfully")
     }
     
+    private fun installBackgroundRuntimeGuard() {
+        try {
+            registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
+                private val activeActivities = java.util.concurrent.atomic.AtomicInteger(0)
+                private val bgHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                private val backgroundCheck = Runnable { verifyRuntimeAfterBackground("activity_background") }
+
+                override fun onActivityStarted(activity: android.app.Activity) {
+                    activeActivities.incrementAndGet()
+                    bgHandler.removeCallbacks(backgroundCheck)
+                }
+
+                override fun onActivityStopped(activity: android.app.Activity) {
+                    val remaining = activeActivities.decrementAndGet().coerceAtLeast(0)
+                    if (remaining == 0) {
+                        // Delay one beat so in-app Activity transitions (Main -> Pipeline,
+                        // Main -> Journal, etc.) can start the next Activity without being
+                        // misclassified as app background.
+                        bgHandler.removeCallbacks(backgroundCheck)
+                        bgHandler.postDelayed(backgroundCheck, 2_500L)
+                    }
+                }
+
+                override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+                override fun onActivityResumed(activity: android.app.Activity) {}
+                override fun onActivityPaused(activity: android.app.Activity) {}
+                override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+                override fun onActivityDestroyed(activity: android.app.Activity) {}
+            })
+            ErrorLogger.info("App", "Background runtime guard installed")
+        } catch (e: Throwable) {
+            ErrorLogger.warn("App", "Background runtime guard install failed: ${e.message}")
+        }
+    }
+
+    private fun verifyRuntimeAfterBackground(reason: String) {
+        try {
+            val prefs = getSharedPreferences(BotService.RUNTIME_PREFS, MODE_PRIVATE)
+            val wasRunning = prefs.getBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop = prefs.getBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
+            val runtimeActive = try { BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            val intendedToRun = wasRunning || runtimeActive
+            if (!intendedToRun || manualStop) return
+
+            if (runtimeActive && !wasRunning) {
+                // Repair stale intent state. Runtime truth says the bot is active,
+                // therefore future OS kills/background restarts must treat it as
+                // intended-to-run unless the user explicitly stops it.
+                try {
+                    prefs.edit()
+                        .putBoolean(BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+                        .putBoolean(BotService.KEY_MANUAL_STOP_REQUESTED, false)
+                        .apply()
+                } catch (_: Throwable) {}
+            }
+
+            // Renew both watchdog layers while the app goes background. This is a
+            // preserve-only path: it never sends ACTION_STOP and never mutates the
+            // manual-stop latch.
+            try { ServiceWatchdog.schedule(this) } catch (_: Throwable) {}
+            try { ServiceWatchdog.scheduleAlarm(this) } catch (_: Throwable) {}
+
+            if (runtimeActive) {
+                ErrorLogger.info("App", "Background guard: runtime active; keepalive renewed ($reason)")
+                return
+            }
+
+            ErrorLogger.warn("App", "Background guard: bot intended to run but runtime inactive; re-kicking BotService ($reason)")
+            val startIntent = Intent(this, BotService::class.java).apply {
+                action = BotService.ACTION_START
+                putExtra(BotService.EXTRA_USER_REQUESTED, false)
+            }
+            var directOk = false
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(startIntent)
+                else startService(startIntent)
+                directOk = true
+                ErrorLogger.info("App", "Background guard: BotService startForegroundService issued")
+            } catch (fgsBlocked: Throwable) {
+                ErrorLogger.warn("App", "Background guard direct FGS start failed (${fgsBlocked.javaClass.simpleName}: ${fgsBlocked.message}) — scheduling AlarmClock")
+            }
+            if (!directOk) scheduleStartAlarm(startIntent, requestCode = 9913, showCode = 9914, delayMs = 1_000L, label = "background_guard")
+        } catch (e: Throwable) {
+            ErrorLogger.warn("App", "Background runtime verification failed: ${e.message}")
+        }
+    }
+
+    private fun scheduleStartAlarm(
+        startIntent: Intent,
+        requestCode: Int,
+        showCode: Int,
+        delayMs: Long,
+        label: String,
+    ) {
+        try {
+            val am = getSystemService(android.app.AlarmManager::class.java) ?: return
+            val pi = android.app.PendingIntent.getService(
+                this, requestCode, startIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val showPi = android.app.PendingIntent.getActivity(
+                this, showCode,
+                Intent(this, com.lifecyclebot.ui.MainActivity::class.java),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setAlarmClock(
+                android.app.AlarmManager.AlarmClockInfo(System.currentTimeMillis() + delayMs, showPi),
+                pi
+            )
+            ErrorLogger.info("App", "BotService ACTION_START scheduled via AlarmClock ($label delayMs=$delayMs)")
+        } catch (e: Throwable) {
+            ErrorLogger.error("App", "AlarmClock start scheduling failed ($label): ${e.message}", e)
+        }
+    }
+
     private fun setupCrashHandler() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         
