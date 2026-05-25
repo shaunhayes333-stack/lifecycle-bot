@@ -14,8 +14,10 @@ object RuntimeDoctor {
     @Volatile private var lastHeavyWorkerTimeout: Long = 0L
     @Volatile private var lastHeavyExitTimeout: Long = 0L
     @Volatile private var lastHeavyExitReset: Long = 0L
+    @Volatile private var lastFanoutMitigationAtMs: Long = 0L
     private const val HEAVY_MITIGATION_COOLDOWN_MS = 120_000L
-    private const val HEAVY_WORKER_TIMEOUT_DELTA = 75L
+    private const val FANOUT_MITIGATION_COOLDOWN_MS = 120_000L
+    private const val HEAVY_WORKER_TIMEOUT_DELTA = 250L
 
     fun resetForTests() {
         latest = RuntimeStateSnapshot.current()
@@ -24,6 +26,7 @@ object RuntimeDoctor {
         lastHeavyWorkerTimeout = 0L
         lastHeavyExitTimeout = 0L
         lastHeavyExitReset = 0L
+        lastFanoutMitigationAtMs = 0L
     }
 
     fun tick(uiRunning: Boolean? = null): Report {
@@ -108,14 +111,24 @@ object RuntimeDoctor {
     private fun fanoutMitigations(f: InvariantGuardian.Fault, snapState: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> {
         val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
         val topSource = snap?.intakeBySource?.maxByOrNull { it.value }?.key ?: "PUMP_PORTAL_WS"
+        val now = System.currentTimeMillis()
+        // V5.9.1150 — RuntimeDoctor was still self-DOSing: 3117 showed
+        // RUNTIME_MITIGATION_APPLIED=264, repeatedly publishing the same scanner
+        // cap because cumulative workerTimeout/fanout counters keep satisfying
+        // invariant checks. Keep mitigations idempotent at the doctor source too:
+        // observe during cooldown unless this is the targeted restore quarantine.
+        val cooldown = now - lastFanoutMitigationAtMs < FANOUT_MITIGATION_COOLDOWN_MS
+        val shouldQuarantineRestore = topSource == "MEME_REGISTRY_RESTORE"
+        if (cooldown && !shouldQuarantineRestore) return emptyList()
+        lastFanoutMitigationAtMs = now
         // V5.9.1132 — NO AUTO LANE DISABLES.
         // Operator explicitly rejected the 24h loop where RuntimeDoctor kept
         // forcing QUALITY-only / disabling lanes as a mitigation. Fanout pressure
-        // is now handled with soft throughput shaping only. Lanes stay enabled;
+        // is handled with soft throughput shaping only. Lanes stay enabled;
         // FDG/safety/execution authority remain the real guards.
         return buildList {
             add(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
-            if (topSource == "MEME_REGISTRY_RESTORE") add(RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L))
+            if (shouldQuarantineRestore) add(RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L))
         }
     }
 

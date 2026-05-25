@@ -27,9 +27,9 @@ import com.lifecyclebot.data.TokenState
  *   SOFT_BLOCK  — at least one brain objects in a relaxed regime; logged
  *                 but trade still proceeds. Operator can see how often
  *                 this fires before we promote to HARD_BLOCK behaviour.
- *   HARD_BLOCK  — multiple brains object OR a single brain hits a hard
- *                 rule (strategy disabled, mood HUMBLED while regime DUMP,
- *                 etc). Trade is rejected with reason BRAIN_CONSENSUS_VETO.
+ *   HARD_BLOCK  — retained as a verdict type for future explicit operator
+ *                 whitelist vetoes only. Mood/personality/regime disagreement
+ *                 is advisory telemetry and must not kill throughput.
  *
  * The gate is intentionally CONSERVATIVE — it must take a clear stack of
  * objections to fire HARD_BLOCK. We're guarding against the failure mode
@@ -65,26 +65,17 @@ object BrainConsensusGate {
             com.lifecyclebot.engine.SentientPersonality.getCurrentMood().name
         } catch (_: Throwable) { "UNKNOWN" }
 
-        // V5.9.1052 — BOOTSTRAP ESCAPE HATCH.
-        // mood=HUMBLED/SELF_CRITICAL + regime=DUMP is a valid hard-block in maturity.
-        // In bootstrap (<200 lifetime settled trades) it creates a circular lock:
-        // blocked entries → no learning → WR stays low → mood stays HUMBLED → never unblocks.
-        // Fix: downgrade to SOFT_BLOCK during bootstrap so trades still flow for learning.
+        // V5.9.1150 — doctrine correction: Sentience mood is NOT an allowed
+        // executable hard veto. Runtime 5.0.3117 showed 327/386 FDG blocks were
+        // BRAIN_CONSENSUS_VETO:SENTIENCE_VETO=mood, causing the personality loop
+        // to choke the very trades it needs to learn from. Keep the signal as
+        // advisory telemetry only; FDG/rug/liquidity/original whitelist vetoes
+        // remain the hard execution guards.
         val lifetimeTrades = try {
             (com.lifecyclebot.engine.CanonicalLearningCounters.settledWins.get() + com.lifecyclebot.engine.CanonicalLearningCounters.settledLosses.get()).toInt()
-        } catch (_: Throwable) { 999 }
-        // V5.9.1064 — raise bootstrap threshold 200 → 1000.
-        // At 648 trades / 6% WR the bot is still deep bootstrap; WR hasn't
-        // converged. The 200-trade cutoff was causing mood=HUMBLED+regime=DUMP
-        // to fire as a HARD_BLOCK from trade 201 onward, blocking 100% of
-        // entries during the exact window where the bot most needs to learn.
-        val inBootstrap = lifetimeTrades < 1000
+        } catch (_: Throwable) { 0 }
         if (mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP) {
-            if (inBootstrap) {
-                objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+bootstrap(trades=$lifetimeTrades<1000)"
-            } else {
-                objections += "SENTIENCE_VETO=mood=$mood+regime=DUMP"
-            }
+            objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+trades=$lifetimeTrades"
         }
 
         // --- 3. SecondScorer disagreement (P4) ---
@@ -109,26 +100,12 @@ object BrainConsensusGate {
         // No objection added — advisory telemetry only
 
         // ---------------- Verdict composition ----------------
-        // HARD_BLOCK triggers (any one of these is enough):
-        //   • strategy auto-disabled (P1)
-        //   • mood-veto in DUMP regime (P0 sentience)
-        //   • SecondScorer disagrees AND we're in CHOP/DUMP regime
-        // V5.9.1052 — mood+DUMP is only HARD_BLOCK in maturity (>= 200 lifetime trades).
-        // In bootstrap, mood+DUMP adds an advisory objection (SOFT_BLOCK) so trades still
-        // flow for learning, breaking the circular lock.
-        // V5.9.1053: isStrategyDead removed from hardBlock — no strategy auto-disabled.
-        // V5.9.1064 — hardBlock uses same inBootstrap flag (now < 1000 trades).
-        // V5.9.1070 — SecondScorer disagreement removed from hardBlock.
-        // SecondScorer fires on nearly every fresh pump.fun token because
-        // pool age=0, holders=0, vol=0 on first intake → secondScore≈0-15
-        // while V3 scores +30-50 → gap>=20 → disputed=true → HARD_BLOCK in
-        // DUMP/CHOP. This was the second major executor lock after SENTIENCE_VETO.
-        // The BCG comment already called it "telemetry first round" — restoring
-        // that intent. Second-scorer objection remains as a SOFT_BLOCK tag so
-        // it is visible in the dump but never gates a trade.
-        // Fluid doctrine: gates lower/raise dynamically; they never lock out.
-        val hardBlock =
-            (!inBootstrap && mood in setOf("HUMBLED", "SELF_CRITICAL") && regime == RegimeDetector.Regime.DUMP)
+        // V5.9.1150 — BCG is telemetry/soft-shape only unless a future operator
+        // explicitly adds a hard-veto whitelist item here. The performance doctrine
+        // forbids broad personality/regime vetoes because they kill sample volume.
+        // SecondScorer, losing-pattern, strategy bleed, and Sentience mood all stay
+        // visible as SOFT_BLOCK objections without blocking execution.
+        val hardBlock = false
 
         // SOFT_BLOCK = at least one objection but doesn't hit HARD_BLOCK
         // (logged but doesn't gate the trade — pure telemetry first round).
