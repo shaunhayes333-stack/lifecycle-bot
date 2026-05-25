@@ -51,6 +51,7 @@ object LaneExecutionCoordinator {
         "MANIPULATED" to 90,
         "DIP_HUNTER" to 85,
         "PROJECT_SNIPER" to 80,
+        "CRYPTO" to 75,
         "QUALITY" to 70,
         "BLUECHIP" to 60,
         "CORE" to 55,

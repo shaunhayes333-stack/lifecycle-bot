@@ -9,6 +9,12 @@ import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.ShadowLearningEngine
 import com.lifecyclebot.engine.TradeHistoryStore
 import com.lifecyclebot.engine.WalletManager
+import com.lifecyclebot.engine.ExecutableOpenGate
+import com.lifecyclebot.engine.TradeAuthorizer
+import com.lifecyclebot.engine.LaneExecutionCoordinator
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.perps.crypto.CryptoFinalBuyCandidate
+import com.lifecyclebot.perps.crypto.CryptoUniverseRouteResolver
 import com.lifecyclebot.v3.scoring.BehaviorAI
 import com.lifecyclebot.v3.scoring.BlueChipTraderAI
 import com.lifecyclebot.v3.scoring.FluidLearningAI
@@ -1422,6 +1428,151 @@ object CryptoAltTrader {
         )
     }
 
+
+    private fun cryptoMarketCapLane(symbol: String): CryptoFinalBuyCandidate.MarketCapLane = when (symbol.uppercase()) {
+        "BTC", "WBTC", "ETH", "SOL" -> CryptoFinalBuyCandidate.MarketCapLane.MEGA_CAP
+        "BNB", "XRP", "ADA", "DOGE", "TRX", "TON", "AVAX", "LINK", "DOT", "LTC" -> CryptoFinalBuyCandidate.MarketCapLane.MAJOR
+        "BCH", "XLM", "XMR", "ETC", "NEAR", "APT", "ARB", "OP", "ICP", "FIL", "HBAR", "VET", "RENDER", "TAO", "INJ" -> CryptoFinalBuyCandidate.MarketCapLane.LARGE_CAP
+        "JUP", "PYTH", "RAY", "ORCA", "JTO", "DRIFT", "SEI", "GRT", "AAVE", "MKR", "SNX", "CRV", "RUNE", "STX", "IMX", "SAND", "MANA", "AXS" -> CryptoFinalBuyCandidate.MarketCapLane.MID_CAP
+        "MNGO", "W", "STRK", "FLOKI", "NOT", "POPCAT", "TRUMP", "PEPE", "WIF", "BONK" -> CryptoFinalBuyCandidate.MarketCapLane.LOW_CAP
+        else -> CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP
+    }
+
+    private fun cryptoSignalStyle(signal: AltSignal): String = when {
+        signal.reasons.any { it.contains("Moonshot", ignoreCase = true) } -> "MOMENTUM_BREAKOUT"
+        signal.reasons.any { it.contains("BlueChip", ignoreCase = true) } -> "BLUECHIP_MOMENTUM"
+        signal.reasons.any { it.contains("Manip", ignoreCase = true) } -> "MANIPULATION_REVERSAL"
+        signal.reasons.any { it.contains("Express", ignoreCase = true) } -> "FAST_MOMENTUM"
+        signal.reasons.any { it.contains("ShitCoin", ignoreCase = true) } -> "LOW_CAP_ROTATION"
+        else -> "CRYPTO_ALT_SIGNAL"
+    }
+
+    private fun cryptoAssetKey(signal: AltSignal, isSpot: Boolean): String {
+        val assetType = if (isSpot) "SPOT" else "PERP"
+        val venue = if (isSpot) "UNIVERSE" else "PERP"
+        return "CRYPTO:$venue:${signal.market.symbol.uppercase()}:$assetType"
+    }
+
+    private fun buildCryptoFinalBuyCandidate(
+        signal: AltSignal,
+        isSpot: Boolean,
+        finalSize: Double,
+    ): CryptoFinalBuyCandidate {
+        val symbol = signal.market.symbol.uppercase()
+        val lane = cryptoMarketCapLane(symbol)
+        val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
+        val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
+        val route = try { CryptoUniverseRouteResolver.resolve(signal.market, walletSol, finalSize) } catch (_: Throwable) { null }
+        val hardNo = mutableListOf<String>()
+        val soft = mutableListOf<String>()
+        if (signal.price <= 0.0) hardNo += "PRICE_CONTEXT_MISSING"
+        if (finalSize < 0.01) hardNo += "SIZE_BELOW_FLOOR"
+        if (signal.confidence <= 0 || signal.score <= 0) hardNo += "SCORE_CONTEXT_MISSING"
+        if (!isPaperMode.get() && route?.executable != true) hardNo += "ROUTE_UNAVAILABLE"
+        if (route?.route == com.lifecyclebot.perps.crypto.CryptoExecutionRoute.PAPER_ONLY && isPaperMode.get()) soft += "PAPER_ONLY_ROUTE"
+        if (signal.direction == PerpsDirection.SHORT && isSpot) hardNo += "SPOT_SHORT_UNSUPPORTED"
+        val liq = altLiqMcapHint(symbol).first
+        val spread = when (lane) {
+            CryptoFinalBuyCandidate.MarketCapLane.MEGA_CAP -> 0.03
+            CryptoFinalBuyCandidate.MarketCapLane.MAJOR -> 0.08
+            CryptoFinalBuyCandidate.MarketCapLane.LARGE_CAP -> 0.15
+            CryptoFinalBuyCandidate.MarketCapLane.MID_CAP -> 0.35
+            CryptoFinalBuyCandidate.MarketCapLane.LOW_CAP -> 0.75
+            CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP -> 1.25
+        }
+        val slippage = spread * 2.0
+        if (spread > 1.0) hardNo += "SPREAD_TOO_HIGH"
+        val pre = when {
+            hardNo.isNotEmpty() -> CryptoFinalBuyCandidate.PreFdgVerdict.HARD_NO_BUY
+            signal.score >= 50 && signal.confidence >= 40 -> CryptoFinalBuyCandidate.PreFdgVerdict.BUY
+            else -> CryptoFinalBuyCandidate.PreFdgVerdict.WATCH
+        }
+        val adapter = when {
+            isPaperMode.get() -> "PAPER_EXECUTOR"
+            route?.executable == true -> "CRYPTO_UNIVERSE_EXECUTOR"
+            else -> "DEFERRED_ROUTE"
+        }
+        return CryptoFinalBuyCandidate(
+            assetKey = cryptoAssetKey(signal, isSpot),
+            symbol = symbol,
+            chain = if (route?.mint != null) "SOLANA" else "MULTICHAIN",
+            venue = route?.route?.name ?: "UNKNOWN",
+            assetType = assetType,
+            direction = signal.direction,
+            marketCapLane = lane,
+            selectedLane = "CRYPTO",
+            selectedSpecialist = cryptoSignalStyle(signal),
+            preFdgVerdict = pre,
+            score = signal.score,
+            confidence = signal.confidence,
+            safetyTier = "SAFE",
+            liquidityUsd = liq,
+            routeQuality = route?.route?.name ?: "UNKNOWN",
+            spread = spread,
+            slippageEstimate = slippage,
+            hardNoReasons = hardNo.distinct(),
+            softWarnings = soft.distinct(),
+            finalSize = finalSize,
+            executionAdapter = adapter,
+            candidateVersion = LaneExecutionCoordinator.candidateVersionFor(cryptoAssetKey(signal, isSpot)),
+        )
+    }
+
+    private fun authorizeCryptoFinalCandidate(candidate: CryptoFinalBuyCandidate): TradeAuthorizer.AuthorizationResult? {
+        try {
+            ErrorLogger.info(TAG, "CRYPTO_FINAL_CANDIDATE_CREATED universe=${candidate.universe} symbol=${candidate.symbol} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} selectedSpecialist=${candidate.selectedSpecialist} preFdgVerdict=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} routeQuality=${candidate.routeQuality} adapter=${candidate.executionAdapter} liquidityUsd=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} candidateVersion=${candidate.candidateVersion}")
+            ForensicLogger.lifecycle("CRYPTO_FINAL_CANDIDATE_CREATED", "universe=${candidate.universe} symbol=${candidate.symbol} assetKey=${candidate.assetKey} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons.joinToString(prefix="[", postfix="]")} routeType=${candidate.routeQuality} adapter=${candidate.executionAdapter} liq=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} version=${candidate.candidateVersion}")
+        } catch (_: Throwable) {}
+        ExecutableOpenGate.recordV3(
+            mint = candidate.assetKey,
+            symbol = candidate.symbol,
+            decision = "WATCH_SOFT",
+            fatalReason = null,
+            decisionBand = "WATCH_SOFT",
+            rugScore = 100,
+            safetyTier = candidate.safetyTier,
+        )
+        ExecutableOpenGate.recordFdg(
+            mint = candidate.assetKey,
+            symbol = candidate.symbol,
+            lane = candidate.selectedLane,
+            canExecute = candidate.canEnterFdg,
+            reason = candidate.hardNoReasons.firstOrNull(),
+            signal = if (candidate.preFdgVerdict == CryptoFinalBuyCandidate.PreFdgVerdict.BUY) "BUY" else candidate.preFdgVerdict.name,
+            rugScore = 100,
+            safetyTier = candidate.safetyTier,
+            liquidityUsd = candidate.liquidityUsd,
+            hardNoReasons = candidate.hardNoReasons,
+            preFdgVerdict = candidate.preFdgVerdict.name,
+            candidateVersion = candidate.candidateVersion,
+        )
+        if (!candidate.canEnterFdg) {
+            try { ForensicLogger.lifecycle("EXEC_GATE_BLOCK", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} reason=${candidate.hardNoReasons.firstOrNull() ?: candidate.preFdgVerdict.name} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
+            return null
+        }
+        val auth = TradeAuthorizer.authorize(
+            mint = candidate.assetKey,
+            symbol = candidate.symbol,
+            score = candidate.score,
+            confidence = candidate.confidence.toDouble(),
+            quality = when {
+                candidate.score >= 85 -> "A"
+                candidate.score >= 70 -> "B"
+                else -> "C"
+            },
+            isPaperMode = isPaperMode.get(),
+            requestedBook = TradeAuthorizer.ExecutionBook.CRYPTO,
+            rugcheckScore = 100,
+            liquidity = candidate.liquidityUsd,
+        )
+        if (auth.isExecutable()) {
+            try { ForensicLogger.lifecycle("EXEC_GATE_ALLOW", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} attemptId=${auth.attemptId} routeType=${candidate.routeQuality} adapter=${candidate.executionAdapter} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
+        } else {
+            try { ForensicLogger.lifecycle("EXEC_GATE_BLOCK", "universe=CRYPTO symbol=${candidate.symbol} assetKey=${candidate.assetKey} reason=${auth.reason} candidateVersion=${candidate.candidateVersion}") } catch (_: Throwable) {}
+        }
+        return auth.takeIf { it.isExecutable() }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // EXECUTION
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1512,6 +1663,13 @@ object CryptoAltTrader {
             PerpsDirection.SHORT -> signal.price * (1 - finalTp / 100) to signal.price * (1 + finalSl / 100)
         }
 
+        val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        val authResult = authorizeCryptoFinalCandidate(candidate)
+        if (authResult == null) {
+            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${signal.market.symbol} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
+            return
+        }
+
         val position = AltPosition(
             id             = "ALT_${positionCounter.incrementAndGet()}",
             market         = signal.market,
@@ -1525,7 +1683,7 @@ object CryptoAltTrader {
             stopLossPrice  = sl,
             aiScore        = signal.score,
             aiConfidence   = signal.confidence,
-            reasons        = signal.reasons
+            reasons        = signal.reasons + "CRYPTO_CANDIDATE:${candidate.assetKey}"
         )
 
         // Note: totalTrades incremented at CLOSE, not open, for accurate win rate
@@ -1551,6 +1709,7 @@ object CryptoAltTrader {
             val liveOk = executeLiveTradeAtSize(signal, isSpot, finalSize)
             if (!liveOk) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol} — position not recorded")
+                try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 return
             }
             ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol} (paper-sized ${finalSize.fmt(4)}◎)")

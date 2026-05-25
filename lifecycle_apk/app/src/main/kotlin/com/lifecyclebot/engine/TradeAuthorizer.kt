@@ -96,6 +96,7 @@ object TradeAuthorizer {
         SHADOW,
         DIP_HUNTER,   // V5.9.610: DipHunter has its own book; don't consume CORE locks
         MANIPULATED,  // V5.6.8: Special book that bypasses rugcheck - trades intentionally risky tokens
+        CRYPTO,       // V5.9.1159: Crypto Universe canonical execution book
     }
 
     data class TokenLock(
