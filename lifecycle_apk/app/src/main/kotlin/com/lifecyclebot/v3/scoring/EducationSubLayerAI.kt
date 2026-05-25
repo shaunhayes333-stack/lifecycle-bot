@@ -381,6 +381,39 @@ object EducationSubLayerAI {
     
     private val layerPerformance = ConcurrentHashMap<String, LayerPerformanceMetrics>()
 
+    // V5.9.1152 — one-shot close-outcome guard.
+    // Runtime 3118 showed the same settled trade being re-taught repeatedly
+    // (AdaptiveLearning "Trade #209" + EducationAI update every tick) because
+    // close/learning paths can be invoked more than once while a position is
+    // being swept/reconciled and ALE's own key includes changing hold minutes.
+    // Education is the central fanout; make it idempotent here so every learner
+    // downstream sees each close outcome once.
+    private val recentOutcomeKeys = ConcurrentHashMap<String, Long>()
+    private const val OUTCOME_DEDUP_TTL_MS = 10 * 60 * 1000L
+
+    private fun outcomeDedupKey(outcome: TradeOutcomeData): String {
+        val pnlBucket = kotlin.math.round(outcome.pnlPct * 10.0) / 10.0
+        val holdBucket = kotlin.math.floor(outcome.holdTimeMinutes.coerceAtLeast(0.0)).toLong()
+        val reason = outcome.exitReason.uppercase().take(48)
+        val mode = outcome.tradingMode.uppercase().take(32)
+        return "${outcome.mint}:${outcome.symbol}:$mode:$reason:$pnlBucket:$holdBucket"
+    }
+
+    private fun shouldProcessOutcomeOnce(outcome: TradeOutcomeData): Boolean {
+        val now = System.currentTimeMillis()
+        if (recentOutcomeKeys.size > 4096) {
+            val cutoff = now - OUTCOME_DEDUP_TTL_MS
+            recentOutcomeKeys.entries.removeIf { it.value < cutoff }
+        }
+        val key = outcomeDedupKey(outcome)
+        val prev = recentOutcomeKeys.putIfAbsent(key, now)
+        if (prev != null && now - prev < OUTCOME_DEDUP_TTL_MS) {
+            ErrorLogger.debug(TAG, "⚡ EDUCATION_DEDUP skip ${outcome.symbol} pnl=${outcome.pnlPct.toInt()}% reason=${outcome.exitReason.take(40)}")
+            return false
+        }
+        return true
+    }
+
     // V5.9.846 — per-hold-bucket curriculum stats (FLASH/SCALP/SWING/HOLD/MARATHON).
     // Lets the curriculum grade hold-skill separately from pick-skill.
     private val curriculumHoldStats = ConcurrentHashMap<String, AtomicInteger>()
@@ -699,6 +732,7 @@ object EducationSubLayerAI {
      * @param outcome Complete trade outcome data
      */
     fun recordTradeOutcomeAcrossAllLayers(outcome: TradeOutcomeData) {
+        if (!shouldProcessOutcomeOnce(outcome)) return
         val startTime = System.currentTimeMillis()
         var layersUpdated = 0
         val errors = mutableListOf<String>()
