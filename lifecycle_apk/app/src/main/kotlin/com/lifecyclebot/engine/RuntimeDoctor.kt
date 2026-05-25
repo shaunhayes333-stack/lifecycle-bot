@@ -58,7 +58,9 @@ object RuntimeDoctor {
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
     private fun commandsFor(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> = when (f.code) {
-        InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 30_000L))
+        // V5.9.1164 — UI background/navigation is not a trading risk. Never
+        // pause trading because MainActivity is not foreground.
+        InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> emptyList()
         InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> listOf(RuntimeMitigationBus.Command.RestartSellReconciler(f.detail))
         InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> fanoutMitigations(f, snap)
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))

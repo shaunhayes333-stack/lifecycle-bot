@@ -30,7 +30,7 @@ object StateDebuggerAI {
             evidence = listOfNotNull(f?.detail, "runtimeGeneration=${ctx.snapshot.runtimeGeneration}", "mode=${ctx.snapshot.mode}"),
             safeMitigation = when (f?.code) {
                 InvariantGuardian.FaultCode.SELL_RECONCILER_DEAD -> "restart sell reconciler"
-                InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> "force UI/runtime state rebind"
+                InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN -> "observe UI foreground state only; do not pause runtime"
                 InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION -> "disable noisiest lane or apply max lane fanout hotfix"
                 InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> "pause trading and force paper mode"
                 else -> "observe or pause trading if severity is HIGH/CRITICAL"

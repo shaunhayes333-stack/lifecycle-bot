@@ -371,14 +371,16 @@ class RuntimeRegressionGuardsSmokeTest {
 
 class RuntimeDoctorSmokeTest {
     @Test
-    fun invariant_guard_detects_runtime_ui_split_brain() {
+    fun invariant_guard_does_not_treat_background_ui_as_runtime_stop() {
         val snap = RuntimeStateSnapshot.current(uiRunning = false).copy(
             runtimeState = "RUNNING",
             botLoopActive = true,
             uiState = "STOPPED",
         )
         val faults = InvariantGuardian.check(snap, uiRunning = false)
-        assertTrue(faults.any { it.code == InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN })
+        assertFalse(faults.any { it.code == InvariantGuardian.FaultCode.RUNTIME_UI_SPLIT_BRAIN })
+        // RuntimeDoctor mapping is separately protected in code: this invariant
+        // must not emit the UI split-brain fault from ordinary backgrounding.
     }
 
     @Test

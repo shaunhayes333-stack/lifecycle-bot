@@ -513,9 +513,12 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var mainUiActive: Boolean = false
     private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val markMainInactiveRunnable = Runnable {
-        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
-            mainUiActive = false
-        }
+        // V5.9.1164 — navigation/background is render-only. Do NOT flip
+        // mainUiActive=false just because the user opened another Activity/app;
+        // that flag feeds updateUi skip telemetry and was being interpreted by
+        // runtime diagnostics as "UI stopped". Only final destruction/finish may
+        // mark the main UI inactive.
+        if (isFinishing || isDestroyed) mainUiActive = false
     }
     private val looseMainHandlers = mutableListOf<android.os.Handler>()
     private val looseMainRunnables = mutableListOf<Runnable>()
@@ -873,7 +876,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
-        mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
+        // V5.9.1164 — do not deactivate UI/runtime truth on ordinary navigation.
+        // repeatOnLifecycle already pauses the render collector when Main is not
+        // STARTED; the bot runtime and dashboard state must remain logically on.
+        if (isFinishing || isDestroyed) mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
         try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
         try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         // V5.9.1016 — NEVER autosave settings during in-app navigation.
@@ -1087,7 +1093,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
-        mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
+        // V5.9.1164 — same as onPause: STOPPED means render collector paused,
+        // not bot/UI truth stopped. Only final finish/destroy deactivates Main.
+        if (isFinishing || isDestroyed) mainInactiveHandler.postDelayed(markMainInactiveRunnable, 2_000L)
         try { pipelineTileHandler.removeCallbacks(pipelineTileRefresh) } catch (_: Throwable) {}
         try { looseMainHandlers.zip(looseMainRunnables).forEach { (h, r) -> h.removeCallbacks(r) } } catch (_: Throwable) {}
         super.onStop()

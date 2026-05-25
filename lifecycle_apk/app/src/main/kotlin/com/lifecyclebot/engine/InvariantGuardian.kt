@@ -11,7 +11,10 @@ object InvariantGuardian {
 
     fun check(s: RuntimeStateSnapshot, uiRunning: Boolean = s.uiState == "RUNNING"): List<Fault> {
         val out = mutableListOf<Fault>()
-        if (s.botLoopActive && !uiRunning) out += Fault(FaultCode.RUNTIME_UI_SPLIT_BRAIN, "HIGH", "runtime active but UI stopped")
+        // V5.9.1164 — runtime active while Main/UI is backgrounded is NORMAL.
+        // Navigating to another app/activity must never become a trading fault.
+        // Keep RUNTIME_UI_SPLIT_BRAIN enum for old reports, but do not emit it
+        // for foreground absence.
         if (s.botLoopActive && !s.sellReconcilerStarted && s.liveOpenPositions > 0) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with live open positions but sell reconciler stopped")
         // V5.9.1162 — compare live domain to live wallet truth only. Paper positions
         // are expected to have walletHeldMints=0 and must not be reported as healthy
