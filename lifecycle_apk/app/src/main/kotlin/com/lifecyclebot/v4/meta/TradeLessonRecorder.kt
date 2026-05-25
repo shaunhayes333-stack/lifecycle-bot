@@ -387,7 +387,7 @@ object TradeLessonRecorder {
                         portfolioHeat = o.optDouble("portfolioHeat", 0.0),
                         leverageUsed = o.optDouble("leverageUsed", 1.0),
                         executionConfidence = o.optDouble("executionConfidence", 0.5),
-                        leadSource = if (o.has("leadSource")) o.optString("leadSource", null) else null,
+                        leadSource = o.optString("leadSource", "").takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) },
                         expectedDelaySec = if (o.has("expectedDelaySec")) o.optInt("expectedDelaySec") else null,
                         outcomePct = o.optDouble("outcomePct", 0.0),
                         mfePct = o.optDouble("mfePct", 0.0),
