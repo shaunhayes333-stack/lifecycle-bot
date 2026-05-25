@@ -412,7 +412,26 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader INITIALIZED | paper=${isPaperMode.get()} | balance=${"%.2f".format(paperBalance)} SOL | trades=${totalTrades.get()}")
     }
 
+    private fun runtimeDisabledReason(): String? {
+        if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
+        val c = ctx
+        if (c != null) {
+            val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }
+            if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
+                return "MEME_ONLY_MODE"
+            }
+        }
+        if (!isEnabled.get()) return "disabled"
+        return null
+    }
+
     fun start() {
+        runtimeDisabledReason()?.let { reason ->
+            isEnabled.set(false)
+            isRunning.set(false)
+            ErrorLogger.info(TAG, "CRYPTO_RUNTIME_DISABLED reason=$reason")
+            return
+        }
         if (isRunning.get()) {
             // Detect silent loop death — check if jobs are actually alive
             val engineAlive  = engineJob?.isActive == true
@@ -450,6 +469,11 @@ object CryptoAltTrader {
             while (isRunning.get()) {
                 try {
                     delay(SCAN_INTERVAL_MS)
+                    runtimeDisabledReason()?.let { reason ->
+                        ErrorLogger.info(TAG, "CRYPTO_RUNTIME_DISABLED reason=$reason loop=scan")
+                        stop()
+                        return@launch
+                    }
                     if (isEnabled.get()) runScanCycle()
                     else ErrorLogger.debug(TAG, "🪙 Alt trading DISABLED — skipping scan")
                 } catch (e: CancellationException) { throw e }
@@ -459,6 +483,11 @@ object CryptoAltTrader {
 
         monitorJob = scope.launch {
             while (isRunning.get()) {
+                runtimeDisabledReason()?.let { reason ->
+                    ErrorLogger.info(TAG, "CRYPTO_RUNTIME_DISABLED reason=$reason loop=monitor")
+                    stop()
+                    return@launch
+                }
                 try { monitorPositions() }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { ErrorLogger.error(TAG, "Monitor error: ${e.message}", e) }
@@ -471,6 +500,11 @@ object CryptoAltTrader {
             delay(10_000) // stagger start after main engine
             while (isRunning.get()) {
                 try {
+                    runtimeDisabledReason()?.let { reason ->
+                        ErrorLogger.info(TAG, "CRYPTO_ALT_DYNSCAN_ABORTED reason=$reason")
+                        stop()
+                        return@launch
+                    }
                     if (isEnabled.get()) runDynamicTokenScan()
                 } catch (e: CancellationException) { throw e }
                   catch (e: Exception) { ErrorLogger.error(TAG, "DynScan error: ${e.message}", e) }
@@ -530,6 +564,11 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
+        runtimeDisabledReason()?.let { reason ->
+            ErrorLogger.info(TAG, "CRYPTO_ALT_DYNSCAN_ABORTED reason=$reason")
+            return@withContext
+        }
+        ensureActive()
         val allTokens = DynamicAltTokenRegistry.getAllTokens(DynamicAltTokenRegistry.SortMode.QUALITY)
         if (allTokens.isEmpty()) return@withContext
 
@@ -547,6 +586,11 @@ object CryptoAltTrader {
         val dynExecutableSignals = mutableListOf<AltSignal>()
 
         for (tok in batch) {
+            ensureActive()
+            runtimeDisabledReason()?.let { reason ->
+                ErrorLogger.info(TAG, "CRYPTO_ALT_DYNSCAN_ABORTED reason=$reason scanned=$scanned")
+                return@withContext
+            }
             try {
                 if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) continue
                 // V5.9.147 — lazy price hydration. Jupiter-seeded mints arrive
@@ -2903,7 +2947,14 @@ object CryptoAltTrader {
         paperBalance = bal
         // V5.9.5: No-op — balance is owned by FluidLearning shared pool
     }
-    fun setEnabled(enabled: Boolean)   { isEnabled.set(enabled); ErrorLogger.info(TAG, "🪙 Enabled: $enabled") }
+    fun setEnabled(enabled: Boolean)   {
+        isEnabled.set(enabled)
+        ErrorLogger.info(TAG, "🪙 Enabled: $enabled")
+        if (!enabled) {
+            try { stop() } catch (_: Throwable) {}
+            ErrorLogger.info(TAG, "CRYPTO_RUNTIME_DISABLED reason=toggle_or_runtime_authority")
+        }
+    }
     fun setLiveMode(live: Boolean) {
         isPaperMode.set(!live)
         ErrorLogger.info(TAG, "🪙 Mode switched to ${if (live) "🔴 LIVE" else "📄 PAPER"}")

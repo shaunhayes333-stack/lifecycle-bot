@@ -131,15 +131,16 @@ class BotService : Service() {
                     }
                 } catch (_: Exception) {}
             }
-            // V5.9.708: CryptoAlt: honour toggle by stopping the trader immediately if disabled
-            try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cfg.cryptoAltsEnabled) } catch (_: Exception) {}
-            if (!cfg.cryptoAltsEnabled) {
+            // V5.9.1160 — Crypto Universe is part of the Markets lane. In MEME-only
+            // mode (tradingMode=0 or markets master OFF) it must not scan, publish
+            // DynSig/SIGNAL logs, write learning, or execute.
+            val cryptoUniverseOn = marketsOn && cfg.cryptoAltsEnabled
+            try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
+            if (!cryptoUniverseOn) {
                 try {
-                    if (com.lifecyclebot.perps.CryptoAltTrader.isHealthy()) {
-                        com.lifecyclebot.perps.CryptoAltTrader.stop()
-                        ErrorLogger.info("BotService", "📴 reapply: CryptoAlts OFF — CryptoAltTrader stopped")
-                        instance?.addLog("📴 Crypto Alts Trader toggled OFF — stopped")
-                    }
+                    com.lifecyclebot.perps.CryptoAltTrader.stop()
+                    ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE_OR_MARKETS_OFF reapply marketsOn=$marketsOn cryptoToggle=${cfg.cryptoAltsEnabled}")
+                    instance?.addLog("📴 Crypto Universe disabled — Meme-only/Markets-off isolation")
                 } catch (_: Exception) {}
             }
             ErrorLogger.info("BotService", "🎚️ Markets switches re-applied: " +
@@ -1048,8 +1049,14 @@ class BotService : Service() {
         com.lifecyclebot.perps.CommoditiesTrader.setEnabled(marketsLaneOn && marketsStartCfg.commoditiesEnabled)
         com.lifecyclebot.perps.MetalsTrader.setEnabled(marketsLaneOn && marketsStartCfg.metalsEnabled)
         com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled)
-        // V5.9.345: Alts bypasses kill-switch — user wants it running.
-        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(marketsStartCfg.cryptoAltsEnabled)
+        // V5.9.1160 — Crypto Universe must honor Markets lane authority.
+        // MEME-only mode must not start CryptoAlt scanner/signals/learning.
+        val cryptoUniverseOnAtStart = marketsLaneOn && marketsStartCfg.cryptoAltsEnabled
+        com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
+        if (!cryptoUniverseOnAtStart) {
+            try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
+            ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE_OR_MARKETS_OFF startup marketsLaneOn=$marketsLaneOn cryptoToggle=${marketsStartCfg.cryptoAltsEnabled}")
+        }
 
         // V5.9.779 — EMERGENT MEME-ONLY: publish the canonical enabled-trader
         // set so every paper/sniper/cyclic/shadow path can short-circuit at
@@ -1057,7 +1064,7 @@ class BotService : Service() {
         // enabled when the bot runs; the others reflect the user's UI toggles.
         run {
             val enabledSet = mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
-            if (marketsStartCfg.cryptoAltsEnabled)
+            if (cryptoUniverseOnAtStart)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
             if (marketsLaneOn && marketsStartCfg.stocksEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
@@ -1203,13 +1210,15 @@ class BotService : Service() {
         try {
             com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
             com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
-            if (cfg.cryptoAltsEnabled) {
+            val cryptoUniverseOn = isMarketsLaneEnabled(cfg) && cfg.cryptoAltsEnabled
+            com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn)
+            if (cryptoUniverseOn) {
                 com.lifecyclebot.perps.CryptoAltTrader.start()
                 ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=true started=true")
             } else {
                 // Make sure any stale instance from a prior run is stopped.
                 try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
-                ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=false started=false (UI toggle OFF)")
+                ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE cryptoToggle=${cfg.cryptoAltsEnabled} tradingMode=${cfg.tradingMode} markets=${cfg.marketsTraderEnabled}")
             }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "CryptoAltTrader start error: ${e.message}", e)
