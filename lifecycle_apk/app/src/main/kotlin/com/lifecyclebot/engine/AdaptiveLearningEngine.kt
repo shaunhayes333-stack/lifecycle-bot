@@ -93,7 +93,11 @@ object AdaptiveLearningEngine {
         val holdTimeMins: Double,
         val exitReason: String,
         val outcomeScore: Int,
-        val label: TradeLabel
+        val label: TradeLabel,
+        // V5.9.1154 — stable per-close identity. Empty for legacy callers;
+        // when populated, learnFromTrade dedupes by this instead of drifting
+        // hold/pnl/minute buckets.
+        val stableTradeKey: String = ""
     )
 
     fun captureFeatures(
@@ -117,7 +121,8 @@ object AdaptiveLearningEngine {
         timeToPeakMins: Double,
         holdTimeMins: Double,
         exitReason: String,
-        entryPhase: String = ""
+        entryPhase: String = "",
+        stableTradeKey: String = ""
     ): TradeFeatures {
         val safeLiquidity = sanitizeDouble(liquidityUsd)
         val safeVolume = sanitizeDouble(volumeUsd)
@@ -164,7 +169,8 @@ object AdaptiveLearningEngine {
             holdTimeMins = safeHoldTime,
             exitReason = exitReason,
             outcomeScore = outcomeScore,
-            label = label
+            label = label,
+            stableTradeKey = stableTradeKey
         )
     }
 
@@ -556,10 +562,12 @@ object AdaptiveLearningEngine {
             ErrorLogger.debug("AdaptiveLearning", "🪦 SKIP DEAD_TOKEN exit (no price feed) — not learning")
             return
         }
-        // V5.9.694/695 — dedup guard using available TradeFeatures fields.
-        // Bucket by mcap+holdTime+pnlPct rounded to 1 decimal + minute bucket.
-        // Prevents double-feed when multiple Executor close paths fire for the same trade.
-        val dedupKey = "${"%.1f".format(features.entryMcapUsd)}_${"%.1f".format(features.holdTimeMins)}_${"%.1f".format(features.pnlPct)}_${(System.currentTimeMillis() / 60_000L)}"
+        // V5.9.1154 — prefer stable per-position close identity when callers
+        // provide it. The old fallback key included holdTime/pnl/current-minute,
+        // so a single position being swept/reconciled could mutate into a fresh
+        // key every tick and hijack AdaptiveLearning forever.
+        val dedupKey = features.stableTradeKey.takeIf { it.isNotBlank() }
+            ?: "${"%.1f".format(features.entryMcapUsd)}_${"%.1f".format(features.holdTimeMins)}_${"%.1f".format(features.pnlPct)}_${(System.currentTimeMillis() / 60_000L)}"
         if (aleSeenKeys.putIfAbsent(dedupKey, System.currentTimeMillis()) != null) {
             ErrorLogger.debug("AdaptiveLearning", "⚡ DEDUP skip pnl=${features.pnlPct.toInt()}% (already learned this close)")
             return
@@ -1439,6 +1447,7 @@ object AdaptiveLearningEngine {
                 holdTimeMins = holdMins,
                 exitReason = cand.exitReasonFamily.ifBlank { outcome.closeReason ?: "" },
                 entryPhase = cand.entryPattern,
+                stableTradeKey = outcome.tradeId,
             )
             learnFromTrade(features)
             // V5.9.810 — operator triage: tradeCount is now bus-driven so

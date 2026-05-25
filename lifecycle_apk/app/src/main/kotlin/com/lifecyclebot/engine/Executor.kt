@@ -10021,6 +10021,7 @@ class Executor(
                 holdTimeMins = holdMins,
                 exitReason = reason,
                 entryPhase = ts.position.entryPhase,
+                stableTradeKey = "${ts.mint}:${ts.position.entryTime}",
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
@@ -10511,6 +10512,7 @@ class Executor(
                 tokenName = ts.name,
                 pnlPct = pnlP,
                 holdTimeMinutes = holdTimeDouble,
+                entryTimeMs = entryTimeSafeEdu,
                 exitReason = reason,
                 entryPhase = ts.position.entryPhase.ifEmpty { "UNKNOWN" },
                 tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" },
@@ -12330,6 +12332,7 @@ class Executor(
                 holdTimeMins = holdMins,
                 exitReason = reason,
                 entryPhase = pos.entryPhase,
+                stableTradeKey = "${ts.mint}:${pos.entryTime}",
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             
@@ -12678,6 +12681,7 @@ class Executor(
                 tokenName = ts.name,
                 pnlPct = pnlP,
                 holdTimeMinutes = holdMinutes,
+                entryTimeMs = entryTimeSafe3,
                 exitReason = reason,
                 entryPhase = pos.entryPhase.ifEmpty { "UNKNOWN" },
                 tradingMode = pos.tradingMode.ifEmpty { "LIVE" },

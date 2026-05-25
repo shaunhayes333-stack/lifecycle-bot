@@ -392,11 +392,13 @@ object EducationSubLayerAI {
     private const val OUTCOME_DEDUP_TTL_MS = 10 * 60 * 1000L
 
     private fun outcomeDedupKey(outcome: TradeOutcomeData): String {
-        val pnlBucket = kotlin.math.round(outcome.pnlPct * 10.0) / 10.0
-        val holdBucket = kotlin.math.floor(outcome.holdTimeMinutes.coerceAtLeast(0.0)).toLong()
+        // V5.9.1154 — intentionally exclude drifting fields (pnl/hold mins).
+        // They change while stale close paths replay the same position and were
+        // the reason V5.9.1152 still allowed one trade to monopolize learning.
         val reason = outcome.exitReason.uppercase().take(48)
         val mode = outcome.tradingMode.uppercase().take(32)
-        return "${outcome.mint}:${outcome.symbol}:$mode:$reason:$pnlBucket:$holdBucket"
+        val entryBucket = if (outcome.entryTimeMs > 1_000_000_000_000L) outcome.entryTimeMs else 0L
+        return "${outcome.mint}:$entryBucket"
     }
 
     private fun shouldProcessOutcomeOnce(outcome: TradeOutcomeData): Boolean {
@@ -850,6 +852,7 @@ object EducationSubLayerAI {
                 holdTimeMins = outcome.holdTimeMinutes,
                 exitReason = outcome.exitReason,
                 entryPhase = outcome.entryPhase,
+                stableTradeKey = outcomeDedupKey(outcome),
             )
             AdaptiveLearningEngine.learnFromTrade(features)
             markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct)
@@ -1194,6 +1197,10 @@ object EducationSubLayerAI {
         val tokenName: String,
         val pnlPct: Double,
         val holdTimeMinutes: Double,
+        // V5.9.1154 — stable position identity for learning dedupe.
+        // Defaults to 0 for legacy/simple constructors; Executor supplies
+        // the real entry timestamp so one position teaches exactly once.
+        val entryTimeMs: Long = 0L,
         val exitReason: String,
         val entryPhase: String,
         val tradingMode: String,
