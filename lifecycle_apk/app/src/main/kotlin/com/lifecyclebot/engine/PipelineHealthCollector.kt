@@ -566,21 +566,28 @@ object PipelineHealthCollector {
                         // stack a second time.
                         val trace = tickTrace.ifBlank { "(stack capture failed)" }
                         val topFrame = tickTop
+
+                        // V5.9.1151 — watchdog false-positive fix.
+                        // Previously, once gap crossed 700ms we stopped posting
+                        // fresh pings until gap fell below threshold. If the main
+                        // thread recovered but no ping was queued, ackTs stayed old
+                        // and the watchdog kept emitting fake ANR_HINTs forever
+                        // (nativePollOnce/Unsafe.park dominated 3117). Always post
+                        // the next ping; count/log only while the current ping is
+                        // genuinely late.
+                        mainHandler?.post(mainPing)
+
                         bump(anrStackCounts, topFrame.take(120))
                         anrSamplesTaken.incrementAndGet()
 
-                        // Throttle event emission: one ANR_HINT every 1.5s per
+                        // Throttle event emission: one ANR_HINT every 5s per
                         // unique top frame. Long freezes on the same call get
                         // grouped via the anrStackCounts counter above.
                         val emitNow = topFrame != lastReportedKey ||
-                                (System.currentTimeMillis() - lastReportedAtMs) > 1_500L
+                                (System.currentTimeMillis() - lastReportedAtMs) > 5_000L
                         if (emitNow) {
                             lastReportedKey = topFrame
                             lastReportedAtMs = System.currentTimeMillis()
-                            // V5.9.915 — include the 30-frame pre-freeze ring
-                            // so the operator sees what main was doing in the
-                            // ~7.5s leading up to the hang, not just at the
-                            // moment of detection.
                             val preRingSb = StringBuilder()
                             preRingSb.append("\n--- pre-freeze rolling main-thread sample (last 30) ---\n")
                             val ringSnapshot = stackRing.toList()

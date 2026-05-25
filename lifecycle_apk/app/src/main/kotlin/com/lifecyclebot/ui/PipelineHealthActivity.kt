@@ -85,7 +85,7 @@ class PipelineHealthActivity : AppCompatActivity() {
         HandlerThread("PipelineHealthRender").apply { start() }
     private val bgHandler: Handler by lazy { Handler(bgThread.looper) }
 
-    private val refreshIntervalMs = 20_000L  // V5.9.1057: 12s→20s. Dump is forensic; less main-thread pressure.
+    private val refreshIntervalMs = 60_000L  // V5.9.1151: health screen is forensic; reduce main/UI churn while bot runs.
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (destroyed || !activityVisible || !viewsBound) return
