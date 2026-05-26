@@ -2602,7 +2602,8 @@ for legal compliance.
         } catch (_: Exception) {}
 
         // ── bot status card ───────────────────────────────────────────
-        tvTokenName.text  = ts?.symbol?.ifBlank { "No token selected" } ?: "No token selected"
+        tvTokenName.text  = ts?.symbol?.ifBlank { "Scanning ${state.tokens.size} tokens" }
+            ?: if (state.running || runtimeActiveForUi) "Scanning ${state.tokens.size} tokens" else "No token selected"
         
         // Load token logo from DexScreener
         if (ts != null) {
@@ -2715,6 +2716,11 @@ for legal compliance.
             
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
+        } else if (state.running || runtimeActiveForUi) {
+            // V5.9.1172 — bot-wide truth fallback. A running scanner with no
+            // selected/priced token should not present the chart as "dead".
+            priceChart.setNoDataText("Scanning ${state.tokens.size} tokens — chart auto-fills when the next priced token is evaluated")
+            candleChart.setNoDataText("Scanning ${state.tokens.size} tokens — no selected token candle stream yet")
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
@@ -3536,7 +3542,7 @@ for legal compliance.
         }
 
         // ── decision log ──────────────────────────────────────────────
-        if (ts != null) updateDecisionLog(ts)
+        if (ts != null) updateDecisionLog(ts) else updateGlobalDecisionLog(state)
 
         // ── top-up status in bot status text ─────────────────────────
         // Show top-up count on active position
@@ -7052,6 +7058,38 @@ This cannot be undone!
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun updateGlobalDecisionLog(state: UiState) {
+        // V5.9.1172 — if no token is selected yet, show bot-wide activity
+        // instead of the misleading static "Waiting for first evaluation…".
+        val latest = try {
+            state.tokens.values
+                .asSequence()
+                .filter { it.lastPrice > 0.0 || it.entryScore > 0.0 || it.exitScore > 0.0 || it.signal != "WAIT" }
+                .sortedByDescending { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
+                .take(8)
+                .toList()
+        } catch (_: Throwable) { emptyList() }
+        val hash = (state.running.toString() + state.tokens.size + latest.joinToString { it.mint + it.signal + it.entryScore.toInt() }).hashCode()
+        if (hash == lastDecisionLogHash) return
+        lastDecisionLogHash = hash
+        cardLogScores.visibility = android.view.View.GONE
+        val header = if (state.running) {
+            "🟢 Bot running — scanning ${state.tokens.size} tokens"
+        } else {
+            "Bot stopped — no selected token"
+        }
+        val body = if (latest.isNotEmpty()) {
+            latest.map { t ->
+                val src = t.source.ifBlank { t.lastPriceSource.ifBlank { "watchlist" } }
+                val label = if (t.symbol.isBlank()) t.mint.take(6) else t.symbol
+                "${label.padEnd(10)} ${t.signal.padEnd(8)} E:${t.entryScore.toInt().toString().padStart(3)} X:${t.exitScore.toInt().toString().padStart(3)} ${src.take(18)}"
+            }.joinToString("\n")
+        } else {
+            state.logs.takeLast(8).asReversed().joinToString("\n").ifBlank { "Waiting for first priced evaluation…" }
+        }
+        tvDecisionLog.text = "$header\n$body"
     }
 
     private fun updateDecisionLog(ts: TokenState) {

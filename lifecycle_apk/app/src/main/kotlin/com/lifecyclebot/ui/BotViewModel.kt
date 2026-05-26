@@ -96,13 +96,22 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         val runtime = BotRuntimeController.snapshot()
         val serviceRuntimeActive = try { BotService.isRuntimeActive() } catch (_: Throwable) { runtime.runtimeActive }
 
-        // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
+        // V5.9.1172 — display-token truth. The bot runs watchlist-wide; the
+        // hero chart/decision widgets must not look dead just because the user
+        // did not manually select cfg.activeToken. Pick a meaningful display
+        // token: configured token, then open position, then most recently priced
+        // watchlist token, then newest intake fallback.
+        val tokenValues = status.tokens.values
         var active = status.tokens[cfg.activeToken]
         if (active == null) {
-            active = status.openPositions.firstOrNull()
-            if (active == null && status.tokens.isNotEmpty()) {
-                active = status.tokens.values.firstOrNull()
-            }
+            active = status.openPositions.maxByOrNull { it.position.entryTime }
+        }
+        if (active == null && tokenValues.isNotEmpty()) {
+            active = tokenValues
+                .asSequence()
+                .filter { it.lastPrice > 0.0 || it.history.isNotEmpty() || it.history5m.isNotEmpty() }
+                .maxByOrNull { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
+                ?: tokenValues.maxByOrNull { it.addedToWatchlistAt }
         }
 
         // Use singleton wallet manager - always the same instance
