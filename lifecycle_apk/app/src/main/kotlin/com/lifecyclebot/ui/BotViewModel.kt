@@ -194,14 +194,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
             putExtra(BotService.EXTRA_STOP_SOURCE, source)
             putExtra(BotService.EXTRA_UI_STOP_CONFIRMED, source != "ui_stop_button" || uiStopConfirmed)
         }
-        // V5.9.1071 — DO NOT pre-mutate BotService.status.running or _ui.running.
-        // Same bug class as V5.9.1068 start pre-mutation: the ViewModel was declaring
-        // the bot stopped before BotService actually accepted/drained ACTION_STOP.
-        // During Pipeline/Journal activity transitions this made Main show STOPPED
-        // while loopJob/scanner/exits were still alive, and START then raced a stale
-        // false state. BotService owns the running flag; pollLoop reflects it via
-        // BotService.isRuntimeActive().
-        ctx.startService(intent)
+        // V5.9.1169 — reliable stop dispatch. The service is already foreground
+        // while running, but startService() can be unreliable during activity churn
+        // on newer Android/OEM builds. Use foreground-service dispatch first and
+        // fall back to startService. Do not call BotService.stopBot() directly on
+        // main; stop still belongs to the service coroutine.
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UI_STOP_DISPATCHED", "source=$source uiConfirmed=$uiStopConfirmed") } catch (_: Throwable) {}
+        try {
+            ctx.startForegroundService(intent)
+        } catch (_: Throwable) {
+            try { ctx.startService(intent) } catch (_: Throwable) {}
+        }
     }
 
     fun toggleBot() {

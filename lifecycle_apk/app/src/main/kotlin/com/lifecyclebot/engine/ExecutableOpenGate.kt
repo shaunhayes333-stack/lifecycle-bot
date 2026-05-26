@@ -55,7 +55,45 @@ object ExecutableOpenGate {
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
-    private fun laneKey(mint: String, lane: String): String = mint + ":" + lane.uppercase().filter { it.isLetterOrDigit() }
+
+    private fun canonicalLane(lane: String): String {
+        val raw = lane.uppercase().trim().replace('-', '_').replace(' ', '_')
+        return when (raw) {
+            "BLUE_CHIP" -> "BLUECHIP"
+            "SHIT_COIN" -> "SHITCOIN"
+            "MANIP", "MANIPULATED" -> "MANIPULATED"
+            "DIP", "DIP_HUNTER" -> "DIP_HUNTER"
+            "PROJECT", "PROJECT_SNIPER", "SNIPER" -> "PROJECT_SNIPER"
+            "CASHGEN", "CASH_GENERATION" -> "TREASURY"
+            else -> raw
+        }
+    }
+
+    private fun isSourceBucketLane(lane: String): Boolean {
+        return canonicalLane(lane) in setOf(
+            "CORE", "UNKNOWN", "WATCHLIST", "PUMP_PORTAL", "PUMP_PORTAL_WS",
+            "PUMP_FUN", "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE",
+            "DEX_TREND", "DEX_TRENDING", "DEX_BOOST", "DEX_BOOSTED",
+            "RAYDIUM", "RAYDIUM_N", "RAYDIUM_NEW_POOL", "COINGECKO", "COINGECKO_TRENDING"
+        )
+    }
+
+    private fun selectedLaneMatchesRequest(selectedLane: String, requestedLane: String): Boolean {
+        val selected = canonicalLane(selectedLane)
+        val requested = canonicalLane(requestedLane)
+        if (selected == requested) return true
+        // V5.9.1169 — source buckets are not execution lanes. If FDG selected
+        // a real specialist lane and the downstream executor asks via CORE/DEX/
+        // RAYDIUM/etc, keep selected specialist authority and continue to the
+        // BUY/finality checks. This fixes false SELECTED_LANE_*_REQUEST_CORE
+        // blocks without allowing UNKNOWN/WATCH candidates.
+        return selected !in setOf("", "UNKNOWN") && isSourceBucketLane(requested)
+    }
+
+    fun lanesCompatibleForTests(selectedLane: String, requestedLane: String): Boolean =
+        selectedLaneMatchesRequest(selectedLane, requestedLane)
+
+    private fun laneKey(mint: String, lane: String): String = mint + ":" + canonicalLane(lane).filter { it.isLetterOrDigit() }
     private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
 
     fun resetForTests() {
@@ -243,6 +281,8 @@ object ExecutableOpenGate {
         val safetyTier = state?.safetyTier ?: "UNKNOWN"
         val liquidityUsd = state?.liquidityUsd ?: 0.0
         val selectedLane = state?.selectedLane ?: "UNKNOWN"
+        val requestedLane = canonicalLane(lane)
+        val canonicalSelectedLane = canonicalLane(selectedLane)
         val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
         val candidateVersion = state?.candidateVersion ?: 0L
@@ -301,8 +341,8 @@ object ExecutableOpenGate {
         if (state == null) {
             return blocked("EXEC_OPEN_BLOCKED_NO_FINAL_CANDIDATE", "NO_FINAL_BUY_CANDIDATE")
         }
-        if (selectedLane.equals("UNKNOWN", true) || !selectedLane.equals(lane.uppercase(), true)) {
-            return blocked("EXEC_OPEN_BLOCKED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${selectedLane}_REQUEST_${lane.uppercase()}")
+        if (canonicalSelectedLane == "UNKNOWN" || !selectedLaneMatchesRequest(selectedLane, lane)) {
+            return blocked("EXEC_OPEN_BLOCKED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${canonicalSelectedLane}_REQUEST_${requestedLane}")
         }
         if (candidateVersion != LaneExecutionCoordinator.candidateVersionFor(mint)) {
             return blocked("EXEC_OPEN_BLOCKED_CANDIDATE_VERSION_MISMATCH", "STALE_CANDIDATE_VERSION_$candidateVersion")

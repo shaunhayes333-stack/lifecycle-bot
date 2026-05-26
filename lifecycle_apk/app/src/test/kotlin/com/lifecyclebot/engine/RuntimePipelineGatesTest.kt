@@ -556,6 +556,16 @@ class ExecutionAuthorityInvariantTest {
         assertFalse("liquidity floor is lane-local, not global circuit breaker", ToxicModeCircuitBreaker.currentEntryPause().active)
     }
 
+
+    @Test
+    fun executable_gate_accepts_lane_alias_and_source_bucket_when_fdg_selected_specialist() {
+        assertTrue(ExecutableOpenGate.lanesCompatibleForTests("BLUECHIP", "BLUE_CHIP"))
+        assertTrue(ExecutableOpenGate.lanesCompatibleForTests("SHITCOIN", "CORE"))
+        assertTrue(ExecutableOpenGate.lanesCompatibleForTests("MOONSHOT", "DEX_TREND"))
+        assertFalse(ExecutableOpenGate.lanesCompatibleForTests("UNKNOWN", "CORE"))
+        assertFalse(ExecutableOpenGate.lanesCompatibleForTests("QUALITY", "SHITCOIN"))
+    }
+
     @Test
     fun circuit_breaker_blocks_before_executable_open_allowed() {
         resetAuthorities(paper = true)

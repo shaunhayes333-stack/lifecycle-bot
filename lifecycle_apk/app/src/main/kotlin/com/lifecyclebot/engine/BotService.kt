@@ -10626,8 +10626,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
     ) {
         try {
             val now = System.currentTimeMillis()
-            val curExec = com.lifecyclebot.engine.CanonicalLearningCounters
-                .executedTradesTotal.get()
+            val curExec = maxOf(
+                com.lifecyclebot.engine.CanonicalLearningCounters.executedTradesTotal.get(),
+                try { com.lifecyclebot.engine.TradeHistoryStore.getTradeCount24h().toLong() } catch (_: Throwable) { 0L }
+            )
             if (curExec != freezeLastExecCount) {
                 freezeLastExecCount = curExec
                 freezeLastExecChangeMs = now
@@ -10661,7 +10663,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
             val haveOpens = memeOpen > 0
             val canFireAgain = (now - freezeRecoveryFiredAt) > 5 * 60_000L
             val freezeStaleThresholdMs = 3 * 60_000L
-            if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain) {
+            val antiChokeSoftening = try { com.lifecyclebot.engine.AntiChokeManager.isSoftening() } catch (_: Throwable) { false }
+            val tradeCount24h = try { com.lifecyclebot.engine.TradeHistoryStore.getTradeCount24h() } catch (_: Throwable) { 0 }
+            val projectedOk = tradeCount24h >= 500
+            if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain && antiChokeSoftening && !projectedOk) {
                 freezeRecoveryFiredAt = now
                 ErrorLogger.error("BotService",
                     "🔓 FREEZE_DETECTOR: 0 executions in ${staleMs/1000}s while scanner alive + memeOpen=$memeOpen — running auto-unfreeze")
@@ -10689,9 +10694,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     }
                 } catch (_: Throwable) {}
 
-                // 4) Clear FinalDecisionGate's learning state — V5.9.182
-                //    already exposes this for the same reason at boot.
-                try { FinalDecisionGate.resetLearningState() } catch (_: Throwable) {}
+                // 4) V5.9.1169 — do NOT clear FinalDecisionGate learning state here.
+                // This detector was firing during high-throughput/low-close windows
+                // and wiping FDG memory, making entry quality worse. Real freeze
+                // recovery restores plumbing only.
 
                 // 5) Bump the AntiChokeManager.
                 try {
@@ -10703,7 +10709,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     )
                 } catch (_: Throwable) {}
 
-                addLog("🔓 FREEZE_DETECTOR: scanner reset · streams reconnected · halt cleared · FDG learning state cleared")
+                addLog("🔓 FREEZE_DETECTOR: scanner reset · streams reconnected · halt cleared · FDG memory preserved")
             }
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "Freeze detector tick error: ${e.message}")
