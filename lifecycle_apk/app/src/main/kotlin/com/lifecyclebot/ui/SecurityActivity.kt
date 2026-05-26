@@ -378,6 +378,19 @@ class SecurityActivity : AppCompatActivity() {
         // App must be authenticated or closed
     }
 
+    private fun botIntendedToRun(): Boolean {
+        return try {
+            val rp = getSharedPreferences(
+                com.lifecyclebot.engine.BotService.RUNTIME_PREFS,
+                android.content.Context.MODE_PRIVATE
+            )
+            val wasRunning = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+            val manualStop = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
+            val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            (wasRunning || runtimeActive) && !manualStop
+        } catch (_: Throwable) { false }
+    }
+
     override fun onPause() {
         super.onPause()
         // V5.9.714 — Multi-layer guard against premature app kill on onPause.
@@ -401,7 +414,14 @@ class SecurityActivity : AppCompatActivity() {
         // is already done — it finished itself in proceedToApp(). If it somehow
         // gets paused again after that (back-stack resurrection), just let it go.
         if (!isFinishing && !biometricInProgress && !authSucceeded) {
-            finishAndRemoveTask()
+            if (botIntendedToRun()) {
+                // V5.9.1165 — closing/removing the whole task while the bot is
+                // intended to run can cascade into onTaskRemoved/service churn.
+                // Close only the auth UI; the foreground service must persist.
+                finish()
+            } else {
+                finishAndRemoveTask()
+            }
         }
     }
 }

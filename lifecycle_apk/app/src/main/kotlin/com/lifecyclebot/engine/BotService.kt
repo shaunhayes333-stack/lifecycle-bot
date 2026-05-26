@@ -68,6 +68,22 @@ class BotService : Service() {
         // Set to true at the START of stopBot(), cleared on startBot().
         @Volatile var isShuttingDown: Boolean = false
 
+        // V5.9.1165 — permanent-runtime stop contract.
+        // The bot may stop only from an explicit confirmed Stop button / halt
+        // reset, operator manual stop, or controlled config restart. Unknown
+        // ACTION_STOP intents, stale UI instances, notification/task lifecycle
+        // churn, or direct calls are rejected. Operator rule: run permanently
+        // unless I turn the bot off.
+        fun isConfirmedManualStopSource(source: String, uiStopConfirmed: Boolean): Boolean {
+            return (source == "ui_stop_button" && uiStopConfirmed) ||
+                source == "halt_reset" ||
+                source == "operator_manual_stop"
+        }
+
+        fun isAllowedStopSource(source: String, uiStopConfirmed: Boolean): Boolean {
+            return isConfirmedManualStopSource(source, uiStopConfirmed) || source == "config_restart"
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // PIPELINE DEBUG HELPERS - trace exactly why tokens don't buy
         // ═══════════════════════════════════════════════════════════════
@@ -1605,17 +1621,28 @@ class BotService : Service() {
             ACTION_STOP  -> {
                 val stopSource = intent.getStringExtra(EXTRA_STOP_SOURCE) ?: "unknown_action_stop"
                 val uiStopConfirmed = intent.getBooleanExtra(EXTRA_UI_STOP_CONFIRMED, false)
-                val isConfirmedManualStop = (stopSource == "ui_stop_button" && uiStopConfirmed) || stopSource == "halt_reset"
-                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed manual=$isConfirmedManualStop") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("LIFECYCLE_STOP_REQUESTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
+                val isConfirmedManualStop = isConfirmedManualStopSource(stopSource, uiStopConfirmed)
+                val isAllowedStop = isAllowedStopSource(stopSource, uiStopConfirmed)
+                try { ForensicLogger.lifecycle("ACTION_STOP_RECEIVED", "source=$stopSource user=${intent.getBooleanExtra(EXTRA_USER_REQUESTED, false)} uiConfirmed=$uiStopConfirmed manual=$isConfirmedManualStop allowed=$isAllowedStop") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("LIFECYCLE_STOP_REQUESTED", "source=$stopSource manual=$isConfirmedManualStop allowed=$isAllowedStop") } catch (_: Throwable) {}
                 // V5.9.1075 — reject ambiguous UI stops. Regression RCA:
                 // Main rendered START BOT from stale UiState, but its click handler
                 // called toggleBot(); toggleBot re-read live runtime truth, saw an
                 // active/ghost loop, and sent ACTION_STOP source=ui_stop_button.
                 // Operator clicked/expected START; service accepted STOP. Never again.
-                if (stopSource == "ui_stop_button" && !uiStopConfirmed) {
-                    ErrorLogger.error("BotService", "🚫 Rejected ambiguous UI stop: missing EXTRA_UI_STOP_CONFIRMED")
-                    try { ForensicLogger.lifecycle("ACTION_STOP_REJECTED", "source=$stopSource reason=missing_ui_stop_confirm") } catch (_: Throwable) {}
+                if (!isAllowedStop) {
+                    val reason = if (stopSource == "ui_stop_button" && !uiStopConfirmed) "missing_ui_stop_confirm" else "unapproved_stop_source"
+                    ErrorLogger.error("BotService", "🚫 Rejected ACTION_STOP: source=$stopSource uiConfirmed=$uiStopConfirmed reason=$reason")
+                    try { ForensicLogger.lifecycle("ACTION_STOP_REJECTED", "source=$stopSource reason=$reason") } catch (_: Throwable) {}
+                    try {
+                        getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+                            .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                            .apply()
+                    } catch (_: Throwable) {}
+                    scheduleKeepAliveAlarm()
+                    try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
                     return START_STICKY
                 }
                 try { ForensicLogger.lifecycle("LIFECYCLE_STOP_ACCEPTED", "source=$stopSource manual=$isConfirmedManualStop") } catch (_: Throwable) {}
@@ -1899,7 +1926,11 @@ class BotService : Service() {
         // PositionPersistence.restorePositions + StartupReconciler chain can
         // re-adopt the position from on-chain truth on next boot.
         val onDestroyHeldCount = heldPositionCountForRescue()
-        if ((status.running || onDestroyHeldCount > 0) && !isManualStopRequested(applicationContext)) {
+        val onDestroyWasRunning = try {
+            getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+        } catch (_: Throwable) { false }
+        if ((status.running || onDestroyHeldCount > 0 || onDestroyWasRunning) && !isManualStopRequested(applicationContext)) {
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                 val openCount = maxOf(tokensCopy.values.count { it.position.isOpen }, onDestroyHeldCount)
@@ -2179,8 +2210,12 @@ class BotService : Service() {
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
         
         val taskRemovedHeldCount = heldPositionCountForRescue()
-        if ((status.running || taskRemovedHeldCount > 0) && !isManualStopRequested(applicationContext)) {
-            try { ForensicLogger.lifecycle("TASK_REMOVED_STRANDED_POSITION_RESCUE", "statusRunning=${status.running} held=$taskRemovedHeldCount") } catch (_: Throwable) {}
+        val taskRemovedWasRunning = try {
+            getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
+        } catch (_: Throwable) { false }
+        if ((status.running || taskRemovedHeldCount > 0 || taskRemovedWasRunning) && !isManualStopRequested(applicationContext)) {
+            try { ForensicLogger.lifecycle("TASK_REMOVED_STRANDED_POSITION_RESCUE", "statusRunning=${status.running} held=$taskRemovedHeldCount wasRunning=$taskRemovedWasRunning") } catch (_: Throwable) {}
             // V5.9.1081 — DEDUPE: cancel any prior pending restart alarms first
             // so onTaskRemoved cannot stack a second pair on top of an existing
             // onDestroy-armed pair.
@@ -5043,6 +5078,21 @@ class BotService : Service() {
 
     fun stopBot(source: String = "direct_call_unknown") {
         val liquidateOnStop = source == "ui_stop_button" || source == "halt_reset" || source == "operator_manual_stop"
+        val stopAllowed = liquidateOnStop || source == "config_restart"
+        if (!stopAllowed) {
+            ErrorLogger.error("BotService", "🚫 stopBot rejected: unapproved source=$source — runtime must stay running")
+            try { ForensicLogger.lifecycle("STOPBOT_REJECTED", "source=$source reason=unapproved_stop_source") } catch (_: Throwable) {}
+            try {
+                getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+                    .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                    .apply()
+            } catch (_: Throwable) {}
+            scheduleKeepAliveAlarm()
+            try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
+            return
+        }
         val softStopPreservePositions = !liquidateOnStop
         isShuttingDown = liquidateOnStop  // V5.9.1078: only liquidation stops use fast-close shutdown paths
         // V5.9.1016 — forensic stop source marker. Report/navigation bugs must

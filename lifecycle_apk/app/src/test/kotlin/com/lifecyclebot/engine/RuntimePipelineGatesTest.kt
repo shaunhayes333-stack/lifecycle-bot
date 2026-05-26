@@ -459,6 +459,15 @@ class RuntimeDoctorSmokeTest {
         assertTrue(sell.ok)
     }
 
+
+    @Test
+    fun stop_contract_rejects_unknown_or_unconfirmed_stop_sources() {
+        assertFalse(BotService.isAllowedStopSource("unknown_action_stop", uiStopConfirmed = false))
+        assertFalse(BotService.isAllowedStopSource("ui_stop_button", uiStopConfirmed = false))
+        assertTrue(BotService.isAllowedStopSource("ui_stop_button", uiStopConfirmed = true))
+        assertTrue(BotService.isAllowedStopSource("config_restart", uiStopConfirmed = false))
+    }
+
     @Test
     fun state_debugger_outputs_required_safe_fields() {
         val snap = RuntimeStateSnapshot.current()
