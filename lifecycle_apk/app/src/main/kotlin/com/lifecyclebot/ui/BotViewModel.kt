@@ -41,6 +41,9 @@ data class UiState(
     val marketSentiment: String = "UNKNOWN",
     val activeTradingModes: Int = 0,
     val totalInsights: Int = 0,
+    // V5.9.1178 — force UiState emission even when live TokenState object refs
+    // mutate in place and Map.equals would otherwise consider snapshots equal.
+    val renderEpoch: Long = 0L,
 )
 
 class BotViewModel(app: Application) : AndroidViewModel(app) {
@@ -96,22 +99,31 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         val runtime = BotRuntimeController.snapshot()
         val serviceRuntimeActive = try { BotService.isRuntimeActive() } catch (_: Throwable) { runtime.runtimeActive }
 
-        // V5.9.1172 — display-token truth. The bot runs watchlist-wide; the
-        // hero chart/decision widgets must not look dead just because the user
-        // did not manually select cfg.activeToken. Pick a meaningful display
-        // token: configured token, then open position, then most recently priced
-        // watchlist token, then newest intake fallback.
-        val tokenValues = status.tokens.values
-        var active = status.tokens[cfg.activeToken]
+        // V5.9.1178 — UI bridge snapshot, not live mutable map.
+        // V5.9.953 passed status.tokens directly to UiState to avoid a main-thread
+        // toMap() copy. That was the right thread concern but the wrong state
+        // contract: MutableStateFlow/data-class equality can retain the same map
+        // reference forever, so MainActivity keeps rendering stale/empty token data
+        // while BotService/PipelineHealth show hundreds of live watchlist tokens.
+        // We are already on Dispatchers.Default, so create a full immutable
+        // snapshot here. MainActivity caps row rendering; the count/header must
+        // still reflect real BotService state without owning the live CHM.
+        val openSnapshot = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+        val tokenSnapshot: Map<String, TokenState> = try {
+            // Full immutable key snapshot, built off-main. MainActivity already caps
+            // row rendering; the count/header must reflect real BotService state.
+            status.tokens.toMap()
+        } catch (_: Throwable) { emptyMap() }
+        var active = tokenSnapshot[cfg.activeToken]
         if (active == null) {
-            active = status.openPositions.maxByOrNull { it.position.entryTime }
+            active = openSnapshot.maxByOrNull { it.position.entryTime }
         }
-        if (active == null && tokenValues.isNotEmpty()) {
-            active = tokenValues
+        if (active == null && tokenSnapshot.isNotEmpty()) {
+            active = tokenSnapshot.values
                 .asSequence()
                 .filter { it.lastPrice > 0.0 || it.history.isNotEmpty() || it.history5m.isNotEmpty() }
                 .maxByOrNull { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
-                ?: tokenValues.maxByOrNull { it.addedToWatchlistAt }
+                ?: tokenSnapshot.values.maxByOrNull { it.addedToWatchlistAt }
         }
 
         // Use singleton wallet manager - always the same instance
@@ -127,17 +139,14 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 runtime      = runtime,
                 walletSol    = status.walletSol,
                 activeToken  = active,
-                // V5.9.953 — pollLoop ANR fix. status.tokens is a ConcurrentHashMap
-                // (Models.kt:309). It's weakly-consistent — never throws CME on
-                // iteration. The .toMap() copy was paranoia from the LinkedHashMap
-                // era; with ~13K intakes it locks the main thread for 50+ seconds
-                // every 2.5s tick. Pass the live map directly. UI consumers
-                // (renderWatchlist, openPositions, etc.) iterate it safely.
-                tokens       = status.tokens,
+                // V5.9.1178 — immutable/bounded UI snapshot. Do NOT pass the live
+                // status.tokens map; StateFlow needs a fresh value and MainActivity
+                // needs stable data to render.
+                tokens       = tokenSnapshot,
                 logs         = synchronized(status.logs) { status.logs.toList().takeLast(200) },
                 config       = cfg,
                 walletState    = wm.state.value,
-                openPositions  = status.openPositions.toList(),
+                openPositions  = openSnapshot,
                 currentMode    = try { com.lifecyclebot.engine.BotService.instance?.autoMode?.currentMode
                     ?: com.lifecyclebot.engine.AutoModeEngine.BotMode.RANGE } catch (_: Exception) {
                     com.lifecyclebot.engine.AutoModeEngine.BotMode.RANGE },
@@ -163,6 +172,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     com.lifecyclebot.engine.UnifiedModeOrchestrator.getAllStatsSorted().count { it.isActive }
                 } catch (_: Exception) { 0 },
                 totalInsights = try { com.lifecyclebot.engine.SuperBrainEnhancements.getDashboardData().totalInsights } catch (_: Exception) { 0 },
+                renderEpoch = System.currentTimeMillis(),
         )
     }
 
