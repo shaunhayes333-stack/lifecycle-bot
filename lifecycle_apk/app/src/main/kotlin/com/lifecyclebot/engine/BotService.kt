@@ -374,7 +374,12 @@ class BotService : Service() {
          */
         fun isRuntimeActive(): Boolean {
             return try {
-                BotRuntimeController.snapshot().runtimeActive || stopInProgress || status.running
+                val svcLoopActive = try { instance?.loopJob?.isActive == true } catch (_: Throwable) { false }
+                // V5.9.1167 — runtime truth must include the real service job even
+                // when BotRuntimeController got stale STOPPED after lifecycle churn.
+                // This is the exact split-brain where UI says Start Bot but START
+                // no-ops because loopJob is already alive.
+                BotRuntimeController.snapshot().runtimeActive || svcLoopActive || stopInProgress || status.running
             } catch (_: Throwable) {
                 try {
                     val svc = instance
@@ -1536,10 +1541,28 @@ class BotService : Service() {
                     return START_STICKY
                 }
                 if (loopJob?.isActive == true && !forceRestartConfirmed) {
-                    try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_ALREADY_EXISTS", "userRequested=$userRequested loopActive=true statusRunning=${status.running}") } catch (_: Throwable) {}
-                    try { ForensicLogger.lifecycle("LIFECYCLE_START_IGNORED_ALREADY_RUNNING", "userRequested=$userRequested") } catch (_: Throwable) {}
-                    // Renew keep-alive so the running loop stays alive, but do
-                    // not cancel anything.
+                    // V5.9.1167 — START while loop already exists must repair
+                    // truth, not no-op. UI symptom: screen says "Bot stopped";
+                    // pressing Start does nothing because this branch returned
+                    // while status/runtime controller remained stale false.
+                    status.running = true
+                    isShuttingDown = false
+                    try {
+                        getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, true)
+                            .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+                            .apply()
+                    } catch (_: Throwable) {}
+                    val cfgForRepair = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                    val repairGen = BotRuntimeController.beginStart(
+                        paperMode = cfgForRepair?.paperMode ?: true,
+                        enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" }
+                    )
+                    BotRuntimeController.registerJob(repairGen, "botLoop", loopJob)
+                    BotRuntimeController.publishRunning(repairGen)
+                    try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_ALREADY_EXISTS", "userRequested=$userRequested loopActive=true statusRunning=${status.running} repaired=true gen=$repairGen") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("LIFECYCLE_START_REBOUND_ALREADY_RUNNING", "userRequested=$userRequested repaired=true") } catch (_: Throwable) {}
                     scheduleKeepAliveAlarm()
                     try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Exception) {}
                     return START_STICKY

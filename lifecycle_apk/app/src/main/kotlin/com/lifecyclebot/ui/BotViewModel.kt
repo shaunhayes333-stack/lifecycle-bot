@@ -94,6 +94,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         val cfg    = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
         val status = BotService.status
         val runtime = BotRuntimeController.snapshot()
+        val serviceRuntimeActive = try { BotService.isRuntimeActive() } catch (_: Throwable) { runtime.runtimeActive }
 
         // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
         var active = status.tokens[cfg.activeToken]
@@ -113,7 +114,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 f.get(svc) as? com.lifecyclebot.engine.SecurityGuard
             } } catch (_: Exception) { null }
         return UiState(
-                running      = runtime.runtimeActive,
+                running      = runtime.runtimeActive || serviceRuntimeActive,
                 runtime      = runtime,
                 walletSol    = status.walletSol,
                 activeToken  = active,

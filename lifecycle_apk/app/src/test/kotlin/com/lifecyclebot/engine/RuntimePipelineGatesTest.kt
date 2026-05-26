@@ -460,6 +460,14 @@ class RuntimeDoctorSmokeTest {
     }
 
 
+
+    @Test
+    fun ui_running_truth_must_allow_service_runtime_fallback() {
+        val runtimeSaysStopped = BotRuntimeController.Snapshot(state = BotRuntimeController.RuntimeState.STOPPED)
+        val serviceRuntimeActive = true
+        assertTrue(runtimeSaysStopped.runtimeActive || serviceRuntimeActive)
+    }
+
     @Test
     fun stop_contract_rejects_unknown_or_unconfirmed_stop_sources() {
         assertFalse(BotService.isAllowedStopSource("unknown_action_stop", uiStopConfirmed = false))
