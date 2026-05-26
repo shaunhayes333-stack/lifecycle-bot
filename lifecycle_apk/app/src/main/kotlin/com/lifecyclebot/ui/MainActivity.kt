@@ -2141,21 +2141,29 @@ for legal compliance.
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UPDATE_SKIPPED_INACTIVE", "active=$mainUiActive lifecycle=${lifecycle.currentState} finishing=$isFinishing destroyed=$isDestroyed") } catch (_: Throwable) {}
             return
         }
+        val runtimeActiveForUi = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val forceForegroundRender = forceNextForegroundRender
         if (forceForegroundRender) {
             forceNextForegroundRender = false
-            // V5.9.1166 — user returned to Main: bypass stale render throttles
-            // once so the first visible frame reflects current BotService state.
-            lastOpenPosRenderMs = 0L
-            lastWatchlistRenderMs = 0L
-            lastTradesRenderMs = 0L
-            lastTreasuryRenderMs = 0L
-            lastCryptoAltsRenderMs = 0L
-            lastAiStatusRenderMs = 0L
-            lastNetworkSigRenderMs = 0L
-            lastOpenPosHash = -1
-            lastTradesRenderHash = -1
-            lastWatchlistRenderHash = -1
+            // V5.9.1171 — do not force-rebuild heavy dashboard panels when
+            // returning to Main while the bot is active. 3138 ANR data shows
+            // MainActivity.onCreate -> renderOpenPositions/buildTokenCard choking
+            // the main thread; the runtime bar renders below first, and heavy
+            // card/list refresh can wait for its normal throttle/hash path.
+            if (!runtimeActiveForUi) {
+                lastOpenPosRenderMs = 0L
+                lastWatchlistRenderMs = 0L
+                lastTradesRenderMs = 0L
+                lastTreasuryRenderMs = 0L
+                lastCryptoAltsRenderMs = 0L
+                lastAiStatusRenderMs = 0L
+                lastNetworkSigRenderMs = 0L
+                lastOpenPosHash = -1
+                lastTradesRenderHash = -1
+                lastWatchlistRenderHash = -1
+            } else {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_PRESERVED_RUNTIME_ACTIVE", "source=foreground_repaint") } catch (_: Throwable) {}
+            }
         }
         val ts  = state.activeToken
         val cfg = state.config
@@ -3786,8 +3794,9 @@ for legal compliance.
         // structure changed. Bursts of new tokens during a hot scanner
         // cycle can't ANR the UI; the next interval will pick them up.
         val nowMs = System.currentTimeMillis()
-        if (nowMs - lastOpenPosRenderMs < OPEN_POS_MIN_RENDER_INTERVAL_MS &&
-            lastOpenPosRenderMs > 0L) {
+        val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+        val minRenderIntervalMs = if (runtimeActive) 30_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
+        if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
             return
         }
         lastOpenPosHash = openHash
@@ -3883,7 +3892,7 @@ for legal compliance.
         // Cap rendered rows at 25 (newest-by-entry first) so a
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = 8
+        val RENDER_CAP = if (runtimeActive) 3 else 8
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
