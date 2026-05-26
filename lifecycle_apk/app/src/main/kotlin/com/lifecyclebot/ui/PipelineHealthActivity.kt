@@ -217,6 +217,12 @@ class PipelineHealthActivity : AppCompatActivity() {
                 ?: 0L
             val exec = snap.phaseCounts["EXEC"] ?: 0L
             val jrnl = snap.labelCounts["TRADEJRNL_REC"] ?: 0L
+            // V5.9.1174 — preformat all stat strings off-main. String.format /
+            // DecimalFormatSymbols showed up in ANR stacks; keep main to cheap
+            // TextView assignment only.
+            val loopTxt = formatBig(loop)
+            val execTxt = formatBig(exec)
+            val jrnlTxt = formatBig(jrnl)
             val maxFrameTxt = "${snap.maxFrameGapMs} ms"
             val anrTxt = "ANR: ${snap.anrHints}"
             val anrColor = when {
@@ -246,9 +252,9 @@ class PipelineHealthActivity : AppCompatActivity() {
                     )
                     currentSectionIndex = 0
                 }
-                statLoop.text     = formatBig(loop)
-                statExec.text     = formatBig(exec)
-                statJrnl.text     = formatBig(jrnl)
+                statLoop.text     = loopTxt
+                statExec.text     = execTxt
+                statJrnl.text     = jrnlTxt
                 statMaxFrame.text = maxFrameTxt
                 anrBadge.text     = anrTxt
                 anrBadge.setTextColor(anrColor)
@@ -286,8 +292,10 @@ class PipelineHealthActivity : AppCompatActivity() {
         val idx = currentSectionIndex.coerceIn(0, sections.lastIndex)
         currentSectionIndex = idx
         val rawSection = sections[idx]
-        val section = if (rawSection.length > 8_000) {
-            rawSection.take(8_000) + "\n\n… section truncated for UI render (${rawSection.length} chars). Use Copy for the full dump."
+        // V5.9.1174 — hard UI preview cap. The full 70k+ dump is copy-only;
+        // TextView/StaticLayout must never measure more than 5k chars.
+        val section = if (rawSection.length > 5_000) {
+            rawSection.take(5_000) + "\n\n… section truncated for UI render (${rawSection.length} chars). Use Copy for the full dump."
         } else rawSection
         val title = rawSection.lineSequence().firstOrNull()?.removePrefix("=====")?.removeSuffix("=====")?.trim()
             ?.takeIf { it.isNotBlank() } ?: "Pipeline section"
@@ -331,8 +339,8 @@ class PipelineHealthActivity : AppCompatActivity() {
     }
 
     private fun formatBig(v: Long): String = when {
-        v >= 1_000_000 -> String.format("%.1fM", v / 1_000_000.0)
-        v >= 10_000    -> String.format("%.1fk", v / 1_000.0)
+        v >= 1_000_000 -> "${v / 1_000_000}.${((v % 1_000_000) / 100_000)}M"
+        v >= 10_000    -> "${v / 1_000}.${((v % 1_000) / 100)}k"
         else           -> v.toString()
     }
 }
