@@ -62,11 +62,13 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // UnifiedModeOrchestrator. Move the loop body off Main entirely —
         // StateFlow.value is thread-safe so UI consumers still observe
         // updates correctly on their own dispatchers.
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            // Auto-reconnect wallet if credentials are saved
-            autoReconnectWallet()
-            pollLoop()
-        }
+        // V5.9.1166 — keep dashboard state hot even while wallet reconnect is
+        // slow. The old sequence ran autoReconnectWallet() BEFORE pollLoop(); if
+        // RPC/wallet connect blocked while the user returned to the app, Main
+        // repainted a stale UiState and looked crashed for up to minutes. Poll
+        // immediately; reconnect in parallel on IO.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) { pollLoop() }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { autoReconnectWallet() }
     }
     
     private suspend fun autoReconnectWallet() {
@@ -87,33 +89,30 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private suspend fun pollLoop() {
-        while (true) {
-            // V5.9.696 — ConfigStore.load is a disk read; move it off the main/UI thread.
-            val cfg    = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
-            val status = BotService.status
-            val runtime = BotRuntimeController.snapshot()
-            
-            // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
-            var active = status.tokens[cfg.activeToken]
-            if (active == null) {
-                // Try to find a token with an open position
-                active = status.openPositions.firstOrNull()
-                if (active == null && status.tokens.isNotEmpty()) {
-                    // Fall back to first token in watchlist
-                    active = status.tokens.values.firstOrNull()
-                }
+    private suspend fun buildUiStateSnapshot(): UiState {
+        // V5.9.696 — ConfigStore.load is a disk read; move it off the main/UI thread.
+        val cfg    = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ConfigStore.load(ctx) }
+        val status = BotService.status
+        val runtime = BotRuntimeController.snapshot()
+
+        // Auto-select token: prioritize configured activeToken, then any open position, then first watchlist token
+        var active = status.tokens[cfg.activeToken]
+        if (active == null) {
+            active = status.openPositions.firstOrNull()
+            if (active == null && status.tokens.isNotEmpty()) {
+                active = status.tokens.values.firstOrNull()
             }
-            
-            // Use singleton wallet manager - always the same instance
-            val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
-            val sg = try { com.lifecyclebot.engine.BotService.instance
-                ?.let { svc ->
-                    val f = svc.javaClass.getDeclaredField("securityGuard")
-                    f.isAccessible = true
-                    f.get(svc) as? com.lifecyclebot.engine.SecurityGuard
-                } } catch (_: Exception) { null }
-            _ui.value  = UiState(
+        }
+
+        // Use singleton wallet manager - always the same instance
+        val wm = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
+        val sg = try { com.lifecyclebot.engine.BotService.instance
+            ?.let { svc ->
+                val f = svc.javaClass.getDeclaredField("securityGuard")
+                f.isAccessible = true
+                f.get(svc) as? com.lifecyclebot.engine.SecurityGuard
+            } } catch (_: Exception) { null }
+        return UiState(
                 running      = runtime.runtimeActive,
                 runtime      = runtime,
                 walletSol    = status.walletSol,
@@ -154,7 +153,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     com.lifecyclebot.engine.UnifiedModeOrchestrator.getAllStatsSorted().count { it.isActive }
                 } catch (_: Exception) { 0 },
                 totalInsights = try { com.lifecyclebot.engine.SuperBrainEnhancements.getDashboardData().totalInsights } catch (_: Exception) { 0 },
-            )
+        )
+    }
+
+    private suspend fun pollLoop() {
+        while (true) {
+            _ui.value = buildUiStateSnapshot()
             // V5.9.663b — operator: 'the anr error persists'. UI poll
             // was 1500ms which, combined with watchlist=2386+ tokens,
             // 5 lane renderers each doing removeAllViews + recreate of
@@ -213,12 +217,15 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
     
     fun forceRefresh() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
-                // Refresh wallet balance
-                com.lifecyclebot.engine.WalletManager.getInstance(ctx).refreshBalance()
-                // Trigger UI update by re-assigning current value (forces collection)
-                _ui.value = _ui.value.copy()
+                // V5.9.1166 — rebuild from live BotService truth, not a stale
+                // copy of the previous UiState. Wallet refresh is optional and
+                // must not block the dashboard repaint path.
+                _ui.value = buildUiStateSnapshot()
+                launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try { com.lifecyclebot.engine.WalletManager.getInstance(ctx).refreshBalance() } catch (_: Exception) {}
+                }
             } catch (_: Exception) {}
         }
     }

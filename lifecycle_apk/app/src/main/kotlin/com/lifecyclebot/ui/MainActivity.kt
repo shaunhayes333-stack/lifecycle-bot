@@ -510,6 +510,7 @@ class MainActivity : AppCompatActivity() {
     private var lastShitCoinHash: Int = -1
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
+    @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
     private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val markMainInactiveRunnable = Runnable {
@@ -945,7 +946,16 @@ class MainActivity : AppCompatActivity() {
         // after V5.9.1074's mainUiActive guard, returning from another Activity could
         // leave the main screen inert/stale until the bot emitted a new state.
         try {
+            forceNextForegroundRender = true
+            vm.forceRefresh()
             updateUi(vm.ui.value)
+            window.decorView.postDelayed({
+                try {
+                    forceNextForegroundRender = true
+                    updateUi(vm.ui.value)
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT_REFRESHED", "source=onResume_delayed")
+                } catch (_: Throwable) {}
+            }, 250L)
             com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT", "source=onResume")
         } catch (t: Throwable) {
             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "foreground repaint failed: ${t.message}")
@@ -2050,6 +2060,22 @@ for legal compliance.
         if (!mainUiActive || isFinishing || isDestroyed) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UPDATE_SKIPPED_INACTIVE", "active=$mainUiActive lifecycle=${lifecycle.currentState} finishing=$isFinishing destroyed=$isDestroyed") } catch (_: Throwable) {}
             return
+        }
+        val forceForegroundRender = forceNextForegroundRender
+        if (forceForegroundRender) {
+            forceNextForegroundRender = false
+            // V5.9.1166 — user returned to Main: bypass stale render throttles
+            // once so the first visible frame reflects current BotService state.
+            lastOpenPosRenderMs = 0L
+            lastWatchlistRenderMs = 0L
+            lastTradesRenderMs = 0L
+            lastTreasuryRenderMs = 0L
+            lastCryptoAltsRenderMs = 0L
+            lastAiStatusRenderMs = 0L
+            lastNetworkSigRenderMs = 0L
+            lastOpenPosHash = -1
+            lastTradesRenderHash = -1
+            lastWatchlistRenderHash = -1
         }
         val ts  = state.activeToken
         val cfg = state.config
