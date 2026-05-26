@@ -2053,6 +2053,86 @@ for legal compliance.
         } else ""
     }
 
+    private fun renderRuntimeBar(state: UiState, activeToken: TokenState?, cfg: BotConfig) {
+        val serviceActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+        val runtimeActive = try { com.lifecyclebot.engine.BotRuntimeController.snapshot().runtimeActive } catch (_: Throwable) { false }
+        val running = state.running || serviceActive || runtimeActive
+        val cb      = state.circuitBreaker
+
+        val isHalted  = cb.isHalted
+        val isPaused  = cb.isPaused && running
+        val isRunning = running && !isHalted && !isPaused
+
+        btnToggle.text = when {
+            isHalted -> "Halted — Tap to Reset"
+            running  -> "Stop Bot"
+            else     -> "Start Bot"
+        }
+        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(when {
+            isHalted -> 0xFFEF4444.toInt()
+            running  -> 0xFF374151.toInt()
+            else     -> purple
+        })
+        btnToggle.setTextColor(white)
+
+        when {
+            isHalted -> btnToggle.setOnClickListener {
+                try {
+                    val svc = com.lifecyclebot.engine.BotService.instance
+                    val f   = svc?.javaClass?.getDeclaredField("securityGuard")
+                    f?.isAccessible = true
+                    (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
+                } catch (_: Exception) {}
+                vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
+            }
+            running -> btnToggle.setOnClickListener { vm.stopBotFromStopButton() }
+            else    -> btnToggle.setOnClickListener { vm.startBot() }
+        }
+        btnToggle.isEnabled = true
+
+        statusDot.background = ContextCompat.getDrawable(this, when {
+            isHalted  -> R.drawable.dot_red
+            isPaused  -> R.drawable.dot_bg
+            isRunning -> R.drawable.dot_green
+            else      -> R.drawable.dot_bg
+        })
+
+        tvBotStatus.text = when {
+            isHalted  -> "🛑 ${cb.haltReason.take(40)}"
+            isPaused  -> "⏸ Paused ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
+            running && activeToken?.signal in listOf("BUY","EXIT","SELL") ->
+                "Signal: ${activeToken?.signal}  •  ${activeToken?.symbol ?: ""}"
+            running   -> "Scanning  ${activeToken?.symbol ?: ""}  •  ${cb.consecutiveLosses} consec losses"
+            else      -> "Bot stopped"
+        }
+        tvBotStatus.setTextColor(when {
+            isHalted -> 0xFFEF4444.toInt()
+            isPaused -> amber
+            else     -> 0xFF9CA3AF.toInt()
+        })
+
+        tvMode.text = when {
+            cfg.paperMode        -> "PAPER"
+            cb.dailyLossSol > 0  -> "LIVE -${"%.3f".format(cb.dailyLossSol)}◎"
+            else                 -> "LIVE"
+        }
+        tvMode.setTextColor(if (cfg.paperMode) amber else red)
+
+        val mode = state.currentMode
+        tvAutoMode.text = mode.label
+        tvAutoMode.setTextColor(mode.colour)
+
+        if (state.blacklistedCount > 0) {
+            tvBotStatus.text = tvBotStatus.text.toString() + "  🚫${state.blacklistedCount}"
+        }
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "MAIN_RUNTIME_BAR_RENDER",
+                "running=$running stateRunning=${state.running} serviceActive=$serviceActive runtimeActive=$runtimeActive button=${btnToggle.text}",
+            )
+        } catch (_: Throwable) {}
+    }
+
     private fun updateUi(state: UiState) {
         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
             mainUiActive = true
@@ -2080,6 +2160,11 @@ for legal compliance.
         val ts  = state.activeToken
         val cfg = state.config
         val ws  = state.walletState
+
+        // V5.9.1168 — render runtime controls FIRST. The bot can be healthy
+        // while heavy dashboard panels below are slow/stale; the Start/Stop
+        // bar must never be left at XML default "Bot stopped".
+        renderRuntimeBar(state, ts, cfg)
 
         // V5.9.29: refresh the live-readiness banner every UI tick
         renderReadiness()
@@ -3473,87 +3558,8 @@ for legal compliance.
             lastWatchlistActiveMint = activeMintWl
         }
 
-        // ── bottom bar ────────────────────────────────────────────────
-        val running = state.running
-        val cb      = state.circuitBreaker
-
-        // Determine effective bot state
-        val isHalted  = cb.isHalted
-        val isPaused  = cb.isPaused && running
-        val isRunning = running && !isHalted && !isPaused
-
-        btnToggle.text = when {
-            isHalted -> "Halted — Tap to Reset"
-            running  -> "Stop Bot"
-            else     -> "Start Bot"
-        }
-        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(when {
-            isHalted -> 0xFFEF4444.toInt()
-            running  -> 0xFF374151.toInt()
-            else     -> purple
-        })
-        btnToggle.setTextColor(if (running || isHalted) white else white)
-
-        // V5.9.1075 — EXPLICIT button semantics. Do NOT use vm.toggleBot()
-        // here. START text must only send ACTION_START; STOP text must only send
-        // a confirmed ACTION_STOP. A stale/ghost runtime read is not allowed to
-        // invert the operator's click again.
-        when {
-            isHalted -> btnToggle.setOnClickListener {
-                try {
-                    val svc = com.lifecyclebot.engine.BotService.instance
-                    val f   = svc?.javaClass?.getDeclaredField("securityGuard")
-                    f?.isAccessible = true
-                    (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
-                } catch (_: Exception) {}
-                vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
-            }
-            running -> btnToggle.setOnClickListener { vm.stopBotFromStopButton() }
-            else    -> btnToggle.setOnClickListener { vm.startBot() }
-        }
-        // V5.9.1081 — only the state-aware bind above is permitted to enable
-        // the toggle. Before this point the button is inert (set in onCreate).
-        btnToggle.isEnabled = true
-
-        statusDot.background = ContextCompat.getDrawable(this, when {
-            isHalted -> R.drawable.dot_red
-            isPaused -> R.drawable.dot_bg     // amber would be ideal but using muted
-            isRunning -> R.drawable.dot_green
-            else      -> R.drawable.dot_bg
-        })
-
-        tvBotStatus.text = when {
-            isHalted  -> "🛑 ${cb.haltReason.take(40)}"
-            isPaused  -> "⏸ Paused ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
-            running && ts?.signal in listOf("BUY","EXIT","SELL") ->
-                "Signal: ${ts?.signal}  •  ${ts?.symbol ?: ""}"
-            running   -> "Scanning  ${ts?.symbol ?: ""}  •  ${cb.consecutiveLosses} consec losses"
-            else      -> "Bot stopped"
-        }
-        tvBotStatus.setTextColor(when {
-            isHalted -> 0xFFEF4444.toInt()
-            isPaused -> amber
-            else     -> 0xFF9CA3AF.toInt()
-        })
-
-        // Daily loss display in mode badge
-        val isPaper = cfg.paperMode
-        tvMode.text = when {
-            isPaper             -> "PAPER"
-            cb.dailyLossSol > 0 -> "LIVE -${"%.3f".format(cb.dailyLossSol)}◎"
-            else                -> "LIVE"
-        }
-        tvMode.setTextColor(if (isPaper) amber else red)
-
-        // Auto-mode badge
-        val mode = state.currentMode
-        tvAutoMode.text = mode.label
-        tvAutoMode.setTextColor(mode.colour)
-
-        // Show blacklist count in status
-        if (state.blacklistedCount > 0) {
-            tvBotStatus.text = tvBotStatus.text.toString() + "  🚫${state.blacklistedCount}"
-        }
+        // V5.9.1168 — runtime bar rendered at the TOP of updateUi(). Do not
+        // duplicate it here; heavy panels above must never control Start/Stop truth.
 
         // Settings population (once)
         if (!settingsPopulated) {
