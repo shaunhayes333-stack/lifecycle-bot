@@ -11731,17 +11731,14 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 )
             } catch (_: Throwable) { /* never break the cycle */ }
 
-            // V5.9.495z43 operator spec item E — fire the live wallet
-            // reconciler from every scan cycle. Runs on IO so this is
-            // non-blocking. RPC empty-map is safely treated as UNKNOWN
-            // (no state change). Updates TokenLifecycleTracker for every
-            // tracked mint with chain-confirmed UI balance.
-            try {
-                com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(
-                    wallet = wallet,
-                    reason = "cycle_${mint.take(6)}",
-                )
-            } catch (_: Throwable) { /* never break the cycle */ }
+            // V5.9.1179 — remove per-token wallet reconcile from supervisor hot path.
+            // 3145 showed SUPERVISOR_INFLIGHT_CAP=178 and WORKER_TIMEOUT=239 while
+            // processTokenCycle was spawning across ~200 mints. LiveWalletReconciler
+            // already runs on bot_start, after sell/buy confirmations, and a periodic
+            // live-mode tick; firing reconcileNow once per watchlist mint only creates
+            // hundreds of cooldown no-ops/RPC-pressure opportunities before price/V3.
+            // Preserve chain truth via those coordinated paths; keep per-token workers
+            // focused on pricing, safety, V3, lane eval, and exits.
 
             // Primary price source: Dexscreener
             // V5.9.615 — when DexScreener has no pair (pre-graduation pump.fun
