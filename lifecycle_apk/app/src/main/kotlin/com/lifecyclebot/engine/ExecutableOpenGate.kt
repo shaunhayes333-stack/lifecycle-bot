@@ -93,6 +93,42 @@ object ExecutableOpenGate {
     fun lanesCompatibleForTests(selectedLane: String, requestedLane: String): Boolean =
         selectedLaneMatchesRequest(selectedLane, requestedLane)
 
+    private fun isRealExecutionLane(lane: String): Boolean {
+        val l = canonicalLane(lane)
+        return l !in setOf(
+            "", "UNKNOWN", "CORE", "WATCHLIST", "PUMP_PORTAL", "PUMP_PORTAL_WS",
+            "PUMP_FUN", "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE",
+            "DEX_TREND", "DEX_TRENDING", "DEX_BOOST", "DEX_BOOSTED",
+            "RAYDIUM", "RAYDIUM_N", "RAYDIUM_NEW", "RAYDIUM_NEW_POOL",
+            "SCANNER_DIRECT", "SCANNER_DIRECT_RAYDIUM_NEW_POOL", "SCANNER_DIRECT_DEX_TRENDING",
+            "SCANNER_DIRECT_PUMP_FUN_NEW", "SCANNER_DIRECT_PUMP_FUN_GRADUATE"
+        )
+    }
+
+    private fun laneForRelease(selectedLane: String, requestedLane: String): String {
+        val selected = canonicalLane(selectedLane)
+        return if (isRealExecutionLane(selected)) selected else canonicalLane(requestedLane)
+    }
+
+    private fun candidateInvalidReason(
+        state: EntryState?,
+        selectedLane: String,
+        requestedLane: String,
+        preFdgVerdict: String,
+        hardNoReasons: List<String>,
+        candidateVersion: Long,
+        currentVersion: Long,
+    ): Pair<String, String>? {
+        if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
+        val selected = canonicalLane(selectedLane)
+        val requested = canonicalLane(requestedLane)
+        if (!isRealExecutionLane(selected)) return "EXEC_OPEN_DROPPED_SELECTED_LANE_UNKNOWN" to "SELECTED_LANE_${selected}_REQUEST_${requested}"
+        if (preFdgVerdict != "BUY") return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
+        if (hardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to hardNoReasons.joinToString("+")
+        if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
+        return null
+    }
+
     private fun laneKey(mint: String, lane: String): String = mint + ":" + canonicalLane(lane).filter { it.isLetterOrDigit() }
     private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
 
@@ -304,6 +340,15 @@ object ExecutableOpenGate {
             return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)
         }
 
+        fun dropped(log: String, reason: String): OpenVerdict {
+            try {
+                val detail = "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=${hardNoReasons.joinToString(prefix="[", postfix="]")} safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} candidateVersion=$candidateVersion reason=$reason"
+                ForensicLogger.lifecycle(log, detail)
+                ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DROPPED $detail")
+            } catch (_: Throwable) {}
+            return OpenVerdict(false, reason, shadowOnly = true, logName = log, attemptId = attemptId)
+        }
+
         val nowPre = System.currentTimeMillis()
         blockedCooldowns.entries.removeIf { it.value.second <= nowPre }
         blockedCooldowns[laneKey(mint, lane)]?.let { cd ->
@@ -338,20 +383,24 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
 
-        if (state == null) {
-            return blocked("EXEC_OPEN_BLOCKED_NO_FINAL_CANDIDATE", "NO_FINAL_BUY_CANDIDATE")
+        val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
+        candidateInvalidReason(
+            state = state,
+            selectedLane = selectedLane,
+            requestedLane = lane,
+            preFdgVerdict = preFdgVerdict,
+            hardNoReasons = hardNoReasons,
+            candidateVersion = candidateVersion,
+            currentVersion = currentCandidateVersion,
+        )?.let { (log, reason) ->
+            if (log.contains("STALE_CANDIDATE")) {
+                try { LaneExecutionCoordinator.releaseIfPrimary(mint, laneForRelease(selectedLane, lane), "CANDIDATE_STALE_DROPPED", candidateVersion = candidateVersion) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CANDIDATE_STALE_DROPPED", "mint=${mint.take(10)} symbol=$symbol lane=$lane selectedLane=$selectedLane candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion") } catch (_: Throwable) {}
+            }
+            return dropped(log, reason)
         }
-        if (canonicalSelectedLane == "UNKNOWN" || !selectedLaneMatchesRequest(selectedLane, lane)) {
-            return blocked("EXEC_OPEN_BLOCKED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${canonicalSelectedLane}_REQUEST_${requestedLane}")
-        }
-        if (candidateVersion != LaneExecutionCoordinator.candidateVersionFor(mint)) {
-            return blocked("EXEC_OPEN_BLOCKED_CANDIDATE_VERSION_MISMATCH", "STALE_CANDIDATE_VERSION_$candidateVersion")
-        }
-        if (preFdgVerdict != "BUY") {
-            return blocked("EXEC_OPEN_BLOCKED_PRE_FDG_NOT_BUY", preFdgVerdict, shadow = mode == "PAPER")
-        }
-        if (hardNoReasons.isNotEmpty()) {
-            return blocked("EXEC_OPEN_BLOCKED_HARD_NO_BUY", hardNoReasons.joinToString("+"), shadow = mode == "PAPER")
+        if (!selectedLaneMatchesRequest(selectedLane, lane)) {
+            return dropped("EXEC_OPEN_DROPPED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${canonicalSelectedLane}_REQUEST_${requestedLane}")
         }
         if (safetyTier.equals("UNKNOWN", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")

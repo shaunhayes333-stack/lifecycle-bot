@@ -649,7 +649,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun blocked_candidate_gets_cooldown_without_allowed_attempt() {
+    fun non_buy_candidate_is_dropped_without_allowed_attempt() {
         resetAuthorities(paper = true)
         ExecutableOpenGate.recordFdg(
             mint = "MintWait1111111111111111111111111111",
@@ -671,7 +671,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(first.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_PRE_FDG_NOT_BUY", first.logName)
+        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", first.logName)
         val second = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintWait1111111111111111111111111111",
             symbol = "WAIT",
@@ -681,7 +681,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(second.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_COOLDOWN", second.logName)
+        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", second.logName)
         assertNull(ExecutableOpenGate.recentAllowedAttemptId("MintWait1111111111111111111111111111", "QUALITY"))
     }
 
