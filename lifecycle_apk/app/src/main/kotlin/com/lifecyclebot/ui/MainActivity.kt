@@ -2053,27 +2053,6 @@ for legal compliance.
         } else ""
     }
 
-    private fun renderRuntimeActiveLightUi(state: UiState, activeToken: TokenState?) {
-        try {
-            val count = try { state.tokens.size } catch (_: Throwable) { 0 }
-            tvTokenName.text = activeToken?.symbol?.ifBlank { "Scanning $count tokens" } ?: "Scanning $count tokens"
-            tvTokenPhase.text = "Runtime active · lightweight dashboard"
-            tvSignalChip.text = activeToken?.signal ?: "SCAN"
-            tvSignalChip.background = ContextCompat.getDrawable(this, R.drawable.chip_neutral_bg)
-            tvSignalChip.setTextColor(amber)
-            tvPrice.text = activeToken?.lastPrice?.takeIf { it > 0.0 }?.let { currency.formatPrice(it) } ?: "—"
-            val mcapValue = activeToken?.lastMcap?.takeIf { it > 0.0 } ?: activeToken?.lastFdv?.takeIf { it > 0.0 } ?: 0.0
-            tvMcap.text = mcapValue.fmtMcap()
-            tvPosition.text = if (state.openPositions.isNotEmpty()) "${state.openPositions.size} OPEN" else "SCANNING"
-            tvPosition.setTextColor(if (state.openPositions.isNotEmpty()) green else muted)
-            try {
-                priceChart.setNoDataText("Bot active — heavy chart rendering paused to prevent ANRs")
-                candleChart.setNoDataText("Bot active — select/stop to render full candles")
-            } catch (_: Throwable) {}
-            updateGlobalDecisionLog(state)
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_ACTIVE_LIGHT_UI", "tokens=$count open=${state.openPositions.size}") } catch (_: Throwable) {}
-        } catch (_: Throwable) { /* UI light path must never crash Main */ }
-    }
 
     private fun renderRuntimeBar(state: UiState, activeToken: TokenState?, cfg: BotConfig) {
         val serviceActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
@@ -2196,17 +2175,10 @@ for legal compliance.
         // bar must never be left at XML default "Bot stopped".
         renderRuntimeBar(state, ts, cfg)
 
-        // V5.9.1173 — ACTIVE-RUNTIME LIGHT UI. 3138/314x snapshots still show
-        // ANR storms dominated by MainActivity.onCreate/renderOpenPositions/
-        // buildTokenCard/render*Positions. While the bot is actively trading,
-        // Main must prioritize operator control over dashboard decoration:
-        // keep the runtime bar live, show lightweight bot-wide activity, and
-        // skip the heavy card/list rebuild section. Engine management/exits are
-        // untouched; this is render-only.
-        if (runtimeActiveForUi) {
-            renderRuntimeActiveLightUi(state, ts)
-            return
-        }
+        // V5.9.1176 — restore real dashboard rendering while runtime is active.
+        // 1173 overcorrected ANR mitigation by returning through a lightweight
+        // path, leaving the operator with almost no data. Keep the stop/runtime
+        // bar first, but continue into the throttled/hash-guarded dashboard below.
 
         // V5.9.29: refresh the live-readiness banner every UI tick
         renderReadiness()
