@@ -510,6 +510,15 @@ class MainActivity : AppCompatActivity() {
     private var lastShitCoinHash: Int = -1
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
+    private data class TrustUiSnapshot(
+        val updatedAtMs: Long = 0L,
+        val distrustPauses: Int = 0,
+        val coachingCount: Int = 0,
+        val leaderboardText: String = "",
+    )
+    @Volatile private var cachedTrustUiSnapshot: TrustUiSnapshot = TrustUiSnapshot()
+    private val trustUiRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val TRUST_UI_REFRESH_MS: Long = 60_000L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
     private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -2134,6 +2143,45 @@ for legal compliance.
         } catch (_: Throwable) {}
     }
 
+    private fun refreshTrustUiSnapshotAsync(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val cached = cachedTrustUiSnapshot
+        if (!force && now - cached.updatedAtMs < TRUST_UI_REFRESH_MS) return
+        if (!trustUiRefreshInFlight.compareAndSet(false, true)) return
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val snap = try {
+                val scores = com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
+                val distrustPauses = scores.keys.count { strat ->
+                    try { com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(strat) } catch (_: Throwable) { false }
+                }
+                val coachingCount = scores.values.count { rec ->
+                    rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED
+                }
+                val leaderboard = scores.values
+                    .asSequence()
+                    .filter { it.expectancy.isFinite() }
+                    .sortedByDescending { it.expectancy }
+                    .take(3)
+                    .joinToString(" · ") { r ->
+                        val ev = kotlin.math.round(r.expectancy * 100.0) / 100.0
+                        "${r.strategyName} ${if (ev >= 0.0) "+" else ""}${ev}R"
+                    }
+                TrustUiSnapshot(
+                    updatedAtMs = System.currentTimeMillis(),
+                    distrustPauses = distrustPauses,
+                    coachingCount = coachingCount,
+                    leaderboardText = leaderboard,
+                )
+            } catch (_: Throwable) {
+                cached.copy(updatedAtMs = System.currentTimeMillis())
+            }
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                cachedTrustUiSnapshot = snap
+                trustUiRefreshInFlight.set(false)
+            }
+        }
+    }
+
     private fun updateUi(state: UiState) {
         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
             mainUiActive = true
@@ -2169,6 +2217,7 @@ for legal compliance.
         val ts  = state.activeToken
         val cfg = state.config
         val ws  = state.walletState
+        refreshTrustUiSnapshotAsync(force = false)
 
         // V5.9.1168 — render runtime controls FIRST. The bot can be healthy
         // while heavy dashboard panels below are slow/stale; the Start/Stop
@@ -2406,23 +2455,13 @@ for legal compliance.
                 val streakBlocks = try {
                     com.lifecyclebot.engine.MemeLossStreakGuard.activeBlockCount()
                 } catch (_: Throwable) { 0 }
-                val distrustPauses = try {
-                    // V5.9.463 — SENTIENT-FLUID RETUNE. Quarantine is now a
-                    // rare, soft signal (legacy pre-V5.9.463 data can still
-                    // set one; V5.9.463 onwards we don't auto-quarantine).
-                    // Displayed as 'cooling' so the user doesn't see it as
-                    // a blacklist.
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().keys
-                        .count { strat -> com.lifecyclebot.v4.meta.StrategyTrustAI.isQuarantined(strat) }
-                } catch (_: Throwable) { 0 }
-                val coachingCount = try {
-                    // V5.9.463 — was 'distrustedCount'. Reframed: strategies
-                    // with trustLevel=DISTRUSTED are now in INTENSIVE
-                    // COACHING, not blacklisted. getTrustMultiplier floors
-                    // them at 0.20x so they keep trading and learning.
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores().values
-                        .count { rec -> rec.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED }
-                } catch (_: Throwable) { 0 }
+                // V5.9.1177 — StrategyTrustAI.getAllTrustScores() can walk large
+                // maps and showed up in MainActivity ANR stacks. Render uses a
+                // background-refreshed cache; the dashboard still displays data,
+                // but updateUi no longer blocks on trust-score aggregation.
+                val trustSnap = cachedTrustUiSnapshot
+                val distrustPauses = trustSnap.distrustPauses
+                val coachingCount = trustSnap.coachingCount
                 // V5.9.495z42 P1 — surface recovery-lock + amount-violation counts.
                 // Both locks block live sells; operator needs to see them at a
                 // glance instead of digging through forensics.
@@ -2490,19 +2529,10 @@ for legal compliance.
                 if (!isMemeTab) {
                     lb.visibility = android.view.View.GONE
                 } else {
-                val rows = try {
-                    com.lifecyclebot.v4.meta.StrategyTrustAI.getAllTrustScores()
-                        .values
-                        .filter { it.expectancy.isFinite() }
-                        .sortedByDescending { it.expectancy }
-                        .take(3)
-                } catch (_: Throwable) { emptyList() }
-                if (rows.isEmpty()) {
+                val txt = cachedTrustUiSnapshot.leaderboardText
+                if (txt.isBlank()) {
                     lb.visibility = android.view.View.GONE
                 } else {
-                    val txt = rows.joinToString(" · ") { r ->
-                        "${r.strategyName} ${"%+.2f".format(r.expectancy)}R"
-                    }
                     lb.text = "🏆 Top-3: $txt"
                     lb.visibility = android.view.View.VISIBLE
                 }
