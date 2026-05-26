@@ -8731,7 +8731,7 @@ class BotService : Service() {
           if (checkBotLoopOrphan(myJob, loopCount)) return
           try {
             loopCount++
-            try { RuntimeDoctor.tick(uiRunning = status.running) } catch (_: Throwable) {}
+            try { RuntimeDoctor.requestTick(uiRunning = status.running) } catch (_: Throwable) {}
 
             // V5.9.660 — BOT_LOOP_TICK heartbeat. emitBotLoopTick now
             // tracks prev-cycle delta via its own class field (saves a

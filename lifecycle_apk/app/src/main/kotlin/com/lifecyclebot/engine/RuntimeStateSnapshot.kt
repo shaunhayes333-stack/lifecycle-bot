@@ -72,7 +72,10 @@ data class RuntimeStateSnapshot(
             }
             return RuntimeStateSnapshot(
                 buildVersion = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" },
-                buildTag = try { PipelineHealthCollector.dumpText().lineSequence().firstOrNull { it.contains("Tag:") }?.substringAfter("Tag:")?.trim() ?: "unknown" } catch (_: Throwable) { "unknown" },
+                // V5.9.1170 — never call PipelineHealthCollector.dumpText() from
+                // runtime snapshots. dumpText is a forensic export builder; pulling
+                // it from RuntimeDoctor/botLoop made diagnostics part of the hot path.
+                buildTag = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" },
                 runtimeGeneration = runtime.runtimeGeneration,
                 uiState = if (uiRunning ?: runtime.runtimeActive) "RUNNING" else "STOPPED",
                 runtimeState = runtime.state.name,

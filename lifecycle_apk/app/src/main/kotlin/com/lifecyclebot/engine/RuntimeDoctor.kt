@@ -8,7 +8,16 @@ object RuntimeDoctor {
         val recommendedActions: List<RuntimeSelfHealer.Request>,
     )
 
-    @Volatile private var latest: RuntimeStateSnapshot = RuntimeStateSnapshot.current()
+    @Volatile private var latest: RuntimeStateSnapshot? = null
+    @Volatile private var latestReport: Report? = null
+    @Volatile private var lastTickAtMs: Long = 0L
+    @Volatile private var tickInFlight: Boolean = false
+    private const val HOT_LOOP_TICK_MIN_INTERVAL_MS = 30_000L
+    private val doctorExecutor: java.util.concurrent.ExecutorService by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "RuntimeDoctorSnapshot").apply { isDaemon = true }
+        }
+    }
     private val recentFaults = java.util.concurrent.ConcurrentLinkedDeque<InvariantGuardian.Fault>()
     @Volatile private var lastHeavyMitigationAtMs: Long = 0L
     @Volatile private var lastHeavyWorkerTimeout: Long = 0L
@@ -20,13 +29,38 @@ object RuntimeDoctor {
     private const val HEAVY_WORKER_TIMEOUT_DELTA = 250L
 
     fun resetForTests() {
-        latest = RuntimeStateSnapshot.current()
+        latest = null
+        latestReport = null
+        lastTickAtMs = 0L
+        tickInFlight = false
         recentFaults.clear()
         lastHeavyMitigationAtMs = 0L
         lastHeavyWorkerTimeout = 0L
         lastHeavyExitTimeout = 0L
         lastHeavyExitReset = 0L
         lastFanoutMitigationAtMs = 0L
+    }
+
+    /**
+     * V5.9.1170 — hot-loop isolation. BotService must not synchronously build
+     * diagnostic snapshots every loop. This request path is cheap: it returns
+     * cached state immediately and schedules at most one background diagnostic
+     * tick every HOT_LOOP_TICK_MIN_INTERVAL_MS. Full tick() remains available
+     * for explicit export/debug surfaces.
+     */
+    fun requestTick(uiRunning: Boolean? = null): Report? {
+        val now = System.currentTimeMillis()
+        val cached = latestReport
+        if (tickInFlight || (now - lastTickAtMs) < HOT_LOOP_TICK_MIN_INTERVAL_MS) return cached
+        tickInFlight = true
+        doctorExecutor.execute {
+            try { latestReport = tick(uiRunning) } catch (_: Throwable) {
+            } finally {
+                lastTickAtMs = System.currentTimeMillis()
+                tickInFlight = false
+            }
+        }
+        return cached
     }
 
     fun tick(uiRunning: Boolean? = null): Report {
@@ -51,10 +85,10 @@ object RuntimeDoctor {
         val diagnosis = StateDebuggerAI.deterministicFallback(ctx)
         val actions = faults.flatMap { commandsFor(it, snap) }
         actions.forEach { cmd -> try { RuntimeMitigationBus.publish(cmd) } catch (_: Throwable) {} }
-        return Report(snap, faults, diagnosis, actions.map { toRequest(it) })
+        return Report(snap, faults, diagnosis, actions.map { toRequest(it) }).also { latestReport = it }
     }
 
-    fun latestSnapshot(): RuntimeStateSnapshot = latest
+    fun latestSnapshot(): RuntimeStateSnapshot = latest ?: RuntimeStateSnapshot.current()
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
     private fun commandsFor(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> = when (f.code) {
