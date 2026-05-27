@@ -5212,6 +5212,10 @@ class BotService : Service() {
         // V5.9.905 — stop the high-frequency exit manager loop.
         try { hotExitJob?.cancel() } catch (_: Throwable) {}
         hotExitJob = null
+        try { exitSweepCoordinatorJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source")) } catch (_: Throwable) {}
+        exitSweepCoordinatorJob = null
+        fullExitSweepPending.set(false)
+        universalSlSweepPending.set(false)
         addLog("Stopping bot...")
 
         // V5.9.73: kill any in-flight wallet connect so a 90-second RPC
@@ -7952,6 +7956,21 @@ class BotService : Service() {
     // hammering the single-flight gates and forcing resets.
     @Volatile private var lastPostSupervisorExitBackupMs: Long = 0L
     private val POST_SUPERVISOR_EXIT_BACKUP_MS: Long = 60_000L
+
+    // V5.9.1198 — OFF-LOOP EXIT SWEEP COORDINATOR.
+    // The old launchExitSweepAsync/launchUniversalSlSweepAsync functions spawned
+    // a worker + watchdog per request. When botLoop/openPositionTick/hotExit all
+    // signalled at once, the single-flight gates thrashed and produced hundreds
+    // of COALESCED/FORCE_RESET events. These atomics feed one coordinator loop
+    // instead. The coordinator owns heavy sweeps; requesters only set flags.
+    @Volatile private var exitSweepCoordinatorJob: kotlinx.coroutines.Job? = null
+    private val exitSweepCoordinatorLock = Any()
+    private val fullExitSweepPending = AtomicBoolean(false)
+    private val universalSlSweepPending = AtomicBoolean(false)
+    private val exitCoordinatorLastFullMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitCoordinatorLastUniversalMs = java.util.concurrent.atomic.AtomicLong(0L)
+    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
+    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
@@ -10885,95 +10904,105 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
     }
 
 
-    private fun launchExitSweepAsync(reason: String) {
-        // V5.9.1079 — if the gate is held, check whether the prior worker
-        // is hung past the hard budget. If yes, force-cancel it and clear
-        // the gate so this sweep can proceed. Previously the gate could
-        // remain stuck indefinitely if the watchdog won the CAS race but
-        // the wedged worker's IO never returned.
-        if (!exitSweepInFlight.compareAndSet(false, true)) {
-            val priorAgeMs = System.currentTimeMillis() - exitSweepStartedMs
-            val priorWorker = exitSweepWorker
-            if (priorAgeMs >= EXIT_SWEEP_HARD_MS) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "EXIT_SWEEP_FORCE_RESET",
-                        "reason=$reason priorAgeMs=$priorAgeMs hardMs=$EXIT_SWEEP_HARD_MS action=cancel_and_proceed",
-                    )
-                } catch (_: Throwable) {}
-                try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("exit sweep stuck > ${EXIT_SWEEP_HARD_MS}ms")) } catch (_: Throwable) {}
-                // Invalidate the old owner before reserving the gate for the
-                // replacement sweep; otherwise the old worker's finally block
-                // can race in and clear this freshly-reserved gate.
-                exitSweepGeneration.incrementAndGet()
-                exitSweepWorker = null
-                exitSweepInFlight.set(true)
-            } else {
-                exitSweepPending.set(true)
-                try {
-                    ForensicLogger.lifecycle(
-                        "EXIT_SWEEP_COALESCED",
-                        "reason=$reason alreadyRunning=true priorAgeMs=$priorAgeMs pending=true"
-                    )
-                } catch (_: Throwable) {}
-                return
-            }
-        }
+    private data class ExitSweepSnapshot(
+        val cfg: com.lifecyclebot.data.BotConfig?,
+        val wallet: com.lifecyclebot.network.SolanaWallet?,
+        val balance: Double,
+    )
 
+    private fun buildExitSweepSnapshot(): ExitSweepSnapshot {
         val cfgSnapshot = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
         val walletSnapshot = try { walletManager.getWallet() } catch (_: Throwable) { null }
-        val balanceSnapshot = try { cfgSnapshot?.let { status.getEffectiveBalance(it.paperMode) } ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val balanceSnapshot = try {
+            cfgSnapshot?.let { status.getEffectiveBalance(it.paperMode) } ?: 0.0
+        } catch (_: Throwable) { 0.0 }
+        return ExitSweepSnapshot(cfgSnapshot, walletSnapshot, balanceSnapshot)
+    }
 
-        // V5.9.1010 — HARD TIMEOUT WATCHDOG.
-        // withTimeoutOrNull around sweepUniversalExits() is not enough because
-        // paperSell()/learning fanout contains non-suspend synchronous work. If
-        // that work blocks an IO worker, coroutine cancellation is cooperative
-        // and the finally block may never run, leaving exitSweepInFlight=true
-        // forever. Run the sweep worker separately and release the single-flight
-        // gate from an independent watchdog after 2500ms. The stuck worker may
-        // finish later, but botLoop/openPositionTickLoop can keep requesting
-        // future sweeps instead of silently disabling exit management.
-        exitSweepStartedMs = System.currentTimeMillis()
-        val sweepGen = exitSweepGeneration.incrementAndGet()
-        val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_START", "reason=$reason gen=$sweepGen")
-                if (cfgSnapshot == null) {
-                    ForensicLogger.lifecycle("EXIT_SWEEP_SKIPPED", "reason=$reason cfg=null")
-                    return@launch
-                }
-                sweepUniversalExits(cfgSnapshot, walletSnapshot, balanceSnapshot)
-            } catch (t: Throwable) {
-                ErrorLogger.warn("BotService", "exit sweep async error: ${t.message}")
-            } finally {
-                if (exitSweepGeneration.get() == sweepGen && exitSweepInFlight.compareAndSet(true, false)) {
-                    exitSweepWorker = null
-                    ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason gen=$sweepGen")
-                    if (exitSweepPending.compareAndSet(true, false)) {
-                        ForensicLogger.lifecycle("EXIT_SWEEP_COALESCED_LAUNCH", "reason=$reason gen=$sweepGen source=done")
-                        launchExitSweepAsync("COALESCED_AFTER_$reason")
+    private fun requestExitSweepCoordinator(reason: String, full: Boolean, universal: Boolean) {
+        try {
+            if (full) fullExitSweepPending.set(true)
+            if (universal) universalSlSweepPending.set(true)
+            ForensicLogger.lifecycle(
+                "EXIT_COORDINATOR_REQUESTED",
+                "reason=$reason full=$full universal=$universal pendingFull=${fullExitSweepPending.get()} pendingUniversal=${universalSlSweepPending.get()}"
+            )
+        } catch (_: Throwable) {}
+        ensureExitSweepCoordinator()
+    }
+
+    private fun ensureExitSweepCoordinator() {
+        val existing = exitSweepCoordinatorJob
+        if (existing?.isActive == true) return
+        synchronized(exitSweepCoordinatorLock) {
+            val again = exitSweepCoordinatorJob
+            if (again?.isActive == true) return
+            exitSweepCoordinatorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=io") } catch (_: Throwable) {}
+                while (status.running) {
+                    try {
+                        val now = System.currentTimeMillis()
+                        val wantsFull = fullExitSweepPending.getAndSet(false)
+                        val wantsUniversal = universalSlSweepPending.getAndSet(false)
+                        var didWork = false
+
+                        if (wantsFull) {
+                            val age = now - exitCoordinatorLastFullMs.get()
+                            if (age >= EXIT_COORDINATOR_FULL_MIN_MS) {
+                                exitCoordinatorLastFullMs.set(now)
+                                val snap = buildExitSweepSnapshot()
+                                if (snap.cfg != null) {
+                                    didWork = true
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_START", "ageMs=$age") } catch (_: Throwable) {}
+                                    try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
+                                    catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                } else {
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
+                                }
+                            } else {
+                                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_RATE_LIMITED", "ageMs=$age minMs=$EXIT_COORDINATOR_FULL_MIN_MS") } catch (_: Throwable) {}
+                            }
+                        }
+
+                        if (wantsUniversal) {
+                            val age = now - exitCoordinatorLastUniversalMs.get()
+                            if (age >= EXIT_COORDINATOR_UNIVERSAL_MIN_MS) {
+                                exitCoordinatorLastUniversalMs.set(now)
+                                val snap = buildExitSweepSnapshot()
+                                if (snap.cfg != null) {
+                                    didWork = true
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age") } catch (_: Throwable) {}
+                                    try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
+                                    catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                } else {
+                                    try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
+                                }
+                            } else {
+                                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_RATE_LIMITED", "ageMs=$age minMs=$EXIT_COORDINATOR_UNIVERSAL_MIN_MS") } catch (_: Throwable) {}
+                            }
+                        }
+
+                        kotlinx.coroutines.delay(if (didWork) 250L else 750L)
+                    } catch (ce: kotlinx.coroutines.CancellationException) {
+                        throw ce
+                    } catch (t: Throwable) {
+                        ErrorLogger.debug("BotService", "exit coordinator loop error: ${t.message}")
+                        try { kotlinx.coroutines.delay(1_000L) } catch (_: Throwable) { break }
                     }
-                } else {
-                    ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason gen=$sweepGen currentGen=${exitSweepGeneration.get()}")
                 }
+                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STOPPED", "running=${status.running}") } catch (_: Throwable) {}
             }
         }
-        exitSweepWorker = worker
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                kotlinx.coroutines.delay(EXIT_SWEEP_HARD_MS)
-                if (exitSweepGeneration.get() == sweepGen && worker.isActive && exitSweepInFlight.compareAndSet(true, false)) {
-                    exitSweepWorker = null
-                    ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason gen=$sweepGen timeoutMs=$EXIT_SWEEP_HARD_MS action=gate_released")
-                    try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
-                    if (exitSweepPending.compareAndSet(true, false)) {
-                        ForensicLogger.lifecycle("EXIT_SWEEP_COALESCED_LAUNCH", "reason=$reason gen=$sweepGen source=timeout")
-                        launchExitSweepAsync("COALESCED_AFTER_TIMEOUT_$reason")
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
     }
+
+    private fun launchExitSweepAsync(reason: String) {
+        // V5.9.1198 — request-only shim. Heavy full sweeps are owned by the
+        // off-loop coordinator above; callers never spawn/reset workers directly.
+        requestExitSweepCoordinator(reason = reason, full = true, universal = false)
+    }
+
 
     /**
      * V5.9.1021 — SUPERVISOR phase extracted from botLoop to free its
@@ -11510,79 +11539,11 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
         cfg: com.lifecyclebot.data.BotConfig,
         wallet: com.lifecyclebot.network.SolanaWallet?,
     ) {
-        // V5.9.1079 — force-cancel stuck worker pattern (matches
-        // launchExitSweepAsync). Snapshot showed UNIVERSAL_SL_SWEEP_SKIPPED=153
-        // vs DONE=23 — the gate was held by a wedged worker on every cycle.
-        if (!slSafetyNetInFlight.compareAndSet(false, true)) {
-            val priorAgeMs = System.currentTimeMillis() - slSafetyNetStartedMs
-            val priorWorker = slSafetyNetWorker
-            if (priorAgeMs >= UNIVERSAL_SL_HARD_MS) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "UNIVERSAL_SL_SWEEP_FORCE_RESET",
-                        "priorAgeMs=$priorAgeMs hardMs=$UNIVERSAL_SL_HARD_MS action=cancel_and_proceed",
-                    )
-                } catch (_: Throwable) {}
-                try { priorWorker?.cancel(kotlinx.coroutines.CancellationException("universal SL sweep stuck > ${UNIVERSAL_SL_HARD_MS}ms")) } catch (_: Throwable) {}
-                // Same generation invalidation as exit sweep: old late workers
-                // must not clear the replacement sweep's single-flight gate.
-                slSafetyNetGeneration.incrementAndGet()
-                slSafetyNetWorker = null
-                slSafetyNetInFlight.set(true)
-            } else {
-                slSafetyNetPending.set(true)
-                try {
-                    ForensicLogger.lifecycle(
-                        "UNIVERSAL_SL_SWEEP_COALESCED",
-                        "alreadyRunning=true priorAgeMs=$priorAgeMs pending=true"
-                    )
-                } catch (_: Throwable) {}
-                return
-            }
-        }
-
-        slSafetyNetStartedMs = System.currentTimeMillis()
-        val slGen = slSafetyNetGeneration.incrementAndGet()
-        val worker = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_START", "gen=$slGen")
-                runUniversalSlSafetyNetSweep(cfg, wallet)
-            } catch (t: Throwable) {
-                ErrorLogger.warn("BotService", "universal SL sweep async error: ${t.message}")
-            } finally {
-                if (slSafetyNetGeneration.get() == slGen && slSafetyNetInFlight.compareAndSet(true, false)) {
-                    slSafetyNetWorker = null
-                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "gen=$slGen") } catch (_: Throwable) {}
-                    if (slSafetyNetPending.compareAndSet(true, false)) {
-                        try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_COALESCED_LAUNCH", "gen=$slGen source=done") } catch (_: Throwable) {}
-                        launchUniversalSlSweepAsync(cfg, wallet)
-                    }
-                } else {
-                    try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "gen=$slGen currentGen=${slSafetyNetGeneration.get()}") } catch (_: Throwable) {}
-                }
-            }
-        }
-        slSafetyNetWorker = worker
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                kotlinx.coroutines.delay(UNIVERSAL_SL_HARD_MS)
-                if (slSafetyNetGeneration.get() == slGen && worker.isActive && slSafetyNetInFlight.compareAndSet(true, false)) {
-                    slSafetyNetWorker = null
-                    try {
-                        ForensicLogger.lifecycle(
-                            "UNIVERSAL_SL_SWEEP_TIMEOUT",
-                            "gen=$slGen timeoutMs=$UNIVERSAL_SL_HARD_MS action=gate_released"
-                        )
-                    } catch (_: Throwable) {}
-                    try { worker.cancel(kotlinx.coroutines.CancellationException("universal SL sweep timeout")) } catch (_: Throwable) {}
-                    if (slSafetyNetPending.compareAndSet(true, false)) {
-                        try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_COALESCED_LAUNCH", "gen=$slGen source=timeout") } catch (_: Throwable) {}
-                        launchUniversalSlSweepAsync(cfg, wallet)
-                    }
-                }
-            } catch (_: Throwable) {}
-        }
+        // V5.9.1198 — request-only shim. The cfg/wallet params are kept for
+        // call-site compatibility; coordinator snapshots fresh state off-loop.
+        requestExitSweepCoordinator(reason = "UNIVERSAL_SL", full = false, universal = true)
     }
+
 
     private fun sweepUniversalExits(
         cfg: com.lifecyclebot.data.BotConfig,
