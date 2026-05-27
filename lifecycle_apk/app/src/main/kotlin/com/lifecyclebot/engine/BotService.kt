@@ -7919,6 +7919,7 @@ class BotService : Service() {
     // worker from generation N must never clear the gate or worker ref for
     // generation N+1 after a force reset starts a fresh sweep.
     private val exitSweepGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val exitSweepPending = AtomicBoolean(false)
     private val EXIT_SWEEP_HARD_MS: Long = 12_000L
     // V5.9.1082 — operator V5.9.1081b snapshot: EXIT_SWEEP_FORCE_RESET=54 in
     // ~18 min. That's a reset every 20s — meaning the previous 3s budget was
@@ -7948,6 +7949,7 @@ class BotService : Service() {
     @Volatile private var slSafetyNetStartedMs: Long = 0L
     // V5.9.1087 — same owner-token guard as exitSweepGeneration.
     private val slSafetyNetGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val slSafetyNetPending = AtomicBoolean(false)
     private val UNIVERSAL_SL_HARD_MS: Long = 15_000L
     // V5.9.1082 — UNIVERSAL_SL_SWEEP_FORCE_RESET=52 in operator's 1081b
     // snapshot. Same root cause: 4s budget too tight for
@@ -10788,10 +10790,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 exitSweepWorker = null
                 exitSweepInFlight.set(true)
             } else {
+                exitSweepPending.set(true)
                 try {
                     ForensicLogger.lifecycle(
-                        "EXIT_SWEEP_SKIPPED",
-                        "reason=$reason alreadyRunning=true priorAgeMs=$priorAgeMs"
+                        "EXIT_SWEEP_COALESCED",
+                        "reason=$reason alreadyRunning=true priorAgeMs=$priorAgeMs pending=true"
                     )
                 } catch (_: Throwable) {}
                 return
@@ -10827,6 +10830,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 if (exitSweepGeneration.get() == sweepGen && exitSweepInFlight.compareAndSet(true, false)) {
                     exitSweepWorker = null
                     ForensicLogger.lifecycle("EXIT_SWEEP_ASYNC_DONE", "reason=$reason gen=$sweepGen")
+                    if (exitSweepPending.compareAndSet(true, false)) {
+                        ForensicLogger.lifecycle("EXIT_SWEEP_COALESCED_LAUNCH", "reason=$reason gen=$sweepGen source=done")
+                        launchExitSweepAsync("COALESCED_AFTER_$reason")
+                    }
                 } else {
                     ForensicLogger.lifecycle("EXIT_SWEEP_LATE_DONE", "reason=$reason gen=$sweepGen currentGen=${exitSweepGeneration.get()}")
                 }
@@ -10840,6 +10847,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                     exitSweepWorker = null
                     ForensicLogger.lifecycle("EXIT_SWEEP_TIMEOUT", "reason=$reason gen=$sweepGen timeoutMs=$EXIT_SWEEP_HARD_MS action=gate_released")
                     try { worker.cancel(kotlinx.coroutines.CancellationException("exit sweep timeout")) } catch (_: Throwable) {}
+                    if (exitSweepPending.compareAndSet(true, false)) {
+                        ForensicLogger.lifecycle("EXIT_SWEEP_COALESCED_LAUNCH", "reason=$reason gen=$sweepGen source=timeout")
+                        launchExitSweepAsync("COALESCED_AFTER_TIMEOUT_$reason")
+                    }
                 }
             } catch (_: Throwable) {}
         }
@@ -11400,10 +11411,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 slSafetyNetWorker = null
                 slSafetyNetInFlight.set(true)
             } else {
+                slSafetyNetPending.set(true)
                 try {
                     ForensicLogger.lifecycle(
-                        "UNIVERSAL_SL_SWEEP_SKIPPED",
-                        "alreadyRunning=true priorAgeMs=$priorAgeMs"
+                        "UNIVERSAL_SL_SWEEP_COALESCED",
+                        "alreadyRunning=true priorAgeMs=$priorAgeMs pending=true"
                     )
                 } catch (_: Throwable) {}
                 return
@@ -11422,6 +11434,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                 if (slSafetyNetGeneration.get() == slGen && slSafetyNetInFlight.compareAndSet(true, false)) {
                     slSafetyNetWorker = null
                     try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_DONE", "gen=$slGen") } catch (_: Throwable) {}
+                    if (slSafetyNetPending.compareAndSet(true, false)) {
+                        try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_COALESCED_LAUNCH", "gen=$slGen source=done") } catch (_: Throwable) {}
+                        launchUniversalSlSweepAsync(cfg, wallet)
+                    }
                 } else {
                     try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_LATE_DONE", "gen=$slGen currentGen=${slSafetyNetGeneration.get()}") } catch (_: Throwable) {}
                 }
@@ -11440,6 +11456,10 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         )
                     } catch (_: Throwable) {}
                     try { worker.cancel(kotlinx.coroutines.CancellationException("universal SL sweep timeout")) } catch (_: Throwable) {}
+                    if (slSafetyNetPending.compareAndSet(true, false)) {
+                        try { ForensicLogger.lifecycle("UNIVERSAL_SL_SWEEP_COALESCED_LAUNCH", "gen=$slGen source=timeout") } catch (_: Throwable) {}
+                        launchUniversalSlSweepAsync(cfg, wallet)
+                    }
                 }
             } catch (_: Throwable) {}
         }
