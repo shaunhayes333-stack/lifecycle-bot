@@ -11032,6 +11032,45 @@ launchExitSweepAsync("POST_SUPERVISOR")
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
     private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 5_000L
+    // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
+    // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
+    // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns
+    // supervisor slots and creates INFLIGHT_CAP without increasing FDG/EXEC.
+    // Non-open timed-out mints cool briefly; open positions bypass this so exits
+    // and hard-floor protection remain unconditional.
+    private val supervisorTimeoutCooldownUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 45_000L
+
+    private fun supervisorMintIsOpen(mint: String): Boolean = try {
+        status.tokens[mint]?.position?.isOpen == true ||
+            status.openPositions.any { it.mint == mint && it.position.isOpen }
+    } catch (_: Throwable) { false }
+
+    private fun supervisorTimeoutCooldownActive(mint: String, now: Long = System.currentTimeMillis()): Boolean {
+        if (supervisorMintIsOpen(mint)) return false
+        val until = supervisorTimeoutCooldownUntil[mint] ?: return false
+        if (until <= now) {
+            supervisorTimeoutCooldownUntil.remove(mint, until)
+            return false
+        }
+        return true
+    }
+
+    private fun supervisorArmTimeoutCooldown(mint: String) {
+        if (supervisorMintIsOpen(mint)) return
+        val until = System.currentTimeMillis() + SUPERVISOR_TIMEOUT_COOLDOWN_MS
+        supervisorTimeoutCooldownUntil[mint] = until
+        if (supervisorTimeoutCooldownUntil.size > 2048) {
+            val now = System.currentTimeMillis()
+            try {
+                val it = supervisorTimeoutCooldownUntil.entries.iterator()
+                while (it.hasNext()) {
+                    val e = it.next()
+                    if (e.value <= now) it.remove()
+                }
+            } catch (_: Throwable) {}
+        }
+    }
 
     private fun supervisorPruneExpiredLeases(reason: String = "cycle"): Int {
         val now = System.currentTimeMillis()
@@ -11140,9 +11179,25 @@ launchExitSweepAsync("POST_SUPERVISOR")
         }
         var spawned = 0
         var skipped = 0
+        var cooldownSkipped = 0
+        var shouldPollSkipped = 0
         try { markProgress("SUPERVISOR") } catch (_: Throwable) {}
         for (mint in orderedMints) {
             if (!status.running) break
+            // V5.9.1180 — pre-admission filters. Do not acquire a lease or spawn
+            // watchdog/IO coroutines for mints that are temporarily cooled after a
+            // worker timeout, or that the orchestrator already says should not be
+            // polled this tick. Open positions bypass timeout cooldown above.
+            if (supervisorTimeoutCooldownActive(mint)) {
+                skipped++
+                cooldownSkipped++
+                continue
+            }
+            if (orchestrator?.shouldPoll(mint) == false) {
+                skipped++
+                shouldPollSkipped++
+                continue
+            }
             val leaseId = supervisorTryAcquireSlot(mint)
             if (leaseId <= 0L) {
                 skipped++
@@ -11181,7 +11236,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     if (!status.running) return@launch
-                    if (orchestrator?.shouldPoll(mint) == false) return@launch
+                    // V5.9.1180 — orchestrator.shouldPoll was moved before lease
+                    // acquisition so non-pollable mints do not consume supervisor
+                    // slots/watchdog coroutines.
                     // V5.9.1039 — PER-WORKER TIMEOUT. V5.9.1037 removed the
                     // chunk-level awaitAll timeout but forgot to add a
                     // per-worker safety net. Operator V5.9.1038 4h dump
@@ -11219,10 +11276,11 @@ launchExitSweepAsync("POST_SUPERVISOR")
                         supervisorLifetimeProcessed.incrementAndGet()
                     } else {
                         supervisorLifetimeWorkerTimeouts.incrementAndGet()
+                        supervisorArmTimeoutCooldown(mint)
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_WORKER_TIMEOUT",
-                                "mint=${mint.take(10)} budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS",
+                                "mint=${mint.take(10)} budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
                             )
                         } catch (_: Throwable) {}
                     }
@@ -11244,7 +11302,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
             try {
                 ForensicLogger.lifecycle(
                     "SUPERVISOR_INFLIGHT_CAP",
-                    "loop=$loopCount spawned=$spawned skipped=$skipped active=${supervisorLeases.size} cap=$SUPERVISOR_MAX_INFLIGHT liveCap=$SUPERVISOR_MAX_LIVE_WORKERS",
+                    "loop=$loopCount spawned=$spawned skipped=$skipped cooldown=$cooldownSkipped shouldPoll=$shouldPollSkipped active=${supervisorLeases.size} cap=$SUPERVISOR_MAX_INFLIGHT liveCap=$SUPERVISOR_MAX_LIVE_WORKERS",
                 )
             } catch (_: Throwable) {}
         }
