@@ -13658,6 +13658,12 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 // Skip execution - do NOT proceed to buy
                             } else {
                                 // AUTHORIZED - proceed with execution
+                                // V5.9.1191 — reuse the canonical EXEC_OPEN_ALLOWED
+                                // key emitted by TradeAuthorizer/ExecutableOpenGate.
+                                // Passing a parallel authResult.attemptId into FEP/executor
+                                // can self-report DUPLICATE_EXECUTION_KEY on the same approved
+                                // lane handoff. Fallback keeps old behavior if telemetry is absent.
+                                val treasuryAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "TREASURY") ?: authResult.attemptId
                             
                                 // Try to acquire execution permit
                                 val canExecute = FinalExecutionPermit.tryAcquireExecution(
@@ -13665,7 +13671,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     symbol = ts.symbol,
                                     layer = "TREASURY",
                                     sizeSol = adjustedSize,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = treasuryAttemptId,
                                     finalityPrechecked = true,
                                     paperMode = cfg.paperMode,
                                     rugScore = ts.safety.rugcheckScore
@@ -13713,7 +13719,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     wallet = wallet,
                                     isPaper = cfg.paperMode,
                                     finalityPrechecked = true,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = treasuryAttemptId,
                                 )
                                 if (!treasuryOpened) {
                                     ErrorLogger.warn("BotService", "TREASURY ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14401,6 +14407,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 if (!authResult.isExecutable()) {
                                     ErrorLogger.debug("BotService", "🚀 [MOONSHOT] ${ts.symbol} | AUTH_DENIED | ${authResult.reason}")
                                 } else {
+                                    val moonshotAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "MOONSHOT") ?: authResult.attemptId
                                     // Acquire final execution permit
                                     // V5.9.691 — apply FDG probe reduction if FDG disagreed
                                     val msEffectiveSize = if (fdgReducedSize)
@@ -14411,7 +14418,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                         symbol = ts.symbol,
                                         layer = "MOONSHOT",
                                         sizeSol = msEffectiveSize,
-                                        attemptId = authResult.attemptId,
+                                        attemptId = moonshotAttemptId,
                                         finalityPrechecked = true,
                                         paperMode = cfg.paperMode,
                                         rugScore = ts.safety.rugcheckScore,
@@ -14437,7 +14444,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                                 spaceModeEmoji = moonshotScore.spaceMode.emoji,
                                                 spaceModeName = moonshotScore.spaceMode.displayName,
                                                 finalityPrechecked = true,
-                                                attemptId = authResult.attemptId,
+                                                attemptId = moonshotAttemptId,
                                             )
                                             if (!moonshotOpened) {
                                                 ErrorLogger.warn("BotService", "MOONSHOT ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -14932,6 +14939,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 }
                             } else {
                                 // AUTHORIZED - proceed with execution
+                                val shitcoinAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "SHITCOIN") ?: authResult.attemptId
                             
                                 // V4.0: Try to acquire execution permit
                                 val canExecute = FinalExecutionPermit.tryAcquireExecution(
@@ -14939,7 +14947,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     symbol = ts.symbol,
                                     layer = "SHITCOIN",
                                     sizeSol = adjustedSize,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = shitcoinAttemptId,
                                     finalityPrechecked = true,
                                     paperMode = cfg.paperMode,
                                     rugScore = ts.safety.rugcheckScore,
@@ -14969,7 +14977,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     launchPlatform = shitCoinSignal.launchPlatform,
                                     riskLevel = shitCoinSignal.riskLevel,
                                     finalityPrechecked = true,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = shitcoinAttemptId,
                                 )
                                 if (!shitCoinOpened) {
                                     ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -15209,6 +15217,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ${if (manipAuthResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${manipAuthResult.reason}")
                             if (!manipAuthResult.isShadowOnly()) RejectionTelemetry.record("MANIP", manipAuthResult.reason)
                         } else {
+                            val manipAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "MANIPULATED") ?: manipAuthResult.attemptId
                             ErrorLogger.info("BotService", "☠️ [MANIP] ${ts.symbol} | ENTER | " +
                                 "score=${manipSignal.manipScore} | " +
                                 "bundle=${manipBundlePct.toInt()}% | " +
@@ -15228,7 +15237,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                 riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                 finalityPrechecked = true,
-                                attemptId = manipAuthResult.attemptId,
+                                attemptId = manipAttemptId,
                             )
 
   
@@ -15422,6 +15431,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
                                 if (!authResult.isShadowOnly()) RejectionTelemetry.record("EXPRESS", authResult.reason)
                             } else {
+                                val expressAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "EXPRESS")
+                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "SHITCOIN")
+                                    ?: authResult.attemptId
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
                                     "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
                                     "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
@@ -15440,7 +15452,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = expressAttemptId,
                                 )
                                 if (!expressOpened) {
                                     ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -15569,6 +15581,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             )
                             
                             if (authResult.isExecutable()) {
+                                val projectSniperAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "PROJECT_SNIPER")
+                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "SHITCOIN")
+                                    ?: authResult.attemptId
                                 ErrorLogger.info("BotService", "🎯 [SNIPER] ${ts.symbol} | ENGAGE | " +
                                     "${assessment.threatLevel.emoji} | age=${assessment.tokenAgeSecs}s | " +
                                     "size=${assessment.positionSizeSol.fmt(3)}◎ | conf=${assessment.confidence}%")
@@ -15597,7 +15612,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = projectSniperAttemptId,
                                 )
                                 
                                 addLog("🎯 SNIPER: ${ts.symbol} | ${assessment.threatLevel.emoji} ENGAGED | " +
@@ -15710,6 +15725,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
                                 if (!authResult.isShadowOnly()) RejectionTelemetry.record("DIP", authResult.reason)
                             } else {
+                                val dipHunterAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "DIP_HUNTER") ?: authResult.attemptId
                                 ErrorLogger.info("BotService", "📉🎯 [DIP] ${ts.symbol} | BUY | " +
                                     "${dipSignal.dipQuality.emoji} ${dipSignal.dipQuality.name} | " +
                                     "dip=${dipSignal.dipDepthPct.fmt(1)}% | " +
@@ -15744,7 +15760,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                     walletSol = effectiveBalance,
                                     identity = identity,
                                     finalityPrechecked = true,
-                                    attemptId = authResult.attemptId,
+                                    attemptId = dipHunterAttemptId,
                                 )
                                 if (!dipOpened) {
                                     ErrorLogger.warn("BotService", "DIP_HUNTER ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -16044,6 +16060,9 @@ launchExitSweepAsync("POST_SUPERVISOR")
                                 )
                             }
 
+                            val v3AttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "CORE")
+                                ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "V3")
+                                ?: authResult.attemptId
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -16062,7 +16081,7 @@ launchExitSweepAsync("POST_SUPERVISOR")
                             openPositionCount = status.openPositionCount,
                             totalExposureSol = status.totalExposureSol,
                             finalityPrechecked = true,
-                            attemptId = authResult.attemptId,
+                            attemptId = v3AttemptId,
                         )
                         
                         addLog("⚡ V3 EXECUTE: ${identity.symbol} | ${result.band} | ${proposedSize.fmt(4)} SOL", ts.mint)
