@@ -10455,13 +10455,26 @@ try {
 // paperSell() heavy learning fanout, parking the cycle in POST_SUPERVISOR.
 // openPositionTickLoop owns exit management; botLoop only requests a
 // single-flight async sweep and immediately continues toward CYCLE_EXIT.
-try {
-    ForensicLogger.lifecycle(
-        "POST_SUPERVISOR/EXIT_SWEEP_ENQUEUED",
-        "loop=$loopCount reason=POST_SUPERVISOR"
-    )
-} catch (_: Throwable) {}
-launchExitSweepAsync("POST_SUPERVISOR")
+val tickExitSweepFresh = try {
+    val openCount = synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen } }
+    openCount > 0 && (System.currentTimeMillis() - lastTickExitSweepMs) < 5_000L
+} catch (_: Throwable) { false }
+if (tickExitSweepFresh) {
+    try {
+        ForensicLogger.lifecycle(
+            "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_TO_TICK",
+            "loop=$loopCount reason=tick_manager_recent ageMs=${System.currentTimeMillis() - lastTickExitSweepMs}"
+        )
+    } catch (_: Throwable) {}
+} else {
+    try {
+        ForensicLogger.lifecycle(
+            "POST_SUPERVISOR/EXIT_SWEEP_ENQUEUED",
+            "loop=$loopCount reason=POST_SUPERVISOR"
+        )
+    } catch (_: Throwable) {}
+    launchExitSweepAsync("POST_SUPERVISOR")
+}
 
             // V5.9.495z6 — WALLET RECONCILIATION (operator spec May 2026).
             // After all sub-trader cycles + universal exit sweep, sync the
@@ -10620,7 +10633,16 @@ launchExitSweepAsync("POST_SUPERVISOR")
             // timeout-watchdog pattern so a stuck sell can never wedge the
             // gate or the loop again.
             markProgress("EXIT_SWEEP")
-            launchUniversalSlSweepAsync(cfg, wallet)
+            if (tickExitSweepFresh) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIVERSAL_SL_SWEEP_DEFERRED_TO_TICK",
+                        "loop=$loopCount reason=tick_manager_recent ageMs=${System.currentTimeMillis() - lastTickExitSweepMs}"
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                launchUniversalSlSweepAsync(cfg, wallet)
+            }
             markProgress("IDLE")  // V5.9.762 — between cycles is idle/safe-to-rescue.
 
             delay(cfg.pollSeconds * 1000L)
