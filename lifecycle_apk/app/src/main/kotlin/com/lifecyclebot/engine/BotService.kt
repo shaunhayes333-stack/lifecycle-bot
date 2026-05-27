@@ -3467,6 +3467,14 @@ class BotService : Service() {
                         status.tokens.values.filter { it.position.isOpen }.toList()
                     }
                     if (openTokens.isNotEmpty()) {
+                        // V5.9.1196 — make hotExit the authoritative active
+                        // exit-maintenance heartbeat. 3163 showed POST_SUPERVISOR
+                        // and openPositionTick still launching duplicate sweeps
+                        // while this 2s manager was already walking open positions,
+                        // causing EXIT_SWEEP/UNIVERSAL_SL coalesced + reset storms.
+                        // Updating this timestamp lets botLoop/openPositionTick defer
+                        // to the hot path without weakening hard-floor management.
+                        lastTickExitSweepMs = System.currentTimeMillis()
                         openTokens.forEach { ts ->
                             try {
                                 executor.runManageOnly(ts, curWallet, curSol)
@@ -3476,6 +3484,28 @@ class BotService : Service() {
                                     "hotExit(${ts.symbol}): ${e.message}",
                                 )
                             }
+                        }
+
+                        // V5.9.1196 — low-cadence orphan/treasury sweep backup.
+                        // runManageOnly covers strict SL / partials / profit locks
+                        // every 2s. The heavier full/universal sweeps are retained
+                        // as a 30s backup only when their single-flight gate is free.
+                        // This preserves orphan rescue without spawning reset storms.
+                        if (tick % 15L == 0L) {
+                            try {
+                                if (!exitSweepInFlight.get()) {
+                                    launchExitSweepAsync("HOT_EXIT_PERIODIC")
+                                } else {
+                                    ForensicLogger.lifecycle("HOT_EXIT_FULL_SWEEP_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
+                                }
+                            } catch (_: Throwable) {}
+                            try {
+                                if (!slSafetyNetInFlight.get()) {
+                                    launchUniversalSlSweepAsync(cfg, curWallet)
+                                } else {
+                                    ForensicLogger.lifecycle("HOT_EXIT_UNIVERSAL_SL_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
+                                }
+                            } catch (_: Throwable) {}
                         }
 
                         // V5.9.940 — STEALTH MINT-BURN MONITOR producer side.
@@ -7074,18 +7104,17 @@ class BotService : Service() {
                 // authoritative path for orphan/edge-case positions.
                 try {
                     val nowSweepMs = System.currentTimeMillis()
-                    if (nowSweepMs - lastTickExitSweepMs >= 2_000L) {
+                    if (nowSweepMs - lastTickExitSweepMs >= 30_000L) {
                         lastTickExitSweepMs = nowSweepMs
                         val cfgTick = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                         val walletTick = try { walletManager.getWallet() } catch (_: Throwable) { null }
                         if (cfgTick != null) {
-                            // Part 1: Treasury TP/SL/Trail (CashGenerationAI.checkAllPositionsForExit)
-                            // Part 2: V3 lane fallback (ShitCoin/Moonshot/Quality/BlueChip via runFallbackSafetyExit)
-                            // Both are already implemented as fan-out sweeps; we just call them more often.
-                            launchExitSweepAsync("OPEN_POSITION_TICK")
-                            try { runUniversalSlSafetyNetSweep(cfgTick, walletTick) } catch (e: Throwable) {
-                                ErrorLogger.debug("BotService", "tick runUniversalSlSafetyNetSweep err: ${e.message}")
-                            }
+                            // V5.9.1196 — fallback only. The hotExitJob above owns
+                            // the 2s strict-SL/profit-lock path. This loop's primary
+                            // job is now fresh pricing; only launch heavy sweep backup
+                            // if hotExit hasn't touched exits for 30s.
+                            launchExitSweepAsync("OPEN_POSITION_TICK_STALE_BACKUP")
+                            launchUniversalSlSweepAsync(cfgTick, walletTick)
                         }
                     }
                 } catch (_: Throwable) { /* never break the tick loop */ }
