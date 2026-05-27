@@ -7626,6 +7626,31 @@ class BotService : Service() {
                     )
                     synchronized(ts.history) { ts.history.addLast(seedCandle) }
                 }
+                // V5.9.1183 — persist the intake-time synthetic snapshot immediately.
+                // 3145 showed TokenMetaCache liveRows=17,929 but hitRate=6.7%:
+                // fresh PumpPortal mints were being hydrated/scored in memory, yet the
+                // cache mostly learned only later pair metadata. Register the cheap
+                // mcap/liquidity/price seed at the same point status.tokens is updated
+                // so restarts and duplicate source hits can reuse it instead of falling
+                // back through slow no-pair oracle paths. Best-effort only; never gates.
+                try {
+                    com.lifecyclebot.engine.TokenMetaCache.get(applicationContext).register(
+                        mint = mint,
+                        symbol = ts.symbol,
+                        name = ts.name,
+                        pairAddress = ts.pairAddress,
+                        pairUrl = ts.pairUrl,
+                        logoUrl = ts.logoUrl,
+                        lastPriceSource = ts.lastPriceSource,
+                        lastPricePoolAddr = ts.lastPricePoolAddr,
+                        lastPriceDex = ts.lastPriceDex,
+                        lastPrice = ts.lastPrice.takeIf { it > 0.0 },
+                        lastMcap = ts.lastMcap.takeIf { it > 0.0 } ?: marketCapUsd.takeIf { it > 0.0 },
+                        lastLiquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: liquidityUsd.takeIf { it > 0.0 },
+                        lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: marketCapUsd.takeIf { it > 0.0 },
+                        creationTimeMs = ts.addedToWatchlistAt.takeIf { it > 0L },
+                    )
+                } catch (_: Throwable) {}
             }
 
             try {
