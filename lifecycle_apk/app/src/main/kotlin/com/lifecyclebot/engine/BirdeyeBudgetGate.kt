@@ -225,15 +225,20 @@ object BirdeyeBudgetGate {
         val cu = cuToday.get()
         val monthCu = cuThisMonth.get()
         val effectiveDailyCap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
+        val monthlyPct = monthCu.toDouble() / MONTHLY_CAP
+        val effectiveDailyPct = if (effectiveDailyCap > 0) cu.toDouble() / effectiveDailyCap else 0.0
+        val entryLocked = isEntryBudgetLockedDown()
         return Snapshot(
             dayKey = dayKey,
             callsToday = callsToday.get(),
             cuToday = cu,
             dailyCap = effectiveDailyCap,
-            pctUsed = if (effectiveDailyCap > 0) (cu.toDouble() / effectiveDailyCap * 100.0) else 0.0,
+            pctUsed = effectiveDailyPct * 100.0,
             cuThisMonth = monthCu,
-            monthlyPctUsed = monthCu.toDouble() / MONTHLY_CAP * 100.0,
-            lockedDown = isLockedDown(),
+            monthlyPctUsed = monthlyPct * 100.0,
+            lockedDown = entryLocked,
+            providerConservation = EMERGENCY_CONSERVATION_MODE,
+            providerLockedDown = monthlyPct >= MONTHLY_LOCKDOWN_PCT || effectiveDailyPct >= 1.0,
         )
     }
 
@@ -246,6 +251,8 @@ object BirdeyeBudgetGate {
         val cuThisMonth: Long = 0L,
         val monthlyPctUsed: Double = 0.0,
         val lockedDown: Boolean = false,
+        val providerConservation: Boolean = false,
+        val providerLockedDown: Boolean = false,
     )
 
     private fun rolloverIfNeeded() {

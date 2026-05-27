@@ -1454,8 +1454,9 @@ object PipelineHealthCollector {
             sb.append("  daily calls:     ${bsnap.callsToday}\n")
             sb.append("  daily CU:        ${bsnap.cuToday}/${bsnap.dailyCap} (${"%.1f".format(bsnap.pctUsed)}%)\n")
             sb.append("  monthly CU:      ${bsnap.cuThisMonth}/5,000,000 (${"%.1f".format(bsnap.monthlyPctUsed)}%)\n")
-            sb.append("  lockdown:        ${if (bsnap.lockedDown) "🛑 ACTIVE — only safety calls allowed" else "✅ off"}\n")
-            if (bsnap.monthlyPctUsed >= 60.0 && !bsnap.lockedDown) {
+            sb.append("  entry lockdown:  ${if (bsnap.lockedDown) "🛑 ACTIVE — entries blocked by CU exhaustion" else "✅ off"}\n")
+            sb.append("  provider mode:   ${if (bsnap.providerConservation) "🟡 EMERGENCY CONSERVATION — non-emergency Birdeye paused" else if (bsnap.providerLockedDown) "🛑 PROVIDER LOCKDOWN" else "✅ normal"}\n")
+            if (bsnap.monthlyPctUsed >= 60.0 && !bsnap.lockedDown && !bsnap.providerConservation) {
                 sb.append("  ⚠ scanner-lane throttle active (every 5min instead of every 8s)\n")
             }
         } catch (_: Throwable) { /* best-effort telemetry */ }
