@@ -1,5 +1,6 @@
 package com.lifecyclebot.network
 
+import com.lifecyclebot.engine.ApiBackoff
 import com.lifecyclebot.engine.ErrorLogger
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -172,8 +173,25 @@ object HeliusEnhancedWS {
             // noise for zero recovery chance. Detect 401/403 and back off
             // to 10 minutes — gives the operator time to rotate the key
             // without spamming.
-            val isAuthFatal = msg.contains("403") || msg.contains("401")
-            if (isAuthFatal) {
+            val code = response?.code ?: when {
+                msg.contains("429") -> 429
+                msg.contains("403") -> 403
+                msg.contains("401") -> 401
+                else -> 0
+            }
+            try { if (code in 400..599) ApiBackoff.markFailure("helius", code) } catch (_: Throwable) {}
+            val isRateLimited = code == 429 || msg.contains("429")
+            val isAuthFatal = code == 403 || code == 401 || msg.contains("403") || msg.contains("401")
+            if (isRateLimited) {
+                // V5.9.1184 — Helius 429 is a hard upstream quota signal, not a
+                // normal transient websocket close. Runtime 5.0.3145 showed Helius
+                // success=0%, 4xx=288 and reconnect attempt 29/30 every ~30s. That
+                // log churn steals IO/runtime budget while producing zero trade data.
+                // Back off long enough for the quota bucket to cool; fail-open because
+                // PumpPortal/Dex/Birdeye/scanner lanes continue independently.
+                ErrorLogger.warn(TAG, "🛑 RATE-LIMIT failure: ${msg.take(100)} — backing off 15min (Helius 429)")
+                scheduleReconnect(forceDelayMs = 900_000L)
+            } else if (isAuthFatal) {
                 ErrorLogger.warn(TAG, "🛑 AUTH-FATAL failure: ${msg.take(100)} — backing off 10min (rotate Helius key)")
                 scheduleReconnect(forceDelayMs = 600_000L)
             } else {
