@@ -7505,16 +7505,24 @@ class BotService : Service() {
         // legacy rejection memory must never leave registry/status/UI divergent.
         try {
             synchronized(status.tokens) {
+                // V5.9.1193 — hot cache lookup BEFORE getOrPut. 3157 showed
+                // TokenMetaCache writes increasing but 0% hit rate because only
+                // the first TokenState creation path consulted the cache. Once
+                // status.tokens already held a mint, duplicate source hits skipped
+                // lookup entirely, so cached pair/price metadata could not refill
+                // missing runtime fields and telemetry looked dead. This is pure
+                // in-memory lookup; never blocks scanner intake or execution.
+                val cachedForIntake = try {
+                    com.lifecyclebot.engine.TokenMetaCache
+                        .get(applicationContext).lookup(mint)
+                } catch (_: Throwable) { null }
                 val ts = status.tokens.getOrPut(mint) {
                     // V5.9.948 — warm-boot hydration from disk-backed cache.
                     // If we've seen this mint before, restore the
                     // static-ish fields (symbol/pair/logo/dex/poolAddr) +
                     // the slow-moving last-snapshot (mcap/liq/fdv/price).
                     // Skips a Birdeye + DexScreener round-trip per restart.
-                    val cached = try {
-                        com.lifecyclebot.engine.TokenMetaCache
-                            .get(applicationContext).lookup(mint)
-                    } catch (_: Throwable) { null }
+                    val cached = cachedForIntake
                     com.lifecyclebot.data.TokenState(
                         mint = mint,
                         symbol = symbol.ifBlank { cached?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6) },
@@ -7543,6 +7551,20 @@ class BotService : Service() {
                 }
                 // symbol/name are immutable identity fields on TokenState; the
                 // getOrPut initializer above is the authority for first hydrate.
+                // V5.9.1193 — if the token already existed in runtime, use the
+                // same cache hit to fill only empty/stale metadata fields. Fresh
+                // scanner values below still win via max-take semantics.
+                if (cachedForIntake != null) {
+                    if (ts.pairAddress.isBlank() && cachedForIntake.pairAddress.isNotBlank()) ts.pairAddress = cachedForIntake.pairAddress
+                    if (ts.pairUrl.isBlank() && cachedForIntake.pairUrl.isNotBlank()) ts.pairUrl = cachedForIntake.pairUrl
+                    if (ts.logoUrl.isBlank() && cachedForIntake.logoUrl.isNotBlank()) ts.logoUrl = cachedForIntake.logoUrl
+                    if (ts.lastPrice <= 0.0 && cachedForIntake.lastPrice > 0.0) ts.lastPrice = cachedForIntake.lastPrice
+                    if (ts.lastMcap <= 0.0 && cachedForIntake.lastMcap > 0.0) ts.lastMcap = cachedForIntake.lastMcap
+                    if (ts.lastLiquidityUsd <= 0.0 && cachedForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = cachedForIntake.lastLiquidityUsd
+                    if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
+                    if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
+                    if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
+                }
                 if (ts.source.isBlank()) ts.source = joinedSources
                 ts.laneAffinity.addAll(laneAffinity)
                 ts.toolAffinity.addAll(toolAffinity)
