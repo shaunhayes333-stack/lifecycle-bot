@@ -706,6 +706,15 @@ object CashGenerationAI {
             rejectionReasons.add("max_positions_reached ($MAX_CONCURRENT_POSITIONS)")
         }
 
+        // V5.9.1189 — empirical S0-10 bleed guard.
+        // Live 5.0.3152 showed TREASURY|S0-10 at 77L/16W with mean -16.88%.
+        // Do not disable Treasury; only suppress this exact proven death band
+        // when LosingPatternMemory confirms it is still dangerous.
+        if (treasuryScore <= 10 && com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", treasuryScore)) {
+            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("TREASURY", treasuryScore)
+            rejectionReasons.add("s0_10_bleed_guard=losses_${danger.losses}_wins_${danger.wins}_mean_${"%+.1f".format(danger.meanPnl)}%")
+        }
+
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
         // Even if all hard gates pass, skip when this score bucket has
         // been net-losing over the last 25+ closed treasury trades.

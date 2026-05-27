@@ -1092,6 +1092,32 @@ object ShitCoinTraderAI {
             )
         }
 
+        // V5.9.1189 — empirical S0-10 bleed guard.
+        // Live 5.0.3152 showed SHITCOIN|S0-10 at 366L/16W with mean -15.65%.
+        // This is no longer exploratory noise; it is a proven death bucket.
+        // Keep the lane alive, but do not let the lowest score band execute
+        // while LosingPatternMemory says that exact lane×band is dangerous.
+        if (shitScore <= 10 && com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("SHITCOIN", shitScore)) {
+            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("SHITCOIN", shitScore)
+            ErrorLogger.info(TAG, "💩🧯 S0_10_BLEED_GUARD: $symbol | score=$shitScore losses=${danger.losses} wins=${danger.wins} mean=${"%+.1f".format(danger.meanPnl)}% — skipping")
+            return ShitCoinSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = shitConfidence,
+                reason = "S0_10_BLEED_GUARD: score=$shitScore losses=${danger.losses} wins=${danger.wins} mean=${"%+.1f".format(danger.meanPnl)}%",
+                mode = mode,
+                isPaperMode = isPaperMode,
+                launchPlatform = launchPlatform,
+                riskLevel = riskLevel,
+                socialScore = socialBonus,
+                bundleWarning = bundleWarning,
+                graduationImminent = graduationImminent,
+                entryScore = shitScore,
+            )
+        }
+
         // V5.9.435 — SCORE-EXPECTANCY SOFT GATE
         // Closes the open feedback loop: if this score's bucket has been
         // bleeding money on average over the last N closed trades, skip.
