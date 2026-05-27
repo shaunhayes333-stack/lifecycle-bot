@@ -85,15 +85,29 @@ object ReentryGuard {
      * so the bot can chase continuation.
      */
     fun isBlocked(mint: String): Boolean {
-        // V5.9.704 — graduated air control: reentry cooldowns activate at
-        // guardLevel >= 2 (1000+ lifetime sells). Below 1000 trades the bot
-        // is in early learning and must not be gated by reentry lockouts.
-        if (FreeRangeMode.guardLevel() < 2) return false
         cleanupExpired()
         if (isSecondMoonHot(mint)) return false
-        return lockouts[mint]?.let { entry ->
-            System.currentTimeMillis() < entry.expiresAt
-        } ?: false
+        val entry = lockouts[mint] ?: return false
+        if (System.currentTimeMillis() >= entry.expiresAt) return false
+
+        // V5.9.1200 — bootstrap must still respect REAL loss lockouts.
+        // V5.9.704 disabled all re-entry gating below guardLevel 2 so early
+        // paper learning could gather volume. Runtime 5.0.3166 proved the side
+        // effect: stop-loss rows were recording lockouts, but isBlocked() always
+        // returned false during bootstrap, allowing the same mint to buy/sell/
+        // rebuy into SHITCOIN_STOP_LOSS repeatedly and poisoning WR/PnL.
+        // Keep BAD_MEMORY_SCORE relaxed during bootstrap, but enforce concrete
+        // realised-risk events immediately. Second-moon winners still bypass.
+        if (FreeRangeMode.guardLevel() < 2) {
+            return entry.reason in setOf(
+                LockoutReason.STOP_LOSS_HIT,
+                LockoutReason.MULTIPLE_LOSSES,
+                LockoutReason.LIQUIDITY_COLLAPSE,
+                LockoutReason.DISTRIBUTION_DETECTED,
+                LockoutReason.MANUAL_BLOCK,
+            )
+        }
+        return true
     }
 
     /**
@@ -238,6 +252,12 @@ object ReentryGuard {
             lossCount = lossCount,
             lastPnlPct = pnlPct,
         )
+        try {
+            ForensicLogger.lifecycle(
+                "REENTRY_LOCKOUT_SET",
+                "mint=${mint.take(10)} reason=${reason.name} durationMs=$durationMs lossCount=$lossCount pnlPct=${pnlPct.toInt()} guardLevel=${FreeRangeMode.guardLevel()}"
+            )
+        } catch (_: Throwable) {}
     }
     
     /**
