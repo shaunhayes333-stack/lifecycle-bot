@@ -2182,6 +2182,28 @@ for legal compliance.
         }
     }
 
+    private fun liveRuntimeTokenCountForUi(): Int = try {
+        com.lifecyclebot.engine.BotService.status.tokens.size
+    } catch (_: Throwable) { 0 }
+
+    private fun liveFallbackActiveTokenForUi(cfg: BotConfig): TokenState? = try {
+        val status = com.lifecyclebot.engine.BotService.status
+        status.tokens[cfg.activeToken]
+            ?: status.openPositions.maxByOrNull { it.position.entryTime }
+            ?: status.tokens.values.asSequence()
+                .filter { it.lastPrice > 0.0 || it.history.isNotEmpty() || it.history5m.isNotEmpty() || it.signal != "WAIT" }
+                .maxByOrNull { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
+            ?: status.tokens.values.maxByOrNull { it.addedToWatchlistAt }
+    } catch (_: Throwable) { null }
+
+    private fun runtimeUiTokensForDecisionLog(state: UiState): Collection<TokenState> {
+        if (state.tokens.isNotEmpty()) return state.tokens.values
+        val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+        return if (runtimeActive || state.running) {
+            try { com.lifecyclebot.engine.BotService.status.tokens.values.toList() } catch (_: Throwable) { emptyList() }
+        } else emptyList()
+    }
+
     private fun updateUi(state: UiState) {
         if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
             mainUiActive = true
@@ -2214,9 +2236,14 @@ for legal compliance.
                 try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_PRESERVED_RUNTIME_ACTIVE", "source=foreground_repaint") } catch (_: Throwable) {}
             }
         }
-        val ts  = state.activeToken
         val cfg = state.config
+        val liveTokenCountForUi = if (runtimeActiveForUi || state.running) liveRuntimeTokenCountForUi() else 0
+        val uiTokenCount = if (runtimeActiveForUi || state.running) maxOf(state.tokens.size, liveTokenCountForUi) else state.tokens.size
+        val ts  = state.activeToken ?: if ((runtimeActiveForUi || state.running) && state.tokens.isEmpty()) liveFallbackActiveTokenForUi(cfg) else null
         val ws  = state.walletState
+        if ((runtimeActiveForUi || state.running) && state.tokens.isEmpty() && liveTokenCountForUi > 0) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_LIVE_TOKEN_FALLBACK", "stateTokens=0 liveTokens=$liveTokenCountForUi active=${ts?.symbol ?: "none"}") } catch (_: Throwable) {}
+        }
         refreshTrustUiSnapshotAsync(force = false)
 
         // V5.9.1168 — render runtime controls FIRST. The bot can be healthy
@@ -2638,8 +2665,8 @@ for legal compliance.
         } catch (_: Exception) {}
 
         // ── bot status card ───────────────────────────────────────────
-        tvTokenName.text  = ts?.symbol?.ifBlank { "Scanning ${state.tokens.size} tokens" }
-            ?: if (state.running || runtimeActiveForUi) "Scanning ${state.tokens.size} tokens" else "No token selected"
+        tvTokenName.text  = ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" }
+            ?: if (state.running || runtimeActiveForUi) "Scanning $uiTokenCount tokens" else "No token selected"
         
         // Load token logo from DexScreener
         if (ts != null) {
@@ -2755,8 +2782,8 @@ for legal compliance.
         } else if (state.running || runtimeActiveForUi) {
             // V5.9.1172 — bot-wide truth fallback. A running scanner with no
             // selected/priced token should not present the chart as "dead".
-            priceChart.setNoDataText("Scanning ${state.tokens.size} tokens — chart auto-fills when the next priced token is evaluated")
-            candleChart.setNoDataText("Scanning ${state.tokens.size} tokens — no selected token candle stream yet")
+            priceChart.setNoDataText("Scanning $uiTokenCount tokens — chart auto-fills when the next priced token is evaluated")
+            candleChart.setNoDataText("Scanning $uiTokenCount tokens — no selected token candle stream yet")
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
@@ -7100,19 +7127,21 @@ This cannot be undone!
         // V5.9.1172 — if no token is selected yet, show bot-wide activity
         // instead of the misleading static "Waiting for first evaluation…".
         val latest = try {
-            state.tokens.values
+            runtimeUiTokensForDecisionLog(state)
                 .asSequence()
                 .filter { it.lastPrice > 0.0 || it.entryScore > 0.0 || it.exitScore > 0.0 || it.signal != "WAIT" }
                 .sortedByDescending { maxOf(it.lastPriceUpdate, it.addedToWatchlistAt) }
                 .take(8)
                 .toList()
         } catch (_: Throwable) { emptyList() }
-        val hash = (state.running.toString() + state.tokens.size + latest.joinToString { it.mint + it.signal + it.entryScore.toInt() }).hashCode()
+        val runtimeActiveForLog = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+        val tokenCountForLog = if (runtimeActiveForLog || state.running) maxOf(state.tokens.size, liveRuntimeTokenCountForUi()) else state.tokens.size
+        val hash = ((state.running || runtimeActiveForLog).toString() + tokenCountForLog + latest.joinToString { it.mint + it.signal + it.entryScore.toInt() }).hashCode()
         if (hash == lastDecisionLogHash) return
         lastDecisionLogHash = hash
         cardLogScores.visibility = android.view.View.GONE
-        val header = if (state.running) {
-            "🟢 Bot running — scanning ${state.tokens.size} tokens"
+        val header = if (state.running || runtimeActiveForLog) {
+            "🟢 Bot running — scanning $tokenCountForLog tokens"
         } else {
             "Bot stopped — no selected token"
         }
