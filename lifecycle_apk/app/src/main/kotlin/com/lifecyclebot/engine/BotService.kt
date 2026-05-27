@@ -8075,19 +8075,26 @@ class BotService : Service() {
     ): List<String> {
         val nowMs = System.currentTimeMillis()
         val FRESH_WINDOW_MS = 120_000L
-        val basePerCycleCap = 200
+        // V5.9.1190 — supervisor feed must match supervisor capacity.
+        // Runtime 5.0.3157 proved V5.9.1188 was too soft: selection still
+        // picked 200 while fireSupervisorWorkers could admit only 140, causing
+        // SUPERVISOR_INFLIGHT_CAP every cycle (spawned=140 skipped=60). This
+        // does NOT prune the protected 500-token intake pool; it only limits
+        // the per-cycle slice handed to the supervisor so we stop manufacturing
+        // 60 guaranteed skips per tick.
+        val basePerCycleCap = SUPERVISOR_MAX_INFLIGHT
         try { supervisorPruneExpiredLeases("select_cycle") } catch (_: Throwable) {}
         val currentSupervisorLoad = try { supervisorLeases.size } catch (_: Throwable) { 0 }
         val PER_CYCLE_CAP = when {
-            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT * 3 / 4) -> 120
-            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT / 2) -> 160
+            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT * 3 / 4) -> 100
+            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT / 2) -> 120
             else -> basePerCycleCap
         }
-        if (PER_CYCLE_CAP != basePerCycleCap) {
+        if (PER_CYCLE_CAP != 200) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "SUPERVISOR_ADMISSION_COOLDOWN",
-                    "active=$currentSupervisorLoad cap=$SUPERVISOR_MAX_INFLIGHT perCycle=$PER_CYCLE_CAP base=$basePerCycleCap"
+                    "active=$currentSupervisorLoad cap=$SUPERVISOR_MAX_INFLIGHT perCycle=$PER_CYCLE_CAP legacy=200 base=$basePerCycleCap"
                 )
             } catch (_: Throwable) {}
         }
