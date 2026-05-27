@@ -7555,8 +7555,9 @@ class BotService : Service() {
                 // same cache hit to fill only empty/stale metadata fields. Fresh
                 // scanner values below still win via max-take semantics.
                 if (cachedForIntake != null) {
-                    if (ts.pairAddress.isBlank() && cachedForIntake.pairAddress.isNotBlank()) ts.pairAddress = cachedForIntake.pairAddress
-                    if (ts.pairUrl.isBlank() && cachedForIntake.pairUrl.isNotBlank()) ts.pairUrl = cachedForIntake.pairUrl
+                    // pairAddress/pairUrl are immutable val fields on TokenState;
+                    // those are still hydrated on first creation above. Existing
+                    // runtime tokens only refill mutable quote/visual fields here.
                     if (ts.logoUrl.isBlank() && cachedForIntake.logoUrl.isNotBlank()) ts.logoUrl = cachedForIntake.logoUrl
                     if (ts.lastPrice <= 0.0 && cachedForIntake.lastPrice > 0.0) ts.lastPrice = cachedForIntake.lastPrice
                     if (ts.lastMcap <= 0.0 && cachedForIntake.lastMcap > 0.0) ts.lastMcap = cachedForIntake.lastMcap
