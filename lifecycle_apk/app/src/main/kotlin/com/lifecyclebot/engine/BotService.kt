@@ -8075,7 +8075,22 @@ class BotService : Service() {
     ): List<String> {
         val nowMs = System.currentTimeMillis()
         val FRESH_WINDOW_MS = 120_000L
-        val PER_CYCLE_CAP = 200
+        val basePerCycleCap = 200
+        try { supervisorPruneExpiredLeases("select_cycle") } catch (_: Throwable) {}
+        val currentSupervisorLoad = try { supervisorLeases.size } catch (_: Throwable) { 0 }
+        val PER_CYCLE_CAP = when {
+            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT * 3 / 4) -> 120
+            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT / 2) -> 160
+            else -> basePerCycleCap
+        }
+        if (PER_CYCLE_CAP != basePerCycleCap) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SUPERVISOR_ADMISSION_COOLDOWN",
+                    "active=$currentSupervisorLoad cap=$SUPERVISOR_MAX_INFLIGHT perCycle=$PER_CYCLE_CAP base=$basePerCycleCap"
+                )
+            } catch (_: Throwable) {}
+        }
         val STALE_PROCESS_COUNT_THRESHOLD = 96
         // V5.9.1114 — live-readiness refill. V5.9.1034's 250 cap + 12-pass /
         // 5-minute eviction overcorrected the old 1000-token firehose and now
