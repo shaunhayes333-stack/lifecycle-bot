@@ -7142,6 +7142,28 @@ class BotService : Service() {
     private val SYMBOL_BURST_WINDOW_MS: Long = 60_000L
     private val SYMBOL_BURST_MAX_MINTS: Int = 5
 
+    private fun normalizedSymbolBurstKey(symbol: String): String {
+        val raw = symbol.trim().lowercase(java.util.Locale.US)
+        if (raw.isBlank()) return ""
+        val alnum = raw.replace(Regex("[^a-z0-9]+"), "")
+        if (alnum.isBlank()) return ""
+        // V5.9.1181 — pump.fun clone storms mutate symbols with prefixes/suffixes,
+        // case changes, and numeric counters (TangTang/TANGTANG/ITSTANGTANG,
+        // PEPE2/PEPE3, THEPEPE, etc.). Exact lowercase keys miss those families
+        // and let them flood WATCHLIST_AFFINITY. Use a conservative family root:
+        // remove common hype wrappers and trailing numeric spam only when the root
+        // remains meaningful. This is intake spam filtering, not scanner pruning.
+        var root = alnum
+            .removePrefix("the")
+            .removePrefix("its")
+            .removePrefix("official")
+            .removePrefix("real")
+            .removePrefix("new")
+        root = root.replace(Regex("(coin|token|sol|cto|pump|fun|onsol|army|dao)$"), "")
+        root = root.replace(Regex("[0-9]+$"), "")
+        return if (root.length >= 3) root else alnum
+    }
+
     private fun laneQualifiedBuyDecision(
         base: com.lifecyclebot.data.CandidateDecision,
         lane: String,
@@ -7287,7 +7309,7 @@ class BotService : Service() {
         // reject the rest. User/restore paths exempt. Sliding-window list
         // is pruned-on-write so the map cannot grow unbounded.
         run {
-            val sym = symbol.trim().lowercase()
+            val sym = normalizedSymbolBurstKey(symbol)
             if (sym.isBlank()) return@run
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
@@ -7305,7 +7327,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_BURST_REJECT",
-                        "symbol=$sym distinctMints=$distinctMints windowMs=$SYMBOL_BURST_WINDOW_MS src=$source thisMint=${mint.take(10)}",
+                        "symbol=$sym rawSymbol=${symbol.take(32)} distinctMints=$distinctMints windowMs=$SYMBOL_BURST_WINDOW_MS src=$source thisMint=${mint.take(10)}",
                     )
                 } catch (_: Throwable) {}
                 return false
