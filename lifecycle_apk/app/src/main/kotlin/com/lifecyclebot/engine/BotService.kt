@@ -7946,6 +7946,12 @@ class BotService : Service() {
     // hard floors / TP / trailing stops engage 30x faster. Throttled to
     // every 2s so we don't burn CPU on every 1Hz tick.
     private var lastTickExitSweepMs: Long = 0L
+    // V5.9.1197 — botLoop POST_SUPERVISOR heavy sweep backup throttle.
+    // Active exit management is owned by hotExitJob/open-position tick paths;
+    // botLoop is a stale backup only. This prevents every 5s cycle from
+    // hammering the single-flight gates and forcing resets.
+    @Volatile private var lastPostSupervisorExitBackupMs: Long = 0L
+    private val POST_SUPERVISOR_EXIT_BACKUP_MS: Long = 60_000L
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
@@ -10484,25 +10490,35 @@ try {
 // paperSell() heavy learning fanout, parking the cycle in POST_SUPERVISOR.
 // openPositionTickLoop owns exit management; botLoop only requests a
 // single-flight async sweep and immediately continues toward CYCLE_EXIT.
-val tickExitSweepFresh = try {
-    val openCount = synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen } }
-    openCount > 0 && (System.currentTimeMillis() - lastTickExitSweepMs) < 5_000L
-} catch (_: Throwable) { false }
-if (tickExitSweepFresh) {
+val postSupervisorOpenCount = try {
+    synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen } }
+} catch (_: Throwable) { 0 }
+val postSupervisorNowMs = System.currentTimeMillis()
+val postSupervisorBackupDue = (postSupervisorNowMs - lastPostSupervisorExitBackupMs) >= POST_SUPERVISOR_EXIT_BACKUP_MS
+val tickExitSweepFresh = postSupervisorOpenCount > 0
+if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
     try {
         ForensicLogger.lifecycle(
-            "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_TO_TICK",
-            "loop=$loopCount reason=tick_manager_recent ageMs=${System.currentTimeMillis() - lastTickExitSweepMs}"
+            "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_TO_HOT_EXIT",
+            "loop=$loopCount open=$postSupervisorOpenCount ageMs=${postSupervisorNowMs - lastPostSupervisorExitBackupMs} backupMs=$POST_SUPERVISOR_EXIT_BACKUP_MS"
+        )
+    } catch (_: Throwable) {}
+} else if (exitSweepInFlight.get()) {
+    try {
+        ForensicLogger.lifecycle(
+            "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_INFLIGHT",
+            "loop=$loopCount open=$postSupervisorOpenCount reason=inflight_no_force_reset"
         )
     } catch (_: Throwable) {}
 } else {
+    lastPostSupervisorExitBackupMs = postSupervisorNowMs
     try {
         ForensicLogger.lifecycle(
-            "POST_SUPERVISOR/EXIT_SWEEP_ENQUEUED",
-            "loop=$loopCount reason=POST_SUPERVISOR"
+            "POST_SUPERVISOR/EXIT_SWEEP_BACKUP_ENQUEUED",
+            "loop=$loopCount open=$postSupervisorOpenCount reason=stale_backup"
         )
     } catch (_: Throwable) {}
-    launchExitSweepAsync("POST_SUPERVISOR")
+    launchExitSweepAsync("POST_SUPERVISOR_BACKUP")
 }
 
             // V5.9.495z6 — WALLET RECONCILIATION (operator spec May 2026).
@@ -10662,11 +10678,18 @@ if (tickExitSweepFresh) {
             // timeout-watchdog pattern so a stuck sell can never wedge the
             // gate or the loop again.
             markProgress("EXIT_SWEEP")
-            if (tickExitSweepFresh) {
+            if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                 try {
                     ForensicLogger.lifecycle(
-                        "UNIVERSAL_SL_SWEEP_DEFERRED_TO_TICK",
-                        "loop=$loopCount reason=tick_manager_recent ageMs=${System.currentTimeMillis() - lastTickExitSweepMs}"
+                        "UNIVERSAL_SL_SWEEP_DEFERRED_TO_HOT_EXIT",
+                        "loop=$loopCount open=$postSupervisorOpenCount ageMs=${System.currentTimeMillis() - lastPostSupervisorExitBackupMs} backupMs=$POST_SUPERVISOR_EXIT_BACKUP_MS"
+                    )
+                } catch (_: Throwable) {}
+            } else if (slSafetyNetInFlight.get()) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIVERSAL_SL_SWEEP_DEFERRED_INFLIGHT",
+                        "loop=$loopCount open=$postSupervisorOpenCount reason=inflight_no_force_reset"
                     )
                 } catch (_: Throwable) {}
             } else {
