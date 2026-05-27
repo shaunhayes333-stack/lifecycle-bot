@@ -439,12 +439,28 @@ object ExecutableOpenGate {
         val execKey = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane)
         val now = System.currentTimeMillis()
         openRequests.entries.removeIf { now - it.value > ALLOWED_ATTEMPT_TTL_MS }
+        val laneAttemptKey = laneKey(mint, lane)
         val prior = openRequests.putIfAbsent(execKey, now)
         if (prior != null && now - prior <= ALLOWED_ATTEMPT_TTL_MS) {
+            // V5.9.1182 — same approved attempt is idempotent, not a hard block.
+            // The execution chain can legally touch finality multiple times:
+            // TradeAuthorizer/FinalExecutionPermit/Executor wrappers all verify the
+            // same attemptId before side effects. Counting that as DUPLICATE_EXECUTION_KEY
+            // inflates block telemetry and can starve the handoff even though no second
+            // candidate/book is being opened. Different/stale attempts still block below.
+            val allowed = allowedAttempts[laneAttemptKey]
+            if (allowed?.first == execKey && now - allowed.second <= ALLOWED_ATTEMPT_TTL_MS) {
+                try {
+                    val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source ageMs=${now - prior} candidateVersion=$candidateVersion"
+                    ForensicLogger.lifecycle("EXEC_OPEN_IDEMPOTENT_RECHECK", detail)
+                    ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW_RECHECK $detail")
+                } catch (_: Throwable) {}
+                return OpenVerdict(true, "finality_clear_recheck", attemptId = execKey)
+            }
             try { TradeOutcomeLedger.recordSuppressedDuplicateOpen() } catch (_: Throwable) {}
             return blocked("EXEC_OPEN_BLOCKED_DUPLICATE_KEY", "DUPLICATE_EXECUTION_KEY")
         }
-        try { allowedAttempts[laneKey(mint, lane)] = execKey to System.currentTimeMillis() } catch (_: Throwable) {}
+        try { allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis() } catch (_: Throwable) {}
         try {
             val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=[] candidateVersion=$candidateVersion v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} signal=$signal band=$band"
             ForensicLogger.lifecycle("EXEC_OPEN_REQUEST", detail)
