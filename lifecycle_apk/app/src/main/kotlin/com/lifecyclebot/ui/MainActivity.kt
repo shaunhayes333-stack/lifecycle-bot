@@ -462,6 +462,14 @@ class MainActivity : AppCompatActivity() {
     private val chartEntries = mutableListOf<Entry>()
     private var chartIdx = 0f
     private var lastChartTokenMint: String? = null  // Track which token's chart is displayed
+    // V5.9.1199 — chart redraw throttle. Snapshot 3164/3166 ANR samples show
+    // MainActivity.appendChart / TextView/layout churn on Main. Runtime trading
+    // does not depend on chart paint, so update the visible chart at low cadence
+    // while the bot is active instead of recreating MPAndroidChart datasets every
+    // UI emission.
+    private var lastChartRenderMs: Long = 0L
+    private var lastChartRenderedPrice: Double = 0.0
+    private val RUNTIME_CHART_RENDER_MS: Long = 15_000L
     private var advancedExpanded = false
     private var settingsPopulated = false
 
@@ -957,15 +965,20 @@ class MainActivity : AppCompatActivity() {
         try {
             forceNextForegroundRender = true
             vm.forceRefresh()
-            updateUi(vm.ui.value)
+            // V5.9.1199 — do not synchronously run full updateUi() inside
+            // onResume/onCreate transition. 3164 ANR samples repeatedly pinned
+            // MainActivity.onCreate/onResume and renderOpenPositions. Let the
+            // runtime bar paint through the normal collector, then do one deferred
+            // repaint after the first frame. This keeps UI truth without blocking
+            // the Activity lifecycle path.
             window.decorView.postDelayed({
                 try {
                     forceNextForegroundRender = true
                     updateUi(vm.ui.value)
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT_REFRESHED", "source=onResume_delayed")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT_REFRESHED", "source=onResume_deferred_only")
                 } catch (_: Throwable) {}
-            }, 250L)
-            com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT", "source=onResume")
+            }, 750L)
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_FOREGROUND_REPAINT", "source=onResume_deferred")
         } catch (t: Throwable) {
             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "foreground repaint failed: ${t.message}")
         }
@@ -1899,6 +1912,17 @@ for legal compliance.
         chartEntries.add(Entry(chartIdx++, price.toFloat()))
         if (chartEntries.size > 120) chartEntries.removeAt(0)
 
+        // V5.9.1199 — reuse existing dataset when possible. Recreating
+        // LineDataSet/LineData on every UI emission showed up as chart/render
+        // pressure in ANR samples. Dataset recreation remains only for cold chart.
+        val existing = priceChart.data?.getDataSetByIndex(0) as? LineDataSet
+        if (existing != null) {
+            existing.values = ArrayList(chartEntries)
+            priceChart.data?.notifyDataChanged()
+            priceChart.notifyDataSetChanged()
+            priceChart.invalidate()
+            return
+        }
         val ds = LineDataSet(chartEntries, "").apply {
             color           = purple
             lineWidth       = 1.8f
@@ -2737,8 +2761,15 @@ for legal compliance.
         tvPressVal.text   = "${ts?.meta?.pressScore?.toInt() ?: 0}"
 
         // ── chart ─────────────────────────────────────────────────────
-        // Build chart from token history when switching tokens
-        if (ts != null && ts.mint != lastChartTokenMint) {
+        // V5.9.1199 — chart paint is UI-only and expensive. While runtime is
+        // active, rebuild/append at low cadence unless the selected token changed.
+        val nowChartMs = System.currentTimeMillis()
+        val chartTokenChanged = ts != null && ts.mint != lastChartTokenMint
+        val chartPriceChangedEnough = ts?.lastPrice?.let { lastChartRenderedPrice <= 0.0 || kotlin.math.abs(it - lastChartRenderedPrice) / lastChartRenderedPrice.coerceAtLeast(1e-12) >= 0.01 } ?: false
+        val allowChartPaint = !runtimeActiveForUi || chartTokenChanged || (nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough)
+        if (!allowChartPaint) {
+            // skip heavy MPAndroidChart dataset rebuild this UI tick
+        } else if (ts != null && ts.mint != lastChartTokenMint) {
             // Clear and rebuild chart from history for new token
             chartEntries.clear()
             chartIdx = 0f
@@ -2768,6 +2799,8 @@ for legal compliance.
                 }
                 priceChart.data = LineData(ds)
                 priceChart.invalidate()
+                lastChartRenderMs = nowChartMs
+                lastChartRenderedPrice = ts.lastPrice
             }
             
             // V5.6: Update DexScreener-style chart metrics
@@ -2776,6 +2809,8 @@ for legal compliance.
             // Append new price point
             appendChart(ts.lastPrice)
             updateCandleChart(ts)  // V5.8.0: keep candle chart in sync
+            lastChartRenderMs = nowChartMs
+            lastChartRenderedPrice = ts.lastPrice
             
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
@@ -3864,7 +3899,7 @@ for legal compliance.
         // cycle can't ANR the UI; the next interval will pick them up.
         val nowMs = System.currentTimeMillis()
         val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
-        val minRenderIntervalMs = if (runtimeActive) 30_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
+        val minRenderIntervalMs = if (runtimeActive) 60_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
         if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
             return
         }
@@ -3961,7 +3996,7 @@ for legal compliance.
         // Cap rendered rows at 25 (newest-by-entry first) so a
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = if (runtimeActive) 3 else 8
+        val RENDER_CAP = if (runtimeActive) 2 else 8
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
