@@ -128,6 +128,10 @@ object NarrativeDetector {
         }
 
         return try {
+            if (ApiBackoff.isLockedOut("groq")) {
+                ErrorLogger.debug("NarrativeAI", "Groq ApiBackoff active, using fallback")
+                return null
+            }
             if (!RateLimiter.allowRequest("groq")) {
                 ErrorLogger.debug("NarrativeAI", "Rate limited, using fallback")
                 return null
@@ -148,11 +152,13 @@ object NarrativeDetector {
                 // V5.9.858 — auth failures flag the key DEAD; transient (5xx/timeout) doesn't.
                 val errBody = try { resp.body?.string()?.take(200) } catch (_: Throwable) { null }
                 try { ApiHealthMonitor.record("groq", resp.code, groqLatency, errorBody = errBody) } catch (_: Throwable) {}
+                try { ApiBackoff.markFailure("groq", resp.code) } catch (_: Throwable) {}
                 try { KeyValidator.recordResult("groq", success = false, httpStatus = resp.code, error = errBody) } catch (_: Throwable) {}
                 return null
             }
 
             try { ApiHealthMonitor.record("groq", resp.code, groqLatency) } catch (_: Throwable) {}
+            try { ApiBackoff.markSuccess("groq") } catch (_: Throwable) {}
             try { KeyValidator.recordResult("groq", success = true, httpStatus = resp.code) } catch (_: Throwable) {}
             val body = resp.body?.string() ?: return null
             val content = JSONObject(body)

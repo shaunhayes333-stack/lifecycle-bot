@@ -167,6 +167,10 @@ class LlmSentimentEngine(
         mint: String,
         textBundle: String
     ): LlmSentiment? {
+        if (ApiBackoff.isLockedOut("groq")) {
+            ErrorLogger.debug(TAG, "Groq ApiBackoff active, skipping sentiment call")
+            return null
+        }
         throttle()
 
         val payload = JSONObject()
@@ -196,12 +200,18 @@ class LlmSentimentEngine(
                 .header("Content-Type", "application/json")
                 .build()
 
+            val startMs = System.currentTimeMillis()
             http.newCall(request).execute().use { response ->
+                val latencyMs = System.currentTimeMillis() - startMs
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty().take(300)
+                    try { ApiHealthMonitor.record("groq", response.code, latencyMs, errorBody = errorBody) } catch (_: Throwable) {}
+                    try { ApiBackoff.markFailure("groq", response.code) } catch (_: Throwable) {}
                     ErrorLogger.warn(TAG, "Groq HTTP ${response.code}: $errorBody")
                     return@use null
                 }
+                try { ApiHealthMonitor.record("groq", response.code, latencyMs) } catch (_: Throwable) {}
+                try { ApiBackoff.markSuccess("groq") } catch (_: Throwable) {}
 
                 val body = response.body?.string().orEmpty()
                 if (body.isBlank()) {
@@ -228,6 +238,7 @@ class LlmSentimentEngine(
                 parseLlmResponse(extractJsonObject(content))
             }
         } catch (e: Exception) {
+            try { ApiHealthMonitor.recordNetworkError("groq", e.message) } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "Groq call failed: ${e.message}")
             null
         }
