@@ -14962,17 +14962,27 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                     reason = shitCoinFdg?.blockReason ?: "ok")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons)
-            // V5.9.691 — FDG modulates, does not hard-kill, ShitCoin signals
-                            val scFdgStructural = shitCoinFdg != null && !shitCoinFdg.canExecute() &&
-                                shitCoinFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
-                            val scFdgProbe = shitCoinFdg != null && !shitCoinFdg.canExecute() && !scFdgStructural
-                            if (scFdgStructural) {
-                                ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on SHITCOIN: ${ts.symbol} | ${shitCoinFdg?.blockReason ?: "fdg_block"}")
-                                RejectionTelemetry.record("SHITCOIN_FDG", shitCoinFdg?.blockReason ?: "fdg_block")
-                            } else {
-                            if (scFdgProbe) {
-                                ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on SHITCOIN: ${ts.symbol} | ${shitCoinFdg?.blockReason ?: "fdg_caution"} | probe trade")
-                                RejectionTelemetry.record("SHITCOIN_FDG_PROBE", shitCoinFdg?.blockReason ?: "fdg_caution")
+                            // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
+                            // Runtime log 03:27 showed direct SHITCOIN paper buys
+                            // after V3/FDG state was WATCH/HARD_NO_BUY. The old
+                            // V5.9.691 code explicitly treated FDG as "modulates,
+                            // does not hard-kill", causing misleading ENTRY logs,
+                            // late PAPER_BUY_BLOCKED_FINALITY, and in some paths
+                            // paper trade pollution. Standing operator rule: FDG
+                            // must hard-veto every trader execution path. Fail-open
+                            // is preserved only for FDG exceptions/null result.
+                            if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
+                                val scBlock = shitCoinFdg.blockReason ?: "FDG_BLOCK"
+                                ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "SHITCOIN_FDG_HARD_VETO",
+                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$scBlock liq=${ts.lastLiquidityUsd.toInt()} rug=${ts.safety.rugcheckScore}"
+                                    )
+                                } catch (_: Throwable) {}
+                                RejectionTelemetry.record("SHITCOIN_FDG_HARD_VETO", scBlock)
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "FDG_HARD_VETO") } catch (_: Throwable) {}
+                                return
                             }
 
                             val authResult = TradeAuthorizer.authorize(
@@ -15144,7 +15154,6 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
                             }
                             } // end authResult.isExecutable()
-                        }
                     }
                     } // V5.9.792: close else of v3HardRejectForShitCoin guard (operator audit Item 4)
                     } // V5.9.103: close else of liqCollapseDetected guard
