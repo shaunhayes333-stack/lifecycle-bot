@@ -110,9 +110,17 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // still reflect real BotService state without owning the live CHM.
         val openSnapshot = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
         val tokenSnapshot: Map<String, TokenState> = try {
-            // Full immutable key snapshot, built off-main. MainActivity already caps
-            // row rendering; the count/header must reflect real BotService state.
-            status.tokens.toMap()
+            // V5.9.1202 — snapshot via entries iterator, then repair from values
+            // if the live map mutates mid-copy. Runtime snapshots showed Main UI
+            // stateTokens=0 while BotService had 500+ live tokens; the old toMap()
+            // catch-all converted transient copy failures into an empty dashboard.
+            val byEntry = try {
+                status.tokens.entries.associate { it.key to it.value }
+            } catch (_: Throwable) { emptyMap<String, TokenState>() }
+            if (byEntry.isNotEmpty()) byEntry else {
+                val vals = try { status.tokens.values.toList() } catch (_: Throwable) { emptyList() }
+                vals.associateBy { it.mint.ifBlank { it.symbol } }
+            }
         } catch (_: Throwable) { emptyMap() }
         var active = tokenSnapshot[cfg.activeToken]
         if (active == null) {
