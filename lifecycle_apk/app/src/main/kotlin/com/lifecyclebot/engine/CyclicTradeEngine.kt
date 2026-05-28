@@ -364,6 +364,81 @@ object CyclicTradeEngine {
         }
 
         val (tpPctEntry, slPctEntry) = adaptiveTpSl()
+
+        // V5.9.1210 — CYCLIC must use the same executable-open finality
+        // contract as the other lanes. Restoring paper cyclic in 1207 exposed
+        // an old shortcut: CyclicTradeEngine called executor.treasuryBuy()
+        // directly, so Executor's wrapper preflight saw no recorded BUY
+        // candidate and emitted TREASURY_BUY_BLOCKED_FINALITY /
+        // NO_FINAL_BUY_CANDIDATE every cycle. That looks like a frozen bot:
+        // scanner alive, candidates flowing, but zero executable buys.
+        // Record a CYCLIC/TREASURY BUY candidate and authorize it first, then
+        // pass finalityPrechecked=true into treasuryBuy. This preserves FDG /
+        // rug / safety finality instead of bypassing it.
+        val cyclicScore = (best.lastV3Score ?: best.entryScore.toInt()).coerceIn(0, 100)
+        val cyclicFdg = try {
+            FinalDecisionGate.evaluate(
+                ts = best,
+                candidate = com.lifecyclebot.data.CandidateDecision(
+                    entryScore = cyclicScore.toDouble(),
+                    exitScore = 0.0,
+                    phase = best.phase.ifBlank { "cyclic" },
+                    signal = "BUY",
+                    setupQuality = "B",
+                    edgeQuality = "B",
+                    finalQuality = "B",
+                    edgePhase = "CYCLIC",
+                    edgeConfidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
+                    isOptimalEntry = true,
+                    edgeVeto = false,
+                    shouldTrade = true,
+                    finalSignal = "BUY",
+                    blockReason = "",
+                    qualityPenalty = 1.0,
+                    aiConfidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
+                    meta = com.lifecyclebot.data.StrategyMeta(),
+                ),
+                config = cfg,
+                proposedSizeSol = sizeSol,
+                brain = executor.brain,
+                tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn(TAG, "CYCLIC_FDG_ERROR ${best.symbol}: ${e.message} — fail-open to authorizer")
+            null
+        }
+        try {
+            ExecutableOpenGate.recordFdg(
+                mint = best.mint,
+                symbol = best.symbol,
+                lane = "TREASURY",
+                canExecute = cyclicFdg?.canExecute() ?: true,
+                reason = cyclicFdg?.blockReason,
+                signal = "BUY",
+                rugScore = best.safety.rugcheckScore,
+                safetyTier = best.safety.tier.name,
+                liquidityUsd = best.lastLiquidityUsd,
+                hardNoReasons = best.safety.hardBlockReasons,
+            )
+        } catch (_: Throwable) {}
+        val cyclicAuth = TradeAuthorizer.authorize(
+            mint = best.mint,
+            symbol = best.symbol,
+            score = cyclicScore,
+            confidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
+            quality = "B",
+            isPaperMode = !isLiveMode,
+            requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
+            rugcheckScore = best.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+            liquidity = best.lastLiquidityUsd,
+            isBanned = BannedTokens.isBanned(best.mint),
+        )
+        if (!cyclicAuth.isExecutable()) {
+            statusMessage = "⏸️ Cyclic finality blocked ${best.symbol}: ${cyclicAuth.reason.take(60)}"
+            ErrorLogger.info(TAG, "CYCLIC_FINALITY_BLOCKED ${best.symbol} | ${cyclicAuth.reason}")
+            return
+        }
+        val cyclicAttemptId = ExecutableOpenGate.recentAllowedAttemptId(best.mint, "TREASURY") ?: cyclicAuth.attemptId
         val entered = executor.treasuryBuy(
             ts          = best,
             sizeSol     = sizeSol,
@@ -371,7 +446,9 @@ object CyclicTradeEngine {
             takeProfitPct = tpPctEntry,
             stopLossPct   = slPctEntry,
             wallet      = if (isLiveMode) wallet else null,
-            isPaper     = !isLiveMode
+            isPaper     = !isLiveMode,
+            finalityPrechecked = true,
+            attemptId = cyclicAttemptId,
         )
 
         if (entered) {
