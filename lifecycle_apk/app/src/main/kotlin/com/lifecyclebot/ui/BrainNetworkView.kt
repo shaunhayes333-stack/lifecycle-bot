@@ -154,6 +154,20 @@ class BrainNetworkView @JvmOverloads constructor(
     
     private var animationPhase = 0f
     private var brainPulsePhase = 0f
+    // V5.9.1217 — BrainNetworkView is software-rendered for blur effects and
+    // 3184 still shows drawEngineDot/drawPulses/drawBrain in ANR samples.
+    // Render is visual-only; throttle invalidations so bot runtime doesn't pay
+    // for decorative neural pulses while trading is hot.
+    private var lastRenderInvalidateMs = 0L
+    private val RENDER_INVALIDATE_MIN_MS = 2_500L
+
+    private fun requestThrottledRender(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (force || now - lastRenderInvalidateMs >= RENDER_INVALIDATE_MIN_MS) {
+            lastRenderInvalidateMs = now
+            invalidate()
+        }
+    }
     
     private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
         // V5.9.1047 — operator V5.9.1046 dump showed BrainNetworkView
@@ -164,14 +178,14 @@ class BrainNetworkView @JvmOverloads constructor(
         // animation is still perceptible (subtle pulse) but Main CPU
         // load drops 5×. Combined with hardware layer below, this
         // should shave ~10% off total stall.
-        duration = 1000
+        duration = 2500
         repeatCount = ValueAnimator.INFINITE
         interpolator = LinearInterpolator()
         addUpdateListener {
             animationPhase = (animationPhase + 0.02f) % 1f
             brainPulsePhase = (brainPulsePhase + 0.015f) % 1f
             updatePulses()
-            invalidate()
+            requestThrottledRender()
         }
     }
 
@@ -323,7 +337,7 @@ class BrainNetworkView @JvmOverloads constructor(
         aiLayers.forEach { layer ->
             layer.isActive = layerStatus[layer.name] ?: false
         }
-        invalidate()
+        requestThrottledRender(force = true)
     }
     
     /**
@@ -333,7 +347,7 @@ class BrainNetworkView @JvmOverloads constructor(
         aiLayers.forEach { layer ->
             layer.accuracy = layerAccuracy[layer.name] ?: 50.0
         }
-        invalidate()
+        requestThrottledRender(force = true)
     }
 
     /**
@@ -371,7 +385,7 @@ class BrainNetworkView @JvmOverloads constructor(
                 layer.isActive = m.isActive
             }
         }
-        invalidate()
+        requestThrottledRender(force = true)
     }
     
     /**
@@ -393,7 +407,7 @@ class BrainNetworkView @JvmOverloads constructor(
         isMegaBrain = megaBrain
         megaScore = score
         levelProgress = progress
-        invalidate()
+        requestThrottledRender(force = true)
     }
 
     /**
@@ -440,7 +454,7 @@ class BrainNetworkView @JvmOverloads constructor(
             layer.altsSignals  = altLane?.signals ?: 0
         }
         perEngineMode = true
-        invalidate()
+        requestThrottledRender(force = true)
     }
     
     /**

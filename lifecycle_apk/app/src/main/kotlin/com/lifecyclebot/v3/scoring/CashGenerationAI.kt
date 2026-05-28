@@ -706,13 +706,26 @@ object CashGenerationAI {
             rejectionReasons.add("max_positions_reached ($MAX_CONCURRENT_POSITIONS)")
         }
 
-        // V5.9.1189 — empirical S0-10 bleed guard.
-        // Live 5.0.3152 showed TREASURY|S0-10 at 77L/16W with mean -16.88%.
-        // Do not disable Treasury; only suppress this exact proven death band
-        // when LosingPatternMemory confirms it is still dangerous.
-        if (treasuryScore <= 10 && com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", treasuryScore)) {
-            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("TREASURY", treasuryScore)
-            rejectionReasons.add("s0_10_bleed_guard=losses_${danger.losses}_wins_${danger.wins}_mean_${"%+.1f".format(danger.meanPnl)}%")
+        // V5.9.1217 — widen Treasury bleed guard from S0-10 to any proven
+        // TREASURY death bucket, but keep it lane-local and evidence-aware.
+        // Runtime 5.0.3184 showed TREASURY|S61+ at 47L/1W mean -29.25% while
+        // projected execs/day overshot to 2360. This is not scanner pruning and
+        // does not disable other lanes; it only stops Treasury from repeatedly
+        // buying score bands its own journal says are toxic, unless exceptional
+        // live evidence is present.
+        val treasuryDanger = com.lifecyclebot.engine.LosingPatternMemory.stats("TREASURY", treasuryScore)
+        if (treasuryDanger.isDangerous && treasuryDanger.meanPnl < 0.0) {
+            val dangerBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(treasuryScore)
+            val exceptionalEvidence = liquidityUsd >= 5_000.0 &&
+                buyPressurePct in 45.0..62.0 &&
+                momentum >= 2.0 &&
+                v3Score >= 55 &&
+                v3Confidence >= 60
+            if (!exceptionalEvidence) {
+                rejectionReasons.add("treasury_danger_bucket_guard=$dangerBand losses_${treasuryDanger.losses}_wins_${treasuryDanger.wins}_mean_${"%+.1f".format(treasuryDanger.meanPnl)}%")
+            } else {
+                scoreReasons.add("danger_bucket_exception_$dangerBand")
+            }
         }
 
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
