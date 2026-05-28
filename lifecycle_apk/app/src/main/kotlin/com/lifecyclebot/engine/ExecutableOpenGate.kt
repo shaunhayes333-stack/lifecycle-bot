@@ -369,9 +369,12 @@ object ExecutableOpenGate {
 
 
         val pause = ToxicModeCircuitBreaker.currentEntryPause()
-        if (pause.active) {
+        if (pause.active && modeUpper == "LIVE") {
             ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
             return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
+        }
+        if (pause.active && modeUpper == "PAPER") {
+            try { ForensicLogger.lifecycle("PAPER_EXEC_CIRCUIT_PAUSE_BYPASSED", "symbol=$symbol lane=$lane reason=${pause.reason}") } catch (_: Throwable) {}
         }
         if (RuntimeConfigOverlay.isTradingPaused()) {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")

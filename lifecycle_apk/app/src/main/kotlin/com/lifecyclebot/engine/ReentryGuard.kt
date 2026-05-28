@@ -90,22 +90,13 @@ object ReentryGuard {
         val entry = lockouts[mint] ?: return false
         if (System.currentTimeMillis() >= entry.expiresAt) return false
 
-        // V5.9.1200 — bootstrap must still respect REAL loss lockouts.
-        // V5.9.704 disabled all re-entry gating below guardLevel 2 so early
-        // paper learning could gather volume. Runtime 5.0.3166 proved the side
-        // effect: stop-loss rows were recording lockouts, but isBlocked() always
-        // returned false during bootstrap, allowing the same mint to buy/sell/
-        // rebuy into SHITCOIN_STOP_LOSS repeatedly and poisoning WR/PnL.
-        // Keep BAD_MEMORY_SCORE relaxed during bootstrap, but enforce concrete
-        // realised-risk events immediately. Second-moon winners still bypass.
-        if (FreeRangeMode.guardLevel() < 2) {
-            return entry.reason in setOf(
-                LockoutReason.STOP_LOSS_HIT,
-                LockoutReason.MULTIPLE_LOSSES,
-                LockoutReason.LIQUIDITY_COLLAPSE,
-                LockoutReason.DISTRIBUTION_DETECTED,
-                LockoutReason.MANUAL_BLOCK,
-            )
+        // V5.9.1211 — paper mode is the learning arena. Realised-loss
+        // lockouts still get RECORDED for memory/telemetry, but they must not
+        // suppress paper entries. Runtime 5.0.3178 showed HARD_BLOCK_REENTRY_GUARD
+        // as the top FDG blocker after only ~100 paper trades, freezing the
+        // sample stream the bot needs to learn. LIVE keeps the lockout behavior.
+        if (try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }) {
+            return false
         }
         return true
     }

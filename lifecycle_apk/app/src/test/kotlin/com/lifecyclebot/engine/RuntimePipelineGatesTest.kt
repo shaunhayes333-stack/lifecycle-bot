@@ -567,7 +567,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun circuit_breaker_blocks_before_executable_open_allowed() {
+    fun paper_circuit_breaker_is_telemetry_only_for_learning() {
         resetAuthorities(paper = true)
         ExecutableOpenGate.recordFdg(
             mint = "MintCircuit11111111111111111111111111",
@@ -589,10 +589,38 @@ class ExecutionAuthorityInvariantTest {
             lane = "SHITCOIN",
             source = "test",
         )
+        assertTrue("paper mode must keep trading through circuit telemetry", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        assertNotNull("paper bypass must still create canonical allowed attempt", ExecutableOpenGate.recentAllowedAttemptId("MintCircuit11111111111111111111111111", "SHITCOIN"))
+    }
+
+    @Test
+    fun live_circuit_breaker_blocks_before_executable_open_allowed() {
+        resetAuthorities(paper = false)
+        ExecutableOpenGate.recordFdg(
+            mint = "MintLiveCircuit11111111111111111111111",
+            symbol = "CBL",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        ToxicModeCircuitBreaker.forceTripForTests("SHITCOIN", 60_000L, "TEST_CIRCUIT")
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = "MintLiveCircuit11111111111111111111111",
+            symbol = "CBL",
+            rugScore = 90,
+            mode = "LIVE",
+            lane = "SHITCOIN",
+            source = "test",
+        )
         assertFalse(v.allowed)
         assertEquals("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", v.logName)
         assertTrue(v.reason.contains("TEST_CIRCUIT"))
-        assertNull("blocked circuit breaker must not create allowed attempt", ExecutableOpenGate.recentAllowedAttemptId("MintCircuit11111111111111111111111111", "SHITCOIN"))
+        assertNull("blocked live circuit breaker must not create allowed attempt", ExecutableOpenGate.recentAllowedAttemptId("MintLiveCircuit11111111111111111111111", "SHITCOIN"))
     }
 
     @Test

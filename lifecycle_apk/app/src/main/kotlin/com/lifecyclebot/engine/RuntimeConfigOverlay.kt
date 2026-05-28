@@ -35,17 +35,28 @@ object RuntimeConfigOverlay {
     fun pauseTrading(reason: String, ttlMs: Long) = put("PAUSE_TRADING", "GLOBAL", "true", reason, ttlMs)
     fun disablePreAuth(reason: String, ttlMs: Long) = put("DISABLE_PREAUTH", "GLOBAL", "true", reason, ttlMs)
     fun forcePrimaryLane(lane: String, reason: String, ttlMs: Long) = put("FORCE_PRIMARY_LANE", "GLOBAL", lane.uppercase(), reason, ttlMs)
-    fun forcedPrimaryLane(): String? = if (HARD_QUALITY_ONLY) "QUALITY" else activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
-    fun isHardQualityOnlyActive(): Boolean = HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY"
+    private fun paperRuntime(): Boolean = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+
+    // V5.9.1211 — paper money must keep trading/learning. Runtime mitigations
+    // that pause entries, disable lanes, disable preauth, or force QUALITY-only
+    // are LIVE-only controls. Scanner/API pressure mitigations still apply below
+    // because they protect the bot loop without vetoing trader learning.
+    fun forcedPrimaryLane(): String? = when {
+        paperRuntime() -> null
+        HARD_QUALITY_ONLY -> "QUALITY"
+        else -> activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
+    }
+    fun isHardQualityOnlyActive(): Boolean = !paperRuntime() && (HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY")
     fun isLaneDisabled(lane: String): Boolean {
+        if (paperRuntime()) return false
         val normalized = normalizeLane(lane)
         val forced = forcedPrimaryLane()
         if (forced != null && normalized != normalizeLane(forced)) return true
         return active("DISABLE_LANE:$normalized")
     }
-    fun isPreAuthDisabled(): Boolean = active("DISABLE_PREAUTH:GLOBAL")
+    fun isPreAuthDisabled(): Boolean = !paperRuntime() && active("DISABLE_PREAUTH:GLOBAL")
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")
-    fun isTradingPaused(): Boolean = active("PAUSE_TRADING:GLOBAL")
+    fun isTradingPaused(): Boolean = !paperRuntime() && active("PAUSE_TRADING:GLOBAL")
     fun scannerConcurrencyCap(): Int = activeCommand("SCANNER_CONCURRENCY:GLOBAL")?.value?.toIntOrNull() ?: 0
     fun activeCommands(): List<Command> {
         prune()

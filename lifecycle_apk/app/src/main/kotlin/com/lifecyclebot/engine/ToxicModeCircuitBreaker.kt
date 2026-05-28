@@ -215,11 +215,17 @@ object ToxicModeCircuitBreaker {
         }
         
         // 3. Frozen modes (circuit breaker tripped)
+        // V5.9.1211 — in PAPER, frozen modes are telemetry only. Paper money
+        // must keep sampling through losses so learners can separate bad
+        // patterns from survivable volatility. LIVE keeps the freeze intact.
         val freezeEnd = frozenModes[modeUpper]
-        if (freezeEnd != null && System.currentTimeMillis() < freezeEnd) {
+        if (!isPaperMode && freezeEnd != null && System.currentTimeMillis() < freezeEnd) {
             val remainingMins = (freezeEnd - System.currentTimeMillis()) / 60_000
             warn("🚫 BLOCKED: $mode frozen for ${remainingMins}min (circuit breaker)")
             return recordEntryBlocked(modeUpper, "MODE_FROZEN_${remainingMins}MIN")
+        }
+        if (isPaperMode && freezeEnd != null && System.currentTimeMillis() < freezeEnd) {
+            try { ForensicLogger.lifecycle("PAPER_CIRCUIT_FREEZE_BYPASSED", "mode=$modeUpper reason=frozen_until_${freezeEnd}") } catch (_: Throwable) {}
         }
         
         // 4. Liquidity floor check
