@@ -90,15 +90,27 @@ object AntiChokeManager {
         // to prune scanner intake. They are raw candidates for upstream layers.
         val unpricedFresh = countUnpricedFresh(tokens, now)
 
-        val starving = stagnantMs > TARGET_MS_PER_TRADE * SOFTEN_STAGNATION_MULT ||
-            projectedDaily < TARGET_TRADES_PER_DAY * 0.70
+        // V5.9.1205 — AntiChoke must only unchoke true starvation.
+        // Runtime 5.0.3172 log showed SOFTEN at projected=2604/day and
+        // trades24h=1336/500 solely because no new trade had printed for
+        // ~372s. That is backwards: when volume is already above doctrine
+        // band, relaxing FDG confidence floors amplifies bad ShitCoin churn
+        // and crushes WR. Stagnation is only starvation when projected volume
+        // is below target. Ghost cleanup remains allowed, but FDG relaxation
+        // must clear when target throughput is already met.
+        val throughputMet = trades24h >= TARGET_TRADES_PER_DAY || projectedDaily >= TARGET_TRADES_PER_DAY
+        val overTarget = projectedDaily > TARGET_TRADES_PER_DAY * 2.0
+        val stagnantStarvation = !throughputMet && stagnantMs > TARGET_MS_PER_TRADE * SOFTEN_STAGNATION_MULT
+        val projectedStarvation = projectedDaily < TARGET_TRADES_PER_DAY * 0.70
+        val starving = stagnantStarvation || projectedStarvation
         val clogged = false // intake-pool size is not a choke signal; upstream gates decide entries
         val ghostPressure = openInternal >= 12 && openWalletBefore <= 2 && !isPaperMode
 
         level = when {
-            stagnantMs > TARGET_MS_PER_TRADE * RECOVERY_STAGNATION_MULT || ghostPressure -> Level.RECOVERY
+            ghostPressure -> Level.RECOVERY
+            !throughputMet && stagnantMs > TARGET_MS_PER_TRADE * RECOVERY_STAGNATION_MULT -> Level.RECOVERY
             starving || clogged -> Level.SOFTEN
-            projectedDaily < TARGET_TRADES_PER_DAY * 0.90 -> Level.WATCH
+            !throughputMet && projectedDaily < TARGET_TRADES_PER_DAY * 0.90 -> Level.WATCH
             else -> Level.CLEAR
         }
 
@@ -107,15 +119,18 @@ object AntiChokeManager {
         val unpricedEvicted = 0
         if (level == Level.SOFTEN || level == Level.RECOVERY) {
             ghosts += clearGhostInternalPositions(isPaperMode, wallet, tokens, now)
-            try { TradingCopilot.clearDemotionWeights() } catch (_: Throwable) {}
-            // V5.9.616 — UNCHOKE BRIDGE: force FDG to drop confidence floors
-            // immediately. Operator rule: "the choke manager isnt doing its
-            // job. its meant to be able to drop scoring if need be unchoke
-            // trading the scanner and watchlist instantly". This is the
-            // call that pulls FDG's adaptive relaxation lever directly.
-            try {
-                FinalDecisionGate.forceAdaptiveRelaxation("AntiChoke=${level.name}")
-            } catch (_: Throwable) {}
+            if (!throughputMet) {
+                try { TradingCopilot.clearDemotionWeights() } catch (_: Throwable) {}
+                // V5.9.616 — UNCHOKE BRIDGE: force FDG to drop confidence floors
+                // only during genuine starvation. V5.9.1205 blocks this bridge
+                // when throughput is already met/over-target.
+                try {
+                    FinalDecisionGate.forceAdaptiveRelaxation("AntiChoke=${level.name}")
+                } catch (_: Throwable) {}
+            } else {
+                try { FinalDecisionGate.clearAdaptiveRelaxation("AntiChoke=THROUGHPUT_MET") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("ANTICHOKE_RELAXATION_SUPPRESSED", "level=${level.name} trades24h=$trades24h projected=${projectedDaily.toInt()} stagnant=${stagnantMs/1000}s overTarget=$overTarget") } catch (_: Throwable) {}
+            }
         }
         if (level == Level.CLEAR) {
             // Trade-rate recovered — clear the relaxation that AntiChoke

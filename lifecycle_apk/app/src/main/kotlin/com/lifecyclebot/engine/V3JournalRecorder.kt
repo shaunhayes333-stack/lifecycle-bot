@@ -169,6 +169,10 @@ object V3JournalRecorder {
                 pnlSol     = pnlSol,
                 pnlPct     = pnlPct,
                 netPnlSol  = pnlSol,
+                // V5.9.1205 — persist entry score into SELL rows too.
+                // LosingPatternMemory buckets by Trade.score; without this,
+                // V3 sub-trader closes defaulted to score=0 and polluted S0-10.
+                score      = entryScore.toDouble(),
                 tradingMode = layer,
                 tradingModeEmoji = layerEmoji(layer),
                 mint       = mint,

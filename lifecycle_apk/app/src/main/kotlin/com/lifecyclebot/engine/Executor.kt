@@ -9561,6 +9561,10 @@ class Executor(
             reason = reason, 
             pnlSol = pnl, 
             pnlPct = pnlP,
+            // V5.9.1205 — close rows must preserve entry score for
+            // LosingPatternMemory. Default 0 made normal ShitCoin/Quality
+            // closes look like S0-10 death-bucket samples.
+            score = pos.entryScore,
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
         )
