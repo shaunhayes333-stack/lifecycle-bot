@@ -14895,11 +14895,32 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
                         } catch (_: Exception) { false }
                         val shitCoinDumpBlocks = shitCoinHasDump && !shitCoinDumpBypass
+                        // V5.9.1204 — bootstrap override cannot bypass learned
+                        // death buckets. Runtime 5.0.3171 showed projected
+                        // execs/day=3225 while SHITCOIN|S0-10 was 12W/229L.
+                        // ShitCoinTraderAI correctly returns shouldEnter=false
+                        // for S0_10_BLEED_GUARD / expectancy / WR recovery
+                        // floors, but forceBootstrapEntry OR'd it back to true.
+                        // Keep exploratory bootstrap for neutral threshold misses;
+                        // do not force through empirically bad buckets.
+                        val shitRejectReasonUpper = shitCoinSignal.reason.uppercase()
+                        val forceBootstrapAllowed = forceBootstrapEntry &&
+                            !shitRejectReasonUpper.contains("S0_10_BLEED_GUARD") &&
+                            !shitRejectReasonUpper.contains("EXPECTANCY_REJECT") &&
+                            !shitRejectReasonUpper.contains("WR_RECOVERY_SCORE_FLOOR")
+                        if (forceBootstrapEntry && !forceBootstrapAllowed) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "SHITCOIN_BOOTSTRAP_FORCE_SUPPRESSED",
+                                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${shitCoinSignal.reason.take(120)} rawScore=$rawShitcoinScore score=${shitCoinSignal.entryScore}"
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         val shouldEnter = !shitCoinV3HardReject && !shitCoinDumpBlocks &&
-                            (shitCoinSignal.shouldEnter || forceBootstrapEntry)
+                            (shitCoinSignal.shouldEnter || forceBootstrapAllowed)
 
                         // V5.9.27: explicit log so the block is visible when it fires
-                        if (shitCoinV3HardReject && (shitCoinSignal.shouldEnter || forceBootstrapEntry)) {
+                        if (shitCoinV3HardReject && (shitCoinSignal.shouldEnter || forceBootstrapAllowed)) {
                             val blockReason = when (v3Decision) {
                                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> "V3_FATAL:${(v3Decision as com.lifecyclebot.v3.V3Decision.BlockFatal).reason}"
                                 is com.lifecyclebot.v3.V3Decision.Blocked -> "V3_BLOCKED"
