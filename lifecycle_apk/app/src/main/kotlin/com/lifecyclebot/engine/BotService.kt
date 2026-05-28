@@ -5065,7 +5065,7 @@ class BotService : Service() {
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             val walletSolNow = walletManager.state.value.solBalance
             val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
-            val cfgNow = cfg
+            val cfgNow = ConfigStore.load(applicationContext)
             val cyclicEnabled = cfgNow.cyclicTradeEnabled && com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
